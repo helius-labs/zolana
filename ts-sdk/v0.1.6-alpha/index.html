@@ -1,0 +1,275 @@
+<!DOCTYPE html><html class="default" lang="en" data-base="./"><head><meta charset="utf-8"/><link rel="canonical" href="https://helius-labs.github.io/zolana/ts-sdk/v0.1.6-alpha/"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>@heliuslabs/zolana - v0.1.6-alpha</title><meta name="description" content="Documentation for @heliuslabs/zolana"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="assets/style.css"/><link rel="stylesheet" href="assets/highlight.css"/><script defer src="assets/main.js"></script><script async src="assets/icons.js" id="tsd-icons-script"></script><script async src="assets/search.js" id="tsd-search-script"></script><script async src="assets/navigation.js" id="tsd-nav-script"></script><script async src="assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="index.html" class="title">@heliuslabs/zolana - v0.1.6-alpha</a>
+<div id="tsd-toolbar-links"><a href="https://github.com/helius-labs/zolana">GitHub</a><a href="https://www.npmjs.com/package/@heliuslabs/zolana">npm</a></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
+<ul role="listbox" id="tsd-search-results"></ul>
+<div id="tsd-search-status" aria-live="polite" aria-atomic="true">
+<div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-menu"></use></svg></a></div></header>
+<div class="container container-main">
+<div class="col-content">
+<div class="tsd-page-title">
+<h1>@heliuslabs/zolana - v0.1.6-alpha</h1></div>
+<div class="tsd-panel tsd-typography"><h1 id="heliuslabszolana" class="tsd-anchor-link">@heliuslabs/zolana<a href="#heliuslabszolana" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h1>
+<p><code>@heliuslabs/zolana</code> is the TypeScript SDK for Solana Privacy Rings.
+Solana Privacy Rings are a programmable shielded pool with encrypted onchain balances and execution directly on Solana.</p>
+<p>Use it for:</p>
+<ul>
+<li>deposit SOL, SPL Token, and Token-2022 into a private balance;</li>
+<li>read private balances and transaction history;</li>
+<li>send private transfers to a Solana address; and</li>
+<li>private to public withdrawal to a Solana address.</li>
+</ul>
+<p>All private transactions are executed in a single Solana transaction.</p>
+<h2 id="install" class="tsd-anchor-link">Install<a href="#install" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<pre><code class="sh"><span class="hl-0">npm</span><span class="hl-1"> </span><span class="hl-2">install</span><span class="hl-1"> </span><span class="hl-2">@heliuslabs/zolana@alpha</span><span class="hl-1"> </span><span class="hl-2">@solana/kit</span>
+</code><button type="button">Copy</button></pre>
+
+<p>Requirements:</p>
+<ul>
+<li>Node.js 24 or newer;</li>
+<li>Solana RPC, indexer, and prover endpoints.</li>
+</ul>
+<h2 id="quick-start" class="tsd-anchor-link">Quick start<a href="#quick-start" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>This example creates a wallet, syncs it, deposits SOL, and reads the resulting
+balance and history. For the purpose of this demo the application supplies the Solana signer and stores its
+seed.</p>
+<pre><code class="ts"><span class="hl-3">import</span><span class="hl-1"> {</span><br/><span class="hl-1">  </span><span class="hl-4">createKeyPairSignerFromPrivateKeyBytes</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">getSignatureFromTransaction</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">sendAndConfirmTransactionFactory</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">signTransactionWithSigners</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-3">type</span><span class="hl-1"> </span><span class="hl-4">Address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-3">type</span><span class="hl-1"> </span><span class="hl-4">KeyPairSigner</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-3">type</span><span class="hl-1"> </span><span class="hl-4">Transaction</span><span class="hl-1">,</span><br/><span class="hl-1">} </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@solana/kit&quot;</span><span class="hl-1">;</span><br/><span class="hl-3">import</span><span class="hl-1"> {</span><br/><span class="hl-1">  </span><span class="hl-4">LocalKeys</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">ShieldedKeypair</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">SigningKey</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">SOL_MINT</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">Wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">buildDepositTransaction</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">createZolanaClient</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">getPrivateTransactions</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">syncWallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-3">type</span><span class="hl-1"> </span><span class="hl-4">Bytes32</span><span class="hl-1">,</span><br/><span class="hl-1">} </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@heliuslabs/zolana&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">client</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">createZolanaClient</span><span class="hl-1">({});</span><br/><br/><span class="hl-7">// Load this from the app wallet or key store.</span><br/><span class="hl-5">declare</span><span class="hl-1"> </span><span class="hl-5">function</span><span class="hl-1"> </span><span class="hl-0">loadOwnerSeed</span><span class="hl-1">(): </span><span class="hl-8">Promise</span><span class="hl-1">&lt;</span><span class="hl-8">Bytes32</span><span class="hl-1">&gt;;</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">ownerSeed</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">loadOwnerSeed</span><span class="hl-1">();</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">feePayer</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">createKeyPairSignerFromPrivateKeyBytes</span><span class="hl-1">(</span><span class="hl-4">ownerSeed</span><span class="hl-1">);</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">keypair</span><span class="hl-1"> = </span><span class="hl-4">ShieldedKeypair</span><span class="hl-1">.</span><span class="hl-0">fromKeypair</span><span class="hl-1">(</span><span class="hl-4">SigningKey</span><span class="hl-1">.</span><span class="hl-0">fromEd25519Bytes</span><span class="hl-1">(</span><span class="hl-4">ownerSeed</span><span class="hl-1">));</span><br/><span class="hl-4">ownerSeed</span><span class="hl-1">.</span><span class="hl-0">fill</span><span class="hl-1">(</span><span class="hl-9">0</span><span class="hl-1">);</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">wallet</span><span class="hl-1"> = </span><span class="hl-5">new</span><span class="hl-1"> </span><span class="hl-0">Wallet</span><span class="hl-1">({ </span><span class="hl-4">identity:</span><span class="hl-1"> </span><span class="hl-4">keypair</span><span class="hl-1">.</span><span class="hl-0">shieldedAddress</span><span class="hl-1">() });</span><br/><span class="hl-7">// The wallet&#39;s privacy keys, held in this process. A remote key holder</span><br/><span class="hl-7">// implements the same `WalletKeys` interface and drops in here.</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">keys</span><span class="hl-1"> = </span><span class="hl-4">LocalKeys</span><span class="hl-1">.</span><span class="hl-0">fromKeypair</span><span class="hl-1">(</span><span class="hl-4">keypair</span><span class="hl-1">, </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-4">proofService</span><span class="hl-1">);</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">sendAndConfirm</span><span class="hl-1"> = </span><span class="hl-0">sendAndConfirmTransactionFactory</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">rpc:</span><span class="hl-1"> </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-4">solanaRpc</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">rpcSubscriptions:</span><span class="hl-1"> </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-4">solanaRpcSubscriptions</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-5">async</span><span class="hl-1"> </span><span class="hl-5">function</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">transaction</span><span class="hl-1">: </span><span class="hl-8">Transaction</span><span class="hl-1">, </span><span class="hl-4">signer</span><span class="hl-1">: </span><span class="hl-8">KeyPairSigner</span><span class="hl-1">) {</span><br/><span class="hl-1">  </span><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">signed</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">signTransactionWithSigners</span><span class="hl-1">([</span><span class="hl-4">signer</span><span class="hl-1">], </span><span class="hl-4">transaction</span><span class="hl-1">);</span><br/><span class="hl-1">  </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">sendAndConfirm</span><span class="hl-1">(</span><span class="hl-4">signed</span><span class="hl-1">, { </span><span class="hl-4">commitment:</span><span class="hl-1"> </span><span class="hl-2">&quot;confirmed&quot;</span><span class="hl-1"> });</span><br/><span class="hl-1">  </span><span class="hl-3">return</span><span class="hl-1"> </span><span class="hl-0">getSignatureFromTransaction</span><span class="hl-1">(</span><span class="hl-4">signed</span><span class="hl-1">);</span><br/><span class="hl-1">}</span><br/><br/><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">syncWallet</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">keys</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">deposit</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">buildDepositTransaction</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">feePayer:</span><span class="hl-1"> </span><span class="hl-4">feePayer</span><span class="hl-1">.</span><span class="hl-4">address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">recipient:</span><span class="hl-1"> </span><span class="hl-4">keypair</span><span class="hl-1">.</span><span class="hl-0">shieldedAddress</span><span class="hl-1">(),</span><br/><span class="hl-1">  </span><span class="hl-4">amount:</span><span class="hl-1"> </span><span class="hl-9">100_000_000</span><span class="hl-5">n</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">signature</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">deposit</span><span class="hl-1">, </span><span class="hl-4">feePayer</span><span class="hl-1">);</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">slot</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-0">confirmTransaction</span><span class="hl-1">(</span><span class="hl-4">signature</span><span class="hl-1">);</span><br/><br/><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">syncWallet</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">keys</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">config:</span><span class="hl-1"> { </span><span class="hl-4">requireSlot:</span><span class="hl-1"> </span><span class="hl-4">slot</span><span class="hl-1"> },</span><br/><span class="hl-1">});</span><br/><br/><span class="hl-4">console</span><span class="hl-1">.</span><span class="hl-0">log</span><span class="hl-1">(</span><span class="hl-4">wallet</span><span class="hl-1">.</span><span class="hl-0">balance</span><span class="hl-1">(</span><span class="hl-6">SOL_MINT</span><span class="hl-1">).</span><span class="hl-4">amount</span><span class="hl-1">);</span><br/><span class="hl-4">console</span><span class="hl-1">.</span><span class="hl-0">log</span><span class="hl-1">(</span><span class="hl-0">getPrivateTransactions</span><span class="hl-1">(</span><span class="hl-4">wallet</span><span class="hl-1">));</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>confirmTransaction</code> returns the slot the transaction landed in, and
+<code>requireSlot</code> holds the first indexer read until Photon has that slot. For
+direct client calls, <code>atSlot(slot)</code> builds the same gate as a per-request
+config.</p>
+<p>For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
+the same owner seed, as shown above.</p>
+<p>Every build and sync takes the wallet's privacy roles as <code>WalletKeys</code>: the
+derivations a wallet needs (<code>ShieldedKeys</code>: <code>decrypt</code>, <code>derive</code>,
+<code>transactionKeys</code>) and proving (<code>ProofAuthority</code>: <code>prove</code>, <code>proveMerge</code>). No
+method hands back a long-lived secret, and each takes a batch, so a key held
+in an enclave or a hardware wallet answers a sync in one round trip per
+method. <code>LocalKeys</code> answers both from keys held in-process;
+<code>LocalKeys.fromDerivationSeed</code> builds them from a browser wallet's signature
+over the derivation message, without a Solana secret key in the page. The
+Solana signature over the finished transaction stays with the app's signer
+in every case.</p>
+<h3 id="endpoints" class="tsd-anchor-link">Endpoints<a href="#endpoints" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>A client needs a
+<a href="https://dashboard.helius.dev/" target="_blank" class="external">Helius API key</a>.</p>
+<p>The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
+state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
+It's planned to make indexer and prover available through using the same Helius RPC URL.</p>
+<p><strong>Devnet:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Host the SDK uses</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Solana RPC</td>
+<td><code>https://devnet.helius-rpc.com/?api-key=&lt;API_KEY&gt;</code></td>
+<td>Helius key. Fund the payer with <a href="https://www.helius.dev/docs/rpc/devnet-sol" target="_blank" class="external">devnet SOL</a>.</td>
+</tr>
+<tr>
+<td>Indexer</td>
+<td><code>http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com</code></td>
+<td>Fetches encrypted state.</td>
+</tr>
+<tr>
+<td>Prover</td>
+<td><code>http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001</code></td>
+<td>Generates ZK proofs</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="ts"><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">client</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">createZolanaClient</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">solanaRpcUrl:</span><span class="hl-1"> </span><span class="hl-2">`https://devnet.helius-rpc.com/?api-key=</span><span class="hl-5">${</span><span class="hl-4">process</span><span class="hl-10">.</span><span class="hl-4">env</span><span class="hl-10">.</span><span class="hl-6">API_KEY</span><span class="hl-1">!</span><span class="hl-5">}</span><span class="hl-2">`</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">indexerUrl:</span><span class="hl-1"> </span><span class="hl-2">&quot;http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com&quot;</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">proverUrl:</span><span class="hl-1"> </span><span class="hl-2">&quot;http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001&quot;</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">allowInsecureHttp:</span><span class="hl-1"> </span><span class="hl-5">true</span><span class="hl-1">,</span><br/><span class="hl-1">});</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>allowInsecureHttp: true</code> is required for these plaintext <code>http://</code> indexer and
+prover hosts. Use it only on this devnet path with test funds.</p>
+<p>On localnet, start the stack first with <code>zolana dev start</code>. The local test
+validator (<code>:8899</code>), Photon indexer (<code>:8784</code>), and prover (<code>:3001</code>) then
+listen, and the client connects to them automatically without needing
+endpoint configuration.</p>
+<pre><code class="ts"><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">client</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">createZolanaClient</span><span class="hl-1">({});</span>
+</code><button type="button">Copy</button></pre>
+
+<h2 id="common-transactions" class="tsd-anchor-link">Common transactions<a href="#common-transactions" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>These snippets continue from the setup used in quickstart.</p>
+<h3 id="deposit" class="tsd-anchor-link">Deposit<a href="#deposit" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>The quick start shows a SOL deposit. For an SPL token, provide its mint and the
+depositor's source token account:</p>
+<pre><code class="ts"><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">deposit</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">buildDepositTransaction</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">feePayer:</span><span class="hl-1"> </span><span class="hl-4">feePayer</span><span class="hl-1">.</span><span class="hl-4">address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">recipient:</span><span class="hl-1"> </span><span class="hl-4">keypair</span><span class="hl-1">.</span><span class="hl-0">shieldedAddress</span><span class="hl-1">(),</span><br/><span class="hl-1">  </span><span class="hl-4">asset:</span><span class="hl-1"> </span><span class="hl-4">mint</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">splTokenAccount:</span><span class="hl-1"> </span><span class="hl-4">sourceTokenAccount</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">amount:</span><span class="hl-1"> </span><span class="hl-9">1_000_000</span><span class="hl-5">n</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">deposit</span><span class="hl-1">, </span><span class="hl-4">feePayer</span><span class="hl-1">);</span>
+</code><button type="button">Copy</button></pre>
+
+<p>The standard SPL Token program is used by default. For Token-2022, also pass
+<code>splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID</code>.</p>
+<p>Passing a <code>ShieldedAddress</code> skips the lookup.</p>
+<h3 id="registration" class="tsd-anchor-link">Registration<a href="#registration" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p><code>new Wallet()</code> builds local state only. The onchain mapping from a Solana
+address to a shielded address is a separate signed transaction.</p>
+<pre><code class="ts"><span class="hl-3">import</span><span class="hl-1"> { </span><span class="hl-4">buildRegistrationTransaction</span><span class="hl-1"> } </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@heliuslabs/zolana&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">registration</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">buildRegistrationTransaction</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">owner:</span><span class="hl-1"> </span><span class="hl-4">feePayer</span><span class="hl-1">.</span><span class="hl-4">address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">address:</span><span class="hl-1"> </span><span class="hl-4">keypair</span><span class="hl-1">.</span><span class="hl-0">shieldedAddress</span><span class="hl-1">(),</span><br/><span class="hl-1">});</span><br/><span class="hl-3">if</span><span class="hl-1"> (</span><span class="hl-4">registration</span><span class="hl-1"> !== </span><span class="hl-5">undefined</span><span class="hl-1">) {</span><br/><span class="hl-1">  </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">registration</span><span class="hl-1">, </span><span class="hl-4">feePayer</span><span class="hl-1">);</span><br/><span class="hl-1">}</span>
+</code><button type="button">Copy</button></pre>
+
+<p><code>buildRegistrationTransaction</code> returns <code>undefined</code> when that owner is already
+registered with the same keys. A recipient that never submitted this
+transaction fails a transfer with <code>WALLET_RECIPIENT_NOT_REGISTERED</code>.</p>
+<h3 id="private-transfer" class="tsd-anchor-link">Private transfer<a href="#private-transfer" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>A private transfer is sent to a Solana wallet address. The SDK looks up that
+address in the onchain registry. If it is not registered, the call fails with
+<code>WALLET_RECIPIENT_NOT_REGISTERED</code>. It does not withdraw. Use
+<code>buildWithdrawalTransaction</code> for a public recipient.</p>
+<pre><code class="ts"><span class="hl-3">import</span><span class="hl-1"> { </span><span class="hl-4">buildTransferTransaction</span><span class="hl-1"> } </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@heliuslabs/zolana&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-5">declare</span><span class="hl-1"> </span><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">recipientSolanaAddress</span><span class="hl-1">: </span><span class="hl-8">Address</span><span class="hl-1">;</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">transfer</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">buildTransferTransaction</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">keys</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">feePayer:</span><span class="hl-1"> </span><span class="hl-4">feePayer</span><span class="hl-1">.</span><span class="hl-4">address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">recipient:</span><span class="hl-1"> </span><span class="hl-4">recipientSolanaAddress</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">amount:</span><span class="hl-1"> </span><span class="hl-9">25_000_000</span><span class="hl-5">n</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">slot</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-0">confirmTransaction</span><span class="hl-1">(</span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">transfer</span><span class="hl-1">, </span><span class="hl-4">feePayer</span><span class="hl-1">));</span><br/><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">syncWallet</span><span class="hl-1">({ </span><span class="hl-4">client</span><span class="hl-1">, </span><span class="hl-4">wallet</span><span class="hl-1">, </span><span class="hl-4">keys</span><span class="hl-1">, </span><span class="hl-4">config:</span><span class="hl-1"> { </span><span class="hl-4">requireSlot:</span><span class="hl-1"> </span><span class="hl-4">slot</span><span class="hl-1"> } });</span>
+</code><button type="button">Copy</button></pre>
+
+<p>Pass <code>asset: mint</code> for an SPL or Token-2022 balance.</p>
+<h3 id="withdrawal" class="tsd-anchor-link">Withdrawal<a href="#withdrawal" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<p>Withdraw to a public Solana address:</p>
+<pre><code class="ts"><span class="hl-3">import</span><span class="hl-1"> { </span><span class="hl-4">buildWithdrawalTransaction</span><span class="hl-1"> } </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@heliuslabs/zolana&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">withdrawal</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">buildWithdrawalTransaction</span><span class="hl-1">({</span><br/><span class="hl-1">  </span><span class="hl-4">client</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">keys</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">feePayer:</span><span class="hl-1"> </span><span class="hl-4">feePayer</span><span class="hl-1">.</span><span class="hl-4">address</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">recipient:</span><span class="hl-1"> </span><span class="hl-4">publicRecipient</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">amount:</span><span class="hl-1"> </span><span class="hl-9">10_000_000</span><span class="hl-5">n</span><span class="hl-1">,</span><br/><span class="hl-1">});</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">slot</span><span class="hl-1"> = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-4">client</span><span class="hl-1">.</span><span class="hl-0">confirmTransaction</span><span class="hl-1">(</span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">submit</span><span class="hl-1">(</span><span class="hl-4">withdrawal</span><span class="hl-1">, </span><span class="hl-4">feePayer</span><span class="hl-1">));</span><br/><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">syncWallet</span><span class="hl-1">({ </span><span class="hl-4">client</span><span class="hl-1">, </span><span class="hl-4">wallet</span><span class="hl-1">, </span><span class="hl-4">keys</span><span class="hl-1">, </span><span class="hl-4">config:</span><span class="hl-1"> { </span><span class="hl-4">requireSlot:</span><span class="hl-1"> </span><span class="hl-4">slot</span><span class="hl-1"> } });</span>
+</code><button type="button">Copy</button></pre>
+
+<p>For an SPL withdrawal, pass <code>asset: mint</code>. Token-2022 withdrawals also take
+<code>splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID</code>; the recipient token account is
+created idempotently when needed.</p>
+<h2 id="wallet-sync-and-persistence" class="tsd-anchor-link">Wallet sync and persistence<a href="#wallet-sync-and-persistence" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Call <code>syncWallet</code>:</p>
+<ul>
+<li>when loading a wallet;</li>
+<li>after each confirmed deposit, transfer, withdrawal, split, or merge; and</li>
+<li>optionally when the app regains focus or on a timer to discover inbound
+transfers.</li>
+</ul>
+<p>Do not build another private spend until the wallet has synced after the
+previous confirmed transaction.</p>
+<p>Persist wallet state with <code>serializeWallet</code> and restore it with
+<code>deserializeWallet</code>. Persist key material separately. Serialized wallet state
+contains UTXO data and must be encrypted at rest.</p>
+<p><code>syncPersistedWallet</code> runs <code>syncWallet</code> and, only after the sync commits,
+seals the serialized wallet through a <code>WalletStateCipher</code> and saves it through
+a <code>WalletStateStore</code> you provide. <code>walletSnapshotCipher</code> is the shipped
+cipher, AES-256-GCM keyed from the keypair and bound to the wallet identity
+and the snapshot version. Restore from the store on startup so the wallet
+resumes from its saved cursors instead of rescanning history:</p>
+<pre><code class="ts"><span class="hl-3">import</span><span class="hl-1"> {</span><br/><span class="hl-1">  </span><span class="hl-4">Wallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">loadPersistedWallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">syncPersistedWallet</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-4">walletSnapshotCipher</span><span class="hl-1">,</span><br/><span class="hl-1">  </span><span class="hl-3">type</span><span class="hl-1"> </span><span class="hl-4">WalletStateStore</span><span class="hl-1">,</span><br/><span class="hl-1">} </span><span class="hl-3">from</span><span class="hl-1"> </span><span class="hl-2">&quot;@heliuslabs/zolana&quot;</span><span class="hl-1">;</span><br/><br/><span class="hl-5">declare</span><span class="hl-1"> </span><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">storage</span><span class="hl-1">: { </span><span class="hl-0">get</span><span class="hl-1">(): </span><span class="hl-8">Promise</span><span class="hl-1">&lt;</span><span class="hl-8">string</span><span class="hl-1"> | </span><span class="hl-8">undefined</span><span class="hl-1">&gt;; </span><span class="hl-0">set</span><span class="hl-1">(</span><span class="hl-4">v</span><span class="hl-1">: </span><span class="hl-8">string</span><span class="hl-1">): </span><span class="hl-8">Promise</span><span class="hl-1">&lt;</span><span class="hl-8">void</span><span class="hl-1">&gt; };</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">store</span><span class="hl-1">: </span><span class="hl-8">WalletStateStore</span><span class="hl-1"> = {</span><br/><span class="hl-1">  </span><span class="hl-0">load</span><span class="hl-4">:</span><span class="hl-1"> () </span><span class="hl-5">=&gt;</span><span class="hl-1"> </span><span class="hl-4">storage</span><span class="hl-1">.</span><span class="hl-0">get</span><span class="hl-1">(),</span><br/><span class="hl-1">  </span><span class="hl-0">save</span><span class="hl-4">:</span><span class="hl-1"> (</span><span class="hl-4">snapshot</span><span class="hl-1">) </span><span class="hl-5">=&gt;</span><span class="hl-1"> </span><span class="hl-4">storage</span><span class="hl-1">.</span><span class="hl-0">set</span><span class="hl-1">(</span><span class="hl-4">snapshot</span><span class="hl-1">),</span><br/><span class="hl-1">};</span><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">cipher</span><span class="hl-1"> = </span><span class="hl-0">walletSnapshotCipher</span><span class="hl-1">(</span><span class="hl-4">keypair</span><span class="hl-1">);</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> </span><span class="hl-6">wallet</span><span class="hl-1"> =</span><br/><span class="hl-1">  (</span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">loadPersistedWallet</span><span class="hl-1">({ </span><span class="hl-4">store</span><span class="hl-1">, </span><span class="hl-4">cipher</span><span class="hl-1"> })) ??</span><br/><span class="hl-1">  </span><span class="hl-5">new</span><span class="hl-1"> </span><span class="hl-0">Wallet</span><span class="hl-1">({ </span><span class="hl-4">identity:</span><span class="hl-1"> </span><span class="hl-4">keypair</span><span class="hl-1">.</span><span class="hl-0">shieldedAddress</span><span class="hl-1">() });</span><br/><br/><span class="hl-5">const</span><span class="hl-1"> { </span><span class="hl-6">report</span><span class="hl-1"> } = </span><span class="hl-3">await</span><span class="hl-1"> </span><span class="hl-0">syncPersistedWallet</span><span class="hl-1">({ </span><span class="hl-4">client</span><span class="hl-1">, </span><span class="hl-4">wallet</span><span class="hl-1">, </span><span class="hl-4">keys</span><span class="hl-1">, </span><span class="hl-4">store</span><span class="hl-1">, </span><span class="hl-4">cipher</span><span class="hl-1"> });</span>
+</code><button type="button">Copy</button></pre>
+
+<p>A tampered stored snapshot, or one sealed for another wallet, is refused
+with <code>WALLET_SNAPSHOT</code> instead of restoring drifted cursors. A failed sync
+saves nothing. A failed save rejects with <code>WALLET_PERSIST</code>
+while the in-memory wallet is already synced and the previously saved
+snapshot stays valid, call <code>syncPersistedWallet</code> again to retry. That retry
+contract requires <code>save</code> to replace the stored snapshot atomically or leave
+it unchanged, never write it partially. Overlapping calls on one live wallet
+run one after the other on the wallet's sync queue, so a slow save cannot
+store a stale snapshot. The store is still single-writer across processes,
+give each live wallet its own stored snapshot. Snapshots saved before cursors
+were serialized still load, the first sync rescans history once and then
+saves the current format.</p>
+<h2 id="custom-rings" class="tsd-anchor-link">Custom Rings<a href="#custom-rings" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Besides the permissionless default Ring, regulated entities can create custom Rings.
+Custom Rings are simple Solana programs for compliance and policy control. Each Ring deploys its own program. It has a program
+upgrade authority, a protocol authority, and an auditor key. The default Ring does not have an auditor key.</p>
+<p>The auditor key lives in a Ring RPC. The Ring authority grants view access.
+Helius can host that RPC; the authority can host it itself. The forester is
+shared with the default Ring.</p>
+<p>This first iteration supports confidential transactions only. Anonymous
+transfers that would use a relayer are not supported. Later iterations add
+allowlists, blocklists, and rule-based config on the Ring config account.
+The deploy process is expected to stay the same.</p>
+<p>Build exact Ring entries, in-ring transfers, shielded exits, and public
+withdrawals with <code>buildRingEntryTransaction</code>, <code>buildRingTransferTransaction</code>,
+<code>buildRingExitTransaction</code>, and <code>buildRingWithdrawalTransaction</code>. <code>RingRpc</code>
+reads decrypted Ring transactions for a granted reader. The same surface is
+available from <code>@heliuslabs/zolana/ring</code>.</p>
+<h2 id="public-api" class="tsd-anchor-link">Public API<a href="#public-api" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>Common exports from <code>@heliuslabs/zolana</code> include:</p>
+<ul>
+<li>setup: <code>createZolanaClient</code>, <code>ShieldedKeypair</code>, <code>Wallet</code>, <code>LocalKeys</code>.</li>
+<li>transactions: <code>buildDepositTransaction</code>, <code>buildTransferTransaction</code>,
+<code>buildWithdrawalTransaction</code>, <code>buildSplitTransaction</code>,
+<code>buildMergeTransaction</code>.</li>
+<li>state: <code>syncWallet</code>, <code>syncPersistedWallet</code>, <code>getPrivateTokenBalances</code>,
+<code>getPrivateTransactions</code>, <code>serializeWallet</code>, <code>deserializeWallet</code>.</li>
+<li>amounts: <code>fetchAssetMetadata</code>, <code>AssetMetadataCache</code>, <code>formatAmount</code>,
+<code>parseAmount</code>.</li>
+<li>registration: <code>buildRegistrationTransaction</code>.</li>
+<li>Rings: <code>buildRingEntryTransaction</code>, <code>buildRingTransferTransaction</code>,
+<code>buildRingExitTransaction</code>, <code>buildRingWithdrawalTransaction</code>,
+<code>listRegisteredRings</code>, <code>RingRpc</code>.</li>
+</ul>
+<p>Advanced protocol users can import low-level instruction builders from
+<code>@heliuslabs/zolana/instructions</code>. PDA helpers are available from
+<code>@heliuslabs/zolana/addresses</code>; additional typed surfaces are exposed under
+<code>@heliuslabs/zolana/client</code>, <code>/interface</code>, <code>/keypair</code>, <code>/ring</code>, <code>/transaction</code>,
+and <code>/wallet</code>.</p>
+<h2 id="api-reference" class="tsd-anchor-link">API reference<a href="#api-reference" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<p>The release workflow publishes the generated TypeDoc reference from
+<code>ts-sdk-v*</code> tags. The tag version must match this package's version. Published
+versions are immutable:</p>
+<ul>
+<li>latest: <a href="https://helius-labs.github.io/zolana/ts-sdk/" target="_blank" class="external">https://helius-labs.github.io/zolana/ts-sdk/</a>.</li>
+<li>explicit version:
+<a href="https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/" target="_blank" class="external">https://helius-labs.github.io/zolana/ts-sdk/v0.1.3-alpha/</a>.</li>
+<li>version index:
+<a href="https://helius-labs.github.io/zolana/ts-sdk/versions.json" target="_blank" class="external">https://helius-labs.github.io/zolana/ts-sdk/versions.json</a>.</li>
+</ul>
+<p>GitHub Pages must use GitHub Actions as its source before the first release
+workflow runs.</p>
+<p>The intended long-term canonical location is
+<code>https://www.helius.dev/privacy/api/</code>, with immutable versions such as
+<code>https://www.helius.dev/privacy/api/v0.1.3-alpha/</code>. Migrate only after the Helius
+website proxies <code>/privacy/api/*</code> to the GitHub Pages <code>/zolana/ts-sdk/*</code> origin.
+At that point, update the release workflow's <code>PUBLIC_BASE_URL</code>; existing GitHub
+Pages URLs remain available as the backing origin.</p>
+<h2 id="important-notes" class="tsd-anchor-link">Important notes<a href="#important-notes" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="assets/icons.svg#icon-anchor"></use></svg></a></h2>
+<ul>
+<li>Ed25519 is the supported owner scheme for registration and private
+transactions. <code>ShieldedKeypair.generate()</code> defaults to Ed25519.</li>
+<li>Viewing keys use P256; this is separate from unsupported P256 owner
+registration or spending.</li>
+<li>Non-loopback indexer and prover URLs must use HTTPS.</li>
+<li>Protect signer seeds and shielded key material. Encrypt serialized wallet
+state and avoid logging private balances, UTXOs, or keys.</li>
+</ul>
+</div></div>
+<div class="col-sidebar">
+<div class="page-menu">
+<div class="tsd-navigation settings">
+<details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg>
+<h3>Settings</h3></summary>
+<div class="tsd-accordion-details">
+<div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span>
+<ul id="tsd-filter-options">
+<li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li>
+<li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div>
+<div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div>
+<details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="assets/icons.svg#icon-chevronDown"></use></svg>
+<h3>On This Page</h3></summary>
+<div class="tsd-accordion-details"><a href="#heliuslabszolana"><span>@heliuslabs/zolana</span></a>
+<ul>
+<li><a href="#install"><span>Install</span></a></li>
+<li><a href="#quick-start"><span>Quick start</span></a></li>
+<li>
+<ul>
+<li><a href="#endpoints"><span>Endpoints</span></a></li></ul></li>
+<li><a href="#common-transactions"><span>Common transactions</span></a></li>
+<li>
+<ul>
+<li><a href="#deposit"><span>Deposit</span></a></li>
+<li><a href="#registration"><span>Registration</span></a></li>
+<li><a href="#private-transfer"><span>Private transfer</span></a></li>
+<li><a href="#withdrawal"><span>Withdrawal</span></a></li></ul></li>
+<li><a href="#wallet-sync-and-persistence"><span>Wallet sync and persistence</span></a></li>
+<li><a href="#custom-rings"><span>Custom <wbr/>Rings</span></a></li>
+<li><a href="#public-api"><span>Public <wbr/>API</span></a></li>
+<li><a href="#api-reference"><span>API reference</span></a></li>
+<li><a href="#important-notes"><span>Important notes</span></a></li></ul></div></details></div>
+<div class="site-menu">
+<nav id="tsd-sidebar-links" class="tsd-navigation"><a href="https://github.com/helius-labs/zolana" class="tsd-nav-link">GitHub</a><a href="https://www.npmjs.com/package/@heliuslabs/zolana" class="tsd-nav-link">npm</a></nav>
+<nav class="tsd-navigation"><a href="modules.html">@heliuslabs/zolana - v0.1.6-alpha</a>
+<ul class="tsd-small-nested-navigation" id="tsd-nav-container">
+<li>Loading...</li></ul></nav></div></div></div><footer>
+<p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>
+<div class="overlay"></div></body></html>

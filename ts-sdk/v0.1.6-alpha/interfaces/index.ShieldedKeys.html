@@ -1,0 +1,143 @@
+<!DOCTYPE html><html class="default" lang="en" data-base="../"><head><meta charset="utf-8"/><meta http-equiv="x-ua-compatible" content="IE=edge"/><title>ShieldedKeys | @heliuslabs/zolana - v0.1.6-alpha</title><meta name="description" content="Documentation for @heliuslabs/zolana"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="../assets/style.css"/><link rel="stylesheet" href="../assets/highlight.css"/><script defer src="../assets/main.js"></script><script async src="../assets/icons.js" id="tsd-icons-script"></script><script async src="../assets/search.js" id="tsd-search-script"></script><script async src="../assets/navigation.js" id="tsd-nav-script"></script><script async src="../assets/hierarchy.js" id="tsd-hierarchy-script"></script></head><body><script>document.documentElement.dataset.theme = localStorage.getItem("tsd-theme") || "os";document.body.style.display="none";setTimeout(() => window.app?app.showPage():document.body.style.removeProperty("display"),500)</script><header class="tsd-page-toolbar">
+<div class="tsd-toolbar-contents container"><a href="../index.html" class="title">@heliuslabs/zolana - v0.1.6-alpha</a>
+<div id="tsd-toolbar-links"><a href="https://github.com/helius-labs/zolana">GitHub</a><a href="https://www.npmjs.com/package/@heliuslabs/zolana">npm</a></div><button id="tsd-search-trigger" class="tsd-widget" aria-label="Search"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-search"></use></svg></button><dialog id="tsd-search" aria-label="Search"><input role="combobox" id="tsd-search-input" aria-controls="tsd-search-results" aria-autocomplete="list" aria-expanded="true" autocapitalize="off" autocomplete="off" placeholder="Search the docs" maxLength="100"/>
+<ul role="listbox" id="tsd-search-results"></ul>
+<div id="tsd-search-status" aria-live="polite" aria-atomic="true">
+<div>Preparing search index...</div></div></dialog><a href="#" class="tsd-widget menu" id="tsd-toolbar-menu-trigger" data-toggle="menu" aria-label="Menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-menu"></use></svg></a></div></header>
+<div class="container container-main">
+<div class="col-content">
+<div class="tsd-page-title">
+<ul class="tsd-breadcrumb" aria-label="Breadcrumb">
+<li><a href="../modules/index.html">index</a></li>
+<li><a href="" aria-current="page">ShieldedKeys</a></li></ul>
+<h1>Interface ShieldedKeys</h1></div>
+<section class="tsd-panel tsd-comment">
+<div class="tsd-comment tsd-typography"><p>The privacy roles of one shielded wallet, exposed as the functions the
+protocol needs of them and nothing more: no method returns a long-lived
+secret, and every method takes a batch so a remote holder answers a sync or
+a spend in one round trip per method.</p>
+<p><code>decrypt</code> returns the transfer cipher's output, not the ECDH shared point:
+the view root is itself an ECDH with a fixed point, and ECDH is linear, so a
+chosen-point oracle over the viewing key would leak every per-transaction
+key this wallet ever used. Keystream results do not compose that way. The
+cipher is unauthenticated, so a ciphertext not addressed to this wallet
+decrypts to noise rather than failing, and the caller detects it by the
+commitment; a batch is rejected as a whole only for a malformed request.</p>
+<p>Proving is the one place the nullifier secret is consumed rather than
+derived from; it lives on the client-layer <code>ProofAuthority</code>, next to the
+witness types it needs.</p>
+<p>Every batch method takes the caller's <code>RequestContext</code>: a sync or a build
+that is cancelled or times out passes its signal on, so a remote holder
+stops the round trip too. In-process keys have nothing to cancel and ignore
+it.</p>
+</div></section>
+<div class="tsd-signature"><span class="tsd-signature-keyword">interface</span> <span class="tsd-kind-interface">ShieldedKeys</span> <span class="tsd-signature-symbol">{</span><br/>    <a class="tsd-kind-call-signature" href="#address-1">address</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <a href="../classes/index.ShieldedAddress.html" class="tsd-signature-type tsd-kind-class">ShieldedAddress</a><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#viewingpublickeys-1">viewingPublicKeys</a><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.P256PublicKey.html" class="tsd-signature-type tsd-kind-class">P256PublicKey</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#decrypt-1">decrypt</a><span class="tsd-signature-symbol">(</span><br/>        <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="index.DecryptRequest.html" class="tsd-signature-type tsd-kind-interface">DecryptRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">Uint8Array</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">ArrayBufferLike</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#derive-1">derive</a><span class="tsd-signature-symbol">(</span><br/>        <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="../types/index.DeriveRequest.html" class="tsd-signature-type tsd-kind-type-alias">DeriveRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../types/interface.Bytes32.html" class="tsd-signature-type tsd-kind-type-alias">Bytes32</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/>    <a class="tsd-kind-call-signature" href="#transactionkeys-1">transactionKeys</a><span class="tsd-signature-symbol">(</span><br/>        <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="transaction.TransactionKeyRequest.html" class="tsd-signature-type tsd-kind-interface">TransactionKeyRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>        <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.ViewingKey.html" class="tsd-signature-type tsd-kind-class">ViewingKey</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">;</span><br/><span class="tsd-signature-symbol">}</span></div>
+<section class="tsd-panel">
+<h4>Implemented by</h4>
+<ul class="tsd-hierarchy">
+<li><a href="../classes/index.LocalShieldedKeys.html" class="tsd-signature-type tsd-kind-class">LocalShieldedKeys</a></li></ul></section><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L77">transaction/wallet/keys.ts:77</a></li></ul></aside>
+<section class="tsd-panel-group tsd-index-group">
+<section class="tsd-panel tsd-index-panel">
+<details class="tsd-index-content tsd-accordion" open><summary class="tsd-accordion-summary tsd-index-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
+<h5 class="tsd-index-heading uppercase">Index</h5></summary>
+<div class="tsd-accordion-details">
+<section class="tsd-index-section">
+<h3 class="tsd-index-heading tsd-anchor-link" id="methods">Methods<a href="#methods" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<div class="tsd-index-list"><a href="#address" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>address</span></a>
+<a href="#viewingpublickeys" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>viewing<wbr/>Public<wbr/>Keys</span></a>
+<a href="#decrypt" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>decrypt</span></a>
+<a href="#derive" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>derive</span></a>
+<a href="#transactionkeys" class="tsd-index-link"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>transaction<wbr/>Keys</span></a>
+</div></section></div></details></section></section>
+<details class="tsd-panel-group tsd-member-group tsd-accordion" open><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
+<h2 class="tsd-anchor-link" id="methods-1">Methods<a href="#methods-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h2></summary>
+<section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="address"><span>address</span><a href="#address" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="address-1"><span class="tsd-kind-call-signature">address</span><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <a href="../classes/index.ShieldedAddress.html" class="tsd-signature-type tsd-kind-class">ShieldedAddress</a><a href="#address-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<h4 class="tsd-returns-title">Returns <a href="../classes/index.ShieldedAddress.html" class="tsd-signature-type tsd-kind-class">ShieldedAddress</a></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L78">transaction/wallet/keys.ts:78</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="viewingpublickeys"><span>viewing<wbr/>Public<wbr/>Keys</span><a href="#viewingpublickeys" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="viewingpublickeys-1"><span class="tsd-kind-call-signature">viewingPublicKeys</span><span class="tsd-signature-symbol">()</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.P256PublicKey.html" class="tsd-signature-type tsd-kind-class">P256PublicKey</a><span class="tsd-signature-symbol">[]</span><a href="#viewingpublickeys-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-comment tsd-typography"><p>Every viewing key held, the current one first. Sync opens under each.</p>
+</div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.P256PublicKey.html" class="tsd-signature-type tsd-kind-class">P256PublicKey</a><span class="tsd-signature-symbol">[]</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L80">transaction/wallet/keys.ts:80</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="decrypt"><span>decrypt</span><a href="#decrypt" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="decrypt-1"><span class="tsd-kind-call-signature">decrypt</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="index.DecryptRequest.html" class="tsd-signature-type tsd-kind-interface">DecryptRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">Uint8Array</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">ArrayBufferLike</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><a href="#decrypt-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">requests</span>: <span class="tsd-signature-keyword">readonly</span> <a href="index.DecryptRequest.html" class="tsd-signature-type tsd-kind-interface">DecryptRequest</a><span class="tsd-signature-symbol">[]</span></span></li>
+<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">context</span>: <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <span class="tsd-signature-type">Uint8Array</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-type">ArrayBufferLike</span><span class="tsd-signature-symbol">&gt;</span><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L81">transaction/wallet/keys.ts:81</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="derive"><span>derive</span><a href="#derive" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="derive-1"><span class="tsd-kind-call-signature">derive</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="../types/index.DeriveRequest.html" class="tsd-signature-type tsd-kind-type-alias">DeriveRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../types/interface.Bytes32.html" class="tsd-signature-type tsd-kind-type-alias">Bytes32</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><a href="#derive-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">requests</span>: <span class="tsd-signature-keyword">readonly</span> <a href="../types/index.DeriveRequest.html" class="tsd-signature-type tsd-kind-type-alias">DeriveRequest</a><span class="tsd-signature-symbol">[]</span></span></li>
+<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">context</span>: <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../types/interface.Bytes32.html" class="tsd-signature-type tsd-kind-type-alias">Bytes32</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L85">transaction/wallet/keys.ts:85</a></li></ul></aside></div></li></ul></section>
+<section class="tsd-panel tsd-member">
+<h3 class="tsd-anchor-link" id="transactionkeys"><span>transaction<wbr/>Keys</span><a href="#transactionkeys" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></h3>
+<ul class="tsd-signatures">
+<li class="">
+<div class="tsd-signature tsd-anchor-link" id="transactionkeys-1"><span class="tsd-kind-call-signature">transactionKeys</span><span class="tsd-signature-symbol">(</span><br/>    <span class="tsd-kind-parameter">requests</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-keyword">readonly</span> <a href="transaction.TransactionKeyRequest.html" class="tsd-signature-type tsd-kind-interface">TransactionKeyRequest</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">,</span><br/>    <span class="tsd-kind-parameter">context</span><span class="tsd-signature-symbol">?:</span> <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a><span class="tsd-signature-symbol">,</span><br/><span class="tsd-signature-symbol">)</span><span class="tsd-signature-symbol">:</span> <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.ViewingKey.html" class="tsd-signature-type tsd-kind-class">ViewingKey</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span><a href="#transactionkeys-1" aria-label="Permalink" class="tsd-anchor-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="../assets/icons.svg#icon-anchor"></use></svg></a></div>
+<div class="tsd-description">
+<div class="tsd-comment tsd-typography"><p>Fresh key objects; the caller destroys them.</p>
+</div>
+<div class="tsd-parameters">
+<h4 class="tsd-parameters-title">Parameters</h4>
+<ul class="tsd-parameter-list">
+<li><span><span class="tsd-kind-parameter">requests</span>: <span class="tsd-signature-keyword">readonly</span> <a href="transaction.TransactionKeyRequest.html" class="tsd-signature-type tsd-kind-interface">TransactionKeyRequest</a><span class="tsd-signature-symbol">[]</span></span></li>
+<li><span><code class="tsd-tag">Optional</code><span class="tsd-kind-parameter">context</span>: <a href="interface.RequestContext.html" class="tsd-signature-type tsd-kind-interface">RequestContext</a></span></li></ul></div>
+<h4 class="tsd-returns-title">Returns <span class="tsd-signature-type">Promise</span><span class="tsd-signature-symbol">&lt;</span><span class="tsd-signature-keyword">readonly</span> <a href="../classes/index.ViewingKey.html" class="tsd-signature-type tsd-kind-class">ViewingKey</a><span class="tsd-signature-symbol">[]</span><span class="tsd-signature-symbol">&gt;</span></h4><aside class="tsd-sources">
+<ul>
+<li>Defined in <a href="https://github.com/helius-labs/zolana/blob/e5e3fe8521dc0bf39ac77b60fae38f4aba5418ef/sdk-libs/ts/src/transaction/wallet/keys.ts#L87">transaction/wallet/keys.ts:87</a></li></ul></aside></div></li></ul></section></section></details></div>
+<div class="col-sidebar">
+<div class="page-menu">
+<div class="tsd-navigation settings">
+<details class="tsd-accordion"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
+<h3>Settings</h3></summary>
+<div class="tsd-accordion-details">
+<div class="tsd-filter-visibility"><span class="settings-label">Member Visibility</span>
+<ul id="tsd-filter-options">
+<li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-inherited" name="inherited" checked/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>Inherited</span></label></li>
+<li class="tsd-filter-item"><label class="tsd-filter-input"><input type="checkbox" id="tsd-filter-external" name="external"/><svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect class="tsd-checkbox-background" width="30" height="30" x="1" y="1" rx="6" fill="none"></rect><path class="tsd-checkbox-checkmark" d="M8.35422 16.8214L13.2143 21.75L24.6458 10.25" stroke="none" stroke-width="3.5" stroke-linejoin="round" fill="none"></path></svg><span>External</span></label></li></ul></div>
+<div class="tsd-theme-toggle"><label class="settings-label" for="tsd-theme">Theme</label><select id="tsd-theme"><option value="os">OS</option><option value="light">Light</option><option value="dark">Dark</option></select></div></div></details></div>
+<details open class="tsd-accordion tsd-page-navigation"><summary class="tsd-accordion-summary"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>
+<h3>On This Page</h3></summary>
+<div class="tsd-accordion-details">
+<details open class="tsd-accordion tsd-page-navigation-section"><summary class="tsd-accordion-summary" data-key="section-Methods"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><use href="../assets/icons.svg#icon-chevronDown"></use></svg>Methods</summary>
+<div><a href="#address"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>address</span></a><a href="#viewingpublickeys"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>viewing<wbr/>Public<wbr/>Keys</span></a><a href="#decrypt"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>decrypt</span></a><a href="#derive"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>derive</span></a><a href="#transactionkeys"><svg class="tsd-kind-icon" viewBox="0 0 24 24" aria-label="Method"><use href="../assets/icons.svg#icon-2048"></use></svg><span>transaction<wbr/>Keys</span></a></div></details></div></details></div>
+<div class="site-menu">
+<nav id="tsd-sidebar-links" class="tsd-navigation"><a href="https://github.com/helius-labs/zolana" class="tsd-nav-link">GitHub</a><a href="https://www.npmjs.com/package/@heliuslabs/zolana" class="tsd-nav-link">npm</a></nav>
+<nav class="tsd-navigation"><a href="../modules.html">@heliuslabs/zolana - v0.1.6-alpha</a>
+<ul class="tsd-small-nested-navigation" id="tsd-nav-container">
+<li>Loading...</li></ul></nav></div></div></div><footer>
+<p class="tsd-generator">Generated using <a href="https://typedoc.org/" target="_blank">TypeDoc</a></p></footer>
+<div class="overlay"></div></body></html>
