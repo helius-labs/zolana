@@ -34,6 +34,7 @@ export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss
 export const SPL_TOKEN_2022_PROGRAM_ID = address("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 export const ASSOCIATED_TOKEN_PROGRAM_ID = address("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
 export const DUMMY_DOMAIN = 1 as const;
+export const ADDRESS_DOMAIN = 2 as const;
 export const UTXO_DOMAIN = 3 as const;
 
 export const InstructionTag = Object.freeze({
