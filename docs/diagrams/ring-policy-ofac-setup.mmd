@@ -15,17 +15,17 @@ sequenceDiagram
     end
 
     rect rgba(128, 128, 128, 0.07)
-    Note over CurOp, CurPC: the curator provisions first, a curator without a policy config fails the subscriber with CuratorSourceMissing
+    Note over CurOp, CurPC: the curator provisions first, the cli refuses a curator not serving Block before the pin and the program refuses it with CuratorSourceMissing
     CurOp->>CurRing: create_config, init_spp_ring_config
-    CurOp->>+CurRing: create_policy, Block reads its own namespace PDA
-    CurRing->>-CurPC: writes the map, policy_hash binds all eight slots
+    CurOp->>+CurRing: create_policy, the rows from ring.toml, Block reads its own namespace PDA
+    CurRing->>-CurPC: stores the rows and the map, policy_hash binds all eight slots, generation 1
     end
 
     rect rgba(128, 128, 128, 0.07)
-    SubOp->>+SubRing: create_policy, sources = [(Block, curator policy config)]
+    SubOp->>+SubRing: create_policy, the rows from ring.toml, sources = [(Block, curator policy config)]
     SubRing->>CurPC: reads the curator's resolved namespace owner
     Note right of SubRing: copies the RESOLVED address, delegation does not chain, the entries tree must equal the curator's
-    SubRing->>-SubPC: writes the map, policy_hash binds it under the compiled table
+    SubRing->>-SubPC: stores the rows and the map, policy_hash binds both, generation 1
     end
 
-    Note over CurOp, SubOp: create_policy signs with the upgrade authority, the later set_policy_source with the config authority
+    Note over CurOp, SubOp: create_policy and set_policy_rules sign with the upgrade authority, set_policy_source with the config authority, each write repins the hash at the next generation

@@ -6,26 +6,36 @@ classDiagram
             policy_hash
             entries_tree
             sources
+            rules
+            generation
+            generation_slot
         }
         class SourceSlot {
             list_id
             namespace
         }
+        class EncodedRuleTable {
+            rule_count
+            rules
+            inline_count
+            inline_assets
+        }
     }
-    namespace Program {
+    namespace Table {
         class RuleTable {
             rules
             len
+            inline_assets
+            inline_len
         }
         class Rule {
             subject
-            mode
-            guard
             source
+            guard
         }
         class RuleSource {
             <<enumeration>>
-            List
+            Lists(present, absent)
             InlineAssets
         }
         class ListId {
@@ -78,13 +88,14 @@ classDiagram
         }
     }
 
-    PolicyConfig ..> RuleTable : binds hash at create_policy
+    PolicyConfig "1" *-- "1" EncodedRuleTable : rows, stored at create_policy
     PolicyConfig "1" *-- "8" SourceSlot : positional by list
+    EncodedRuleTable ..> RuleTable : decode, trusted under the pinned hash
     SourceSlot "0..1" --> ListNamespace : namespace PDA derives the owner
-    RuleTable ..> ListNamespace : hash binds the source map
-    RuleTable "1" *-- "0..MAX_RULES" Rule : live rules only hashed
+    EncodedRuleTable ..> ListNamespace : hash binds the source map
+    RuleTable "1" *-- "0..MAX_RULES" Rule : rows up to len hashed
     Rule --> RuleSource
-    RuleSource "1" --> "0..1" ListId : List variant only
+    RuleSource "1" --> "0..MAX_SOURCES" ListId : Lists variant only
     ListId --> Writer : writer() gates mutation
     ListEntry --> ListId
     ListEntry --> Member
@@ -94,7 +105,7 @@ classDiagram
     Rule ..> RuleAnswer : one answer per list+member+mode
     RuleAnswer ..> ListEntry : proves present or absent
 
-    note for RuleTable "hash covers rules up to len and all eight source slots"
+    note for EncodedRuleTable "hash covers rows up to rule_count, the inline assets and all eight source slots"
     note for Answers "disabled slots zero filled, circuit gates on enabled"
     note for Member "zero reserved as padding, never a member"
-    note for PolicyConfig "set_policy_source re-points a list, the table alone is pinned"
+    note for PolicyConfig "set_policy_rules replaces the rows under the upgrade authority, set_policy_source re-points a list under the config authority, each write repins the hash and counts a generation"

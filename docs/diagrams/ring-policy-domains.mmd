@@ -1,19 +1,17 @@
 flowchart TB
-    subgraph BUILD["Build time, the ring program binary"]
-        POL["RULES table
-        forbid OutputOwner Block
-        forbid Sender Frozen"]
-        HOL["ListId::writer()
-        Block, Frozen are authority written"]
+    subgraph TOML["ring.toml, the operator's answers"]
+        POL["[policy] table
+        rules in row order, curator per list and cluster,
+        entries_tree"]
     end
     subgraph CHAIN["On chain, accounts"]
         PC["PolicyConfig
-        policy_hash, entries_tree,
-        sources list to namespace PDA"]
+        rules, sources, policy_hash,
+        entries_tree, generation, generation_slot"]
         PDA["own namespace PDA
         signer, holds no data"]
-        RING["ring program
-        map drift check, verify, CPI"]
+        RING["ring program, one released binary
+        ListId::writer() gates mutations, verify, CPI"]
     end
     subgraph TREES["SPP trees, one shared entry set"]
         REC["ListEntry UTXOs
@@ -24,22 +22,23 @@ flowchart TB
         ROOTS["state root, nullifier root"]
     end
     subgraph WALLET["Per transfer, wallet and prover"]
-        SRC["per list source resolution
-        from the stored map"]
-        POOLD["Answers, 10 slots
+        SRC["rows trusted under the pinned hash,
+        per list source resolution from the stored map"]
+        POOLD["Answers, ANSWER_SLOTS slots
         proven answers to the rules"]
         PRF["one Groth16 proof
-        the circuit muxes each entry's
-        owner from the committed map"]
+        reproduces policy_hash from the rows and the map,
+        muxes each entry's owner from the map"]
     end
 
-    POL -- "create_policy binds RuleTable::hash over the map" --> PC
-    PC -. "set_policy_source re-points a list, the table alone is pinned" .-> PC
-    POL -. "recomputed each transact, mismatch fails closed" .-> RING
+    POL -- "create_policy stores the rows and pins the hash, upgrade authority" --> PC
+    POL -. "set_policy_rules replaces the rows, upgrade authority" .-> PC
+    PC -. "set_policy_source re-points a list, config authority" .-> PC
+    PC -- "stored policy_hash enters the public input" --> RING
     PDA -- "owns and signs mutations of own sourced lists" --> REC
     REC --- ADDR
     PC -- "names the tree, curator sources share it" --> TREES
-    PC -- "source map" --> SRC
+    PC -- "rows and source map" --> SRC
     SRC --> POOLD
     ROOTS -- "Merkle paths" --> POOLD
     POOLD --> PRF
