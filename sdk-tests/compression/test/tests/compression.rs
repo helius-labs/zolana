@@ -27,7 +27,9 @@ use zolana_test_utils::test_validator_asserts::{
     wait_for_indexed_utxo, wait_for_merkle_proof, wait_for_non_inclusion_proof,
 };
 use zolana_transaction::{
-    instructions::transact::{ExternalData, SppProofInputs, SppProofOutputUtxo},
+    instructions::transact::{
+        prepare_output_blindings, ExternalData, SppProofInputs, SppProofOutputUtxo,
+    },
     instructions::types::SppProofInputUtxo,
     Data, Utxo, WalletUtxo, SOL_MINT,
 };
@@ -108,15 +110,21 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     );
     wait_for_merkle_proof(&env.indexer, env.tree, spend.hash()?);
 
-    let poison_output = SppProofOutputUtxo {
+    let spends = vec![spend];
+    let mut poison_outputs = vec![SppProofOutputUtxo {
         asset: SOL_MINT,
         amount: POISON_AMOUNT,
-        blinding: random_blinding(),
         owner_address: Some(pda_shielded_address(&pda)?),
         owner_tag: Some(pda.to_bytes()),
         data: Data::default(),
         ..SppProofOutputUtxo::default()
-    };
+    }];
+    // The circuit recomputes every output blinding, so even a hand-built
+    // attacker transfer has to take the derived value.
+    let output_blinding_seed = prepare_output_blindings(&spends, &mut poison_outputs)?;
+    let poison_output = poison_outputs
+        .pop()
+        .ok_or_else(|| anyhow!("poison output"))?;
     let output_hash = poison_output.hash()?;
     let external = ExternalData::new(
         [0u8; 33],
@@ -131,12 +139,8 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     );
     let transact = env.indexer.prove_transact(
         env.tree,
-        SppProofInputs::new(
-            vec![spend],
-            vec![poison_output],
-            external,
-            attacker.pubkey(),
-        ),
+        SppProofInputs::new(spends, vec![poison_output], external, attacker.pubkey())
+            .with_output_blinding_seed(output_blinding_seed),
     )?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
@@ -253,6 +257,7 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
         output_tree: env.tree,
         old_value,
         version,
+        old_blinding: current.utxo.utxo.blinding,
         new_value: 2,
         spp_proof: env.indexer.prove_transact(env.tree, spp_proof_inputs)?,
     }

@@ -18,7 +18,7 @@ use crate::{
     instructions::shared::{
         cpi_spp_transact_signed, private_tx_hash, TransitionAccounts, DEFAULT_TREE,
     },
-    state::{nullifier, AccountState, PdaOwner},
+    state::{nullifier, output_blinding, AccountState, PdaOwner},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -52,11 +52,14 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let owner = PdaOwner::new(&pda_bytes)?;
     let address_utxo_hash = owner.address_utxo_hash()?;
     let address = nullifier(&address_utxo_hash, &owner.address_seed)?;
+    // The address nullifier is this transaction's only, and therefore first,
+    // nullifier: the value the circuit binds the output blinding to.
     let state = AccountState {
         address,
         authority: authority.to_bytes(),
         value: new_value,
         version: 0,
+        blinding: output_blinding(&address, 0)?,
     };
     let output_hash = state.utxo_hash(&owner.owner_hash)?;
     let payload = state.to_output_data()?;

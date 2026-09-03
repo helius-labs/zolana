@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use compression_example_program::state::{output_blinding, version_blinding};
 use solana_address::Address;
 use zolana_transaction::{
     instructions::{transact::SppProofInputs, types::SppProofInputUtxo},
@@ -36,19 +37,23 @@ impl UpdateProofInputParams {
             .utxo_data()
             .ok_or_else(|| anyhow!("current UTXO has no state data"))?;
         let current_state = decode_state(current_data)?;
-        if self.current.utxo.blinding != current_state.blinding() {
-            return Err(anyhow!("current UTXO blinding does not match the version"));
+        if self.current.utxo.blinding != current_state.blinding {
+            return Err(anyhow!("current UTXO blinding does not match its state"));
         }
+        let version = current_state
+            .version
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("account version overflow"))?;
+        // The spent UTXO's nullifier is the transaction's first nullifier, which
+        // the circuit binds the new output's blinding to.
         let account_utxo = AccountUtxo {
             pda,
             state: AccountState {
                 address: current_state.address,
                 authority: self.authority.to_bytes(),
                 value: self.new_value,
-                version: current_state
-                    .version
-                    .checked_add(1)
-                    .ok_or_else(|| anyhow!("account version overflow"))?,
+                version,
+                blinding: output_blinding(&self.current.nullifier, version)?,
             },
         };
         let output = account_utxo.output_utxo()?;
@@ -62,7 +67,8 @@ impl UpdateProofInputParams {
                     .ok_or_else(|| anyhow!("missing current data hash"))?,
             );
         let spp_proof_inputs =
-            SppProofInputs::new(vec![input], vec![output], external, self.authority);
+            SppProofInputs::new(vec![input], vec![output], external, self.authority)
+                .with_output_blinding_seed(version_blinding(version));
         Ok(UpdateCompressedAccount {
             spp_proof_inputs,
             old_value: current_state.value,

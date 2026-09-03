@@ -14,6 +14,9 @@ pub struct Update {
     pub output_tree: Address,
     pub old_value: u64,
     pub version: u64,
+    /// Blinding of the UTXO being spent, taken from the state the client
+    /// discovered; it is not derivable from the version alone.
+    pub old_blinding: [u8; 32],
     pub new_value: u64,
     pub spp_proof: TransactIxData,
 }
@@ -26,6 +29,7 @@ impl Update {
             output_tree,
             old_value,
             version,
+            old_blinding,
             new_value,
             spp_proof,
         } = self;
@@ -36,6 +40,7 @@ impl Update {
         let serialized_ix = wincode::serialize(&UpdateIxData {
             old_value,
             version,
+            old_blinding,
             new_value,
             nullifier_tree_root_index: input.nullifier_tree_root_index,
             utxo_tree_root_index: input.utxo_tree_root_index,
