@@ -119,6 +119,22 @@ func TestCircuitSolvesGroupRule(t *testing.T) {
 	solve(t, cs, buildAssignment(t, f))
 }
 
+// An any_of rule passes through either alternative, a recipient never added
+// to Block through the absent branch, a recipient Active in both Approval and
+// Block through the present branch.
+func TestCircuitSolvesMixedModeRule(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	absent := mixedFixture()
+	absent.answers = []int{senderNotFrozen, allowedNotBlocked}
+	solve(t, cs, buildAssignment(t, absent))
+
+	present := mixedFixture()
+	present.recipient = approvedKey
+	present.answers = []int{senderNotFrozen, approvedActive}
+	solve(t, cs, buildAssignment(t, present))
+}
+
 // Two outputs to one recipient whose total stays at or below the threshold are
 // exempt together, aggregation does not over-reject a legitimate split.
 func TestCircuitSolvesAggregatedGuard(t *testing.T) {
@@ -328,6 +344,60 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				return buildAssignment(t, f)
 			},
 		},
+		{
+			name: "alt mask swapped with the primary mask",
+			build: func(t *testing.T) *Circuit {
+				// Under the swapped wires the Approval absence would cover, only
+				// the packed row disagrees.
+				f := mixedFixture()
+				f.answers = []int{senderNotFrozen, allowedNotApproved}
+				c := buildAssignment(t, f)
+				c.Rules[0].Mask, c.Rules[0].AltMask = c.Rules[0].AltMask, c.Rules[0].Mask
+				return c
+			},
+		},
+		{
+			name: "alt list answered in the primary mode",
+			build: func(t *testing.T) *Circuit {
+				f := mixedFixture()
+				f.recipient = approvedKey
+				f.answers = []int{senderNotFrozen, approvedBlocked}
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "primary-only list answered in the alt mode",
+			build: func(t *testing.T) *Circuit {
+				f := mixedFixture()
+				f.answers = []int{senderNotFrozen, allowedNotApproved}
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "inline rule carrying an alt mask",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.inlineAltMask = lmask(kindBlock)
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "rule mode outside present and absent",
+			build: func(t *testing.T) *Circuit {
+				// The guard exempts the recipient, only the mode assertion rejects.
+				f := defaultFixture()
+				f.guardedMode = 3
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "alt mask bit past the eighth list",
+			build: func(t *testing.T) *Circuit {
+				f := defaultFixture()
+				f.outputOwnerAltMask = 1 << NSources
+				return buildAssignment(t, f)
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -376,6 +446,11 @@ func TestPrintPolicyVectors(t *testing.T) {
 	twoMap[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
 	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)})
 	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, twoMap)))
+	mixedMap := emptySources()
+	mixedMap[kindBlock-1] = source{listId: kindBlock, owner: s.ownOwnerHash}
+	mixedMap[kindApproval-1] = source{listId: kindApproval, owner: s.ownOwnerHash}
+	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), altMask: lmask(kindBlock)}}
+	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, mixedMap)))
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *Circuit) {
@@ -397,19 +472,57 @@ func validAssignment(t *testing.T) *Circuit {
 // fixture is the knob set of one statement, a tamper row needing a
 // self-consistent witness rebuilds with one knob changed.
 type fixture struct {
-	amount          uint64
-	secondAmount    uint64 // 0 keeps one real output, else a second to the same recipient
-	outputOwnerMask int64  // 0 keeps the single Allow rule, else the OutputOwner rule's list mask
-	transferred     [32]byte
-	inlineAsset     [32]byte
-	rulesFree       bool
-	dropCuratorSlot bool
-	curatorSlotOwn  bool
-	keys            func(audittest.Keys) audittest.Keys
+	amount             uint64
+	secondAmount       uint64 // 0 keeps one real output, else a second to the same recipient
+	outputOwnerMask    int64  // 0 keeps the single Allow rule, else the OutputOwner rule's list mask
+	outputOwnerAltMask int64  // lists satisfying the OutputOwner rule in the opposite mode
+	guardedMode        int64  // 0 keeps Present, else the guarded Approval rule's mode
+	inlineAltMask      int64  // an alt mask on the inline asset rule
+	recipient          [32]byte
+	answers            []int // entry indices filling the answer slots
+	transferred        [32]byte
+	inlineAsset        [32]byte
+	rulesFree          bool
+	dropCuratorSlot    bool
+	curatorSlotOwn     bool
+	keys               func(audittest.Keys) audittest.Keys
 }
 
+// Member keys of the fixture ring, the recipient knob picks among them.
+var (
+	allowedKey  = fill(0xa1)
+	approvedKey = fill(0xf6)
+)
+
+// Indices into statement.entries, a member never added to a list has state 0
+// and proves absence by its address alone.
+const (
+	allowedActive = iota
+	senderNotFrozen
+	blockedCleared
+	allowedNotBlocked
+	approvedActive
+	approvedBlocked
+	allowedNotApproved
+)
+
 func defaultFixture() fixture {
-	return fixture{amount: transferAmount, transferred: fill(0xd4), inlineAsset: fill(0xd4)}
+	return fixture{
+		amount:      transferAmount,
+		recipient:   allowedKey,
+		answers:     []int{allowedActive, senderNotFrozen, blockedCleared},
+		transferred: fill(0xd4),
+		inlineAsset: fill(0xd4),
+	}
+}
+
+// mixedFixture swaps the Allow rule for any_of(OutputOwner, present Approval,
+// absent Block).
+func mixedFixture() fixture {
+	f := defaultFixture()
+	f.outputOwnerMask = lmask(kindApproval)
+	f.outputOwnerAltMask = lmask(kindBlock)
+	return f
 }
 
 // source is one host-side slot of the positional policy source map.
@@ -448,11 +561,12 @@ type rule struct {
 	subject   int64
 	mode      int64
 	mask      int64
+	altMask   int64
 	guardTag  int64
 	threshold uint64
 }
 
-// lmask ORs the bit of each list id, mirroring ring_policy::Rule::list_mask.
+// lmask ORs the bit of each list id, mirroring ring_policy::ListSet::of.
 func lmask(ids ...int64) int64 {
 	var mask int64
 	for _, id := range ids {
@@ -462,7 +576,8 @@ func lmask(ids ...int64) int64 {
 }
 
 func (r rule) packed() *big.Int {
-	packed := new(big.Int).SetUint64(r.threshold)
+	packed := new(big.Int).Lsh(big.NewInt(r.altMask), 64)
+	packed.Or(packed, new(big.Int).SetUint64(r.threshold))
 	for _, part := range []int64{r.guardTag, r.mask, r.mode, r.subject} {
 		packed.Or(packed.Lsh(packed, 8), big.NewInt(part))
 	}
@@ -475,6 +590,7 @@ func (r rule) wires() RuleWires {
 		Subject:   big.NewInt(r.subject),
 		Mode:      big.NewInt(r.mode),
 		Mask:      big.NewInt(r.mask),
+		AltMask:   big.NewInt(r.altMask),
 		GuardTag:  big.NewInt(r.guardTag),
 		Threshold: new(big.Int).SetUint64(r.threshold),
 	}
@@ -493,6 +609,7 @@ type statement struct {
 
 	stateRoot     *big.Int
 	nullifierRoot *big.Int
+	stateLeaf     map[int]uint64
 	stateProofs   map[uint64]protocol.StateTreeWitness
 	nonInclusion  []protocol.NonInclusionWitness
 
@@ -508,10 +625,11 @@ type statement struct {
 }
 
 // newStatement builds a ring whose entries allow the recipient, hold no Frozen
-// entry for the sender and carry a cleared Block entry, a policy demanding
-// all three plus a guarded Approval rule, and a two-in two-out transaction that
-// satisfies them. The Frozen list is sourced from a curator's entries, every
-// other list from the ring's own.
+// entry for the sender, carry a cleared Block entry and list a second recipient
+// as Active in both Approval and Block, a policy demanding the first three plus
+// a guarded Approval rule, and a two-in two-out transaction that satisfies
+// them. The Frozen list is sourced from a curator's entries, every other list
+// from the ring's own.
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
@@ -530,15 +648,20 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.sources[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
 
-	recipient := pkField(t, fill(0xa1))
+	allowed := pkField(t, allowedKey)
 	sender := pkField(t, fill(0xb2))
 	blocked := pkField(t, fill(0xc3))
+	approved := pkField(t, approvedKey)
 	asset := pkField(t, f.transferred)
 
 	s.entries = []entry{
-		{listId: kindAllow, member: recipient, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		{listId: kindFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
-		{listId: kindBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
+		allowedActive:      {listId: kindAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		senderNotFrozen:    {listId: kindFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
+		blockedCleared:     {listId: kindBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
+		allowedNotBlocked:  {listId: kindBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
+		approvedActive:     {listId: kindApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		approvedBlocked:    {listId: kindBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		allowedNotApproved: {listId: kindApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
 	}
 	for _, r := range s.entries {
 		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
@@ -562,6 +685,11 @@ func newStatement(t *testing.T, f fixture) *statement {
 	if f.outputOwnerMask != 0 {
 		s.rules[0].mask = f.outputOwnerMask
 	}
+	s.rules[0].altMask = f.outputOwnerAltMask
+	s.rules[2].altMask = f.inlineAltMask
+	if f.guardedMode != 0 {
+		s.rules[3].mode = f.guardedMode
+	}
 	if f.rulesFree {
 		s.rules = nil
 		s.inlineAssets = nil
@@ -574,35 +702,36 @@ func newStatement(t *testing.T, f fixture) *statement {
 		s.keys = f.keys(s.keys)
 	}
 	s.buildTrees(t)
-	s.buildTransaction(t, recipient, sender, asset, f.amount, f.secondAmount)
+	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, f.amount, f.secondAmount)
 	return s
 }
 
-// buildTrees seeds the SPP roots the entry proofs open against, the live
-// entries as state tree leaves and the addresses of the created entries as
-// spent nullifiers.
+// buildTrees seeds the SPP roots the entry proofs open against, the created
+// entries as state tree leaves and their addresses as spent nullifiers.
 func (s *statement) buildTrees(t *testing.T) {
 	t.Helper()
-	root, proofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{
-		0: s.derived[0].utxoHash,
-		1: s.derived[2].utxoHash,
-	})
-	s.stateRoot = root
-	s.stateProofs = proofs
-
+	leaves := map[uint64]*big.Int{}
 	tree := spptest.MustNewNullifierTree(t)
-	for _, index := range []int{0, 2} {
-		if err := tree.Insert(s.derived[index].address); err != nil {
+	s.stateLeaf = map[int]uint64{}
+	for i, r := range s.entries {
+		if r.state == 0 {
+			continue
+		}
+		s.stateLeaf[i] = uint64(len(leaves))
+		leaves[s.stateLeaf[i]] = s.derived[i].utxoHash
+		if err := tree.Insert(s.derived[i].address); err != nil {
 			t.Fatalf("insert entry address: %v", err)
 		}
 	}
+	s.stateRoot, s.stateProofs = spptest.MustBuildSparseStateTree(t, leaves)
 	s.nullifierRoot = tree.Root()
-	// The present and cleared entries are unspent, the frozen entry was never
-	// created.
-	s.nonInclusion = []protocol.NonInclusionWitness{
-		spptest.MustNonInclusion(t, tree, s.derived[0].nullifier),
-		spptest.MustNonInclusion(t, tree, s.derived[1].address),
-		spptest.MustNonInclusion(t, tree, s.derived[2].nullifier),
+	// A created entry is unspent, a never created one has no address.
+	for i, r := range s.entries {
+		target := s.derived[i].nullifier
+		if r.state == 0 {
+			target = s.derived[i].address
+		}
+		s.nonInclusion = append(s.nonInclusion, spptest.MustNonInclusion(t, tree, target))
 	}
 }
 
@@ -734,15 +863,24 @@ func buildAssignment(t *testing.T, f fixture) *Circuit {
 	if f.rulesFree {
 		return c
 	}
-	c.Answers[0] = s.poolEntry(t, 0, ModePresent, 0, 0)
-	c.Answers[1] = s.poolEntry(t, 1, ModeAbsent, AbsentBranchNoAddress, 0)
-	c.Answers[2] = s.poolEntry(t, 2, ModeAbsent, AbsentBranchCleared, 1)
+	for e, index := range f.answers {
+		c.Answers[e] = s.poolEntry(t, index)
+	}
 	return c
 }
 
-func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, stateLeaf uint64) RuleAnswerWires {
+// poolEntry answers with the entry's own fact, an Active entry present, a
+// cleared or never added one absent.
+func (s *statement) poolEntry(t *testing.T, index int) RuleAnswerWires {
 	t.Helper()
 	r := s.entries[index]
+	mode, branch := int64(ModePresent), int64(0)
+	switch r.state {
+	case 0:
+		mode, branch = ModeAbsent, AbsentBranchNoAddress
+	case EntryStateCleared:
+		mode, branch = ModeAbsent, AbsentBranchCleared
+	}
 	entry := RuleAnswerWires{
 		Enabled:        big.NewInt(1),
 		Mode:           big.NewInt(mode),
@@ -770,12 +908,12 @@ func (s *statement) poolEntry(t *testing.T, index int, mode, branch int64, state
 		entry.NfPathElements[i] = element
 	}
 
-	if branch == AbsentBranchNoAddress {
+	if r.state == 0 {
 		return entry
 	}
-	proof, ok := s.stateProofs[stateLeaf]
+	proof, ok := s.stateProofs[s.stateLeaf[index]]
 	if !ok {
-		t.Fatalf("missing state proof for leaf %d", stateLeaf)
+		t.Fatalf("missing state proof for entry %d", index)
 	}
 	entry.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
 	for i, element := range proof.PathElements {

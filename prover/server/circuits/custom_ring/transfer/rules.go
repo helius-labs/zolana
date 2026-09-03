@@ -5,6 +5,7 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 
 	"zolana/prover/circuits/gadget"
+	"zolana/prover/circuits/spp_transaction/shared"
 )
 
 // RuleWires is one compiled policy rule, the policy hash committing only to
@@ -14,7 +15,9 @@ type RuleWires struct {
 	Subject frontend.Variable
 	Mode    frontend.Variable
 	// Mask has bit i set for list i+1, zero marks the inline source.
-	Mask      frontend.Variable
+	Mask frontend.Variable
+	// AltMask marks the lists satisfying the rule in the opposite mode.
+	AltMask   frontend.Variable
 	GuardTag  frontend.Variable
 	Threshold frontend.Variable
 }
@@ -48,20 +51,27 @@ func (w RuleWires) define(api frontend.API, checker frontend.Rangechecker, enabl
 	checker.Check(w.Subject, 8)
 	checker.Check(w.Mode, 8)
 	checker.Check(w.Mask, 8)
+	checker.Check(w.AltMask, 8)
 	checker.Check(w.GuardTag, 8)
 	checker.Check(w.Threshold, 64)
-	// Mirrors ring_policy::Rule::encoded, byte 31 down to byte 20.
+	// Mirrors ring_policy::Rule::encoded, byte 31 down to byte 19.
 	api.AssertIsEqual(w.Packed, api.Add(
 		w.Subject,
 		api.Mul(w.Mode, ruleShift[0]),
 		api.Mul(w.Mask, ruleShift[1]),
 		api.Mul(w.GuardTag, ruleShift[2]),
 		api.Mul(w.Threshold, ruleShift[3]),
+		api.Mul(w.AltMask, ruleShift[4]),
 	))
+
+	isPresent := api.IsZero(api.Sub(w.Mode, ModePresent))
+	isAbsent := api.IsZero(api.Sub(w.Mode, ModeAbsent))
+	shared.AssertWhen(api, enabled, api.Add(isPresent, isAbsent))
 
 	inline := api.Mul(enabled, api.IsZero(w.Mask))
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Subject, B: SubjectAsset})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.Mode, B: ModePresent})
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: inline, A: w.AltMask, B: 0})
 }
 
 // policyHash mirrors ring_policy::RuleTable::hash, the head's length element
