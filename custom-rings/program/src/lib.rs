@@ -22,7 +22,7 @@ use crate::instructions::{
 };
 use crate::instructions::{
     process_create_entry_ix, process_create_policy_ix, process_set_paused_ix,
-    process_set_policy_source_ix, process_update_entry_ix,
+    process_set_policy_rules_ix, process_set_policy_source_ix, process_update_entry_ix,
 };
 
 #[cfg(all(feature = "bpf-entrypoint", not(feature = "no-entrypoint")))]
@@ -53,6 +53,7 @@ pub fn process_instruction(
         tag::UPDATE_ENTRY => process_update_entry_ix(program_id, accounts, ix_data),
         tag::SET_POLICY_SOURCE => process_set_policy_source_ix(program_id, accounts, ix_data),
         tag::SET_PAUSED => process_set_paused_ix(program_id, accounts, ix_data),
+        tag::SET_POLICY_RULES => process_set_policy_rules_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

@@ -1,6 +1,7 @@
 //! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
 pub mod authority;
+pub mod catalogue;
 pub mod config;
 pub mod deploy;
 pub mod error;
@@ -12,6 +13,7 @@ pub mod list;
 pub mod localnet;
 pub mod new;
 pub mod pipeline;
+pub mod policy;
 pub mod probe;
 pub mod reader;
 pub mod release;
@@ -20,6 +22,8 @@ pub mod status;
 pub mod step;
 pub mod tool;
 pub mod transact;
+pub mod ui;
+pub mod wizard;
 
 use std::path::{Path, PathBuf};
 
@@ -28,7 +32,6 @@ use custom_ring_sdk::{CustomRing, ReaderKey};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use std::str::FromStr;
 use thiserror::Error;
 use zolana_client::{ClientError, ProverClient, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_keypair::ShieldedAddress;
@@ -38,7 +41,10 @@ pub use crate::{
     error::CliError,
     fund::FundError,
     init::InitError,
+    list::MemberArg,
+    policy::ListName,
     ring_rpc::{RingRpcClient, Trust},
+    ui::{line, Ask},
 };
 
 /// What localnet tops the authority up to.
@@ -59,6 +65,9 @@ pub struct Cli {
     /// Cluster for one command instead of the one ring.toml records.
     #[arg(long, global = true, env = "RING_TARGET")]
     pub target: Option<Target>,
+    /// A curator catalogue file or URL instead of the bundled one.
+    #[arg(long, global = true, env = "RING_CATALOGUE")]
+    pub catalogue: Option<String>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -79,7 +88,7 @@ pub enum Command {
     Localnet(LocalnetArgs),
     /// Deploy the released program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
-    /// Create the config with the auditor key and register the ring with SPP.
+    /// Create the config with the auditor key, pin the policy and register the ring with SPP.
     Init(InitArgs),
     /// Deploy, init, check the ring rpc, grant the authority and transact.
     Pipeline(DeployArgs),
@@ -98,59 +107,61 @@ pub enum Command {
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
+    /// Read, check and replace the pinned rule table.
+    #[command(subcommand)]
+    Policy(PolicyCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ListCommand {
-    /// Create the policy config, pinning the compiled table and the tree.
-    Init { entries_tree: Address },
     /// Claim or reactivate the member's entry of the list.
     Add {
         #[arg(value_enum)]
-        list_id: ListIdArg,
-        member: Address,
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
     },
     /// Clear the member's entry, leaving the address claimed.
     Clear {
         #[arg(value_enum)]
-        list_id: ListIdArg,
-        member: Address,
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
     },
     /// Print the member's live entry.
     Show {
         #[arg(value_enum)]
-        list_id: ListIdArg,
-        member: Address,
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
     },
     /// Point the list at the ring's own namespace or a curator ring's.
     SetSource {
         #[arg(value_enum)]
-        list_id: ListIdArg,
-        /// Curator ring program id.
+        list_id: ListName,
+        /// Curator ring program id or catalogue name.
         #[arg(long, conflicts_with = "own", required_unless_present = "own")]
-        curator: Option<Address>,
+        curator: Option<String>,
+        /// The ring's own entries.
         #[arg(long)]
         own: bool,
     },
 }
 
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum ListIdArg {
-    Allow,
-    Block,
-    Frozen,
-}
-
-impl From<ListIdArg> for zolana_ring_policy::ListId {
-    fn from(list_id: ListIdArg) -> Self {
-        match list_id {
-            ListIdArg::Allow => Self::Allow,
-            ListIdArg::Block => Self::Block,
-            ListIdArg::Frozen => Self::Frozen,
-        }
-    }
+#[derive(Debug, Subcommand)]
+pub enum PolicyCommand {
+    /// The pinned rows, hash, generation, tree and sources.
+    Show,
+    /// Compare ring.toml with the chain, exits non-zero on a difference.
+    Check,
+    /// Replace the pinned table with ring.toml under the upgrade authority.
+    Set {
+        /// Confirms the replacement, proofs built against the old table are refused from now on.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -197,8 +208,8 @@ pub enum AuthorityCommand {
 
 #[derive(Debug, Args)]
 pub struct NewArgs {
-    /// Ring name in kebab-case, also the directory name.
-    pub name: String,
+    /// Ring name in kebab-case, also the directory name, asked when absent.
+    pub name: Option<String>,
     /// Parent directory the ring is created in.
     #[arg(long, default_value = ".")]
     pub dest: PathBuf,
@@ -208,6 +219,9 @@ pub struct NewArgs {
     /// Recorded in ring.toml, `~` stays literal for other machines.
     #[arg(long, default_value = new::DEFAULT_AUTHORITY_KEYPAIR)]
     pub authority_keypair: String,
+    /// A `ring.toml` or any toml file with a `[policy]` table, replaces the policy questions.
+    #[arg(long)]
+    pub policy_from: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -248,9 +262,6 @@ pub struct InitArgs {
     /// Only a ring RPC holding that key can ever open the ring.
     #[arg(long)]
     pub local_auditor: bool,
-    /// The tree the ring's policy entries live in.
-    #[arg(long, default_value = zolana_interface::DEFAULT_TREE_ADDRESS)]
-    pub entries_tree: Address,
 }
 
 #[derive(Debug, Args)]
@@ -286,8 +297,6 @@ impl Default for InitArgs {
             auditor_pubkey_file: PathBuf::from(AUDITOR_PUBKEY_FILE),
             trust_ring_rpc: false,
             local_auditor: false,
-            entries_tree: Address::from_str(zolana_interface::DEFAULT_TREE_ADDRESS)
-                .expect("default tree address is valid"),
         }
     }
 }
@@ -306,6 +315,16 @@ pub struct Context {
     pub config: RingConfig,
     pub ring: CustomRing,
     pub rpc: SolanaRpc,
+    pub ask: Box<dyn Ask>,
+    /// The `--catalogue` override, `None` for the bundled file.
+    pub catalogue: Option<String>,
+}
+
+pub struct Session {
+    pub config_path: PathBuf,
+    pub config: RingConfig,
+    pub ask: Box<dyn Ask>,
+    pub catalogue: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -321,21 +340,31 @@ pub enum ContextError {
     Client(Box<ClientError>),
 }
 
-impl Context {
-    pub fn load(config_path: PathBuf, mut config: RingConfig) -> Self {
+impl Session {
+    pub fn load(self) -> Context {
+        let Self {
+            config_path,
+            mut config,
+            ask,
+            catalogue,
+        } = self;
         let project_root = ProjectRoot::for_config(&config_path);
         config.resolve_keypair_paths(&project_root);
         let ring = CustomRing::new(config.program_id);
         let rpc = SolanaRpc::new(config.urls().rpc.clone());
-        Self {
+        Context {
             config_path,
             project_root,
             config,
             ring,
             rpc,
+            ask,
+            catalogue,
         }
     }
+}
 
+impl Context {
     /// For a step that only pays fees and small rent.
     pub fn funded_authority(&mut self) -> Result<Keypair, ContextError> {
         self.authority_funded_for(fund::MIN_AUTHORITY_BALANCE)
@@ -363,7 +392,9 @@ impl Context {
                     )?;
                 }
             }
-            Target::Devnet => fund::wait_for_balance(&self.rpc, authority.pubkey(), required)?,
+            Target::Devnet => {
+                fund::wait_for_balance(&self.rpc, self.ask.as_mut(), authority.pubkey(), required)?
+            }
         }
         Ok(())
     }
@@ -431,15 +462,12 @@ pub fn parse_and_run() -> Result<(), CliError> {
     run(Cli::parse())
 }
 
-/// The aligned label of every status line.
-pub(crate) fn line(label: &str, value: impl std::fmt::Display) {
-    println!("{label:<12}{value}");
-}
-
 /// `New` runs before any ring.toml exists, `Target` and `Url` before any RPC client.
 pub fn run(cli: Cli) -> Result<(), CliError> {
+    let silent = matches!(&cli.command, Command::New(args) if args.silent);
+    let mut ask = ui::ask_for(silent);
     if let Command::New(args) = cli.command {
-        return Ok(new::run(args)?);
+        return Ok(new::run(args, ask.as_mut(), cli.catalogue.as_deref())?);
     }
     let mut config = RingConfig::load(&cli.config)?;
     match cli.command {
@@ -478,7 +506,13 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         );
         return Ok(());
     }
-    let mut ctx = Context::load(cli.config, config);
+    let mut ctx = Session {
+        config_path: cli.config,
+        config,
+        ask,
+        catalogue: cli.catalogue,
+    }
+    .load();
     match cli.command {
         Command::Status => status::run(&ctx),
         Command::Deploy(args) => {
@@ -490,9 +524,10 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Transact(args) => transact::run(&mut ctx, args)?,
         Command::Transfer(args) => transact::run_transfer(&mut ctx, args)?,
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
-        Command::Authority(command) => authority::run(&ctx, command)?,
+        Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
+        Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
         // Handled before the context loads.
         Command::New(_)
@@ -506,24 +541,52 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
-    use clap::ValueEnum;
-    use custom_ring_interface::RULES;
-    use zolana_ring_policy::ListId;
+    use clap::{CommandFactory, Parser, ValueEnum};
+    use zolana_ring_policy::{ListId, Writer};
 
     use super::*;
 
     #[test]
-    fn every_referenced_list_has_a_cli_arm() {
-        let arms: Vec<ListId> = ListIdArg::value_variants()
+    fn the_list_arg_names_every_authority_written_list() {
+        let arms: Vec<ListId> = ListName::value_variants()
             .iter()
-            .map(|arm| ListId::from(*arm))
+            .map(|arm| arm.id())
             .collect();
-        for list_id in ListId::ALL
+        let authority_written: Vec<ListId> = ListId::ALL
             .into_iter()
-            .filter(|list_id| transact::references(&RULES, *list_id))
-        {
-            assert!(arms.contains(&list_id), "{list_id:?} has no cli arm");
+            .filter(|list_id| matches!(list_id.writer(), Writer::Authority))
+            .collect();
+        assert_eq!(arms, authority_written);
+        for name in ListName::value_variants() {
+            assert_eq!(
+                ListName::from_str(name.as_str(), false).expect("parses"),
+                *name
+            );
         }
+    }
+
+    #[test]
+    fn the_command_tree_is_well_formed() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn the_pipeline_init_arguments_are_the_command_defaults() {
+        let pipeline = InitArgs::default();
+        let Command::Init(command) = Cli::try_parse_from(["zolana-ring", "init"])
+            .expect("parses")
+            .command
+        else {
+            panic!("init");
+        };
+        assert_eq!(command.auditor_pubkey_file, pipeline.auditor_pubkey_file);
+        assert_eq!(command.trust_ring_rpc, pipeline.trust_ring_rpc);
+        assert_eq!(command.local_auditor, pipeline.local_auditor);
+        assert_eq!(
+            ProjectRoot::for_config(Path::new("ring/ring.toml"))
+                .resolve(&pipeline.auditor_pubkey_file),
+            Path::new("ring/keys/auditor.key.pub")
+        );
     }
 
     #[test]
@@ -557,6 +620,7 @@ ring_rpc = "r"
         run(Cli {
             config: config_path,
             target: None,
+            catalogue: None,
             command: Command::AuditorKey(AuditorKeyArgs {
                 key_file: PathBuf::from(AUDITOR_KEY_FILE),
                 create: true,

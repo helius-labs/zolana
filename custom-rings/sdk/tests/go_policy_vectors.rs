@@ -4,8 +4,8 @@
 
 use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
 use zolana_ring_policy::{
-    entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, Member, Mode,
-    Rule, RuleTable, SourceMap, Subject,
+    entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
+    Member, Mode, Rule, RuleTable, SourceMap, Subject,
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
@@ -28,6 +28,8 @@ const ONE_RULE_POLICY_HASH: &str =
     "14a5b73c52527adc8c5e7442e18762f016351ab266a6d3d6b8b63da5179bca6d";
 const TWO_RULE_POLICY_HASH: &str =
     "291890be727291b0c20683434745529fc2339d407104995ba797398e4602f231";
+const MIXED_RULE_POLICY_HASH: &str =
+    "249c5e81375513a119473aa5df5fda06d261ea06b83d6b8b9cf30b7a233a04d9";
 
 struct Vector {
     seed: &'static str,
@@ -149,15 +151,37 @@ fn policy_hashing_matches_the_go_fixture() {
     let table = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
         .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
-        .rule(Rule::allow_only_assets(ASSET_MEMBERS))
+        .rule(Rule::allow_only_assets())
         .rule(Rule::require(Subject::OutputOwner, ListId::Approval).above(2000))
+        .inline_assets(ASSET_MEMBERS)
         .build();
     assert_eq!(
         table.hash(&fixture_sources()).expect("policy hash"),
         hex32(POLICY_HASH)
     );
     assert!(matches!(table.rules()[3].guard, Guard::AboveAmount(2000)));
-    assert!(matches!(table.rules()[1].mode, Mode::Absent));
+    assert!(matches!(table.rules()[1].primary_mode(), Mode::Absent));
+}
+
+/// The alt mask at byte 19 enters the packed row the hash chain folds.
+#[test]
+fn a_mixed_rule_hashes_to_the_go_fixture() {
+    const MIXED: RuleTable = RuleTable::builder()
+        .rule(Rule::any_of(
+            Subject::OutputOwner,
+            ListSet::single(ListId::Approval),
+            ListSet::single(ListId::Block),
+        ))
+        .build();
+    let map = SourceMap::new(&[
+        (ListId::Block, owner().owner_hash),
+        (ListId::Approval, owner().owner_hash),
+    ])
+    .expect("mixed sources");
+    assert_eq!(
+        MIXED.hash(&map).expect("mixed rule hash"),
+        hex32(MIXED_RULE_POLICY_HASH)
+    );
 }
 
 #[test]

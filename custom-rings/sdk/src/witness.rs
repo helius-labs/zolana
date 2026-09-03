@@ -12,7 +12,7 @@ use zolana_interface::{
     UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
-    EntryState, Guard, ListId, ListNamespace, Member, Mode, Rule, RuleSource, RuleTable, Subject,
+    EntryState, Guard, ListId, ListNamespace, Member, Mode, Rule, RuleTable, SourceMap, Subject,
     ANSWER_SLOTS, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS,
     POLICY_OUTPUT_SLOTS,
 };
@@ -24,6 +24,7 @@ use crate::{
     instructions::transact::{
         CustomRingOpening, RuleAnswer, SourceOwnerEntry, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
     },
+    shared::source_map,
     TransferError,
 };
 
@@ -44,6 +45,7 @@ pub struct CustomRingWitness {
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub n_in: u8,
     pub n_out: u8,
+    /// The account rows verbatim, the pinned hash binds them.
     pub rules: [[u8; 32]; MAX_RULES],
     pub policy_len: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
@@ -106,11 +108,12 @@ impl<'a> CustomRingWitnessInput<'a> {
         if self.inputs.len() > POLICY_INPUT_SLOTS || self.outputs.len() > POLICY_OUTPUT_SLOTS {
             return Err(TransferError::PolicyShapeUnsupported);
         }
+        let sources = source_map(self.policy_config)?;
         let mut demands = Vec::new();
         let mut lookups: Vec<EntryLookup> = Vec::new();
         for rule in self.policy.rules() {
-            let lists: Vec<ListId> = rule.referenced_lists().collect();
-            if lists.is_empty() {
+            let alternatives: Vec<(ListId, Mode)> = rule.alternatives().collect();
+            if alternatives.is_empty() {
                 continue;
             }
             for member in self.subjects(rule)? {
@@ -120,42 +123,44 @@ impl<'a> CustomRingWitnessInput<'a> {
                 if self.guard_exempts(rule, &member)? {
                     continue;
                 }
-                let mut consulted = Vec::with_capacity(lists.len());
-                for &list_id in &lists {
-                    let lookup = EntryLookup {
-                        owner: self.source_owner(list_id)?,
-                        list_id,
-                        member,
-                    };
-                    let index = lookups
-                        .iter()
-                        .position(|known| *known == lookup)
-                        .unwrap_or_else(|| {
-                            lookups.push(lookup);
-                            lookups.len() - 1
-                        });
-                    consulted.push(index);
-                }
+                let alternatives = alternatives
+                    .iter()
+                    .map(|&(list_id, mode)| {
+                        let owner_hash = sources
+                            .owner_hash(list_id)
+                            .ok_or(TransferError::MissingSourceOwner)?;
+                        let lookup = EntryLookup {
+                            owner: ListNamespace {
+                                owner_hash: *owner_hash,
+                            },
+                            list_id,
+                            member,
+                        };
+                        let index = lookups
+                            .iter()
+                            .position(|known| *known == lookup)
+                            .unwrap_or_else(|| {
+                                lookups.push(lookup);
+                                lookups.len() - 1
+                            });
+                        Ok(Alternative {
+                            lookup: index,
+                            mode,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, TransferError>>()?;
                 demands.push(Demand {
-                    consulted,
+                    alternatives,
                     member,
-                    mode: rule.mode,
                 });
             }
         }
         Ok(WitnessPlan {
             input: self,
+            sources,
             demands,
             lookups,
         })
-    }
-
-    fn source_owner(&self, list_id: ListId) -> Result<ListNamespace, TransferError> {
-        let entries = self
-            .policy_config
-            .source_for(list_id)
-            .ok_or(TransferError::MissingSourceOwner)?;
-        ListNamespace::new(entries.as_array()).map_err(|_| TransferError::PolicyHashing)
     }
 
     /// The rule's guard exempts the subject when the total it receives in the
@@ -245,13 +250,18 @@ fn list_entry(error: crate::EntryProofError) -> TransferError {
 }
 
 struct Demand {
-    consulted: Vec<usize>,
+    alternatives: Vec<Alternative>,
     member: Member,
+}
+
+struct Alternative {
+    lookup: usize,
     mode: Mode,
 }
 
 struct WitnessPlan<'a> {
     input: CustomRingWitnessInput<'a>,
+    sources: SourceMap,
     demands: Vec<Demand>,
     lookups: Vec<EntryLookup>,
 }
@@ -264,8 +274,7 @@ impl<'a> WitnessPlan<'a> {
         }
     }
 
-    /// One covering answer per demand, a member present in any allow list or
-    /// absent from any block list covers the group.
+    /// One answer per demand, the first alternative the entries satisfy.
     fn resolve(
         self,
         lineages: Vec<Option<LiveEntry>>,
@@ -284,15 +293,14 @@ impl<'a> WitnessPlan<'a> {
         let mut answers: Vec<ResolvedAnswer> = Vec::new();
         for demand in &self.demands {
             let answer = demand
-                .consulted
+                .alternatives
                 .iter()
-                .map(|&index| (self.lookups[index].list_id, facts[index]))
-                .find(|(_, fact)| fact.satisfies(demand.mode))
-                .map(|(list_id, fact)| ResolvedAnswer {
-                    list_id,
+                .find(|alternative| facts[alternative.lookup].satisfies(alternative.mode))
+                .map(|alternative| ResolvedAnswer {
+                    list_id: self.lookups[alternative.lookup].list_id,
                     member: demand.member,
-                    mode: demand.mode,
-                    fact,
+                    mode: alternative.mode,
+                    fact: facts[alternative.lookup],
                 })
                 .ok_or(TransferError::PolicyRuleUnsatisfied)?;
             if !answers.iter().any(|known| known.same_question(&answer)) {
@@ -304,6 +312,7 @@ impl<'a> WitnessPlan<'a> {
         }
         Ok(ResolvedWitness {
             input: self.input,
+            sources: self.sources,
             answers,
         })
     }
@@ -360,6 +369,7 @@ impl ResolvedAnswer {
 
 struct ResolvedWitness<'a> {
     input: CustomRingWitnessInput<'a>,
+    sources: SourceMap,
     answers: Vec<ResolvedAnswer>,
 }
 
@@ -424,18 +434,6 @@ impl ResolvedWitness<'_> {
         answers.resize_with(ANSWER_SLOTS, RuleAnswer::default);
 
         let input = self.input;
-        let mut sources = [SourceOwnerEntry::default(); MAX_SOURCES];
-        for (entry, slot) in sources.iter_mut().zip(input.policy_config.sources) {
-            if slot.list_id == 0 {
-                continue;
-            }
-            let owner = ListNamespace::new(slot.namespace.as_array())
-                .map_err(|_| TransferError::PolicyHashing)?;
-            *entry = SourceOwnerEntry {
-                list_id: slot.list_id,
-                owner_hash: owner.owner_hash,
-            };
-        }
         let mut inputs = [CustomRingOpening::default(); POLICY_INPUT_SLOTS];
         for (slot, spend) in inputs.iter_mut().zip(input.inputs) {
             *slot = input_opening(spend)?;
@@ -444,18 +442,18 @@ impl ResolvedWitness<'_> {
         for (slot, output) in outputs.iter_mut().zip(input.outputs) {
             *slot = output_opening(output)?;
         }
-        let (rules, inline_assets, inline_count) = encode_table(input.policy);
+        let table = &input.policy_config.rules;
         Ok(CustomRingWitness {
             roots,
-            sources,
+            sources: *self.sources.slots(),
             inputs,
             outputs,
             n_in: input.inputs.len() as u8,
             n_out: input.outputs.len() as u8,
-            rules,
-            policy_len: input.policy.rules().len() as u8,
-            inline_assets,
-            inline_count,
+            rules: table.rules,
+            policy_len: table.rule_count,
+            inline_assets: table.inline_assets,
+            inline_count: table.inline_count,
             answers,
         })
     }
@@ -670,22 +668,6 @@ fn ring_field(ring: Option<&Address>) -> Result<[u8; 32], TransferError> {
     }
 }
 
-fn encode_table(policy: &RuleTable) -> ([[u8; 32]; MAX_RULES], [[u8; 32]; MAX_INLINE_ASSETS], u8) {
-    let mut rules = [[0u8; 32]; MAX_RULES];
-    let mut inline = [[0u8; 32]; MAX_INLINE_ASSETS];
-    let mut inline_count = 0usize;
-    for (slot, rule) in rules.iter_mut().zip(policy.rules()) {
-        *slot = rule.encoded();
-        if let RuleSource::InlineAssets(members) = rule.source {
-            for member in members {
-                inline[inline_count] = *member;
-                inline_count += 1;
-            }
-        }
-    }
-    (rules, inline, inline_count as u8)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -699,18 +681,20 @@ mod tests {
     };
     use zolana_interface::state::address_tree_params;
     use zolana_keypair::ShieldedKeypair;
+    use zolana_ring_policy::ListSet;
 
     use super::*;
     use crate::instructions::entry::discovery::tests::{
         lookup, namespace, tree, Lineage, NullifierRpc,
     };
 
-    fn config() -> PolicyConfig {
+    /// Every referenced list reads the ring's own entries.
+    fn config(policy: &RuleTable) -> PolicyConfig {
         let mut sources = [SourceSlot {
             list_id: 0,
             namespace: Address::default(),
         }; N_SOURCE_SLOTS];
-        for list_id in [ListId::Allow, ListId::Block] {
+        for list_id in policy.referenced().iter() {
             sources[list_id.slot()] = SourceSlot {
                 list_id: list_id as u8,
                 namespace: namespace(),
@@ -723,6 +707,9 @@ mod tests {
             namespace_bump: 0,
             bump: 0,
             sources,
+            rules: policy.encode(),
+            generation: 1u32.to_le_bytes(),
+            generation_slot: [0; 8],
         }
     }
 
@@ -738,11 +725,13 @@ mod tests {
         SppProofOutputUtxo::new(Address::new_from_array([9; 32]), amount, address).expect("output")
     }
 
+    const EMPTY: RuleTable = RuleTable::builder().build();
+
     const TWO_ALLOW: RuleTable = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
         .rule(Rule::require_any(
             Subject::OutputOwner,
-            &[ListId::Allow, ListId::Block],
+            ListSet::of(&[ListId::Allow, ListId::Block]),
         ))
         .build();
 
@@ -751,11 +740,23 @@ mod tests {
     /// An owner guard needs a single unguarded inline asset beside it.
     const GUARDED: RuleTable = RuleTable::builder()
         .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above(5))
-        .rule(Rule::allow_only_assets(ASSETS))
+        .rule(Rule::allow_only_assets())
+        .inline_assets(ASSETS)
         .build();
 
     const BLOCK: RuleTable = RuleTable::builder()
         .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
+        .build();
+
+    /// An approval overrides a block.
+    const MIXED: RuleTable = RuleTable::builder()
+        .rule(Rule::any_of(
+            Subject::OutputOwner,
+            ListSet::single(ListId::Approval),
+            ListSet::single(ListId::Block),
+        ))
+        .rule(Rule::allow_only_assets())
+        .inline_assets(ASSETS)
         .build();
 
     #[test]
@@ -771,10 +772,9 @@ mod tests {
             .expect("output"),
             SppProofOutputUtxo::default(),
         ];
-        let config = config();
-        let policy = RuleTable::builder().build();
+        let config = config(&EMPTY);
         let input = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
@@ -791,12 +791,11 @@ mod tests {
     #[test]
     fn a_guarded_rule_exempts_a_recipient_only_below_the_aggregated_threshold() {
         let (member, address) = recipient();
-        let config = config();
-        let policy = RuleTable::builder().build();
+        let config = config(&EMPTY);
         // Two outputs to the same recipient sum to 2500, over the 2000 threshold.
         let outputs = [output(address, 1000), output(address, 1500)];
         let input = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
@@ -810,7 +809,7 @@ mod tests {
             .expect("no guard"));
         let one = [output(address, 1000)];
         let below = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &one,
@@ -824,12 +823,11 @@ mod tests {
     fn the_guard_sums_exactly_past_the_u64_range() {
         let (member, address) = recipient();
         let (other_member, other_address) = recipient();
-        let config = config();
-        let policy = RuleTable::builder().build();
+        let config = config(&EMPTY);
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(u64::MAX);
         let one_recipient = [output(address, u64::MAX), output(address, 1)];
         let input = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &one_recipient,
@@ -839,7 +837,7 @@ mod tests {
             .expect("over the range"));
         let two_recipients = [output(address, u64::MAX), output(other_address, 1)];
         let split = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &two_recipients,
@@ -855,10 +853,9 @@ mod tests {
     #[test]
     fn a_sender_guard_never_exempts() {
         let (member, _) = recipient();
-        let config = config();
-        let policy = RuleTable::builder().build();
+        let config = config(&EMPTY);
         let input = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &[],
@@ -1036,7 +1033,7 @@ mod tests {
         let lineage = Lineage::new(lookup(ListId::Allow, member), &[EntryState::Active]);
         let rpc = ProofRpc::new(lineage.spenders(tree()));
         let outputs = [output(address, 10), output(address, 20)];
-        let config = config();
+        let config = config(&TWO_ALLOW);
         let witness = CustomRingWitnessInput {
             policy: &TWO_ALLOW,
             policy_config: &config,
@@ -1082,7 +1079,7 @@ mod tests {
         let mut rpc = ProofRpc::new(Vec::new());
         rpc.account = Some(tree_account());
         let outputs = [output(address, 1)];
-        let config = config();
+        let config = config(&GUARDED);
         let witness = CustomRingWitnessInput {
             policy: &GUARDED,
             policy_config: &config,
@@ -1102,7 +1099,7 @@ mod tests {
         let (_, address) = recipient();
         let rpc = ProofRpc::new(Vec::new());
         let outputs = [output(address, 1)];
-        let config = config();
+        let config = config(&TWO_ALLOW);
         let refused = CustomRingWitnessInput {
             policy: &TWO_ALLOW,
             policy_config: &config,
@@ -1129,7 +1126,7 @@ mod tests {
             index: 5,
         });
         let outputs = [output(address, 1), output(other_address, 1)];
-        let config = config();
+        let config = config(&TWO_ALLOW);
         let refused = CustomRingWitnessInput {
             policy: &TWO_ALLOW,
             policy_config: &config,
@@ -1146,7 +1143,7 @@ mod tests {
         let mut rpc = ProofRpc::new(Vec::new());
         rpc.account = Some(tree_account());
         let outputs = [output(address, 1)];
-        let config = config();
+        let config = config(&BLOCK);
         let witness = CustomRingWitnessInput {
             policy: &BLOCK,
             policy_config: &config,
@@ -1171,10 +1168,9 @@ mod tests {
     fn a_table_without_answers_reads_both_roots_from_the_tree_account() {
         let mut rpc = ProofRpc::new(Vec::new());
         rpc.account = Some(tree_account());
-        let config = config();
-        let policy = RuleTable::builder().build();
+        let config = config(&EMPTY);
         let witness = CustomRingWitnessInput {
-            policy: &policy,
+            policy: &EMPTY,
             policy_config: &config,
             inputs: &[],
             outputs: &[],
@@ -1188,5 +1184,128 @@ mod tests {
         let calls = rpc.calls.lock().expect("calls");
         assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());
         assert_eq!(calls.accounts, 1);
+    }
+
+    fn enabled(witness: &CustomRingWitness) -> Vec<&RuleAnswer> {
+        witness
+            .answers
+            .iter()
+            .filter(|answer| answer.enabled)
+            .collect()
+    }
+
+    #[test]
+    fn a_blocked_member_passes_through_its_approval() {
+        let (member, address) = recipient();
+        let approved = Lineage::new(lookup(ListId::Approval, member), &[EntryState::Active]);
+        let blocked = Lineage::new(lookup(ListId::Block, member), &[EntryState::Active]);
+        let mut spenders = approved.spenders(tree());
+        spenders.extend(blocked.spenders(tree()));
+        let rpc = ProofRpc::new(spenders);
+        let outputs = [output(address, 1)];
+        let config = config(&MIXED);
+        let witness = CustomRingWitnessInput {
+            policy: &MIXED,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+
+        let answers = enabled(&witness);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].list_id, ListId::Approval as u8);
+        assert_eq!(answers[0].mode, Mode::Present as u8);
+        assert_eq!(answers[0].absent_branch, 2);
+        assert_eq!(answers[0].state, EntryState::Active as u8);
+        let live = approved.live().expect("live");
+        let calls = rpc.calls.lock().expect("calls");
+        assert_eq!(calls.merkle, vec![vec![live.utxo_hash]]);
+        assert_eq!(calls.non_inclusion, vec![vec![live.nullifier]]);
+        // Both alternatives are claimed in one round.
+        let requests = rpc.lineages.requests.lock().expect("requests");
+        assert_eq!(requests[0].len(), 2);
+    }
+
+    #[test]
+    fn an_unlisted_member_passes_through_the_absent_alternative() {
+        let (member, address) = recipient();
+        let mut rpc = ProofRpc::new(Vec::new());
+        rpc.account = Some(tree_account());
+        let outputs = [output(address, 1)];
+        let config = config(&MIXED);
+        let witness = CustomRingWitnessInput {
+            policy: &MIXED,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+
+        let answers = enabled(&witness);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0].list_id, ListId::Block as u8);
+        assert_eq!(answers[0].mode, Mode::Absent as u8);
+        assert_eq!(answers[0].absent_branch, 1);
+        let calls = rpc.calls.lock().expect("calls");
+        assert!(calls.merkle.is_empty());
+        assert_eq!(
+            calls.non_inclusion,
+            vec![vec![lookup(ListId::Block, member)
+                .address()
+                .expect("address")]]
+        );
+    }
+
+    #[test]
+    fn a_blocked_member_without_approval_is_refused() {
+        let (member, address) = recipient();
+        let blocked = Lineage::new(lookup(ListId::Block, member), &[EntryState::Active]);
+        let rpc = ProofRpc::new(blocked.spenders(tree()));
+        let outputs = [output(address, 1)];
+        let config = config(&MIXED);
+        let refused = CustomRingWitnessInput {
+            policy: &MIXED,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        }
+        .build(&rpc, &rpc);
+        assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
+        let calls = rpc.calls.lock().expect("calls");
+        assert!(calls.merkle.is_empty() && calls.non_inclusion.is_empty());
+    }
+
+    #[test]
+    fn the_request_carries_the_account_rows_verbatim() {
+        let (_, address) = recipient();
+        let mut rpc = ProofRpc::new(Vec::new());
+        rpc.account = Some(tree_account());
+        let outputs = [output(address, 1)];
+        let config = config(&MIXED);
+        let witness = CustomRingWitnessInput {
+            policy: &MIXED,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &outputs,
+        }
+        .build(&rpc, &rpc)
+        .expect("witness");
+
+        assert_eq!(witness.rules, config.rules.rules);
+        assert_eq!(witness.policy_len, config.rules.rule_count);
+        assert_eq!(witness.inline_assets, config.rules.inline_assets);
+        assert_eq!(witness.inline_count, config.rules.inline_count);
+        assert_eq!(witness.rules[0][19], ListSet::single(ListId::Block).bits());
+        assert_eq!(witness.inline_assets[0], ASSETS[0]);
+        let mapped: Vec<u8> = witness
+            .sources
+            .iter()
+            .map(|slot| slot.list_id)
+            .filter(|list_id| *list_id != 0)
+            .collect();
+        assert_eq!(mapped, vec![ListId::Block as u8, ListId::Approval as u8]);
     }
 }
