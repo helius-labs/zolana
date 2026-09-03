@@ -296,8 +296,8 @@ pub fn setup() -> Result<TestEnv> {
     })?;
     let user_view_tag = user_deposit.view_tag();
     let user_signature = user_deposit.send(&rpc, &payer, tree, &payer)?;
-    // SPP derives the blinding from the leaf index the output lands at, so the
-    // deposited UTXO is read back from the indexer, not reconstructed.
+    // A proofless deposit publishes its UTXO in the clear, so read it back from
+    // the indexer.
     let user_spl_blinding = wait_for_indexed_utxo(&indexer, user_view_tag, user_signature)
         .output_slot
         .proofless_output()

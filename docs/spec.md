@@ -596,7 +596,7 @@ owner_utxo_hash = Poseidon(owner, blinding)
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `ring_program_id` uses `pk_field` (see [Shielded Address](#shielded-address)). An absent `ring_program_id` is `0` (not `pk_field(0)`), so a UTXO without one keeps `ring_hash` over a `0` program field. `data_hash` enters `utxo_hash` directly and is `0` when absent.
 
-`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` in the clear, derives the `blinding` on-chain, and recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
+`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` in the clear, and the program derives the `blinding` and recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
 
 ## Nullifier
 
@@ -1572,7 +1572,7 @@ public-amount direction proven by the proof (`true` for a deposit).
 
 **Discriminator:** 11
 
-**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) in the clear, SPP derives the `blinding` (see [Blinding](#blinding-derivation)), and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
+**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) in the clear, and the program derives the `blinding` (see [Blinding](#blinding-derivation)) and recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
 One instruction is a batch: it carries a list of entries, each appending one output UTXO, and a list of settlement groups (`assets`) naming the assets those entries deposit — at most `MAX_DEPOSIT_ASSETS` (5). Entries naming the same asset are summed, so each asset settles with exactly one transfer regardless of how many outputs it funds, and the whole batch emits a single [`GeneralEvent`](#general-event). A single deposit is a batch of one.
 
@@ -1640,23 +1640,20 @@ program, and the SPP program account. The rail is selected by the account
 count; surplus accounts are rejected.
 
 <a id="blinding-derivation"></a>
-**Blinding.** `blinding` is not in the instruction data. SPP derives it from the
-tree and the leaf index the output lands at:
+**Blinding.** `blinding` is not in the instruction data. The program derives it
+from the tree and the leaf index the output lands at:
 
 ```text
 blinding_i = Sha256BE("Deposit" || tree_account || u64_be(first_output_leaf_index + i))
 ```
 
-`Sha256BE` zeroes the leading byte, so the result is always below the BN254
-modulus. `(tree_account, leaf_index)` never repeats, so no two deposits share a
-`blinding`, hence none share a `utxo_hash` or a [nullifier](#nullifier): a
-depositor cannot make a recipient's UTXO unspendable by colliding with an
-existing one, whether by a weak RNG or on purpose. The value is public on this
-rail, so the recipient reads it back with the indexed UTXO to spend it;
-recomputing it from `output_tree` and `first_output_leaf_index` is the
-verification path for a client that will not trust an indexer, not the normal
-one. The consequence is that the depositor cannot know the `utxo_hash` before
-the transaction executes, because the leaf index is assigned at append.
+`Sha256BE` zeroes the leading byte, keeping the result below the BN254 modulus.
+`(tree_account, leaf_index)` does not repeat, so no two deposits share a
+`blinding`, a `utxo_hash`, or a [nullifier](#nullifier); a depositor cannot make
+a recipient's UTXO unspendable by colliding with an existing one. The blinding is
+public on this rail: the recipient reads it back with the indexed UTXO. The leaf
+index is assigned at append, so the depositor cannot know the `utxo_hash` before
+the transaction executes.
 
 **Checks**
 
@@ -1856,12 +1853,10 @@ struct RingDepositEntry {
 }
 ```
 
-Unlike [`deposit`](#blinding-derivation), SPP never sees a ring entry's
-`blinding`: the entry publishes only `owner_utxo_hash`, and the owner hash and
-blinding preimages travel in the recipient-encrypted envelope. SPP therefore
-cannot derive or check the blinding here, and the calling ring program — the
-sole authorizer of this instruction — is responsible for using a fresh one per
-output so its recipients' UTXOs stay distinct and spendable.
+Unlike [`deposit`](#blinding-derivation), a ring entry publishes only
+`owner_utxo_hash`; the owner hash and blinding stay in the recipient ciphertext,
+so SPP cannot derive or check the blinding. The calling ring program authorizes
+the instruction and must use a fresh blinding per output.
 
 **Checks**
 

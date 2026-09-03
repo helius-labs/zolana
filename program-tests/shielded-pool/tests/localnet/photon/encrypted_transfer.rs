@@ -45,9 +45,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
     let sender_nullifier_pk = sender_nullifier_key.pubkey()?;
 
-    // ---- shield two sender-owned UTXOs (SPP derives each blinding from the
-    // leaf index its output lands at, and a proofless deposit publishes it in
-    // the clear, so each UTXO is read back from Photon) ----
+    // ---- shield two sender-owned UTXOs (read back from Photon, since a
+    // proofless deposit publishes them in the clear) ----
     let half = AMOUNT / 2;
     let mut spends = Vec::new();
     let sender_owner = sender.signing_pubkey();

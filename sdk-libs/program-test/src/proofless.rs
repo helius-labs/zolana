@@ -110,11 +110,9 @@ impl ZolanaProgramTest {
     }
 
     /// The spendable [`Utxo`] for a deposit this backend just sent, read back
-    /// from the test indexer instead of recomputed. A proofless deposit's
-    /// output is plaintext, so the blinding SPP derived comes back with the
-    /// indexed record; `owner` is the recipient's shielded signing key, which
-    /// the deposit commits to only as a hash. Feeds `SppProofInputUtxo::new`
-    /// directly.
+    /// from the test indexer. A proofless deposit's output is plaintext, so the
+    /// derived blinding comes with the indexed record; `owner` is the
+    /// recipient's shielded signing key, committed to only as a hash.
     pub fn indexed_deposit_utxo(
         &self,
         deposit: &DepositOutput,

@@ -146,9 +146,8 @@ impl Deposit<'_> {
         payer: &Keypair,
         authority: &Keypair,
     ) -> Result<DepositResult, ClientError> {
-        // The recipient `owner_hash` is computed from public address material, so
-        // the depositor needs no shared secret; the recipient re-derives the UTXO
-        // from the deposit event.
+        // The recipient `owner_hash` is public address material, so a
+        // third-party depositor shares no secret with the recipient.
         let owner = self.recipient.owner_hash()?;
         let view_tag = self.recipient.viewing_pubkey.x();
 
@@ -209,10 +208,8 @@ impl Deposit<'_> {
         }
         let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
         let signature = rpc.create_and_send_transaction(&[ix], payer_address, &signers)?;
-        // SPP derives the blinding from the leaf index the output lands at, so
-        // it is unknown until the deposit executes. A proofless deposit
-        // publishes it in the clear, so the depositor reads the UTXO back from
-        // the indexer instead of predicting where the append lands.
+        // The leaf index, and so the blinding, is assigned at append; the
+        // deposit publishes both in the clear, so read the UTXO back.
         let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
         let deposited = indexed
             .output_slots

@@ -63,8 +63,7 @@ fn indexer_poll() -> IndexerPollConfig {
 
 /// Polls until Photon serves the output `signature` created under `tag`, and
 /// returns that match. A proofless deposit publishes its blinding and UTXO hash
-/// in the clear, so the indexed match -- not a client-side recomputation -- is
-/// what identifies the deposited UTXO.
+/// in the clear, so the indexed match identifies the deposited UTXO.
 pub(super) fn wait_for_indexed_utxo(
     indexer: &ZolanaIndexer,
     tag: [u8; 32],

@@ -26,18 +26,10 @@ pub const MAX_DEPOSIT_ASSETS: usize = 5;
 pub const DEPOSIT_BLINDING_DOMAIN: &[u8] = b"Deposit";
 
 /// Blinding of the deposit output landing at `leaf_index` in `tree`.
-///
-/// The pair is unique for the life of the protocol, so two deposits can never
-/// share a blinding, hence never a `utxo_hash` and never a nullifier. `Sha256BE`
-/// zeroes the leading byte, so the result is always below the BN254 modulus.
-///
-/// This is the verification path, not the normal client path. A proofless
-/// deposit's output is plaintext, so the blinding comes back with the indexed
-/// UTXO and a client reads it from the indexer. Recompute it here only to check
-/// an indexed record without trusting the indexer, given the `output_tree` and
-/// `leaf_index` the deposit settled at. `leaf_index` is assigned during
-/// execution, so a client that predicts it before sending races every other
-/// deposit into the same tree.
+/// `(tree, leaf_index)` does not repeat, so no two deposits share a blinding, a
+/// `utxo_hash`, or a nullifier. `Sha256BE` zeroes the leading byte, keeping the
+/// result below the BN254 modulus. Clients read the blinding from the indexer;
+/// recompute it here only to check an indexed record.
 pub fn deposit_blinding(tree: &[u8; 32], leaf_index: u64) -> Result<[u8; 32], HasherError> {
     Sha256BE::hashv(&[
         DEPOSIT_BLINDING_DOMAIN,

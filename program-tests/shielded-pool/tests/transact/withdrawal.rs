@@ -131,9 +131,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). SPP
-    // derives the deposit blinding; a fixed nullifier secret keeps the run
-    // deterministic.
+    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). A
+    // fixed nullifier secret keeps the run deterministic.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);

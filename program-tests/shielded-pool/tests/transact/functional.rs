@@ -76,9 +76,8 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let input_owner_bytes = input_owner.to_bytes();
     let zero = [0u8; 32];
 
-    // The real input: a zero-value SOL deposit owned by `input_owner` (SPP
-    // derives the deposit blinding; a fixed nullifier secret keeps the run
-    // deterministic).
+    // The real input: a zero-value SOL deposit owned by `input_owner`. A fixed
+    // nullifier secret keeps the run deterministic.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = PublicKey::from_ed25519(&input_owner_bytes);

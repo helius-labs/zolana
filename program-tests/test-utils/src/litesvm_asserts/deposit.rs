@@ -112,8 +112,8 @@ impl SolDepositOracle {
             .utxo_data
             .as_ref()
             .map_or([0u8; 32], |utxo_data| utxo_data.data_hash);
-        // Recomputed rather than echoed: the depositor supplies no blinding, SPP
-        // derives it from the tree and the leaf index the output lands at.
+        // Recomputed rather than echoed: the blinding comes from the tree and
+        // the leaf index the output lands at.
         let expected_blinding = deposit_blinding(&self.tree.to_bytes(), expected_leaf as u64)
             .expect("model deposit blinding");
         let expected_hash =
@@ -237,9 +237,8 @@ pub struct DepositAssertArgs<'a, A: ?Sized> {
     pub expected_asset: [u8; 32],
     pub root_before: [u8; 32],
     /// Indexed-output count captured before the deposit, so the expected leaf
-    /// index (and the blinding SPP derives from it) never comes from the event
-    /// under test. Keyed on the event, this assert could not catch a wrong leaf
-    /// index.
+    /// index (and the blinding derived from it) does not come from the event
+    /// under test.
     pub indexed_outputs_before: usize,
     pub authority: &'a A,
 }

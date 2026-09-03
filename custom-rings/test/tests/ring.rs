@@ -1471,8 +1471,8 @@ impl<'a> DefaultRingDeposit<'a> {
         }
         .instruction()?;
         let signature = send(rpc, self.depositor, &[deposit])?;
-        // SPP derives the blinding from the leaf index the output lands at, so
-        // the deposited UTXO is read back from the indexer, not reconstructed.
+        // A proofless deposit publishes its UTXO in the clear, so read it back
+        // from the indexer.
         let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
         let mint = self.asset.mint();
         let balances = decrypt_transactions(self.depositor, std::slice::from_ref(&indexed), assets)

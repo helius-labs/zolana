@@ -560,9 +560,8 @@ pub struct SplWithdrawal {
 /// from the vault back to the payer's token account. The input carries a real
 /// state-inclusion proof against the on-chain UTXO tree root and a real
 /// nullifier non-inclusion proof against the on-chain nullifier tree root, both
-/// built from reference trees and gated against the on-chain roots. The
-/// deposit blinding is derived by SPP and a fixed nullifier secret keeps the
-/// run deterministic.
+/// built from reference trees and gated against the on-chain roots. A fixed
+/// nullifier secret keeps the run deterministic.
 pub fn build_spl_withdrawal(
     pt: &mut ZolanaProgramTest,
     authority: &Keypair,

@@ -242,9 +242,9 @@ impl TestIndexer {
     }
 
     /// The spendable [`Utxo`] the indexed proofless deposit at `utxo_hash`
-    /// reconstructs to. A proofless deposit publishes asset, amount and the
-    /// SPP-derived blinding in the clear, so `owner` -- committed to only as a
-    /// hash -- is the one field the indexed record cannot supply.
+    /// reconstructs to. Asset, amount and the derived blinding are public; the
+    /// indexed record commits to `owner` only as a hash, so the caller supplies
+    /// it.
     pub fn deposit_utxo(
         &self,
         utxo_hash: &[u8; 32],

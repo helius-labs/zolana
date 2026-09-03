@@ -230,8 +230,8 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
 
         let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, sig);
-        // A proofless deposit publishes the SPP-derived blinding in the clear,
-        // so Photon's indexed output carries it.
+        // A proofless deposit publishes its blinding in the clear, so Photon's
+        // indexed output contains it.
         let deposited = indexed_deposit
             .output_slot
             .proofless_output()

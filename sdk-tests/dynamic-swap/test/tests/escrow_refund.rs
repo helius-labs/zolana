@@ -205,10 +205,9 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
                 &authority_solana,
             )
             .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
-        // SPP derives the blinding from the leaf index the output lands at. The
-        // escrow authority is a PDA holding no viewing key, but a proofless
-        // deposit publishes its UTXO in the clear, so the depositor-chosen view
-        // tag reads it back from the indexer.
+        // The escrow authority is a PDA holding no viewing key, but a
+        // proofless deposit publishes its UTXO in the clear, so the
+        // depositor-chosen view tag reads it back from the indexer.
         let funding_blinding =
             wait_for_indexed_utxo(env.client.indexer(), funding_view_tag, funding_signature)
                 .output_slot

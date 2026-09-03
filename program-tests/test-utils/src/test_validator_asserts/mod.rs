@@ -45,8 +45,7 @@ pub fn to_address(pubkey: &Pubkey) -> Address {
 pub struct ExpectedDeposit {
     pub tree: [u8; 32],
     /// Leaf index the single output must land at, read from the pre-deposit
-    /// tree snapshot via [`utxo_next_index_from`]. Keyed on the event instead,
-    /// the assert could not catch a wrong leaf index.
+    /// tree snapshot via [`utxo_next_index_from`].
     pub leaf_index: u64,
     pub amount: u64,
     pub asset: Address,

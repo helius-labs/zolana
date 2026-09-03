@@ -108,8 +108,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     let record = write_user_record(&mut env.rpc, payer_pk, None, true);
 
     // The real input: a zero-value SOL deposit owned by the payer's shielded
-    // address (SPP derives the deposit blinding; a fixed nullifier secret keeps
-    // the run deterministic).
+    // address. A fixed nullifier secret keeps the run deterministic.
     let nullifier_key = keypair.nullifier_key();
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = keypair.signing_pubkey();

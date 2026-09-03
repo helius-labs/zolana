@@ -233,10 +233,9 @@ pub fn setup() -> Result<TestEnv> {
     })?;
     let creator_view_tag = creator_deposit.view_tag();
     let creator_signature = creator_deposit.send(&rpc, &payer, tree, &payer)?;
-    // SPP derives the blinding from the leaf index the output lands at. The
-    // escrow authority is a PDA holding no viewing key, but a proofless deposit
-    // publishes its UTXO in the clear, so the depositor-chosen view tag is
-    // enough to read it back from the indexer.
+    // The escrow authority is a PDA holding no viewing key, but a proofless
+    // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
+    // reads it back from the indexer.
     let creator_deposited = wait_for_indexed_utxo(&indexer, creator_view_tag, creator_signature)
         .output_slot
         .proofless_output()

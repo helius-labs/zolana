@@ -66,17 +66,10 @@ const DEPOSIT_BLINDING_DOMAIN = new TextEncoder().encode("Deposit");
 
 /**
  * Blinding SPP derives for the proofless `deposit` output landing at
- * `leafIndex` in `tree`. Mirrors Rust `deposit_blinding`. The pair never
- * repeats, so no two deposits share a blinding, hence none share a UTXO hash or
- * a nullifier. A depositor supplies none.
- *
- * This is the verification path, not the normal client path. A proofless
- * deposit's output is plaintext, so the blinding comes back with the indexed
- * UTXO and a client reads it from the indexer. Recompute it here only to check
- * an indexed record without trusting the indexer, given the `output_tree` and
- * `leafIndex` the deposit settled at. `leafIndex` is assigned during execution,
- * so a client that predicts it before sending races every other deposit into
- * the same tree.
+ * `leafIndex` in `tree`. Mirrors Rust `deposit_blinding`. `(tree, leafIndex)`
+ * does not repeat, so no two deposits share a blinding, a UTXO hash, or a
+ * nullifier. Clients read the blinding from the indexer; recompute it here only
+ * to check an indexed record.
  */
 export function depositBlinding(tree: Address, leafIndex: bigint): Blinding {
   if (leafIndex < 0n || leafIndex > 0xffff_ffff_ffff_ffffn) {

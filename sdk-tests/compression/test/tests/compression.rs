@@ -87,9 +87,8 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     }
     .instruction()?;
     let deposit_signature = send_from(env, deposit_ix, &attacker, None)?;
-    // SPP derives the blinding from the leaf index the output lands at, and a
-    // proofless deposit publishes it in the clear, so the UTXO is read back
-    // from the indexer.
+    // A proofless deposit publishes its UTXO in the clear, so read it back from
+    // the indexer.
     let deposited = wait_for_indexed_utxo(
         &env.indexer,
         attacker_address.confidential_view_tag()?,

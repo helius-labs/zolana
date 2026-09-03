@@ -24,8 +24,8 @@ pub(crate) fn wallet_shield_fields(
     })
 }
 
-/// The public recipient material a proofless deposit carries. SPP derives the
-/// blinding itself, so the plain `deposit` rail needs nothing else.
+/// The public recipient material a proofless deposit contains. The blinding is
+/// derived, so the plain `deposit` rail needs nothing else.
 pub(crate) fn wallet_shield_identity(
     recipient: &ShieldedAddress,
 ) -> Result<([u8; 32], [u8; 32]), ProgramTestError> {

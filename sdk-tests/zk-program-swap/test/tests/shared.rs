@@ -270,10 +270,9 @@ pub fn setup() -> Result<TestEnv> {
     })?;
     let maker_view_tag = maker_deposit.view_tag();
     let maker_signature = maker_deposit.send(&rpc, &payer, tree, &payer)?;
-    // SPP derives the blinding from the leaf index the output lands at. The
-    // order authority is a PDA holding no viewing key, but a proofless deposit
-    // publishes its UTXO in the clear, so the depositor-chosen view tag is
-    // enough to read it back from the indexer.
+    // The order authority is a PDA holding no viewing key, but a proofless
+    // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
+    // reads it back from the indexer.
     let maker_deposited = wait_for_indexed_utxo(&indexer, maker_view_tag, maker_signature)
         .output_slot
         .proofless_output()

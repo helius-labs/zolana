@@ -25,9 +25,8 @@ pub struct SplDepositAssertArgs<'a, A: ?Sized> {
     pub user_token_before: u64,
     pub root_before: [u8; 32],
     /// Indexed-output count captured before the deposit, so the expected leaf
-    /// index (and the blinding SPP derives from it) never comes from the event
-    /// under test. Keyed on the event, this assert could not catch a wrong leaf
-    /// index.
+    /// index (and the blinding derived from it) does not come from the event
+    /// under test.
     pub indexed_outputs_before: usize,
     pub authority: &'a A,
 }

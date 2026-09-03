@@ -239,10 +239,9 @@ impl OutputSlot {
     }
 
     /// The UTXO a proofless deposit publishes in the clear: owner hash, asset,
-    /// amount and the SPP-derived blinding. Proofless is the one output kind
-    /// with no ciphertext, so this is how a depositor whose recipient holds no
-    /// viewing key (a program PDA) reads the deposited UTXO back from an
-    /// indexer. `None` for every encrypted output kind.
+    /// amount and the derived blinding. `None` for encrypted output kinds, so
+    /// this is how a depositor whose recipient holds no viewing key (a program
+    /// PDA) reads the deposited UTXO back from an indexer.
     pub fn proofless_output(&self) -> Option<ProoflessOutput> {
         let OutputDataEncoding::Plaintext(blob) = self.output_data()? else {
             return None;

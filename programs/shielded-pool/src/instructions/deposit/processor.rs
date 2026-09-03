@@ -105,8 +105,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
 
-    // Loaded before hashing because every entry's blinding is derived from the
-    // leaf index it lands at.
+    // Loaded before hashing: each entry's blinding comes from the leaf index it
+    // lands at.
     let mut tree =
         TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
             .map_err(ShieldedPoolError::from)?;
@@ -127,9 +127,9 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             .get(usize::from(asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
-        // (tree, leaf index) never repeats, so no two deposits share a blinding,
-        // hence none share a utxo_hash or a nullifier. The ring rail commits to
-        // its own blinding inside `owner_utxo_hash` and never exposes it here.
+        // (tree, leaf index) does not repeat, so no two deposits share a
+        // blinding, a utxo_hash, or a nullifier. The ring rail commits to its
+        // own blinding inside `owner_utxo_hash`.
         let blinding = if HAS_RING {
             zero
         } else {

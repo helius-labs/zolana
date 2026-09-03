@@ -167,8 +167,8 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     print_signature("deposit", &shield_tx.signature);
 
     let shield_view = single_deposit_view(&shield_tx.events)?;
-    // A proofless deposit's output is plaintext, so the blinding SPP derived
-    // comes back with the indexed record.
+    // A proofless deposit's output is plaintext, so the blinding comes back
+    // with the indexed record.
     let payer_utxo = cycle
         .indexer
         .deposit_utxo(&shield_view.utxo_hash, payer_owner)

@@ -645,9 +645,8 @@ fn sol_interface_lamports(rpc: &ZolanaProgramTest) -> u64 {
         .map_or(0, |account| account.lamports)
 }
 
-/// Byte-identical entries must still append distinct leaves: SPP derives each
-/// blinding from the leaf index, so the depositor cannot collide two outputs
-/// into one spendable UTXO.
+/// Byte-identical entries must still append distinct leaves: each blinding
+/// comes from the leaf index, so two outputs cannot collide into one UTXO.
 #[test]
 fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     const AMOUNT: u64 = 1_000_000;
@@ -695,9 +694,7 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
 }
 
 /// Repeating the same entry in a later transaction must not reproduce the
-/// earlier leaf. The blinding is public, so a third party could otherwise read
-/// it back from the event and burn the recipient's UTXO by colliding its
-/// nullifier.
+/// earlier leaf, whose nullifier is already spendable from the public blinding.
 #[test]
 fn repeating_an_identical_deposit_in_a_later_transaction_appends_a_distinct_leaf() {
     const AMOUNT: u64 = 1_000_000;

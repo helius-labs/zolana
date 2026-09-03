@@ -188,7 +188,6 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     &authority_solana,
                 )
                 .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
-            // SPP derives the blinding from the leaf index the output lands at.
             // The escrow authority is a PDA holding no viewing key, but a
             // proofless deposit publishes its UTXO in the clear, so the
             // depositor-chosen view tag reads it back from the indexer.

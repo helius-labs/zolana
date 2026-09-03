@@ -102,9 +102,8 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
           details: { mint: params.asset },
         }),
     );
-    // SPP derives the blinding from the leaf index the output lands at, so the
-    // UTXO hash is only known once the transaction executes; read it from the
-    // emitted event.
+    // The blinding comes from the leaf index the output lands at, so read the
+    // UTXO hash from the event.
     return new Deposit({
       data,
       asset: params.asset,

@@ -20,10 +20,9 @@ use zolana_client::{
 
 /// Prepared direct proofless SOL shield.
 ///
-/// This owns the recipient-derived deposit material so callers do not need to
-/// manually coordinate salt, owner commitment, and UTXO hash rules. SPP derives
-/// the blinding from the leaf index the output lands at, so the UTXO hash is
-/// only known once the transaction executes; read the indexed UTXO to spend it.
+/// This owns the recipient-derived deposit material, so callers coordinate no
+/// owner-commitment or UTXO-hash rules themselves. The blinding comes from the
+/// leaf index the output lands at, so read the indexed UTXO to spend it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Deposit {
     pub deposit: AssetDeposit,
@@ -43,9 +42,8 @@ pub struct DepositParams<'a> {
 
 impl Deposit {
     pub fn new(request: DepositParams<'_>) -> Result<Self, ClientError> {
-        // The recipient `owner` commitment is derived from public address
-        // material, so a third-party depositor needs no shared secret and the
-        // recipient spends the UTXO directly.
+        // The recipient `owner` commitment is public address material, so a
+        // third-party depositor shares no secret with the recipient.
         let owner = request.recipient.owner_hash()?;
         let view_tag = request.recipient.viewing_pubkey.x();
         Ok(Self {

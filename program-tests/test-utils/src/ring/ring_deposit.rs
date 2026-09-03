@@ -36,8 +36,8 @@ use crate::{
 
 impl RingHarness {
     /// Build the recipient-visible, wallet-discoverable plain deposit data for
-    /// `name`: owner = recipient owner-hash, the recipient bootstrap view tag,
-    /// and the public amount. SPP derives the blinding. No ring/program data.
+    /// `name`: owner = recipient owner-hash, the recipient view tag, and the
+    /// public amount. The blinding is derived.
     fn asset_deposit_data(
         &self,
         name: &str,
@@ -55,9 +55,9 @@ impl RingHarness {
         })
     }
 
-    /// The blinding SPP derived for a settled plain `deposit`, read back from
-    /// the indexer: it depends on the leaf index the output landed at, and a
-    /// proofless deposit publishes it in the clear.
+    /// The blinding of a settled plain `deposit`, read back from the indexer:
+    /// it depends on the leaf index the output landed at, and a proofless
+    /// deposit publishes it in the clear.
     fn indexed_deposit_blinding(
         &self,
         data: &AssetDeposit,
