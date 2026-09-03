@@ -8,6 +8,7 @@ import {
 
 import {
   ClientError,
+  LocalKeys,
   SOL_MINT,
   ShieldedKeypair,
   SPL_TOKEN_2022_PROGRAM_ID,
@@ -758,11 +759,13 @@ describe.sequential("live SDK lifecycle", () => {
       },
     });
     const abort = new AbortController();
+    // The proof goes through the keys' proof service, so the keys must prove
+    // through the intercepting client.
     const proving = transfer(
       {
         client: abortingClient,
         wallet: owner.wallet,
-        keys: owner.keys,
+        keys: LocalKeys.fromKeypair(owner.keypair, abortingClient.proofService),
         feePayer: owner.signer,
         recipient: recipient.signer.address,
         amount: 10_000_000n,
