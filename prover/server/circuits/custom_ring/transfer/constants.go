@@ -77,12 +77,14 @@ var aggregatedOffset = new(big.Int).Lsh(big.NewInt(1), 66)
 // at compile time first.
 const _ = uint(4 - NOut)
 
-// ruleShift are the field weights of the ring_policy::Rule::encoded byte groups.
-var ruleShift = [4]*big.Int{
+// ruleShift are the field weights of the ring_policy::Rule::encoded byte groups,
+// 2^96 the alt mask at byte 19.
+var ruleShift = [5]*big.Int{
 	new(big.Int).Lsh(big.NewInt(1), 8),
 	new(big.Int).Lsh(big.NewInt(1), 16),
 	new(big.Int).Lsh(big.NewInt(1), 24),
 	new(big.Int).Lsh(big.NewInt(1), 32),
+	new(big.Int).Lsh(big.NewInt(1), 96),
 }
 
 // packedASCII right-aligns the tag in 32 bytes, capped at 31 to stay below the

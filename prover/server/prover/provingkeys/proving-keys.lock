@@ -1,7 +1,7 @@
 {
   "keys": {
     "audit.key": {
-      "sha256": "ac5617d009c48259ba6cdda1e63ae2703a05200afaa90d6b04e025ecbffa2943",
+      "sha256": "5a469eca19000e5d023c9c7711beac495e4faf72ab804c635c0d84541ddc3aeb",
       "size": 89748463,
       "source": "release"
     },
@@ -14,8 +14,8 @@
       "size": 3764027068
     },
     "custom_ring.key": {
-      "sha256": "26d9de6ce93e7712102bddac3ead7d6255d874fdcc70c11707a380fa616b0905",
-      "size": 177917145,
+      "sha256": "4bb6d6393d12580e79b1fb783f8c232103ff8a67acabbd7a31b6aafacb666325",
+      "size": 177498505,
       "source": "release"
     },
     "merge_8_1.key": {

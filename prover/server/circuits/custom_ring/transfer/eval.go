@@ -5,8 +5,8 @@ import (
 )
 
 // evaluate closes every enabled rule against every live instance of its
-// subject, covered by an answer proving the same (list, mode) fact about
-// the instance or by the amount guard.
+// subject, covered by an answer proving one of the rule's (list, mode)
+// alternatives about the instance or by the amount guard.
 func (c *Circuit) evaluate(
 	api frontend.API,
 	slots openings,
@@ -17,6 +17,8 @@ func (c *Circuit) evaluate(
 
 	var eqOutputOwner, eqOutputAsset [NAnswers][NOut]frontend.Variable
 	var eqSender [NAnswers][NIn]frontend.Variable
+	// A disabled answer carries listId 0 and names no list.
+	var onList [NAnswers][NSources]frontend.Variable
 	for e, entry := range answers {
 		for j, out := range slots.outputs {
 			eqOutputOwner[e][j] = api.IsZero(api.Sub(entry.member, out.owner))
@@ -24,6 +26,9 @@ func (c *Circuit) evaluate(
 		}
 		for i, in := range slots.inputs {
 			eqSender[e][i] = api.IsZero(api.Sub(entry.member, in.owner))
+		}
+		for v := range onList[e] {
+			onList[e][v] = api.IsZero(api.Sub(entry.listId, v+1))
 		}
 	}
 
@@ -46,11 +51,14 @@ func (c *Circuit) evaluate(
 		// carrying it.
 		onSender := api.IsZero(api.Sub(rule.Subject, SubjectSender))
 
+		maskBits := api.ToBinary(rule.Mask, NSources)
+		altBits := api.ToBinary(rule.AltMask, NSources)
+		altMode := api.Sub(ModePresent+ModeAbsent, rule.Mode)
 		var matched [NAnswers]frontend.Variable
 		for e, entry := range answers {
-			matched[e] = api.Mul(entry.enabled, api.Mul(
-				bitMember(api, rule.Mask, entry.listId),
-				api.IsZero(api.Sub(entry.mode, rule.Mode)),
+			matched[e] = api.Mul(entry.enabled, api.Add(
+				api.Mul(bitMember(api, maskBits, onList[e][:]), api.IsZero(api.Sub(entry.mode, rule.Mode))),
+				api.Mul(bitMember(api, altBits, onList[e][:]), api.IsZero(api.Sub(entry.mode, altMode))),
 			))
 		}
 
@@ -142,12 +150,10 @@ func nonZero(api frontend.API, value frontend.Variable) frontend.Variable {
 	return api.Sub(1, api.IsZero(value))
 }
 
-// Tests bit listId-1 of mask, listId 0 (a disabled answer) matches nothing.
-func bitMember(api frontend.API, mask, listId frontend.Variable) frontend.Variable {
-	bits := api.ToBinary(mask, NSources)
+func bitMember(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
 	member := frontend.Variable(0)
-	for v := 1; v <= NSources; v++ {
-		member = api.Add(member, api.Mul(api.IsZero(api.Sub(listId, v)), bits[v-1]))
+	for v, named := range onList {
+		member = api.Add(member, api.Mul(named, bits[v]))
 	}
 	return member
 }

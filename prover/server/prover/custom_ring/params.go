@@ -503,8 +503,8 @@ func assignOneHot(dst []frontend.Variable, set int) {
 	}
 }
 
-// Byte order mirrors `Rule::encoded`, byte 31 is the subject and bytes 20..28
-// the threshold.
+// Byte order mirrors `Rule::encoded`, byte 31 is the subject, bytes 20..28 the
+// threshold and byte 19 the alt mask.
 func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Packed = new(big.Int).SetBytes(encoded[:])
 	dst.Subject = encoded[31]
@@ -512,6 +512,7 @@ func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Mask = encoded[29]
 	dst.GuardTag = encoded[28]
 	dst.Threshold = new(big.Int).SetBytes(encoded[20:28])
+	dst.AltMask = encoded[19]
 }
 
 func assignPoolEntry(dst *transfer.RuleAnswerWires, src *Answer) {

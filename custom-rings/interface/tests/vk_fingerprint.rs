@@ -44,7 +44,7 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "006cadbd70a0e694e395db10bbf3e02df9d673ab28103363904171f86673876f",
+        fingerprint, "00e02a0a54656f2ec612a58416f80ffc6139123553274c6d0561cabeb0e55165",
         "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,7 @@ fn audit_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00f4b4e4a7a51b5ca5871a02f8d3eb92f9d8203943f3119967f7a245b0b172e0",
+        fingerprint, "00f93b21247e181324dec11d8e4c7d6c4219b955ec2b0498a7f3428b73d32ac0",
         "audit verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
