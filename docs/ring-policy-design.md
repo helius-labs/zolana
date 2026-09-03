@@ -5,10 +5,11 @@ refuse one. This document explains the plane that adds refusal. The rules ride
 the transfer proof the ring already verifies. The chain never learns whom they
 screen.
 
-Three parties meet in the construction. A ring operator compiles admission
-rules into the ring program binary. A transferring wallet must prove every
-rule satisfied against list state it does not control. A **curator** maintains
-one list that many rings consume by reference.
+Three parties meet in the construction. A ring operator pins admission rules
+as data in the ring's policy config, signed by the program's upgrade
+authority. A transferring wallet must prove every rule satisfied against list
+state it does not control. A **curator** maintains one list that many rings
+consume by reference.
 
 One idea underlies the mechanisms. A list entry is a compressed account. A
 policy is a proof obligation over the presence or absence of such accounts,
@@ -19,7 +20,7 @@ The direct ancestor is the plaintext compressed-account example, commit
 `20388c26`. Each mechanism below reuses it exactly or extends it in a named
 way. Anchors cite the branch head `0742613e`.
 
-The running example is a blocklist ring. Its compiled table holds one rule,
+The running example is a blocklist ring. Its pinned table holds one rule,
 forbid `OutputOwner` in `Block`. A curator ring serves the `Block` list. The
 curator bans Mr. Evil. Mr. Crazy transfers.
 
@@ -60,14 +61,23 @@ tree already rejects. There is no address registry and no new tree.
 another namespace PDA.
 
 A **member** is one field element, `Member::owner_tag` over the confidential
-view tag (`member.rs`). An ed25519 tag is the raw pubkey. A P256 tag is the
-x-coordinate alone. Parity travels in encrypted owner data, a ban therefore
-covers both parity points of an x. The same derivation keys assets, ring
-programs, and destinations. One member space serves every rule subject
-because the circuit already carries these exact field elements in the slot
-openings. A party holding both an ed25519 and a P256 identity owns two
-distinct members. A curator that bans an address does not ban the party's
-P256 identity.
+view tag or `Member::asset` over a mint (`member.rs`). An ed25519 tag is the
+raw pubkey. A P256 tag is the x-coordinate alone. Parity travels in encrypted
+owner data, a ban therefore covers both parity points of an x. A mint hashes
+exactly as the asset field of the UTXO, native SOL as the all-zero address.
+One member space serves every rule subject because the circuit already
+carries these exact field elements in the slot openings. A list holds owner
+and asset members side by side. An owner rule derives its members from the
+output owners, an asset rule from the output mints. A mint and a tag with
+the same bytes derive one member, one entry serves both. A party holding
+both an ed25519 and a P256 identity owns two distinct members. A curator
+that bans an address does not ban the party's P256 identity.
+
+An asset rule over lists reads entries the config authority or a curator
+writes, like an owner rule. The inline form, `Rule::allow_only_assets`, keeps
+the mints inside the pinned table. They move only with a re-pin under the
+upgrade authority, out of reach of a compromised config authority. An owner
+amount guard reads its units from that one inline rule.
 
 Entries have two states and no delete. `Active` and `Cleared` are both live
 UTXOs. Removal spends the `Active` version into a `Cleared` successor at the
@@ -102,30 +112,38 @@ Only a rule that consults the list touches anything else.
 
 ## The table, the source map, and one hash
 
-The rule table is a `const` compiled into the ring program.
-`RuleTableBuilder` is const-evaluable, an illegal table fails the build of the
-consuming program, not a transaction. The builder rejects duplicate rules by
-signature, subject plus mode plus source list, guard excluded. The pair
-`require(OutputOwner, Allow)` and the same rule guarded above a threshold
-reads as a working exemption. The unguarded rule subsumes it. The builder
-refuses the pair.
+The rule table is instruction data. `create_policy` and `set_policy_rules`
+carry the rows and the source specs, the program decodes every row and
+rebuilds the table through `RuleTableBuilder::try_build`, an illegal table
+fails the instruction with `InvalidPolicyRules` and never reaches the
+account. The cli runs the same builder over `ring.toml` first and names the
+refused row. The builder rejects duplicate rules by signature, subject plus
+both list sets, guard excluded. The pair `require(OutputOwner, Allow)` and
+the same rule guarded above a threshold reads as a working exemption. The
+unguarded rule subsumes it. The builder refuses the pair.
 
-A rule packs into one field element, subject, mode, list, guard tag, and
-threshold at fixed byte positions. The hash covers only the packed element.
-The circuit witnesses the components, range-checks each, and re-derives the
-packed value by weighted sum. Without the range checks a prover could borrow
-across byte boundaries and reinterpret a pinned rule as a different one.
+A rule packs into one field element, subject, mode, list mask, guard tag,
+threshold, and alternative mask at fixed byte positions. The hash covers only
+the packed element. The circuit witnesses the components, range-checks each,
+and re-derives the packed value by weighted sum. Without the range checks a
+prover could borrow across byte boundaries and reinterpret a pinned rule as a
+different one.
 
-A rule's source is `List`, naming a list, `AnyOf`, naming a group, or
-`InlineAssets`, an asset allowlist carried by the table itself. The list byte is
-a bitmask, bit `i` names list `i + 1`, and the circuit covers the rule by an
-answer for any set bit. A single list sets one bit, a group sets several, and
-the mode reads the disjunction, `require_any` as a union allowlist and
-`forbid_all` as an intersection blocklist. `Rule::allow_only_assets` lists up to
-eight asset members, hashed after the rules. The circuit answers an inline
-rule by direct member comparison, no entry, no answer, no source slot.
-The builder restricts inline members to `Asset` subjects in `Present` mode.
-A zero mask marks the inline source.
+A rule's source is `Lists`, a present set and an absent set, or
+`InlineAssets`, an asset allowlist carried by the table itself. The mask byte
+carries the lists of the primary mode, bit `i` names list `i + 1`, the
+alternative byte carries the lists satisfying the rule in the opposite mode.
+The circuit covers an instance by an answer for any set bit in either byte,
+in that byte's mode. `require_any` reads as a union allowlist, `forbid_all`
+as an intersection blocklist, and `any_of` admits an approval beside a block.
+The form is canonical. A rule with a present set is `Present` primary, a rule
+with absent lists only is `Absent` primary with an empty alternative, and
+`Rule::decode` refuses the other encodings, one rule has one row and one
+hash. `Rule::allow_only_assets` lists up to `MAX_INLINE_ASSETS` asset
+members, hashed after the rules. The circuit answers an inline rule by direct
+member comparison, no entry, no answer, no source slot. The builder restricts
+inline members to `Asset` subjects in `Present` mode with no alternative. A
+zero mask marks the inline source.
 
 The **source map** decides where each list's entries live. It is eight
 positional slots, slot `i` is empty or serves list `i + 1`. An occupied slot
@@ -155,12 +173,15 @@ membership against exactly the value the hash pins.
 
 ## The on-chain binding
 
-`create_policy` pins the hash once, gated on the live upgrade authority. The
-table is part of the deployed binary, so only its deployer may bind it. The
-policy PDA refuses re-initialization, the table is pinned for the life of
-the deployment. The instruction demands a bijection between declared sources
-and the lists the compiled table references. A stale client fails at create
-time, not at spend time.
+`create_policy` pins the table it carries, gated on the live upgrade
+authority. The policy PDA refuses re-initialization. `set_policy_rules`
+replaces the rows and the map under the same authority, the config authority
+cannot. Every write of the rows or the map re-hashes the stored rows over the
+stored map, counts `generation` one up and records the slot in
+`generation_slot`. The pin takes effect at once, a proof over the old hash
+fails verification. Both instructions demand a bijection between declared
+sources and the lists the table references. A client holding its own table
+compares it with the stored rows through `client_rules_match`.
 
 Curatorship is permissionless. SVM ownership plus shape identify a curator.
 The shape is the `b"policy"` PDA of the owning program, the config
@@ -178,13 +199,10 @@ Delegation bounds who writes, never what they write, a subscriber trusts
 its curator's writes wholly.
 
 `set_policy_source` re-points one list and is gated on the ring config
-authority, an operational act, not a deployment. Before it writes, the
-instruction proves the stored hash reproduces from the stored slots under
-the currently deployed table. Without that gate, an upgrade that changes
-the table plus one routine source edit would re-pin the new table's hash.
-The table change would launder past the upgrade-authority ceremony. With
-it, a drifted build fails closed on every mutating path. The same recompute
-runs before every entry mutation and every transfer.
+authority, an operational act, not a rules change. It re-hashes the stored
+rows over the new map. The rows move only under the upgrade authority, a
+source edit cannot carry a table change past that ceremony. `transact` reads
+the stored hash, an entry mutation reads the stored map.
 
 A list mapped to a curator is locally read-only, the mutation path refuses
 with `ForeignSource`. The curator ring is the single writer, a ring
@@ -222,9 +240,10 @@ statement. The whole circuit keeps exactly one BSB22 commitment by reusing
 the range checker the audit block instantiates, a shape the on-chain
 verifier requires.
 
-A ring chooses its tier at deployment. A ring with rules is a policy ring and
-proves the eleven-element statement above. A ring without rules is audit-only
-and proves the eight-element prefix against a lighter circuit and verifying key.
+A ring chooses its tier at `create_config`. A ring with a `[policy]` table is
+a policy ring and proves the eleven-element statement above, an empty table
+included. A ring without one is audit-only and proves the eight-element prefix
+against a lighter circuit and verifying key.
 The tier is the config `has_policy` flag, pinned at `create_config` and
 immutable, so a policy ring cannot present the audit statement to skip its rules.
 The audit block is identical in both circuits, so the auditor decrypts every
@@ -272,9 +291,9 @@ whose entries nobody created. Disabled answers resolve to garbage no
 downstream assertion reads.
 
 Coverage closes the plane (`eval.go`). Every live slot instance of every
-enabled entry-sourced rule demands an enabled answer with the same list
-and mode carrying that member. Coverage answers an inline rule against
-the inline member table instead. A rule
+enabled entry-sourced rule demands an enabled answer carrying that member
+under one of the rule's lists in that list's mode. Coverage answers an
+inline rule against the inline member table instead. A rule
 guarded above a threshold exempts a subject when the total it receives in the
 transaction stays at or below the threshold, a payment split across slots does
 not escape it. The quantifier
@@ -318,20 +337,25 @@ root would make every transfer race the forester's rotations instead.
 
 ## The wallet cycle
 
-1. The wallet proves the SPP ring transfer, yielding `private_tx_hash`.
-2. It reads `PolicyConfig` and resolves each list through the stored
+1. The wallet reads `PolicyConfig`, trusts the rows only after they
+   reproduce `policy_hash`, and resolves each list through the stored
    source map.
-3. It reads both root indices from the tree account, not from the indexer.
-   The statement binds what on-chain resolution reproduces.
-4. It discovers entries for every screened subject. A published entry
-   counts only after its recomputed hashes match the indexed leaf. Two
-   live versions of one pair raise `AmbiguousEntry`. A lying indexer
-   stalls proving but cannot steer the answer.
-5. It builds the answers array. A `Present` rule with a missing or `Cleared`
-   entry, or an `Absent` rule with an `Active` entry, refuses
-   client-side with `PolicyRuleUnsatisfied`. The chain never learns of
-   the refused transfer. The SPP proof from step 1 is wasted.
-6. It proves the ring statement, one request carrying audit and policy.
+2. It walks the lineage of every screened pair through the indexer, a claim
+   spends the pair's address and every update spends the version before it.
+   A published entry counts only after its recomputed hashes match the
+   indexed leaf, a spend without a published successor is `BrokenLineage`.
+   A lying indexer stalls proving but cannot steer the answer.
+3. It builds the answers array, one per live subject and rule, the first
+   alternative the entries satisfy. A rule no alternative satisfies refuses
+   client-side with `PolicyRuleUnsatisfied`, before any proof request. The
+   chain never learns of the refused transfer.
+4. It takes both roots from the proof responses, `PolicyRootMismatch` when
+   they disagree, and the tree account fills a root no answer touched. The
+   program resolves the same indices on chain.
+5. It builds the SPP ring witness, yielding `private_tx_hash`, and closes
+   the auditor encryption over it.
+6. It proves the ring statement and the SPP transfer, one request each,
+   carrying audit and policy.
 7. It sends transact. The instruction carries the proof and two root
    indices, no member, no list, no answer.
 
@@ -350,11 +374,11 @@ independence. Two verifications with commitment handling per transact,
 plus program logic binding both statements to one `private_tx_hash`. The
 prefix construction gets the cross-binding for free.
 
-**An authority-mutable rule table in the account.** It buys rule agility.
-A compromised ring authority drops the blocklist without a deploy. Rules
-define what the ring is, they ride program identity and upgrade-authority
-governance. Each ring is already its own deployment in the v3 model, the
-table costs no extra ceremony.
+**A config-authority-mutable rule table.** It buys rule agility for the hot
+key. A compromised ring authority drops the blocklist with one transaction.
+The rows live in the account, but only the program upgrade authority writes
+them, the same key that could ship a binary ignoring them. The config
+authority re-points sources and writes entries, never rules.
 
 **Secret nullifier keys for entries.** It buys spent-ness privacy. Mr.
 Crazy must prove Mr. Evil's entry state without Mr. Evil's cooperation.
@@ -392,5 +416,7 @@ makes reuse inexpressible.
 - The builder rejects any table carrying `ExitDestination`.
 - A rule-less ring still resolves and windows roots. Its clients fetch
   fresh indices.
+- A re-pin invalidates every proof built against the old hash. A transfer
+  in flight across `set_policy_rules` or `set_policy_source` is rebuilt.
 - Version overflow freezes a lineage in its last state forever. The
   address cannot be re-claimed.
