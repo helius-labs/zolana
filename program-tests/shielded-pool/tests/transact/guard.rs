@@ -26,7 +26,10 @@ use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            CircuitId, TransactIxBound, TransactIxData, TransactIxDataRef, TransactIxTail,
+            TransactProof,
+        },
         RingAuthorityTransact, RingTransact, Transact,
     },
     pda,
@@ -41,20 +44,24 @@ use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 /// zeroed eddsa placeholder; callers overwrite it per case.
 fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: (11..11 + n_out)
-            .map(|n| inline_output(fe(n), fe(n)))
-            .collect(),
-        messages: Vec::new(),
+        bound: TransactIxBound {
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers: Vec::new(),
+            outputs: (11..11 + n_out)
+                .map(|n| inline_output(fe(n), fe(n)))
+                .collect(),
+            messages: Vec::new(),
+        },
+        tail: TransactIxTail {
+            proof: TransactProof::zeroed(),
+            private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+            inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
 }
 
@@ -138,16 +145,16 @@ fn ring_instruction(
     let tree = env.tree;
     let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let mut data = data;
-    data.circuit = if authority_variant {
+    data.tail.circuit = if authority_variant {
         CircuitId::RingAuthority(
-            data.circuit.num_inputs(),
-            data.circuit.num_outputs(),
+            data.tail.circuit.num_inputs(),
+            data.tail.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
         )
     } else {
         CircuitId::RingEddsa(
-            data.circuit.num_inputs(),
-            data.circuit.num_outputs(),
+            data.tail.circuit.num_inputs(),
+            data.tail.circuit.num_outputs(),
             N_PUBLIC_SLOTS as u8,
         )
     };
@@ -183,7 +190,7 @@ fn transact_rejects_a_stale_nullifier_root_index() {
     // Root-history indices are caller-supplied; a zeroed (never-written)
     // history slot must be rejected, not treated as a valid root.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
+    for input in &mut data.tail.inputs {
         input.nullifier_tree_root_index = 7;
     }
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
@@ -195,7 +202,7 @@ fn transact_rejects_a_stale_utxo_root_index() {
     // INV-XC-09: the UTXO root history is symmetric to the nullifier root
     // history; an out-of-bounds or zeroed slot must map to StaleNullifierRoot.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
+    for input in &mut data.tail.inputs {
         input.utxo_tree_root_index = 7;
     }
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
@@ -219,7 +226,7 @@ fn transact_rejects_proof_points_that_fail_decompression() {
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
     // fails at point decompression, before any pairing.
     let mut data = transfer_ix_data(2, 3);
-    data.proof = TransactProof {
+    data.tail.proof = TransactProof {
         a: [0xFF; 32],
         b: [0xFF; 64],
         c: [0xFF; 32],
@@ -234,7 +241,10 @@ fn transact_rejects_proof_points_that_fail_decompression() {
 #[test]
 fn transact_rejects_more_outputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // Nine outputs overflow the MAX_OUTPUTS = 8 resolve buffer.
+    // No circuit has nine outputs, so `is_supported()` rejects the shape in
+    // `validate_circuit_type`, before any account or tree is touched. The
+    // consolidation shape is 36x2, so a large *input* count is supported while
+    // this output count is not.
     let data = transfer_ix_data(2, 9);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }
@@ -289,7 +299,7 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
         interface_transfer_accounts: Vec::new(),
         data: {
             let mut data = transfer_ix_data(2, 3);
-            data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+            data.tail.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
             data
         },
     }
@@ -338,7 +348,11 @@ fn transact_rejects_a_non_writable_tree_meta() {
 fn transact_rejects_a_non_canonical_output_utxo_hash() {
     let mut env = Pool::initialized();
     let mut data = transfer_ix_data(2, 3);
-    data.outputs.get_mut(1).expect("second output").utxo_hash = BN254_SCALAR_MODULUS_BE;
+    data.bound
+        .outputs
+        .get_mut(1)
+        .expect("second output")
+        .utxo_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(
         &mut env,
         data,
@@ -350,7 +364,11 @@ fn transact_rejects_a_non_canonical_output_utxo_hash() {
 fn transact_rejects_a_non_canonical_input_nullifier() {
     let mut env = Pool::initialized();
     let mut data = transfer_ix_data(2, 3);
-    data.inputs.get_mut(1).expect("second input").nullifier_hash = BN254_SCALAR_MODULUS_BE;
+    data.tail
+        .inputs
+        .get_mut(1)
+        .expect("second input")
+        .nullifier_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(
         &mut env,
         data,
@@ -362,7 +380,7 @@ fn transact_rejects_a_non_canonical_input_nullifier() {
 fn transact_rejects_a_non_canonical_private_tx_hash() {
     let mut env = Pool::initialized();
     let mut data = transfer_ix_data(2, 3);
-    data.private_tx_hash = BN254_SCALAR_MODULUS_BE;
+    data.tail.private_tx_hash = BN254_SCALAR_MODULUS_BE;
     expect_rejection(&mut env, data, ShieldedPoolError::NonCanonicalPrivateTxHash);
 }
 
@@ -443,10 +461,15 @@ fn transact_rejects_a_malformed_wincode_payload() {
                 .to_vec(),
         );
     }
-    // An invalid circuit selector tag (u16, right after expiry + private_tx_hash
-    // inside the payload): 0xFFFF names no variant and must fail decoding.
+    // An invalid circuit selector tag (u16, the first field of the tail):
+    // 0xFFFF names no variant and must fail decoding. The tail starts where the
+    // bound region ends, so ask the parser rather than hardcoding an offset
+    // that moves whenever a bound field is added.
+    let (_, bound_bytes) =
+        TransactIxDataRef::parse_bound(template.data.get(1..).expect("payload after the tag byte"))
+            .expect("template payload parses");
     let mut bad_tag = template.data.clone();
-    let circuit_tag_offset = 1 + 8 + 32;
+    let circuit_tag_offset = 1 + bound_bytes.len();
     *bad_tag
         .get_mut(circuit_tag_offset)
         .expect("circuit tag byte") = 0xFF;
@@ -454,10 +477,14 @@ fn transact_rejects_a_malformed_wincode_payload() {
         .get_mut(circuit_tag_offset + 1)
         .expect("circuit tag byte") = 0xFF;
     malformed.push(bad_tag);
-    // An overlong trailing length prefix: the final byte is the empty
-    // `messages` vec's u8 count; 255 claims elements past the buffer end.
+    // An overlong length prefix: the bound region's first count, after the tag
+    // byte plus `expiry_unix_ts`, `tx_viewing_pk` and `salt`. 255 claims
+    // elements past the buffer end.
+    const INTERFACE_TRANSFER_COUNT_OFFSET: usize = 1 + 8 + 33 + 16;
     let mut overlong = template.data.clone();
-    *overlong.last_mut().expect("messages length byte") = 255;
+    *overlong
+        .get_mut(INTERFACE_TRANSFER_COUNT_OFFSET)
+        .expect("interface transfer length byte") = 255;
     malformed.push(overlong);
 
     for data in malformed {
@@ -498,8 +525,10 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
 #[test]
 fn transact_rejects_more_inputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT-09: six inputs overflow the MAX_INPUTS = 5 proof-input
-    // buffer before any tree write or proof check.
+    // INV-TRANSACT-09: no circuit has six inputs -- the supported counts jump
+    // from five to the 36-input consolidation shape -- so `is_supported()`
+    // rejects this in `validate_circuit_type`, before any tree write or proof
+    // check.
     let data = transfer_ix_data(6, 3);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }
@@ -511,8 +540,17 @@ fn transact_rejects_a_duplicate_nullifier_within_one_instruction() {
     // which the first input already created, so nullifier PDA creation rejects the
     // duplicate before proof verification.
     let mut data = transfer_ix_data(2, 3);
-    let first = data.inputs.first().expect("first input").nullifier_hash;
-    data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
+    let first = data
+        .tail
+        .inputs
+        .first()
+        .expect("first input")
+        .nullifier_hash;
+    data.tail
+        .inputs
+        .get_mut(1)
+        .expect("second input")
+        .nullifier_hash = first;
     expect_rejection(&mut env, data, ShieldedPoolError::NullifierAlreadyQueued);
 }
 
@@ -539,7 +577,7 @@ fn transact_rejects_an_expired_transaction() {
     clock.unix_timestamp = 100;
     env.rpc.svm.set_sysvar(&clock);
     let mut data = transfer_ix_data(2, 3);
-    data.expiry_unix_ts = 99;
+    data.bound.expiry_unix_ts = 99;
     expect_rejection(&mut env, data, ShieldedPoolError::ExpiredTransaction);
 }
 
@@ -631,7 +669,7 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
         data: {
             // Square shape so the ring-config signer check is the branch that fires.
             let mut data = transfer_ix_data(2, 2);
-            data.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
+            data.tail.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
             data
         },
     }
@@ -705,7 +743,7 @@ fn ring_authority_transact_rejects_an_owner_signer() {
         .expect("fund unexpected owner signer");
 
     let data = transfer_ix_data(2, 2);
-    let owner_signer_index = 6 + data.inputs.len();
+    let owner_signer_index = 6 + data.tail.inputs.len();
     let mut ix = ring_instruction(&env, true, &ring_config, data);
     ix.accounts.insert(
         owner_signer_index,

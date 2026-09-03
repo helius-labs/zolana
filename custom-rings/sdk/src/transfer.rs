@@ -15,7 +15,8 @@ use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
         tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
-        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxBound, TransactIxData,
+        TransactIxTail, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -784,26 +785,30 @@ impl RingEddsaInstructionData<'_> {
 
         let external = &self.proof_inputs.external_data;
         Ok(TransactIxData {
-            proof: self.proof,
-            expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: self.result.private_tx_hash,
-            circuit: CircuitId::RingEddsa(
-                n_inputs as u8,
-                external.outputs.len() as u8,
-                N_PUBLIC_SLOTS as u8,
-            ),
-            inputs,
-            interface_transfers: external
-                .interface_transfers
-                .iter()
-                .map(|transfer| transfer.interface_transfer())
-                .collect(),
-            data_hash: external.data_hash,
-            ring_data_hash: external.ring_data_hash,
-            tx_viewing_pk: external.tx_viewing_pk,
-            salt: external.salt,
-            outputs: external.outputs.clone(),
-            messages: external.messages.clone(),
+            bound: TransactIxBound {
+                expiry_unix_ts: external.expiry_unix_ts,
+                interface_transfers: external
+                    .interface_transfers
+                    .iter()
+                    .map(|transfer| transfer.interface_transfer())
+                    .collect(),
+                tx_viewing_pk: external.tx_viewing_pk,
+                salt: external.salt,
+                outputs: external.outputs.clone(),
+                messages: external.messages.clone(),
+            },
+            tail: TransactIxTail {
+                proof: self.proof,
+                private_tx_hash: self.result.private_tx_hash,
+                circuit: CircuitId::RingEddsa(
+                    n_inputs as u8,
+                    external.outputs.len() as u8,
+                    N_PUBLIC_SLOTS as u8,
+                ),
+                inputs,
+                data_hash: external.data_hash,
+                ring_data_hash: external.ring_data_hash,
+            },
         })
     }
 }

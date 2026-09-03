@@ -10,7 +10,6 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
-use super::verify::MAX_INPUTS;
 use crate::instructions::ring_config::loader::load_active_ring_config;
 use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
@@ -21,7 +20,7 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
+    pub nullifier_pdas: &'a mut [AccountView],
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
@@ -58,14 +57,11 @@ impl<'a> TransactAccounts<'a> {
         allow_owner_signers: bool,
     ) -> Result<Box<Self>, ProgramError> {
         // Check non-zero amounts and the protocol transfer bound.
-        validate_interface_transfers(&ix.interface_transfers)?;
+        validate_interface_transfers(&ix.bound.interface_transfers)?;
 
-        let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..ix.inputs.len() {
-            nullifier_pdas
-                .try_push(iter.next_mut("nullifier_pda")?)
-                .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
-        }
+        // One contiguous slice rather than a count-sized buffer; the helper
+        // applies the same writability check per account that `next_mut` did.
+        let nullifier_pdas = iter.next_slice_mut(ix.tail.inputs.len(), "nullifier_pda")?;
 
         let remaining = iter.remaining_unchecked_mut()?;
         // 2. Search first account that is not signer.
@@ -73,7 +69,7 @@ impl<'a> TransactAccounts<'a> {
             .iter()
             .position(|account| !account.is_signer())
             .unwrap_or(remaining.len());
-        if signer_count > usize::from(ix.circuit.num_inputs())
+        if signer_count > usize::from(ix.tail.circuit.num_inputs())
             || (!allow_owner_signers && signer_count != 0)
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
@@ -82,7 +78,7 @@ impl<'a> TransactAccounts<'a> {
         // 3. Check transfer settlement accounts.
         let mut iter = AccountIterator::new(settlement_accounts);
         let mut settlements = ArrayVec::new();
-        for transfer in &ix.interface_transfers {
+        for transfer in &ix.bound.interface_transfers {
             let settlement = match transfer {
                 InterfaceTransfer::SplDeposit {
                     spl_interface_bump, ..

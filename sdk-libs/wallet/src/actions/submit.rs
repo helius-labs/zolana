@@ -27,8 +27,13 @@ use zolana_client::{
 
 use crate::user_registry::fetch_user_record_checked;
 
-/// Compute-unit ceiling for a `merge_transact`: it verifies an 8-in/1-out Groth16
-/// proof on-chain, which does not fit the default per-instruction budget.
+/// Compute-unit limit requested for a `merge_transact`: it verifies an
+/// n-in/1-out Groth16 proof on-chain and creates one nullifier PDA per input,
+/// which does not fit the default per-instruction budget at any supported
+/// shape. Measured on LiteSVM (`merge/functional.rs`, 2026-09): 193k-212k CU at
+/// 8 inputs, 406k-446k CU at 36. The maximum is requested rather than a
+/// per-shape figure because an unused limit costs nothing beyond its share of a
+/// prioritization fee, while an underestimate fails the transaction.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 /// The minimal owner material the merge submit boundary needs: the public

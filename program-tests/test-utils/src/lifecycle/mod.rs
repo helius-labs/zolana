@@ -9,6 +9,7 @@
 
 mod decode;
 mod deposit;
+pub mod large_shape;
 pub(crate) mod merge;
 pub mod randomized;
 mod transfer;
@@ -34,7 +35,10 @@ use zolana_interface::instruction::{
 use zolana_keypair::{random_blinding, ShieldedAddress};
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 
-use crate::harness::{BootstrapConfig, LocalnetHarness};
+use crate::{
+    harness::{BootstrapConfig, LocalnetHarness},
+    localnet::ValidatorBackend,
+};
 
 /// The extra account snapshots an SPL deposit assert needs.
 pub(crate) use crate::harness::SplDepositAccounts;
@@ -84,8 +88,18 @@ impl DerefMut for LifecycleHarness {
 }
 
 impl LifecycleHarness {
+    /// Boot on `solana-test-validator`, the backend every proof-shape-agnostic
+    /// suite uses.
     pub fn new() -> Result<Self> {
+        Self::new_on(ValidatorBackend::SolanaTestValidator)
+    }
+
+    /// Boot on `backend`. `solana-test-validator` rejects any packet above
+    /// `PACKET_DATA_SIZE`, so a suite sending a transaction v1 message larger
+    /// than that must pass [`ValidatorBackend::Surfpool`].
+    pub fn new_on(backend: ValidatorBackend) -> Result<Self> {
         let (base, merge_key) = LocalnetHarness::bootstrap(BootstrapConfig {
+            backend,
             label: "zolana-spp",
             extra_programs: Vec::new(),
             ring_creation_is_permissionless: false,

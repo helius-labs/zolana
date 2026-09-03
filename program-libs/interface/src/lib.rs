@@ -1,4 +1,5 @@
 pub mod error;
+pub mod event_reconstruction;
 pub use zolana_event as event;
 pub mod instruction;
 pub mod merge_utils;

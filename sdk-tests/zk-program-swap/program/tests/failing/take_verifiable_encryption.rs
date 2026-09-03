@@ -15,7 +15,7 @@ fn expired_take_verifiable_encryption_is_rejected_exactly() {
     let (mut mollusk, _) = setup_mollusk();
     let (mut instruction, accounts) = fixture(Wrapper::TakeVerifiableEncryption);
     let mut data = transact(Vec::new());
-    data.expiry_unix_ts = 5;
+    data.bound.expiry_unix_ts = 5;
     instruction.data = wrapper_data_with(Wrapper::TakeVerifiableEncryption, data);
     mollusk.sysvars.clock.unix_timestamp = 6;
     expect_err_exact(
@@ -53,7 +53,7 @@ fn garbage_commitment_is_rejected_exactly() {
     // before the proof runs), so the 0xFF commitment is the first point the
     // verifier fails to decompress.
     let mut t = transact(Vec::new());
-    if let Some(last) = t.outputs.last_mut() {
+    if let Some(last) = t.bound.outputs.last_mut() {
         last.data = Some(vec![8; 71]);
     }
     let body = TakeVerifiableEncryptionIxData {
@@ -84,7 +84,11 @@ fn missing_destination_ciphertext_is_rejected_exactly() {
     // Wire-valid transact whose final output carries no data slot: the TVE
     // rail requires the verifiable destination ciphertext there.
     let mut data = transact(Vec::new());
-    data.outputs.last_mut().expect("destination output").data = None;
+    data.bound
+        .outputs
+        .last_mut()
+        .expect("destination output")
+        .data = None;
     instruction.data = wrapper_data_with(Wrapper::TakeVerifiableEncryption, data);
     expect_err_exact(
         &mollusk,

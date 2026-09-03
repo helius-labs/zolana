@@ -111,6 +111,8 @@ fn main() {
             }
         }
         Some("tx-size") => tx_size(args.collect()),
+        Some("max-shape") => max_shape(args.collect()),
+        Some("max-merge-shape") => max_merge_shape(),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");
@@ -389,6 +391,12 @@ fn print_help() {
         "  generate-account-snapshots  Generate canonical protocol accounts from the local build"
     );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
+    println!(
+        "  max-shape [DATA_LEN]     Largest transact shape that fits a v1 transaction, per rail"
+    );
+    println!(
+        "  max-merge-shape          Largest merge input count that fits a v1 transaction, per rail"
+    );
 }
 
 fn print_create_verifying_keys_help() {
@@ -408,11 +416,11 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
-    use zolana_interface::instruction::instruction_data::MERGE_INPUT_COUNT;
+    use zolana_interface::instruction::instruction_data::MERGE_DEFAULT_INPUT_COUNT;
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
-            TransactProof,
+            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxBound,
+            TransactIxData, TransactIxTail, TransactOutput, TransactProof,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -501,23 +509,25 @@ fn tx_size(args: Vec<String>) {
                 data: data_len.map(|len| vec![0u8; len]),
             })
             .collect();
+        // Captured before `outputs` moves into the bound half.
+        let n_outputs = outputs.len() as u8;
         TransactIxData {
-            proof,
-            expiry_unix_ts: 0,
-            private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(
-                n as u8,
-                outputs.len() as u8,
-                N_PUBLIC_SLOTS as u8,
-            ),
-            inputs,
-            interface_transfers,
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            outputs,
-            messages: vec![],
+            bound: TransactIxBound {
+                expiry_unix_ts: 0,
+                interface_transfers,
+                tx_viewing_pk: [0u8; 33],
+                salt: [0u8; 16],
+                outputs,
+                messages: vec![],
+            },
+            tail: TransactIxTail {
+                proof,
+                private_tx_hash: [0u8; 32],
+                circuit: CircuitId::ConfidentialEddsa(n as u8, n_outputs, N_PUBLIC_SLOTS as u8),
+                inputs,
+                data_hash: None,
+                ring_data_hash: None,
+            },
         }
     };
 
@@ -876,7 +886,7 @@ fn tx_size(args: Vec<String>) {
             OPT_RECIPIENT_DATA_LEN,
         );
         let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
-        for (index, input) in data.inputs.iter_mut().enumerate() {
+        for (index, input) in data.tail.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         let ix = zolana_interface::instruction::Transact {
@@ -900,7 +910,7 @@ fn tx_size(args: Vec<String>) {
         use zolana_interface::instruction::{
             instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
         };
-        let nullifiers = (0..MERGE_INPUT_COUNT)
+        let nullifiers = (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
@@ -910,8 +920,8 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-            nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+            utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+            nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
@@ -989,4 +999,305 @@ fn shield_accounts(
         AccountMeta::new_readonly(token_program, false),
         AccountMeta::new_readonly(spp, false),
     ]
+}
+
+/// Largest shape that fits a transaction v1 message, per rail.
+///
+/// The binding constraint is not the plain `transact`: a shape must also work
+/// through a custom ring, which adds a signing ring config, the ring program's
+/// own id, and whatever accounts and data that ring carries. This searches
+/// against real serialized messages rather than a hand-rolled byte model, so it
+/// stays correct when the instruction layout changes.
+fn max_shape(args: Vec<String>) {
+    use solana_hash::Hash;
+    use solana_instruction::{AccountMeta, Instruction};
+    use solana_message::v1;
+    use solana_pubkey::Pubkey;
+    use zolana_interface::{
+        instruction::{
+            tag, CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData, TransactIxTail,
+            TransactOutput, TransactProof,
+        },
+        N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    };
+
+    // Ciphertext bytes per output, if any. `0` means a data-less output, which
+    // is what a consolidation shape carries.
+    let output_data_len: usize = args
+        .first()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+
+    let ix_data = |n_in: usize, n_out: usize| -> Vec<u8> {
+        let data = TransactIxData {
+            bound: TransactIxBound {
+                expiry_unix_ts: u64::MAX,
+                tx_viewing_pk: [0u8; 33],
+                salt: [0u8; 16],
+                interface_transfers: Vec::new(),
+                outputs: (0..n_out)
+                    .map(|_| TransactOutput {
+                        utxo_hash: [0u8; 32],
+                        owner_tag: OwnerTag::Inline([0u8; 32]),
+                        data: (output_data_len > 0).then(|| vec![0u8; output_data_len]),
+                    })
+                    .collect(),
+                messages: Vec::new(),
+            },
+            tail: TransactIxTail {
+                circuit: CircuitId::ConfidentialEddsa(
+                    n_in as u8,
+                    n_out as u8,
+                    N_PUBLIC_SLOTS as u8,
+                ),
+                proof: TransactProof {
+                    a: [0u8; 32],
+                    b: [0u8; 64],
+                    c: [0u8; 32],
+                },
+                private_tx_hash: [0u8; 32],
+                inputs: (0..n_in)
+                    .map(|_| InputUtxo {
+                        nullifier_hash: [0u8; 32],
+                        nullifier_tree_root_index: 0,
+                        utxo_tree_root_index: 0,
+                    })
+                    .collect(),
+                data_hash: None,
+                ring_data_hash: None,
+            },
+        };
+        let mut bytes = vec![tag::TRANSACT];
+        bytes.extend_from_slice(&data.serialize().expect("serialize transact ix data"));
+        bytes
+    };
+
+    // A v1 transaction is the message plus the version prefix byte and the
+    // signature array (a compact count plus 64 bytes each).
+    let tx_len = |message_len: usize, signatures: usize| message_len + 1 + 1 + 64 * signatures;
+
+    let fits = |n_in: usize,
+                n_out: usize,
+                extra_accounts: usize,
+                extra_data: usize,
+                signatures: usize|
+     -> Option<(usize, usize)> {
+        let payer = Pubkey::new_unique();
+        // payer, input tree, output tree, pool, system, then one nullifier PDA
+        // per input, then whatever the rail adds.
+        let mut metas = vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(Pubkey::new_unique(), false),
+            AccountMeta::new(Pubkey::new_unique(), false),
+            AccountMeta::new_readonly(Pubkey::from(SHIELDED_POOL_PROGRAM_ID), false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ];
+        for _ in 0..n_in + extra_accounts {
+            metas.push(AccountMeta::new(Pubkey::new_unique(), false));
+        }
+        let mut data = ix_data(n_in, n_out);
+        data.extend(std::iter::repeat_n(0u8, extra_data));
+        let instruction = Instruction {
+            program_id: Pubkey::from(SHIELDED_POOL_PROGRAM_ID),
+            accounts: metas,
+            data,
+        };
+        let message = v1::Message::try_compile(&payer, &[instruction], Hash::default()).ok()?;
+        let addresses = message.account_keys.len();
+        let total = tx_len(message.size(), signatures);
+        (total <= v1::MAX_TRANSACTION_SIZE && addresses <= usize::from(v1::MAX_ADDRESSES))
+            .then_some((total, addresses))
+    };
+
+    println!(
+        "transaction v1: {} bytes, {} addresses, {} signatures; output data = {output_data_len} B",
+        v1::MAX_TRANSACTION_SIZE,
+        v1::MAX_ADDRESSES,
+        v1::MAX_SIGNATURES,
+    );
+    println!();
+    println!(
+        "{:<34} {:>7} {:>8} {:>8} {:>7}",
+        "rail (n_out=2)", "max in", "bytes", "spare", "addrs"
+    );
+
+    // Modelled rails, widening from a bare pool call to a custom ring that
+    // brings its own accounts, data and a second signer.
+    let rails: [(&str, usize, usize, usize); 4] = [
+        ("plain transact", 0, 0, 1),
+        ("ring transact", 2, 64, 1),
+        ("custom ring", 6, 256, 1),
+        ("custom ring, two signers", 6, 256, 2),
+    ];
+    for (name, extra_accounts, extra_data, signatures) in rails {
+        let mut best = None;
+        for n_in in 1..200 {
+            match fits(n_in, 2, extra_accounts, extra_data, signatures) {
+                Some(result) => best = Some((n_in, result)),
+                None => break,
+            }
+        }
+        match best {
+            Some((n_in, (bytes, addresses))) => println!(
+                "{name:<34} {n_in:>7} {bytes:>8} {:>8} {addresses:>7}",
+                v1::MAX_TRANSACTION_SIZE - bytes
+            ),
+            None => println!("{name:<34} {:>7}", "none"),
+        }
+    }
+
+    println!();
+    println!(
+        "{:<34} {:>8} {:>8}",
+        "shape (custom ring, 2 signers)", "bytes", "fits"
+    );
+    for (n_in, n_out) in [(40, 2), (42, 2), (44, 2), (48, 2), (1, 40), (1, 48)] {
+        let label = format!("{n_in} in x {n_out} out");
+        match fits(n_in, n_out, 6, 256, 2) {
+            Some((bytes, _)) => println!("{label:<34} {bytes:>8} {:>8}", "yes"),
+            None => println!("{label:<34} {:>8} {:>8}", "-", "no"),
+        }
+    }
+}
+
+/// Largest merge input count that fits a transaction v1 message, per rail.
+///
+/// Merge has no output count to vary: it always produces one UTXO. The rails
+/// widen the same way `max-shape` does for transact, and the `merge_ring` rows
+/// use the real `MergeRing` builder so the extra `ring_config` account, the ring
+/// program's own address, and the 32-byte `output_ring_data_hash` are counted
+/// from the instruction rather than modelled.
+fn max_merge_shape() {
+    use solana_hash::Hash;
+    use solana_instruction::{AccountMeta, Instruction};
+    use solana_message::v1;
+    use solana_pubkey::Pubkey;
+    use zolana_interface::instruction::{
+        builders::{MergeRing, MergeTransact},
+        instruction_data::merge_transact::MergeProof,
+        MergeTransactIxData,
+    };
+
+    let ix_data = |n_in: usize| MergeTransactIxData {
+        expiry_unix_ts: u64::MAX,
+        proof: MergeProof::zeroed(),
+        output_utxo_hash: [0u8; 32],
+        eddsa_owner: false,
+        private_tx_hash: [0u8; 32],
+        nullifiers: (0..n_in).map(|i| [i as u8; 32]).collect(),
+        utxo_tree_root_index: vec![0; n_in],
+        nullifier_tree_root_index: vec![0; n_in],
+    };
+
+    // A v1 transaction is the message plus the version prefix byte and the
+    // signature array (a compact count plus 64 bytes each).
+    let tx_len = |message_len: usize, signatures: usize| message_len + 1 + 1 + 64 * signatures;
+
+    let fits = |rail: Rail,
+                n_in: usize,
+                extra_accounts: usize,
+                extra_data: usize,
+                signatures: usize|
+     -> Option<(usize, usize)> {
+        let payer = Pubkey::new_unique();
+        let input_tree = Pubkey::new_unique();
+        let mut instruction = match rail {
+            Rail::Plain => MergeTransact {
+                input_tree,
+                output_tree: Pubkey::new_unique(),
+                payer,
+                user_record: Pubkey::new_unique(),
+                data: ix_data(n_in),
+            }
+            .instruction(),
+            Rail::Ring => MergeRing {
+                input_tree,
+                output_tree: Pubkey::new_unique(),
+                ring_program_id: Pubkey::new_unique(),
+                payer,
+                data: ix_data(n_in),
+                output_ring_data_hash: [0u8; 32],
+            }
+            .instruction(),
+        };
+        for _ in 0..extra_accounts {
+            instruction
+                .accounts
+                .push(AccountMeta::new(Pubkey::new_unique(), false));
+        }
+        instruction
+            .data
+            .extend(std::iter::repeat_n(0u8, extra_data));
+        // A compute budget instruction is mandatory at these input counts, so it
+        // is part of the budget rather than an afterthought.
+        let compute_budget = Instruction {
+            program_id: Pubkey::from_str_const("ComputeBudget111111111111111111111111111111"),
+            accounts: Vec::new(),
+            data: [vec![2u8], 1_400_000u32.to_le_bytes().to_vec()].concat(),
+        };
+        let message =
+            v1::Message::try_compile(&payer, &[compute_budget, instruction], Hash::default())
+                .ok()?;
+        let addresses = message.account_keys.len();
+        let total = tx_len(message.size(), signatures);
+        (total <= v1::MAX_TRANSACTION_SIZE && addresses <= usize::from(v1::MAX_ADDRESSES))
+            .then_some((total, addresses))
+    };
+
+    println!(
+        "transaction v1: {} bytes, {} addresses, {} signatures; merge is always 1 output",
+        v1::MAX_TRANSACTION_SIZE,
+        v1::MAX_ADDRESSES,
+        v1::MAX_SIGNATURES,
+    );
+    println!();
+    println!(
+        "{:<34} {:>7} {:>8} {:>8} {:>7}",
+        "rail", "max in", "bytes", "spare", "addrs"
+    );
+
+    let rails: [(&str, Rail, usize, usize, usize); 4] = [
+        ("merge_transact", Rail::Plain, 0, 0, 1),
+        ("merge_ring", Rail::Ring, 0, 0, 1),
+        ("merge_ring, custom ring", Rail::Ring, 6, 256, 1),
+        ("merge_ring, custom ring, 2 signers", Rail::Ring, 6, 256, 2),
+    ];
+    for (name, rail, extra_accounts, extra_data, signatures) in rails {
+        let mut best = None;
+        for n_in in 1..200 {
+            match fits(rail, n_in, extra_accounts, extra_data, signatures) {
+                Some(result) => best = Some((n_in, result)),
+                None => break,
+            }
+        }
+        match best {
+            Some((n_in, (bytes, addresses))) => println!(
+                "{name:<34} {n_in:>7} {bytes:>8} {:>8} {addresses:>7}",
+                v1::MAX_TRANSACTION_SIZE - bytes
+            ),
+            None => println!("{name:<34} {:>7}", "none"),
+        }
+    }
+
+    println!();
+    println!(
+        "{:<34} {:>8} {:>8} {:>7}",
+        "shape (custom ring, 2 signers)", "bytes", "fits", "addrs"
+    );
+    for n_in in [8, 32, 36, 38, 40, 42] {
+        let label = format!("{n_in} in x 1 out");
+        match fits(Rail::Ring, n_in, 6, 256, 2) {
+            Some((bytes, addresses)) => {
+                println!("{label:<34} {bytes:>8} {:>8} {addresses:>7}", "yes")
+            }
+            None => println!("{label:<34} {:>8} {:>8}", "-", "no"),
+        }
+    }
+}
+
+/// Which merge instruction a `max-merge-shape` row measures.
+#[derive(Clone, Copy)]
+enum Rail {
+    Plain,
+    Ring,
 }

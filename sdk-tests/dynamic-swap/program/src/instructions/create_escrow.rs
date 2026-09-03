@@ -155,7 +155,7 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // `SourceIn.Owner` and commits it into the order UTXO's `DataHash`, so the
     // program never sees or passes it.
     let public_input_hash = EscrowOpenPublicInput {
-        private_tx_hash: &transact.private_tx_hash,
+        private_tx_hash: &transact.tail.private_tx_hash,
         created_at,
         escrow_authority_owner_hash: &escrow_authority_owner_hash,
         source_asset: &source_asset,
@@ -181,11 +181,13 @@ pub fn process_create_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> Pr
     // divergent client-claimed hash impossible by construction, rather than by
     // a cross-check.
     let order_out_hash = transact
+        .bound
         .outputs
         .get(ORDER_OUTPUT_INDEX)
         .ok_or(DynamicSwapError::InvalidInstructionData)?
         .utxo_hash;
     let reservation_out_hash = transact
+        .bound
         .outputs
         .get(RESERVATION_OUTPUT_INDEX)
         .ok_or(DynamicSwapError::InvalidInstructionData)?

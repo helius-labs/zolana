@@ -2,11 +2,10 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
-    event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
-            TransactOutput, TransactProof,
+            external_data_hash, CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData,
+            TransactIxTail, TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
@@ -61,25 +60,26 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let output_hash = state.utxo_hash(&owner.owner_hash)?;
     let payload = state.to_output_data()?;
 
-    let resolved_output = [ResolvedOutput {
-        utxo_hash: &output_hash,
-        owner_tag: pda_bytes,
-        data: Some(payload.as_slice()),
-    }];
-    let messages: &[MessageData] = &[];
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: TRANSACT,
+    // Build the proof-bound region first, then hash exactly its serialized
+    // bytes: the same range the shielded pool reads back out of the
+    // instruction. Every output here is `Inline`-tagged, so no account
+    // addresses are appended.
+    let bound = TransactIxBound {
         expiry_unix_ts: u64::MAX,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &[0u8; 33],
-        salt: &[0u8; 16],
-        outputs: &resolved_output,
-        messages,
-    }
-    .hash()
-    .map_err(|_| CompressionError::HashingFailed)?;
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        interface_transfers: Vec::new(),
+        outputs: vec![TransactOutput {
+            utxo_hash: output_hash,
+            owner_tag: OwnerTag::Inline(pda_bytes),
+            data: Some(payload),
+        }],
+        messages: Vec::new(),
+    };
+    let bound_bytes =
+        wincode::serialize(&bound).map_err(|_| CompressionError::SerializationFailed)?;
+    let external_data_hash = external_data_hash(TRANSACT, &bound_bytes, core::iter::empty())
+        .map_err(|_| CompressionError::HashingFailed)?;
     let private_tx = private_tx_hash(
         [0u8; 32],
         output_hash,
@@ -88,26 +88,19 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     )?;
 
     let transact = TransactIxData {
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: private_tx,
-        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        proof,
-        inputs: vec![InputUtxo {
-            nullifier_hash: address,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        }],
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: vec![TransactOutput {
-            utxo_hash: output_hash,
-            owner_tag: OwnerTag::Inline(pda_bytes),
-            data: Some(payload),
-        }],
-        messages: Vec::new(),
+        bound,
+        tail: TransactIxTail {
+            private_tx_hash: private_tx,
+            circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+            proof,
+            inputs: vec![InputUtxo {
+                nullifier_hash: address,
+                nullifier_tree_root_index,
+                utxo_tree_root_index,
+            }],
+            data_hash: None,
+            ring_data_hash: None,
+        },
     };
     let transact_bytes = transact
         .serialize()

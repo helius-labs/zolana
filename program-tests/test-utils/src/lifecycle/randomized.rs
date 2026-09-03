@@ -27,14 +27,17 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::pda;
+use zolana_interface::{
+    instruction::instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT, pda,
+};
 use zolana_transaction::SOL_MINT;
 
 use super::{Actor, LifecycleHarness};
 use crate::test_validator_asserts::{fetch_account, token_amount};
 
-/// Maximum real inputs the 8-in/1-out merge circuit consolidates at once.
-const MAX_MERGE_INPUTS: usize = 8;
+/// Real inputs the randomized workload consolidates at once. The smallest merge
+/// shape, so a random run pays for the cheap circuit rather than the wide one.
+const MERGE_INPUTS_PER_RUN: usize = MERGE_DEFAULT_INPUT_COUNT;
 
 /// Extra lamports airdropped to the global payer to fund all SOL deposits in the run
 /// (SPL deposits mint their own tokens, so they do not draw on this).
@@ -265,12 +268,14 @@ impl LifecycleHarness {
     }
 
     /// Register `name` for the merge service on first use (under its own ed25519
-    /// signing key, the eddsa owner rail) and consolidate up to `MAX_MERGE_INPUTS` of
+    /// signing key, the eddsa owner rail) and consolidate up to `MERGE_INPUTS_PER_RUN` of
     /// its SOL UTXOs into one output. `merge` tracks the consolidated output and the
     /// consumed inputs in the actor's expected set; `assert_merged` then syncs and
     /// full-struct asserts the owner.
     fn rand_merge(&mut self, name: &str) -> Result<()> {
-        let count = self.spendable_count(name, SOL_MINT).min(MAX_MERGE_INPUTS);
+        let count = self
+            .spendable_count(name, SOL_MINT)
+            .min(MERGE_INPUTS_PER_RUN);
         let owner = self.ensure_merge_registered(name)?;
         self.merge(name, &owner, SOL_MINT, count)?;
         self.assert_merged(name)

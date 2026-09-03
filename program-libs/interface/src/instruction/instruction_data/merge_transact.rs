@@ -1,10 +1,33 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-/// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
-/// publish deterministic nullifiers derived from the owner's nullifier secret
-/// and `nullifiers[0]`.
-pub const MERGE_INPUT_COUNT: usize = 8;
+/// Input counts the merge circuits have verifying keys for, smallest first.
+/// Dummy slots publish deterministic nullifiers derived from the owner's
+/// nullifier secret and `nullifiers[0]`, so a spender pads up to the next
+/// supported count rather than needing an exact-fit shape.
+///
+/// Merge instruction data carries no circuit selector: the shape is the declared
+/// nullifier count, so this set is what the program dispatches its verifying key
+/// on. Mirror `SupportedInputCounts` in
+/// `prover/server/circuits/spp_merge/shared/transaction.go`,
+/// `mergeSupportedInputCounts` in `prover/server/prover/common/lazy_key_manager.go`,
+/// and `MERGE_SUPPORTED_INPUT_COUNTS` in `sdk-libs/ts/src/interface/constants.ts`.
+///
+/// 36 was measured, not guessed: the tightest merge path is `merge_ring` under a
+/// custom ring with a second signer, whose transaction v1 ceiling is 42 inputs
+/// (`cargo run -p xtask -- max-merge-shape`), so 36 keeps six inputs of headroom
+/// and matches the 36-input transact consolidation shape.
+pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [8, 36];
+
+/// Largest supported merge input count, for callers sizing a buffer or a plan
+/// against the widest shape. It is not the shape: every instruction declares its
+/// own by the length of its vectors.
+pub const MAX_MERGE_INPUTS: usize = 36;
+
+/// The smallest supported merge shape, and the one the default consolidation
+/// path pads up to. Named because builders, tests, and the fee math refer to the
+/// 8-in/1-out shape directly.
+pub const MERGE_DEFAULT_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 128 bytes on the wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes).
@@ -95,17 +118,25 @@ pub struct MergeTransactIxDataRef<'a> {
 
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        let parsed: Self = wincode::config::deserialize(data, RefConfig::new())?;
+        // Exact: trailing bytes after a merge payload are unbound by any proof
+        // input, so they must be rejected rather than ignored.
+        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
         parsed.validate_shape()?;
         Ok(parsed)
     }
 
-    /// Enforce the fixed 8-in/1-out merge shape. Shared with `merge_ring`,
-    /// which embeds a `MergeTransactIxDataRef`.
+    /// Enforce a supported merge shape. Shared with `merge_ring`, which embeds
+    /// a `MergeTransactIxDataRef`.
+    ///
+    /// The three vectors must agree on a single length, and that length must be
+    /// a count the circuits have a key for. Requiring agreement first is what
+    /// makes the decode fail-closed: a shape is the instruction's own declared
+    /// input count, not a constant the program assumes.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        if self.nullifiers.len() != MERGE_INPUT_COUNT
-            || self.utxo_tree_root_index.len() != MERGE_INPUT_COUNT
-            || self.nullifier_tree_root_index.len() != MERGE_INPUT_COUNT
+        let input_count = self.nullifiers.len();
+        if self.utxo_tree_root_index.len() != input_count
+            || self.nullifier_tree_root_index.len() != input_count
+            || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count)
         {
             return Err(wincode::ReadError::Custom("invalid merge shape"));
         }
@@ -127,11 +158,15 @@ pub struct MergeExternalDataHash<'a> {
 
 impl MergeExternalDataHash<'_> {
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        let mut preimage = Vec::new();
-        preimage.push(self.spp_instruction_discriminator);
-        preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
-        preimage.extend_from_slice(self.output_utxo_hash);
-        Sha256BE::hash(&preimage)
+        // Three fixed-width segments hashed in place. `hash(v)` is defined as
+        // `hashv(&[v])`, so the digest is unchanged; on-chain this is the same
+        // single sha256 syscall without the heap preimage, which matters under
+        // a bump allocator that never frees.
+        Sha256BE::hashv(&[
+            &[self.spp_instruction_discriminator],
+            &self.expiry_unix_ts.to_be_bytes(),
+            self.output_utxo_hash,
+        ])
     }
 }
 
@@ -139,7 +174,7 @@ impl MergeExternalDataHash<'_> {
 mod tests {
     use super::*;
 
-    fn data() -> MergeTransactIxData {
+    fn data_with(input_count: usize) -> MergeTransactIxData {
         MergeTransactIxData {
             expiry_unix_ts: 42,
             proof: MergeProof {
@@ -148,12 +183,16 @@ mod tests {
                 c: [3u8; 32],
             },
             output_utxo_hash: [9u8; 32],
-            nullifiers: (0..MERGE_INPUT_COUNT as u8).map(|i| [i; 32]).collect(),
-            utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
-            nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
+            nullifiers: (0..input_count).map(|i| [i as u8; 32]).collect(),
+            utxo_tree_root_index: (0..input_count as u16).collect(),
+            nullifier_tree_root_index: (10..10 + input_count as u16).collect(),
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
         }
+    }
+
+    fn data() -> MergeTransactIxData {
+        data_with(MERGE_DEFAULT_INPUT_COUNT)
     }
 
     #[test]
@@ -176,16 +215,45 @@ mod tests {
     }
 
     #[test]
-    fn fixed_shape_wire_length_matches_the_protocol_contract() {
-        let bytes = data().serialize().expect("serialize merge instruction");
-
+    fn every_supported_shape_has_the_contracted_wire_length() {
         // expiry(8) || proof(128) || output_hash(32) || eddsa_owner(1) ||
-        // private_tx_hash(32) || 3 vecs with u8 lens.
-        assert_eq!(bytes.len(), 204 + 36 * MERGE_INPUT_COUNT);
+        // private_tx_hash(32) || 3 vecs with u8 lens, so 204 fixed bytes plus 36
+        // per input. The size model in the transaction-size tests and the fee
+        // math both read this formula.
+        for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
+            let bytes = data_with(input_count)
+                .serialize()
+                .expect("serialize merge instruction");
+            assert_eq!(bytes.len(), 204 + 36 * input_count);
+            MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
+        }
+    }
+
+    #[test]
+    fn max_merge_inputs_is_the_widest_supported_shape() {
+        assert_eq!(
+            MERGE_SUPPORTED_INPUT_COUNTS.iter().copied().max(),
+            Some(MAX_MERGE_INPUTS)
+        );
+        assert!(MERGE_SUPPORTED_INPUT_COUNTS.contains(&MERGE_DEFAULT_INPUT_COUNT));
     }
 
     #[test]
     fn rejects_wrong_shape() {
+        // One short of a supported count: the three vectors still agree, so only
+        // the supported-count check can reject it.
+        for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
+            let mut owned = data_with(input_count);
+            owned.nullifiers.pop();
+            owned.utxo_tree_root_index.pop();
+            owned.nullifier_tree_root_index.pop();
+            let bytes = owned.serialize().unwrap();
+            assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_disagreeing_vector_lengths() {
         let mut owned = data();
         owned.nullifiers.pop();
         let bytes = owned.serialize().unwrap();

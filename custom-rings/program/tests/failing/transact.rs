@@ -12,6 +12,7 @@ use solana_account::Account;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
+use zolana_interface::instruction::{TransactIxBound, TransactIxTail};
 use zolana_interface::{
     event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
@@ -63,18 +64,22 @@ fn other_message() -> MessageData {
 /// Wire-valid `RingEddsa` payload; callers override the fields they attack.
 fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: [1; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: auditor_pubkey(3),
-        salt: [3; 16],
-        proof: TransactProof::zeroed(),
-        inputs: Vec::new(),
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: Vec::new(),
-        messages,
+        bound: TransactIxBound {
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: auditor_pubkey(3),
+            salt: [3; 16],
+            interface_transfers: Vec::new(),
+            outputs: Vec::new(),
+            messages,
+        },
+        tail: TransactIxTail {
+            private_tx_hash: [1; 32],
+            circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+            proof: TransactProof::zeroed(),
+            inputs: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
 }
 
@@ -213,7 +218,7 @@ fn non_ring_eddsa_circuit_selectors_are_rejected_exactly() {
         CircuitId::ConfidentialEddsa(2, 3, slots),
     ] {
         let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-        data.circuit = circuit;
+        data.tail.circuit = circuit;
         let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
         fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedCircuit));
     }
@@ -285,7 +290,7 @@ fn confidential_output(scheme: u8, key: [u8; 33], ciphertext: &[u8]) -> Transact
 fn anonymous_scheme_output_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.outputs = vec![
+    data.bound.outputs = vec![
         encrypted_output(RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
         encrypted_output(1),
     ];
@@ -299,7 +304,7 @@ fn output_without_ciphertext_is_rejected() {
     let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     let mut output = encrypted_output(3);
     output.data = None;
-    data.outputs = vec![output];
+    data.bound.outputs = vec![output];
     let fixture = transact_fixture(valid_config(), instruction_data(bogus_proof(), data));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnsupportedOutputScheme));
 }
@@ -308,7 +313,7 @@ fn output_without_ciphertext_is_rejected() {
 fn confidential_output_with_an_invalid_key_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.outputs = vec![confidential_output(
+    data.bound.outputs = vec![confidential_output(
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         [0u8; 33],
         &[9],
@@ -321,7 +326,7 @@ fn confidential_output_with_an_invalid_key_is_rejected() {
 fn confidential_output_with_empty_ciphertext_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.outputs = vec![confidential_output(
+    data.bound.outputs = vec![confidential_output(
         RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
         auditor_pubkey(7),
         &[],
@@ -334,7 +339,7 @@ fn confidential_output_with_empty_ciphertext_is_rejected() {
 fn confidential_outputs_reach_the_proof() {
     let (mollusk, _) = setup_mollusk();
     let mut data = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
-    data.outputs = vec![
+    data.bound.outputs = vec![
         encrypted_output(RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
         encrypted_output(CONFIDENTIAL_ENCRYPTED_SCHEME_TAG),
     ];

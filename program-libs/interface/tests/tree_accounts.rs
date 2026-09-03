@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
     nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
-    Transact, TransactIxData, TransactProof,
+    Transact, TransactIxBound, TransactIxData, TransactIxTail, TransactProof,
 };
 use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
@@ -17,25 +17,29 @@ use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit,
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        inputs: nullifiers
-            .iter()
-            .map(|nullifier_hash| InputUtxo {
-                nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
-            })
-            .collect(),
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: Vec::new(),
-        messages: Vec::new(),
+        bound: TransactIxBound {
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers: Vec::new(),
+            outputs: Vec::new(),
+            messages: Vec::new(),
+        },
+        tail: TransactIxTail {
+            proof: TransactProof::zeroed(),
+            private_tx_hash: [0u8; 32],
+            circuit,
+            inputs: nullifiers
+                .iter()
+                .map(|nullifier_hash| InputUtxo {
+                    nullifier_hash: *nullifier_hash,
+                    nullifier_tree_root_index: 0,
+                    utxo_tree_root_index: 0,
+                })
+                .collect(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
 }
 

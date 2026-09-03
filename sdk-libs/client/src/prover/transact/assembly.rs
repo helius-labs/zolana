@@ -299,6 +299,17 @@ impl PublicInputs<'_> {
         self.hash_with_after_private_tx(&[])
     }
 
+    /// The P256 rail's layout: the shared authorization's message hash and the
+    /// default-ring P256 owner-tag hash sit directly after `private_tx`, ahead
+    /// of `external_data_hash` (see the program's `public_input_hash`).
+    pub fn hash_with_p256_authorization(
+        &self,
+        message_proof_input_hash: &[u8; 32],
+        default_p256_owner_pk_hash: &[u8; 32],
+    ) -> Result<[u8; 32], ClientError> {
+        self.hash_with_after_private_tx(&[*message_proof_input_hash, *default_p256_owner_pk_hash])
+    }
+
     pub(crate) fn hash_with_after_private_tx(
         &self,
         after_private_tx: &[[u8; 32]],

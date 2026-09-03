@@ -5,8 +5,6 @@ use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_interface::instruction::{AssetDeposit, Deposit};
 
-use zolana_event::general_event_from_indexed;
-
 use crate::{
     deposit_outputs_from_event, single_deposit_view, DepositOutput, ProgramTestError,
     ZolanaProgramTest,
@@ -61,7 +59,7 @@ impl ZolanaProgramTest {
                 outcome.events.len()
             )));
         }
-        let general_event = general_event_from_indexed(event).map_err(|err| {
+        let general_event = crate::events::general_event(event).map_err(|err| {
             ProgramTestError::Event(format!("batch deposit event decode failed: {err:?}"))
         })?;
         Ok(DepositBatch {

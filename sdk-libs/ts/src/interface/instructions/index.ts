@@ -554,7 +554,18 @@ export async function setTreeFeesInstruction(
   ]);
 }
 
-/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier PDAs follow the pool program. */
+/**
+ * Mirrors Rust `MergeTransact::instruction`: one nullifier PDA per declared nullifier follows
+ * the pool program, so the account list widens with the shape (8 or 36 inputs, see
+ * `MERGE_SUPPORTED_INPUT_COUNTS`).
+ *
+ * Compute budget: no merge fits the 200,000 CU per-instruction default. Prepend a
+ * `SetComputeUnitLimit` instruction. Measured on LiteSVM (2026-09): 8 inputs consume
+ * 193,000-212,000 CU (suggested limit 400,000), 36 inputs consume 406,000-446,000 CU (suggested
+ * limit 800,000). The cost is a range because each nullifier PDA is derived with a canonical bump
+ * search whose iteration count depends on the nullifier. This builder returns only the merge
+ * instruction, so the caller controls the returned instruction list.
+ */
 export async function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;

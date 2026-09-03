@@ -113,32 +113,25 @@ pub struct TransactOutput {
 }
 
 /// `transact` instruction data (spec: SPP `transact`).
+/// The proof-bound region of `transact` instruction data: everything
+/// `external_data_hash` covers, in one contiguous run immediately after the
+/// instruction tag. Splitting it from the tail makes the binding boundary a
+/// type, so a field added on the wrong side is a compile-time decision rather
+/// than a silent change to what the proof commits to.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct TransactIxData {
+pub struct TransactIxBound {
+    /// Expire proof for transactions with relayer.
     pub expiry_unix_ts: u64,
-    pub private_tx_hash: [u8; 32],
-    pub circuit: CircuitId,
     /// SEC1-compressed P256 viewing key shared by every output ciphertext in
-    /// this transaction; bound into `external_data_hash` and copied verbatim
-    /// into the logged `GeneralEvent` so an indexer need not parse the
-    /// per-output `data`.
+    /// this transaction; copied verbatim into the logged `GeneralEvent` so an
+    /// indexer need not parse the per-output `data`.
     pub tx_viewing_pk: [u8; 33],
     /// Per-transaction encryption salt shared by every output ciphertext;
-    /// bound into `external_data_hash` and copied into the logged
-    /// `GeneralEvent` so wallets can derive the AES key/nonce without parsing
-    /// the per-output `data`.
+    /// copied into the logged `GeneralEvent` so wallets can derive the AES
+    /// key/nonce without parsing the per-output `data`.
     pub salt: [u8; 16],
-    pub proof: TransactProof,
-    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
-    pub inputs: Vec<InputUtxo>,
     #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
     pub interface_transfers: Vec<InterfaceTransfer>,
-    /// Optional transaction-level application- and ring-specific external data
-    /// digests folded into `external_data_hash`; `None` (`[0; 32]`) for a
-    /// default-ring `transact`. Distinct from the per-UTXO `data_hash` /
-    /// `ring_data_hash` in the UTXO body.
-    pub data_hash: Option<[u8; 32]>,
-    pub ring_data_hash: Option<[u8; 32]>, // TODO: check whether we use this at all.
     /// All `M` outputs in tree-append order (SPL change, SOL change, then
     /// recipients / dummies). Each carries its commitment, owner tag, and an
     /// optional ciphertext. Commitments are appended to the UTXO tree and folded
@@ -147,15 +140,39 @@ pub struct TransactIxData {
     /// A `None` `data` marks a slot covered by a preceding bundle.
     #[wincode(with = "containers::Vec<TransactOutput, FixIntLen<u8>>")]
     pub outputs: Vec<TransactOutput>,
-    /// Published ciphertexts bound to no output commitment. Folded into
-    /// `external_data_hash` and republished verbatim in the `GeneralEvent`.
+    /// Published ciphertexts bound to no output commitment, republished
+    /// verbatim in the `GeneralEvent`.
     #[wincode(with = "containers::Vec<MessageData, FixIntLen<u8>>")]
     pub messages: Vec<MessageData>,
 }
 
+/// The fields `external_data_hash` does not cover. Each is bound by another
+/// public input -- `circuit` selects the verifying key, `private_tx_hash` and
+/// `inputs` are bound through the proof -- or is unbound (`data_hash`,
+/// `ring_data_hash`).
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TransactIxTail {
+    pub circuit: CircuitId,
+    pub proof: TransactProof,
+    pub private_tx_hash: [u8; 32],
+    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
+    pub inputs: Vec<InputUtxo>,
+    /// Optional transaction-level application- and ring-specific external data
+    /// digests; `None` (`[0; 32]`) for a default-ring `transact`. Distinct from
+    /// the per-UTXO `data_hash` / `ring_data_hash` in the UTXO body.
+    pub data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>, // TODO: check whether we use this at all.
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TransactIxData {
+    pub bound: TransactIxBound,
+    pub tail: TransactIxTail,
+}
+
 impl TransactIxData {
     pub fn serialize(&self) -> Result<Vec<u8>, wincode::Error> {
-        validate_interface_transfers(&self.interface_transfers)
+        validate_interface_transfers(&self.bound.interface_transfers)
             .map_err(|_| wincode::WriteError::Custom("invalid interface transfers"))?;
         Ok(wincode::serialize(self)?)
     }
@@ -196,29 +213,71 @@ pub struct OutputDataRef<'a> {
 /// output ciphertexts) alias the instruction buffer; only the small element
 /// vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
-pub struct TransactIxDataRef<'a> {
-    /// Expire proof for transactions with relayer.
+pub struct TransactIxBoundRef<'a> {
     pub expiry_unix_ts: u64,
-    pub private_tx_hash: &'a [u8; 32],
-    pub circuit: CircuitId,
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
-    pub proof: TransactProof,
-    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
-    pub inputs: Vec<InputUtxo>,
     #[wincode(with = "containers::Vec<InterfaceTransfer, FixIntLen<u8>>")]
     pub interface_transfers: Vec<InterfaceTransfer>,
-    pub data_hash: Option<[u8; 32]>,
-    pub ring_data_hash: Option<[u8; 32]>,
     #[wincode(with = "containers::Vec<TransactOutputRef<'a>, FixIntLen<u8>>")]
     pub outputs: Vec<TransactOutputRef<'a>>,
     #[wincode(with = "containers::Vec<OutputDataRef<'a>, FixIntLen<u8>>")]
     pub messages: Vec<OutputDataRef<'a>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+pub struct TransactIxTailRef<'a> {
+    pub circuit: CircuitId,
+    pub proof: TransactProof,
+    pub private_tx_hash: &'a [u8; 32],
+    #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
+    pub inputs: Vec<InputUtxo>,
+    pub data_hash: Option<[u8; 32]>,
+    pub ring_data_hash: Option<[u8; 32]>,
+}
+
+/// Borrowed view of `transact` instruction data.
+///
+/// Deliberately has no `SchemaRead` derive: [`Self::parse_bound`] is the only
+/// way to read one, and it is also the only source of the bound byte slice.
+/// That removes the failure mode where a caller parses the instruction one way
+/// and hashes a different range.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactIxDataRef<'a> {
+    pub bound: TransactIxBoundRef<'a>,
+    pub tail: TransactIxTailRef<'a>,
+}
+
 impl<'a> TransactIxDataRef<'a> {
+    /// Parse the instruction and return it together with the exact bound prefix
+    /// the proof commits to.
+    ///
+    /// The prefix is measured by the parse rather than declared by a length
+    /// field, so it cannot disagree with the fields the program then acts on. A
+    /// slice is returned rather than an offset because an offset can be applied
+    /// to the wrong buffer -- one that still carries the tag byte, say -- and
+    /// that mistake is silent.
+    pub fn parse_bound(data: &'a [u8]) -> Result<(Self, &'a [u8]), wincode::ReadError> {
+        use wincode::SchemaRead;
+
+        let mut cursor: &'a [u8] = data;
+        let bound = <TransactIxBoundRef<'a> as SchemaRead<'a, RefConfig>>::get(&mut cursor)?;
+        let bound_len = data
+            .len()
+            .checked_sub(cursor.len())
+            .ok_or(wincode::ReadError::Custom("bound region length underflow"))?;
+        let bound_bytes = data
+            .get(..bound_len)
+            .ok_or(wincode::ReadError::Custom("bound region out of range"))?;
+        let tail = <TransactIxTailRef<'a> as SchemaRead<'a, RefConfig>>::get(&mut cursor)?;
+        if !cursor.is_empty() {
+            return Err(wincode::ReadError::Custom("trailing bytes"));
+        }
+        Ok((Self { bound, tail }, bound_bytes))
+    }
+
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
-        wincode::config::deserialize_exact(data, RefConfig::new())
+        Self::parse_bound(data).map(|(parsed, _)| parsed)
     }
 }
 
@@ -239,7 +298,7 @@ pub fn fetch_tag(
 }
 
 /// An output whose owner tag has been resolved to concrete bytes: the only form
-/// [`ExternalDataHash`] accepts, so the hash covers the resolved tag rather than
+/// the resolution `external_data_hash` needs, so the hash covers the resolved tag rather than
 /// its wire encoding and stays fail-closed against account-list tampering.
 pub struct ResolvedOutput<'a> {
     pub utxo_hash: &'a [u8; 32],
@@ -277,7 +336,7 @@ impl<'a> TransactOutputRef<'a> {
 }
 
 /// `view_tag`/`data` byte accessors shared by the owned [`MessageData`] and the
-/// borrowed [`OutputDataRef`], so [`ExternalDataHash`] hashes either message
+/// borrowed [`OutputDataRef`], so the same code path handles either message
 /// representation.
 pub trait OutputDataBytes {
     fn view_tag(&self) -> &[u8; 32];
@@ -330,104 +389,34 @@ pub enum ResolvedInterfaceTransfer {
     },
 }
 
-pub struct ExternalDataHash<'a, M: OutputDataBytes> {
-    pub spp_instruction_discriminator: u8,
-    pub expiry_unix_ts: u64,
-    pub interface_transfers: &'a [ResolvedInterfaceTransfer],
-    /// Zk programs can commit their data to the external data hash. The option
-    /// presence is bound separately from the value.
-    pub data_hash: Option<[u8; 32]>,
-    /// Ring programs can commit their data to the external data hash. The
-    /// option presence is bound separately from the value.
-    pub ring_data_hash: Option<[u8; 32]>,
-    /// Shared transaction viewing key used to derive every output's encryption
-    /// key. Binding it prevents an intermediary from making otherwise-valid
-    /// ciphertexts undecryptable.
-    pub tx_viewing_pk: &'a [u8; 33],
-    /// Shared per-transaction encryption salt. Binding it prevents an
-    /// intermediary from changing the key/nonce derivation context.
-    pub salt: &'a [u8; 16],
-    pub outputs: &'a [ResolvedOutput<'a>],
-    pub messages: &'a [M],
-}
-
-impl<M: OutputDataBytes> ExternalDataHash<'_, M> {
-    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
-        if self.interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
-            return Err(HasherError::IntegerOverflow);
-        }
-        let mut preimage = Vec::new();
-        preimage.push(self.spp_instruction_discriminator);
-        preimage.extend_from_slice(&self.expiry_unix_ts.to_be_bytes());
-        preimage.push(
-            u8::try_from(self.interface_transfers.len())
-                .map_err(|_| HasherError::IntegerOverflow)?,
-        );
-        for transfer in self.interface_transfers {
-            match transfer {
-                ResolvedInterfaceTransfer::SolDeposit { amount, recipient } => {
-                    preimage.push(0);
-                    preimage.push(1);
-                    preimage.extend_from_slice(&amount.to_be_bytes());
-                    preimage.extend_from_slice(recipient);
-                }
-                ResolvedInterfaceTransfer::SolWithdrawal { amount, recipient } => {
-                    preimage.push(0);
-                    preimage.push(0);
-                    preimage.extend_from_slice(&amount.to_be_bytes());
-                    preimage.extend_from_slice(recipient);
-                }
-                ResolvedInterfaceTransfer::SplDeposit {
-                    amount,
-                    user_token_account,
-                    spl_interface,
-                } => {
-                    preimage.push(1);
-                    preimage.push(1);
-                    preimage.extend_from_slice(&amount.to_be_bytes());
-                    preimage.extend_from_slice(user_token_account);
-                    preimage.extend_from_slice(spl_interface);
-                }
-                ResolvedInterfaceTransfer::SplWithdrawal {
-                    amount,
-                    user_token_account,
-                    spl_interface,
-                } => {
-                    preimage.push(1);
-                    preimage.push(0);
-                    preimage.extend_from_slice(&amount.to_be_bytes());
-                    preimage.extend_from_slice(user_token_account);
-                    preimage.extend_from_slice(spl_interface);
-                }
-            }
-        }
-        preimage.push(u8::from(self.data_hash.is_some()));
-        preimage.extend_from_slice(&self.data_hash.unwrap_or([0u8; 32]));
-        preimage.push(u8::from(self.ring_data_hash.is_some()));
-        preimage.extend_from_slice(&self.ring_data_hash.unwrap_or([0u8; 32]));
-        preimage.extend_from_slice(self.tx_viewing_pk);
-        preimage.extend_from_slice(self.salt);
-        preimage.extend_from_slice(&(self.outputs.len() as u16).to_be_bytes());
-        for output in self.outputs {
-            preimage.extend_from_slice(output.utxo_hash);
-            preimage.extend_from_slice(&output.owner_tag);
-            match output.data {
-                None => preimage.push(0),
-                Some(data) => {
-                    preimage.push(1);
-                    preimage.extend_from_slice(&(data.len() as u16).to_be_bytes());
-                    preimage.extend_from_slice(data);
-                }
-            }
-        }
-        preimage.extend_from_slice(&(self.messages.len() as u16).to_be_bytes());
-        for message in self.messages {
-            preimage.extend_from_slice(message.view_tag());
-            preimage.extend_from_slice(&(message.data().len() as u16).to_be_bytes());
-            preimage.extend_from_slice(message.data());
-        }
-        Sha256BE::hash(&preimage)
+/// `external_data_hash` public input: SHA-256 over the instruction
+/// discriminator, the contiguous proof-bound region of the raw instruction
+/// data, and a digest of the account addresses the proof must commit to.
+///
+/// No preimage copy: the bound bytes are hashed in place out of the instruction
+/// buffer. The addresses are folded into a single digest first so this
+/// function's stack frame is a fixed three-slot array rather than one pointer
+/// per leg and output, which would grow with the shape.
+///
+/// Injective. The bound region's encoding is self-delimiting, so it is
+/// recoverable from the preimage by reading it; the number of appended
+/// addresses is then a function of the bound region alone (one per SOL leg, two
+/// per SPL leg, one per output whose owner tag names an account), so the
+/// address digest cannot absorb or shed an entry.
+///
+/// `addresses` must yield, in order: each interface transfer's settlement
+/// accounts in leg order, then the resolved owner of every `OwnerTag::Account`
+/// output in output order.
+pub fn external_data_hash<'a>(
+    spp_instruction_discriminator: u8,
+    bound: &[u8],
+    addresses: impl Iterator<Item = &'a [u8; 32]>,
+) -> Result<[u8; 32], HasherError> {
+    let mut address_digest = [0u8; 32];
+    for address in addresses {
+        address_digest = Sha256BE::hashv(&[&address_digest, address])?;
     }
+    Sha256BE::hashv(&[&[spp_instruction_discriminator], bound, &address_digest])
 }
 
 #[cfg(test)]
@@ -546,55 +535,62 @@ mod tests {
 
     fn ix_data(proof: TransactProof) -> TransactIxData {
         TransactIxData {
-            proof,
-            expiry_unix_ts: 7,
-            private_tx_hash: [9u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
-            inputs: vec![InputUtxo {
-                nullifier_hash: [1u8; 32],
-                nullifier_tree_root_index: 2,
-                utxo_tree_root_index: 3,
-            }],
-            interface_transfers: vec![
-                InterfaceTransfer::SolWithdrawal { amount: 5 },
-                InterfaceTransfer::SplDeposit {
-                    amount: 7,
-                    spl_interface_bump: 42,
-                },
-            ],
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: [4u8; 33],
-            salt: [6u8; 16],
-            outputs: mixed_outputs(),
-            messages: vec![MessageData {
-                view_tag: [30u8; 32],
-                data: vec![8, 9],
-            }],
+            bound: TransactIxBound {
+                expiry_unix_ts: 7,
+                interface_transfers: vec![
+                    InterfaceTransfer::SolWithdrawal { amount: 5 },
+                    InterfaceTransfer::SplDeposit {
+                        amount: 7,
+                        spl_interface_bump: 42,
+                    },
+                ],
+                tx_viewing_pk: [4u8; 33],
+                salt: [6u8; 16],
+                outputs: mixed_outputs(),
+                messages: vec![MessageData {
+                    view_tag: [30u8; 32],
+                    data: vec![8, 9],
+                }],
+            },
+            tail: TransactIxTail {
+                proof,
+                private_tx_hash: [9u8; 32],
+                circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
+                inputs: vec![InputUtxo {
+                    nullifier_hash: [1u8; 32],
+                    nullifier_tree_root_index: 2,
+                    utxo_tree_root_index: 3,
+                }],
+                data_hash: None,
+                ring_data_hash: None,
+            },
         }
     }
 
     /// Every field of the borrowed view aliases the same bytes the owned struct
     /// serialized, so the swap program's owned-reserialize CPI path is byte-exact.
     fn assert_ref_matches_owned(view: &TransactIxDataRef, owned: &TransactIxData) {
-        assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-        assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-        assert_eq!(view.circuit, owned.circuit);
-        assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
-        assert_eq!(view.salt, &owned.salt);
-        assert_eq!(view.proof, owned.proof);
-        assert_eq!(view.inputs, owned.inputs);
-        assert_eq!(view.interface_transfers, owned.interface_transfers);
-        assert_eq!(view.data_hash, owned.data_hash);
-        assert_eq!(view.ring_data_hash, owned.ring_data_hash);
-        assert_eq!(view.outputs.len(), owned.outputs.len());
-        for (got, want) in view.outputs.iter().zip(owned.outputs.iter()) {
+        assert_eq!(view.bound.expiry_unix_ts, owned.bound.expiry_unix_ts);
+        assert_eq!(view.tail.private_tx_hash, &owned.tail.private_tx_hash);
+        assert_eq!(view.tail.circuit, owned.tail.circuit);
+        assert_eq!(view.bound.tx_viewing_pk, &owned.bound.tx_viewing_pk);
+        assert_eq!(view.bound.salt, &owned.bound.salt);
+        assert_eq!(view.tail.proof, owned.tail.proof);
+        assert_eq!(view.tail.inputs, owned.tail.inputs);
+        assert_eq!(
+            view.bound.interface_transfers,
+            owned.bound.interface_transfers
+        );
+        assert_eq!(view.tail.data_hash, owned.tail.data_hash);
+        assert_eq!(view.tail.ring_data_hash, owned.tail.ring_data_hash);
+        assert_eq!(view.bound.outputs.len(), owned.bound.outputs.len());
+        for (got, want) in view.bound.outputs.iter().zip(owned.bound.outputs.iter()) {
             assert_eq!(got.utxo_hash, &want.utxo_hash);
             assert_eq!(got.owner_tag, want.owner_tag);
             assert_eq!(got.data, want.data.as_deref());
         }
-        assert_eq!(view.messages.len(), owned.messages.len());
-        for (got, want) in view.messages.iter().zip(owned.messages.iter()) {
+        assert_eq!(view.bound.messages.len(), owned.bound.messages.len());
+        for (got, want) in view.bound.messages.iter().zip(owned.bound.messages.iter()) {
             assert_eq!(got.view_tag, &want.view_tag);
             assert_eq!(got.data, want.data.as_slice());
         }
@@ -698,33 +694,18 @@ mod tests {
         );
     }
 
+    /// The protocol bound on interface transfers is enforced where the count is
+    /// still a count: serialization and the program's account parsing. The hash
+    /// no longer re-checks it, because it hashes the already-validated bytes
+    /// rather than rebuilding a preimage from a slice.
     #[test]
-    fn interface_transfer_count_rejects_protocol_overflow_during_serialization_and_hashing() {
+    fn interface_transfer_count_rejects_protocol_overflow_during_serialization() {
         let mut data = ix_data(proof());
-        data.interface_transfers =
+        data.bound.interface_transfers =
             vec![InterfaceTransfer::SolDeposit { amount: 1 }; MAX_INTERFACE_TRANSFERS + 1];
         assert!(data.serialize().is_err());
 
-        let resolved = vec![
-            ResolvedInterfaceTransfer::SolDeposit {
-                amount: 1,
-                recipient: [1u8; 32],
-            };
-            MAX_INTERFACE_TRANSFERS + 1
-        ];
-        let result = ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
-            expiry_unix_ts: 3,
-            interface_transfers: &resolved,
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &[0u8; 33],
-            salt: &[0u8; 16],
-            outputs: &[],
-            messages: &[],
-        }
-        .hash();
-        assert_eq!(result, Err(HasherError::IntegerOverflow));
+        assert!(validate_interface_transfers(&data.bound.interface_transfers).is_err());
     }
 
     /// Per-`OwnerTag` serialized size of a single `None`-data output:
@@ -773,292 +754,160 @@ mod tests {
         );
     }
 
-    fn hash_of(outputs: &[ResolvedOutput], messages: &[MessageData]) -> [u8; 32] {
-        ExternalDataHash {
-            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
-            expiry_unix_ts: 0,
-            interface_transfers: &[],
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &[0u8; 33],
-            salt: &[0u8; 16],
+    /// Bound regions that differ must hash differently. The properties below
+    /// used to need hand-built count and length prefixes; they now follow from
+    /// the instruction encoding being self-delimiting, so these tests pin that
+    /// the encoding really has that property rather than that a preimage
+    /// builder remembered to add framing.
+    fn bound(outputs: Vec<TransactOutput>, messages: Vec<MessageData>) -> TransactIxBound {
+        TransactIxBound {
+            expiry_unix_ts: 7,
+            tx_viewing_pk: [4u8; 33],
+            salt: [6u8; 16],
+            interface_transfers: vec![],
             outputs,
             messages,
         }
-        .hash()
-        .unwrap()
     }
 
-    fn hash_with_transfers(interface_transfers: &[ResolvedInterfaceTransfer]) -> [u8; 32] {
-        ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
-            expiry_unix_ts: 3,
-            interface_transfers,
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &[0u8; 33],
-            salt: &[0u8; 16],
-            outputs: &[],
-            messages: &[],
+    fn hash_bound(bound: &TransactIxBound, addresses: &[[u8; 32]]) -> [u8; 32] {
+        let bytes = wincode::serialize(bound).expect("serialize bound region");
+        external_data_hash(crate::instruction::tag::TRANSACT, &bytes, addresses.iter())
+            .expect("external data hash")
+    }
+
+    fn output(utxo_hash: [u8; 32], owner_tag: OwnerTag, data: Option<Vec<u8>>) -> TransactOutput {
+        TransactOutput {
+            utxo_hash,
+            owner_tag,
+            data,
         }
-        .hash()
-        .unwrap()
-    }
-
-    fn hash_with_encryption_context(
-        data_hash: Option<[u8; 32]>,
-        ring_data_hash: Option<[u8; 32]>,
-        tx_viewing_pk: &[u8; 33],
-        salt: &[u8; 16],
-    ) -> [u8; 32] {
-        ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
-            expiry_unix_ts: 0,
-            interface_transfers: &[],
-            data_hash,
-            ring_data_hash,
-            tx_viewing_pk,
-            salt,
-            outputs: &[],
-            messages: &[],
-        }
-        .hash()
-        .unwrap()
     }
 
     #[test]
-    fn external_data_hash_binds_encryption_context_and_optional_hash_presence() {
-        let tx_viewing_pk = [1u8; 33];
-        let salt = [2u8; 16];
-        let base = hash_with_encryption_context(None, None, &tx_viewing_pk, &salt);
+    fn external_data_hash_binds_the_encryption_context() {
+        let base = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), None)],
+            vec![],
+        );
+        let baseline = hash_bound(&base, &[]);
 
-        let mut different_pk = tx_viewing_pk;
-        different_pk[0] ^= 1;
-        assert_ne!(
-            base,
-            hash_with_encryption_context(None, None, &different_pk, &salt)
-        );
+        let mut other_pk = base.clone();
+        other_pk.tx_viewing_pk = [5u8; 33];
+        assert_ne!(baseline, hash_bound(&other_pk, &[]));
 
-        let mut different_salt = salt;
-        different_salt[0] ^= 1;
-        assert_ne!(
-            base,
-            hash_with_encryption_context(None, None, &tx_viewing_pk, &different_salt)
-        );
+        let mut other_salt = base.clone();
+        other_salt.salt = [7u8; 16];
+        assert_ne!(baseline, hash_bound(&other_salt, &[]));
 
-        assert_ne!(
-            base,
-            hash_with_encryption_context(Some([0u8; 32]), None, &tx_viewing_pk, &salt)
-        );
-        assert_ne!(
-            base,
-            hash_with_encryption_context(None, Some([0u8; 32]), &tx_viewing_pk, &salt)
-        );
+        let mut other_expiry = base.clone();
+        other_expiry.expiry_unix_ts = 8;
+        assert_ne!(baseline, hash_bound(&other_expiry, &[]));
     }
 
     #[test]
-    fn external_data_hash_binds_transfer_count_order_tags_and_accounts() {
-        let sol = ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: u64::MAX,
-            recipient: [1u8; 32],
-        };
-        let spl = ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: u64::MAX,
-            user_token_account: [1u8; 32],
-            spl_interface: [2u8; 32],
-        };
-        assert_ne!(
-            hash_with_transfers(&[sol]),
-            hash_with_transfers(&[sol, sol])
+    fn external_data_hash_is_injective_across_the_output_message_boundary() {
+        // The same bytes, once as an output ciphertext and once as a message
+        // payload, must not collide.
+        let as_output = bound(
+            vec![output(
+                [1u8; 32],
+                OwnerTag::Inline([2u8; 32]),
+                Some(vec![9, 9]),
+            )],
+            vec![],
         );
-        assert_ne!(
-            hash_with_transfers(&[sol, spl]),
-            hash_with_transfers(&[spl, sol])
-        );
-        assert_ne!(hash_with_transfers(&[sol]), hash_with_transfers(&[spl]));
-
-        let other_recipient = ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: u64::MAX,
-            recipient: [3u8; 32],
-        };
-        let other_vault = ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: u64::MAX,
-            user_token_account: [1u8; 32],
-            spl_interface: [3u8; 32],
-        };
-        let opposite_direction = ResolvedInterfaceTransfer::SolDeposit {
-            amount: u64::MAX,
-            recipient: [1u8; 32],
-        };
-        assert_ne!(
-            hash_with_transfers(&[sol]),
-            hash_with_transfers(&[other_recipient])
-        );
-        assert_ne!(
-            hash_with_transfers(&[spl]),
-            hash_with_transfers(&[other_vault])
-        );
-        assert_ne!(
-            hash_with_transfers(&[sol]),
-            hash_with_transfers(&[opposite_direction])
-        );
-    }
-
-    #[test]
-    fn external_data_hash_transfer_fields_have_fixed_boundaries() {
-        let first = ResolvedInterfaceTransfer::SplDeposit {
-            amount: 1,
-            user_token_account: [2u8; 32],
-            spl_interface: [3u8; 32],
-        };
-        let second = ResolvedInterfaceTransfer::SplDeposit {
-            amount: 2,
-            user_token_account: [1u8; 32],
-            spl_interface: [3u8; 32],
-        };
-        assert_ne!(
-            hash_with_transfers(&[first]),
-            hash_with_transfers(&[second])
-        );
-    }
-
-    #[test]
-    fn external_data_hash_matches_go_harness_vector() {
-        let sender_tag = core::array::from_fn(|i| i as u8);
-        let sol_recipient = core::array::from_fn(|i| 0x20 + i as u8);
-        let spl_user = core::array::from_fn(|i| 0x40 + i as u8);
-        let spl_vault = core::array::from_fn(|i| 0x60 + i as u8);
-        let mut first_hash = [0u8; 32];
-        *first_hash.last_mut().unwrap() = 1;
-        let mut second_hash = [0u8; 32];
-        *second_hash.last_mut().unwrap() = 2;
-        let encrypted = [
-            0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0xaa, 0xbb, 0xcc, 0xdd,
-            0xee, 0xff,
-        ];
-        let tx_viewing_pk = core::array::from_fn(|i| 0x90 + i as u8);
-        let salt = core::array::from_fn(|i| 0xf0 + i as u8);
-        let outputs = [
-            ResolvedOutput {
-                utxo_hash: &first_hash,
-                owner_tag: sender_tag,
-                data: Some(&encrypted),
-            },
-            ResolvedOutput {
-                utxo_hash: &second_hash,
-                owner_tag: sender_tag,
-                data: None,
-            },
-        ];
-        let transfers = [
-            ResolvedInterfaceTransfer::SolWithdrawal {
-                amount: 1_234_567_890,
-                recipient: sol_recipient,
-            },
-            ResolvedInterfaceTransfer::SplDeposit {
-                amount: 987_654_321,
-                user_token_account: spl_user,
-                spl_interface: spl_vault,
-            },
-        ];
-        let got = ExternalDataHash::<MessageData> {
-            spp_instruction_discriminator: crate::instruction::tag::TRANSACT,
-            expiry_unix_ts: 1_234_567_890,
-            interface_transfers: &transfers,
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &tx_viewing_pk,
-            salt: &salt,
-            outputs: &outputs,
-            messages: &[],
-        }
-        .hash()
-        .unwrap();
-        assert_eq!(
-            got,
-            [
-                0, 145, 141, 254, 209, 123, 220, 153, 126, 125, 21, 54, 233, 88, 64, 42, 211, 62,
-                9, 150, 147, 112, 157, 254, 110, 111, 60, 85, 115, 156, 90, 135,
-            ]
-        );
-    }
-
-    /// A length-prefixed message vector means a 32-byte value cannot shift from a
-    /// resolved output's `data` into a message to forge the same preimage.
-    #[test]
-    fn external_data_hash_is_injective_across_output_message_boundary() {
-        let hash32 = [1u8; 32];
-        let tag = [2u8; 32];
-        let value = [3u8; 32];
-
-        let value_in_output = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: tag,
-                data: Some(&value),
-            }],
-            &[],
-        );
-        let value_in_message = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: tag,
-                data: None,
-            }],
-            &[MessageData {
-                view_tag: tag,
-                data: value.to_vec(),
+        let as_message = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), None)],
+            vec![MessageData {
+                view_tag: [2u8; 32],
+                data: vec![9, 9],
             }],
         );
-        assert_ne!(value_in_output, value_in_message);
+        assert_ne!(hash_bound(&as_output, &[]), hash_bound(&as_message, &[]));
     }
 
-    /// The strict {0,1} presence byte keeps `Some(&[])` distinct from `None`.
     #[test]
     fn external_data_hash_distinguishes_empty_data_from_none() {
-        let hash32 = [1u8; 32];
-        let tag = [2u8; 32];
-        let some_empty = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: tag,
-                data: Some(&[]),
-            }],
-            &[],
+        let none = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), None)],
+            vec![],
         );
-        let none = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: tag,
-                data: None,
-            }],
-            &[],
+        let empty = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), Some(vec![]))],
+            vec![],
         );
-        assert_ne!(some_empty, none);
+        assert_ne!(hash_bound(&none, &[]), hash_bound(&empty, &[]));
     }
 
-    /// The owner tag is a fixed 32-byte field and `data` is length-prefixed, so a
-    /// 32-byte value cannot shift between the resolved owner tag and `data`.
     #[test]
-    fn external_data_hash_is_injective_across_owner_tag_data_boundary() {
-        let hash32 = [1u8; 32];
-        let value = [3u8; 32];
-        let value_in_tag = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: value,
-                data: None,
-            }],
-            &[],
+    fn external_data_hash_is_injective_across_the_owner_tag_data_boundary() {
+        // A 32-byte value cannot migrate between the owner tag and the
+        // ciphertext without changing the digest.
+        let a = bound(
+            vec![output(
+                [1u8; 32],
+                OwnerTag::Inline([3u8; 32]),
+                Some(vec![4; 32]),
+            )],
+            vec![],
         );
-        let value_in_data = hash_of(
-            &[ResolvedOutput {
-                utxo_hash: &hash32,
-                owner_tag: [0u8; 32],
-                data: Some(&value),
-            }],
-            &[],
+        let b = bound(
+            vec![output(
+                [1u8; 32],
+                OwnerTag::Inline([4u8; 32]),
+                Some(vec![3; 32]),
+            )],
+            vec![],
         );
-        assert_ne!(value_in_tag, value_in_data);
+        assert_ne!(hash_bound(&a, &[]), hash_bound(&b, &[]));
+    }
+
+    #[test]
+    fn external_data_hash_freezes_the_owner_tag_encoding() {
+        // Behaviour change from the old preimage, which covered only the
+        // resolved tag: `Inline(x)` and `Account(i)` resolving to the same `x`
+        // are now distinct, so a relayer cannot rewrite one into the other.
+        let inline = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([9u8; 32]), None)],
+            vec![],
+        );
+        let by_account = bound(vec![output([1u8; 32], OwnerTag::Account(3), None)], vec![]);
+        assert_ne!(
+            hash_bound(&inline, &[]),
+            hash_bound(&by_account, &[[9u8; 32]])
+        );
+    }
+
+    #[test]
+    fn external_data_hash_binds_appended_address_order() {
+        let base = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), None)],
+            vec![],
+        );
+        let forward = hash_bound(&base, &[[7u8; 32], [8u8; 32]]);
+        let swapped = hash_bound(&base, &[[8u8; 32], [7u8; 32]]);
+        assert_ne!(
+            forward, swapped,
+            "reordering settlement accounts must change the digest"
+        );
+        assert_ne!(
+            forward,
+            hash_bound(&base, &[[7u8; 32]]),
+            "dropping an address must change the digest"
+        );
+    }
+
+    #[test]
+    fn external_data_hash_binds_the_instruction_discriminator() {
+        let base = bound(
+            vec![output([1u8; 32], OwnerTag::Inline([2u8; 32]), None)],
+            vec![],
+        );
+        let bytes = wincode::serialize(&base).expect("serialize bound region");
+        assert_ne!(
+            external_data_hash(crate::instruction::tag::TRANSACT, &bytes, [].iter()).unwrap(),
+            external_data_hash(crate::instruction::tag::RING_TRANSACT, &bytes, [].iter()).unwrap(),
+        );
     }
 }

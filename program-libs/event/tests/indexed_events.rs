@@ -13,6 +13,9 @@ fn event_kind_comes_from_payload_not_instruction_tag() {
     let indexed = IndexedEvent {
         tag: tag::EMIT_EVENT,
         payload: emit_data.get(1..).unwrap_or_default().to_vec(),
+        source_instruction_tag: tag::TRANSACT,
+        parent_data: vec![tag::TRANSACT],
+        parent_accounts: Vec::new(),
         decoded: decode_event_instruction(&emit_data),
     };
     assert_eq!(indexed.tag, tag::EMIT_EVENT);

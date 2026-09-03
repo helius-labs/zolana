@@ -12,7 +12,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { initializePoseidon } from "../hasher/index.js";
-import { MERGE_INPUT_COUNT } from "../interface/constants.js";
+import { MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT } from "../interface/constants.js";
 import {
   isPlainUtxo,
   selectUtxos,
@@ -60,7 +60,10 @@ function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
   return {
     eligible: (entry) => isPlainUtxo(entry) && unreserved(reserved)(entry),
     ordering: "smallestFirst",
-    maxInputs: MERGE_INPUT_COUNT,
+    // The automatic sweep deliberately stays on the smallest shape: a dust
+    // clear must not pay for the wide circuit. A caller naming hashes may go up
+    // to MAX_MERGE_INPUTS.
+    maxInputs: MERGE_DEFAULT_INPUT_COUNT,
     tree: { kind: "inferSingle" },
     errors: mergeSelectionErrors,
   };
@@ -117,9 +120,9 @@ function selectMergeEntries(params: MergeParams): readonly WalletUtxo[] {
       .utxos()
       .filter((entry) => !entry.spent && entry.utxo.asset === params.asset);
     if (hashes.length < 2) throw new WalletError("WALLET_NOTHING_TO_MERGE");
-    if (hashes.length > MERGE_INPUT_COUNT) {
+    if (hashes.length > MAX_MERGE_INPUTS) {
       throw new WalletError("WALLET_TOO_MANY_INPUTS", {
-        details: { got: hashes.length, max: MERGE_INPUT_COUNT },
+        details: { got: hashes.length, max: MAX_MERGE_INPUTS },
       });
     }
     const seen = new Set<string>();

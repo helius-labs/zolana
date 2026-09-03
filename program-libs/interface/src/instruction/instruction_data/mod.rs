@@ -23,7 +23,7 @@ pub use deposit::{
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
     MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,
-    MERGE_INPUT_COUNT,
+    MERGE_DEFAULT_INPUT_COUNT,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
@@ -31,6 +31,7 @@ pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
     fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput,
+    TransactIxBound, TransactIxBoundRef, TransactIxData, TransactIxDataRef, TransactIxTail,
+    TransactIxTailRef, TransactOutput, TransactOutputRef, TransactProof,
 };

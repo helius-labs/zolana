@@ -31,7 +31,8 @@ use zolana_tree::NullifierTreeInitParams;
 
 use crate::{
     localnet::{
-        send_transaction, start_shielded_pool_localnet, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+        send_transaction, start_shielded_pool_localnet, ValidatorBackend, DEFAULT_INDEXER_URL,
+        DEFAULT_RPC_URL,
     },
     smart_account::{self, StandardAccounts, StandardSigners},
     spl::{create_mint, create_token_account},
@@ -135,6 +136,9 @@ pub struct BootstrapConfig {
     /// Temp-path label for the validator ledger/account dirs (per suite, so
     /// concurrent suites do not share validator state).
     pub label: &'static str,
+    /// Which validator to boot. Only surfpool accepts a transaction v1 message
+    /// above `PACKET_DATA_SIZE`, so large-shape suites opt into it.
+    pub backend: ValidatorBackend,
     /// Extra `(program_id, workspace-relative .so path)` programs the validator
     /// loads (e.g. the ring fixture program).
     pub extra_programs: Vec<(String, String)>,
@@ -223,7 +227,7 @@ impl<D> LocalnetHarness<D> {
             .iter()
             .map(|(id, path)| (id.clone(), path.as_str()))
             .collect();
-        start_shielded_pool_localnet(config.label, &extra_programs);
+        start_shielded_pool_localnet(config.label, config.backend, &extra_programs);
         prover.join().expect("prover startup thread panicked");
 
         let rpc_url =

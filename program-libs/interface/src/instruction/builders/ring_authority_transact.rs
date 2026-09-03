@@ -64,11 +64,15 @@ impl RingAuthorityTransact {
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
-            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+            self.data
+                .tail
+                .inputs
+                .iter()
+                .map(|input| &input.nullifier_hash),
         ));
         append_interface_transfer_accounts(
             &mut accounts,
-            &self.data.interface_transfers,
+            &self.data.bound.interface_transfers,
             &self.interface_transfer_accounts,
         );
         Instruction {

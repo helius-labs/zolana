@@ -44,6 +44,8 @@ zolana-transaction = { workspace = true }
 zolana-tree = { workspace = true }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 
+wincode = { workspace = true }
+
 [dev-dependencies]
 # smart_account::settings pins the Anchor discriminator scheme in its unit test.
 sha2 = { workspace = true }

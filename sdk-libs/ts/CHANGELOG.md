@@ -5,8 +5,55 @@
 Wallet replay keeps merge outputs when their inputs arrive in the same sync.
 Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
 
+Changed
+
+- **Breaking:** `transact` instruction data is reordered into a contiguous
+  proof-bound region followed by a tail. The region runs `expiryUnixTs`,
+  `txViewingPk`, `salt`, `interfaceTransfers`, `outputs`, `messages`; the tail
+  holds `circuit`, `proof`, `privateTxHash`, `inputs`, `dataHash`,
+  `ringDataHash`. `encodeTransactInstructionData` emits the new order, so
+  instruction bytes built by an older SDK are not accepted.
+- **Breaking:** `externalDataHash` now takes `{ instructionDiscriminator, bound,
+boundAddresses }` and hashes the serialized bound region plus a digest of the
+  bound account addresses, instead of assembling its own preimage. Digests
+  differ from previous releases. The hash also covers the owner-tag _encoding_,
+  so an output tagged inline and one tagged by account no longer collide.
+- `dataHash` and `ringDataHash` are no longer covered by `externalDataHash`.
+  They remain in instruction data but no public input binds them.
+- **Breaking:** `MERGE_INPUT_COUNT` and `MERGE_INPUTS` are gone, because merge
+  now has two shapes rather than one fixed arity → import
+  `MERGE_DEFAULT_INPUT_COUNT` or `MERGE_DEFAULT_INPUTS`, both still 8, or read
+  `MERGE_SUPPORTED_INPUT_COUNTS`.
+- **Breaking:** the `CLIENT_INVALID_MERGE_SHAPE` details are
+  `{ supported, actual }` → read `supported` instead of `expected`.
+- `Merge` accepts up to 36 inputs and pads to the smallest supported shape that
+  fits, and `encodeMergeTransactInstructionData` accepts either supported count instead
+  of exactly 8.
+- `wallet.merge` with named UTXO hashes accepts up to 36 of them; the automatic
+  sweep still selects at most 8, so a dust clear keeps the cheaper proof.
+- No merge shape fits the 200,000 compute-unit default: a merge consumes
+  193,000 to 212,000 units at 8 inputs and 406,000 to 446,000 at 36, so an
+  instruction from `mergeTransactInstruction` must be sent with a raised limit,
+  which `buildUnsignedMergeTransaction` requests as
+  `MERGE_TRANSACT_COMPUTE_UNIT_LIMIT`.
+- The default compute limit `createZolanaClient` requests for `transact` rises
+  from 300,000 to 800,000 units, so every supported shape fits on every rail
+  without an override. The binding case is not the widest shape but the P256
+  rail: its BSB22 commitment adds a Pedersen proof-of-knowledge pairing, so
+  verification costs 224,654 units against 93,356 on the EdDSA and ring rails,
+  and a 36x2 P256 ring transact reaches about 585,000 in the instruction alone.
+  Requested units set the prioritization fee, so a caller submitting only small
+  shapes should pass a lower `computeUnitLimit` to keep paying what it did
+  before.
+
 Added
 
+- `encodeTransactBoundRegion` and the `TransactBoundFields` type: the serialized
+  proof-bound region on its own, for computing `externalDataHash`.
+- `MERGE_SUPPORTED_INPUT_COUNTS`, `MAX_MERGE_INPUTS`,
+  `isSupportedMergeInputCount`, and `mergePaddedInputCount`: which merge shapes
+  the program has verifying keys for, and which one a given real input count is
+  padded to.
 - `ShieldedPoolError` codes 7056 to 7061 (`NonCanonicalOutputUtxoHash`,
   `NonCanonicalInputNullifier`, `NonCanonicalPrivateTxHash`,
   `NonCanonicalRingDataHash`, `NonCanonicalDepositField`, `NonCanonicalRoot`):

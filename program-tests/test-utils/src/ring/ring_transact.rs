@@ -15,7 +15,9 @@ use zolana_client::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            CircuitId, InputUtxo, TransactIxBound, TransactIxData, TransactIxTail, TransactProof,
+        },
         tag::RING_TRANSACT,
         RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplWithdrawalAccounts,
@@ -996,7 +998,7 @@ impl RingHarness {
             rail: RingRail::P256,
             tamper: ProofTamper::None,
         })?;
-        let CircuitId::RingP256(_, _, _, proof_data) = &sent.data.circuit else {
+        let CircuitId::RingP256(_, _, _, proof_data) = &sent.data.tail.circuit else {
             return Err(anyhow!("expected a RingP256 circuit selector"));
         };
         let expected_tag = self.actor(from).keypair.signing_pubkey().as_p256()?.x();
@@ -1119,22 +1121,26 @@ fn assemble_ix_data(
         ),
     };
     Ok(TransactIxData {
-        proof,
-        expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash,
-        circuit,
-        inputs,
-        interface_transfers: external
-            .interface_transfers
-            .iter()
-            .map(|transfer| transfer.interface_transfer())
-            .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
-        tx_viewing_pk: external.tx_viewing_pk,
-        salt: external.salt,
-        outputs: external.outputs.clone(),
-        messages: external.messages.clone(),
+        bound: TransactIxBound {
+            expiry_unix_ts: external.expiry_unix_ts,
+            interface_transfers: external
+                .interface_transfers
+                .iter()
+                .map(|transfer| transfer.interface_transfer())
+                .collect(),
+            tx_viewing_pk: external.tx_viewing_pk,
+            salt: external.salt,
+            outputs: external.outputs.clone(),
+            messages: external.messages.clone(),
+        },
+        tail: TransactIxTail {
+            proof,
+            private_tx_hash,
+            circuit,
+            inputs,
+            data_hash: external.data_hash,
+            ring_data_hash: external.ring_data_hash,
+        },
     })
 }
 

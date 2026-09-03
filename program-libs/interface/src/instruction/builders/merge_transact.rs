@@ -12,6 +12,29 @@ use crate::{
 /// `user_record` (read-only), the System Program, the program account for the
 /// `emit_event` self-CPI, then one writable nullifier PDA per `nullifiers`
 /// entry.
+///
+/// # Compute budget
+///
+/// **No merge fits the 200,000 CU per-instruction default.** The caller must
+/// prepend a `ComputeBudgetInstruction::set_compute_unit_limit`; this builder
+/// deliberately returns only the merge instruction, so the returned account and
+/// instruction list is exactly what the program consumes.
+///
+/// Measured on LiteSVM (`merge/functional.rs`, 2026-09), per supported input
+/// count in [`MERGE_SUPPORTED_INPUT_COUNTS`]:
+///
+/// | inputs | observed CU       | suggested limit |
+/// |--------|-------------------|-----------------|
+/// | 8      | 193_000-212_000   | 400_000         |
+/// | 36     | 406_000-446_000   | 800_000         |
+///
+/// The range, not a point, is the honest figure: each input's nullifier PDA is
+/// derived with a canonical bump search whose iteration count depends on the
+/// nullifier, so the cost moves with the inputs being merged. The Groth16
+/// pairing is shape-independent; everything above it scales with the input
+/// count.
+///
+/// [`MERGE_SUPPORTED_INPUT_COUNTS`]: crate::instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS
 pub struct MergeTransact {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,

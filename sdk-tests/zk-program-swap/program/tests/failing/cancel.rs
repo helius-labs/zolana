@@ -32,7 +32,7 @@ fn oversized_cancel_private_tx_hash_fails_hashing_exactly() {
     // over-modulus public input is what fails.
     mollusk.sysvars.clock.unix_timestamp = 1;
     let mut data = transact(Vec::new());
-    data.private_tx_hash = [0xFF; 32];
+    data.tail.private_tx_hash = [0xFF; 32];
     instruction.data = wrapper_data_with(Wrapper::Cancel, data);
     expect_err_exact(
         &mollusk,

@@ -42,7 +42,7 @@ pub fn process_escrow_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             c: &proof.proof_c,
             commitment: None,
         },
-        transact.private_tx_hash,
+        transact.tail.private_tx_hash,
         &escrow::VERIFYINGKEY,
     )?;
 

@@ -194,6 +194,35 @@ impl<'info> AccountIterator<'info> {
         Ok(account_info)
     }
 
+    /// Peel `count` writable accounts off the front as one contiguous slice.
+    ///
+    /// Equivalent to calling [`Self::next_mut`] `count` times, including the
+    /// per-account writability check and its diagnostics, but it hands back a
+    /// slice so callers do not need a fixed-capacity buffer sized by the count.
+    #[inline(always)]
+    #[track_caller]
+    pub fn next_slice_mut(
+        &mut self,
+        count: usize,
+        account_name: &str,
+    ) -> Result<&'info mut [AccountView], AccountError> {
+        // Same take-and-restore dance as `next_account`, so the peeled slice
+        // carries the `'info` lifetime rather than borrowing from `self`.
+        if self.accounts.len() < count {
+            self.print_not_enough_accounts(account_name, Location::caller());
+            return Err(AccountError::NotEnoughAccountKeys);
+        }
+        let accounts = core::mem::take(&mut self.accounts);
+        let (taken, rest) = accounts.split_at_mut(count);
+        for account in taken.iter() {
+            check_mut(account)
+                .inspect_err(|e| self.print_on_error(e, account_name, Location::caller()))?;
+        }
+        self.accounts = rest;
+        self.position += count;
+        Ok(taken)
+    }
+
     /// Get all remaining accounts in the iterator.
     #[inline(always)]
     #[track_caller]

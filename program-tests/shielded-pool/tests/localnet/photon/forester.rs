@@ -143,6 +143,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
         std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
 
     let config = BootstrapConfig {
+        backend: ValidatorBackend::default(),
         label: "zolana-photon",
         extra_programs: Vec::new(),
         ring_creation_is_permissionless: false,

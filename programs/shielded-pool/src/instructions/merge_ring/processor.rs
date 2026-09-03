@@ -40,7 +40,8 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts)?;
+    let merge_accounts =
+        MergeRingAccounts::validate_and_parse(accounts, ix.merge.nullifiers.len())?;
 
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: RING_MERGE_TRANSACT,

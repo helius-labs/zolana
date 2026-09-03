@@ -52,7 +52,7 @@ use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
 use zolana_test_utils::smart_account;
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
-    localnet::start_shielded_pool_localnet,
+    localnet::{start_shielded_pool_localnet, ValidatorBackend},
     prover::spawn_workspace_prover,
     test_validator_asserts::{
         assert_transaction_compute_units, wait_for_indexed_transaction, wait_for_indexed_utxo,
@@ -239,5 +239,5 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
 /// a validator; combined with `#[serial]` this gives every test an isolated
 /// localnet.
 fn restart_localnet() {
-    start_shielded_pool_localnet("zolana-photon", &[]);
+    start_shielded_pool_localnet("zolana-photon", ValidatorBackend::default(), &[]);
 }

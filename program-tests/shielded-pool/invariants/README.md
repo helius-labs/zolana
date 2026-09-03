@@ -100,7 +100,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   after an audit found the first resolution had not actually landed):
   1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
+  3. Merge supported input counts (8 or 36) with one output, and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.

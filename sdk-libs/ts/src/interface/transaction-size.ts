@@ -4,7 +4,16 @@ import { InterfaceError } from "./errors.js";
 import type { Transaction } from "./types.js";
 import type { Shape } from "./shape.js";
 
-/** Solana's `PACKET_DATA_SIZE`: the serialized transaction a validator accepts. */
+/**
+ * Solana's `PACKET_DATA_SIZE`: the serialized legacy or v0 transaction a
+ * validator accepts.
+ *
+ * Deliberately still 1232. Every shape this SDK builds today fits it, and
+ * raising it would let the SDK assemble transactions that only a v1-capable
+ * validator accepts while it still emits legacy messages. Raise it to
+ * `MAX_TRANSACTION_SIZE` (4096) in the same change that teaches the SDK to build
+ * `VersionedMessage::V1`, not before.
+ */
 export const TRANSACTION_SIZE_LIMIT = 1232;
 
 export function transactionSize(transaction: Transaction): number {

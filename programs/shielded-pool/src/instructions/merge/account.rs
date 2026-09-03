@@ -1,5 +1,4 @@
 use crate::instructions::shared::caused_by;
-use arrayvec::ArrayVec;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
@@ -7,10 +6,7 @@ use pinocchio::{
 };
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
-    merge_utils::owner_proof_input_hash_compressed,
-};
+use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_proof_input_hash_compressed};
 use zolana_user_registry_interface::{
     state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
 };
@@ -24,11 +20,14 @@ pub struct MergeTransactAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: &'a mut [AccountView],
 }
 
 impl<'a> MergeTransactAccounts<'a> {
-    pub fn validate_and_parse(accounts: &'a mut [AccountView]) -> Result<Self, ProgramError> {
+    pub fn validate_and_parse(
+        accounts: &'a mut [AccountView],
+        input_count: usize,
+    ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
@@ -42,12 +41,9 @@ impl<'a> MergeTransactAccounts<'a> {
         if !address_eq(shielded_pool_program.address(), &crate::ID) {
             return Err(ProgramError::IncorrectProgramId);
         }
-        let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..MERGE_INPUT_COUNT {
-            nullifier_pdas
-                .try_push(iter.next_mut("nullifier_pda")?)
-                .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
-        }
+        // One contiguous slice, sized by the instruction's declared input
+        // count rather than by a compile-time constant.
+        let nullifier_pdas = iter.next_slice_mut(input_count, "nullifier_pda")?;
         Ok(Self {
             input_tree,
             output_tree,

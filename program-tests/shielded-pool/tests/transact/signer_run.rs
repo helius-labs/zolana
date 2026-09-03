@@ -5,11 +5,14 @@
 
 use pinocchio::error::ProgramError;
 use shielded_pool_program::testing::{
-    fixed_signer_hash_chain, OwnerHashCache, TransactProofInputs, MAX_SIGNERS,
+    fixed_signer_hash_chain, OwnerHashCache, TransactProofInputs, MAX_SIGNERS, MAX_UNIQUE_SIGNERS,
     SIGNER_ZERO_SUFFIX_CHAINS,
 };
 use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::{hash_chain::create_right_hash_chain_from_slice, primitives::hash_bytes};
+use zolana_hasher::{
+    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    primitives::hash_bytes,
+};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{CircuitId, ResolvedOutput},
@@ -93,7 +96,7 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
-        .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
+        .fill_output_owner_chain(OutputOwnerMode::All, &outputs, &mut owner_hashes)
         .unwrap();
     assert_eq!(owner_hashes.len(), 2);
 
@@ -101,14 +104,20 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
         .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
         .unwrap();
     assert_eq!(owner_hashes.len(), 3);
+    // Outputs 0 and 2 share the payer's tag, so the cache serves all three
+    // lookups from two entries and the folded chain repeats that hash.
+    let payer_owner_hash = hash_bytes(&[1; 32]).unwrap();
+    assert_eq!(payer_owner_hash, proof_inputs.signer_pk_hashes[0]);
     assert_eq!(
-        proof_inputs.output_owner_pk_hashes[0],
-        proof_inputs.signer_pk_hashes[0]
+        proof_inputs.output_owner_chain,
+        create_hash_chain_from_slice(&[
+            payer_owner_hash,
+            hash_bytes(&[2; 32]).unwrap(),
+            payer_owner_hash,
+        ])
+        .unwrap()
     );
-    assert_eq!(
-        proof_inputs.output_owner_pk_hashes[0],
-        proof_inputs.output_owner_pk_hashes[2]
-    );
+    assert_eq!(proof_inputs.output_owner_count, 3);
 }
 
 #[test]
@@ -138,19 +147,21 @@ fn confidential_marked_mode_hashes_only_marked_output_tags() {
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
-        .fill_output_owner_pk_hashes(
+        .fill_output_owner_chain(
             OutputOwnerMode::ConfidentialMarked,
             &outputs,
             &mut owner_hashes,
         )
         .unwrap();
 
+    // Only the confidential-encrypted output contributes its owner hash; the
+    // other two fold an explicit zero, which is what the zero-filled slots of
+    // the removed fixed-width array did.
     assert_eq!(
-        proof_inputs.output_owner_pk_hashes[0],
-        hash_bytes(&[1; 32]).unwrap()
+        proof_inputs.output_owner_chain,
+        create_hash_chain_from_slice(&[hash_bytes(&[1; 32]).unwrap(), [0; 32], [0; 32]]).unwrap()
     );
-    assert_eq!(proof_inputs.output_owner_pk_hashes[1], [0; 32]);
-    assert_eq!(proof_inputs.output_owner_pk_hashes[2], [0; 32]);
+    assert_eq!(proof_inputs.output_owner_count, 3);
     assert_eq!(owner_hashes.len(), 1);
 }
 
@@ -190,4 +201,43 @@ fn fixed_signer_hash_chain_rejects_empty_signer_prefix() {
             ShieldedPoolError::InvalidTransactShape as u32
         )),
     );
+}
+
+/// `MAX_UNIQUE_SIGNERS` bounds the number of *distinct* owner signers the
+/// program will hash, independently of the input count. It is unreachable
+/// on-chain while every supported shape has fewer inputs than the bound --
+/// `account.rs` rejects a longer run first -- so exercise it directly.
+#[test]
+fn more_unique_signers_than_the_bound_is_rejected() {
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    // One more distinct signer than fits, on top of the payer in slot zero.
+    let owner_signers: Vec<_> = (0..MAX_UNIQUE_SIGNERS as u8)
+        .map(|index| get_account_view([index + 2; 32], [0; 32], true, false, false, vec![]))
+        .collect();
+
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+    assert_eq!(
+        proof_inputs.fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes),
+        Err(ProgramError::Custom(
+            ShieldedPoolError::InvalidTransactShape as u32
+        )),
+    );
+}
+
+/// A repeated signer is deduplicated, so a run longer than the bound is fine as
+/// long as its distinct prefix fits.
+#[test]
+fn repeated_signers_do_not_count_against_the_bound() {
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    let repeated: Vec<_> = (0..MAX_UNIQUE_SIGNERS + 4)
+        .map(|_| get_account_view([2; 32], [0; 32], true, false, false, vec![]))
+        .collect();
+
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+    proof_inputs
+        .fill_owner_signer_hashes(&payer, &repeated, &mut owner_hashes)
+        .expect("a deduplicated run inside the bound is accepted");
+    assert_eq!(proof_inputs.unique_owner_signer_count, 2);
 }

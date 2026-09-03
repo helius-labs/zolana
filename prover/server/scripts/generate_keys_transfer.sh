@@ -22,6 +22,8 @@ shapes=(
     "5 3"
     "5 4"
     "1 8"
+    # Consolidation shape; keep in sync with SPP_SUPPORTED_SHAPES.
+    "36 2"
 )
 
 # "<setup-transfer --circuit flag> <key-file prefix>". The key-file prefix

@@ -40,7 +40,11 @@ impl CreateEscrow {
 
         let nullifier_pdas = nullifier_pda_accounts(
             &tree,
-            transact.inputs.iter().map(|input| &input.nullifier_hash),
+            transact
+                .tail
+                .inputs
+                .iter()
+                .map(|input| &input.nullifier_hash),
         );
         let ix_data = CreateEscrowIxData {
             proof,

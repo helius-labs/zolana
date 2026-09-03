@@ -1,316 +1,159 @@
-//! Proof-backed functional test for the `merge_transact` instruction: boot a
+//! Proof-backed functional tests for the `merge_transact` instruction: boot a
 //! protocol config and pool tree, deposit one real zero-value input owned by
-//! the payer's shielded address, pad to the fixed 8-in/1-out merge shape with
-//! dummy slots, prove the merge with the workspace prover, and send it.
+//! the payer's shielded address, pad to a supported merge shape with dummy
+//! slots, prove the merge with the workspace prover, and send it. The proof
+//! construction itself lives in `support::merge` so other test binaries can
+//! reuse it.
 //!
-//! The assertion target is the merge side of the forester-fee contract (the
-//! transact side is pinned in `transact/functional.rs`): a successful merge
-//! collects exactly `MERGE_INPUT_COUNT (8) x fee_per_nullifier` lamports from
-//! the payer into the input tree, per the tree's stored fee schedule.
+//! Both supported shapes run here, because the on-chain binding is
+//! shape-dependent: the public-input hash folds three chains whose length is
+//! the declared input count, and the verifying key is selected from that same
+//! count. A client-side pairing check cannot catch a program that folds a
+//! different width than the circuit, so a real proof must be *accepted* at
+//! every supported count.
+//!
+//! The assertion targets are:
+//! * the merge side of the forester-fee contract (the transact side is pinned
+//!   in `transact/functional.rs`): a successful merge collects exactly
+//!   `input_count x fee_per_nullifier` lamports from the payer into the input
+//!   tree, per the tree's stored fee schedule;
+//! * the measured compute cost, pinned as an upper bound per shape, because
+//!   neither shape fits the 200,000 CU default and callers must raise the
+//!   limit.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_progress, tree_roots};
+use shielded_pool_tests::support::{
+    merge::RealMergeProof,
+    transact::{proof_env, tree_progress},
+};
 
-use borsh::BorshSerialize;
-use groth16_solana::groth16::Groth16Verifier;
-use num_bigint::BigUint;
-use solana_account::Account;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    MergeProver, MerkleContext, MerkleProof, NonInclusionProof, ProofCompressed, ProverClient,
-    SpendProof, TransferSpendInput, STATE_TREE_HEIGHT,
-};
-use zolana_hasher::Poseidon;
 use zolana_interface::{
-    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
+    instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
-    verifying_keys::merge_8_1,
     NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, PublicKey, ShieldedKeypair, ShieldedKeypairTrait};
-use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
-use zolana_test_utils::transact::nullifier_tree;
-use zolana_transaction::{
-    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
-    Data, SppProofOutputUtxo, Utxo, SOL_MINT,
-};
-use zolana_user_registry_interface::{
-    state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
-    user_record_pda, USER_REGISTRY_PROGRAM_ID,
-};
 
-/// Materialize a registry-owned `UserRecord` account directly in LiteSVM. The
-/// merge instruction only reads the record, so fabricating it exercises the
-/// same validation as a record created through the registry program. (Local
-/// copy of the `merge/contract.rs` helper; test binaries cannot share code.)
-fn write_user_record(
-    rpc: &mut ZolanaProgramTest,
-    owner: Pubkey,
-    owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
-    merging_enabled: bool,
-) -> Pubkey {
-    // Compressed-point prefix 0x02 keeps `pk_field(viewing_pubkey)` computable.
-    let mut viewing_pubkey = [7u8; P256_PUBKEY_LEN];
-    if let Some(first) = viewing_pubkey.first_mut() {
-        *first = 0x02;
+/// The per-shape compute limit the merge is sent with. Both shapes exceed the
+/// 200,000 CU default; the wide one exceeds it by more than double.
+const MERGE_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+/// Measured cost of a successful `merge_transact` at the default 8-input shape
+/// (LiteSVM `compute_units_consumed`, 2026-09), pinned at roughly 2x so a
+/// regression that materially raises it fails here. Both ceilings sit strictly
+/// below `MERGE_COMPUTE_UNIT_LIMIT`, so a regression trips the assert instead
+/// of aborting the transaction at the enforced budget (which would make the
+/// ceiling unfalsifiable).
+///
+/// The cost is not a single number: the test payer is a fresh keypair, so the
+/// nullifiers -- and therefore each nullifier PDA's canonical bump search --
+/// change per run. The observed spread across runs is about 1_500 CU per
+/// off-by-one bump attempt per input.
+const MERGE_8_CU_CEILING: u64 = 420_000; // observed 193_991-211_991 over five runs
+
+/// Measured cost of a successful `merge_transact` at the wide 36-input shape.
+/// The extra 28 inputs each add a queue insertion, a nullifier PDA creation
+/// (with its bump search), and two root reads; the Groth16 pairing itself is
+/// shape-independent.
+const MERGE_36_CU_CEILING: u64 = 900_000; // observed 406_747-445_747 over five runs
+
+fn merge_cu_ceiling(input_count: usize) -> u64 {
+    match input_count {
+        8 => MERGE_8_CU_CEILING,
+        36 => MERGE_36_CU_CEILING,
+        other => panic!("no pinned compute-unit ceiling for a {other}-input merge"),
     }
-    // The program pins the record to its canonical registry PDA and bump.
-    let (address, bump) = user_record_pda(&owner);
-    let record = UserRecord {
-        owner: solana_address::Address::new_from_array(owner.to_bytes()),
-        bump,
-        owner_p256,
-        nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
-        viewing_pubkey,
-        merging_enabled,
-    };
-    let mut data = vec![UserRecord::DISCRIMINATOR];
-    record
-        .serialize(&mut data)
-        .expect("serialize fabricated user record");
-    // The registry requires the exact fixed record size; a `None` p256 key
-    // serializes short, so zero-pad like the program's own writes do.
-    data.resize(UserRecord::SIZE, 0);
-    rpc.svm
-        .set_account(
-            address,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .expect("write fabricated user record");
-    address
 }
 
-#[test]
-fn merge_collects_the_exact_forester_fee_from_the_payer() {
-    let mut env = proof_env();
-    let payer = env.rpc.payer.insecure_clone();
-    let payer_pk = payer.pubkey();
-    let tree = env.tree;
-    let zero = [0u8; 32];
+/// Prove and send one real merge at `input_count` inputs, asserting the fee
+/// contract, the tree progress, the nullifier PDAs, and the compute cost.
+fn merge_at_input_count(input_count: usize) {
+    let mut pool = proof_env();
+    let payer_pk = pool.rpc.payer.pubkey();
+    let tree = pool.tree;
 
-    // The merge owner IS the payer: the shielded keypair derives from the
-    // payer's ed25519 secret, so the registry record binds the same key the
-    // proof recomputes `signing_pk_field` from.
-    let keypair = ShieldedKeypair::from_keypair(&payer).expect("shielded keypair");
-    let record = write_user_record(&mut env.rpc, payer_pk, None, true);
+    let merge = RealMergeProof { input_count }.build(&mut pool);
+    let ix = merge.instruction(&pool);
 
-    // The real input: a zero-value SOL deposit owned by the payer's shielded
-    // address (fixed blinding / nullifier secret keep the run deterministic).
-    let blinding = test_blinding(7);
-    let nullifier_key = keypair.nullifier_key();
-    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let owner_public_key = keypair.signing_pubkey();
-    let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
-    let utxo = Utxo {
-        owner: owner_public_key,
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    env.rpc
-        .deposit_sol(&tree, &payer, 0, owner_field, blinding)
-        .expect("proofless zero deposit");
-
-    // Merkle witnesses against the on-chain roots, gated on the local trees.
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
-    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
-    state_tree.append(&utxo_hash).expect("append state leaf");
-    assert_eq!(state_tree.root(), utxo_root, "state root gate");
-    let state_path: Vec<[u8; 32]> = state_tree
-        .get_proof_of_leaf(0, true)
-        .expect("state proof")
-        .to_vec();
-    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
-    let merkle_context = MerkleContext {
-        tree_type: 0,
-        tree: solana_address::Address::new_from_array(tree.to_bytes()),
-    };
-
-    let first_nullifier = nullifier_key
-        .nullifier(&utxo_hash, &blinding)
-        .expect("nullifier");
-    let non_inclusion = nf_tree
-        .get_non_inclusion_proof(&BigUint::from_bytes_be(&first_nullifier))
-        .expect("non-inclusion proof");
-    let to_non_inclusion =
-        |leaf: [u8; 32], proof: &zolana_merkle_tree::indexed::NonInclusionProof| {
-            NonInclusionProof {
-                leaf,
-                merkle_context: merkle_context.clone(),
-                path: proof.merkle_proof.to_vec(),
-                low_element: proof.leaf_lower_range_value,
-                low_element_index: proof.leaf_index as u64,
-                high_element: proof.leaf_higher_range_value,
-                high_element_index: 0,
-                root: nullifier_root,
-                root_seq: 0,
-                root_index: 0,
-            }
-        };
-
-    // One real input at slot 0; slots 1..8 are dummies whose deterministic
-    // merge nullifiers still need non-inclusion witnesses.
-    let mut spends = Vec::with_capacity(MERGE_INPUT_COUNT);
-    spends.push(TransferSpendInput {
-        utxo: utxo.clone(),
-        nullifier_key: nullifier_key.clone(),
-        data_hash: None,
-        ring_data_hash: None,
-        proof: Some(SpendProof {
-            state: MerkleProof {
-                leaf: utxo_hash,
-                merkle_context: merkle_context.clone(),
-                path: state_path,
-                leaf_index: 0,
-                root: utxo_root,
-                root_seq: 0,
-                // The deposit consumed root-history slot 1.
-                root_index: 1,
-            },
-            nullifier: to_non_inclusion(first_nullifier, &non_inclusion),
-        }),
-        nullifier_proof: None,
-    });
-    for slot in 1..MERGE_INPUT_COUNT {
-        let dummy_nullifier = merge_dummy_nullifier(&nullifier_key, &first_nullifier, slot as u8)
-            .expect("dummy nullifier");
-        let proof = nf_tree
-            .get_non_inclusion_proof(&BigUint::from_bytes_be(&dummy_nullifier))
-            .expect("dummy non-inclusion proof");
-        spends.push(TransferSpendInput {
-            utxo: Utxo {
-                owner: PublicKey::zeroed(),
-                asset: SOL_MINT,
-                amount: 0,
-                blinding: test_blinding(slot as u8 + 10),
-                ring_program_id: None,
-                data: Data::default(),
-            },
-            nullifier_key: nullifier_key.clone(),
-            data_hash: None,
-            ring_data_hash: None,
-            proof: None,
-            nullifier_proof: Some(to_non_inclusion(dummy_nullifier, &proof)),
-        });
-    }
-
-    // The merged output's blinding is derived, not random: the circuit (and
-    // the owner's wallet) reconstruct it from the nullifier secret and the
-    // first input's nullifier.
-    let mut output = SppProofOutputUtxo::new(
-        SOL_MINT,
-        0,
-        keypair.shielded_address().expect("shielded address"),
-    )
-    .expect("merge output");
-    output.blinding =
-        merge_output_blinding(&nullifier_key, &first_nullifier).expect("output blinding");
-
-    let result = MergeProver {
-        inputs: spends,
-        output,
-        expiry_unix_ts: u64::MAX,
-        signing_pubkey: owner_public_key,
-        nullifier_key,
-    }
-    .build()
-    .expect("build merge witness");
-
-    let prover = ProverClient::local();
-    let proof = prover.prove_merge(&result.inputs).expect("prove merge");
-    // Local pairing gate against the committed merge verifying key: the proof
-    // itself is valid, so an on-chain 7008 can only come from a binding
-    // mismatch, not a bad proof.
-    {
-        let public_inputs = [result.public_input_hash];
-        let mut verifier = Groth16Verifier::new(
-            &proof.a,
-            &proof.b,
-            &proof.c,
-            &public_inputs,
-            &merge_8_1::VERIFYINGKEY,
-        )
-        .expect("construct merge verifier");
-        verifier.verify().expect("merge proof verifies locally");
-    }
-    let merge_proof = ProofCompressed::try_from(proof)
-        .expect("compress merge proof")
-        .to_merge_proof()
-        .expect("merge rail proof");
-
-    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
-    let (_, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
-    let ix = MergeTransact {
-        input_tree: tree,
-        output_tree: tree,
-        payer: payer_pk,
-        user_record: record,
-        data: result.instruction_data(merge_proof),
-    }
-    .instruction();
-    // Proof verification needs more than the 200k default budget.
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    env.rpc
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
+    let (_, fee_balance_before) = tree_fees(&pool.rpc, &tree).expect("tree fees");
+    // Proof verification and the per-input queue/PDA work need far more than
+    // the 200k default budget.
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(MERGE_COMPUTE_UNIT_LIMIT);
+    pool.rpc
         .create_and_send_default_payer_transaction(&[budget, ix], &[])
         .expect("merge with a valid proof");
 
-    // Tree progress: eight nullifiers queued, one merged output appended.
-    let (utxo_next_after, nullifier_next_after) = tree_progress(&env.rpc, &tree);
+    // Tree progress: one nullifier queued per input slot, one merged output
+    // appended.
+    let (utxo_next_after, nullifier_next_after) = tree_progress(&pool.rpc, &tree);
     assert_eq!(utxo_next_after, utxo_next_before + 1, "one output appended");
     assert_eq!(
         nullifier_next_after,
-        nullifier_next_before + MERGE_INPUT_COUNT as u64,
-        "eight nullifiers queued"
+        nullifier_next_before + input_count as u64,
+        "one nullifier queued per input slot"
     );
 
-    // Exact forester fee: MERGE_INPUT_COUNT (8) queue insertions at the tree's
-    // stored fee_per_nullifier, collected from the payer into the input tree
-    // and credited to the tree's fee balance. The tree in turn funds one
-    // nullifier PDA per queued nullifier.
+    // Exact forester fee: `input_count` queue insertions at the tree's stored
+    // fee_per_nullifier, collected from the payer into the input tree and
+    // credited to the tree's fee balance. The tree in turn funds one nullifier
+    // PDA per queued nullifier.
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    let (fees, fee_balance_after) = tree_fees(&env.rpc, &tree).expect("tree fees");
+    const FEE_PER_NULLIFIER: u64 = 190;
+    let (fees, fee_balance_after) = tree_fees(&pool.rpc, &tree).expect("tree fees");
     assert_eq!(
         fees,
         default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE).expect("default tree fees"),
         "merge leaves the fee schedule untouched"
     );
-    let forester_fee = fees.fee_per_nullifier * MERGE_INPUT_COUNT as u64;
-    assert_eq!(forester_fee, 1_520, "merge forester fee formula");
+    // Pinned once, so the fee below is a formula over a known constant rather
+    // than a restatement of whatever the tree happens to store (8 inputs ->
+    // 1_520 lamports, 36 inputs -> 6_840).
+    assert_eq!(
+        fees.fee_per_nullifier, FEE_PER_NULLIFIER,
+        "merge forester fee per nullifier"
+    );
+    let forester_fee = fees.fee_per_nullifier * input_count as u64;
     assert_eq!(
         fee_balance_after,
         fee_balance_before + forester_fee,
         "merge credits the fee balance"
     );
     assert_eq!(
-        result.nullifiers.len(),
-        MERGE_INPUT_COUNT,
+        merge.nullifiers.len(),
+        input_count,
         "merge queues one nullifier per input slot"
     );
-    let nullifier_pda_rent = nullifier_pda_rent(&env.rpc).expect("nullifier PDA rent");
-    let nullifier_pdas = nullifier_pda_addresses(&tree, &result.nullifiers);
-    let nullifier_pda_rent_total = nullifier_pda_rent * MERGE_INPUT_COUNT as u64;
+    let nullifier_pda_rent = nullifier_pda_rent(&pool.rpc).expect("nullifier PDA rent");
+    let nullifier_pdas = nullifier_pda_addresses(&tree, &merge.nullifiers);
+    let nullifier_pda_rent_total = nullifier_pda_rent * input_count as u64;
     let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let trace = env
+    let trace = pool
         .rpc
         .last_transaction_trace()
         .expect("successful merge trace");
+    // Reported so a shape's cost is visible in `--nocapture` runs, and pinned
+    // below so a regression fails rather than merely printing a bigger number.
+    println!(
+        "merge_transact {input_count} inputs: {} CU",
+        trace.compute_units_consumed
+    );
+    let cu_ceiling = merge_cu_ceiling(input_count);
+    assert!(
+        trace.compute_units_consumed > 0,
+        "merge reported zero compute units"
+    );
+    assert!(
+        trace.compute_units_consumed <= cu_ceiling,
+        "merge at {input_count} inputs consumed {} CU (ceiling {cu_ceiling})",
+        trace.compute_units_consumed
+    );
     let traced: Vec<Pubkey> = trace
         .accounts
         .iter()
@@ -349,7 +192,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
             assert_eq!(
                 before.lamports + forester_fee,
                 after.lamports + nullifier_pda_rent_total,
-                "tree collects exactly the merge forester fee and funds eight nullifier PDAs"
+                "tree collects exactly the merge forester fee and funds one nullifier PDA per input"
             );
             assert_eq!(before.owner, after.owner, "tree owner unchanged");
             assert_eq!(before.data_len, after.data_len, "tree size unchanged");
@@ -373,5 +216,20 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
             );
         }
     }
-    assert_nullifier_pdas(&env.rpc, &tree, &result.nullifiers).expect("nullifier PDAs");
+    assert_nullifier_pdas(&pool.rpc, &tree, &merge.nullifiers).expect("nullifier PDAs");
+}
+
+#[test]
+fn merge_collects_the_exact_forester_fee_from_the_payer() {
+    merge_at_input_count(MERGE_DEFAULT_INPUT_COUNT);
+}
+
+/// The wide shape, end to end through the program. The 36-input merge is the
+/// only shape whose on-chain acceptance is not implied by the 8-input run: the
+/// public-input hash prefix folds `input_count`-long chains and the verifying
+/// key is chosen from the same count, so a width mismatch between program and
+/// circuit shows up here and nowhere else.
+#[test]
+fn merge_verifies_the_wide_shape_on_chain() {
+    merge_at_input_count(MAX_MERGE_INPUTS);
 }

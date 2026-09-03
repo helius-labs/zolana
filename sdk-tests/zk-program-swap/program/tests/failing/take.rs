@@ -17,7 +17,7 @@ fn expired_take_is_rejected_exactly() {
     // Bind the relayer deadline below the warped clock so the window check is
     // the branch that fires.
     let mut data = transact(Vec::new());
-    data.expiry_unix_ts = 5;
+    data.bound.expiry_unix_ts = 5;
     instruction.data = wrapper_data_with(Wrapper::Take, data);
     mollusk.sysvars.clock.unix_timestamp = 6;
     expect_err_exact(
@@ -35,7 +35,7 @@ fn oversized_take_private_tx_hash_fails_hashing_exactly() {
     // 0xFF-filled bytes exceed the BN254 modulus, so the public-input Poseidon
     // hash fails before proof verification.
     let mut data = transact(Vec::new());
-    data.private_tx_hash = [0xFF; 32];
+    data.tail.private_tx_hash = [0xFF; 32];
     instruction.data = wrapper_data_with(Wrapper::Take, data);
     expect_err_exact(
         &mollusk,

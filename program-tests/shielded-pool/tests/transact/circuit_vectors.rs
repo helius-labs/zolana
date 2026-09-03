@@ -9,8 +9,10 @@
 //!
 //! The vectors' `external_data_hash` entry is NOT consumed: it pins the Go
 //! prover-test's own preimage helper (with `sender_view_tag`), which has no
-//! Rust mirror — the interface's `ExternalDataHash` covers a different,
-//! spec-level preimage and carries its own injectivity tests.
+//! Rust mirror. The protocol's `external_data_hash` covers a different,
+//! spec-level preimage — the serialized proof-bound region plus a digest of the
+//! bound account addresses — and carries its own injectivity tests in
+//! `zolana-interface`.
 
 use std::{fs, path::Path};
 
@@ -24,8 +26,8 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof as ProofData,
+        CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData, TransactIxDataRef,
+        TransactIxTail, TransactOutput, TransactProof as ProofData,
     },
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
@@ -162,55 +164,89 @@ fn small_fe(tag: u8) -> [u8; 32] {
     out
 }
 
-fn ix_data(circuit: CircuitId) -> TransactIxData {
+fn ix_data(circuit: CircuitId, n_in: usize, n_out: usize) -> TransactIxData {
     TransactIxData {
-        expiry_unix_ts: 7,
-        private_tx_hash: small_fe(0x51),
-        circuit,
-        tx_viewing_pk: [4u8; 33],
-        salt: [6u8; 16],
-        proof: ProofData::zeroed(),
-        inputs: (1..=2)
-            .map(|tag| InputUtxo {
-                nullifier_hash: small_fe(tag),
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
-            })
-            .collect(),
-        interface_transfers: vec![],
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: (11..=13)
-            .map(|tag| TransactOutput {
-                utxo_hash: small_fe(tag),
-                owner_tag: OwnerTag::Inline(small_fe(tag)),
-                data: None,
-            })
-            .collect(),
-        messages: vec![],
+        bound: TransactIxBound {
+            expiry_unix_ts: 7,
+            tx_viewing_pk: [4u8; 33],
+            salt: [6u8; 16],
+            interface_transfers: vec![],
+            outputs: (0..n_out)
+                .map(|index| {
+                    let tag = small_fe(0x0b + index as u8);
+                    TransactOutput {
+                        utxo_hash: tag,
+                        owner_tag: OwnerTag::Inline(tag),
+                        data: None,
+                    }
+                })
+                .collect(),
+            messages: vec![],
+        },
+        tail: TransactIxTail {
+            private_tx_hash: small_fe(0x51),
+            circuit,
+            proof: ProofData::zeroed(),
+            inputs: (0..n_in)
+                .map(|index| InputUtxo {
+                    nullifier_hash: small_fe(0x01 + index as u8),
+                    nullifier_tree_root_index: 0,
+                    utxo_tree_root_index: 0,
+                })
+                .collect(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
 }
 
-fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
-    let mut derived =
-        TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
+/// The root lists `derived_inputs` folds into the proof inputs. Kept unfolded
+/// here so the `GoAssembly` clone can hash them the way the Go harness does,
+/// cross-checking the program's folded chains against the raw ordering.
+const DERIVED_INPUT_COUNT: usize = 2;
+const DERIVED_OUTPUT_COUNT: usize = 3;
+
+fn derived_root_lists(n_in: usize) -> (Vec<[u8; 32]>, Vec<[u8; 32]>) {
+    (
+        (0..n_in)
+            .map(|index| small_fe(0x20 + index as u8))
+            .collect(),
+        (0..n_in)
+            .map(|index| small_fe(0x30 + index as u8))
+            .collect(),
+    )
+}
+
+fn derived_output_owner_list(n_out: usize) -> Vec<[u8; 32]> {
+    (0..n_out)
+        .map(|index| small_fe(0x70 + index as u8))
+        .collect()
+}
+
+fn derived_inputs(
+    circuit: CircuitId,
+    n_in: usize,
+    n_out: usize,
+    unique_signers: u8,
+) -> TransactProofInputs {
+    let mut derived = TransactProofInputs::new(circuit);
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
     derived.allow_dummy_inputs = small_fe(1);
     derived.public_slot_amounts = [801, -901, 0];
     derived.unique_owner_signer_count = unique_signers;
-    for (index, root) in derived.utxo_roots.iter_mut().enumerate() {
-        *root = small_fe(0x20 + index as u8);
-    }
-    for (index, root) in derived.nullifier_tree_roots.iter_mut().enumerate() {
-        *root = small_fe(0x30 + index as u8);
-    }
+    let (utxo_roots, nullifier_tree_roots) = derived_root_lists(n_in);
+    derived.utxo_root_chain = create_hash_chain_from_slice(&utxo_roots).expect("utxo root chain");
+    derived.nullifier_tree_root_chain =
+        create_hash_chain_from_slice(&nullifier_tree_roots).expect("nullifier root chain");
+    derived.input_count = n_in as u8;
     for (index, signer) in derived.signer_pk_hashes.iter_mut().enumerate() {
         *signer = small_fe(0x40 + index as u8);
     }
-    for (index, owner) in derived.output_owner_pk_hashes.iter_mut().enumerate() {
-        *owner = small_fe(0x70 + index as u8);
-    }
+    let output_owners = derived_output_owner_list(n_out);
+    derived.output_owner_chain =
+        create_hash_chain_from_slice(&output_owners).expect("output owner chain");
+    derived.output_owner_count = n_out as u8;
     for (index, asset) in derived.public_slot_assets.iter_mut().enumerate() {
         *asset = small_fe(0x80 + index as u8);
     }
@@ -224,23 +260,53 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 /// element), and the output-owner-chain appendix selected by the variant.
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
-    for (circuit, signer_width, unique_signers, binds_output_owners) in [
-        (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
-        (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
-        (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
+    for (circuit, n_in, n_out, signer_width, unique_signers, binds_output_owners) in [
+        (
+            CircuitId::ConfidentialEddsa(2, 3, 3),
+            DERIVED_INPUT_COUNT,
+            DERIVED_OUTPUT_COUNT,
+            3usize,
+            2u8,
+            true,
+        ),
+        (
+            CircuitId::RingEddsa(2, 3, 3),
+            DERIVED_INPUT_COUNT,
+            DERIVED_OUTPUT_COUNT,
+            3,
+            2,
+            true,
+        ),
+        (
+            CircuitId::RingAuthority(2, 3, 3),
+            DERIVED_INPUT_COUNT,
+            DERIVED_OUTPUT_COUNT,
+            1,
+            1,
+            false,
+        ),
+        // The consolidation shape. Its fold width is `n_in + 1 = 37`, far above
+        // `MAX_UNIQUE_SIGNERS`, and the array of accepted unique signers is only
+        // `MAX_UNIQUE_SIGNERS` wide: the zero tail comes from
+        // `SIGNER_ZERO_SUFFIX_CHAINS`, not from that array. Bounding the array
+        // by the fold width instead rejected every shape with more than
+        // `MAX_UNIQUE_SIGNERS - 1` inputs, which no smaller shape can catch.
+        (CircuitId::ConfidentialEddsa(36, 2, 3), 36, 2, 37, 1, true),
     ] {
-        let owned = ix_data(circuit);
+        let owned = ix_data(circuit, n_in, n_out);
         let bytes = owned.serialize().expect("serialize transact ix");
         let ix = TransactIxDataRef::from_bytes(&bytes).expect("parse transact ix");
-        let derived = derived_inputs(unique_signers);
+        let derived = derived_inputs(circuit, n_in, n_out, unique_signers);
         let proof = TransactProof::new(&ix, &derived);
 
         let nullifiers: Vec<[u8; 32]> = owned
+            .tail
             .inputs
             .iter()
             .map(|input| input.nullifier_hash)
             .collect();
         let output_hashes: Vec<[u8; 32]> = owned
+            .bound
             .outputs
             .iter()
             .map(|output| output.utxo_hash)
@@ -258,15 +324,14 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             .expect("unique signers")
             .to_vec();
         signer_run.resize(signer_width, [0u8; 32]);
+        let (clone_utxo_roots, clone_nullifier_tree_roots) = derived_root_lists(n_in);
+        let clone_output_owners = derived_output_owner_list(n_out);
         let clone = GoAssembly {
             nullifiers: &nullifiers,
             output_hashes: &output_hashes,
-            utxo_roots: derived.utxo_roots.get(..2).expect("utxo roots"),
-            nullifier_tree_roots: derived
-                .nullifier_tree_roots
-                .get(..2)
-                .expect("nullifier roots"),
-            private_tx_hash: owned.private_tx_hash,
+            utxo_roots: &clone_utxo_roots,
+            nullifier_tree_roots: &clone_nullifier_tree_roots,
+            private_tx_hash: owned.tail.private_tx_hash,
             external_data_hash: derived.external_data_hash,
             public_slot_assets: derived
                 .public_slot_assets
@@ -276,12 +341,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             ring_program_id: derived.ring_program_id,
             signer_pk_hashes: &signer_run,
             allow_dummy_inputs: derived.allow_dummy_inputs,
-            output_owner_pk_hashes: binds_output_owners.then_some(
-                derived
-                    .output_owner_pk_hashes
-                    .get(..3)
-                    .expect("output owners"),
-            ),
+            output_owner_pk_hashes: binds_output_owners.then_some(&clone_output_owners),
         };
         assert_eq!(
             proof.public_input_hash().expect("assembly"),

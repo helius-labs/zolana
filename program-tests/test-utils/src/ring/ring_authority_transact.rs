@@ -15,7 +15,7 @@ use zolana_interface::{
             CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
         },
         tag::RING_AUTHORITY_TRANSACT,
-        RingAuthorityTransact, TransactIxData,
+        RingAuthorityTransact, TransactIxBound, TransactIxData, TransactIxTail,
     },
 };
 use zolana_keypair::{random_blinding, random_salt, ViewingKey};
@@ -87,7 +87,7 @@ impl RingHarness {
         // owner tag (ring flows resolve owner tags inline); Photon indexes the
         // transaction under it, and the confidential default-ring scan in
         // `Wallet::sync` queries exactly this tag.
-        let fetch_view_tag = match ix_data.outputs.first().map(|output| output.owner_tag) {
+        let fetch_view_tag = match ix_data.bound.outputs.first().map(|output| output.owner_tag) {
             Some(OwnerTag::Inline(tag)) => tag,
             _ => {
                 return Err(anyhow!(
@@ -129,6 +129,7 @@ impl RingHarness {
         ix_data: &TransactIxData,
     ) -> Result<()> {
         let output_hash = ix_data
+            .bound
             .outputs
             .first()
             .ok_or_else(|| anyhow!("ring-authority transfer produced no output"))?
@@ -299,26 +300,30 @@ impl RingHarness {
         }];
 
         let ix_data = TransactIxData {
-            proof: pack_transact_proof(&proof)?,
-            expiry_unix_ts: external_data.expiry_unix_ts,
-            private_tx_hash: result.private_tx_hash,
-            circuit: CircuitId::RingAuthority(
-                inputs.len() as u8,
-                external_data.outputs.len() as u8,
-                zolana_interface::N_PUBLIC_SLOTS as u8,
-            ),
-            inputs,
-            interface_transfers: external_data
-                .interface_transfers
-                .iter()
-                .map(|transfer| transfer.interface_transfer())
-                .collect(),
-            data_hash: external_data.data_hash,
-            ring_data_hash: external_data.ring_data_hash,
-            tx_viewing_pk: external_data.tx_viewing_pk,
-            salt: external_data.salt,
-            outputs: external_data.outputs.clone(),
-            messages: external_data.messages.clone(),
+            bound: TransactIxBound {
+                expiry_unix_ts: external_data.expiry_unix_ts,
+                interface_transfers: external_data
+                    .interface_transfers
+                    .iter()
+                    .map(|transfer| transfer.interface_transfer())
+                    .collect(),
+                tx_viewing_pk: external_data.tx_viewing_pk,
+                salt: external_data.salt,
+                outputs: external_data.outputs.clone(),
+                messages: external_data.messages.clone(),
+            },
+            tail: TransactIxTail {
+                proof: pack_transact_proof(&proof)?,
+                private_tx_hash: result.private_tx_hash,
+                circuit: CircuitId::RingAuthority(
+                    inputs.len() as u8,
+                    external_data.outputs.len() as u8,
+                    zolana_interface::N_PUBLIC_SLOTS as u8,
+                ),
+                inputs,
+                data_hash: external_data.data_hash,
+                ring_data_hash: external_data.ring_data_hash,
+            },
         };
 
         Ok((ix_data, input_utxo, utxo_hash, output_plaintext))
@@ -412,7 +417,7 @@ impl RingHarness {
         // single byte can instead yield `InvalidTransactProofEncoding` depending on
         // the random proof bytes.
         let (mut ix_data, _, _, _) = self.build_ring_authority_transfer(name, name, asset)?;
-        ix_data.proof = TransactProof::zeroed();
+        ix_data.tail.proof = TransactProof::zeroed();
 
         let payer = self.payer.insecure_clone();
         let tree_before = fetch_account(&self.rpc, &self.tree)?;

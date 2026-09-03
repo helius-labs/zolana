@@ -27,6 +27,31 @@ impl Settlement<'_> {
         matches!(self, Self::SolDeposit(_) | Self::SplDeposit(_))
     }
 
+    /// Addresses `external_data_hash` binds for this leg, in preimage order.
+    ///
+    /// SOL binds the user account; SPL binds the user token account and the
+    /// per-mint interface vault. The mint itself is bound transitively, because
+    /// the vault's PDA derivation covers it, and the remaining group accounts
+    /// are pinned by address equality or by the token program's own checks.
+    /// `Address::as_array` borrows the runtime's input region, so this copies
+    /// nothing.
+    pub(crate) fn bound_addresses(&self) -> impl Iterator<Item = &[u8; 32]> {
+        let (first, second) = match self {
+            Self::SolDeposit(sol) | Self::SolWithdrawal(sol) => {
+                (sol.recipient_account.address().as_array(), None)
+            }
+            Self::SplDeposit(spl) => (
+                spl.user_token_account.address().as_array(),
+                Some(spl.spl_interface_account.address().as_array()),
+            ),
+            Self::SplWithdrawal(spl) => (
+                spl.user_token_account.address().as_array(),
+                Some(spl.spl_interface_account.address().as_array()),
+            ),
+        };
+        core::iter::once(first).chain(second)
+    }
+
     pub(crate) fn spl_asset(&self) -> Result<Option<[u8; 32]>, ProgramError> {
         match self {
             Self::SolDeposit(_) | Self::SolWithdrawal(_) => Ok(None),

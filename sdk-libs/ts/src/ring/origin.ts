@@ -16,12 +16,6 @@ import { RingError } from "./error.js";
 
 const base58Encoder = getBase58Encoder();
 
-/** The `circuit` selector that carries a BSB22 commitment and an owner tag inline. */
-const RING_P256_CIRCUIT = 3;
-
-/** Bytes of one `InputUtxo`, a nullifier hash and two root indexes. */
-const INPUT_UTXO_SIZE = 36;
-
 /** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never `false`. */
 export interface TransactionOrigin {
   ringInvoked(signature: Signature, ring: Address, context?: RequestContext): Promise<boolean>;
@@ -53,7 +47,9 @@ export interface RingWithdrawal {
 export const ORIGIN_TRANSACTION_CONFIG = Object.freeze({
   encoding: "json",
   commitment: "confirmed",
-  maxSupportedTransactionVersion: 0,
+  // Large transact shapes only fit transaction v1; a ceiling of 0 makes the
+  // RPC refuse to return them.
+  maxSupportedTransactionVersion: 1,
 } as const);
 
 /**
@@ -279,17 +275,16 @@ function interfaceTransfersOf(
   }
 }
 
-/** Reads the fixed `TransactIxData` prefix, then the transfers, and leaves the rest. */
+/**
+ * Reads the fixed head of the proof-bound region, then the transfers, and
+ * leaves the rest. The bound region leads `TransactIxData`, so the transfers sit
+ * close to the front: only `expiry_unix_ts`, `tx_viewing_pk` and `salt` precede
+ * them, and the circuit selector and proof are in the tail behind them.
+ */
 function readInterfaceTransfers(reader: Reader): readonly InterfaceTransfer[] {
   reader.u64("expiryUnixTs");
-  reader.bytes(32, "privateTxHash");
-  const circuit = reader.u16("circuit.kind");
-  reader.bytes(3, "circuit.shape");
-  if (circuit === RING_P256_CIRCUIT) reader.bytes(97, "circuit.ringP256");
   reader.bytes(33, "txViewingPk");
   reader.bytes(16, "salt");
-  reader.bytes(128, "proof");
-  reader.bytes(reader.u8("inputs.length") * INPUT_UTXO_SIZE, "inputs");
   const count = reader.u8("interfaceTransfers.length");
   return Array.from({ length: count }, () => readInterfaceTransfer(reader));
 }

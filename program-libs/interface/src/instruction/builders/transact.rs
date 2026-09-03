@@ -41,6 +41,22 @@ pub enum TransactInterfaceTransferAccounts {
 /// `input_tree`, `output_tree`, the SPP and System Program accounts, one
 /// writable nullifier PDA per input (in `inputs` order), owner signers, then
 /// the ordered interface-transfer account groups.
+///
+/// # Compute budget
+///
+/// **No proof-bearing shape fits the 200,000 CU per-instruction default.** The
+/// caller must prepend a `ComputeBudgetInstruction::set_compute_unit_limit`;
+/// this builder deliberately returns only the transact instruction, so the
+/// returned account and instruction list is exactly what the program consumes.
+/// The same holds for [`super::merge_transact::MergeTransact`], whose rustdoc
+/// carries the per-shape merge figures.
+///
+/// The Groth16 pairing is shape-independent; everything above it scales with
+/// the input count, because each input costs a queue insertion plus a nullifier
+/// PDA creation (whose canonical bump search makes the cost a range, not a
+/// point). Measured at the wide consolidation shape: `transact` 36x2 consumes
+/// about 452,000 CU and serializes to 3,281 transaction v1 bytes (validator,
+/// 2026-09).
 pub struct Transact {
     pub payer: Pubkey,
     pub input_tree: Pubkey,
@@ -138,7 +154,11 @@ impl Transact {
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
-            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+            self.data
+                .tail
+                .inputs
+                .iter()
+                .map(|input| &input.nullifier_hash),
         ));
         accounts.extend(
             self.owner_signers
@@ -148,7 +168,7 @@ impl Transact {
         );
         append_interface_transfer_accounts(
             &mut accounts,
-            &self.data.interface_transfers,
+            &self.data.bound.interface_transfers,
             &self.interface_transfer_accounts,
         );
         Instruction {
@@ -163,21 +183,26 @@ impl Transact {
 mod tests {
     use super::*;
     use crate::instruction::instruction_data::transact::{CircuitId, InputUtxo, TransactProof};
+    use crate::instruction::{TransactIxBound, TransactIxTail};
 
     fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
-            proof: TransactProof::zeroed(),
-            expiry_unix_ts: u64::MAX,
-            private_tx_hash: [0u8; 32],
-            circuit: CircuitId::ConfidentialEddsa(0, 0, 3),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            inputs: Vec::new(),
-            interface_transfers,
-            data_hash: None,
-            ring_data_hash: None,
-            outputs: Vec::new(),
-            messages: Vec::new(),
+            bound: TransactIxBound {
+                expiry_unix_ts: u64::MAX,
+                tx_viewing_pk: [0u8; 33],
+                salt: [0u8; 16],
+                interface_transfers,
+                outputs: Vec::new(),
+                messages: Vec::new(),
+            },
+            tail: TransactIxTail {
+                proof: TransactProof::zeroed(),
+                private_tx_hash: [0u8; 32],
+                circuit: CircuitId::ConfidentialEddsa(0, 0, 3),
+                inputs: Vec::new(),
+                data_hash: None,
+                ring_data_hash: None,
+            },
         }
     }
 
@@ -351,7 +376,7 @@ mod tests {
         let input_tree = Pubkey::new_unique();
         let nullifiers = [[11u8; 32], [22u8; 32]];
         let mut data = empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]);
-        data.inputs = nullifiers
+        data.tail.inputs = nullifiers
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,

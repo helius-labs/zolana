@@ -283,33 +283,44 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   data.messages.forEach((message) => {
     checkedLength(message.data);
   });
+  // Addresses the proof binds, in protocol order: each leg's settlement
+  // accounts, then the resolved owner of every account-tagged output.
+  const boundAddresses: (Address | Bytes32)[] = [];
+  for (const transfer of data.interfaceTransfers) {
+    if (transfer.kind === "sol") {
+      boundAddresses.push(transfer.userSolAccount);
+    } else {
+      boundAddresses.push(transfer.tokenAccount, transfer.splTokenInterface);
+    }
+  }
+  data.outputs.forEach((output, index) => {
+    if (output.ownerTag.kind === "account") {
+      boundAddresses.push(data.resolvedOwnerTags[index] as Bytes32);
+    }
+  });
+
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
-    expiryUnixTs: data.expiryUnixTs,
-    interfaceTransfers: data.interfaceTransfers.map((transfer) =>
-      transfer.kind === "sol"
-        ? {
-            kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
-            amount: transfer.amount,
-            recipient: transfer.userSolAccount,
-          }
-        : {
-            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-            amount: transfer.amount,
-            tokenAccount: transfer.tokenAccount,
-            splInterfacePda: transfer.splTokenInterface,
-          },
-    ),
-    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
-    txViewingPk: data.txViewingPublicKey.toBytes(),
-    salt: data.salt,
-    outputs: data.outputs.map((output, index) => ({
-      utxoHash: output.utxoHash,
-      ownerTag: data.resolvedOwnerTags[index] as Bytes32,
-      ...(output.data === undefined ? {} : { data: output.data }),
-    })),
-    messages: data.messages,
+    bound: {
+      expiryUnixTs: data.expiryUnixTs,
+      txViewingPk: data.txViewingPublicKey.toBytes(),
+      salt: data.salt,
+      interfaceTransfers: data.interfaceTransfers.map((transfer) =>
+        transfer.kind === "sol"
+          ? {
+              kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
+              amount: transfer.amount,
+            }
+          : {
+              kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
+              amount: transfer.amount,
+              splInterfaceBump: transfer.splInterfaceBump,
+            },
+      ),
+      outputs: data.outputs,
+      messages: data.messages,
+    },
+    boundAddresses,
   });
 }
 

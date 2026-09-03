@@ -8,7 +8,7 @@ use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
+    instruction::{instruction_data::merge_transact::MERGE_DEFAULT_INPUT_COUNT, MergeTransact},
 };
 use zolana_keypair::random_blinding;
 use zolana_program_test::Rejection;
@@ -110,7 +110,8 @@ impl LifecycleHarness {
         // proof's root indices flow through `MergeProofResult` (real slots from the
         // SpendProofs, dummy slots mirroring the first real input).
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut spend_inputs: Vec<TransferSpendInput> =
+            Vec::with_capacity(MERGE_DEFAULT_INPUT_COUNT);
         let mut total: u64 = 0;
         for utxo in &inputs {
             total += utxo.amount;
@@ -142,7 +143,7 @@ impl LifecycleHarness {
         // input's UTXO root but carries a non-inclusion proof for its own
         // deterministic nullifier.
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
+        while spend_inputs.len() < MERGE_DEFAULT_INPUT_COUNT {
             let slot = spend_inputs.len();
             let dummy_nullifier =
                 merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
@@ -228,7 +229,7 @@ impl LifecycleHarness {
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier.
         let forester_fee =
-            forester_fee_for_inputs(&tree_before, &self.tree, MERGE_INPUT_COUNT as u64)?;
+            forester_fee_for_inputs(&tree_before, &self.tree, MERGE_DEFAULT_INPUT_COUNT as u64)?;
         let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
@@ -239,12 +240,12 @@ impl LifecycleHarness {
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
             tree_before.lamports - tree_after.lamports,
-            MERGE_INPUT_COUNT as u64 * nullifier_pda_rent - forester_fee,
+            MERGE_DEFAULT_INPUT_COUNT as u64 * nullifier_pda_rent - forester_fee,
             "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
         assert_eq!(
             result.nullifiers.len(),
-            MERGE_INPUT_COUNT,
+            MERGE_DEFAULT_INPUT_COUNT,
             "merge queues one nullifier per input slot"
         );
         assert_nullifier_pdas(&self.rpc, &self.tree, &result.nullifiers)?;

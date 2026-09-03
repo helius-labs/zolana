@@ -34,7 +34,7 @@ use zolana_transaction::{
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
-    localnet::{send_transaction, ZERO},
+    localnet::{send_transaction, ValidatorBackend, ZERO},
 };
 
 /// A second ring fixture program id (deployed from the same
@@ -95,6 +95,7 @@ impl RingHarness {
         let second_ring_program_id =
             Pubkey::new_from_array(SECOND_RING_TEST_PROGRAM_ID).to_string();
         let (base, _) = LocalnetHarness::bootstrap(BootstrapConfig {
+            backend: ValidatorBackend::default(),
             label: "zolana-ring",
             extra_programs: vec![
                 (ring_program_id, "target/deploy/ring_test_program.so".into()),

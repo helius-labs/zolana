@@ -6,7 +6,7 @@
 //! UTXOs or merkle proofs, but they carry distinct non-zero nullifiers plus the
 //! real on-chain tree roots and the payer's owner hash. The proof is therefore
 //! bound to exactly what the program reconstructs on-chain: the `external_data`
-//! hash (via the shared [`ExternalDataHash`] from the interface crate), the
+//! hash (via the shared `external_data_hash` from the interface crate), the
 //! payer pubkey hash, the per-input owner hashes, the tree roots, and the
 //! nullifier/output hash chains.
 //!
@@ -19,7 +19,6 @@ use shielded_pool_tests::support::transact::{
 use num_bigint::BigUint;
 
 use groth16_solana::groth16::Groth16Verifier;
-use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::AccountMeta;
@@ -38,9 +37,7 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, ExternalDataHash, InterfaceTransfer, OwnerTag, TransactIxData,
-        },
+        instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
@@ -53,10 +50,11 @@ use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, prove_and_verify_transfer, resolve_outputs, set_output_owner_tags,
-    sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
+    account_tagged_owner_addresses, build_transfer_prover_inputs, dummy_input,
+    dummy_transfer_output, eddsa_input_utxo, external_data_hash_with_addresses, fe, inline_outputs,
+    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_transact_proof,
+    prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, spend_input,
+    SpendInputArgs, TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -151,7 +149,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     );
 
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
     let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
@@ -202,10 +200,10 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash,
     });
-    transact_ix_data.proof =
+    transact_ix_data.tail.proof =
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "transact")
             .expect("prove transact");
-    transact_ix_data.private_tx_hash = private_tx;
+    transact_ix_data.tail.private_tx_hash = private_tx;
     transact_ix_data
 }
 
@@ -238,27 +236,17 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
     ring_config
 }
 
-/// The ring-rail `ExternalDataHash` for a pure shielded transfer: identical to
+/// The ring-rail `external_data_hash` for a pure shielded transfer: identical to
 /// the confidential one except for the instruction discriminator, which the
 /// program folds from the tag it dispatched on.
 fn external_data_hash_for_discriminator(
     transact_ix_data: &TransactIxData,
     discriminator: u8,
 ) -> [u8; 32] {
-    let resolved = resolve_outputs(transact_ix_data).expect("resolve outputs");
-    ExternalDataHash {
-        spp_instruction_discriminator: discriminator,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-        salt: &transact_ix_data.salt,
-        outputs: &resolved,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()
-    .expect("ring external data hash")
+    let addresses =
+        account_tagged_owner_addresses(transact_ix_data).expect("account-tagged owners");
+    external_data_hash_with_addresses(transact_ix_data, discriminator, &addresses)
+        .expect("ring external data hash")
 }
 
 /// Build valid ring-rail instruction data with a real proof bound to the ring
@@ -377,14 +365,14 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     );
     let n_inputs = u8::try_from(n_inputs).expect("supported ring input count");
     let n_outputs = u8::try_from(n_outputs).expect("supported ring output count");
-    transact_ix_data.circuit = if IS_AUTHORITY {
+    transact_ix_data.tail.circuit = if IS_AUTHORITY {
         CircuitId::RingAuthority(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     } else {
         CircuitId::RingEddsa(n_inputs, n_outputs, N_PUBLIC_SLOTS as u8)
     };
 
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
     let nullifier_pks = vec![zero; usize::from(n_outputs)];
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
 
@@ -484,6 +472,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     {
         let public_inputs = [public_input_hash];
         let verifying_key = transact_ix_data
+            .tail
             .circuit
             .verifying_key()
             .expect("supported ring verifying key");
@@ -492,8 +481,8 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
                 .expect("construct ring verifier");
         verifier.verify().expect("ring proof verifies locally");
     }
-    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack ring proof");
-    transact_ix_data.private_tx_hash = private_tx;
+    transact_ix_data.tail.proof = pack_transact_proof(&proof).expect("pack ring proof");
+    transact_ix_data.tail.private_tx_hash = private_tx;
     transact_ix_data
 }
 
@@ -505,11 +494,13 @@ fn transact_sends_valid_proof() {
     let tree = env.tree;
     let transact_ix_data = build_valid_transact_ix(&mut env);
     let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
+        .tail
         .inputs
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
     let expected_output_hashes: Vec<[u8; 32]> = transact_ix_data
+        .bound
         .outputs
         .iter()
         .map(|output| output.utxo_hash)
@@ -557,7 +548,11 @@ fn transact_sends_valid_proof() {
     // Event: one Transact event carrying exactly the instruction's nullifiers
     // and output hashes, anchored at the pre-transaction leaf index.
     let event = match indexed.events.as_slice() {
-        [event] => event.decoded.as_ref().expect("decode transact event"),
+        // Reconstructed from the emitting instruction: the logged body is only
+        // the first queue sequence and the first output leaf index.
+        [event] => {
+            zolana_program_test::events::general_event(event).expect("decode transact event")
+        }
         events => panic!("expected exactly one transact event, got {events:?}"),
     };
     let event_nullifiers: Vec<[u8; 32]> =
@@ -686,7 +681,11 @@ fn transact_rejects_tampered_output_owner_tag() {
     // Flip a recipient output's owner tag. The proof committed to the original
     // `hash_bytes(resolved_owner_tag)`, so the program's reconstruction now
     // disagrees.
-    let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
+    let tampered = transact_ix_data
+        .bound
+        .outputs
+        .get_mut(1)
+        .expect("second output");
     tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);
 
     let ix = Transact {
@@ -728,7 +727,8 @@ fn transact_rejects_tampered_public_amount() {
     // proving: the program recomputes the public movement slots and the
     // external-data hash from the instruction, so the public input no longer
     // matches the proof.
-    transact_ix_data.interface_transfers = vec![InterfaceTransfer::SolWithdrawal { amount: 1 }];
+    transact_ix_data.bound.interface_transfers =
+        vec![InterfaceTransfer::SolWithdrawal { amount: 1 }];
     let recipient = Keypair::new().pubkey();
 
     let ix = Transact {
@@ -772,7 +772,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
     // A small valid field element: the recomputed public input hash no longer
     // matches the proof (an out-of-field value would fail earlier in the
     // Poseidon domain check, not at verification).
-    data.private_tx_hash = fe(42);
+    data.tail.private_tx_hash = fe(42);
     let ix = Transact {
         payer,
         input_tree: tree,
@@ -795,13 +795,18 @@ fn transact_rejects_tampered_private_transaction_hash() {
 }
 
 /// Changing proof-bound external data must fail atomically.
+///
+/// `salt` sits in the bound region, so tampering it moves `external_data_hash`
+/// and the proof no longer verifies. Do not use `data_hash` here: it lives in
+/// the tail and no public input binds it, so changing it is a no-op for the
+/// proof by design.
 #[test]
 fn transact_rejects_tampered_external_data() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
     let mut data = build_valid_transact_ix(&mut env);
-    data.data_hash = Some([0x5A; 32]);
+    data.bound.salt = [0x5A; 16];
     let ix = Transact {
         payer,
         input_tree: tree,
@@ -835,6 +840,7 @@ fn transact_rejects_out_of_field_output_hash() {
     // 0xFF..FF == 2^256 - 1, far above the BN254 modulus (~2^254), so the tree
     // append's Poseidon hash of this leaf cannot succeed.
     transact_ix_data
+        .bound
         .outputs
         .get_mut(0)
         .expect("first output")
@@ -884,7 +890,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     // non-signer, so the flipped account becomes an unparsable leftover and
     // the instruction fails closed with InvalidTransactShape.
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
-    let owner_signer_index = 5 + transact_ix_data.inputs.len();
+    let owner_signer_index = 5 + transact_ix_data.tail.inputs.len();
     let mut ix = Transact {
         payer,
         input_tree: env.tree,
@@ -1017,7 +1023,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     // Select the ring circuit family so the replay reaches proof verification:
     // the external-data hash the proof committed to uses the `transact`
     // discriminator, so verification must fail.
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.tail.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_tree: tree,
@@ -1061,7 +1067,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
     let tree = env.tree;
     let mut transact_ix_data =
         build_valid_transact_ix_for_owner_with_discriminator(&mut env, payer, tag::RING_TRANSACT);
-    transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
+    transact_ix_data.tail.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
         input_tree: tree,
@@ -1251,15 +1257,19 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     );
 }
 
+/// The owner-signer run may not be longer than the input count: the circuit
+/// binds one owner per input, so a longer run has signers no input answers for.
+/// The separate `MAX_UNIQUE_SIGNERS` bound on *distinct* signers is unreachable
+/// while every supported shape has fewer inputs than that, and is covered by a
+/// host unit test in `signer_run.rs`.
 #[test]
-fn transact_rejects_an_overrunning_owner_signer_run() {
+fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
-    // The signer run is payer-first and deduplicated into a fixed-width
-    // MAX_SIGNERS array; one more unique signer than fits must be rejected.
-    let extra_signers: Vec<Keypair> = (0..MAX_SIGNERS).map(|_| Keypair::new()).collect();
+    let inputs = transact_ix_data.tail.inputs.len();
+    let extra_signers: Vec<Keypair> = (0..=inputs).map(|_| Keypair::new()).collect();
     for signer in &extra_signers {
         env.rpc
             .airdrop(&signer.pubkey(), 1_000_000)
@@ -1282,7 +1292,7 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &signer_refs)
-        .expect_err("an owner-signer run wider than MAX_SIGNERS must be rejected");
+        .expect_err("an owner-signer run longer than the input count must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()

@@ -4,7 +4,7 @@ use solana_address_lookup_table_interface::instruction::{
 };
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
+use solana_message::{v0, v1, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -126,6 +126,43 @@ pub fn send_transaction_with_lookup_table(
     rpc.process_versioned_transaction(transaction)
 }
 
+/// Serialized length of a transaction v1 message plus its signature array.
+///
+/// Not `legacy_transaction_len`: v1 has a different header, a config mask, and
+/// single-byte counts, so measuring it as legacy is simply wrong.
+pub fn v1_transaction_len(
+    ixs: &[Instruction],
+    payer: &Pubkey,
+    signatures: usize,
+) -> std::result::Result<usize, ClientError> {
+    let message = v1::Message::try_compile(payer, ixs, Default::default())
+        .map_err(|error| ClientError::Rpc(error.to_string()))?;
+    // version prefix byte + compact signature count + 64 bytes per signature
+    Ok(message.size() + 1 + 1 + 64 * signatures)
+}
+
+/// Send as a transaction **v1** message, the only format whose 4 KB limit fits a
+/// large transact shape.
+///
+/// Deliberately no address lookup table: a large shape's instruction data alone
+/// exceeds the legacy 1232-byte limit, so a table would not rescue it and its
+/// presence would only obscure what actually fits.
+pub fn send_transaction_v1(
+    rpc: &mut SolanaRpc,
+    ixs: &[Instruction],
+    payer: &Keypair,
+    signers: &[&Keypair],
+) -> std::result::Result<Signature, ClientError> {
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    let message = v1::Message::try_compile(&payer.pubkey(), ixs, blockhash)
+        .map_err(|error| ClientError::Rpc(error.to_string()))?;
+    let mut all_signers: Vec<&dyn Signer> = vec![payer];
+    all_signers.extend(signers.iter().map(|signer| *signer as &dyn Signer));
+    let transaction = VersionedTransaction::try_new(VersionedMessage::V1(message), &all_signers)
+        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
+    rpc.process_versioned_transaction(transaction)
+}
+
 fn wait_past_slot(rpc: &SolanaRpc, slot: u64) -> std::result::Result<(), ClientError> {
     loop {
         if rpc.get_slot()? > slot {
@@ -195,15 +232,43 @@ pub fn isolated_temp_path(label: &str) -> String {
         .into_owned()
 }
 
-/// Boot a fresh `solana-test-validator` with Photon (and no bundled prover) via
-/// the `zolana` CLI, loading the given SBF programs and the Squads smart-account
+/// Which validator implementation the `test-env` run boots.
+///
+/// `solana-test-validator` caps every packet at `PACKET_DATA_SIZE`, so a
+/// transaction v1 message above that never reaches the runtime; only surfpool
+/// honours v1's 4 KB limit. Suites therefore state their backend explicitly
+/// rather than inheriting the CLI's own default, which is surfpool.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ValidatorBackend {
+    #[default]
+    SolanaTestValidator,
+    Surfpool,
+}
+
+impl ValidatorBackend {
+    fn test_env_flag(self) -> &'static str {
+        match self {
+            Self::SolanaTestValidator => "--no-use-surfpool",
+            Self::Surfpool => "--use-surfpool",
+        }
+    }
+
+    /// The CLI rejects `--ledger` for surfpool, which keeps no ledger directory.
+    fn takes_ledger(self) -> bool {
+        matches!(self, Self::SolanaTestValidator)
+    }
+}
+
+/// Boot a fresh validator with Photon (and no bundled prover) via the `zolana`
+/// CLI, loading the given SBF programs and the Squads smart-account
 /// program-config fixture. Mirrors the per-crate `restart_localnet` helpers the
 /// swap, spp and ring test crates each used to copy.
 ///
-/// The caller resolves the CLI path, ports, ledger/account directories and the
-/// `(program_id, program_so)` list so this stays program-agnostic.
+/// The caller resolves the CLI path, backend, ports, ledger/account directories
+/// and the `(program_id, program_so)` list so this stays program-agnostic.
 pub struct LocalnetValidator {
     pub cli_bin: String,
+    pub backend: ValidatorBackend,
     pub working_dir: String,
     pub rpc_port: String,
     pub photon_port: String,
@@ -266,15 +331,17 @@ impl LocalnetValidator {
         let mut args: Vec<String> = vec![
             "test-env".into(),
             "--local".into(),
-            "--no-use-surfpool".into(),
+            self.backend.test_env_flag().into(),
             "--skip-prover".into(),
             "--rpc-port".into(),
             self.rpc_port.clone(),
             "--photon-port".into(),
             self.photon_port.clone(),
-            "--ledger".into(),
-            self.ledger.clone(),
         ];
+        if self.backend.takes_ledger() {
+            args.push("--ledger".into());
+            args.push(self.ledger.clone());
+        }
         for (program_id, program_so) in &self.programs {
             args.push("--sbf-program".into());
             args.push(program_id.clone());
@@ -300,7 +367,11 @@ impl LocalnetValidator {
 
 /// Start the standard shielded-pool validator/Photon stack, optionally loading
 /// additional workspace SBF programs. Program paths are workspace-relative.
-pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str)]) {
+pub fn start_shielded_pool_localnet(
+    label: &str,
+    backend: ValidatorBackend,
+    extra_programs: &[(String, &str)],
+) {
     let artifacts = WorkspaceArtifacts::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     let cli =
         std::env::var("ZOLANA_CLI_BIN").unwrap_or_else(|_| artifacts.path("target/debug/zolana"));
@@ -331,6 +402,7 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
 
     LocalnetValidator {
         cli_bin: cli,
+        backend,
         working_dir: artifacts.root(),
         rpc_port,
         photon_port,

@@ -48,10 +48,10 @@ pub fn process_transact_ix(
     // The typed loader releases the account borrow before the CPI.
     let auditor_pubkey = load_config(program_id, config_account)?.auditor_pubkey;
 
-    if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
+    if !matches!(transact.tail.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());
     }
-    if transact.outputs.iter().any(|output| {
+    if transact.bound.outputs.iter().any(|output| {
         !output
             .data
             .as_deref()
@@ -64,7 +64,7 @@ pub fn process_transact_ix(
         .get(1..COMPRESSED_P256_KEY_LEN)
         .and_then(|tag| tag.try_into().ok())
         .ok_or(CustomRingError::InvalidAuditorPubkey)?;
-    let message = select_auditor_message(&transact.messages, view_tag)?;
+    let message = select_auditor_message(&transact.bound.messages, view_tag)?;
     verify_groth16(
         CompressedGroth16Proof {
             a: &proof.proof_a,
@@ -74,8 +74,8 @@ pub fn process_transact_ix(
             commitment_pok: &proof.commitment_pok,
         },
         CustomRingPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            tx_viewing_pk: &transact.tx_viewing_pk,
+            private_tx_hash: &transact.tail.private_tx_hash,
+            tx_viewing_pk: &transact.bound.tx_viewing_pk,
             auditor_pk: &auditor_pubkey,
             eph_pk: message.eph_pk,
             ciphertext: message.ciphertext,

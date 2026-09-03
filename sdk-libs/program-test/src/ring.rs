@@ -219,7 +219,7 @@ impl ZolanaProgramTest {
                 outcome.events.len()
             )));
         }
-        let general_event = zolana_event::general_event_from_indexed(event).map_err(|err| {
+        let general_event = crate::events::general_event(event).map_err(|err| {
             ProgramTestError::Event(format!("batch ring deposit event decode failed: {err:?}"))
         })?;
         Ok(RingDepositBatch {

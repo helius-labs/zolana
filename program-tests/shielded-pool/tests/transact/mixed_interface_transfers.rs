@@ -10,7 +10,7 @@ use solana_signer::Signer;
 use zolana_client::{
     PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_event::{general_event_from_indexed, SplTransfer};
+use zolana_event::SplTransfer;
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
@@ -284,7 +284,7 @@ fn prove_spend(
         inline_outputs(&output_hashes, &view_tags),
     );
     let output_owner_pk_hashes =
-        output_owner_pk_hashes(&ix_data.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&ix_data.bound.outputs).expect("output owner pk hashes");
     let nullifier_pks: Vec<[u8; 32]> = witness_outputs
         .iter()
         .map(|output| output.nullifier_pk)
@@ -340,9 +340,10 @@ fn prove_spend(
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_hash,
     });
-    ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
-        .expect("prove multi-leg transact");
-    ix_data.private_tx_hash = private_tx;
+    ix_data.tail.proof =
+        prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
+            .expect("prove multi-leg transact");
+    ix_data.tail.private_tx_hash = private_tx;
     ix_data
 }
 
@@ -450,7 +451,7 @@ fn sol_split_case(reorder_recipients: bool) {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = general_event_from_indexed(event).expect("decode transact event");
+    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![
@@ -562,7 +563,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = general_event_from_indexed(event).expect("decode transact event");
+    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![
@@ -735,7 +736,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = general_event_from_indexed(event).expect("decode transact event");
+    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![

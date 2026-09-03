@@ -429,7 +429,8 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
     // slot carries its own ciphertext now (the two change slots plus the
     // recipient / dummy slot), so all three positions are data-bearing.
     let ciphertext_lens = |ix: &TransactIxData| -> Vec<usize> {
-        ix.outputs
+        ix.bound
+            .outputs
             .iter()
             .filter_map(|output| output.data.as_ref().map(|data| data.len()))
             .collect()
@@ -439,7 +440,10 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
 
     // Both transactions have the same output count and the same number of
     // ciphertexts, so a dummy does not change the observable shape.
-    assert_eq!(change_only.outputs.len(), one_recipient.outputs.len());
+    assert_eq!(
+        change_only.bound.outputs.len(),
+        one_recipient.bound.outputs.len()
+    );
     assert_eq!(change_lens.len(), 3);
     assert_eq!(change_lens.len(), recipient_lens.len());
 
@@ -487,9 +491,9 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let ix = assembled.with_proof(TransactProof::zeroed());
 
     // The single real input is padded with one mirrored dummy to the (2,3) shape.
-    assert_eq!(ix.inputs.len(), 2);
-    let real = ix.inputs.first().expect("real input");
-    let dummy = ix.inputs.get(1).expect("dummy input");
+    assert_eq!(ix.tail.inputs.len(), 2);
+    let real = ix.tail.inputs.first().expect("real input");
+    let dummy = ix.tail.inputs.get(1).expect("dummy input");
     assert_eq!(real.nullifier_hash, first_nullifier);
     assert_eq!(real.utxo_tree_root_index, 5);
     // The dummy mirrors the first real input's root index but carries its own
@@ -498,12 +502,12 @@ fn assemble_carries_ciphertext_and_decrypts() {
     assert_ne!(dummy.nullifier_hash, first_nullifier);
 
     // A pure transfer moves no public value.
-    assert!(ix.interface_transfers.is_empty());
+    assert!(ix.bound.interface_transfers.is_empty());
 
     // Output 0 is the sender's change slot. Ed25519 owners carry their view tag
     // inline; its ciphertext is non-empty. The recipient slot holds the
     // recipient's inline owner tag and a non-empty ciphertext.
-    let sender_slot = ix.outputs.first().expect("sender change slot");
+    let sender_slot = ix.bound.outputs.first().expect("sender change slot");
     assert_eq!(
         sender_slot.owner_tag,
         OwnerTag::Inline(sender.signing_pubkey().confidential_view_tag().unwrap())
@@ -513,6 +517,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .as_ref()
         .is_some_and(|data| !data.is_empty()));
     let recipient_slot = ix
+        .bound
         .outputs
         .get(1..)
         .expect("recipient region")
@@ -529,8 +534,9 @@ fn assemble_carries_ciphertext_and_decrypts() {
     // key, and the recipient decodes its own slot (position 2). Every slot now
     // carries its own ciphertext, so the AES slot index equals the output
     // position.
-    let tx_viewing_pk = P256Pubkey::from_bytes(ix.tx_viewing_pk).unwrap();
+    let tx_viewing_pk = P256Pubkey::from_bytes(ix.bound.tx_viewing_pk).unwrap();
     let ciphertexts: Vec<Vec<u8>> = ix
+        .bound
         .outputs
         .iter()
         .filter_map(|output| output.data.clone())
@@ -551,13 +557,13 @@ fn assemble_carries_ciphertext_and_decrypts() {
         .get_transaction_viewing_key(&first_nullifier)
         .unwrap();
     let sender_change =
-        Confidential::decrypt_with_tx_key(&tx_key, &slot_body(1), ix.salt, 1).unwrap();
+        Confidential::decrypt_with_tx_key(&tx_key, &slot_body(1), ix.bound.salt, 1).unwrap();
     let recipient_pt = Confidential::decode(
         &slot_body(2),
         &DecodeCx {
             viewing_key: &recipient.viewing_key,
             tx_viewing_pk: Some(tx_viewing_pk),
-            salt: Some(ix.salt),
+            salt: Some(ix.bound.salt),
             slot_index: 2,
             first_nullifier: Some(first_nullifier),
         },

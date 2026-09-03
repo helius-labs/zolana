@@ -55,7 +55,7 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
     let clock = Clock::get()?;
-    check_within_window(clock.unix_timestamp, transact.expiry_unix_ts)?;
+    check_within_window(clock.unix_timestamp, transact.bound.expiry_unix_ts)?;
 
     verify_groth16(
         CompressedGroth16Proof {
@@ -65,8 +65,8 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             commitment: None,
         },
         TakePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            expiry: transact.expiry_unix_ts,
+            private_tx_hash: &transact.tail.private_tx_hash,
+            expiry: transact.bound.expiry_unix_ts,
         }
         .hash()?,
         &crate::verifying_keys::take::VERIFYINGKEY,

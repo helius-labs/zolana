@@ -28,7 +28,10 @@ use zolana_interface::{
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
+    localnet::{
+        isolated_temp_path, LocalnetValidator, UpgradeableProgram, ValidatorBackend,
+        WorkspaceArtifacts,
+    },
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, RegisterSplAsset},
@@ -124,6 +127,7 @@ pub fn setup() -> Result<TestEnv> {
         // bootstrap parks in Squads vaults, so both are wrapped in
         // `execute_sync_ix`. The custom-ring program never touches a smart account.
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: artifacts.root(),
         rpc_port,
         photon_port,

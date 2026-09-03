@@ -12,6 +12,11 @@ import (
 	"zolana/prover/prover/common"
 )
 
+// defaultTestNInputs is the merge shape these parameter tests build. Every
+// supported count shares one witness-assignment path, so one shape covers it;
+// TestValidateShapeAcceptsEverySupportedCount pins the set itself.
+const defaultTestNInputs = 8
+
 // TestMergeParametersJSONRoundTrip checks the wire format the Rust client
 // produces decodes back to identical parameters (shape, paths, and all fields).
 func TestMergeParametersJSONRoundTrip(t *testing.T) {
@@ -56,7 +61,7 @@ func TestMergeParametersCreateCompleteWitness(t *testing.T) {
 }
 
 func sampleParams() *MergeParameters {
-	inputs := make([]InputParams, MergeNInputs)
+	inputs := make([]InputParams, defaultTestNInputs)
 	for i := range inputs {
 		inputs[i] = InputParams{
 			Domain:                   big.NewInt(3),
@@ -94,6 +99,39 @@ func zeros(n int) []*big.Int {
 	out := make([]*big.Int, n)
 	for i := range out {
 		out[i] = big.NewInt(0)
+	}
+	return out
+}
+
+// TestValidateShapeAcceptsEverySupportedCount pins the shape gate: merge
+// parameters carry no shape field, so the declared input count is the shape and
+// ValidateShape is the only place an unsupported count is refused.
+func TestValidateShapeAcceptsEverySupportedCount(t *testing.T) {
+	for _, nInputs := range SupportedNInputs() {
+		params := sampleParams()
+		params.Inputs = resizeInputs(params.Inputs, int(nInputs))
+		if err := params.ValidateShape(); err != nil {
+			t.Fatalf("supported count %d rejected: %v", nInputs, err)
+		}
+	}
+}
+
+func TestValidateShapeRejectsUnsupportedCount(t *testing.T) {
+	for _, nInputs := range []int{0, 1, 7, 9, 35, 37} {
+		params := sampleParams()
+		params.Inputs = resizeInputs(params.Inputs, nInputs)
+		if err := params.ValidateShape(); err == nil {
+			t.Fatalf("unsupported count %d accepted", nInputs)
+		}
+	}
+}
+
+// resizeInputs grows or shrinks a parameter set to n slots, repeating the
+// sample slot; only the count matters to ValidateShape.
+func resizeInputs(inputs []InputParams, n int) []InputParams {
+	out := make([]InputParams, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, inputs[i%len(inputs)])
 	}
 	return out
 }

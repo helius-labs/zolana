@@ -10,7 +10,7 @@ use zolana_client::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+        instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
         MergeRing,
     },
 };
@@ -177,7 +177,8 @@ impl RingHarness {
         // stamped on each real input by `MergeRingProver::build`, so the
         // SpendProofs must be taken against the UTXO hash carrying that ring.
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut spend_inputs: Vec<TransferSpendInput> =
+            Vec::with_capacity(MERGE_DEFAULT_INPUT_COUNT);
         let mut total: u64 = 0;
         for utxo in &inputs {
             total += utxo.amount;
@@ -209,7 +210,7 @@ impl RingHarness {
         // input's UTXO root but carries a non-inclusion proof for its own
         // deterministic nullifier.
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
+        while spend_inputs.len() < MERGE_DEFAULT_INPUT_COUNT {
             let slot = spend_inputs.len();
             let dummy_nullifier =
                 merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
@@ -432,7 +433,8 @@ impl RingHarness {
         };
 
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut spend_inputs: Vec<TransferSpendInput> =
+            Vec::with_capacity(MERGE_DEFAULT_INPUT_COUNT);
         let mut total: u64 = 0;
         for utxo in &inputs {
             total += utxo.amount;
@@ -461,7 +463,7 @@ impl RingHarness {
             .nullifier(&first_hash, &inputs[0].blinding)?;
 
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
+        while spend_inputs.len() < MERGE_DEFAULT_INPUT_COUNT {
             let slot = spend_inputs.len();
             let dummy_nullifier =
                 merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;

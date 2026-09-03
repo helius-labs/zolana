@@ -64,7 +64,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-45: the signer run is payer-first, deduplicated, and width-bounded**
   - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `transact_rejects_unsigned_eddsa_input_owner`
   - Kind: precondition + postcondition
-  - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_SIGNERS = MAX_INPUTS + 1` slots (more unique signers returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
+  - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_UNIQUE_SIGNERS` (8) slots (more unique signers returns 7006); the circuit's fold width stays `n_inputs + 1`, so the program's bound on *distinct* signers is now independent of the input count, and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`, `SIGNER_ZERO_SUFFIX_CHAINS`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006` (an unsigned would-be owner signer ends the run at the loader's first-non-signer scan, leaving an unparsable account)
   - Severity: Critical (spend authorization)
@@ -108,20 +108,20 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: fuzz + negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-08: more than 8 outputs is rejected**
+- [x] **INV-TRANSACT-08: an unsupported output count is rejected**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_outputs_than_any_circuit_supports`
   - Kind: precondition
-  - Statement: every instruction with strictly more than `MAX_OUTPUTS` (8) outputs returns Err during output resolution.
-  - Location: `programs/shielded-pool/src/instructions/transact/event.rs:22-35` (`fn resolve_outputs`), `verify.rs:22` (`MAX_OUTPUTS`)
+  - Statement: every instruction whose output count matches no circuit returns Err. The program itself no longer caps outputs -- nothing is sized by an output constant any more -- so the rejection comes from the supported-shape check, before any account or tree is touched.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`fn is_supported`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-09: more than 5 inputs is rejected**
+- [x] **INV-TRANSACT-09: an unsupported input count is rejected**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports`
   - Kind: precondition
-  - Statement: every instruction with strictly more than `MAX_INPUTS` (5) inputs returns Err before proof verification.
-  - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:53-56` (`fn check_input_signers`), `transact/tree.rs:25-29` (`fn apply_input_tree`), `verify.rs:20` (`MAX_INPUTS`)
+  - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The rejection comes from the supported-shape check, not from a buffer bound; the supported counts are 1 to 5 plus the 36-input consolidation shape, so six inputs is rejected while thirty-six is accepted.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`fn is_supported`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -130,7 +130,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `fetch_tag_resolves_every_variant`
   - Kind: precondition
   - Statement: every output whose `OwnerTag::Account(i)` references an index with no account in the transaction makes the instruction return Err.
-  - Location: `programs/shielded-pool/src/instructions/transact/event.rs:27-32` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:225-235` (`fn fetch_tag`)
+  - Location: `programs/shielded-pool/src/instructions/transact/event.rs` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn fetch_tag`)
   - Error: `ShieldedPoolError::OwnerTagAccountMissing = 7025`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
@@ -159,7 +159,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-35: selector shape must equal the payload shape and be supported**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
-  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits the fixed-width `MAX_SIGNERS` (`MAX_INPUTS + 1`) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
+  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits `MAX_UNIQUE_SIGNERS` (8). The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical

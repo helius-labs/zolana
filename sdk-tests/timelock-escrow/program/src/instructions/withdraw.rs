@@ -85,7 +85,7 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
             commitment: None,
         },
         WithdrawPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
+            private_tx_hash: &transact.tail.private_tx_hash,
             unlock: unlock_timestamp,
             owner_pk_field: &owner_pk_field,
         }

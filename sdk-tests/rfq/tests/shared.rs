@@ -26,7 +26,7 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedKeypair, SigningKey};
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, ValidatorBackend},
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
 };
@@ -82,6 +82,7 @@ pub fn setup() -> Result<TestEnv> {
 
     LocalnetValidator {
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: root.to_string(),
         rpc_port,
         photon_port,

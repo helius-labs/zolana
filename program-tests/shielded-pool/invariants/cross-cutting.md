@@ -160,26 +160,26 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (12, 13, 15, 16, or 17), so an otherwise identical payload proven for one instruction fails verification under any other.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`spp_instruction_discriminator: instruction as u8`), `merge/processor.rs:54-60`, `merge_ring/processor.rs:34-40`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348, 351` (`struct ExternalDataHash`, `fn hash`), `merge_transact.rs:123-137`
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`external_data_hash(instruction as u8, bound_bytes, ..)`), `merge/processor.rs`, `merge_ring/processor.rs`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn external_data_hash`), `merge_transact.rs` (`MergeExternalDataHash::hash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
   - Suggested test: negative (transact proof replayed as ring_transact); harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-16: the external_data_hash preimage is injective and binds the decryption context**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `external_data_hash_is_injective_across_output_message_boundary` (plus the empty-vs-none and owner-tag boundary tests in the same module)
+  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `external_data_hash_is_injective_across_the_output_message_boundary` (plus the empty-vs-none, owner-tag boundary, address-order and discriminator tests in the same module), and `program-libs/interface/tests/external_data_agreement.rs` `bound_region_covers_every_byte_it_measures`
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: the `ExternalDataHash` preimage covers exactly: the instruction discriminator, `expiry_unix_ts`, the resolved `interface_transfers` legs (post-PR164, replacing the old `public_sol_amount`/`public_spl_amount`/`relayer_fee` fields), the `data_hash`/`ring_data_hash` option presence and values, `tx_viewing_pk`, `salt`, the resolved outputs, and the messages. Binding `tx_viewing_pk` and `salt` (the F-05 fix) means a relayer can no longer corrupt the only on-chain decryption context; the count prefixes and presence bytes keep the encoding injective across output/message/owner-tag/data boundaries.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348` (`struct ExternalDataHash`), hash at `instruction_data/transact.rs:351` (`fn ExternalDataHash::hash`)
+  - Statement: the preimage is the instruction discriminator, the contiguous proof-bound region of the instruction data (`expiry_unix_ts`, `tx_viewing_pk`, `salt`, `interface_transfers`, `outputs`, `messages`), and a digest of the bound account addresses. Binding `tx_viewing_pk` and `salt` (the F-05 fix) means a relayer cannot corrupt the only on-chain decryption context. Injectivity now follows from the instruction encoding being self-delimiting rather than from framing the hash adds: the bound region is recoverable from the preimage by reading it, and the address count is a function of that region alone. `data_hash` and `ring_data_hash` are **not** covered; they sit in the tail and no public input binds them.
+  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn external_data_hash`), region measured by `TransactIxDataRef::parse_bound`
   - Severity: High
   - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
 
-- [ ] **INV-XC-17: the resolved owner tag, not its encoding, enters the hash**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the positive Inline/Account encoding-equivalence and account-reorder cases are untested)
+- [x] **INV-XC-17: the owner tag encoding is bound, and an account-tagged owner's resolved address is appended**
+  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `external_data_hash_freezes_the_owner_tag_encoding` and `external_data_hash_binds_appended_address_order`; `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag`
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: `external_data_hash` covers each output's resolved 32-byte owner tag (after `fetch_tag`), so two encodings resolving to the same tag (e.g. `Inline(addr)` vs `Account(i)` pointing at `addr`) produce the same hash, and re-ordering the account list to change an `Account(i)` resolution changes the hash and fails verification.
-  - Location: `programs/shielded-pool/src/instructions/transact/event.rs:22-35` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:240-244` (`struct ResolvedOutput`)
+  - Statement: `external_data_hash` covers the owner tag **as encoded** inside the bound region, and additionally appends the resolved 32-byte address of every `Account`-tagged output. So `Inline(addr)` and `Account(i)` pointing at `addr` now produce **different** hashes -- a change from the previous definition, which covered only the resolved tag -- and re-ordering the account list to change an `Account(i)` resolution changes the appended address and fails verification.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (the appended-address iterator), `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn external_data_hash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (account-list tampering)
   - Suggested test: negative + positive (encoding equivalence); harness: program-tests integration (`cargo test-sbf`)

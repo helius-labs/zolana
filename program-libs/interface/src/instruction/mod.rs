@@ -12,8 +12,9 @@ pub use instruction_data::{
     InterfaceTransfer, MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef,
     MergeTransactIxData, MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag,
     PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput, RingDepositEntry,
-    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, TransactIxBound,
+    TransactIxBoundRef, TransactIxData, TransactIxDataRef, TransactIxTail, TransactIxTailRef,
+    TransactOutput, TransactOutputRef, TransactProof, UpdateProtocolConfigData,
     UpdateRingConfigData, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
 };
 #[cfg(feature = "tree")]

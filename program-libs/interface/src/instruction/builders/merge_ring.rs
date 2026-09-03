@@ -16,6 +16,13 @@ use crate::{
 /// self-CPI, then one writable nullifier PDA per `nullifiers` entry.
 /// Instruction data is the output `ring_data_hash` followed by the
 /// `MergeTransactIxData` body.
+///
+/// # Compute budget
+///
+/// The caller must raise the compute limit exactly as for
+/// [`super::merge_transact::MergeTransact`], whose rustdoc carries the measured
+/// per-shape figures; this rail runs the same merge tail behind a ring-program
+/// CPI, so it costs strictly more and those figures are a floor, not a budget.
 pub struct MergeRing {
     pub input_tree: Pubkey,
     pub output_tree: Pubkey,

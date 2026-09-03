@@ -16,7 +16,7 @@ pub mod testing {
     };
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
-        MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
+        MAX_SIGNERS, MAX_UNIQUE_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
     };
 }
 

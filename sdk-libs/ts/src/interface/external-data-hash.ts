@@ -1,117 +1,62 @@
-import type {
-  Bytes16,
-  Bytes32,
-  Bytes33,
-  MessageData,
-  ResolvedInterfaceTransfer,
-  ResolvedOutput,
-} from "./types.js";
-import { addressBytes, copyBytes, fail, sha256, unsigned, unsignedBigint } from "./internal.js";
+import type { Address } from "@solana/kit";
+import type { Bytes32 } from "./types.js";
+import type { TransactBoundFields } from "./codecs/index.js";
+import { encodeTransactBoundRegion } from "./codecs/index.js";
+import { addressBytes, copyBytes, sha256, unsigned } from "./internal.js";
 
 export interface ExternalDataHashInput {
   readonly instructionDiscriminator: number;
-  readonly expiryUnixTs: bigint;
-  readonly interfaceTransfers: readonly ResolvedInterfaceTransfer[];
-  readonly dataHash?: Bytes32;
-  readonly ringDataHash?: Bytes32;
-  readonly txViewingPk: Bytes33;
-  readonly salt: Bytes16;
-  readonly outputs: readonly ResolvedOutput[];
-  readonly messages: readonly MessageData[];
+  /** The proof-bound fields of the instruction being hashed. */
+  readonly bound: TransactBoundFields;
+  /**
+   * Addresses the proof binds, in protocol order: each interface transfer's
+   * settlement accounts in leg order (the user account for a SOL leg, the user
+   * token account then the per-mint interface vault for an SPL leg), followed by
+   * the resolved owner of every output whose owner tag names an account, in
+   * output order.
+   */
+  readonly boundAddresses: readonly (Address | Bytes32)[];
 }
 
+/**
+ * `external_data_hash` public input: SHA-256 over the instruction
+ * discriminator, the contiguous proof-bound region of the instruction data, and
+ * a digest of the bound account addresses.
+ *
+ * The addresses fold into one digest first, so the preimage is three fixed
+ * segments regardless of how many legs and outputs the transaction carries. The
+ * result's first byte is zeroed for BN254 field compatibility, matching
+ * `Sha256BE` on the Rust side.
+ */
 export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
-  const parts: Uint8Array[] = [
-    Uint8Array.of(unsigned(input.instructionDiscriminator, 0xff, "instructionDiscriminator")),
-    integer(unsignedBigint(input.expiryUnixTs, (1n << 64n) - 1n, "expiryUnixTs"), 8),
-    Uint8Array.of(unsigned(input.interfaceTransfers.length, 0xff, "interfaceTransfers")),
-  ];
-  input.interfaceTransfers.forEach((transfer, index) => {
-    const position = `interfaceTransfers[${String(index)}]`;
-    const amount = integer(
-      unsignedBigint(transfer.amount, (1n << 64n) - 1n, `${position}.amount`),
-      8,
-    );
-    if (transfer.kind === "solDeposit" || transfer.kind === "solWithdrawal") {
-      parts.push(
-        Uint8Array.of(0, transfer.kind === "solDeposit" ? 1 : 0),
-        amount,
-        addressBytes(transfer.recipient, `${position}.recipient`),
-      );
-    } else {
-      parts.push(
-        Uint8Array.of(1, transfer.kind === "splDeposit" ? 1 : 0),
-        amount,
-        addressBytes(transfer.tokenAccount, `${position}.tokenAccount`),
-        addressBytes(transfer.splInterfacePda, `${position}.splInterfacePda`),
-      );
-    }
+  let addressDigest: Uint8Array = new Uint8Array(32);
+  input.boundAddresses.forEach((address, index) => {
+    const label = `boundAddresses[${String(index)}]`;
+    const bytes =
+      typeof address === "string" ? addressBytes(address, label) : copyBytes(address, 32, label);
+    addressDigest = sha256BE(concat([addressDigest, bytes]));
   });
-  parts.push(
-    optionalBytes(input.dataHash, "dataHash"),
-    optionalBytes(input.ringDataHash, "ringDataHash"),
-    copyBytes(input.txViewingPk, 33, "txViewingPk"),
-    copyBytes(input.salt, 16, "salt"),
-    count(input.outputs.length, "outputs"),
+
+  const discriminator = Uint8Array.of(
+    unsigned(input.instructionDiscriminator, 0xff, "instructionDiscriminator"),
   );
+  const bound = encodeTransactBoundRegion(input.bound);
+  return sha256BE(concat([discriminator, bound, addressDigest])) as Bytes32;
+}
 
-  input.outputs.forEach((output, index) => {
-    const position = String(index);
-    parts.push(
-      copyBytes(output.utxoHash, 32, `outputs[${position}].utxoHash`),
-      copyBytes(output.ownerTag, 32, `outputs[${position}].ownerTag`),
-    );
-    if (output.data === undefined) {
-      parts.push(Uint8Array.of(0));
-    } else {
-      const data = copyBytes(output.data);
-      parts.push(Uint8Array.of(1), count(data.length, `outputs[${position}].data`), data);
-    }
-  });
-
-  parts.push(count(input.messages.length, "messages"));
-  input.messages.forEach((message, index) => {
-    const position = String(index);
-    const data = copyBytes(message.data);
-    parts.push(
-      copyBytes(message.viewTag, 32, `messages[${position}].viewTag`),
-      count(data.length, `messages[${position}].data`),
-      data,
-    );
-  });
-
-  const digest = sha256(concat(parts));
+function sha256BE(bytes: Uint8Array): Uint8Array {
+  const digest = copyBytes(sha256(bytes), 32, "digest");
   digest[0] = 0;
-  return digest as Bytes32;
-}
-
-function optionalBytes(value: Bytes32 | undefined, name: string): Uint8Array {
-  return value === undefined
-    ? new Uint8Array(33)
-    : concat([Uint8Array.of(1), copyBytes(value, 32, name)]);
-}
-
-function count(value: number, name: string): Uint8Array {
-  return integer(BigInt(unsigned(value, 0xffff, name)), 2);
-}
-
-function integer(value: bigint, length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  let remaining = value;
-  for (let index = length - 1; index >= 0; index -= 1) {
-    bytes[index] = Number(remaining & 0xffn);
-    remaining >>= 8n;
-  }
-  if (remaining !== 0n) fail("INTERFACE_INVALID_INTEGER", { value: value.toString(), length });
-  return bytes;
+  return digest;
 }
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
-  const bytes = new Uint8Array(parts.reduce((length, part) => length + part.length, 0));
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const out = new Uint8Array(total);
   let offset = 0;
   for (const part of parts) {
-    bytes.set(part, offset);
+    out.set(part, offset);
     offset += part.length;
   }
-  return bytes;
+  return out;
 }

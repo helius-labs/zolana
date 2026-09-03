@@ -306,7 +306,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         args.interface_transfers,
         inline_outputs(&args.output_hashes, &args.view_tags),
     );
-    let owner_pk_hashes = output_owner_pk_hashes(&ix_data.outputs)
+    let owner_pk_hashes = output_owner_pk_hashes(&ix_data.bound.outputs)
         .map_err(|err| anyhow!("{} output owner pk hashes: {err}", args.label))?;
     set_output_owner_tags(
         &mut args.outputs,
@@ -349,8 +349,8 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_input,
     });
-    ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;
-    ix_data.private_tx_hash = private_tx;
+    ix_data.tail.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;
+    ix_data.tail.private_tx_hash = private_tx;
     Ok(ix_data)
 }
 

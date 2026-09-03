@@ -9,7 +9,9 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            CircuitId, TransactIxBound, TransactIxData, TransactIxTail, TransactProof,
+        },
         CloseNullifierPdas, Transact,
     },
     pda,
@@ -41,25 +43,30 @@ type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
 
 fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: (11..11 + n_out)
-            .map(|n| inline_output(fe(n), fe(n)))
-            .collect(),
-        messages: Vec::new(),
+        bound: TransactIxBound {
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers: Vec::new(),
+            outputs: (11..11 + n_out)
+                .map(|n| inline_output(fe(n), fe(n)))
+                .collect(),
+            messages: Vec::new(),
+        },
+        tail: TransactIxTail {
+            proof: TransactProof::zeroed(),
+            private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+            inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
 }
 
 fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
-    data.inputs
+    data.tail
+        .inputs
         .iter()
         .map(|input| input.nullifier_hash)
         .collect()
@@ -379,8 +386,17 @@ fn transact_rejects_a_pending_nullifier() {
 fn transact_rejects_the_same_nullifier_twice_in_one_instruction() {
     let mut env = Pool::initialized();
     let mut data = transfer_ix_data(2, 3);
-    let first = data.inputs.first().expect("first input").nullifier_hash;
-    data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
+    let first = data
+        .tail
+        .inputs
+        .first()
+        .expect("first input")
+        .nullifier_hash;
+    data.tail
+        .inputs
+        .get_mut(1)
+        .expect("second input")
+        .nullifier_hash = first;
 
     let ix = transact_instruction(&env, data);
     expect_transact_rejection(

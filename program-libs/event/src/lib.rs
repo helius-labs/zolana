@@ -44,7 +44,8 @@ pub struct GeneralEvent {
     pub spl_transfers: Vec<SplTransfer>,
 }
 
-/// One spent input. Inputs may originate from different trees.
+/// One spent input. Every emitter queues its nullifiers into a single input
+/// tree, so `tree` is constant across an event's inputs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct Input {
     pub tree: [u8; 32],
@@ -57,6 +58,48 @@ pub struct SplTransfer {
     pub is_deposit: bool,
     pub amount: u64,
     pub asset: Option<[u8; 32]>,
+}
+
+/// Body of the `EMIT_EVENT` self-CPI for `transact`, `ring_transact` and
+/// `ring_authority_transact`.
+///
+/// Carries only what execution assigns and instruction data cannot express. An
+/// indexer reconstructs nullifiers, outputs, messages, trees and settlement legs
+/// from the parent instruction and its account list. Queue sequences and leaf
+/// indices are contiguous within a transaction -- both are single monotone
+/// counters incremented once per insert, over one input tree and one output tree
+/// in instruction-data order -- so entry `i` sits at `first_* + i`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TransactEvent {
+    pub first_input_queue_seq: u64,
+    pub first_output_leaf_index: u64,
+}
+
+impl TransactEvent {
+    /// Borsh encodes fixed-size fields as their little-endian concatenation, so
+    /// the whole body is this many bytes and can be written into a stack array.
+    pub const LEN: usize = 16;
+}
+
+/// Body of the `EMIT_EVENT` self-CPI for `merge_transact` and
+/// `ring_merge_transact`.
+///
+/// `output_view_tag` is retained because `merge_transact` reads it from the
+/// `user_record` account rather than from instruction data, and an indexer
+/// cannot re-read that account at the historical slot. `ring_merge_transact`
+/// derives its tag from `nullifiers[0]` instead, so it writes zero here and the
+/// reconstructor dispatches on the parent instruction tag, never on this value.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct MergeEvent {
+    pub first_input_queue_seq: u64,
+    pub first_output_leaf_index: u64,
+    pub output_view_tag: [u8; 32],
+}
+
+impl MergeEvent {
+    pub const LEN: usize = 48;
 }
 
 /// A cascade of `num_update` nullifier-tree zkp batch updates applied in one
@@ -124,6 +167,32 @@ pub fn encode_event_instruction_with<T: BorshSerialize>(kind: EventKind, payload
         .serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
     data
+}
+
+/// Encode an `EMIT_EVENT` instruction whose body is a fixed-size event, into a
+/// stack array rather than a `Vec`.
+///
+/// Layout matches [`encode_event_instruction`]: `[EMIT_EVENT, kind, body]`. The
+/// body is little-endian, which is exactly what Borsh writes for these all
+/// fixed-size structs, so the two encodings agree byte for byte.
+pub fn encode_transact_event(event: &TransactEvent) -> [u8; 2 + TransactEvent::LEN] {
+    let mut out = [0u8; 2 + TransactEvent::LEN];
+    out[0] = tag::EMIT_EVENT;
+    out[1] = EventKind::Transact as u8;
+    out[2..10].copy_from_slice(&event.first_input_queue_seq.to_le_bytes());
+    out[10..18].copy_from_slice(&event.first_output_leaf_index.to_le_bytes());
+    out
+}
+
+/// See [`encode_transact_event`]; same layout with the retained output view tag.
+pub fn encode_merge_event(event: &MergeEvent) -> [u8; 2 + MergeEvent::LEN] {
+    let mut out = [0u8; 2 + MergeEvent::LEN];
+    out[0] = tag::EMIT_EVENT;
+    out[1] = EventKind::Merge as u8;
+    out[2..10].copy_from_slice(&event.first_input_queue_seq.to_le_bytes());
+    out[10..18].copy_from_slice(&event.first_output_leaf_index.to_le_bytes());
+    out[18..50].copy_from_slice(&event.output_view_tag);
+    out
 }
 
 pub fn encode_event_payload(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {

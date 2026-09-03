@@ -1,10 +1,7 @@
 //! Custom-ring transfer proof builder with a shared P256 authorization.
 
 use num_bigint::BigUint;
-use p256::{
-    ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
-};
+use p256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
 use solana_address::Address;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::{hash::sha256, Curve};
@@ -77,10 +74,7 @@ impl RingTransferP256Prover {
         let message_digest = sha256(&private_tx);
         validate_authorization(&self.inputs, &self.authorization, &message_digest)?;
 
-        let public_key = self.authorization.pubkey.to_p256()?;
-        let point = public_key.to_encoded_point(false);
-        let pub_x = coordinate(point.x(), "x")?;
-        let pub_y = coordinate(point.y(), "y")?;
+        let (pub_x, pub_y) = self.authorization.pubkey.coordinates()?;
         let default_owner_tag = if has_default_p256_input(&self.inputs)? {
             Some(pub_x)
         } else {
@@ -106,7 +100,7 @@ impl RingTransferP256Prover {
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
         }
-        .hash_with_after_private_tx(&[message_proof_input_hash, default_p256_owner_pk_hash])?;
+        .hash_with_p256_authorization(&message_proof_input_hash, &default_p256_owner_pk_hash)?;
 
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
@@ -188,16 +182,4 @@ fn validate_authorization(
     verifying_key
         .verify_prehash(message_digest, &signature)
         .map_err(|e| ClientError::InvalidP256Authorization(e.to_string()))
-}
-
-fn coordinate(
-    coordinate: Option<&p256::elliptic_curve::FieldBytes<p256::NistP256>>,
-    name: &str,
-) -> Result<[u8; 32], ClientError> {
-    let coordinate = coordinate.ok_or_else(|| {
-        ClientError::InvalidP256Authorization(format!("missing {name} coordinate"))
-    })?;
-    let mut out = [0u8; 32];
-    out.copy_from_slice(coordinate);
-    Ok(out)
 }

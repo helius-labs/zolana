@@ -40,8 +40,18 @@ pub struct InstructionGroup {
 pub struct IndexedEvent {
     /// SPP instruction tag: always [`tag::EMIT_EVENT`] for logged events.
     pub tag: u8,
-    /// Bytes after `EMIT_EVENT`: `[EventKind, borsh(GeneralEvent)]`.
+    /// Bytes after `EMIT_EVENT`: `[EventKind, borsh(body)]`. The body is a
+    /// `GeneralEvent` for deposits, and the fixed-size `TransactEvent` /
+    /// `MergeEvent` otherwise.
     pub payload: Vec<u8>,
+    /// The instruction that emitted this event, with its tag byte, and its
+    /// account list. `transact` and `merge` log only the positions execution
+    /// assigns, so an indexer rebuilds the rest from these; the reconstruction
+    /// itself lives in `zolana-interface`, which can parse instruction data.
+    pub source_instruction_tag: u8,
+    pub parent_data: Vec<u8>,
+    pub parent_accounts: Vec<Pubkey>,
+    /// Only populated for kinds whose body really is a `GeneralEvent`.
     pub decoded: Result<GeneralEvent, EventDecodeError>,
 }
 
@@ -171,11 +181,16 @@ pub fn indexed_events_from_instruction_groups(
     let mut events = Vec::new();
     for group in groups {
         for (index, instruction) in group.inner.iter().enumerate() {
-            if is_emit_event(shielded_pool_program_id, instruction)
-                && parent_is_event_source(shielded_pool_program_id, group, index)
-            {
-                events.push(indexed_event(&instruction.data));
+            if !is_emit_event(shielded_pool_program_id, instruction) {
+                continue;
             }
+            let Some(parent) = event_parent(group, index) else {
+                continue;
+            };
+            if !is_event_source(shielded_pool_program_id, parent) {
+                continue;
+            }
+            events.push(indexed_event(&instruction.data, parent));
         }
     }
     events
@@ -189,33 +204,31 @@ pub fn instruction_may_emit_events(
         || is_ring_wrapper_event_source(shielded_pool_program_id, instruction)
 }
 
-fn indexed_event(data: &[u8]) -> IndexedEvent {
+fn indexed_event(data: &[u8], parent: &ParsedInstruction) -> IndexedEvent {
     IndexedEvent {
         tag: tag::EMIT_EVENT,
         payload: data.get(1..).unwrap_or_default().to_vec(),
+        source_instruction_tag: parent.data.first().copied().unwrap_or_default(),
+        parent_data: parent.data.clone(),
+        parent_accounts: parent.accounts.clone(),
         decoded: decode_event_instruction(data),
     }
 }
 
-fn parent_is_event_source(
-    shielded_pool_program_id: Pubkey,
-    group: &InstructionGroup,
-    event_index: usize,
-) -> bool {
-    let Some(event_height) = group.inner[event_index].stack_height else {
-        return false;
-    };
-    let Some(parent_height) = event_height.checked_sub(1) else {
-        return false;
-    };
+/// The instruction that invoked this event, by stack height. One level up from
+/// the event, which covers the ring-CPI case where the pool instruction is
+/// itself an inner instruction.
+fn event_parent(group: &InstructionGroup, event_index: usize) -> Option<&ParsedInstruction> {
+    let event_height = group.inner.get(event_index)?.stack_height?;
+    let parent_height = event_height.checked_sub(1)?;
 
-    let parent = group.inner[..event_index]
+    group
+        .inner
+        .get(..event_index)?
         .iter()
         .rev()
         .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer));
-
-    parent.is_some_and(|instruction| is_event_source(shielded_pool_program_id, instruction))
+        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer))
 }
 
 /// SPP instructions that finish by emitting a [`GeneralEvent`] via `emit_event`.

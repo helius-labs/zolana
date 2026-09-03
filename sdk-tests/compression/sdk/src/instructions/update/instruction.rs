@@ -30,7 +30,7 @@ impl Update {
             spp_proof,
         } = self;
 
-        let [input] = spp_proof.inputs.as_slice() else {
+        let [input] = spp_proof.tail.inputs.as_slice() else {
             return Err(anyhow!("SPP transact must spend exactly one input"));
         };
         let serialized_ix = wincode::serialize(&UpdateIxData {
@@ -39,7 +39,7 @@ impl Update {
             new_value,
             nullifier_tree_root_index: input.nullifier_tree_root_index,
             utxo_tree_root_index: input.utxo_tree_root_index,
-            proof: spp_proof.proof,
+            proof: spp_proof.tail.proof,
         })
         .map_err(err)?;
 

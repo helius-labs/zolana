@@ -160,7 +160,7 @@ fn interface_transfers(
     };
     let data = TransactIxData::deserialize(payload)
         .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
-    Ok(Some(data.interface_transfers))
+    Ok(Some(data.bound.interface_transfers))
 }
 
 /// Settlement accounts appended per interface transfer, mirroring
@@ -195,7 +195,9 @@ mod rpc {
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
         commitment: Some(CommitmentConfig::confirmed()),
-        max_supported_transaction_version: Some(0),
+        // Large transact shapes need transaction v1, whose 4 KB limit is the
+        // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+        max_supported_transaction_version: Some(1),
     };
 
     #[must_use]

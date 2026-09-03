@@ -4,10 +4,11 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
     decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
-    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_outputs, EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    event_kind_from_indexed, indexed_events_from_instruction_groups, proofless_outputs,
+    EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
 };
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_interface::event_reconstruction::general_event_from_site;
 use zolana_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
@@ -179,14 +180,14 @@ pub fn indexed_events_from_meta(
 pub fn deposit_outputs_from_event(
     event: &IndexedEvent,
 ) -> Result<Vec<DepositOutput>, ProgramTestError> {
-    let general_event = general_event_from_indexed(event).map_err(|err| {
+    let general_event = crate::events::general_event(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
             event.tag,
             event.payload.len()
         ))
     })?;
-    let outputs = proofless_outputs(general_event).map_err(|err| {
+    let outputs = proofless_outputs(&general_event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid proofless output tag={} payload_len={} error={err:?}",
             event.tag,
@@ -232,7 +233,7 @@ pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, 
 pub fn ring_deposit_outputs_from_event(
     event: &IndexedEvent,
 ) -> Result<Vec<RingDepositOutput>, ProgramTestError> {
-    let general_event = general_event_from_indexed(event).map_err(|err| {
+    let general_event = crate::events::general_event(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
             event.tag,
@@ -301,20 +302,17 @@ pub fn index_events(
                         indexer.record_ring_deposit(&deposit)?;
                     }
                 }
-                indexer.record_transaction(
-                    signature,
-                    general_event_from_indexed(event).map_err(|err| {
-                        ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
-                    })?,
-                    true,
-                );
+                let deposit_event = crate::events::general_event(event).map_err(|err| {
+                    ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
+                })?;
+                indexer.record_transaction(signature, &deposit_event, true);
             }
             Some(EventKind::Transact) | Some(EventKind::Merge) => {
-                let general_event = general_event_from_indexed(event).map_err(|err| {
+                let general_event = crate::events::general_event(event).map_err(|err| {
                     ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
                 })?;
-                indexer.record_state_change(general_event)?;
-                indexer.record_transaction(signature, general_event, false);
+                indexer.record_state_change(&general_event)?;
+                indexer.record_transaction(signature, &general_event, false);
             }
             Some(EventKind::NullifierTreeUpdate) | None => {}
         }
@@ -336,4 +334,25 @@ pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, Pro
         ));
     }
     Ok(deposit)
+}
+
+/// Rebuild the rich event for an indexed `EMIT_EVENT`.
+///
+/// `transact` and `merge` log only the positions execution assigns, so the rest
+/// comes from the instruction that emitted them. Lives here rather than in
+/// `zolana-event` because the reconstruction parses instruction data, and
+/// `zolana-interface` already depends on `zolana-event`.
+pub fn general_event(event: &IndexedEvent) -> Result<GeneralEvent, String> {
+    let accounts: Vec<[u8; 32]> = event
+        .parent_accounts
+        .iter()
+        .map(|account| account.to_bytes())
+        .collect();
+    general_event_from_site(
+        event.source_instruction_tag,
+        &event.parent_data,
+        &accounts,
+        &event.payload,
+    )
+    .map_err(|err| format!("{err:?}"))
 }

@@ -2,8 +2,7 @@ use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::{
     instruction_data::transact::{
-        ExternalDataHash, InterfaceTransfer, ResolvedInterfaceTransfer, ResolvedOutput,
-        TransactOutput,
+        external_data_hash, InterfaceTransfer, OwnerTag, TransactIxBound, TransactOutput,
     },
     tag,
 };
@@ -83,53 +82,10 @@ impl SettlementTransfer {
             }
         }
     }
-
-    fn resolved(self) -> ResolvedInterfaceTransfer {
-        match self {
-            Self::Sol {
-                is_deposit,
-                amount,
-                user_sol_account,
-            } => {
-                if is_deposit {
-                    ResolvedInterfaceTransfer::SolDeposit {
-                        amount,
-                        recipient: *user_sol_account.as_array(),
-                    }
-                } else {
-                    ResolvedInterfaceTransfer::SolWithdrawal {
-                        amount,
-                        recipient: *user_sol_account.as_array(),
-                    }
-                }
-            }
-            Self::Spl {
-                is_deposit,
-                amount,
-                user_spl_token,
-                spl_token_interface,
-                ..
-            } => {
-                if is_deposit {
-                    ResolvedInterfaceTransfer::SplDeposit {
-                        amount,
-                        user_token_account: *user_spl_token.as_array(),
-                        spl_interface: *spl_token_interface.as_array(),
-                    }
-                } else {
-                    ResolvedInterfaceTransfer::SplWithdrawal {
-                        amount,
-                        user_token_account: *user_spl_token.as_array(),
-                        spl_interface: *spl_token_interface.as_array(),
-                    }
-                }
-            }
-        }
-    }
 }
 
 /// Transaction-level public data the proofs commit to via `external_data_hash`.
-/// The hash is computed by the canonical [`ExternalDataHash`] from the interface
+/// The hash is computed by the canonical `external_data_hash` from the interface
 /// crate, so the client and the Solana program agree byte-for-byte. Each output
 /// carries its commitment, wire `owner_tag`, and optional ciphertext; the
 /// resolved 32-byte owner tags are paired at construction so [`Self::hash`]
@@ -225,9 +181,59 @@ impl ExternalData {
         Ok(self)
     }
 
-    /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
+    /// `external_data_hash` via the canonical interface function.
     /// Builds [`ResolvedOutput`]s from the outputs paired with their resolved
     /// owner tags, so the client and program hash the identical preimage.
+    /// The proof-bound region, exactly as it appears in instruction data.
+    ///
+    /// `ExternalData` is almost the bound region already; the exceptions are
+    /// `data_hash`, `ring_data_hash` and `instruction_discriminator`, which the
+    /// proof binds elsewhere or not at all, and `resolved_owner_tags`, which is
+    /// carried alongside the outputs rather than inside them.
+    pub fn bound(&self) -> TransactIxBound {
+        TransactIxBound {
+            expiry_unix_ts: self.expiry_unix_ts,
+            tx_viewing_pk: self.tx_viewing_pk,
+            salt: self.salt,
+            interface_transfers: self
+                .interface_transfers
+                .iter()
+                .copied()
+                .map(SettlementTransfer::interface_transfer)
+                .collect(),
+            outputs: self.outputs.clone(),
+            messages: self.messages.clone(),
+        }
+    }
+
+    /// Addresses `external_data_hash` appends, in protocol order: each leg's
+    /// settlement accounts, then the resolved owner of every account-tagged
+    /// output.
+    fn bound_addresses(&self) -> Vec<[u8; 32]> {
+        let mut addresses = Vec::new();
+        for transfer in &self.interface_transfers {
+            match transfer {
+                SettlementTransfer::Sol {
+                    user_sol_account, ..
+                } => addresses.push(*user_sol_account.as_array()),
+                SettlementTransfer::Spl {
+                    user_spl_token,
+                    spl_token_interface,
+                    ..
+                } => {
+                    addresses.push(*user_spl_token.as_array());
+                    addresses.push(*spl_token_interface.as_array());
+                }
+            }
+        }
+        for (output, owner_tag) in self.outputs.iter().zip(self.resolved_owner_tags.iter()) {
+            if matches!(output.owner_tag, OwnerTag::Account(_)) {
+                addresses.push(*owner_tag);
+            }
+        }
+        addresses
+    }
+
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_settlement_transfers(&self.interface_transfers)?;
         if self.outputs.len() != self.resolved_owner_tags.len() {
@@ -235,34 +241,15 @@ impl ExternalData {
                 "resolved owner tags do not pair 1:1 with outputs".to_string(),
             ));
         }
-        let resolved: Vec<ResolvedOutput> = self
-            .outputs
-            .iter()
-            .zip(self.resolved_owner_tags.iter())
-            .map(|(output, owner_tag)| ResolvedOutput {
-                utxo_hash: &output.utxo_hash,
-                owner_tag: *owner_tag,
-                data: output.data.as_deref(),
-            })
-            .collect();
-        let interface_transfers: Vec<_> = self
-            .interface_transfers
-            .iter()
-            .copied()
-            .map(SettlementTransfer::resolved)
-            .collect();
-        ExternalDataHash {
-            spp_instruction_discriminator: self.instruction_discriminator,
-            expiry_unix_ts: self.expiry_unix_ts,
-            interface_transfers: &interface_transfers,
-            data_hash: self.data_hash,
-            ring_data_hash: self.ring_data_hash,
-            tx_viewing_pk: &self.tx_viewing_pk,
-            salt: &self.salt,
-            outputs: &resolved,
-            messages: &self.messages,
-        }
-        .hash()
+        // Serialize the bound half and hash exactly those bytes, so the client
+        // commits to the same range the program reads out of the instruction.
+        let bound = wincode::serialize(&self.bound())
+            .map_err(|e| TransactionError::Hash(format!("{e:?}")))?;
+        external_data_hash(
+            self.instruction_discriminator,
+            &bound,
+            self.bound_addresses().iter(),
+        )
         .map_err(|e| TransactionError::Hash(format!("{e:?}")))
     }
 }

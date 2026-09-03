@@ -114,7 +114,7 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             commitment: None,
         },
         SettlePublicInput {
-            private_tx_hash: &transact.private_tx_hash,
+            private_tx_hash: &transact.tail.private_tx_hash,
             execution_price: escrow.execution_price,
             order_in_hash: &escrow.escrow_utxo_hash,
             reservation_in_hash: &escrow.reservation_utxo_hash,

@@ -16,7 +16,7 @@ import type {
   TreeFeeSchedule,
   TreeFees,
 } from "../types.js";
-import { MERGE_INPUT_COUNT } from "../constants.js";
+import { isSupportedMergeInputCount } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
   PROTOCOL_CONFIG_SIZE,
@@ -223,19 +223,29 @@ function writeOutput(writer: Writer, value: TransactOutput): void {
   });
 }
 
-function writeTransactData(writer: Writer, value: TransactInstructionData): void {
-  writer.u64(value.expiryUnixTs, "expiryUnixTs").bytes(value.privateTxHash, 32, "privateTxHash");
-  writeCircuit(writer, value.circuit);
-  writer.bytes(value.txViewingPk, 33, "txViewingPk").bytes(value.salt, 16, "salt");
-  writeProof(writer, value.proof);
-  writer.u8(value.inputs.length, "inputs.length");
-  for (const input of value.inputs) writeInput(writer, input);
-  writer.u8(value.interfaceTransfers.length, "interfaceTransfers.length");
-  for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
+/**
+ * The subset of `TransactInstructionData` the proof binds. Named so the bound
+ * region can be encoded on its own for `external_data_hash`, without the caller
+ * having to hold a whole instruction.
+ */
+export type TransactBoundFields = Pick<
+  TransactInstructionData,
+  "expiryUnixTs" | "txViewingPk" | "salt" | "interfaceTransfers" | "outputs" | "messages"
+>;
+
+/**
+ * The proof-bound region: everything `external_data_hash` covers, written as one
+ * contiguous run so the digest is a hash of these bytes rather than a separately
+ * assembled preimage.
+ */
+function writeTransactBound(writer: Writer, value: TransactBoundFields): void {
   writer
-    .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
-    .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"))
-    .u8(value.outputs.length, "outputs.length");
+    .u64(value.expiryUnixTs, "expiryUnixTs")
+    .bytes(value.txViewingPk, 33, "txViewingPk")
+    .bytes(value.salt, 16, "salt")
+    .u8(value.interfaceTransfers.length, "interfaceTransfers.length");
+  for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
+  writer.u8(value.outputs.length, "outputs.length");
   for (const output of value.outputs) writeOutput(writer, output);
   writer.u8(value.messages.length, "messages.length");
   for (const message of value.messages) {
@@ -244,15 +254,45 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
   }
 }
 
+/** The fields the bound region does not cover. */
+function writeTransactTail(writer: Writer, value: TransactInstructionData): void {
+  writeCircuit(writer, value.circuit);
+  writeProof(writer, value.proof);
+  writer.bytes(value.privateTxHash, 32, "privateTxHash").u8(value.inputs.length, "inputs.length");
+  for (const input of value.inputs) writeInput(writer, input);
+  writer
+    .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
+    .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"));
+}
+
+function writeTransactData(writer: Writer, value: TransactInstructionData): void {
+  writeTransactBound(writer, value);
+  writeTransactTail(writer, value);
+}
+
+/**
+ * The serialized proof-bound region on its own, for `externalDataHash`. Produced
+ * by the same writer the instruction uses, so the hashed bytes and the sent
+ * bytes cannot drift.
+ */
+export function encodeTransactBoundRegion(value: TransactBoundFields): Uint8Array {
+  return encoded(value, writeTransactBound);
+}
+
 export function encodeTransactInstructionData(value: TransactInstructionData): Uint8Array {
   return encoded(value, writeTransactData);
 }
 
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
+  // The three vectors must agree on one length, and that length must be a
+  // count the circuits have a key for. Agreement first is what makes this
+  // fail-closed: the shape is the instruction's own declared input count, not a
+  // constant the encoder assumes.
+  const inputCount = value.nullifiers.length;
   if (
-    value.nullifiers.length !== MERGE_INPUT_COUNT ||
-    value.utxoTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
-    value.nullifierTreeRootIndexes.length !== MERGE_INPUT_COUNT
+    value.utxoTreeRootIndexes.length !== inputCount ||
+    value.nullifierTreeRootIndexes.length !== inputCount ||
+    !isSupportedMergeInputCount(inputCount)
   ) {
     fail("INTERFACE_INVALID_LENGTH", {
       nullifiers: value.nullifiers.length,
@@ -281,7 +321,9 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 492);
+  // 204 fixed bytes plus 36 per input: the shape is the declared nullifier
+  // count, so the expected length follows it rather than one supported shape.
+  return encoded(value, writeMergeData, 204 + 36 * value.nullifiers.length);
 }
 
 export function mergeExternalDataHash(

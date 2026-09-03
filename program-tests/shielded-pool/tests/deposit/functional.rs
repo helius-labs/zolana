@@ -2,7 +2,7 @@ use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event::{general_event_from_indexed, SplTransfer};
+use zolana_event::SplTransfer;
 use zolana_interface::{
     instruction::{AssetDeposit, Deposit, UtxoData},
     pda,
@@ -97,8 +97,9 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
         1,
         "exactly one EmitEvent self-CPI must be recorded"
     );
-    let event = general_event_from_indexed(outcome.events.first().expect("deposit event"))
-        .expect("decoded GeneralEvent");
+    let event =
+        zolana_program_test::events::general_event(outcome.events.first().expect("deposit event"))
+            .expect("decoded GeneralEvent");
     assert_eq!(
         event.spl_transfers,
         vec![SplTransfer {

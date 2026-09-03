@@ -4,8 +4,8 @@ use shielded_pool_program::{process_instruction, ID};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxData,
-        TransactOutput, TransactProof,
+        instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxBound,
+        TransactIxData, TransactIxTail, TransactOutput, TransactProof,
     },
     N_PUBLIC_SLOTS,
 };
@@ -68,26 +68,30 @@ fn emit_event_is_an_explicit_account_free_noop() {
 /// that parses; the selector family must match the dispatched tag (7039).
 fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
-        proof: TransactProof::zeroed(),
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit,
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
-        inputs: vec![InputUtxo {
-            nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
-        }],
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: vec![TransactOutput {
-            utxo_hash: [2u8; 32],
-            owner_tag: OwnerTag::Inline([3u8; 32]),
-            data: None,
-        }],
-        messages: Vec::new(),
+        bound: TransactIxBound {
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers: Vec::new(),
+            outputs: vec![TransactOutput {
+                utxo_hash: [2u8; 32],
+                owner_tag: OwnerTag::Inline([3u8; 32]),
+                data: None,
+            }],
+            messages: Vec::new(),
+        },
+        tail: TransactIxTail {
+            proof: TransactProof::zeroed(),
+            private_tx_hash: [0u8; 32],
+            circuit,
+            inputs: vec![InputUtxo {
+                nullifier_hash: [1u8; 32],
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            }],
+            data_hash: None,
+            ring_data_hash: None,
+        },
     }
     .serialize()
     .expect("transact payload serialization is infallible")

@@ -4,10 +4,13 @@ use super::state_update::{
     StateUpdate,
 };
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
-use zolana_event::{decode_event_payload, tag};
+use zolana_event::tag;
+use zolana_interface::event_reconstruction::general_event_from_site;
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 3;
+// 4: `transact` and `merge` events shrank to their assigned positions and are
+// reconstructed from the parent instruction, so version 3 rows must reparse.
+const RINGS_PARSE_VERSION: i16 = 4;
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
@@ -27,7 +30,21 @@ pub fn parse_rings_events(
         let event_index_i16 = i16::try_from(event_index).map_err(|_| {
             IngesterError::ParserError(format!("Event index {} does not fit in i16", event_index))
         })?;
-        let event = decode_event_payload(&event_site.payload).map_err(|err| {
+        // `transact` and `merge` log only the positions execution assigns; the
+        // rest is rebuilt from the instruction that emitted the event, which
+        // `find_event_sites` already resolved. Deposits still log a whole event.
+        let parent_accounts: Vec<[u8; 32]> = event_site
+            .parent_accounts
+            .iter()
+            .map(|account| account.to_bytes())
+            .collect();
+        let event = general_event_from_site(
+            event_site.source_instruction_tag,
+            &event_site.parent_data,
+            &parent_accounts,
+            &event_site.payload,
+        )
+        .map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode Rings event for {} event {}: {:?}",
                 tx.signature, event_index, err

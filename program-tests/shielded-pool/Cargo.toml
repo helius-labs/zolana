@@ -47,6 +47,12 @@ zolana-transaction = { workspace = true }
 # surfaces.
 solana-account = { workspace = true }
 num-bigint = { workspace = true }
+# `support/merge.rs` builds a real merge proof, gates it against the committed
+# verifying key, and fabricates the registry record the merge reads, so these
+# three are normal dependencies rather than dev-dependencies.
+borsh = { workspace = true }
+groth16-solana = { workspace = true }
+zolana-user-registry-interface = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-merkle-tree = { workspace = true }
 zolana-smart-account-client = { workspace = true }
@@ -56,10 +62,7 @@ mollusk-svm = { workspace = true }
 
 [dev-dependencies]
 wincode = { workspace = true }
-borsh = { workspace = true }
 bytemuck = { workspace = true }
-zolana-user-registry-interface = { workspace = true }
-groth16-solana = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
@@ -187,8 +190,9 @@ required-features = ["proofs"]
 name = "merge_contract"
 path = "tests/merge/contract.rs"
 
-# Proof-backed (spawns the local prover and proves the real 8-in/1-out merge
-# circuit), so it sits in the proofs tier with the other Groth16-backed binaries.
+# Proof-backed (spawns the local prover and proves both real merge circuits,
+# 8-in/1-out and 36-in/1-out), so it sits in the proofs tier with the other
+# Groth16-backed binaries.
 [[test]]
 name = "merge_functional"
 path = "tests/merge/functional.rs"

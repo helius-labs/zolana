@@ -7,7 +7,7 @@ use common::{
 use zolana_transaction::PrivateTransactionDirection;
 use zolana_transaction::{
     instructions::{
-        merge::{merge_dummy_nullifier, merge_output_blinding, MERGE_INPUTS},
+        merge::{merge_dummy_nullifier, merge_output_blinding, MERGE_DEFAULT_INPUTS},
         transact::SENDER_SLOT_COUNT,
     },
     Address, AssetRegistry, Data, KeypairWalletAuthority, OutputContext, OutputSlot,
@@ -99,7 +99,7 @@ fn fresh_sync_resolves_merge_dependencies() {
     };
     let mut nullifiers = vec![first_nullifier];
     nullifiers.extend(
-        (1..MERGE_INPUTS).map(|slot| {
+        (1..MERGE_DEFAULT_INPUTS).map(|slot| {
             merge_dummy_nullifier(nullifier_key, &first_nullifier, slot as u8).unwrap()
         }),
     );
@@ -135,7 +135,7 @@ fn fresh_sync_resolves_merge_dependencies() {
     };
     let mut chained_nullifiers = vec![chained_nullifier];
     chained_nullifiers.extend(
-        (1..MERGE_INPUTS).map(|slot| {
+        (1..MERGE_DEFAULT_INPUTS).map(|slot| {
             merge_dummy_nullifier(nullifier_key, &chained_nullifier, slot as u8).unwrap()
         }),
     );

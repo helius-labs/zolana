@@ -82,7 +82,25 @@ import {
   type SpendProof,
 } from "./rpc.js";
 
-const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
+/**
+ * Compute limit requested for `transact` when the config names none. It covers every supported
+ * shape on every rail. Two effects drive the ceiling, and the binding one is not the obvious one:
+ *
+ * - Input count: each input adds a nullifier queue insertion and a nullifier PDA creation, so a
+ *   36x2 consolidation on the EdDSA rail measures about 452,000 units end to end (validator,
+ *   2026-09).
+ * - Rail: the P256 rail's BSB22 commitment adds a Pedersen proof-of-knowledge pairing, costing
+ *   224,654 units to verify against the EdDSA and ring rails' 93,356 (mollusk, `CU_BENCHMARK.md`).
+ *   A 36x2 P256 ring transact therefore reaches about 585,000 units in the instruction alone.
+ *
+ * The limit sits above that worst case with room for transaction overhead and for the per-run
+ * variance in the nullifier PDAs' canonical bump search, which spans roughly 9,000 units across
+ * runs at 36 inputs.
+ *
+ * Requested units, not consumed ones, set the prioritization fee, so a caller submitting only
+ * small shapes can pass a lower `computeUnitLimit` and pay less.
+ */
+const DEFAULT_TRANSACT_CU_LIMIT = 800_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {
@@ -773,7 +791,13 @@ export class ZolanaClient
   }
 }
 
-/** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
+/**
+ * Mirrors Rust `MERGE_CU_LIMIT`. A merge verifies one Groth16 proof over its declared inputs and
+ * creates one nullifier PDA per input, so no supported shape fits the 200,000 CU default. Measured
+ * on LiteSVM (2026-09): 193,000-212,000 CU at 8 inputs, 406,000-446,000 CU at 36. The maximum is
+ * requested rather than a per-shape figure because an unused limit costs nothing beyond its share
+ * of a prioritization fee, while an underestimate fails the transaction.
+ */
 export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 export async function buildUnsignedTransaction(

@@ -114,7 +114,7 @@ fn transact_view_tags(
     let transact_data = TransactIxData::deserialize(payload)
         .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
     let mut tags = BTreeSet::new();
-    for output in &transact_data.outputs {
+    for output in &transact_data.bound.outputs {
         let tag = fetch_tag(&output.owner_tag, |i| {
             instruction
                 .accounts
@@ -217,7 +217,9 @@ impl SolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                // Large transact shapes need transaction v1, whose 4 KB limit is the
+                // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+                max_supported_transaction_version: Some(1),
             };
             match self.client.get_transaction_with_config(signature, config) {
                 Ok(transaction) => return Ok(transaction),
@@ -267,7 +269,9 @@ impl AsyncSolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                // Large transact shapes need transaction v1, whose 4 KB limit is the
+                // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+                max_supported_transaction_version: Some(1),
             };
             match self
                 .client

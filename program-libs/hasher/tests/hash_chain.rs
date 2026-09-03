@@ -1,7 +1,7 @@
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
-        create_two_inputs_hash_chain,
+        create_two_inputs_hash_chain, HashChain,
     },
     HasherError,
 };
@@ -165,4 +165,39 @@ fn slice_ref_matches_the_slice_variant_and_the_kat() {
 
     assert_eq!(via_ref, create_hash_chain_from_slice(&inputs).unwrap());
     assert_eq!(via_ref, hard_coded_expected_hash);
+}
+
+/// `HashChain` is the incremental form used where elements are produced inside
+/// a loop (`transact/tree.rs`). It must agree with the slice entry point at
+/// every length, including the two cases that a zero-seeded accumulator would
+/// get wrong: the empty chain, and the one-element chain, which folds to the
+/// element itself rather than to `Poseidon(0, element)`.
+#[test]
+fn hash_chain_accumulator_matches_the_slice_variant_at_every_length() {
+    let elements: Vec<[u8; 32]> = (0..8u8)
+        .map(|i| {
+            let mut value = [0u8; 32];
+            value[31] = i + 1;
+            value
+        })
+        .collect();
+
+    for len in 0..=elements.len() {
+        let slice = &elements[..len];
+        let mut chain = HashChain::new();
+        for element in slice {
+            chain.push(element).unwrap();
+        }
+        assert_eq!(
+            chain.finish(),
+            create_hash_chain_from_slice(slice).unwrap(),
+            "length {len}",
+        );
+    }
+
+    assert_eq!(HashChain::new().finish(), [0u8; 32]);
+
+    let mut single = HashChain::new();
+    single.push(&elements[0]).unwrap();
+    assert_eq!(single.finish(), elements[0]);
 }
