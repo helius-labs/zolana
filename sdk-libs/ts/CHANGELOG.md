@@ -50,8 +50,9 @@ Added
   pair is refused with `RING_ENTRIES_ROOTS_REQUIRED` or
   `RING_ENTRIES_ROOTS_INVALID`.
 - `fetchRingPolicyConfig` and `decodeRingPolicyConfig` read a policy ring's
-  `RingPolicyConfig` with its rule table hash, entries tree, and
-  `RingPolicySource` list, `ringPolicyConfigAddress` and
+  `RingPolicyConfig` with its rule table hash, entries tree,
+  `RingPolicySource` list, rule rows and inline assets with their counts, and
+  `generation` with its `generationSlot`, `ringPolicyConfigAddress` and
   `ringPolicyNamespaceAddress` derive its two accounts, and a missing or
   malformed account is `RING_POLICY_CONFIG_NOT_FOUND` or
   `RING_POLICY_CONFIG_INVALID`.

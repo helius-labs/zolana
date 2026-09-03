@@ -1,5 +1,9 @@
 import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
-import { RING_SOURCE_SLOTS } from "../client/prover/types.js";
+import {
+  RING_INLINE_ASSET_SLOTS,
+  RING_RULE_SLOTS,
+  RING_SOURCE_SLOTS,
+} from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
@@ -26,6 +30,13 @@ export interface RingPolicyConfig {
   readonly namespaceBump: number;
   readonly bump: number;
   readonly sources: readonly RingPolicySource[];
+  /** Mirrors Rust `EncodedRuleTable`, `rules` and `inlineAssets` hold only the counted rows. */
+  readonly ruleCount: number;
+  readonly rules: readonly Bytes32[];
+  readonly inlineCount: number;
+  readonly inlineAssets: readonly Bytes32[];
+  readonly generation: number;
+  readonly generationSlot: bigint;
 }
 
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
@@ -49,7 +60,7 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 331;
+const RING_POLICY_CONFIG_SIZE = 1113;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -71,8 +82,41 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
       }),
     ),
   );
+  const rules = countedRows(reader, RING_RULE_SLOTS, "rules");
+  const inlineAssets = countedRows(reader, RING_INLINE_ASSET_SLOTS, "inlineAssets");
+  const generation = reader.u32("generation");
+  const generationSlot = reader.u64("generationSlot");
   reader.done();
-  return Object.freeze({ policyHash, entriesTree, namespaceBump, bump, sources });
+  return Object.freeze({
+    policyHash,
+    entriesTree,
+    namespaceBump,
+    bump,
+    sources,
+    ruleCount: rules.length,
+    rules,
+    inlineCount: inlineAssets.length,
+    inlineAssets,
+    generation,
+    generationSlot,
+  });
+}
+
+/** Mirrors Rust `EncodedRuleTable::decode`. */
+function countedRows(reader: Reader, slots: number, field: string): readonly Bytes32[] {
+  const count = reader.u8(field);
+  if (count > slots) {
+    throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field, count, slots } });
+  }
+  const rows: Bytes32[] = [];
+  for (let index = 0; index < slots; index += 1) {
+    const row = reader.bytes(32, field) as Bytes32;
+    if (index < count) rows.push(row);
+    else if (row.some((byte) => byte !== 0)) {
+      throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field, index } });
+    }
+  }
+  return Object.freeze(rows);
 }
 
 export { CUSTOM_RING_PROOF_LENGTH };
