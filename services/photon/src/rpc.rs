@@ -230,7 +230,8 @@ fn block_params(slot: u64, transaction_details: TransactionDetails) -> Value {
     json!([slot, {
         "commitment": "confirmed",
         "encoding": "base64",
-        "maxSupportedTransactionVersion": 0,
+        // A block holding a newer version is refused whole, not skipped.
+        "maxSupportedTransactionVersion": 1,
         "rewards": false,
         "transactionDetails": transaction_details,
     }])
@@ -339,7 +340,7 @@ mod tests {
             json!([42, {
                 "commitment": "confirmed",
                 "encoding": "base64",
-                "maxSupportedTransactionVersion": 0,
+                "maxSupportedTransactionVersion": 1,
                 "rewards": false,
                 "transactionDetails": "full",
             }])
