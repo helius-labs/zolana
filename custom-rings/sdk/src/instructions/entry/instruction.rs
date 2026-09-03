@@ -1,5 +1,5 @@
 use custom_ring_interface::{
-    tag, CreateEntryIxData, CreatePolicyIxData, SourceSpec, UpdateEntryIxData,
+    tag, CreateEntryIxData, UpdateEntryIxData, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -9,7 +9,10 @@ use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
 
 use crate::{
-    instructions::entry::proof::{EntryProof, EntryProofError, EntryWitness},
+    instructions::{
+        entry::proof::{EntryProof, EntryProofError, EntryWitness},
+        policy_table::{LegacyPacket, PolicyTable},
+    },
     CustomRing,
 };
 
@@ -22,22 +25,23 @@ pub enum EntryError {
     Hashing,
     #[error("entry version overflows")]
     VersionOverflow,
-    #[error("the compiled table does not reference the list")]
+    #[error("the table does not reference the list")]
     UnreferencedList(ListId),
     #[error("no content of the list recovers the commitment")]
     InvalidContent(ListId),
+    #[error("the transaction takes {bytes} bytes, a legacy packet carries {limit}")]
+    TransactionTooLarge { bytes: usize, limit: usize },
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
 
-/// Pins the compiled table and the source map, signed by the upgrade authority.
+/// Pins the table and its source map, signed by the upgrade authority.
 #[must_use]
 pub struct CreatePolicy<'a> {
     pub ring: CustomRing,
     pub payer: Address,
     pub authority: Address,
     pub entries_tree: Address,
-    /// The table the deployed program compiled in.
     pub rules: &'a RuleTable,
     /// Referenced lists reading a curator ring's entries, every other
     /// referenced list defaults to the ring's own entries.
@@ -54,43 +58,11 @@ impl CreatePolicy<'_> {
             rules,
             shared_sources,
         } = self;
-        let referenced: Vec<ListId> = rules
-            .rules()
-            .iter()
-            .flat_map(|rule| rule.referenced_lists())
-            .collect();
-        for (list_id, _) in &shared_sources {
-            if !referenced.contains(list_id) {
-                return Err(EntryError::UnreferencedList(*list_id));
-            }
+        let body = PolicyTable {
+            rules,
+            shared_sources: &shared_sources,
         }
-        let mut curators: Vec<CustomRing> = Vec::new();
-        let mut specs: Vec<SourceSpec> = Vec::new();
-        for list_id in ListId::ALL {
-            if !referenced.contains(&list_id) {
-                continue;
-            }
-            let source = match shared_sources.iter().find(|(shared, _)| *shared == list_id) {
-                None => 0,
-                Some((_, curator)) => {
-                    let index = curators
-                        .iter()
-                        .position(|known| known == curator)
-                        .unwrap_or_else(|| {
-                            curators.push(*curator);
-                            curators.len() - 1
-                        });
-                    1 + index as u8
-                }
-            };
-            specs.push(SourceSpec {
-                list_id: list_id as u8,
-                source,
-            });
-        }
-        let mut instruction_data = vec![tag::CREATE_POLICY];
-        instruction_data
-            .extend_from_slice(&wincode::serialize(&CreatePolicyIxData { sources: specs })?);
+        .body()?;
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(authority, true),
@@ -100,17 +72,17 @@ impl CreatePolicy<'_> {
             AccountMeta::new_readonly(ring.program_id(), false),
             AccountMeta::new_readonly(ring.program_data_pda(), false),
         ];
-        for curator in &curators {
-            accounts.push(AccountMeta::new_readonly(
-                curator.policy_config_pda(),
-                false,
-            ));
+        accounts.extend(body.curator_accounts());
+        LegacyPacket {
+            payer,
+            compute_unit_limit: CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            instruction: Instruction {
+                program_id: ring.program_id(),
+                accounts,
+                data: body.instruction_data(tag::CREATE_POLICY)?,
+            },
         }
-        Ok(Instruction {
-            program_id: ring.program_id(),
-            accounts,
-            data: instruction_data,
-        })
+        .fit()
     }
 }
 

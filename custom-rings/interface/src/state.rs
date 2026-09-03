@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
-use zolana_ring_policy::ListId;
+use zolana_ring_policy::{EncodedRuleTable, ListId, RuleTable, RuleTableError};
 
 use crate::{ReaderKeyBytes, COMPRESSED_P256_KEY_LEN};
 
@@ -74,8 +74,7 @@ pub struct SourceSlot {
     pub namespace: Address,
 }
 
-/// Pinned at `create_policy`, a mutation that recomputes a different
-/// `policy_hash` fails closed.
+/// Every write of `rules` or `sources` repins `policy_hash`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct PolicyConfig {
@@ -85,8 +84,13 @@ pub struct PolicyConfig {
     pub entries_tree: Address,
     pub namespace_bump: u8,
     pub bump: u8,
-    /// Non-empty exactly for the lists the compiled table references.
+    /// Non-empty exactly for the lists `rules` references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
+    pub rules: EncodedRuleTable,
+    /// Little endian, 1 at `create_policy`, one more at every table or source write.
+    pub generation: [u8; 4],
+    /// Little endian, the slot of the write `generation` counts.
+    pub generation_slot: [u8; 8],
 }
 
 impl PolicyConfig {
@@ -99,8 +103,23 @@ impl PolicyConfig {
         let slot = self.sources[list_id.slot()];
         (slot.list_id != 0).then_some(slot.namespace)
     }
+
+    pub const fn generation(&self) -> u32 {
+        u32::from_le_bytes(self.generation)
+    }
+
+    pub const fn generation_slot(&self) -> u64 {
+        u64::from_le_bytes(self.generation_slot)
+    }
+
+    pub fn rule_table(&self) -> Result<RuleTable, RuleTableError> {
+        self.rules.decode()
+    }
 }
 
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 331);
+const _: () = assert!(PolicyConfig::SIZE == 1113);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 331);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1101);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1105);

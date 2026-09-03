@@ -3,11 +3,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use custom_ring_interface::RULES;
 use custom_ring_sdk::{
-    AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
-    DepositError, EntryProofEnvironment, RingDeposit, RingDepositReceipt, SendV0Error,
-    TransferError, TransferProofEnvironment, V0WithLookupTable,
+    policy_config_table, AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput,
+    DepositAsset, DepositError, EntryProofEnvironment, PolicyMatchError, RingDeposit,
+    RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
@@ -18,7 +17,7 @@ use zolana_client::{ClientError, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexe
 use zolana_interface::DEFAULT_TREE_ADDRESS;
 use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
-use zolana_ring_policy::{EntryState, ListId, Member, MemberError, Rule, RuleTable};
+use zolana_ring_policy::{EntryState, ListId, Member, MemberError, RuleTable};
 use zolana_transaction::{
     instructions::transact::ConfidentialTransfer, AssetRegistry, TransactionError, Utxo, SOL_MINT,
 };
@@ -28,6 +27,7 @@ use crate::{
     line,
     list::{EntryMutation, ListError},
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
+    ui::{self, Icon},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
 
@@ -57,7 +57,6 @@ struct RingTransfer<'a> {
     amount: u64,
     tree: Address,
     assets: &'a AssetRegistry,
-    rules: Option<&'a RuleTable>,
 }
 
 struct Deposited<'a> {
@@ -122,6 +121,8 @@ pub enum TransactError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
+    PolicyMatch(Box<PolicyMatchError>),
+    #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
     #[error(transparent)]
     Member(#[from] MemberError),
@@ -173,6 +174,8 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
             hex::encode(receipt.recipient.viewing_pubkey().as_bytes())
         ),
     );
+    line("sender tag", owner_tag(&receipt.sender)?);
+    line("recipient tag", owner_tag(&receipt.recipient)?);
     print_signatures(ctx, &receipt.deposits, receipt.transact)?;
     read_back(
         &session.indexer,
@@ -203,7 +206,6 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         amount: args.amount,
         tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
         assets: &AssetRegistry::default(),
-        rules: policy_rules(ctx.ring, &ctx.rpc)?,
     }
     .send(session.env(ctx))?;
     line("to", args.to);
@@ -272,6 +274,13 @@ impl Session {
     }
 }
 
+/// The `list` member argument of a party.
+fn owner_tag(party: &ShieldedKeypair) -> Result<Address, KeypairError> {
+    Ok(Address::new_from_array(
+        party.signing_pubkey().confidential_view_tag()?,
+    ))
+}
+
 fn print_signatures(
     ctx: &Context,
     deposits: &[Signature],
@@ -302,7 +311,10 @@ fn read_back(
         reader,
         signature,
     })?;
-    println!("auditor sees slot {} at {signature}", opened.slot);
+    ui::heading(
+        Icon::Auditor,
+        &format!("auditor sees slot {} at {signature}", opened.slot),
+    );
     println!("  nullifiers {}", opened.nullifiers.len());
     for output in &opened.outputs {
         println!(
@@ -325,7 +337,8 @@ impl DemoTransfer<'_> {
         env: TransferProofEnvironment<'_, ZolanaIndexer, SolanaRpc>,
     ) -> Result<TransferReceipt, TransactError> {
         let recipient = ShieldedKeypair::new_ed25519()?;
-        let rules = policy_rules(self.ring, env.rpc)?;
+        let enrol = policy_rules(self.ring, env.rpc)?
+            .is_some_and(|rules| rules.referenced().contains(ListId::Allow));
         let assets = AssetRegistry::default();
         // The demo deposits the amount twice and keeps the change, so the
         // sender's balance shows in the auditor's view next to the payment.
@@ -338,10 +351,9 @@ impl DemoTransfer<'_> {
             amount: self.amount,
             tree: Address::from_str_const(DEFAULT_TREE_ADDRESS),
             assets: &assets,
-            rules,
         }
         .deposit(env.indexer, env.rpc)?;
-        if rules.is_some_and(|rules| references(rules, ListId::Allow)) {
+        if enrol {
             deposited.transfer.enrol_in_allow(EntryProofEnvironment {
                 indexer: env.indexer,
                 rpc: env.rpc,
@@ -472,17 +484,14 @@ impl Deposited<'_> {
                 .with_ring_program_id(this.ring.program_id());
         transfer.send(&this.recipient, SOL_MINT, this.amount)?;
         let prepared = transfer.prepare()?;
-        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
+        let proven = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
             sender: &sender,
             prepared,
         })
         .with_tree(this.tree)
-        .with_assets(this.assets);
-        if let Some(rules) = this.rules {
-            transfer = transfer.with_rules(rules);
-        }
-        let proven = transfer.prove(env)?;
+        .with_assets(this.assets)
+        .prove(env)?;
         let transact = V0WithLookupTable {
             payer: &sender,
             signers: &[],
@@ -498,22 +507,12 @@ impl Deposited<'_> {
     }
 }
 
-fn policy_rules(
-    ring: CustomRing,
-    rpc: &SolanaRpc,
-) -> Result<Option<&'static RuleTable>, TransactError> {
-    let has_policy = ring
-        .read_config(rpc)?
-        .is_some_and(|config| config.has_policy);
-    Ok(has_policy.then_some(&RULES))
-}
-
-pub(crate) fn references(rules: &RuleTable, list_id: ListId) -> bool {
-    rules
-        .rules()
-        .iter()
-        .flat_map(Rule::referenced_lists)
-        .any(|referenced| referenced == list_id)
+/// The pinned table, `None` for an audit-only ring.
+fn policy_rules(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<RuleTable>, TransactError> {
+    ring.read_policy_config(rpc)?
+        .map(|config| policy_config_table(&config))
+        .transpose()
+        .map_err(|error| TransactError::PolicyMatch(Box::new(error)))
 }
 
 /// Kept between runs, earlier change stays spendable with it.

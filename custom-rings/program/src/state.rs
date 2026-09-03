@@ -9,6 +9,7 @@ use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
 };
+use zolana_ring_policy::EncodedRuleTable;
 
 use crate::error::CustomRingError;
 
@@ -146,6 +147,8 @@ pub(crate) struct PolicyConfigInitParams {
     pub namespace_bump: u8,
     pub bump: u8,
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
+    pub rules: EncodedRuleTable,
+    pub generation_slot: u64,
 }
 
 impl PolicyConfigInitParams {
@@ -160,6 +163,9 @@ impl PolicyConfigInitParams {
                 namespace_bump: self.namespace_bump,
                 bump: self.bump,
                 sources: self.sources,
+                rules: self.rules,
+                generation: 1u32.to_le_bytes(),
+                generation_slot: self.generation_slot.to_le_bytes(),
             },
         )
     }

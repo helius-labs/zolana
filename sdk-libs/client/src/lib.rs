@@ -61,7 +61,9 @@ pub use rpc::{
 };
 pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
-pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
+pub use solana_rpc::{
+    AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
+};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

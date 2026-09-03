@@ -1,12 +1,12 @@
 use std::path::{Path, PathBuf};
 
-use custom_ring_interface::RULES;
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     AccountReadError, CreateConfig, CreateConfigError, CreatePolicy, CustomRing, CustomRingConfig,
-    InitSppRingConfig, SetAuthority, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    EntryError, InitSppRingConfig, PolicyConfig, SetAuthority, SetSourceOwner, SourceOwner,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::Instruction;
@@ -18,9 +18,13 @@ use zolana_keypair::P256Pubkey;
 use zolana_ring_rpc::{read_auditor_pubkey, write_auditor_pubkey, KeyFileError};
 
 use crate::{
+    catalogue::{CuratorCheck, CuratorError},
     config::expand_tilde,
     deploy::{read_program_data, DeployError},
     line,
+    policy::{
+        list_name, verify_rows, verify_sources, CompiledPolicy, PolicyCommandError, PolicyError,
+    },
     ring_rpc::{AuditorKeyRelease, RingRpcClient, RingRpcClientError, Trust},
     step::{IdempotentStep, Observed, StepError, StepOutcome},
     Context, ContextError, InitArgs,
@@ -67,9 +71,8 @@ pub struct Init<'a> {
     pub upgrade_authority: Option<&'a dyn Signer>,
     pub config_authority: &'a dyn Signer,
     pub auditor_pk: P256Pubkey,
-    pub entries_tree: Address,
-    pub shared_sources: Vec<(zolana_ring_policy::ListId, CustomRing)>,
-    pub has_policy: bool,
+    /// `None` for an audit-only ring.
+    pub policy: Option<&'a CompiledPolicy>,
     pub existing: Option<CustomRingConfig>,
 }
 
@@ -111,22 +114,21 @@ pub enum InitError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error(transparent)]
-    PolicyMismatch(Box<custom_ring_sdk::PolicyMatchError>),
+    Policy(#[from] PolicyError),
+    #[error(
+        "the pinned policy differs from ring.toml, `zolana-ring policy set` replaces the table"
+    )]
+    PolicyDrift(#[source] Box<PolicyCommandError>),
     #[error("the ring is deployed as {}, ring.toml now selects the other tier, redeploy is not a tier change", if *on_chain { "a policy ring" } else { "audit-only" })]
     TierDrift { on_chain: bool },
-    #[error("curator {curator} does not serve {list_id:?}, subscribe to a ring whose table references it")]
-    CuratorDoesNotServe {
-        list_id: zolana_ring_policy::ListId,
-        curator: Address,
-    },
+    #[error(transparent)]
+    Curator(#[from] CuratorError),
     #[error(transparent)]
     Program(Box<DeployError>),
     #[error(transparent)]
     Build(#[from] CreateConfigError),
     #[error(transparent)]
-    RuleTable(#[from] custom_ring_sdk::EntryError),
-    #[error(transparent)]
-    SourceMap(Box<crate::list::ListError>),
+    RuleTable(#[from] EntryError),
     #[error(transparent)]
     Step(#[from] StepError),
     #[error("ring config exists under authority {authority} with auditor {auditor}, ring.toml names another operator")]
@@ -139,6 +141,8 @@ pub enum InitError {
     },
     #[error("program {program} is not deployed, run `deploy` first")]
     NotDeployed { program: Address },
+    #[error("the policy of {program} is not pinned after create_policy")]
+    NotPinned { program: Address },
     #[error("program {program} is immutable and has no config, nothing can create one")]
     Immutable { program: Address },
     #[error("program {program} is upgradeable by {authority}, ring.toml names {expected}")]
@@ -157,6 +161,12 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
     let auditor_pubkey_file = ctx.project_path(
         &expand_tilde(args.auditor_pubkey_file.as_path()).map_err(ContextError::from)?,
     );
+    let policy = ctx
+        .config
+        .policy
+        .as_ref()
+        .map(|spec| spec.compile(ctx.config.target))
+        .transpose()?;
     let config_authority = ctx.funded_authority()?;
     let existing = ctx.ring.read_config(&ctx.rpc)?;
     let held_by_config_authority = existing
@@ -240,10 +250,7 @@ pub fn run(ctx: &mut Context, args: InitArgs) -> Result<(), InitError> {
             .map(|keypair| keypair as &dyn Signer),
         config_authority: &config_authority,
         auditor_pk,
-        entries_tree: args.entries_tree,
-        shared_sources: crate::list::shared_sources(ctx.config.policy.as_ref())
-            .map_err(|error| InitError::SourceMap(Box::new(error)))?,
-        has_policy: ctx.config.policy.is_some(),
+        policy: policy.as_ref(),
         existing,
     }
     .run(&ctx.rpc)?;
@@ -331,6 +338,7 @@ impl ConfigOwnership {
 impl Init<'_> {
     pub fn run(self, rpc: &SolanaRpc) -> Result<InitOutcome, InitError> {
         let config_authority = self.config_authority.pubkey();
+        let has_policy = self.policy.is_some();
         if let Some(config) = self
             .existing
             .as_ref()
@@ -347,7 +355,7 @@ impl Init<'_> {
         if let Some(config) = self
             .existing
             .as_ref()
-            .filter(|config| config.has_policy != self.has_policy)
+            .filter(|config| config.has_policy != has_policy)
         {
             return Err(InitError::TierDrift {
                 on_chain: config.has_policy,
@@ -374,7 +382,7 @@ impl Init<'_> {
                     payer: config_authority,
                     authority: deployer.pubkey(),
                     auditor_pubkey: self.auditor_pk,
-                    has_policy: self.has_policy,
+                    has_policy,
                 }
                 .instruction()?];
                 let transfer = deployer.pubkey() != config_authority;
@@ -410,55 +418,12 @@ impl Init<'_> {
                 (StepOutcome::Present, authority)
             }
         };
-        // A curator serves a list only when its own table references it.
-        for (list_id, curator) in &self.shared_sources {
-            let serves = curator
-                .read_policy_config(rpc)?
-                .is_some_and(|config| config.source_for(*list_id).is_some());
-            if !serves {
-                return Err(InitError::CuratorDoesNotServe {
-                    list_id: *list_id,
-                    curator: curator.program_id(),
-                });
-            }
-        }
         // An audit-only ring pins no policy, only a policy ring runs create_policy
         // and only its upgrade authority may pin the compiled table.
-        let policy = if !self.has_policy {
-            StepOutcome::Absent
-        } else {
-            match Observed::of(&self.ring.read_policy_config(rpc)?) {
-                Observed::Present => StepOutcome::Present,
-                Observed::Absent => {
-                    let deployer = self.deployer()?;
-                    self.step(
-                        rpc,
-                        "create_policy",
-                        &[deployer],
-                        CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-                    )
-                    .ensure_present(
-                        Observed::Absent,
-                        &[CreatePolicy {
-                            ring: self.ring,
-                            payer: config_authority,
-                            authority: deployer.pubkey(),
-                            entries_tree: self.entries_tree,
-                            rules: &RULES,
-                            shared_sources: self.shared_sources.clone(),
-                        }
-                        .instruction()?],
-                    )?
-                }
-            }
+        let policy = match self.policy {
+            None => StepOutcome::Absent,
+            Some(policy) => self.pin_policy(rpc, policy)?,
         };
-        // The deployed rules must reproduce the client's, else every policy
-        // transfer would build its witness from the wrong table.
-        if self.has_policy {
-            self.ring
-                .verify_client_rules(rpc, &RULES)
-                .map_err(|error| InitError::PolicyMismatch(Box::new(error)))?;
-        }
         // The program registers a policy ring only after its policy is pinned.
         let ring = self
             .step(
@@ -473,7 +438,7 @@ impl Init<'_> {
                     ring: self.ring,
                     payer: config_authority,
                     authority: config_authority,
-                    has_policy: self.has_policy,
+                    has_policy,
                 }
                 .instruction()],
             )?;
@@ -483,6 +448,117 @@ impl Init<'_> {
             policy,
             ring,
         })
+    }
+
+    fn pin_policy(
+        &self,
+        rpc: &SolanaRpc,
+        policy: &CompiledPolicy,
+    ) -> Result<StepOutcome, InitError> {
+        for (list_id, curator) in &policy.shared_sources {
+            CuratorCheck {
+                curator: *curator,
+                list: *list_id,
+                entries_tree: policy.entries_tree,
+            }
+            .run(rpc)?;
+        }
+        let outcome = match Observed::of(&self.ring.read_policy_config(rpc)?) {
+            Observed::Present => StepOutcome::Present,
+            Observed::Absent => self.create_policy(rpc, policy)?,
+        };
+        // Sources are pointed only over rows that agree, a drifted table stays untouched.
+        let config = self.pinned(rpc)?;
+        verify_rows(policy, &config).map_err(policy_drift)?;
+        let config = if self.point_sources(rpc, policy, &config)? {
+            self.pinned(rpc)?
+        } else {
+            config
+        };
+        verify_sources(self.ring, policy, &config).map_err(policy_drift)?;
+        Ok(outcome)
+    }
+
+    /// Curators past the transaction size are pointed one by one afterwards.
+    fn create_policy(
+        &self,
+        rpc: &SolanaRpc,
+        policy: &CompiledPolicy,
+    ) -> Result<StepOutcome, InitError> {
+        let deployer = self.deployer()?;
+        let create = |shared_sources| {
+            CreatePolicy {
+                ring: self.ring,
+                payer: self.config_authority.pubkey(),
+                authority: deployer.pubkey(),
+                entries_tree: policy.entries_tree,
+                rules: &policy.rules,
+                shared_sources,
+            }
+            .instruction()
+        };
+        let instruction = match create(policy.shared_sources()) {
+            Err(EntryError::TransactionTooLarge { .. }) if !policy.shared_sources.is_empty() => {
+                create(Vec::new())?
+            }
+            result => result?,
+        };
+        Ok(self
+            .step(
+                rpc,
+                "create_policy",
+                &[deployer],
+                CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            )
+            .ensure_present(Observed::Absent, &[instruction])?)
+    }
+
+    /// `true` when a list was pointed, the config is stale after.
+    fn point_sources(
+        &self,
+        rpc: &SolanaRpc,
+        policy: &CompiledPolicy,
+        config: &PolicyConfig,
+    ) -> Result<bool, InitError> {
+        let mut pointed = false;
+        for (list_id, curator) in &policy.shared_sources {
+            let observed = if config.source_for(*list_id) == Some(curator.namespace_pda()) {
+                Observed::Present
+            } else {
+                Observed::Absent
+            };
+            let outcome = self
+                .step(
+                    rpc,
+                    "set_policy_source",
+                    &[],
+                    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+                )
+                .ensure_present(
+                    observed,
+                    &[SetSourceOwner {
+                        ring: self.ring,
+                        authority: self.config_authority.pubkey(),
+                        list_id: *list_id,
+                        source: SourceOwner::Shared(*curator),
+                    }
+                    .instruction()?],
+                )?;
+            pointed |= matches!(outcome, StepOutcome::Created);
+            line(
+                list_name(*list_id),
+                format_args!("curator {} {}", curator.program_id(), outcome.label()),
+            );
+        }
+        Ok(pointed)
+    }
+
+    fn pinned(&self, rpc: &SolanaRpc) -> Result<PolicyConfig, InitError> {
+        self.ring
+            .read_policy_config(rpc)?
+            .ok_or(InitError::NotPinned {
+                program: self.ring.program_id(),
+            })
     }
 
     fn deployer(&self) -> Result<&dyn Signer, InitError> {
@@ -517,11 +593,17 @@ impl Init<'_> {
     }
 }
 
+fn policy_drift(error: PolicyCommandError) -> InitError {
+    InitError::PolicyDrift(Box::new(error))
+}
+
 fn hint(code: u32) -> Option<&'static str> {
     if code == CustomRingError::UnauthorizedInitializer as u32 {
         Some("the program was deployed with an upgrade authority and only that key may create the config")
     } else if code == CustomRingError::UnauthorizedAuthority as u32 {
         Some("the config is held by another authority, `status` shows it")
+    } else if code == CustomRingError::InvalidPolicyRules as u32 {
+        Some("the program refuses the compiled rows, the program log names the refusal")
     } else if code == ShieldedPoolError::UnauthorizedCaller as u32 {
         Some("ring creation on this cluster is gated by the SPP ring creation authority")
     } else {

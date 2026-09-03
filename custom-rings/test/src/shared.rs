@@ -11,7 +11,6 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use custom_ring_interface::RULES;
 use custom_ring_sdk::{
     CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, V0WithLookupTable,
     TRANSACT_COMPUTE_UNIT_LIMIT,
@@ -35,7 +34,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
 use zolana_program_test::system_create_account_ix;
-use zolana_ring_policy::ListId;
+use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
@@ -176,15 +175,17 @@ pub enum Tier {
     AuditOnly,
     Policy {
         entries_tree: Address,
+        rules: &'static RuleTable,
         shared_sources: Vec<(ListId, CustomRing)>,
     },
 }
 
 impl Tier {
     /// Every referenced list served from the ring's own entries.
-    pub fn policy(entries_tree: Address) -> Self {
+    pub fn policy(rules: &'static RuleTable, entries_tree: Address) -> Self {
         Self::Policy {
             entries_tree,
+            rules,
             shared_sources: Vec::new(),
         }
     }
@@ -260,6 +261,7 @@ impl<'a> ConfiguredRing<'a> {
         let authority = self.payer.pubkey();
         if let Tier::Policy {
             entries_tree,
+            rules,
             shared_sources,
         } = self.tier
         {
@@ -271,7 +273,7 @@ impl<'a> ConfiguredRing<'a> {
                     payer: authority,
                     authority,
                     entries_tree,
-                    rules: &RULES,
+                    rules,
                     shared_sources,
                 }
                 .instruction()?],

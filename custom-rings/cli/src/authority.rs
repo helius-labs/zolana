@@ -20,9 +20,10 @@ use crate::{
     deploy::{read_program_data, DeployError, ProgramBinary, ProgramDataInfo},
     file::FileError,
     line,
-    release::{ReleaseError, RingProgram, RingTier},
+    release::{ReleaseError, RingProgram},
     step::{no_hint, IdempotentStep, Observed, StepError, StepOutcome},
     tool::{ToolError, SOLANA},
+    ui::{self, AskError, Icon},
     AuthorityCommand, Context,
 };
 
@@ -68,6 +69,10 @@ pub enum AuthorityError {
         target: &'static str,
         new_authority: Address,
     },
+    #[error("{program} keeps its upgrade authority, the change was not confirmed")]
+    Declined { program: Address },
+    #[error(transparent)]
+    Ask(#[from] AskError),
     #[error(transparent)]
     Release(#[from] ReleaseError),
     #[error(transparent)]
@@ -90,16 +95,25 @@ pub enum AuthorityError {
     Step(#[from] StepError),
 }
 
-pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
+pub fn run(ctx: &mut Context, command: AuthorityCommand) -> Result<(), AuthorityError> {
     let program = ctx.ring.program_id();
     match command {
         AuthorityCommand::Transfer { new_authority, yes } => {
+            let target = ctx.config.target.as_str();
+            let prompt = format!(
+                "hand {program} on {target} to {new_authority}? only that key can hand it back"
+            );
             if !yes {
-                return Err(AuthorityError::NeedsTransferConfirmation {
-                    program,
-                    target: ctx.config.target.as_str(),
-                    new_authority,
-                });
+                if !ctx.ask.interactive() {
+                    return Err(AuthorityError::NeedsTransferConfirmation {
+                        program,
+                        target,
+                        new_authority,
+                    });
+                }
+                if !ctx.ask.confirm(&prompt, false)? {
+                    return Err(AuthorityError::Declined { program });
+                }
             }
             require_initialized(ctx)?;
             let authority = ctx.config.upgrade_authority()?;
@@ -152,7 +166,13 @@ pub fn run(ctx: &Context, command: AuthorityCommand) -> Result<(), AuthorityErro
         AuthorityCommand::Resume => RingPause { paused: false }.send(ctx)?,
         AuthorityCommand::Renounce { yes, program_so } => {
             if !yes {
-                return Err(AuthorityError::NeedsConfirmation { program });
+                if !ctx.ask.interactive() {
+                    return Err(AuthorityError::NeedsConfirmation { program });
+                }
+                let prompt = format!("make {program} immutable? nothing can upgrade it again");
+                if !ctx.ask.confirm(&prompt, false)? {
+                    return Err(AuthorityError::Declined { program });
+                }
             }
             let authority = ctx.config.upgrade_authority()?;
             require_initialized(ctx)?;
@@ -178,7 +198,7 @@ fn expected_binary(
     if let Some(path) = program_so {
         return Ok(ProgramBinary::read(&ctx.project_path(&path))?);
     }
-    let program = RingProgram::from_lock_tier(RingTier::of(ctx.config.policy.as_ref()))?;
+    let program = RingProgram::from_lock()?;
     let sha256 = hex::decode(&program.asset.sha256)
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
@@ -236,6 +256,15 @@ impl RingPause {
             _ => "already open",
         };
         line("spp ring", label);
+        let program = ctx.ring.program_id();
+        if self.paused {
+            ui::heading(
+                Icon::Pause,
+                &format!("ring {program} refuses every operation"),
+            );
+        } else {
+            ui::heading(Icon::Resume, &format!("ring {program} is open"));
+        }
         Ok(())
     }
 }

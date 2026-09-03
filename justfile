@@ -69,7 +69,6 @@ check:
 check-all:
     cargo check --workspace --all-targets --features zolana-client/proofs
     cargo check -p zolana-transaction --features parallel --all-targets
-    cargo check -p custom-ring-cli --features allowlist,blocklist,freeze
 
 # Default test target.
 test: test-shielded-pool test-sdk-libs test-photon
@@ -102,8 +101,6 @@ test-program-fast: build-programs
     cargo nextest run -p shielded-pool-tests
     cargo nextest run -p swap-program --tests
     cargo nextest run -p custom-ring-program --tests
-    # The featured suite compiles with the rule features the deploy-ring-rules image carries.
-    cargo nextest run -p custom-ring-program --test policy_sources --features allowlist,blocklist,freeze
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
@@ -1265,16 +1262,18 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
-# source re-admits it. The `blocklist` test feature must match the image, the
-# on-chain policy hash pins the compiled table.
-test-custom-ring-shared: (_custom-ring-featured-suite "deploy-ring-blocklist" "shared_sources" "blocklist")
+# source re-admits it.
+test-custom-ring-shared: (_custom-ring-suite "shared_sources")
 
-# Policy rule lifecycle on a local validator over the allowlist, blocklist and
-# freeze rows the deploy-ring-rules image compiles.
-test-custom-ring-rules: (_custom-ring-featured-suite "deploy-ring-rules" "policy_rules" "allowlist,blocklist,freeze")
+# Policy rule lifecycle on a local validator over the rule table pinned from
+# ring.toml.
+test-custom-ring-rules: (_custom-ring-suite "policy_rules")
 
-# A prebuilt run reads the archive build-localnet-archives writes under the `test` subdir.
-_custom-ring-featured-suite image test features: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
+# Policy rule re-pin on a local validator, set_policy_rules rewrites the rule
+# table of a live ring.
+test-custom-ring-repin: (_custom-ring-suite "policy_repin")
+
+_custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
     #!/usr/bin/env bash
     set -euo pipefail
     program_ids=$(cargo run -q -p xtask -- program-ids)
@@ -1292,14 +1291,9 @@ _custom-ring-featured-suite image test features: ensure-custom-ring-live-keys bu
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    export CUSTOM_RING_PROGRAM_SO="$PWD/target/{{image}}/custom_ring_program.so"
-    # The cli's compiled table must hash to the image's pinned policy.
-    cargo build -q -p custom-ring-cli --features {{features}}
-    if [[ -n "${ZOLANA_NEXTEST_ARCHIVE_DIR:-}" ]]; then
-      export ZOLANA_NEXTEST_ARCHIVE_DIR="$ZOLANA_NEXTEST_ARCHIVE_DIR/{{test}}"
-    fi
+    cargo build -q -p custom-ring-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --features {{features}} --no-capture
+      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
@@ -1507,11 +1501,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --test ring --archive-file {{dir}}/custom-ring-test-validator.tar.zst
-    # The featured suites, one archive per rule feature set in a subdir named by the test.
-    mkdir -p {{dir}}/shared_sources {{dir}}/policy_rules
-    cargo nextest archive -p custom-ring-test-validator --features blocklist --test shared_sources --archive-file {{dir}}/shared_sources/custom-ring-test-validator.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --features allowlist,blocklist,freeze --test policy_rules --archive-file {{dir}}/policy_rules/custom-ring-test-validator.tar.zst
+    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
 

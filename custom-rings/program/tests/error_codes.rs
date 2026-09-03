@@ -26,7 +26,6 @@ fn error_codes_are_stable() {
         (PolicyConfigAlreadyInitialized as u32, 8120),
         (PolicyConfigNotInitialized as u32, 8121),
         (InvalidPolicyConfigPda as u32, 8122),
-        (PolicyHashMismatch as u32, 8123),
         (InvalidPolicyMember as u32, 8124),
         (UnauthorizedNamespaceSigner as u32, 8125),
         (InvalidListId as u32, 8126),
@@ -42,6 +41,8 @@ fn error_codes_are_stable() {
         (CuratorSourceMissing as u32, 8137),
         (ForeignSource as u32, 8138),
         (InvalidEntryContent as u32, 8139),
+        (InvalidPolicyRules as u32, 8140),
+        (PolicyGenerationOverflow as u32, 8141),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -75,7 +76,6 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | PolicyConfigAlreadyInitialized
         | PolicyConfigNotInitialized
         | InvalidPolicyConfigPda
-        | PolicyHashMismatch
         | InvalidPolicyMember
         | UnauthorizedNamespaceSigner
         | InvalidListId
@@ -90,6 +90,8 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | CuratorTreeMismatch
         | CuratorSourceMissing
         | ForeignSource
-        | InvalidEntryContent => {}
+        | InvalidEntryContent
+        | InvalidPolicyRules
+        | PolicyGenerationOverflow => {}
     }
 }

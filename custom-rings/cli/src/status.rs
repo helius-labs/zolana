@@ -9,7 +9,9 @@ use crate::{
     config::{redact_text, redact_url, RingConfig, Target},
     deploy::{read_program_data, DeployError},
     line,
+    policy::print_pinned,
     release::RingProgram,
+    ui::{self, Icon},
     Context,
 };
 
@@ -70,12 +72,15 @@ pub fn run(ctx: &Context) {
 
 pub fn announce(config: &RingConfig) {
     println!();
-    println!(
-        "🎉 ring {} is live on {}",
-        config.program_id,
-        config.target.as_str()
+    ui::heading(
+        Icon::Ring,
+        &format!(
+            "ring {} is live on {}",
+            config.program_id,
+            config.target.as_str()
+        ),
     );
-    println!("🔗 {}", explorer_link(config));
+    line("explorer", explorer_link(config));
 }
 
 fn explorer_link(config: &RingConfig) -> String {
@@ -161,10 +166,10 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
         .map_or(config.policy.is_some(), |state| state.has_policy);
     if has_policy {
         match ring.read_policy_config(rpc)? {
-            Some(policy) => line(
-                "policy",
-                format_args!("{} tree {}", ring.policy_config_pda(), policy.entries_tree),
-            ),
+            Some(policy) => {
+                line("policy", ring.policy_config_pda());
+                print_pinned(ring, &policy);
+            }
             None => line(
                 "policy",
                 format_args!("not pinned ({})", ring.policy_config_pda()),

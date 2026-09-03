@@ -1,6 +1,13 @@
-use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG, RULES};
+use bytemuck::Zeroable;
+use custom_ring_interface::{
+    PolicyConfig, PolicyTableIxData, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG,
+};
 use pinocchio::{
-    account::Ref, address::address_eq, error::ProgramError, AccountView, Address, ProgramResult,
+    account::Ref,
+    address::address_eq,
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, Address, ProgramResult,
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use pinocchio::{
@@ -20,8 +27,8 @@ use zolana_interface::{
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    entry_nullifier, entry_seed, mutation_private_tx_hash, ListEntry, ListId, ListNamespace,
-    Member, SourceMap, Writer, NAMESPACE_PDA_SEED,
+    entry_nullifier, entry_seed, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId,
+    ListNamespace, ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -77,34 +84,123 @@ pub(crate) fn load_curator_policy_config<'a>(
     Ok(config)
 }
 
-/// The map `RuleTable::hash` binds, rebuilt from the stored slots.
-pub(crate) fn source_map(
+pub(crate) struct BoundTable {
+    pub rules: EncodedRuleTable,
+    pub sources: [SourceSlot; N_SOURCE_SLOTS],
+}
+
+pub(crate) struct TableBinding<'a> {
+    pub table: &'a PolicyTableIxData,
+    pub curators: &'a [AccountView],
+    pub own_namespace: &'a Address,
+    pub entries_tree: &'a Address,
+}
+
+impl TableBinding<'_> {
+    #[inline(never)]
+    pub fn bind(self) -> Result<BoundTable, ProgramError> {
+        let rules = decode_policy_table(self.table)?;
+        let sources = self.resolve_sources(rules.referenced())?;
+        Ok(BoundTable { rules, sources })
+    }
+
+    /// The map is a bijection with the lists the table references.
+    #[inline(never)]
+    fn resolve_sources(
+        &self,
+        referenced: ListSet,
+    ) -> Result<[SourceSlot; N_SOURCE_SLOTS], ProgramError> {
+        let mut sources = [SourceSlot::zeroed(); N_SOURCE_SLOTS];
+        let mut seen = ListSet::EMPTY;
+        for spec in &self.table.sources {
+            let list_id =
+                ListId::try_from(spec.list_id).map_err(|_| CustomRingError::InvalidSource)?;
+            if !referenced.contains(list_id) || seen.contains(list_id) {
+                return Err(CustomRingError::InvalidSource.into());
+            }
+            seen = seen.union(ListSet::single(list_id));
+            let namespace = match spec.source {
+                0 => *self.own_namespace,
+                n => {
+                    let curator = self
+                        .curators
+                        .get(usize::from(n) - 1)
+                        .ok_or(CustomRingError::InvalidSource)?;
+                    // Copies the curator's resolved owner, a curator of a curator
+                    // never chains.
+                    load_curator_policy_config(curator, self.entries_tree)?
+                        .source_for(list_id)
+                        .ok_or(CustomRingError::CuratorSourceMissing)?
+                }
+            };
+            sources[list_id.slot()] = SourceSlot {
+                list_id: list_id as u8,
+                namespace,
+            };
+        }
+        if seen != referenced {
+            return Err(CustomRingError::InvalidSource.into());
+        }
+        Ok(sources)
+    }
+}
+
+pub(crate) enum Repin<'a> {
+    Table(&'a BoundTable),
+    Sources(&'a [SourceSlot; N_SOURCE_SLOTS]),
+}
+
+#[inline(never)]
+pub(crate) fn repin(live: &mut PolicyConfig, repin: Repin<'_>) -> ProgramResult {
+    let generation = live
+        .generation()
+        .checked_add(1)
+        .ok_or(CustomRingError::PolicyGenerationOverflow)?;
+    let sources = match repin {
+        Repin::Table(bound) => {
+            live.rules = bound.rules;
+            &bound.sources
+        }
+        Repin::Sources(sources) => sources,
+    };
+    live.policy_hash = compute_policy_hash(&live.rules, sources)?;
+    live.sources = *sources;
+    live.generation = generation.to_le_bytes();
+    live.generation_slot = Clock::get()?.slot.to_le_bytes();
+    Ok(())
+}
+
+#[inline(never)]
+fn decode_policy_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, CustomRingError> {
+    EncodedRuleTable::from_parts(&table.rules, &table.inline_assets)
+        .and_then(|encoded| encoded.decode().map(|_| encoded))
+        .map_err(|error| {
+            solana_msg::sol_log(error.message());
+            CustomRingError::InvalidPolicyRules
+        })
+}
+
+#[inline(never)]
+pub(crate) fn compute_policy_hash(
+    rules: &EncodedRuleTable,
     sources: &[SourceSlot; N_SOURCE_SLOTS],
-) -> Result<SourceMap, CustomRingError> {
+) -> Result<[u8; 32], CustomRingError> {
+    rules
+        .hash(&source_map(sources)?)
+        .map_err(|error| match error {
+            PolicyHashError::Table(_) => CustomRingError::InvalidPolicyRules,
+            PolicyHashError::MissingSource(_) => CustomRingError::InvalidSource,
+            PolicyHashError::Hashing => CustomRingError::HashingFailed,
+        })
+}
+
+/// The map `EncodedRuleTable::hash` binds, rebuilt from the stored slots.
+fn source_map(sources: &[SourceSlot; N_SOURCE_SLOTS]) -> Result<SourceMap, CustomRingError> {
     let slots = core::array::from_fn(|i| (sources[i].list_id, *sources[i].namespace.as_array()));
     SourceMap::from_namespaces(&slots, |namespace| {
         ListNamespace::new(namespace).map(|owner| owner.owner_hash)
     })
     .map_err(|_| CustomRingError::InvalidPolicyConfigPda)
-}
-
-pub(crate) fn compute_policy_hash(
-    sources: &[SourceSlot; N_SOURCE_SLOTS],
-) -> Result<[u8; 32], CustomRingError> {
-    RULES
-        .hash(&source_map(sources)?)
-        .map_err(|_| CustomRingError::HashingFailed)
-}
-
-/// A rebuilt table hashing differently must not spend under the pinned rules.
-pub(crate) fn verify_policy_hash(
-    sources: &[SourceSlot; N_SOURCE_SLOTS],
-    expected: &[u8; 32],
-) -> ProgramResult {
-    if compute_policy_hash(sources)? != *expected {
-        return Err(CustomRingError::PolicyHashMismatch.into());
-    }
-    Ok(())
 }
 
 pub(crate) struct MutationAccounts<'a> {
@@ -170,7 +266,6 @@ impl<'a> MutationAccounts<'a> {
 
         let owner = ListNamespace::new(entries.address().as_array())
             .map_err(|_| CustomRingError::HashingFailed)?;
-        verify_policy_hash(&policy_config.sources, &policy_config.policy_hash)?;
 
         Ok(Self {
             payer,

@@ -1,0 +1,36 @@
+# A ring for one asset with a large-transfer check. Only the listed mint may
+# move. An owner receiving more than the threshold in one transfer, in base
+# units of that mint, must be on the allow list, smaller totals pass without
+# a check.
+
+name = "asset-allowlist-owner-threshold"
+target = "localnet"
+# Replace with the id of keys/program-keypair.json, `zolana-ring new` writes one.
+program_id = "71xpmf2e94nEd9T1S32trTQnhY39xfSUeNW7GH4quTw6"
+authority_keypair = "~/.config/solana/id.json"
+
+[localnet]
+rpc = "http://127.0.0.1:8899"
+indexer = "http://127.0.0.1:8784"
+prover = "http://127.0.0.1:3001"
+ring_rpc = "http://127.0.0.1:8785"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
+indexer = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com"
+prover = "https://d30sgubc9yxiri.cloudfront.net"
+ring_rpc = "https://d1ojzfopdqqs5r.cloudfront.net"
+ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
+
+[policy]
+
+# each asset must be one of the listed assets
+[[policy.rules]]
+subject = "asset"
+assets = ["81BQMnpjfFMVchsbqvR1j7Ett9rwsqi8aFh114GgzLDK"]
+
+# each output owner must be on the allow list when the amount is above 1000000
+[[policy.rules]]
+subject = "output-owner"
+require = "allow"
+above = 1000000

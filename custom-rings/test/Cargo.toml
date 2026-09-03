@@ -5,16 +5,11 @@ edition.workspace = true
 publish = false
 autotests = false
 
-[features]
-# Must match the image the validator loads, the compiled table is hashed on chain.
-allowlist = ["custom-ring-interface/allowlist"]
-blocklist = ["custom-ring-interface/blocklist"]
-freeze = ["custom-ring-interface/freeze"]
-
 [dependencies]
 anyhow = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }
+custom-ring-cli = { path = "../cli" }
 custom-ring-interface = { workspace = true }
 # The auditor side under test: `audit_ring_transactions` is the call whose
 # returned plaintexts the lifecycle asserts against what the sender sent.
@@ -55,9 +50,11 @@ path = "tests/ring.rs"
 [[test]]
 name = "shared_sources"
 path = "tests/shared_sources.rs"
-required-features = ["blocklist"]
 
 [[test]]
 name = "policy_rules"
 path = "tests/policy_rules.rs"
-required-features = ["allowlist", "blocklist", "freeze"]
+
+[[test]]
+name = "policy_repin"
+path = "tests/policy_repin.rs"

@@ -58,13 +58,71 @@ impl ListId {
         self as usize - 1
     }
 
-    pub(crate) const fn mask_bit(self) -> u8 {
+    const fn mask_bit(self) -> u8 {
         1 << self.slot()
     }
 }
 
+/// A set of lists, bit `i` is list `i + 1`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ListSet(u8);
+
+impl ListSet {
+    pub const EMPTY: Self = Self(0);
+
+    pub const fn of(lists: &[ListId]) -> Self {
+        let mut set = Self::EMPTY;
+        let mut i = 0;
+        while i < lists.len() {
+            set = set.union(Self::single(lists[i]));
+            i += 1;
+        }
+        set
+    }
+
+    pub const fn single(list_id: ListId) -> Self {
+        Self(list_id.mask_bit())
+    }
+
+    pub const fn from_bits(bits: u8) -> Self {
+        Self(bits)
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn contains(self, list_id: ListId) -> bool {
+        self.0 & list_id.mask_bit() != 0
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn len(self) -> usize {
+        self.0.count_ones() as usize
+    }
+
+    /// In `ALL` order.
+    pub fn iter(self) -> impl Iterator<Item = ListId> {
+        ListId::ALL
+            .into_iter()
+            .filter(move |list_id| self.contains(*list_id))
+    }
+}
+
+/// Every bit of a `ListSet` names a list.
 const _: () = {
-    assert!(MAX_SOURCES <= u8::BITS as usize);
+    assert!(MAX_SOURCES == u8::BITS as usize);
     let mut i = 0;
     while i < MAX_SOURCES {
         assert!(ListId::ALL[i].slot() == i);
@@ -276,6 +334,27 @@ mod tests {
         }
         assert_eq!(ListId::try_from(0), Err(()));
         assert_eq!(ListId::try_from(MAX_SOURCES as u8 + 1), Err(()));
+    }
+
+    #[test]
+    fn a_list_set_iterates_in_slot_order_and_ignores_repeats() {
+        let set = ListSet::of(&[ListId::Frozen, ListId::Allow, ListId::Frozen]);
+        assert_eq!(
+            set.iter().collect::<Vec<_>>(),
+            [ListId::Allow, ListId::Frozen]
+        );
+        assert_eq!(set.len(), 2);
+        assert_eq!(set.bits(), 0b0000_0101);
+        assert!(set.contains(ListId::Frozen));
+        assert!(!set.contains(ListId::Block));
+        assert!(set.intersects(ListSet::single(ListId::Allow)));
+        assert!(!set.intersects(ListSet::of(&[ListId::Block, ListId::Escrow])));
+        assert_eq!(
+            set.union(ListSet::single(ListId::Escrow)).bits(),
+            0b1000_0101
+        );
+        assert!(ListSet::EMPTY.is_empty());
+        assert_eq!(ListSet::from_bits(u8::MAX).len(), MAX_SOURCES);
     }
 
     #[test]

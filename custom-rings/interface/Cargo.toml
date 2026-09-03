@@ -9,10 +9,6 @@ publish = false
 [features]
 default = ["verifying-keys"]
 verifying-keys = ["dep:groth16-solana"]
-# Rule features only add rows to the compiled policy table.
-allowlist = []
-blocklist = []
-freeze = []
 
 [dependencies]
 # Required for Pod on the compressed auditor key.

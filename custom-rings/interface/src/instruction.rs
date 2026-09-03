@@ -20,6 +20,7 @@ pub mod tag {
     pub const UPDATE_ENTRY: u8 = 9;
     pub const SET_POLICY_SOURCE: u8 = 10;
     pub const SET_PAUSED: u8 = 11;
+    pub const SET_POLICY_RULES: u8 = 12;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -63,8 +64,7 @@ pub struct CustomRingProof {
 /// ring forwards verbatim.
 ///
 /// The root indices name the tree history entries a policy statement binds. A
-/// ring without rules carries them unread, so one encoding serves both builds
-/// and a feature set cannot change what the program parses.
+/// ring without rules carries them unread, one encoding serves both tiers.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
     pub proof: CustomRingProof,
@@ -75,6 +75,7 @@ pub struct CustomRingTransactIxData {
 
 /// Covers one v2 hash pin plus up to eight curator config loads.
 pub const CREATE_POLICY_COMPUTE_UNIT_LIMIT: u32 = 150_000;
+pub const SET_POLICY_RULES_COMPUTE_UNIT_LIMIT: u32 = 150_000;
 /// Entry mutations CPI a full SPP transact with its proof verification.
 pub const ENTRY_MUTATION_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
@@ -86,14 +87,18 @@ pub struct SourceSpec {
     pub source: u8,
 }
 
-/// One entry per list the compiled table references.
+/// One source per list the rules reference.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct CreatePolicyIxData {
+pub struct PolicyTableIxData {
     #[wincode(with = "containers::Vec<SourceSpec, FixIntLen<u8>>")]
     pub sources: Vec<SourceSpec>,
+    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
+    pub rules: Vec<[u8; 32]>,
+    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
+    pub inline_assets: Vec<[u8; 32]>,
 }
 
-/// Two full hash recomputations plus one curator verification.
+/// One hash over the stored rows plus one curator verification.
 pub const SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT: u32 = 150_000;
 
 /// `source` 0 is the ring's own entries, 1 the single trailing curator policy

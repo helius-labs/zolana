@@ -54,3 +54,20 @@ fn set_paused_tag_reaches_the_processor() {
         ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
 }
+
+/// The custom error proves the tag reached the processor, an unknown tag fails without one.
+#[test]
+fn set_policy_rules_tag_reaches_the_processor() {
+    let (mollusk, program_id) = setup_mollusk();
+    let instruction = Instruction {
+        program_id,
+        accounts: Vec::new(),
+        data: vec![tag::SET_POLICY_RULES],
+    };
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &[],
+        ProgramError::Custom(custom_ring_program::CustomRingError::InvalidInstructionData as u32),
+    );
+}

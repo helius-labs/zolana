@@ -1,6 +1,7 @@
-//! The rules image on localnet + photon + prover. The Allow rows admit only
-//! enrolled parties, a Frozen sender and a Block output owner are refused,
-//! and the operator cli's pipeline enrols its demo parties before its transfer.
+//! The four released rows on localnet + photon + prover. The Allow rows admit
+//! only enrolled parties, a Frozen sender and a Block output owner are refused,
+//! and the operator cli pins the same rows from `ring.toml`, enrols its demo
+//! parties and transacts under them.
 
 use std::{
     net::{Ipv4Addr, TcpListener},
@@ -9,43 +10,55 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
-use custom_ring_interface::RULES;
-use custom_ring_sdk::{CustomRing, ReadEntry};
+use custom_ring_sdk::{policy_config_table, CustomRing, ReadEntry};
 use custom_ring_test_validator::{
-    cli::{RingProject, RingToml},
+    cli::{merged, ListMember, ListWrite, RingProject, RingToml},
     policy::{
-        owner_member, EntryTarget, EntryWrite, PolicyTransfer, RingNotes, DEPOSIT, TRANSFER_AMOUNT,
+        owner_member, policy_config, EntryTarget, EntryWrite, PolicyTransfer, RingNotes, DEPOSIT,
+        RELEASED, TOKEN_BLOCK, TRANSFER_AMOUNT,
     },
-    shared::{
-        custom_ring_program_id, ring_program_so, setup, RegisterRing, TestEnv, Tier, ACTOR_AIRDROP,
-    },
+    shared::{custom_ring_program_id, setup, RegisterRing, TestEnv, Tier, ACTOR_AIRDROP},
 };
 use solana_address::Address;
 use solana_signer::Signer;
 use zolana_client::ProverClient;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
-use zolana_ring_client::{RingAudit, RingEnvironment};
-use zolana_ring_policy::{EntryState, ListId, Member, Rule};
+use zolana_ring_client::{AuditedTransaction, RingAudit, RingEnvironment};
+use zolana_ring_policy::{EntryState, ListId, Member};
 use zolana_ring_rpc::{
     run_server, BindPolicy, ChainSource, Hub, ServerOptions, TransactionSource, Upstreams,
 };
-use zolana_transaction::Utxo;
+use zolana_transaction::{Utxo, SOL_MINT};
+
+/// `RELEASED` as `ring.toml` spells it.
+const RELEASED_TOML: &str = r#"[policy]
+
+[[policy.rules]]
+subject = "output-owner"
+require = "allow"
+
+[[policy.rules]]
+subject = "sender"
+require = "allow"
+
+[[policy.rules]]
+subject = "output-owner"
+forbid = "block"
+
+[[policy.rules]]
+subject = "sender"
+forbid = "frozen"
+"#;
+
+const TOKEN_BLOCK_TOML: &str = r#"[policy]
+
+[[policy.rules]]
+subject = "asset"
+forbid = "block"
+"#;
 
 #[test]
 fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
-    // The host table must be the four rows the rules image compiles, a
-    // narrower table cannot reproduce the on-chain policy hash.
-    let referenced: Vec<ListId> = RULES
-        .rules()
-        .iter()
-        .flat_map(Rule::referenced_lists)
-        .collect();
-    assert_eq!(
-        referenced,
-        [ListId::Allow, ListId::Allow, ListId::Block, ListId::Frozen],
-        "the compiled table is the rules image"
-    );
-
     let env = setup()?;
     let rpc = env.client.rpc();
     let ring = CustomRing::new(custom_ring_program_id()?);
@@ -54,9 +67,17 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: ViewingKey::new().pubkey(),
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&RELEASED, env.tree),
     }
     .send(rpc)?;
+    let pinned = policy_config(ring, rpc)?;
+    assert_eq!(
+        policy_config_table(&pinned)?,
+        RELEASED,
+        "the stored rows reproduce the pinned hash"
+    );
+    assert_eq!(pinned.generation(), 1);
+    assert!(pinned.generation_slot() > 0);
     let sender = &env.sender.keypair;
     let recipient = &env.recipient.keypair;
     let sender_member = owner_member(sender)?;
@@ -126,78 +147,56 @@ fn allow_frozen_and_block_rows_govern_every_transfer() -> Result<()> {
     Ok(())
 }
 
-/// `pipeline` over a `[policy]` ring against the rules image, the ring rpc it
-/// reads back from runs in process.
+/// The ring rpc `transact` reads back from runs in process.
 #[test]
-fn the_pipeline_enrols_the_demo_parties_and_transacts() -> Result<()> {
+fn the_cli_pins_the_released_rows_and_governs_its_demo_transfers() -> Result<()> {
     let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
-    let ring_program = custom_ring_program_id()?;
-    let ring = CustomRing::new(ring_program);
-    // The pipeline pins the cli's default tree and deposits into it.
-    let default_tree = env.register_default_tree()?;
-    let auditor = ViewingKey::new();
-    let ring_rpc = RingRpcSpec {
-        env: &env,
-        ring: ring_program,
-        auditor: auditor.clone(),
-    }
-    .serve()?;
-    let project = RingProject::create(&env, &auditor.pubkey())?;
-    project.write_config(RingToml {
-        env: &env,
-        ring_rpc: &ring_rpc.url,
-        policy: true,
-    })?;
+    let demo = DemoRing::init(&env, RELEASED_TOML)?;
+    let ring = demo.ring;
 
-    let output = project.run(&["pipeline", "--program-so", &ring_program_so()])?;
+    // 1. `init` pins the rows verbatim at generation 1 and registers the ring.
+    let config = ring
+        .read_config(rpc)?
+        .ok_or_else(|| anyhow!("config after init"))?;
+    assert_eq!(
+        config.authority,
+        demo.project.config_authority.pubkey(),
+        "the config authority holds the config"
+    );
+    assert!(config.has_policy, "policy tier");
+    let policy = policy_config(ring, rpc)?;
+    assert_eq!(
+        policy.entries_tree, demo.tree,
+        "the policy pins the cli's default tree"
+    );
+    assert_eq!(policy_config_table(&policy)?, RELEASED);
+    assert_eq!(policy.generation(), 1);
+    assert!(policy.generation_slot() > 0);
+
+    // 2. The demo, a granted reader, enrols both parties in Allow, the
+    //    auditor opens its transfer.
+    demo.grant_reader()?;
+    let output = demo.project.run(&["transact"])?;
     for line in [
-        "policy      created",
-        "spp ring    registered",
         "allow       sender claimed",
         "allow       recipient claimed",
     ] {
         assert!(output.contains(line), "{line} in\n{output}");
     }
-    let config = ring
-        .read_config(rpc)?
-        .ok_or_else(|| anyhow!("config after the pipeline"))?;
-    assert_eq!(
-        config.authority,
-        project.config_authority.pubkey(),
-        "the config authority holds the config"
-    );
-    assert!(config.has_policy, "policy tier");
-    let policy = ring
-        .read_policy_config(rpc)?
-        .ok_or_else(|| anyhow!("policy after the pipeline"))?;
-    assert_eq!(
-        policy.entries_tree, default_tree,
-        "the policy pins the cli's default tree"
-    );
-
-    // The auditor opens the demo transfer, both output owners sit on Allow.
-    let audited = RingAudit::new(ring_program, &auditor)
-        .run(
-            RingEnvironment {
-                indexer,
-                origin: rpc,
-            },
-            &env.assets,
-        )?
-        .transactions;
-    let [transfer] = audited.as_slice() else {
+    let transactions = demo.audited()?;
+    let [transfer] = transactions.as_slice() else {
         return Err(anyhow!(
             "expected one audited transfer, got {}",
-            audited.len()
+            transactions.len()
         ));
     };
     assert_eq!(transfer.outputs.len(), 2, "change and recipient");
     for output in &transfer.outputs {
-        assert_eq!(output.ring_program_id, Some(ring_program));
+        assert_eq!(output.ring_program_id, Some(ring.program_id()));
         let live = ReadEntry {
-            entries_tree: default_tree,
+            entries_tree: demo.tree,
             namespace: ring.namespace_pda(),
             list_id: ListId::Allow,
             member: Member::owner_tag(&output.owner_tag)?,
@@ -211,7 +210,73 @@ fn the_pipeline_enrols_the_demo_parties_and_transacts() -> Result<()> {
             output.slot_index
         );
     }
-    project.remove()?;
+
+    // 3. A Frozen demo sender is refused until `list clear` releases it.
+    let sender = demo.project.demo_sender()?;
+    let frozen = |state| ListWrite {
+        env: &env,
+        entries_tree: demo.tree,
+        list_id: ListId::Frozen,
+        member: ListMember::Owner(&sender),
+        state,
+    };
+    demo.project.write_list(frozen(EntryState::Active))?;
+    demo.refused_transact()?;
+    demo.project.write_list(frozen(EntryState::Cleared))?;
+    demo.project.run(&["transact"])?;
+    assert_eq!(
+        demo.audited()?.len(),
+        2,
+        "the released sender transacts again"
+    );
+    demo.project.remove()?;
+    Ok(())
+}
+
+/// Every demo output carries SOL.
+#[test]
+fn a_blocked_token_refuses_every_transfer() -> Result<()> {
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let demo = DemoRing::init(&env, TOKEN_BLOCK_TOML)?;
+
+    // 1. `init` pins the asset row at generation 1.
+    let policy = policy_config(demo.ring, rpc)?;
+    assert_eq!(
+        policy.entries_tree, demo.tree,
+        "the policy pins the cli's default tree"
+    );
+    assert_eq!(policy_config_table(&policy)?, TOKEN_BLOCK);
+    assert_eq!(policy.generation(), 1);
+    assert!(policy.generation_slot() > 0);
+
+    // 2. An empty Block list admits the demo transfer.
+    demo.grant_reader()?;
+    demo.project.run(&["transact"])?;
+    assert_eq!(
+        demo.audited()?.len(),
+        1,
+        "an empty Block list admits the demo"
+    );
+
+    // 3. SOL on Block refuses the demo until `list clear` releases it.
+    let block = |state| ListWrite {
+        env: &env,
+        entries_tree: demo.tree,
+        list_id: ListId::Block,
+        member: ListMember::Asset(SOL_MINT),
+        state,
+    };
+    demo.project.write_list(block(EntryState::Active))?;
+    demo.refused_transact()?;
+    demo.project.write_list(block(EntryState::Cleared))?;
+    demo.project.run(&["transact"])?;
+    assert_eq!(
+        demo.audited()?.len(),
+        2,
+        "the released token transacts again"
+    );
+    demo.project.remove()?;
     Ok(())
 }
 
@@ -231,6 +296,84 @@ impl<'a> Egress<'a> {
             amount: TRANSFER_AMOUNT,
             env: self.env,
         }
+    }
+}
+
+struct DemoRing<'a> {
+    env: &'a TestEnv,
+    ring: CustomRing,
+    tree: Address,
+    auditor: ViewingKey,
+    project: RingProject,
+    _ring_rpc: LocalRingRpc,
+}
+
+impl<'a> DemoRing<'a> {
+    fn init(env: &'a TestEnv, policy: &str) -> Result<Self> {
+        let ring = CustomRing::new(custom_ring_program_id()?);
+        // Without `entries_tree` the block pins the cli's default tree, the demo
+        // deposits there too.
+        let tree = env.register_default_tree()?;
+        let auditor = ViewingKey::new();
+        let ring_rpc = RingRpcSpec {
+            env,
+            ring: ring.program_id(),
+            auditor: auditor.clone(),
+        }
+        .serve()?;
+        let project = RingProject::create(env, &auditor.pubkey())?;
+        project.write_config(RingToml {
+            env,
+            ring_rpc: &ring_rpc.url,
+            policy: Some(policy),
+        })?;
+        let init = project.run(&["init"])?;
+        for line in ["policy      created", "spp ring    registered"] {
+            assert!(init.contains(line), "{line} in\n{init}");
+        }
+        Ok(Self {
+            env,
+            ring,
+            tree,
+            auditor,
+            project,
+            _ring_rpc: ring_rpc,
+        })
+    }
+
+    fn grant_reader(&self) -> Result<()> {
+        self.project.run(&[
+            "reader",
+            "grant",
+            &self.project.config_authority.pubkey().to_string(),
+        ])?;
+        Ok(())
+    }
+
+    fn audited(&self) -> Result<Vec<AuditedTransaction>> {
+        Ok(RingAudit::new(self.ring.program_id(), &self.auditor)
+            .run(
+                RingEnvironment {
+                    indexer: self.env.client.indexer(),
+                    origin: self.env.client.rpc(),
+                },
+                &self.env.assets,
+            )?
+            .transactions)
+    }
+
+    fn refused_transact(&self) -> Result<()> {
+        let refused = self.project.output(&["transact"])?;
+        assert!(
+            !refused.status.success(),
+            "transact landed under a refusing rule"
+        );
+        let text = merged(&refused);
+        assert!(
+            text.contains("a policy rule refuses the transfer"),
+            "{text}"
+        );
+        Ok(())
     }
 }
 

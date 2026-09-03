@@ -2,35 +2,30 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::UpgradeAuthorityCheck,
-        policy_shared::{compute_policy_hash, load_curator_policy_config, namespace_pda},
+        policy_shared::{compute_policy_hash, namespace_pda, BoundTable, TableBinding},
         shared::PdaCheck,
     },
     state::PolicyConfigInitParams,
 };
-use bytemuck::Zeroable;
-use custom_ring_interface::{
-    CreatePolicyIxData, PolicyConfig, SourceSlot, SourceSpec, N_SOURCE_SLOTS, RULES,
-};
+use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{
     cpi::{Seed, Signer},
-    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_ring_policy::ListId;
 
-/// The table is part of the deployed program, only its upgrade authority can
-/// pin the hash.
+/// Only the program upgrade authority pins a table.
 #[inline(never)]
 pub fn process_create_policy_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    let ix: CreatePolicyIxData =
+    let ix: PolicyTableIxData =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
     let mut iter = AccountIterator::new(accounts);
@@ -67,13 +62,15 @@ pub fn process_create_policy_ix(
     }
 
     let (own_namespace, namespace_bump) = namespace_pda(program_id)?;
-    let sources = resolve_sources(
-        &ix.sources,
+    let BoundTable { rules, sources } = TableBinding {
+        table: &ix,
         curators,
-        &own_namespace,
-        entries_tree.address(),
-    )?;
-    let policy_hash = compute_policy_hash(&sources)?;
+        own_namespace: &own_namespace,
+        entries_tree: entries_tree.address(),
+    }
+    .bind()?;
+    let policy_hash = compute_policy_hash(&rules, &sources)?;
+    let generation_slot = Clock::get()?.slot;
 
     let bump_seed = [bump];
     let seeds = [
@@ -95,54 +92,10 @@ pub fn process_create_policy_ix(
         namespace_bump,
         bump,
         sources,
+        rules,
+        generation_slot,
     }
     .init(policy_config)
-}
-
-/// The stored map is a bijection with the lists the compiled table references.
-pub(crate) fn resolve_sources(
-    specs: &[SourceSpec],
-    curators: &[AccountView],
-    own_namespace: &Address,
-    entries_tree: &Address,
-) -> Result<[SourceSlot; N_SOURCE_SLOTS], ProgramError> {
-    let mut referenced = [false; N_SOURCE_SLOTS];
-    for rule in RULES.rules() {
-        for list_id in rule.referenced_lists() {
-            referenced[list_id.slot()] = true;
-        }
-    }
-    let mut sources = [SourceSlot::zeroed(); N_SOURCE_SLOTS];
-    let mut seen = [false; N_SOURCE_SLOTS];
-    for spec in specs {
-        let list_id = ListId::try_from(spec.list_id).map_err(|_| CustomRingError::InvalidSource)?;
-        let index = list_id.slot();
-        if !referenced[index] || seen[index] {
-            return Err(CustomRingError::InvalidSource.into());
-        }
-        seen[index] = true;
-        let entries = match spec.source {
-            0 => *own_namespace,
-            n => {
-                let curator = curators
-                    .get(usize::from(n) - 1)
-                    .ok_or(CustomRingError::InvalidSource)?;
-                // Copies the curator's resolved owner, a curator of a curator
-                // never chains.
-                load_curator_policy_config(curator, entries_tree)?
-                    .source_for(list_id)
-                    .ok_or(CustomRingError::CuratorSourceMissing)?
-            }
-        };
-        sources[index] = SourceSlot {
-            list_id: list_id as u8,
-            namespace: entries,
-        };
-    }
-    if seen != referenced {
-        return Err(CustomRingError::InvalidSource.into());
-    }
-    Ok(sources)
 }
 
 fn check_entries_tree(account: &AccountView) -> ProgramResult {
