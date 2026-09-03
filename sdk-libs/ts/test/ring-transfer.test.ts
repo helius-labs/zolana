@@ -203,8 +203,8 @@ function spendSession(authority: WalletAuthority): CustomRingTransferParams["ses
   };
 }
 
-/** The ring's config and, for a policy ring, an empty-rule policy config over `ACTIVE_TREE`. */
-async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean) {
+/** The ring's config and, for a policy ring, a policy config over `ACTIVE_TREE` under the empty-table hash with `ruleCount` rows of ones. */
+async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, ruleCount = 0) {
   const encoder = new TextEncoder();
   const pda = (seed: string) =>
     getProgramDerivedAddress({ programAddress: RING, seeds: [encoder.encode(seed)] });
@@ -237,6 +237,11 @@ async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean) {
           0,
           policyBump,
           ...new Uint8Array(33 * 8),
+          ruleCount,
+          ...new Uint8Array(32 * 16).fill(1, 0, 32 * ruleCount),
+          0,
+          ...new Uint8Array(32 * 8),
+          ...new Uint8Array(4 + 8),
         ]),
       };
     }
@@ -969,6 +974,34 @@ describe("ring proof folded fields", () => {
     expect(proven.stateRootIndex).toBe(7);
     expect(proven.nullifierRootIndex).toBe(8);
     expect(proven.ownerSigners).toEqual([]);
+  });
+
+  it("refuses a policy config with rule rows before any proof, even under the empty-table hash", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const accounts = await ringAccounts(ViewingKey.generate(), true, 1);
+    const proveRingTransact = vi.fn(async () => ({
+      data: ringInstructionData(scalar(91)),
+      roots: SPP_ROOTS,
+    }));
+    await expect(
+      proveCustomRingTransfer({
+        client: ringTransferClient({
+          tree: RING,
+          getAccount: accounts.getAccount,
+          proveRingTransact,
+        }),
+        ringProgramId: RING,
+        prepared,
+        session: spendSession(sender.authority),
+        assets: new AssetRegistry(),
+        tree: RING,
+        outputTree: ACTIVE_TREE,
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_RULES_UNSUPPORTED",
+      details: { ruleCount: 1, inlineCount: 0 },
+    });
+    expect(proveRingTransact).not.toHaveBeenCalled();
   });
 
   it("proves the audit statement alone for a no-policy ring like Rust `finish_audit`", async () => {
