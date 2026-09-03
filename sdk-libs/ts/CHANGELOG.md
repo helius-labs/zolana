@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.6-alpha — unreleased
+## 0.1.6-alpha — 2026-09-03
 
 The wallet authority is replaced by a key interface a remote holder can
 answer: `WalletKeys` exposes the derivations a wallet needs and proving,
