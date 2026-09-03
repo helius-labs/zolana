@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -7,7 +8,7 @@ use crate::instructions::protocol_config::loader::load_and_validate_protocol_aut
 
 pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = UpdateProtocolConfigData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_mut("protocol_config")?;
@@ -34,6 +35,7 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
         UpdateProtocolConfigData::SplInterfaceCreationPermissionless(b) => {
             current.spl_interface_creation_is_permissionless = u8::from(b)
         }
+        UpdateProtocolConfigData::FeeAuthority(a) => current.fee_authority = a,
     }
     Ok(())
 }

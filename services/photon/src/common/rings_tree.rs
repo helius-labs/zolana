@@ -1,5 +1,5 @@
 use zolana_interface::state::{
-    ADDRESS_TREE_HEIGHT, ADDRESS_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
+    NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
 };
 use zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
@@ -21,14 +21,14 @@ impl RingsTreeKind {
     pub fn tree_height(self) -> u32 {
         match self {
             Self::State => STATE_HEIGHT as u32,
-            Self::Nullifier => ADDRESS_TREE_HEIGHT,
+            Self::Nullifier => NULLIFIER_TREE_HEIGHT,
         }
     }
 
     pub fn root_history_capacity(self) -> u64 {
         match self {
             Self::State => ROOT_HISTORY_CAPACITY as u64,
-            Self::Nullifier => u64::from(ADDRESS_TREE_ROOT_HISTORY_CAPACITY),
+            Self::Nullifier => u64::from(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY),
         }
     }
 }

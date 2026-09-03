@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use arrayvec::ArrayVec as RefArrayVec;
@@ -392,8 +393,9 @@ impl<'a> TransactProof<'a> {
             *self.ix.private_tx_hash,
         ]);
         if self.ix.circuit.is_p256() {
-            let message_digest = Sha256::hash(self.ix.private_tx_hash)
-                .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+            let message_digest = Sha256::hash(self.ix.private_tx_hash).map_err(caused_by(
+                ShieldedPoolError::TransactProofVerificationFailed,
+            ))?;
             fields.push(hash_bytes(&message_digest)?);
             fields.push(match self.ix.circuit.default_p256_owner_tag() {
                 Some(owner_tag) => hash_bytes(owner_tag)?,
@@ -467,8 +469,9 @@ pub fn fixed_signer_hash_chain(
     };
     while index > 0 {
         index -= 1;
-        chain = Poseidon::hashv(&[&unique_signer_pk_hashes[index], &chain])
-            .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        chain = Poseidon::hashv(&[&unique_signer_pk_hashes[index], &chain]).map_err(caused_by(
+            ShieldedPoolError::TransactProofVerificationFailed,
+        ))?;
     }
     Ok(chain)
 }

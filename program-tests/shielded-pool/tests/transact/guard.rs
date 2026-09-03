@@ -22,6 +22,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -63,8 +64,8 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
 fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPoolError) {
     let ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data,
@@ -134,7 +135,7 @@ fn ring_instruction(
     data: TransactIxData,
 ) -> Instruction {
     let payer = env.rpc.payer.pubkey();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let ring_program_id = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
     let mut data = data;
     data.circuit = if authority_variant {
@@ -260,8 +261,8 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         .expect("fund impostor");
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -281,8 +282,8 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
     let mut ix = RingTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
@@ -315,8 +316,8 @@ fn transact_rejects_a_non_writable_tree_meta() {
     // their privileges, so both must be downgraded.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -331,6 +332,38 @@ fn transact_rejects_a_non_writable_tree_meta() {
         &[],
         Rejection::custom(u32::from(AccountError::AccountNotMutable)),
     );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_output_utxo_hash() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.outputs.get_mut(1).expect("second output").utxo_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_input_nullifier() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.inputs.get_mut(1).expect("second input").nullifier_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::NonCanonicalInputNullifier,
+    );
+}
+
+#[test]
+fn transact_rejects_a_non_canonical_private_tx_hash() {
+    let mut env = Pool::initialized();
+    let mut data = transfer_ix_data(2, 3);
+    data.private_tx_hash = BN254_SCALAR_MODULUS_BE;
+    expect_rejection(&mut env, data, ShieldedPoolError::NonCanonicalPrivateTxHash);
 }
 
 #[test]
@@ -364,15 +397,11 @@ fn transact_rejects_a_tree_with_a_wrong_discriminator() {
     let mut env = Pool::initialized();
     // INV-TRANSACT-03: a program-owned account whose first byte is not exactly
     // TREE_ACCOUNT_DISCRIMINATOR (1) must fail the same way as a foreign tree.
-    let mut account = env
-        .rpc
-        .svm
-        .get_account(&env.tree.pubkey())
-        .expect("tree account");
+    let mut account = env.rpc.svm.get_account(&env.tree).expect("tree account");
     *account.data.first_mut().expect("tree discriminator byte") = 0;
     env.rpc
         .svm
-        .set_account(env.tree.pubkey(), account)
+        .set_account(env.tree, account)
         .expect("corrupt tree discriminator");
     expect_rejection(
         &mut env,
@@ -386,8 +415,8 @@ fn transact_rejects_a_malformed_wincode_payload() {
     let mut env = Pool::initialized();
     let template = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -450,8 +479,8 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
     // bare `InvalidInstructionData` as any other parse error.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data(2, 3),
@@ -478,12 +507,13 @@ fn transact_rejects_more_inputs_than_any_circuit_supports() {
 #[test]
 fn transact_rejects_a_duplicate_nullifier_within_one_instruction() {
     let mut env = Pool::initialized();
-    // INV-XC-10: the queue's non-inclusion check must fail the second insert
-    // of the same nullifier inside one instruction, before proof verification.
+    // INV-XC-10: the second input reuses the first input's nullifier PDA,
+    // which the first input already created, so nullifier PDA creation rejects the
+    // duplicate before proof verification.
     let mut data = transfer_ix_data(2, 3);
     let first = data.inputs.first().expect("first input").nullifier_hash;
     data.inputs.get_mut(1).expect("second input").nullifier_hash = first;
-    expect_rejection(&mut env, data, ShieldedPoolError::NullifierTreeUpdateFailed);
+    expect_rejection(&mut env, data, ShieldedPoolError::NullifierAlreadyQueued);
 }
 
 #[test]
@@ -594,8 +624,8 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
     // `ring_config` signature is rejected before the config is even loaded.
     let mut ix = RingAuthorityTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
         data: {
@@ -674,9 +704,13 @@ fn ring_authority_transact_rejects_an_owner_signer() {
         .airdrop(&owner_signer.pubkey(), 1_000_000)
         .expect("fund unexpected owner signer");
 
-    let mut ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
-    ix.accounts
-        .insert(6, AccountMeta::new_readonly(owner_signer.pubkey(), true));
+    let data = transfer_ix_data(2, 2);
+    let owner_signer_index = 6 + data.inputs.len();
+    let mut ix = ring_instruction(&env, true, &ring_config, data);
+    ix.accounts.insert(
+        owner_signer_index,
+        AccountMeta::new_readonly(owner_signer.pubkey(), true),
+    );
     expect_ix_rejection(
         &mut env,
         ix,

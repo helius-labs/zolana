@@ -2,11 +2,81 @@
 
 ## 0.1.6-alpha — unreleased
 
-Wallet replay keeps merge outputs when their inputs arrive in the same sync.
-Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
+A tree derives from its id instead of one fixed address, holds its own fee
+schedule, and takes three instructions in one transaction to create. Every
+spent nullifier gets its own account, and the transact, merge, and ring
+builders take one nullifier account per input. Wallet replay keeps merge outputs when their inputs arrive in the same
+sync.
+
+Breaking
+
+- `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
+  `getTreeAddress(0)` for the default tree, which is not the address the
+  removed constant held.
+- `addressTreeParams` and `AddressTreeParams` are `nullifierTreeParams` and
+  `NullifierTreeParams`, without the `rootHistoryCapacity` member → rename, and
+  read `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` for the capacity.
+- `ADDRESS_TREE_HEIGHT`, `ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE`,
+  `ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE`, and
+  `ADDRESS_TREE_ROOT_HISTORY_CAPACITY` are removed → read
+  `NULLIFIER_TREE_HEIGHT`, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE`,
+  `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE`, and
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY`.
+- `foresterFeePerQueueElement(zkpBatchSize)` and
+  `FORESTER_REIMBURSEMENT_LAMPORTS` are removed → `defaultTreeFees(zkpBatchSize)`
+  returns the `TreeFeeSchedule` a tree is created with, and
+  `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
+  `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` hold the per-batch reimbursements it
+  covers.
+- `getCreateTreeInstructionAsync` is `getCreateTreeInstructionsAsync`, takes a
+  `payer`, a `treeId`, and an optional `fees` instead of a tree address, and
+  returns the `TREE_CREATION_STEP_COUNT` identical instructions that allocate
+  the account → send all of them in one transaction, and pass the protocol
+  config's `nextTreeId` as the `treeId`.
+- `transactInstruction`, `mergeTransactInstruction`, and `ringTransactAccounts`
+  are async and include one writable nullifier account per spent input → await
+  them, pass the spent `inputs` to `ringTransactAccounts`, and rename
+  `getTransactInstruction` and `getMergeTransactInstruction` to
+  `getTransactInstructionAsync` and `getMergeTransactInstructionAsync`.
+- `getCreateProtocolConfigInstructionAsync` requires `feeAuthority` and
+  `ProtocolConfigUpdate` gains a `feeAuthority` field → pass the address allowed
+  to set tree fees and claim tree lamports, and update exhaustive matches.
+- `decodeProtocolConfig` reads a 166-byte account and returns `feeAuthority` and
+  `nextTreeId` → a config account written before this release no longer decodes.
+
+Added
+
+- `ShieldedPoolError` adds codes 7029 to 7062: deposit and SPL interface
+  validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
+  `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
+  `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,
+  `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`), and six
+  `NonCanonical*` codes the program returns before touching any account when an
+  instruction-data hash is not a canonical BN254 field element.
+- `InstructionTag.closeNullifierPdas` (18), `InstructionTag.setTreeFees` (19),
+  and `InstructionTag.claimTreeLamports` (20): the forester closes spent
+  nullifier accounts, and the fee authority writes a tree's fee schedule and
+  moves the tree's lamports above its rent, fee balance, and nullifier working
+  capital to a recipient.
+- `getTreeAddress(treeId)` derives a tree, and
+  `getNullifierPdaAddress(tree, nullifier)` derives the account the pool creates
+  for a spent nullifier.
+- `nullifierPdaAccounts(inputTree, nullifiers)`, exported as
+  `getNullifierPdaAccountsAsync`, returns the writable nullifier accounts a
+  transact instruction takes, one per input in the same order.
+- `getSetTreeFeesInstructionAsync({ authority, tree, fees })` writes a tree's
+  `TreeFeeSchedule`, signed by the fee authority.
+- `decodeTreeFees(account)` reads a tree's `TreeFees`, its schedule and its
+  accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
+  the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
+  locate both in the account. `CreateTreeData` names the create-tree payload.
 
 Changed
 
+- `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100, `TREE_ACCOUNT_SIZE` is 30,344,
+  `TREE_CREATION_STEP_COUNT` is 3 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
+  `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.

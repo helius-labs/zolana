@@ -9,7 +9,8 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
-    instruction::{CreateProtocolConfig, Deposit, PauseTree},
+    instruction::{ClaimTreeLamports, CreateProtocolConfig, Deposit, PauseTree, SetTreeFees},
+    state::TreeFeeSchedule,
     PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::ZolanaProgramTest;
@@ -36,6 +37,29 @@ pub fn setup_mollusk() -> (Mollusk, Pubkey) {
     )
 }
 
+/// The snapshot or result account stored under `key`.
+pub fn account_named<'a>(
+    accounts: &'a [(Pubkey, MolluskAccount)],
+    key: &Pubkey,
+) -> &'a MolluskAccount {
+    &accounts
+        .iter()
+        .find(|(account_key, _)| account_key == key)
+        .expect("account present in set")
+        .1
+}
+
+/// A System-owned account with no data, for impostor and recipient slots.
+pub fn system_account(lamports: u64) -> MolluskAccount {
+    MolluskAccount {
+        lamports,
+        data: Vec::new(),
+        owner: Pubkey::new_from_array([0; 32]),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
 fn snapshot(
     test: &ZolanaProgramTest,
     ix: &Instruction,
@@ -51,15 +75,13 @@ pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>
     let authority = Keypair::new();
     test.create_protocol_config(&authority)
         .expect("create protocol config");
-    let tree = test
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
+    let tree = test.create_tree(&authority).expect("create tree");
     let depositor = Keypair::new();
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
     let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
     let ix = Deposit {
-        tree: tree.pubkey(),
+        tree,
         depositor: depositor.pubkey(),
         deposits: vec![data],
     }
@@ -85,6 +107,54 @@ pub fn protocol_config_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskA
         ring_creation_authority: authority_address,
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
+        fee_authority: authority_address,
+    }
+    .instruction();
+    let (mollusk, program_id) = setup_mollusk();
+    let accounts = snapshot(&test, &ix, program_id);
+    (mollusk, mollusk_instruction(&ix), accounts)
+}
+
+pub const SET_TREE_FEES_FIXTURE_SCHEDULE: TreeFeeSchedule = TreeFeeSchedule {
+    fee_per_nullifier: 400,
+    append_reimbursement: 10_000,
+    close_reimbursement: 340,
+};
+
+pub fn set_tree_fees_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
+    let mut test = runtime::program_test();
+    let authority = Keypair::new();
+    test.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = test.create_tree(&authority).expect("create tree");
+    let ix = SetTreeFees {
+        authority: authority.pubkey(),
+        tree,
+        fees: SET_TREE_FEES_FIXTURE_SCHEDULE,
+    }
+    .instruction();
+    let (mollusk, program_id) = setup_mollusk();
+    let accounts = snapshot(&test, &ix, program_id);
+    (mollusk, mollusk_instruction(&ix), accounts)
+}
+
+pub const CLAIM_TREE_LAMPORTS_FIXTURE_SURPLUS: u64 = 1_000_000_000;
+
+pub fn claim_tree_lamports_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
+    let mut test = runtime::program_test();
+    let authority = Keypair::new();
+    test.create_protocol_config(&authority)
+        .expect("create protocol config");
+    let tree = test.create_tree(&authority).expect("create tree");
+    test.airdrop(&tree, CLAIM_TREE_LAMPORTS_FIXTURE_SURPLUS)
+        .expect("fund tree surplus");
+    let recipient = Pubkey::new_unique();
+    test.airdrop(&recipient, 1_000_000_000)
+        .expect("fund recipient");
+    let ix = ClaimTreeLamports {
+        authority: authority.pubkey(),
+        tree,
+        recipient,
     }
     .instruction();
     let (mollusk, program_id) = setup_mollusk();
@@ -97,12 +167,10 @@ pub fn pause_tree_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccoun
     let authority = Keypair::new();
     test.create_protocol_config(&authority)
         .expect("create protocol config");
-    let tree = test
-        .create_tree(runtime::tree_account_size(), &authority)
-        .expect("create tree");
+    let tree = test.create_tree(&authority).expect("create tree");
     let ix = PauseTree {
         authority: authority.pubkey(),
-        tree: tree.pubkey(),
+        tree,
         paused: true,
     }
     .instruction();

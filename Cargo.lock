@@ -180,17 +180,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
 
 [[package]]
-name = "aligned-sized"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48a526ec4434d531d488af59fe866f36b310fe8906691c75dffa664450a3800a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "alloc-no-stdlib"
 version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1214,19 +1203,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
-]
-
-[[package]]
-name = "bloom-filter-bench"
-version = "0.1.0"
-dependencies = [
- "light-program-profiler",
- "mollusk-svm",
- "pinocchio 0.11.2",
- "solana-account 4.3.1",
- "solana-instruction",
- "solana-pubkey 4.2.0",
- "zolana-bloom-filter",
 ]
 
 [[package]]
@@ -2867,6 +2843,7 @@ dependencies = [
  "num-bigint 0.4.8",
  "num-traits",
  "serde_json",
+ "solana-account 4.3.1",
  "solana-commitment-config",
  "solana-instruction",
  "solana-keypair",
@@ -2879,8 +2856,8 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
+ "wincode",
  "zolana-api",
- "zolana-batched-merkle-tree",
  "zolana-client",
  "zolana-hasher",
  "zolana-interface",
@@ -6581,6 +6558,7 @@ dependencies = [
  "pinocchio-system",
  "serde_json",
  "solana-loader-v3-interface 8.0.1",
+ "solana-msg",
  "spl-token-2022-interface 2.1.0",
  "tinyvec",
  "zolana-account-checks",
@@ -6597,6 +6575,7 @@ dependencies = [
  "anyhow",
  "borsh",
  "bytemuck",
+ "forester",
  "groth16-solana",
  "hex",
  "light-program-profiler",
@@ -6617,6 +6596,7 @@ dependencies = [
  "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.0",
+ "solana-rent 4.3.0",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",
@@ -7642,15 +7622,6 @@ dependencies = [
  "solana-nonce",
  "solana-sdk-ids",
  "wincode",
-]
-
-[[package]]
-name = "solana-nostd-keccak"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8ced70920435b1baa58f76e6f84bbc1110ddd1d6161ec76b6d731ae8431e9c4"
-dependencies = [
- "sha3",
 ]
 
 [[package]]
@@ -10118,11 +10089,9 @@ dependencies = [
  "pinocchio 0.11.2",
  "rand 0.8.7",
  "solana-account 4.3.1",
- "solana-address 2.6.1",
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "wincode",
- "zolana-batched-merkle-tree",
  "zolana-client",
  "zolana-hasher",
  "zolana-merkle-tree",
@@ -10956,6 +10925,7 @@ dependencies = [
  "zolana-smart-account-client",
  "zolana-test-utils",
  "zolana-transaction",
+ "zolana-tree",
  "zolana-user-registry-interface",
  "zolana-wallet",
 ]
@@ -11131,49 +11101,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "zolana-batched-merkle-tree"
-version = "0.11.0"
-dependencies = [
- "aligned-sized",
- "ark-bn254 0.5.0",
- "ark-ff 0.5.0",
- "borsh",
- "bytemuck",
- "groth16-solana",
- "light-program-profiler",
- "num-bigint 0.4.8",
- "num-traits",
- "rand 0.8.7",
- "solana-address 2.6.1",
- "solana-msg",
- "solana-program-error",
- "solana-sysvar 4.1.0",
- "thiserror 2.0.20",
- "wincode",
- "zerocopy",
- "zolana-account-checks",
- "zolana-bloom-filter",
- "zolana-client",
- "zolana-event",
- "zolana-hasher",
- "zolana-indexed-array",
- "zolana-merkle-tree",
-]
-
-[[package]]
-name = "zolana-bloom-filter"
-version = "0.6.0"
-dependencies = [
- "bytemuck",
- "num-bigint 0.4.8",
- "rand 0.8.7",
- "solana-nostd-keccak",
- "solana-program-error",
- "thiserror 2.0.20",
- "zolana-hasher",
-]
-
-[[package]]
 name = "zolana-cli"
 version = "0.1.0"
 dependencies = [
@@ -11309,9 +11236,9 @@ dependencies = [
  "solana-instruction",
  "solana-program-error",
  "solana-pubkey 4.2.0",
+ "solana-rent 4.3.0",
  "thiserror 2.0.20",
  "wincode",
- "zolana-batched-merkle-tree",
  "zolana-event",
  "zolana-hasher",
  "zolana-tree",
@@ -11383,6 +11310,7 @@ dependencies = [
  "zolana-keypair",
  "zolana-merkle-tree",
  "zolana-transaction",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11476,6 +11404,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "borsh",
  "bytemuck",
  "groth16-solana",
  "mollusk-svm",
@@ -11484,6 +11413,7 @@ dependencies = [
  "sha2 0.10.9",
  "solana-account 4.3.1",
  "solana-address 2.6.1",
+ "solana-address-lookup-table-interface",
  "solana-compute-budget-interface",
  "solana-instruction",
  "solana-instruction-error",
@@ -11537,11 +11467,25 @@ dependencies = [
 name = "zolana-tree"
 version = "0.1.0"
 dependencies = [
+ "ark-bn254 0.5.0",
+ "ark-ff 0.5.0",
+ "borsh",
+ "bytemuck",
+ "groth16-solana",
+ "light-program-profiler",
+ "num-bigint 0.4.8",
+ "num-traits",
  "pinocchio 0.11.2",
+ "rand 0.8.7",
+ "solana-msg",
  "thiserror 2.0.20",
  "wincode",
- "zolana-batched-merkle-tree",
+ "zerocopy",
+ "zolana-client",
+ "zolana-event",
  "zolana-hasher",
+ "zolana-indexed-array",
+ "zolana-merkle-tree",
 ]
 
 [[package]]

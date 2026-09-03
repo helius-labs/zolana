@@ -3,11 +3,14 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_interface::{
     instruction::{
-        CreateProtocolConfig, CreateProtocolConfigData, PauseTree, UpdateProtocolConfig,
-        UpdateProtocolConfigData,
+        ClaimTreeLamports, CreateProtocolConfig, CreateProtocolConfigData, PauseTree, SetTreeFees,
+        UpdateProtocolConfig, UpdateProtocolConfigData,
     },
     pda,
 };
+
+use zolana_interface::state::{default_tree_fees, nullifier_tree_params};
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::{instructions::create_tree_instructions, ProgramTestError, ZolanaProgramTest};
 
@@ -45,6 +48,7 @@ impl ZolanaProgramTest {
             ring_creation_is_permissionless: data.ring_creation_is_permissionless != 0,
             spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless
                 != 0,
+            fee_authority: data.fee_authority,
         }
         .instruction();
         self.send(&[ix], &[authority])?;
@@ -96,30 +100,74 @@ impl ZolanaProgramTest {
     pub fn pause_tree(
         &mut self,
         authority: &Keypair,
-        tree: &Keypair,
+        tree: &Pubkey,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
         let ix = PauseTree {
             authority: authority.pubkey(),
-            tree: tree.pubkey(),
+            tree: *tree,
             paused,
         }
         .instruction();
         self.send(&[ix], &[authority])
     }
 
-    pub fn create_tree(
+    pub fn create_tree(&mut self, authority: &Keypair) -> Result<Pubkey, ProgramTestError> {
+        self.create_tree_with_nullifier_params(authority, nullifier_tree_params())
+    }
+
+    pub fn create_tree_with_nullifier_params(
         &mut self,
-        account_size: u64,
         authority: &Keypair,
-    ) -> Result<Keypair, ProgramTestError> {
-        let tree = self.next_tree_keypair();
+        nullifier_params: NullifierTreeInitParams,
+    ) -> Result<Pubkey, ProgramTestError> {
+        let fees = default_tree_fees(nullifier_params.input_queue_zkp_batch_size).ok_or(
+            ProgramTestError::InvalidTreeFees(nullifier_params.input_queue_zkp_batch_size),
+        )?;
+        self.create_tree_with_params(authority, nullifier_params, fees)
+    }
+
+    pub fn create_tree_with_params(
+        &mut self,
+        authority: &Keypair,
+        nullifier_params: NullifierTreeInitParams,
+        fees: TreeFeeSchedule,
+    ) -> Result<Pubkey, ProgramTestError> {
         let payer = self.payer.pubkey();
-        let authority_key = authority.pubkey();
-        let tree_key = tree.pubkey();
-        let ixs = create_tree_instructions(self, &payer, &authority_key, &tree_key, account_size)?;
-        self.send(&ixs, &[&tree, authority])?;
-        Ok(tree)
+        let creation =
+            create_tree_instructions(self, &payer, &authority.pubkey(), nullifier_params, fees)?;
+        self.send(&creation.instructions, &[authority])?;
+        Ok(creation.tree)
+    }
+
+    pub fn set_tree_fees(
+        &mut self,
+        authority: &Keypair,
+        tree: &Pubkey,
+        fees: TreeFeeSchedule,
+    ) -> Result<(), ProgramTestError> {
+        let ix = SetTreeFees {
+            authority: authority.pubkey(),
+            tree: *tree,
+            fees,
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
+    }
+
+    pub fn claim_tree_lamports(
+        &mut self,
+        authority: &Keypair,
+        tree: &Pubkey,
+        recipient: &Pubkey,
+    ) -> Result<(), ProgramTestError> {
+        let ix = ClaimTreeLamports {
+            authority: authority.pubkey(),
+            tree: *tree,
+            recipient: *recipient,
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
     }
 }
 
@@ -135,5 +183,6 @@ fn create_protocol_config_data(
         ring_creation_authority: authority.into(),
         ring_creation_is_permissionless: u8::from(permissionless),
         spl_interface_creation_is_permissionless: u8::from(permissionless),
+        fee_authority: authority.into(),
     }
 }

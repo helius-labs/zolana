@@ -7,14 +7,17 @@ use zolana_interface::{
     instruction::{CreateTree, UpdateProtocolConfigData},
     pda,
     state::{
+        default_tree_fees,
         discriminator::{RING_CONFIG, TREE_ACCOUNT_DISCRIMINATOR},
-        ProtocolConfig, RingConfig,
+        nullifier_tree_params, tree_creation_lamports, ProtocolConfig, RingConfig,
+        TREE_ALLOCATION_STEP,
     },
-    PROGRAM_ID_PUBKEY,
+    NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY,
 };
 use zolana_program_test::{ZolanaProgramTest, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::litesvm_asserts::litesvm_assert_protocol_config;
 use zolana_test_utils::mollusk::snapshot_instruction_accounts;
+use zolana_test_utils::nullifier_pda::tree_fees;
 use zolana_tree::{INITIALIZED, PAUSED};
 
 use shielded_pool_tests::support::{
@@ -106,47 +109,123 @@ fn tree_creation_changes_only_the_tree_account() {
     let authority = Keypair::new();
     test.create_protocol_config(&authority)
         .expect("create protocol config");
-    let tree = Keypair::new();
-    let ix = CreateTree {
+    let payer = test.payer.pubkey();
+    let create = CreateTree {
+        payer,
         authority: authority.pubkey(),
-        tree: tree.pubkey(),
-    }
-    .instruction();
+        tree_id: 0,
+        nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .expect("default tree fees"),
+    };
+    let ix = create.allocation_step();
     let (mollusk, program_id) = setup_mollusk();
-    let mut accounts =
-        snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |key| {
-            test.svm.get_account(key)
-        });
-    // The client pre-allocates the tree account: program-owned, zeroed, exact
-    // canonical size.
-    *accounts.get_mut(2).expect("tree account slot") = (
-        tree.pubkey(),
-        Account {
-            lamports: 10_000_000_000,
-            data: vec![0u8; tree_account_size() as usize],
-            owner: PROGRAM_ID_PUBKEY,
-            executable: false,
-            rent_epoch: 0,
-        },
-    );
+    let accounts = snapshot_instruction_accounts(&ix, (&PROGRAM_ID_PUBKEY, program_id), |key| {
+        test.svm.get_account(key)
+    });
 
     let result = mollusk.process_and_validate_instruction(&ix, &accounts, &[Check::success()]);
 
-    // Frame: the authority and the protocol config are byte-for-byte unchanged.
-    for key in [authority.pubkey(), pda::protocol_config()] {
-        assert_eq!(
-            account_named(&result.resulting_accounts, &key),
-            account_named(&accounts, &key),
-            "create_tree must not change account {key}"
-        );
-    }
-    // The tree is initialized in place: lamports untouched, discriminator and
-    // state stamped.
-    let tree_before = account_named(&accounts, &tree.pubkey());
-    let tree_after = account_named(&result.resulting_accounts, &tree.pubkey());
-    assert_eq!(tree_after.lamports, tree_before.lamports);
-    assert_eq!(tree_after.data.first(), Some(&TREE_ACCOUNT_DISCRIMINATOR));
-    assert_eq!(tree_after.data.get(1), Some(&INITIALIZED));
+    assert_eq!(
+        account_named(&result.resulting_accounts, &authority.pubkey()),
+        account_named(&accounts, &authority.pubkey()),
+        "create_tree must not change the authority"
+    );
+    let config_before = account_named(&accounts, &pda::protocol_config());
+    let config_after = account_named(&result.resulting_accounts, &pda::protocol_config());
+    let expected_config = ProtocolConfig {
+        next_tree_id: 1,
+        ..*bytemuck::from_bytes::<ProtocolConfig>(&config_before.data)
+    };
+    assert_eq!(
+        (
+            config_after.lamports,
+            config_after.owner,
+            bytemuck::from_bytes::<ProtocolConfig>(&config_after.data),
+        ),
+        (
+            config_before.lamports,
+            config_before.owner,
+            &expected_config
+        ),
+        "create_tree must only advance next_tree_id"
+    );
+
+    let tree_rent = test
+        .svm
+        .minimum_balance_for_rent_exemption(tree_account_size() as usize);
+    let nullifier_pda_rent = test
+        .svm
+        .minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE);
+    let expected_lamports =
+        tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
+            .expect("tree funding");
+    let tree_after = account_named(&result.resulting_accounts, &create.tree());
+    assert_eq!(
+        tree_after,
+        &Account {
+            lamports: expected_lamports,
+            data: vec![0u8; TREE_ALLOCATION_STEP],
+            owner: PROGRAM_ID_PUBKEY,
+            executable: false,
+            rent_epoch: tree_after.rent_epoch,
+        },
+        "first step allocates a zeroed 10 KiB chunk funded with rent plus working capital"
+    );
+    let payer_before = account_named(&accounts, &payer);
+    let payer_after = account_named(&result.resulting_accounts, &payer);
+    assert_eq!(
+        payer_before.lamports - payer_after.lamports,
+        expected_lamports,
+        "payer funds exactly the tree"
+    );
+}
+
+#[test]
+fn tree_creation_completes_in_three_steps_and_advances_next_tree_id() {
+    let mut pool = Pool::initialized();
+    let next_tree_id = zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id");
+    assert_eq!(next_tree_id, 1);
+    let create = CreateTree {
+        payer: pool.rpc.payer.pubkey(),
+        authority: pool.authority.pubkey(),
+        tree_id: next_tree_id,
+        nullifier_params: nullifier_tree_params(),
+        fees: default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .expect("default tree fees"),
+    };
+    let steps = create.instructions();
+    assert_eq!(steps.len(), 3);
+
+    let (partial, last) = steps.split_at(2);
+    pool.rpc
+        .create_and_send_default_payer_transaction(partial, &[&pool.authority])
+        .expect("first two allocation steps");
+    let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
+    assert_eq!(tree.len(), 2 * TREE_ALLOCATION_STEP);
+    assert!(tree.iter().all(|byte| *byte == 0));
+    assert_eq!(
+        zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
+        2
+    );
+
+    pool.rpc
+        .create_and_send_default_payer_transaction(last, &[&pool.authority])
+        .expect("final allocation and init step");
+    let tree = pool.rpc.account_data(&create.tree()).expect("tree");
+    assert_eq!(tree.len(), tree_account_size() as usize);
+    assert_eq!(tree.first(), Some(&TREE_ACCOUNT_DISCRIMINATOR));
+    assert_eq!(tree.get(1), Some(&INITIALIZED));
+    assert_eq!(tree.get(2..4), Some(&next_tree_id.to_le_bytes()[..]));
+    assert_eq!(
+        tree_fees(&pool.rpc, &create.tree()).expect("tree fees"),
+        (create.fees, 0)
+    );
+    assert_eq!(
+        zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
+        2
+    );
+    assert_eq!(create.tree(), pda::tree(next_tree_id));
 }
 
 #[test]
@@ -238,7 +317,7 @@ fn new_tree_creation_authority_can_create_tree() {
         .expect("new authority updates config");
 
     pool.rpc
-        .create_tree(tree_account_size(), &next)
+        .create_tree(&next)
         .expect("new authority creates tree");
 }
 

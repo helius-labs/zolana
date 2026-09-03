@@ -85,20 +85,20 @@ fn write_user_record(
     address
 }
 
-fn merge_env() -> (ZolanaProgramTest, Keypair) {
+fn merge_env() -> (ZolanaProgramTest, Pubkey) {
     let Pool { rpc, tree, .. } = Pool::initialized();
     (rpc, tree)
 }
 
 fn merge_instruction(
     rpc: &ZolanaProgramTest,
-    tree: &Keypair,
+    tree: &Pubkey,
     user_record: Pubkey,
     data: MergeTransactIxData,
 ) -> solana_instruction::Instruction {
     MergeTransact {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: *tree,
+        output_tree: *tree,
         payer: rpc.payer.pubkey(),
         user_record,
         data,
@@ -112,7 +112,7 @@ fn merge_rejects_a_user_record_not_owned_by_the_registry() {
     // A funded system-owned account standing in for the record.
     let impostor = Pubkey::new_unique();
     rpc.airdrop(&impostor, 1_000_000).expect("fund impostor");
-    let tree_before = rpc.account_data(&tree.pubkey()).expect("tree data");
+    let tree_before = rpc.account_data(&tree).expect("tree data");
 
     let ix = merge_instruction(&rpc, &tree, impostor, merge_ix_data(true));
     let error = rpc
@@ -120,7 +120,7 @@ fn merge_rejects_a_user_record_not_owned_by_the_registry() {
         .expect_err("a non-registry record account must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidUserRecord).assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected merge must leave the tree untouched"
     );
@@ -259,8 +259,8 @@ fn merge_rejects_an_unsigned_payer() {
     // signs; the payer signer check is the only authorization on merge.
     let outsider = Pubkey::new_unique();
     let mut ix = MergeTransact {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         payer: outsider,
         user_record: record,
         data: merge_ix_data(true),
@@ -280,8 +280,8 @@ fn merge_rejects_an_unsigned_payer() {
 fn merge_ring_rejects_an_unsigned_ring_config() {
     let (mut rpc, tree) = merge_env();
     let mut ix = zolana_interface::instruction::MergeRing {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
@@ -318,10 +318,10 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     // `merge/processor.rs` fires before proof verification -- the same zeroed
     // proof that reaches verification (7008) on a fresh tree must not get
     // there here.
-    let mut account = rpc.svm.get_account(&tree.pubkey()).expect("tree account");
+    let mut account = rpc.svm.get_account(&tree).expect("tree account");
     {
-        let mut on_chain = TreeAccount::from_bytes(&mut account.data, tree.pubkey().to_bytes())
-            .expect("load tree");
+        let mut on_chain =
+            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
         assert!(
             on_chain.allow_dummy_inputs().expect("dummy-input policy"),
             "fresh tree must allow dummy inputs"
@@ -331,17 +331,17 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             utxo.capacity() - utxo.next_index()
         };
         {
-            let mut nullifier = on_chain.nullifer_tree();
+            let nullifier = on_chain.nullifier_tree();
             let next_leaf = nullifier
                 .capacity
                 .checked_sub(state_remaining)
                 .expect("nullifier capacity exceeds state capacity")
                 + 1;
             nullifier
-                .queue_batches
                 .get_current_batch_mut()
                 .expect("current nullifier batch")
                 .start_index = next_leaf;
+            nullifier.queue_next_index = next_leaf;
         }
         assert!(
             !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
@@ -349,17 +349,22 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
         );
     }
     rpc.svm
-        .set_account(tree.pubkey(), account)
+        .set_account(tree, account)
         .expect("write threshold tree account");
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
+    // The eight nullifier PDA creations precede proof verification, so the default
+    // 200k budget no longer reaches it.
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
+        .create_and_send_default_payer_transaction(&[budget, ix], &[])
         .expect_err("a merge past the capacity threshold must be rejected");
     // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
     // flag is false while the merge proof assumes true, so the capacity
     // overflow now fails at proof verification.
-    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed).assert_litesvm(error);
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+        .at(1)
+        .assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("capacity-gate transaction trace")
         .assert_rolled_back_except(&[payer]);
@@ -391,7 +396,7 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
     // only defect, so the failure is proof verification on the default
     // (registry-bound) rail.
     let record = write_user_record(&mut rpc, payer, None, true);
-    let tree_before = rpc.account_data(&tree.pubkey()).expect("tree data");
+    let tree_before = rpc.account_data(&tree).expect("tree data");
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     // Proof verification needs more than the 200k default budget.
@@ -403,7 +408,7 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
         .at(1)
         .assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected merge must roll back the nullifier and output inserts"
     );
@@ -414,7 +419,7 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
     let record = write_user_record(&mut rpc, payer, None, true);
-    let tree_before = rpc.account_data(&tree.pubkey()).expect("tree data");
+    let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
     // fails at G1/G2 decompression -- the 7007 encoding error, distinct from
@@ -434,7 +439,7 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
         .at(1)
         .assert_litesvm(error);
     assert_eq!(
-        rpc.account_data(&tree.pubkey()).expect("tree data"),
+        rpc.account_data(&tree).expect("tree data"),
         tree_before,
         "rejected merge must roll back the nullifier and output inserts"
     );
@@ -444,13 +449,13 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
 /// canonical `ring_auth` PDA marked signer).
 fn merge_ring_cpi_instruction(
     rpc: &ZolanaProgramTest,
-    tree: &Keypair,
+    tree: &Pubkey,
     data: MergeTransactIxData,
     output_ring_data_hash: [u8; 32],
 ) -> solana_instruction::Instruction {
     MergeRing {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: *tree,
+        output_tree: *tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data,
@@ -532,8 +537,8 @@ fn merge_ring_rejects_an_unsigned_payer() {
 
     let outsider = Pubkey::new_unique();
     let mut ix = MergeRing {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: outsider,
         data: merge_ix_data(true),
@@ -605,8 +610,8 @@ fn merge_ring_rejects_a_paused_tree() {
     // Through the ring test program so the real `ring_auth` PDA signs; every
     // wire field is valid and the pause alone must halt the tree mutation.
     let ix = MergeRing {
-        input_tree: tree.pubkey(),
-        output_tree: tree.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
         ring_program_id: Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID),
         payer: rpc.payer.pubkey(),
         data: merge_ix_data(true),
@@ -647,5 +652,26 @@ mod program_unit {
             error,
             ProgramError::Custom(ShieldedPoolError::InvalidSystemProgram as u32)
         );
+    }
+
+    /// The program account sits after the System Program and before the
+    /// nullifier PDAs; any address other than SPP is rejected before the PDAs
+    /// are read.
+    #[test]
+    fn rejects_wrong_program_account_with_incorrect_program_id() {
+        let mut accounts = [
+            get_account_view([1; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([2; 32], ID.to_bytes(), false, true, false, vec![]),
+            get_account_view([3; 32], [0; 32], true, true, false, vec![]),
+            get_account_view([4; 32], [0; 32], false, false, false, vec![]),
+            get_account_view([0; 32], [0; 32], false, false, true, vec![]),
+            get_account_view([6; 32], [0; 32], false, false, true, vec![]),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
+            Ok(_) => panic!("a non-SPP program account must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(error, ProgramError::IncorrectProgramId);
     }
 }

@@ -2,22 +2,26 @@ import { address } from "@solana/kit";
 
 import { encodeBase58 } from "./internal.js";
 import {
-  ADDRESS_TREE_HEIGHT,
-  ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
-  ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-  ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
+  NULLIFIER_TREE_HEIGHT,
+  NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+  NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 } from "./state.js";
+import type { TreeFeeSchedule } from "./types.js";
 
-export interface AddressTreeParams {
+export interface NullifierTreeParams {
   readonly inputQueueBatchSize: bigint;
   readonly inputQueueZkpBatchSize: bigint;
-  readonly rootHistoryCapacity: number;
   readonly height: number;
+}
+
+export interface CreateTreeData {
+  readonly treeId: number;
+  readonly nullifierParams: NullifierTreeParams;
+  readonly fees: TreeFeeSchedule;
 }
 
 export const SHIELDED_POOL_PROGRAM_ID = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 export const USER_REGISTRY_PROGRAM_ID = address("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
-export const DEFAULT_TREE_ADDRESS = address("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
     226, 231, 179, 96, 7, 216, 134, 74, 16, 116, 193, 73, 186, 110, 210, 48, 2, 97, 154, 130, 121,
@@ -55,14 +59,16 @@ export const InstructionTag = Object.freeze({
   ringTransact: 15,
   ringMergeTransact: 16,
   ringAuthorityTransact: 17,
+  closeNullifierPdas: 18,
+  setTreeFees: 19,
+  claimTreeLamports: 20,
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 
-export function addressTreeParams(): AddressTreeParams {
+export function nullifierTreeParams(): NullifierTreeParams {
   return Object.freeze({
-    inputQueueBatchSize: ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE,
-    inputQueueZkpBatchSize: ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
-    rootHistoryCapacity: ADDRESS_TREE_ROOT_HISTORY_CAPACITY,
-    height: ADDRESS_TREE_HEIGHT,
+    inputQueueBatchSize: NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
+    inputQueueZkpBatchSize: NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+    height: NULLIFIER_TREE_HEIGHT,
   });
 }
