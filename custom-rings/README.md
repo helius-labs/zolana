@@ -13,21 +13,26 @@ transfer to the ring's auditor and the program accepts no transact without
 that proof.
 
 `program` is the ring program, `sdk` the Rust client for it, `cli` the
-`zolana-ring` operator binary, `test` the lifecycle test on a local validator.
-The ring RPC in `services/ring-rpc` holds the auditor key,
-`custom-rings/client` is the auditor side it is built on. A custom-rings release
-(`just release-custom-rings <tag> --upload --prerelease`) ships `zolana-ring`,
-the ring program in both tiers, the two ring proving keys and the ring RPC
-together, the CLI deploys the binary of the release it was built from.
+`zolana-ring` operator binary, `test` the lifecycle test on a local validator,
+`examples` one `ring.toml` per worked policy. The ring RPC in
+`services/ring-rpc` holds the auditor key, `custom-rings/client` is the auditor
+side it is built on. A custom-rings release (`just release-custom-rings <tag>
+--upload --prerelease`) ships `zolana-ring`, the ring program, the two ring
+proving keys and the ring RPC together, the CLI deploys the binary of the
+release it was built from. One released binary serves every ring, the rules
+are data `init` pins from `ring.toml`.
 
 ## Roles
 
 The operator holds the upgrade authority keypair and the ring directory. It
 deploys and upgrades the program, creates the config, pins the policy of a
-policy ring, registers the ring with SPP, hands the authority over or renounces
-it. The ring authority is the key in the ring config, the operator's by
-default. It grants and revokes readers, pauses and resumes the ring, and writes
-the authority-written lists.
+policy ring and replaces its rule table, registers the ring with SPP, hands
+the authority over or renounces it. The ring authority is the key in the ring
+config, the operator's by default. It grants and revokes readers, pauses and
+resumes the ring, writes the authority-written lists and points a list at a
+curator or back at the ring's own entries. A curator is a ring whose lists
+other rings read. It writes its own entries and touches nothing on its
+subscribers, every subscriber trusts its writes wholly.
 The auditor is a P-256 viewing key inside a ring RPC and opens every transfer
 of the ring. A reader is a Solana key or a passkey the authority granted and
 reads what the auditor reads. A participant is a shielded wallet that deposits
@@ -96,45 +101,66 @@ ring-localnet` needs this repository's localnet prerequisites instead.
 
 ## The pipeline and what each step locks in
 
-`zolana-ring new` writes the ring directory, `ring.toml` with the service URLs
-it asked for and `keys/program-keypair.json`, and fixes the program id, the
-address of that keypair. It creates the authority keypair when the answer
-keeps the default `~/.config/solana/id.json` and no file is there; any other
-path is the operator's and a missing one is only reported. In the ring,
+`zolana-ring new` is a wizard. It asks for the ring name, the service URLs of
+both clusters, the target and the tier, a policy ring then names its entries
+tree, picks the lists its rules read, picks a source per list and adds rules
+one at a time, each compiled as it is added. It prints the `ring.toml` it
+will write and asks before writing. It writes the ring directory, `ring.toml`
+with the answers and `keys/program-keypair.json`, and fixes the program id,
+the address of that keypair. `--silent` takes every default, an audit-only
+ring. `--policy-from <file>` takes the `[policy]` table of a `ring.toml`, an
+example's included, checks it on both clusters and skips the tier and policy
+questions. It creates the authority keypair when the answer keeps the default
+`~/.config/solana/id.json` and no file is there; any other path is the
+operator's and a missing one is only reported. A curated list is picked from
+the catalogue, the bundled `cli/catalogue.toml` per cluster merged with every
+ring registered with SPP on the target that pins a policy,
+`--catalogue <path or URL>` (`RING_CATALOGUE`) replaces the bundled file. The
+policy grammar and the worked examples are in
+[`docs/ring-policy.md`](../docs/ring-policy.md). In the ring,
 `zolana-ring devnet` picks devnet and probes its services, `zolana-ring
 localnet` picks localnet and starts them. `zolana-ring deploy` downloads the
 ring program of the release the CLI came from, checks it against the lockfile
 built into the CLI, and
 fixes who may `init`, the upgrade authority; `--program-so` deploys a local
-build instead. A cli whose embedded release predates the ring tiers refuses
+build instead. A cli whose embedded release ships no ring program refuses
 `deploy` and names `--program-so`. A ring with a `[policy]` section is a
-policy ring, `deploy`
-takes the release's rules-configured binary for it and the plain binary for an
-audit-only ring. The released policy binary enforces all three rules, and the
-released cli is built to match it, so a downloaded cli drives it directly. A
-ring enforcing a subset self-builds both the program (`--program-so`) and a cli
-with the same rule features (`cargo build -p custom-ring-cli --features
-blocklist`). `init` recomputes the client rules against the pinned policy hash
-and refuses a mismatch. After the loader finishes, `deploy` reads the program back and
+policy ring, the same binary serves it and an audit-only ring, the tier is
+fixed at `init`. After the loader finishes, `deploy` reads the program back and
 refuses to report success unless the bytes on chain hash to the file it
 deployed. A binary already on chain byte for byte is reported present and
-not uploaded again. `zolana-ring init` fixes the auditor. On a policy ring it checks that
-each curator serves its list and pins the table with `create_policy` before it
-registers the ring with SPP, the program refuses to register a policy ring
-before its policy is pinned. After `init` the authority
-can be transferred (`--yes`, the new key alone can hand it back) or renounced
-(`--yes`, and only when the bytes on chain match the released program or the
-`--program-so` given), readers come and go, and the program can be upgraded
-by running `zolana-ring deploy` again. `zolana-ring authority pause` stops
-every ring deposit, transfer and merge in SPP under the ring authority alone,
-`resume` opens the ring again. `zolana-ring transact` makes two ring
-deposits and one custom-ring transfer and reads it back, on a policy ring whose
-rules reference `Allow` it enrols the sender and the recipient in `Allow`
-first, unless a curator serves `Allow`. `zolana-ring transfer`
-sends an amount to a shielded address. Both spend from
+not uploaded again. `zolana-ring init` fixes the auditor. On a policy ring it
+compiles `[policy]` for the target, checks that each curator is deployed,
+pins a policy and serves its list from its own entries in the ring's tree,
+pins the table with `create_policy` under the upgrade authority, points each
+curated list, reads the chain back and refuses a pinned policy differing from
+`ring.toml`, then registers the ring with SPP, the program refuses to
+register a policy ring before its policy is pinned. `zolana-ring policy show`
+prints the pinned table with its generation, `policy check` compares it with
+`ring.toml` and exits non-zero on a difference, `policy set` replaces it
+under the upgrade authority, confirmed interactively or with `--yes`, proofs
+built against the old table are refused from then on. After `init` the
+authority can be transferred (confirmed interactively or with `--yes`, the
+new key alone can hand it back) or renounced (confirmed the same way, and only
+when the bytes on chain match the released program or the `--program-so`
+given), readers come and go, and the program can be upgraded by running
+`zolana-ring deploy` again. `zolana-ring authority pause` stops every ring
+deposit, transfer and merge in SPP under the ring authority alone, `resume`
+opens the ring again. `zolana-ring list add|clear <list>` writes the ring's
+own entries, the member is `--owner <tag>` or `--asset <mint>`, `sol` for the
+native token. `list show` takes the same flag and reads the entry from the
+source the list points at. `list set-source <list> --curator <program id or
+catalogue name>` or `--own` re-points a list under the ring authority. A mint
+is a member like an owner tag, one list holds both kinds and a rule on
+`subject = "asset"` reads the mints. `zolana-ring transact`
+makes two ring deposits and one custom-ring transfer and reads it back, on a
+policy ring whose rules reference `Allow` it enrols the sender and the
+recipient in `Allow` first, unless a curator serves `Allow`. `zolana-ring
+transfer` sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
-stay spendable with that key, keep it with the other keys. `zolana-ring
-pipeline` runs deploy to transact and takes `--program-so` like `deploy`.
+stay spendable with that key, keep it with the other keys.
+`zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
+`deploy`.
 
 On devnet the prover, the indexer and the ring RPC are already deployed and
 are probed, never started. The hosted ring RPC derives one auditor key per
@@ -179,16 +205,18 @@ is in `services/ring-rpc/README.md`.
 derives the config, read access record and `ring_auth` addresses and reads the
 typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
 `GrantReadAccess`, `RevokeReadAccess`, `SetAuthority` and `SetPaused` from it,
-a policy ring adds `CreatePolicy`, `SetSourceOwner` and the entry mutations
-`CreateEntry` and `UpdateEntry`. A
+a policy ring adds `CreatePolicy`, `SetPolicyRules`, `SetSourceOwner` and the
+entry mutations `CreateEntry` and `UpdateEntry`. `CreatePolicy` and
+`SetPolicyRules` take a `RuleTable` built with `RuleTable::builder()` and the
+curator per shared list, both refuse a transaction past one legacy packet. A
 participant sends `RingDeposit`, prepares a `ConfidentialTransfer` from the
 SPP transaction SDK
 and proves it with
 `CustomRingTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
-where the environment is the indexer, the RPC and the prover. The SDK compiles
-no rule feature, a policy ring passes its compiled table through `with_rules`
-and `CreatePolicy.rules`, and `prove` refuses a table the pinned hash does not
-cover. `prove_async` serves both tiers. The custom-ring
+where the environment is the indexer, the RPC and the prover. `prove` reads
+the table from the policy config and trusts its rows only under the pinned
+hash (`policy_config_table`), `client_rules_match` compares a table of the
+caller's with the stored rows. `prove_async` serves both tiers. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
@@ -201,7 +229,8 @@ The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`) proves
 audit-only rings and policy rings with an empty table, a rules-bearing ring
 fails with `RING_RULES_UNSUPPORTED`. It spends from `client.tree` only and
 takes `entriesRoots` when the pinned entries tree is another tree. Its lookup
-table builder reads the tier and the entries tree from the chain, and
+table builder reads the tier and the entries tree from the chain,
+`fetchRingPolicyConfig` reads the rows and the generation, and
 `setRingPausedInstruction` pauses and resumes the ring.
 
 The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
@@ -229,3 +258,14 @@ only lends its `ring_auth` signature, the rules apply when the note is spent.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction. The released
 transfer proof does not prove that a ciphertext matches a committed output.
+
+A re-pin takes effect at once, a proof built against the old table fails at
+verification and its note stays unspent. `policy set` keeps the entries
+tree, a `ring.toml` naming another tree is refused, the tree is fixed at
+`init`. Curated sources are per cluster, `[policy.sources.localnet]` and
+`[policy.sources.devnet]` name their own curators and a catalogue name
+resolves only on the cluster that lists it. A table pinned with its curator
+accounts can exceed one legacy packet at `create_policy`, `init` then pins it
+over the ring's own sources and points each curated list afterwards. A rule
+names authority-written lists only, the member-written lists are enrolled by
+their members and read by no rule.
