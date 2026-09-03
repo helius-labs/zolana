@@ -64,6 +64,18 @@ Added
 - `ringOpenings` derives the `RingOpenings` a `CustomRingProofRequest` carries
   from `SppProofInputs`, `ringNamespaceOwnerHash` derives the owner hash of a
   list namespace, and `disabledRuleAnswer` fills an unused rule slot.
+- `decodeRuleTable` and `decodeRule` read the rule rows of a
+  `RingPolicyConfig` as `Rule` values with their `ListId` lists, and a row or
+  table the circuit cannot enforce is `RING_RULE_TABLE_INVALID` with the Rust
+  reason, `referencedLists` names the lists a table consults, and
+  `fetchRingConfigs` reads a ring's config with its policy config when the
+  ring has one.
+- `readRingEntry` and `readRingEntries` walk a namespace's entry lineages
+  through the indexer and return each live `ListEntry` with the transaction
+  that wrote it, `decodeListEntry` reads a published entry, `memberOfTag` and
+  `memberOfAsset` derive a `Member`, `RingListNamespace` derives entry
+  addresses and hashes, and a lineage whose spender carries no next version is
+  `RING_ENTRY_LINEAGE_BROKEN`.
 
 Changed
 

@@ -31,7 +31,39 @@ export {
 } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
 export type { RingPolicyConfig, RingPolicySource, RingProgramConfig } from "./codecs.js";
+export type { RingConfigs } from "./config.js";
 export {
+  LIST_IDS,
+  ListId,
+  RingListNamespace,
+  decodeListEntry,
+  decodeRule,
+  decodeRuleTable,
+  listIdFromByte,
+  listSet,
+  memberOfAsset,
+  memberOfTag,
+  readRingEntries,
+  readRingEntry,
+  referencedLists,
+} from "./policy.js";
+export type {
+  EntryHashes,
+  EntryIndexer,
+  EntryState,
+  ListEntry,
+  LiveEntry,
+  Member,
+  ReadRingEntriesInput,
+  ReadRingEntryInput,
+  Rule,
+  RuleGuard,
+  RuleSource,
+  RuleSubject,
+  RuleTable,
+} from "./policy.js";
+export {
+  fetchRingConfigs,
   fetchRingPolicyConfig,
   fetchRingProgramConfig,
   ringConfigAddress,
