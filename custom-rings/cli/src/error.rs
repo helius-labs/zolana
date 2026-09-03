@@ -3,8 +3,8 @@ use thiserror::Error;
 use crate::{
     authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
     list::ListError, localnet::LocalnetError, new::NewError, pipeline::PipelineError,
-    probe::ProbeError, reader::ReaderError, ring_rpc::RingRpcClientError, tool::ToolError,
-    transact::TransactError,
+    policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
+    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
 };
 use zolana_ring_rpc::KeyFileError;
 
@@ -38,6 +38,8 @@ pub enum CliError {
     Reader(Box<ReaderError>),
     #[error(transparent)]
     List(Box<ListError>),
+    #[error(transparent)]
+    Policy(Box<PolicyCommandError>),
 }
 
 macro_rules! boxed_from {
@@ -66,6 +68,7 @@ boxed_from!(
     Authority(AuthorityError),
     Reader(ReaderError),
     List(ListError),
+    Policy(PolicyCommandError),
 );
 
 /// One `Client` variant per module, boxed for enum size.
@@ -81,6 +84,8 @@ macro_rules! client_from {
 
 client_from!(
     crate::ContextError,
+    crate::catalogue::CatalogueError,
+    crate::catalogue::CuratorError,
     crate::deploy::DeployError,
     crate::fund::FundError,
     crate::status::StatusError,

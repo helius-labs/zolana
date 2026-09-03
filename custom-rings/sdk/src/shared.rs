@@ -15,7 +15,10 @@ use zolana_interface::{
 };
 use zolana_keypair::P256Pubkey;
 pub use zolana_ring_client::{ReaderKey, ReaderKeyError};
-use zolana_ring_policy::{RuleTable, NAMESPACE_PDA_SEED};
+use zolana_ring_policy::{
+    ListId, ListNamespace, PolicyHashError, RuleTable, RuleTableError, SourceMap, SourceOwner,
+    MAX_SOURCES, NAMESPACE_PDA_SEED,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustomRing {
@@ -38,17 +41,35 @@ pub enum AccountReadError {
     InvalidAccount { address: Address },
 }
 
-/// The client's compiled rules disagree with the deployed ring.
+/// The stored rows or the client's table disagree with the deployed ring.
 #[derive(Debug, Error)]
 pub enum PolicyMatchError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
     #[error("the ring has no policy config")]
     NoPolicy,
+    #[error(transparent)]
+    Rules(#[from] RuleTableError),
+    #[error("the compiled table differs from the stored rows")]
+    TableMismatch,
     #[error("the rule table does not reproduce the pinned policy hash")]
     HashMismatch,
+    #[error("no source serves the {0:?} list")]
+    MissingSource(ListId),
+    #[error("the stored source map breaks the positional layout")]
+    InvalidSources,
     #[error("policy hashing failed")]
     Hashing,
+}
+
+impl From<PolicyHashError> for PolicyMatchError {
+    fn from(error: PolicyHashError) -> Self {
+        match error {
+            PolicyHashError::Hashing => Self::Hashing,
+            PolicyHashError::MissingSource(list_id) => Self::MissingSource(list_id),
+            PolicyHashError::Table(error) => Self::Rules(error),
+        }
+    }
 }
 
 impl CustomRing {
@@ -234,24 +255,42 @@ impl CustomRing {
     }
 }
 
+/// The stored table, trusted once its rows reproduce the pinned hash.
+pub fn policy_config_table(config: &PolicyConfig) -> Result<RuleTable, PolicyMatchError> {
+    let table = config.rule_table()?;
+    check_pinned_hash(config)?;
+    Ok(table)
+}
+
 pub fn client_rules_match(
     rules: &RuleTable,
     config: &PolicyConfig,
 ) -> Result<(), PolicyMatchError> {
-    let slots = core::array::from_fn(|i| {
-        (
-            config.sources[i].list_id,
-            *config.sources[i].namespace.as_array(),
-        )
-    });
-    let sources = zolana_ring_policy::SourceMap::from_namespaces(&slots, |namespace| {
-        zolana_ring_policy::ListNamespace::new(namespace).map(|owner| owner.owner_hash)
-    })
-    .map_err(|_| PolicyMatchError::Hashing)?;
-    let hash = rules
-        .hash(&sources)
-        .map_err(|_| PolicyMatchError::Hashing)?;
-    if hash != config.policy_hash {
+    if rules.encode() != config.rules {
+        return Err(PolicyMatchError::TableMismatch);
+    }
+    check_pinned_hash(config)
+}
+
+/// The map the pinned hash binds, each stored namespace hashed to its owner.
+pub(crate) fn source_map(config: &PolicyConfig) -> Result<SourceMap, PolicyMatchError> {
+    let mut slots = [SourceOwner::default(); MAX_SOURCES];
+    for (slot, stored) in slots.iter_mut().zip(&config.sources) {
+        if stored.list_id == 0 {
+            continue;
+        }
+        let owner = ListNamespace::new(stored.namespace.as_array())
+            .map_err(|_| PolicyMatchError::Hashing)?;
+        *slot = SourceOwner {
+            list_id: stored.list_id,
+            owner_hash: owner.owner_hash,
+        };
+    }
+    SourceMap::from_slots(slots).map_err(|_| PolicyMatchError::InvalidSources)
+}
+
+fn check_pinned_hash(config: &PolicyConfig) -> Result<(), PolicyMatchError> {
+    if config.rules.hash(&source_map(config)?)? != config.policy_hash {
         return Err(PolicyMatchError::HashMismatch);
     }
     Ok(())
@@ -315,11 +354,14 @@ impl AccountRead {
 
 #[cfg(test)]
 mod tests {
-    use custom_ring_interface::{ReadAccessRecord, RingProgramConfig};
+    use custom_ring_interface::{
+        ReadAccessRecord, RingProgramConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG,
+    };
     use solana_account::Account;
     use solana_pubkey::Pubkey;
     use zolana_interface::P_DERIVE_SEC1;
     use zolana_keypair::ViewingKey;
+    use zolana_ring_policy::{ListSet, Rule, Subject, MAX_RULES};
 
     use super::*;
 
@@ -461,5 +503,109 @@ mod tests {
                 Err(AccountReadError::InvalidAccount { .. })
             ));
         }
+    }
+
+    const PINNED: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .rule(Rule::forbid(Subject::Sender, ListId::Block))
+        .build();
+
+    /// Every referenced list reads the ring's own entries.
+    fn pinned(table: &RuleTable) -> PolicyConfig {
+        let mut sources = [SourceSlot {
+            list_id: 0,
+            namespace: Address::default(),
+        }; N_SOURCE_SLOTS];
+        for list_id in table.referenced().iter() {
+            sources[list_id.slot()] = SourceSlot {
+                list_id: list_id as u8,
+                namespace: ring().namespace_pda(),
+            };
+        }
+        let mut config = PolicyConfig {
+            discriminator: POLICY_CONFIG,
+            policy_hash: [0; 32],
+            entries_tree: Address::new_from_array([5u8; 32]),
+            namespace_bump: 0,
+            bump: Address::find_program_address(&[PolicyConfig::SEED], &ring().program_id()).1,
+            sources,
+            rules: table.encode(),
+            generation: 1u32.to_le_bytes(),
+            generation_slot: [0; 8],
+        };
+        config.policy_hash = config
+            .rules
+            .hash(&source_map(&config).expect("map"))
+            .expect("hash");
+        config
+    }
+
+    #[test]
+    fn the_stored_table_is_trusted_only_under_its_pinned_hash() {
+        let config = pinned(&PINNED);
+        assert_eq!(policy_config_table(&config).expect("table"), PINNED);
+        client_rules_match(&PINNED, &config).expect("match");
+
+        let mut hash_drift = config;
+        hash_drift.policy_hash[0] ^= 1;
+        assert!(matches!(
+            policy_config_table(&hash_drift),
+            Err(PolicyMatchError::HashMismatch)
+        ));
+        assert!(matches!(
+            client_rules_match(&PINNED, &hash_drift),
+            Err(PolicyMatchError::HashMismatch)
+        ));
+
+        let mut row_drift = config;
+        row_drift.rules.rules[1][29] = ListSet::single(ListId::Frozen).bits();
+        assert!(matches!(
+            client_rules_match(&PINNED, &row_drift),
+            Err(PolicyMatchError::TableMismatch)
+        ));
+        let shorter = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+            .build();
+        assert!(matches!(
+            client_rules_match(&shorter, &config),
+            Err(PolicyMatchError::TableMismatch)
+        ));
+
+        let mut padded = config;
+        padded.rules.rules[MAX_RULES - 1] = [1u8; 32];
+        assert!(matches!(
+            policy_config_table(&padded),
+            Err(PolicyMatchError::Rules(RuleTableError::NonZeroPadding))
+        ));
+
+        let mut unsourced = config;
+        unsourced.sources[ListId::Block.slot()] = SourceSlot {
+            list_id: 0,
+            namespace: Address::default(),
+        };
+        assert!(matches!(
+            policy_config_table(&unsourced),
+            Err(PolicyMatchError::MissingSource(ListId::Block))
+        ));
+    }
+
+    #[test]
+    fn verify_client_rules_reads_the_pinned_config() {
+        let config = pinned(&PINNED);
+        let rpc = AccountRpc {
+            address: ring().policy_config_pda(),
+            account: Some(account(&config)),
+        };
+        ring()
+            .verify_client_rules(&rpc, &PINNED)
+            .expect("pinned table");
+        let missing = AccountRpc {
+            address: ring().policy_config_pda(),
+            account: None,
+        };
+        assert!(matches!(
+            ring().verify_client_rules(&missing, &PINNED),
+            Err(PolicyMatchError::NoPolicy)
+        ));
     }
 }

@@ -121,15 +121,14 @@ fn a_policy_ring_cannot_spend_through_the_audit_layout() {
     );
 }
 
-/// The stored hash is what a rebuilt table must reproduce.
 #[test]
-fn a_drifted_policy_hash_is_rejected_exactly() {
+fn a_drifted_policy_hash_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = policy_fixture(0, 0);
     let mut config = initialized_policy_config_account();
-    config.data[1] ^= 0xFF;
+    config.data[32] ^= 0x01;
     fixture.set_account("policy_config", config);
-    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyHashMismatch));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 /// The roots come from a real tree account at the configured address, a stub

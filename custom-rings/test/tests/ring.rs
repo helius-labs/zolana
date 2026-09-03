@@ -28,7 +28,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG, RULES};
+use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
@@ -38,6 +38,7 @@ use custom_ring_sdk::{
 };
 use custom_ring_test_validator::{
     cli::{RingProject, RingToml},
+    policy::EMPTY,
     shared::{
         custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
         ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
@@ -415,7 +416,7 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     project.write_config(RingToml {
         env: &env,
         ring_rpc: "http://127.0.0.1:1",
-        policy: false,
+        policy: None,
     })?;
     let first = init()?;
     assert!(first.contains("authority   transferred"), "{first}");
@@ -430,7 +431,7 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
     project.write_config(RingToml {
         env: &env,
         ring_rpc: "http://ring.invalid:1",
-        policy: false,
+        policy: None,
     })?;
     let second = init()?;
     assert!(second.contains("config      already present"), "{second}");
@@ -477,7 +478,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor_pk,
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .configure(rpc)?;
     let rejection = ExpectRejection {
@@ -626,7 +627,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         sender: &env.sender.keypair,
         prepared,
     })
-    .with_rules(&RULES)
     .with_tree(env.tree)
     .with_assets(&env.assets)
     .prove(TransferProofEnvironment {
@@ -1098,7 +1098,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -1240,7 +1240,6 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
             sender,
             prepared,
         })
-        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
@@ -1294,7 +1293,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .send(rpc)?;
     let prover = ProverClient::local();
@@ -1634,7 +1633,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .send(rpc)?;
 
@@ -1669,7 +1668,6 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         sender,
         prepared,
     })
-    .with_rules(&RULES)
     .with_tree(old_tree)
     .with_output_tree(env.tree)
     .with_assets(&env.assets)
@@ -1767,7 +1765,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         ring,
         payer: &env.payer,
         auditor_pubkey: auditor.pubkey(),
-        tier: Tier::policy(env.tree),
+        tier: Tier::policy(&EMPTY, env.tree),
     }
     .send(rpc)?;
 
@@ -1802,7 +1800,6 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         sender,
         prepared,
     })
-    .with_rules(&RULES)
     .with_tree(input_tree)
     .with_output_tree(output_tree)
     .with_assets(&env.assets)
@@ -1953,7 +1950,6 @@ impl RingTransfer<'_> {
             sender: self.sender,
             prepared: self.prepared,
         })
-        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .with_interface_transfer_accounts(self.interface_transfer_accounts)
@@ -2002,7 +1998,6 @@ impl AsyncHopParity<'_> {
             sender: self.sender,
             prepared: self.blocking,
         })
-        .with_rules(&RULES)
         .with_tree(env.tree)
         .with_assets(&env.assets)
         .prove(TransferProofEnvironment {
@@ -2026,7 +2021,6 @@ impl AsyncHopParity<'_> {
                 sender: self.sender,
                 prepared: self.asynchronous,
             })
-            .with_rules(&RULES)
             .with_tree(env.tree)
             .with_assets(&env.assets)
             .prove_async(AsyncTransferProofEnvironment {

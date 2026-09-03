@@ -34,12 +34,14 @@ solana-address-lookup-table-interface = { workspace = true, optional = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-message = { workspace = true }
+solana-packet = "3.0"
 solana-rpc-client-api = { workspace = true, optional = true }
 solana-signature = { workspace = true }
 solana-signer = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-solana-transaction = { workspace = true, features = ["serde"] }
+# `wincode` serializes a legacy transaction for the packet bound of the policy builders.
+solana-transaction = { workspace = true, features = ["serde", "wincode"] }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zeroize = { workspace = true }

@@ -14,14 +14,14 @@ pub mod schema;
 
 pub use entry::{
     entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, ListEntry, ListId,
-    ListNamespace, Writer, ENTRY_OUTPUT_DATA_LEN, LIST_ENTRY_LEN, NAMESPACE_PDA_SEED,
+    ListNamespace, ListSet, Writer, ENTRY_OUTPUT_DATA_LEN, LIST_ENTRY_LEN, NAMESPACE_PDA_SEED,
 };
 pub use member::{Member, MemberError};
 pub use rule_table::{
-    AnswerLoad, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable, RuleTableBuilder,
-    SourceMap, SourceMapError, SourceOwner, Subject, ANSWER_SLOTS, GUARANTEED_LOAD,
-    MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
-    POLICY_VERSION,
+    AnswerLoad, EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable,
+    RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner,
+    Subject, ANSWER_SLOTS, GUARANTEED_LOAD, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
+    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_VERSION,
 };
 
 /// At most 31 bytes keeps the packed value below the field modulus.

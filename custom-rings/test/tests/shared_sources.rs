@@ -4,45 +4,32 @@
 //! the source re-admits it, and the subscriber cannot mutate the curator-served
 //! list on its own ring.
 
-use anyhow::{anyhow, Result};
-use custom_ring_interface::RULES;
+use anyhow::Result;
 use custom_ring_program::CustomRingError;
-use custom_ring_sdk::{
-    CreateEntry, CustomRing, EntryProofEnvironment, SetSourceOwner, SourceOwner,
-};
+use custom_ring_sdk::{CreateEntry, EntryProofEnvironment, SetSourceOwner, SourceOwner};
 use custom_ring_test_validator::{
     policy::{
-        owner_member, EntryTarget, EntryWrite, PolicyTransfer, RingNotes, DEPOSIT, TRANSFER_AMOUNT,
+        owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
+        RingNotes, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
-    shared::{
-        custom_ring_program_id, send, send_v0_expecting_rejection, setup_with_extra_rings,
-        RegisterRing, Tier,
-    },
+    shared::{send, send_v0_expecting_rejection, RegisterRing, Tier},
 };
-use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::ProverClient;
 use zolana_keypair::ViewingKey;
 use zolana_program_test::Rejection;
-use zolana_ring_policy::{EntryState, ListId, RuleSource};
+use zolana_ring_policy::{EntryState, ListId};
 use zolana_transaction::Utxo;
 
 #[test]
 fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
-    // The host table must be the one row the blocklist image compiles, a wider
-    // or empty table cannot reproduce the on-chain policy hash.
-    let rules = RULES.rules();
-    assert!(
-        matches!(rules, [rule] if matches!(rule.source, RuleSource::List(ListId::Block))),
-        "the compiled table is the blocklist row alone"
-    );
-
-    let curator_program = Keypair::new().pubkey();
-    let env = setup_with_extra_rings(&[curator_program])?;
+    let CuratedRings {
+        env,
+        curator,
+        subscriber,
+    } = CuratedRings::setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
-    let subscriber = CustomRing::new(custom_ring_program_id()?);
-    let curator = CustomRing::new(curator_program);
     let prover = ProverClient::local();
     let authority = env.payer.pubkey();
     let transfer = |note: &Utxo| PolicyTransfer {
@@ -54,36 +41,27 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         env: &env,
     };
 
-    // 1. Both rings pin a table under one authority. The subscriber's Block
-    //    slot copies the curator's resolved namespace owner, so the curator
-    //    pins first, and each ring registers with SPP only behind its pin.
-    let curator_pinned = RegisterRing {
-        ring: curator,
-        payer: &env.payer,
-        auditor_pubkey: ViewingKey::new().pubkey(),
-        tier: Tier::policy(env.tree),
-    }
-    .pin(rpc)?;
-    let subscriber_pinned = RegisterRing {
+    // 1. The subscriber pins behind the curator's pin, its Block slot copies
+    //    the curator's resolved namespace owner, and it registers with SPP
+    //    only behind its own pin.
+    RegisterRing {
         ring: subscriber,
         payer: &env.payer,
         auditor_pubkey: ViewingKey::new().pubkey(),
         tier: Tier::Policy {
             entries_tree: env.tree,
+            rules: &BLOCK_ONLY,
             shared_sources: vec![(ListId::Block, curator)],
         },
     }
-    .pin(rpc)?;
-    curator_pinned.register(rpc)?;
-    subscriber_pinned.register(rpc)?;
-    let stored = subscriber
-        .read_policy_config(rpc)?
-        .ok_or_else(|| anyhow!("subscriber policy config"))?;
+    .send(rpc)?;
+    let stored = policy_config(subscriber, rpc)?;
     assert_eq!(
         stored.source_for(ListId::Block),
         Some(curator.namespace_pda()),
         "the Block slot names the curator entries"
     );
+    assert_eq!(stored.generation(), 1);
 
     // 2. Three subscriber-ring notes, one transfer per policy phase.
     let notes = RingNotes {
@@ -179,14 +157,14 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         }
         .instruction()?],
     )?;
-    let repointed = subscriber
-        .read_policy_config(rpc)?
-        .ok_or_else(|| anyhow!("subscriber policy config"))?;
+    let repointed = policy_config(subscriber, rpc)?;
     assert_eq!(
         repointed.source_for(ListId::Block),
         Some(subscriber.namespace_pda()),
         "the Block slot is back on the subscriber entries"
     );
+    assert_eq!(repointed.generation(), 2, "a re-point counts a generation");
+    assert!(repointed.generation_slot() > stored.generation_slot());
     transfer(&notes[2]).land(&prover)?;
 
     Ok(())

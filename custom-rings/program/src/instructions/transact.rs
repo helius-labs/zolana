@@ -15,7 +15,6 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, load_policy_config, validate_spp_program},
-        policy_shared::verify_policy_hash,
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -103,11 +102,10 @@ pub fn process_transact_ix(
 
     match policy_accounts {
         Some((policy_config_account, entries_tree_account)) => {
-            let (policy_hash, entries_tree, sources) = {
+            let (policy_hash, entries_tree) = {
                 let policy = load_policy_config(program_id, policy_config_account)?;
-                (policy.policy_hash, policy.entries_tree, policy.sources)
+                (policy.policy_hash, policy.entries_tree)
             };
-            verify_policy_hash(&sources, &policy_hash)?;
             // The borrow drops before the CPI below, else SPP faults borrowing the
             // aliased money tree.
             let roots = load_roots(

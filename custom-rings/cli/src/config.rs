@@ -1,7 +1,6 @@
 //! `ring.toml`, the answers `new` recorded.
 
 use std::{
-    collections::BTreeMap,
     io,
     path::{Path, PathBuf},
 };
@@ -10,9 +9,11 @@ use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use thiserror::Error;
+use toml_edit::{DocumentMut, Item};
 
 use crate::{
     file::{self, FileError},
+    policy::{render, PolicyError, PolicySpec},
     ProjectRoot,
 };
 
@@ -32,22 +33,11 @@ pub struct RingConfig {
     pub upgrade_authority_keypair: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config_authority_keypair: Option<PathBuf>,
-    /// Presence selects the policy tier, `deploy` picks the rules-configured
-    /// binary and `init` pins its table.
+    /// Presence selects the policy tier, `init` pins the compiled table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub policy: Option<PolicyTable>,
+    pub policy: Option<PolicySpec>,
     pub localnet: Urls,
     pub devnet: Urls,
-}
-
-/// Curator sources by lowercase list name, absent lists use the ring's own
-/// entries. The rule set is compiled into the deployed binary, the cli must be
-/// built with the same rule features.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PolicyTable {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub sources: BTreeMap<String, Base58Address>,
 }
 
 /// Map values take no `#[serde(with)]`, the newtype carries the codec.
@@ -71,6 +61,22 @@ impl serde::Serialize for Base58Address {
 pub enum Target {
     Localnet,
     Devnet,
+}
+
+/// One value per cluster, a missing table reads as the default.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(
+    deny_unknown_fields,
+    bound(
+        serialize = "T: Serialize + Default + PartialEq",
+        deserialize = "T: Deserialize<'de> + Default"
+    )
+)]
+pub struct PerCluster<T> {
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub localnet: T,
+    #[serde(default, skip_serializing_if = "is_default")]
+    pub devnet: T,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -126,15 +132,49 @@ pub enum ConfigError {
     HomeUnset,
     #[error("ring_rpc_pubkey {key} is not a base58 key")]
     RingRpcPubkey { key: String },
+    #[error("cannot serialize ring.toml")]
+    Serialize(#[from] toml::ser::Error),
+    #[error("cannot lay out ring.toml")]
+    Document(#[from] toml_edit::TomlError),
+    #[error(transparent)]
+    Policy(#[from] PolicyError),
 }
 
 impl Target {
+    pub const ALL: [Self; 2] = [Self::Localnet, Self::Devnet];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Localnet => "localnet",
             Self::Devnet => "devnet",
         }
     }
+}
+
+impl<T> PerCluster<T> {
+    pub fn get(&self, target: Target) -> &T {
+        match target {
+            Target::Localnet => &self.localnet,
+            Target::Devnet => &self.devnet,
+        }
+    }
+
+    pub fn get_mut(&mut self, target: Target) -> &mut T {
+        match target {
+            Target::Localnet => &mut self.localnet,
+            Target::Devnet => &mut self.devnet,
+        }
+    }
+}
+
+impl<T: Default + PartialEq> PerCluster<T> {
+    pub fn is_empty(&self) -> bool {
+        is_default(&self.localnet) && is_default(&self.devnet)
+    }
+}
+
+fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 impl RingConfig {
@@ -160,6 +200,19 @@ impl RingConfig {
             Target::Localnet => &self.localnet,
             Target::Devnet => &self.devnet,
         }
+    }
+
+    /// `ring.toml` as text, the `[policy]` table last with its comments.
+    pub fn render(&self) -> Result<String, ConfigError> {
+        let plain = Self {
+            policy: None,
+            ..self.clone()
+        };
+        let mut document: DocumentMut = toml::to_string(&plain)?.parse()?;
+        if let Some(policy) = &self.policy {
+            document.insert("policy", Item::Table(render(policy)?));
+        }
+        Ok(document.to_string())
     }
 
     /// The rest of the file stays byte for byte.
@@ -365,8 +418,24 @@ ring_rpc = "http://127.0.0.1:8785"
         let written = toml::to_string(&config).expect("serialize");
         assert!(!written.contains("upgrade_authority_keypair"));
         assert!(!written.contains("ring_rpc_pubkey"));
+        assert!(!written.contains("policy"));
         assert_eq!(
             toml::from_str::<RingConfig>(&written).expect("reparse"),
+            config
+        );
+    }
+
+    #[test]
+    fn an_empty_policy_table_selects_the_policy_tier() {
+        let text = EXAMPLE.replacen("\n[localnet]", "\n[policy]\n\n[localnet]", 1);
+        let config: RingConfig = toml::from_str(&text).expect("parse");
+        let policy = config.policy.as_ref().expect("policy tier");
+        assert!(policy.rules.is_empty());
+        assert!(policy.sources.is_empty());
+        let rendered = config.render().expect("render");
+        assert!(rendered.ends_with("[policy]\n"), "{rendered}");
+        assert_eq!(
+            toml::from_str::<RingConfig>(&rendered).expect("reparse"),
             config
         );
     }

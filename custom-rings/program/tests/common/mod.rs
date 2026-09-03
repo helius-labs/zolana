@@ -1,12 +1,17 @@
 //! Shared mollusk fixtures, each test binary uses a subset.
 #![allow(dead_code)]
 
+use bytemuck::Zeroable;
 use custom_ring_interface::{
-    tag, CreateConfigIxData, CreateEntryIxData, ReadAccessRecord, ReaderKeyBytes,
-    RingProgramConfig, SetPausedIxData, UpdateEntryIxData, CONFIG_PDA_SEED, READER_KEY_ED25519,
+    tag, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData, ReadAccessRecord,
+    ReaderKeyBytes, RingProgramConfig, SetPausedIxData, SourceSlot, SourceSpec, UpdateEntryIxData,
+    CONFIG_PDA_SEED, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519,
     READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
-use mollusk_svm::{result::ProgramResult, Mollusk};
+use mollusk_svm::{
+    result::{InstructionResult, ProgramResult},
+    Mollusk,
+};
 use pinocchio::Address;
 use solana_account::Account;
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
@@ -17,7 +22,10 @@ use zolana_interface::{
     state::{discriminator::RING_CONFIG, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_ring_policy::ListId;
+use zolana_ring_policy::{
+    ListId, ListNamespace, Rule, RuleTable, SourceMap, SourceOwner, Subject, MAX_INLINE_ASSETS,
+    MAX_SOURCES, NAMESPACE_PDA_SEED,
+};
 use zolana_tree::TreeAccount;
 
 /// A workspace deploy dir, filled by `just build-programs`.
@@ -156,22 +164,38 @@ impl Fixture {
 }
 
 pub fn setup_mollusk() -> (Mollusk, Pubkey) {
-    setup_mollusk_in("target/deploy")
-}
-
-/// The rule-featured image, one process must never mix the two deploy dirs.
-pub fn setup_mollusk_rules() -> (Mollusk, Pubkey) {
-    setup_mollusk_in("target/deploy-ring-rules")
-}
-
-fn setup_mollusk_in(deploy_dir: &str) -> (Mollusk, Pubkey) {
     let (mut mollusk, program_id) = zolana_test_utils::mollusk::mollusk_with_program(
-        &sbf_dir(deploy_dir),
+        &sbf_dir("target/deploy"),
         *program_id().as_array(),
         "custom_ring_program",
     );
     mollusk.compute_budget.compute_unit_limit = 1_400_000;
     (mollusk, program_id)
+}
+
+#[track_caller]
+fn green(mollusk: &Mollusk, fixture: &Fixture) -> InstructionResult {
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    result
+}
+
+#[track_caller]
+pub fn consumed(mollusk: &Mollusk, fixture: &Fixture) -> u64 {
+    green(mollusk, fixture).compute_units_consumed
+}
+
+/// The policy config a green run wrote.
+#[track_caller]
+pub fn stored_policy_config(mollusk: &Mollusk, fixture: &Fixture) -> PolicyConfig {
+    let written = green(mollusk, fixture)
+        .resulting_accounts
+        .into_iter()
+        .find(|(key, _)| key == &policy_config_pda().0)
+        .map(|(_, account)| account)
+        .expect("policy config account");
+    assert_eq!(written.owner, program_id());
+    *bytemuck::from_bytes(&written.data)
 }
 
 /// Arbitrary, the shared binary serves any deployment address.
@@ -277,80 +301,176 @@ pub fn auditor_pubkey(prefix: u8) -> [u8; 33] {
 }
 
 pub fn policy_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[custom_ring_interface::POLICY_CONFIG_PDA_SEED],
-        &program_id(),
-    )
+    policy_config_pda_of(program_id())
 }
 
 pub fn namespace_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[zolana_ring_policy::NAMESPACE_PDA_SEED], &program_id())
+    namespace_pda_of(program_id())
 }
 
-/// One slot per list the deployed table references, all serving the ring's
-/// own entries.
-pub fn own_source_slots(
-) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
-    let own = Address::new_from_array(namespace_pda().0.to_bytes());
-    let mut sources = [custom_ring_interface::SourceSlot {
-        list_id: 0,
-        namespace: Address::new_from_array([0; 32]),
-    }; custom_ring_interface::N_SOURCE_SLOTS];
-    for rule in custom_ring_interface::RULES.rules() {
-        for list_id in rule.referenced_lists() {
-            sources[list_id.slot()] = custom_ring_interface::SourceSlot {
-                list_id: list_id as u8,
-                namespace: own,
-            };
-        }
+fn policy_config_pda_of(ring: Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[POLICY_CONFIG_PDA_SEED], &ring)
+}
+
+fn namespace_pda_of(ring: Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[NAMESPACE_PDA_SEED], &ring)
+}
+
+pub const RELEASED_RULES: RuleTable = RuleTable::builder()
+    .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+    .rule(Rule::require(Subject::Sender, ListId::Allow))
+    .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
+    .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
+    .build();
+
+pub const PINNED_RULES: RuleTable = RuleTable::builder()
+    .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+    .rule(Rule::forbid(Subject::Sender, ListId::Frozen))
+    .rule(Rule::allow_only_assets())
+    .inline_assets(&[[3u8; 32], [4u8; 32]])
+    .build();
+
+pub const INLINE_POOL: [[u8; 32]; MAX_INLINE_ASSETS] = [
+    [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [7u8; 32], [8u8; 32],
+];
+
+/// The largest table `try_build` admits.
+pub fn largest_table() -> RuleTable {
+    ListId::ALL
+        .into_iter()
+        .map(|list_id| Rule::require(Subject::Sender, list_id))
+        .chain([
+            Rule::forbid(Subject::Sender, ListId::Allow),
+            Rule::forbid(Subject::Sender, ListId::Block),
+        ])
+        .fold(
+            RuleTable::builder()
+                .rule(Rule::allow_only_assets())
+                .inline_assets(&INLINE_POOL),
+            |builder, rule| builder.rule(rule),
+        )
+        .build()
+}
+
+pub const WARPED_SLOT: u64 = 7_777;
+
+/// One slot per list `rules` references, all serving the ring's own entries.
+pub fn own_source_slots(rules: &RuleTable) -> [SourceSlot; N_SOURCE_SLOTS] {
+    source_slots_serving(rules, namespace_pda().0)
+}
+
+/// The curator's own-mode map, one slot per list `rules` references.
+pub fn curator_source_slots(rules: &RuleTable) -> [SourceSlot; N_SOURCE_SLOTS] {
+    source_slots_serving(rules, curator_namespace_pda().0)
+}
+
+fn source_slots_serving(rules: &RuleTable, namespace: Pubkey) -> [SourceSlot; N_SOURCE_SLOTS] {
+    let namespace = Address::new_from_array(namespace.to_bytes());
+    let mut sources = [SourceSlot::zeroed(); N_SOURCE_SLOTS];
+    for list_id in rules.referenced().iter() {
+        sources[list_id.slot()] = SourceSlot {
+            list_id: list_id as u8,
+            namespace,
+        };
     }
     sources
 }
 
-/// The hash the deployed table pins over `sources`.
-pub fn policy_hash_for(
-    sources: &[custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
-) -> [u8; 32] {
-    let mut slots = [zolana_ring_policy::SourceOwner::default(); zolana_ring_policy::MAX_SOURCES];
+pub fn mixed_sources() -> [SourceSlot; N_SOURCE_SLOTS] {
+    let mut sources = own_source_slots(&RELEASED_RULES);
+    sources[ListId::Block.slot()].namespace =
+        Address::new_from_array(curator_namespace_pda().0.to_bytes());
+    sources
+}
+
+pub fn own_specs(rules: &RuleTable) -> Vec<SourceSpec> {
+    rules
+        .referenced()
+        .iter()
+        .map(|list_id| SourceSpec {
+            list_id: list_id as u8,
+            source: 0,
+        })
+        .collect()
+}
+
+pub fn specs_with_block_source(source: u8) -> Vec<SourceSpec> {
+    let mut specs = own_specs(&RELEASED_RULES);
+    for spec in &mut specs {
+        if spec.list_id == ListId::Block as u8 {
+            spec.source = source;
+        }
+    }
+    specs
+}
+
+/// The hash `rules` pins over `sources`.
+pub fn policy_hash_for(rules: &RuleTable, sources: &[SourceSlot; N_SOURCE_SLOTS]) -> [u8; 32] {
+    let mut slots = [SourceOwner::default(); MAX_SOURCES];
     for (slot, stored) in slots.iter_mut().zip(sources) {
         if stored.list_id == 0 {
             continue;
         }
-        *slot = zolana_ring_policy::SourceOwner {
+        *slot = SourceOwner {
             list_id: stored.list_id,
-            owner_hash: zolana_ring_policy::ListNamespace::new(stored.namespace.as_array())
+            owner_hash: ListNamespace::new(stored.namespace.as_array())
                 .expect("namespace owner")
                 .owner_hash,
         };
     }
-    custom_ring_interface::RULES
-        .hash(&zolana_ring_policy::SourceMap::from_slots(slots).expect("positional map"))
+    rules
+        .hash(&SourceMap::from_slots(slots).expect("positional map"))
         .expect("policy hash")
 }
 
-/// Carries the deployed table's hash, so a fixture reaches the proof.
+/// As the ring's `create_policy` wrote it.
+pub struct PolicyConfigFixture<'a> {
+    pub ring: Pubkey,
+    pub entries_tree: Pubkey,
+    pub rules: &'a RuleTable,
+    pub sources: [SourceSlot; N_SOURCE_SLOTS],
+}
+
+impl PolicyConfigFixture<'_> {
+    pub fn account(&self) -> Account {
+        let state = PolicyConfig {
+            discriminator: POLICY_CONFIG,
+            policy_hash: policy_hash_for(self.rules, &self.sources),
+            entries_tree: Address::new_from_array(self.entries_tree.to_bytes()),
+            namespace_bump: namespace_pda_of(self.ring).1,
+            bump: policy_config_pda_of(self.ring).1,
+            sources: self.sources,
+            rules: self.rules.encode(),
+            generation: 1u32.to_le_bytes(),
+            generation_slot: 0u64.to_le_bytes(),
+        };
+        Account {
+            lamports: 1_000_000_000,
+            data: bytemuck::bytes_of(&state).to_vec(),
+            owner: self.ring,
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+}
+
+/// An empty table, the fixture reaches the proof.
 pub fn initialized_policy_config_account() -> Account {
-    policy_config_account_with(own_source_slots())
+    let empty = RuleTable::empty();
+    policy_config_account_with(&empty, own_source_slots(&empty))
 }
 
 pub fn policy_config_account_with(
-    sources: [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
+    rules: &RuleTable,
+    sources: [SourceSlot; N_SOURCE_SLOTS],
 ) -> Account {
-    let state = custom_ring_interface::PolicyConfig {
-        discriminator: custom_ring_interface::POLICY_CONFIG,
-        policy_hash: policy_hash_for(&sources),
-        entries_tree: Address::new_from_array([41; 32]),
-        namespace_bump: namespace_pda().1,
-        bump: policy_config_pda().1,
+    PolicyConfigFixture {
+        ring: program_id(),
+        entries_tree: entries_tree(),
+        rules,
         sources,
-    };
-    Account {
-        lamports: 1_000_000_000,
-        data: bytemuck::bytes_of(&state).to_vec(),
-        owner: program_id(),
-        executable: false,
-        rent_epoch: 0,
     }
+    .account()
 }
 
 /// A foreign curator ring, its policy and namespace PDAs derive from this id.
@@ -359,55 +479,36 @@ pub fn curator_program_id() -> Pubkey {
 }
 
 pub fn curator_policy_config_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[custom_ring_interface::POLICY_CONFIG_PDA_SEED],
-        &curator_program_id(),
-    )
+    policy_config_pda_of(curator_program_id())
 }
 
 pub fn curator_namespace_pda() -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[zolana_ring_policy::NAMESPACE_PDA_SEED],
-        &curator_program_id(),
-    )
-}
-
-/// The curator's own-mode map, one slot per referenced list.
-pub fn curator_source_slots(
-) -> [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS] {
-    let entries = Address::new_from_array(curator_namespace_pda().0.to_bytes());
-    let mut sources = own_source_slots();
-    for slot in &mut sources {
-        if slot.list_id != 0 {
-            slot.namespace = entries;
-        }
-    }
-    sources
+    namespace_pda_of(curator_program_id())
 }
 
 pub fn initialized_curator_policy_config_account() -> Account {
-    curator_policy_config_account_with(entries_tree(), curator_source_slots())
+    curator_policy_config_account_with(entries_tree(), curator_source_slots(&RELEASED_RULES))
 }
 
 /// The loader never rechecks the curator's stored hash.
 pub fn curator_policy_config_account_with(
     entries_tree: Pubkey,
-    sources: [custom_ring_interface::SourceSlot; custom_ring_interface::N_SOURCE_SLOTS],
+    sources: [SourceSlot; N_SOURCE_SLOTS],
 ) -> Account {
-    let state = custom_ring_interface::PolicyConfig {
-        discriminator: custom_ring_interface::POLICY_CONFIG,
-        policy_hash: policy_hash_for(&sources),
-        entries_tree: Address::new_from_array(entries_tree.to_bytes()),
-        namespace_bump: curator_namespace_pda().1,
-        bump: curator_policy_config_pda().1,
+    PolicyConfigFixture {
+        ring: curator_program_id(),
+        entries_tree,
+        rules: &RELEASED_RULES,
         sources,
-    };
-    Account {
-        lamports: 1_000_000_000,
-        data: bytemuck::bytes_of(&state).to_vec(),
-        owner: curator_program_id(),
-        executable: false,
-        rent_epoch: 0,
+    }
+    .account()
+}
+
+pub fn curator_slot(account: Account) -> Slot {
+    Slot {
+        label: "curator",
+        meta: AccountMeta::new_readonly(curator_policy_config_pda().0, false),
+        account,
     }
 }
 
@@ -480,26 +581,29 @@ pub fn nullifier_root_cursor(account: &Account) -> u16 {
     u16::try_from(cursor).expect("root cursor")
 }
 
-pub fn create_policy_data(specs: &[custom_ring_interface::SourceSpec]) -> Vec<u8> {
-    let mut data = vec![custom_ring_interface::tag::CREATE_POLICY];
-    data.extend_from_slice(
-        &wincode::serialize(&custom_ring_interface::CreatePolicyIxData {
-            sources: specs.to_vec(),
-        })
-        .expect("create_policy data"),
-    );
+pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxData {
+    PolicyTableIxData {
+        sources: specs.to_vec(),
+        rules: rules.rules().iter().map(Rule::encoded).collect(),
+        inline_assets: rules.inline_assets().to_vec(),
+    }
+}
+
+pub fn policy_table_data(instruction_tag: u8, table: &PolicyTableIxData) -> Vec<u8> {
+    let mut data = vec![instruction_tag];
+    data.extend_from_slice(&wincode::serialize(table).expect("policy table data"));
     data
 }
 
 pub fn create_policy_fixture() -> Fixture {
-    create_policy_fixture_with(&[])
+    create_policy_fixture_with(&table_ix_data(&RuleTable::empty(), &[]))
 }
 
 /// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
 /// entries_tree, system_program, program, program_data]`, curators trail.
-pub fn create_policy_fixture_with(specs: &[custom_ring_interface::SourceSpec]) -> Fixture {
+pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
-        create_policy_data(specs),
+        policy_table_data(tag::CREATE_POLICY, table),
         vec![
             Slot {
                 label: "payer",
@@ -522,6 +626,36 @@ pub fn create_policy_fixture_with(specs: &[custom_ring_interface::SourceSpec]) -
                 account: entries_tree_account(),
             },
             system_program_slot(),
+            Slot {
+                label: "program",
+                meta: AccountMeta::new_readonly(program_id(), false),
+                account: mollusk_svm::program::create_program_account_loader_v3(&program_id()),
+            },
+            Slot {
+                label: "program_data",
+                meta: AccountMeta::new_readonly(program_data_pda(), false),
+                account: program_data_account(Some(&authority())),
+            },
+        ],
+    )
+}
+
+/// Green `set_policy_rules` fixture, `[authority(s), policy_config(w), program,
+/// program_data]`, curators trail.
+pub fn set_policy_rules_fixture(policy_config: Account, table: &PolicyTableIxData) -> Fixture {
+    Fixture::new(
+        policy_table_data(tag::SET_POLICY_RULES, table),
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "policy_config",
+                meta: AccountMeta::new(policy_config_pda().0, false),
+                account: policy_config,
+            },
             Slot {
                 label: "program",
                 meta: AccountMeta::new_readonly(program_id(), false),

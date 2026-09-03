@@ -6,22 +6,21 @@ pub mod audit;
 pub mod audit_verifying_key;
 pub mod instruction;
 pub mod public_input;
-pub mod rules;
 pub mod state;
 #[cfg(feature = "verifying-keys")]
 pub mod verifying_key;
 
 pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
 pub use instruction::{
-    tag, CreateConfigIxData, CreateEntryIxData, CreatePolicyIxData, CustomRingProof,
-    CustomRingTransactIxData, ReaderIxData, SetPausedIxData, SetPolicySourceIxData, SourceSpec,
+    tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,
+    PolicyTableIxData, ReaderIxData, SetPausedIxData, SetPolicySourceIxData, SourceSpec,
     UpdateEntryIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
     READ_ACCESS_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 pub use public_input::CustomRingPublicInput;
-pub use rules::RULES;
 pub use state::{
     PolicyConfig, ReadAccessRecord, RingProgramConfig, SourceSlot, CONFIG_PDA_SEED, N_SOURCE_SLOTS,
     POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
