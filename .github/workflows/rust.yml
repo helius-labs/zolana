@@ -244,8 +244,6 @@ jobs:
           path: |
             target/nextest-archives/
             target/deploy/*.so
-            target/deploy-ring-rules/*.so
-            target/deploy-ring-blocklist/*.so
             target/debug/zolana
             target/debug/xtask
             target/prover-server
@@ -296,6 +294,9 @@ jobs:
             runner: ubuntu-latest
           - name: custom-ring policy rules
             recipe: test-custom-ring-rules
+            runner: ubuntu-latest
+          - name: custom-ring policy re-pin
+            recipe: test-custom-ring-repin
             runner: ubuntu-latest
           - name: rfq settlement
             recipe: test-rfq-validator
