@@ -91,20 +91,12 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
     let zero = [0u8; 32];
 
     let payer_bytes = env.payer.pubkey().to_bytes();
-    let payer_blinding: [u8; 32] = [7u8; 32];
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
-    let payer_utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding: payer_blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
+    let payer_owner = PublicKey::from_ed25519(&payer_bytes);
+    let payer_owner_field = owner_hash(&payer_owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
     let shield_view_tag = shield_data.view_tag;
     let shield_ix = Deposit {
         tree: env.tree_pubkey,
@@ -121,8 +113,23 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
     )?;
     print_signature("deposit", &shield_sig);
 
-    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, shield_sig);
+    // A proofless deposit publishes the SPP-derived blinding in the clear, so
+    // Photon's indexed output carries it.
+    let deposited = indexed_deposit
+        .output_slot
+        .proofless_output()
+        .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
+    let payer_utxo = Utxo {
+        owner: payer_owner,
+        asset: Address::new_from_array(deposited.asset),
+        amount: deposited.amount,
+        blinding: deposited.blinding,
+        ring_program_id: None,
+        data: Data::default(),
+    };
+    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
+    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     assert_eq!(indexed_deposit.output_slot.view_tag, shield_view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
     assert_eq!(

@@ -212,17 +212,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
     };
 
     for deposit_index in 0..2 {
-        let blinding = stress_blinding(deposit_index);
-        let utxo = Utxo {
-            owner: ctx.payer_public_key,
-            asset: SOL_MINT,
-            amount: AMOUNT,
-            blinding,
-            ring_program_id: None,
-            data: Data::default(),
-        };
-        let shield_data =
-            ZolanaProgramTest::sol_shield_data(AMOUNT, ctx.payer_owner_field, blinding);
+        let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, ctx.payer_owner_field);
         let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: env.tree_pubkey,
@@ -239,13 +229,28 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
         )?;
         print_signature(&format!("seed_deposit_{deposit_index}"), &sig);
 
+        let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, sig);
+        // A proofless deposit publishes the SPP-derived blinding in the clear,
+        // so Photon's indexed output carries it.
+        let deposited = indexed_deposit
+            .output_slot
+            .proofless_output()
+            .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
+        let utxo = Utxo {
+            owner: ctx.payer_public_key,
+            asset: Address::new_from_array(deposited.asset),
+            amount: deposited.amount,
+            blinding: deposited.blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
         let spendable_utxo = RealSpendUtxo::new(
             utxo,
             &ctx.payer_nullifier_key,
             &ctx.payer_nullifier_pk,
             &zero,
         )?;
-        let indexed_deposit = wait_for_indexed_utxo(&env.indexer, shield_view_tag, sig);
         assert_eq!(
             indexed_deposit.output_slot.output_context.hash,
             spendable_utxo.hash

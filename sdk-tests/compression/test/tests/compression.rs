@@ -73,7 +73,6 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     let attacker = ShieldedKeypair::new_ed25519()?;
     env.rpc.airdrop(&attacker.pubkey(), 10_000_000_000)?;
     let attacker_address = attacker.shielded_address()?;
-    let blinding = random_blinding();
     let deposit_ix = Deposit {
         tree: env.tree,
         depositor: attacker.pubkey(),
@@ -81,7 +80,6 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
             asset: DepositAsset::Sol,
             view_tag: attacker_address.confidential_view_tag()?,
             owner: attacker_address.owner_hash()?,
-            blinding,
             amount: POISON_AMOUNT,
             utxo_data: None,
             memo: None,
@@ -89,22 +87,32 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     }
     .instruction()?;
     let deposit_signature = send_from(env, deposit_ix, &attacker, None)?;
-    wait_for_indexed_utxo(
+    // SPP derives the blinding from the leaf index the output lands at, and a
+    // proofless deposit publishes it in the clear, so the UTXO is read back
+    // from the indexer.
+    let deposited = wait_for_indexed_utxo(
         &env.indexer,
         attacker_address.confidential_view_tag()?,
         deposit_signature,
-    );
+    )
+    .output_slot
+    .proofless_output()
+    .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
 
     let spend = SppProofInputUtxo::new(
         Utxo {
             owner: attacker.signing_pubkey(),
-            asset: SOL_MINT,
-            amount: POISON_AMOUNT,
-            blinding,
+            asset: Address::new_from_array(deposited.asset),
+            amount: deposited.amount,
+            blinding: deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
         &attacker,
+    );
+    assert_eq!(
+        (spend.utxo.asset, spend.utxo.amount),
+        (SOL_MINT, POISON_AMOUNT)
     );
     wait_for_merkle_proof(&env.indexer, env.tree, spend.hash()?);
 

@@ -17,6 +17,7 @@ pub(crate) struct ProoflessOutputCtx {
 
 pub(crate) fn proofless_output_utxo<'a>(
     entry: DepositEntryRef<'a>,
+    blinding: &'a [u8; 32],
     ctx: ProoflessOutputCtx,
 ) -> OutputUtxo {
     let (data_hash, utxo_data) = match entry.utxo_data {
@@ -25,7 +26,7 @@ pub(crate) fn proofless_output_utxo<'a>(
     };
     let data = encode_output_data_ref(ProoflessOutputRef {
         owner: entry.owner,
-        blinding: entry.blinding,
+        blinding,
         asset: &ctx.asset,
         amount: entry.amount,
         data_hash,

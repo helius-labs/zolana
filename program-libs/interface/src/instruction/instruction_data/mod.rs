@@ -16,9 +16,10 @@ pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedPr
 #[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{
-    DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
-    EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry, RingDepositEntryRef,
-    RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
+    deposit_blinding, DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData,
+    DepositIxDataRef, EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef,
+    DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{

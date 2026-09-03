@@ -43,6 +43,14 @@ Breaking
   to set tree fees and claim tree lamports, and update exhaustive matches.
 - `decodeProtocolConfig` reads a 166-byte account and returns `feeAuthority` and
   `nextTreeId` → a config account written before this release no longer decodes.
+- `DepositEntry` and `AssetDeposit` drop their `blinding` member and
+  `getDepositInstructionAsync` no longer encodes it → stop passing a blinding,
+  because the shielded pool now derives it from the tree and the leaf index the
+  output lands at, and an entry that still encodes one no longer decodes.
+- The `Deposit` a deposit builder returns drops its `utxoHash` member → read the
+  deposited UTXO from the indexer after the deposit lands, since the blinding,
+  and therefore the hash, depend on the leaf index assigned when the transaction
+  executes.
 
 Added
 
@@ -70,6 +78,10 @@ Added
   accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
   the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
   locate both in the account. `CreateTreeData` names the create-tree payload.
+- `depositBlinding(tree, leafIndex)` recomputes the blinding the shielded pool
+  derives for a deposit output, so a caller that does not want to trust an
+  indexer can verify a deposited UTXO against the tree and leaf index alone.
+  Reading the indexed UTXO remains the normal way to spend a deposit.
 
 Changed
 
@@ -85,6 +97,10 @@ Fixed
 
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
+- A deposit could be given a blinding that already belonged to another deposit,
+  which produced a duplicate UTXO hash and nullifier and left the second UTXO
+  unspendable; the shielded pool now derives every deposit blinding from the
+  tree and the leaf index, so each deposit is unique.
 
 ## 0.1.5-alpha — 2026-09-01
 

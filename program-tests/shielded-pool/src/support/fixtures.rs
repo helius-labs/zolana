@@ -32,14 +32,13 @@ pub fn raw_sol_deposit(
     depositor: &Keypair,
     accounts: Vec<AccountMeta>,
 ) -> Result<(), ProgramTestError> {
-    let deposit = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
+    let deposit = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
     let ix_data = DepositIxData {
         assets: vec![DepositAssetKind::Sol],
         deposits: vec![DepositEntry {
             asset_index: 0,
             view_tag: deposit.view_tag,
             owner: deposit.owner,
-            blinding: deposit.blinding,
             amount: deposit.amount,
             utxo_data: deposit.utxo_data,
             memo: deposit.memo,

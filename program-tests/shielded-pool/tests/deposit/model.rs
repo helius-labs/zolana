@@ -89,10 +89,7 @@ proptest! {
 fn model_deposit_data(step: usize, amount: u64) -> zolana_interface::instruction::AssetDeposit {
     let mut owner = [0u8; 32];
     owner[24..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
-    let mut blinding = [0u8; 32];
-    blinding[1] = 0x4d;
-    blinding[24..].copy_from_slice(&(step as u64 + 1).to_be_bytes());
-    let mut data = ZolanaProgramTest::sol_shield_data(amount, owner, blinding);
+    let mut data = ZolanaProgramTest::sol_shield_data(amount, owner);
     data.memo = Some(format!("model-step-{step}").into_bytes());
     data
 }

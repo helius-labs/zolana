@@ -156,6 +156,8 @@ pub enum ShieldedPoolError {
     NonCanonicalRoot = 7061,
     #[error("tree holds no lamports above its rent, fee balance, and working capital")]
     NoClaimableTreeLamports = 7062,
+    #[error("deposit blinding derivation failed")]
+    DepositBlindingDerivationFailed = 7063,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -261,6 +263,7 @@ mod tests {
                 NonCanonicalDepositField => 7060,
                 NonCanonicalRoot => 7061,
                 NoClaimableTreeLamports => 7062,
+                DepositBlindingDerivationFailed => 7063,
             }
         }
 
@@ -326,6 +329,7 @@ mod tests {
             NonCanonicalDepositField,
             NonCanonicalRoot,
             NoClaimableTreeLamports,
+            DepositBlindingDerivationFailed,
         ];
         for variant in variants {
             assert_eq!(
@@ -335,6 +339,6 @@ mod tests {
             );
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 59, "variant count drifted");
+        assert_eq!(variants.len(), 60, "variant count drifted");
     }
 }

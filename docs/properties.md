@@ -67,6 +67,8 @@
 2. **deposit**
     1. produces a well formed UTXO that is appended to the Merkle tree
     2. transfers correct deposited asset amount
+    3. every appended leaf is unique across all deposits: the blinding is derived
+       from the tree and the leaf index, never supplied by the depositor
 3. **merge**
     1. merge must be enabled in registry account 
 4. **ring instructions**

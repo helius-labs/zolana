@@ -68,7 +68,6 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
       .u8(deposit.assetIndex, "deposit.assetIndex")
       .bytes(deposit.viewTag, 32, "deposit.viewTag")
       .bytes(deposit.recipientOwnerHash, 32, "deposit.recipientOwnerHash")
-      .bytes(deposit.blinding, 32, "deposit.blinding")
       .u64(deposit.amount, "deposit.amount")
       .option(deposit.utxoData, (output, data) => {
         output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");

@@ -10,8 +10,8 @@ use solana_transaction::Transaction as SolanaTransaction;
 use zolana_interface::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress};
-use zolana_transaction::{ProofInputUtxo, SOL_MINT};
+use zolana_keypair::ShieldedAddress;
+use zolana_transaction::SOL_MINT;
 
 use zolana_client::{
     error::ClientError,
@@ -21,11 +21,12 @@ use zolana_client::{
 /// Prepared direct proofless SOL shield.
 ///
 /// This owns the recipient-derived deposit material so callers do not need to
-/// manually coordinate salt, blinding, owner commitment, and UTXO hash rules.
+/// manually coordinate salt, owner commitment, and UTXO hash rules. SPP derives
+/// the blinding from the leaf index the output lands at, so the UTXO hash is
+/// only known once the transaction executes; read the indexed UTXO to spend it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Deposit {
     pub deposit: AssetDeposit,
-    pub utxo_hash: [u8; 32],
     pub asset: Address,
 }
 
@@ -42,14 +43,11 @@ pub struct DepositParams<'a> {
 
 impl Deposit {
     pub fn new(request: DepositParams<'_>) -> Result<Self, ClientError> {
-        // Fresh blinding is sent in the clear; the recipient `owner` commitment
-        // is derived from public address material, so a third-party depositor
-        // needs no shared secret and the recipient spends the note directly.
+        // The recipient `owner` commitment is derived from public address
+        // material, so a third-party depositor needs no shared secret and the
+        // recipient spends the UTXO directly.
         let owner = request.recipient.owner_hash()?;
-        let blinding = random_blinding();
         let view_tag = request.recipient.viewing_pubkey.x();
-        let utxo_hash =
-            ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
         Ok(Self {
             deposit: AssetDeposit {
                 asset: deposit_asset(
@@ -59,12 +57,10 @@ impl Deposit {
                 )?,
                 view_tag,
                 owner,
-                blinding,
                 amount: request.amount,
                 utxo_data: None,
                 memo: request.memo,
             },
-            utxo_hash,
             asset: request.asset,
         })
     }
@@ -252,13 +248,10 @@ mod tests {
         let payer = Keypair::new();
         let depositor = Keypair::new();
         let tree = Pubkey::new_unique();
-        let mut blinding = [3u8; 32];
-        blinding[0] = 0;
         let entry = AssetDeposit {
             asset: DepositAsset::Sol,
             view_tag: [1u8; 32],
             owner: [2u8; 32],
-            blinding,
             amount: 1_000,
             utxo_data: None,
             memo: Some(b"thanks".to_vec()),
@@ -296,9 +289,7 @@ mod tests {
 
         assert_eq!(prepared.deposit.view_tag, recipient.viewing_pubkey().x());
         assert_eq!(prepared.deposit.amount, 1_000);
-        assert_ne!(prepared.deposit.blinding, [0u8; 32]);
         assert_ne!(prepared.deposit.owner, [0u8; 32]);
-        assert_ne!(prepared.utxo_hash, [0u8; 32]);
     }
 
     #[tokio::test]

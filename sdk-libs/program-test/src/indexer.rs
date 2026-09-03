@@ -7,11 +7,11 @@ use thiserror::Error;
 use zolana_event::{encode_encrypted_ring_deposit_output, proofless_output, GeneralEvent};
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
-use zolana_keypair::P256Pubkey;
+use zolana_keypair::{P256Pubkey, PublicKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_transaction::{
-    owner_utxo_hash, Address, OutputContext, OutputSlot, ProofInputUtxo, ShieldedTransaction,
-    TransactionError,
+    owner_utxo_hash, Address, Data, DataRecord, OutputContext, OutputSlot, ProofInputUtxo,
+    ShieldedTransaction, TransactionError, Utxo,
 };
 
 #[derive(Debug, Error)]
@@ -29,6 +29,8 @@ pub enum IndexerError {
     MerkleTree(String),
     #[error("invalid proofless deposit payload in event")]
     InvalidProoflessPayload,
+    #[error("no indexed output with utxo_hash {0:?}")]
+    UnknownUtxoHash([u8; 32]),
 }
 
 /// One indexed shielded output.
@@ -233,6 +235,40 @@ impl TestIndexer {
 
     pub fn utxos(&self) -> &[IndexedUtxo] {
         &self.utxos
+    }
+
+    pub fn fetch_by_utxo_hash(&self, target: &[u8; 32]) -> Option<&IndexedUtxo> {
+        self.utxos.iter().find(|utxo| &utxo.utxo_hash == target)
+    }
+
+    /// The spendable [`Utxo`] the indexed proofless deposit at `utxo_hash`
+    /// reconstructs to. A proofless deposit publishes asset, amount and the
+    /// SPP-derived blinding in the clear, so `owner` -- committed to only as a
+    /// hash -- is the one field the indexed record cannot supply.
+    pub fn deposit_utxo(
+        &self,
+        utxo_hash: &[u8; 32],
+        owner: PublicKey,
+    ) -> Result<Utxo, IndexerError> {
+        let output = self
+            .fetch_by_utxo_hash(utxo_hash)
+            .ok_or(IndexerError::UnknownUtxoHash(*utxo_hash))?
+            .proofless()
+            .ok_or(IndexerError::InvalidProoflessPayload)?;
+        let records = output
+            .memo
+            .clone()
+            .map(DataRecord::Memo)
+            .into_iter()
+            .collect();
+        Ok(Utxo {
+            owner,
+            asset: Address::new_from_array(output.asset),
+            amount: output.amount,
+            blinding: output.blinding,
+            ring_program_id: None,
+            data: Data::new(records),
+        })
     }
 
     fn append_output_slot(

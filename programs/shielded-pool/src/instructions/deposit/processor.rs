@@ -7,7 +7,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::SplTransfer,
     instruction::{
-        DepositAssetKind, DepositEntryRef, DepositIxDataRef, RingDepositEntryRef,
+        deposit_blinding, DepositAssetKind, DepositEntryRef, DepositIxDataRef, RingDepositEntryRef,
         RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -38,7 +38,6 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
     match entry {
         ProcessingEntry::Default(entry) => {
             check_field_element(entry.owner, "deposit owner", index, error)?;
-            check_field_element(entry.blinding, "deposit blinding", index, error)?;
             if let Some(utxo_data) = entry.utxo_data {
                 check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
             }
@@ -106,6 +105,13 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
 
+    // Loaded before hashing because every entry's blinding is derived from the
+    // leaf index it lands at.
+    let mut tree =
+        TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+    let first_output_leaf_index = tree.utxo_tree().next_index();
+
     let mut asset_sums: ArrayMap<u8, u64, MAX_DEPOSIT_ASSETS> = ArrayMap::new();
     let mut outputs = Vec::with_capacity(entry_count);
     let mut utxo_hashes = Vec::with_capacity(entry_count);
@@ -121,11 +127,26 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             .get(usize::from(asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
+        // (tree, leaf index) never repeats, so no two deposits share a blinding,
+        // hence none share a utxo_hash or a nullifier. The ring rail commits to
+        // its own blinding inside `owner_utxo_hash` and never exposes it here.
+        let blinding = if HAS_RING {
+            zero
+        } else {
+            let leaf_index = u64::try_from(entry_index)
+                .ok()
+                .and_then(|offset| first_output_leaf_index.checked_add(offset))
+                .ok_or(ShieldedPoolError::StateAppendFailed)?;
+            deposit_blinding(&output_tree, leaf_index).map_err(caused_by(
+                ShieldedPoolError::DepositBlindingDerivationFailed,
+            ))?
+        };
+
         let (data_hash, ring_data_hash, owner_utxo_hash) = match processing_entry {
             ProcessingEntry::Default(entry) => {
                 let data_hash = entry.utxo_data.map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
-                    Poseidon::hashv(&[entry.owner.as_slice(), entry.blinding.as_slice()]).map_err(
+                    Poseidon::hashv(&[entry.owner.as_slice(), blinding.as_slice()]).map_err(
                         caused_by(ShieldedPoolError::TransactProofVerificationFailed),
                     )?;
                 (data_hash, &zero, owner_utxo_hash)
@@ -166,7 +187,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             asset: group.asset,
         };
         outputs.push(match processing_entry {
-            ProcessingEntry::Default(entry) => proofless_output_utxo(entry, output_ctx),
+            ProcessingEntry::Default(entry) => proofless_output_utxo(entry, &blinding, output_ctx),
             ProcessingEntry::Ring(entry) => encrypted_ring_output_utxo(
                 entry,
                 output_ctx,
@@ -174,11 +195,6 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ),
         });
     }
-
-    let mut tree =
-        TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-            .map_err(ShieldedPoolError::from)?;
-    let first_output_leaf_index = tree.utxo_tree().next_index();
 
     // One batch append: only the last leaf hashes up to the root, so a batch
     // costs one root recomputation instead of one per entry.

@@ -35,7 +35,6 @@ export interface DepositEntry {
   readonly assetIndex: number;
   readonly viewTag: Bytes32;
   readonly recipientOwnerHash: Bytes32;
-  readonly blinding: Bytes32;
   readonly amount: bigint;
   readonly utxoData?: UtxoData;
   readonly memo?: Uint8Array;

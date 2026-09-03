@@ -108,23 +108,22 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     let record = write_user_record(&mut env.rpc, payer_pk, None, true);
 
     // The real input: a zero-value SOL deposit owned by the payer's shielded
-    // address (fixed blinding / nullifier secret keep the run deterministic).
-    let blinding = test_blinding(7);
+    // address (SPP derives the deposit blinding; a fixed nullifier secret keeps
+    // the run deterministic).
     let nullifier_key = keypair.nullifier_key();
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = keypair.signing_pubkey();
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
-    let utxo = Utxo {
-        owner: owner_public_key,
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    env.rpc
-        .deposit_sol(&tree, &payer, 0, owner_field, blinding)
+    let event = env
+        .rpc
+        .deposit_sol(&tree, &payer, 0, owner_field)
         .expect("proofless zero deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner_public_key)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     // Merkle witnesses against the on-chain roots, gated on the local trees.
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");

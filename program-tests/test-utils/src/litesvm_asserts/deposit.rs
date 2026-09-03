@@ -2,7 +2,7 @@
 
 use solana_pubkey::Pubkey;
 use zolana_hasher::Poseidon;
-use zolana_interface::instruction::AssetDeposit;
+use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
 use zolana_interface::{pda, state::STATE_HEIGHT};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
@@ -77,6 +77,7 @@ struct ExpectedSolDeposit {
 /// observable state against it after every action. The model does not call the
 /// production deposit builder or recompute state from emitted events.
 pub struct SolDepositOracle {
+    tree: Pubkey,
     initial: SolDepositSnapshot,
     accepted: Vec<ExpectedSolDeposit>,
     expected_tree: MerkleTree<Poseidon>,
@@ -97,6 +98,7 @@ impl SolDepositOracle {
             "expected deposit tree matches initial on-chain root"
         );
         Self {
+            tree: *tree,
             initial,
             accepted: Vec::new(),
             expected_tree,
@@ -110,23 +112,28 @@ impl SolDepositOracle {
             .utxo_data
             .as_ref()
             .map_or([0u8; 32], |utxo_data| utxo_data.data_hash);
-        let expected_hash = ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &data.blinding)
-            .expect("model deposit fields")
-            .with_data_hash(data_hash)
-            .hash()
-            .expect("model deposit hash");
+        // Recomputed rather than echoed: the depositor supplies no blinding, SPP
+        // derives it from the tree and the leaf index the output lands at.
+        let expected_blinding = deposit_blinding(&self.tree.to_bytes(), expected_leaf as u64)
+            .expect("model deposit blinding");
+        let expected_hash =
+            ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &expected_blinding)
+                .expect("model deposit fields")
+                .with_data_hash(data_hash)
+                .hash()
+                .expect("model deposit hash");
         assert_eq!(event.leaf_index, expected_leaf as u64, "event leaf order");
         assert_eq!(event.utxo_hash, expected_hash, "event UTXO hash");
         assert_eq!(event.view_tag, data.view_tag, "event view tag");
         assert_eq!(event.output.owner, data.owner, "event owner");
-        assert_eq!(event.output.blinding, data.blinding, "event blinding");
+        assert_eq!(event.output.blinding, expected_blinding, "event blinding");
         assert_eq!(event.output.amount, data.amount, "event amount");
         assert_eq!(event.output.asset, [0u8; 32], "SOL event asset");
         assert_eq!(event.output.memo, data.memo, "event memo");
         self.accepted.push(ExpectedSolDeposit {
             view_tag: data.view_tag,
             owner: data.owner,
-            blinding: data.blinding,
+            blinding: expected_blinding,
             amount: data.amount,
             memo: data.memo.clone(),
             utxo_hash: expected_hash,
@@ -229,6 +236,11 @@ pub struct DepositAssertArgs<'a, A: ?Sized> {
     pub expected_amount: u64,
     pub expected_asset: [u8; 32],
     pub root_before: [u8; 32],
+    /// Indexed-output count captured before the deposit, so the expected leaf
+    /// index (and the blinding SPP derives from it) never comes from the event
+    /// under test. Keyed on the event, this assert could not catch a wrong leaf
+    /// index.
+    pub indexed_outputs_before: usize,
     pub authority: &'a A,
 }
 
@@ -245,13 +257,20 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
         expected_amount,
         expected_asset,
         root_before,
+        indexed_outputs_before,
         authority,
     } = args;
+    let expected_leaf_index = indexed_outputs_before as u64;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(event.output.asset, expected_asset, "event asset");
     assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(event.output.blinding, data.blinding, "blinding");
+    assert_eq!(event.leaf_index, expected_leaf_index, "leaf index");
+    assert_eq!(
+        event.output.blinding,
+        deposit_blinding(&tree.to_bytes(), expected_leaf_index).expect("expected deposit blinding"),
+        "blinding"
+    );
     assert_eq!(
         event.output.memo, data.memo,
         "event memo mirrors instruction data"

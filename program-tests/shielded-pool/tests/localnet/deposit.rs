@@ -54,12 +54,8 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let direct_keypair = ShieldedKeypair::new_p256()?;
     let mut direct_recipient =
         Wallet::new(direct_keypair.shielded_address()?, AssetRegistry::default())?;
-    let direct_data = ZolanaProgramTest::wallet_sol_shield_data(
-        DEPOSIT_LAMPORTS,
-        &direct_recipient.identity,
-        &[3u8; 32],
-        0,
-    )?;
+    let direct_data =
+        ZolanaProgramTest::wallet_sol_shield_data(DEPOSIT_LAMPORTS, &direct_recipient.identity)?;
     let direct_root_before = rpc_state_root(&rpc, &tree)?;
     let direct_ix = Deposit {
         tree,

@@ -4,7 +4,7 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{instruction::UpdateProtocolConfigData, pda, state::SplAssetRegistry};
 use zolana_keypair::ShieldedKeypair;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_create_spl_interface, litesvm_assert_spl_deposit, SplDepositAssertArgs,
 };
@@ -147,17 +147,12 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let data = ZolanaProgramTest::wallet_spl_shield_data(
-        400_000,
-        &recipient.identity,
-        &[7u8; 32],
-        0,
-        &mint,
-        &user_token,
-    )
-    .expect("SPL deposit data");
+    let data =
+        ZolanaProgramTest::wallet_spl_shield_data(400_000, &recipient.identity, &mint, &user_token)
+            .expect("SPL deposit data");
     let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
+    let indexed_outputs_before = pool.rpc.indexer().utxos().len();
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
     let user_before = pool
         .rpc
@@ -182,6 +177,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
             vault_before,
             user_token_before: user_before,
             root_before,
+            indexed_outputs_before,
             authority: &KeypairWalletAuthority::new(Address::default(), &recipient_key),
         },
     );
@@ -215,7 +211,6 @@ fn token_2022_interface_and_proofless_deposit_settle() {
     let data = ZolanaProgramTest::spl_shield_data_with_program(
         400,
         [1u8; 32],
-        test_blinding(7),
         &mint,
         &source,
         token_program,

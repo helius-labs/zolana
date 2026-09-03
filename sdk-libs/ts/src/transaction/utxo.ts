@@ -62,6 +62,38 @@ export function deriveBlinding(seed: Bytes32, position: number): Blinding {
   return blinding as Blinding;
 }
 
+const DEPOSIT_BLINDING_DOMAIN = new TextEncoder().encode("Deposit");
+
+/**
+ * Blinding SPP derives for the proofless `deposit` output landing at
+ * `leafIndex` in `tree`. Mirrors Rust `deposit_blinding`. The pair never
+ * repeats, so no two deposits share a blinding, hence none share a UTXO hash or
+ * a nullifier. A depositor supplies none.
+ *
+ * This is the verification path, not the normal client path. A proofless
+ * deposit's output is plaintext, so the blinding comes back with the indexed
+ * UTXO and a client reads it from the indexer. Recompute it here only to check
+ * an indexed record without trusting the indexer, given the `output_tree` and
+ * `leafIndex` the deposit settled at. `leafIndex` is assigned during execution,
+ * so a client that predicts it before sending races every other deposit into
+ * the same tree.
+ */
+export function depositBlinding(tree: Address, leafIndex: bigint): Blinding {
+  if (leafIndex < 0n || leafIndex > 0xffff_ffff_ffff_ffffn) {
+    throw new TransactionError("TRANSACTION_INVALID_POSITION", {
+      position: leafIndex.toString(),
+    });
+  }
+  const index = new Uint8Array(8);
+  new DataView(index.buffer).setBigUint64(0, leafIndex, false);
+  const digest = sha256Bytes(
+    Uint8Array.from([...DEPOSIT_BLINDING_DOMAIN, ...decodeAddress(tree), ...index]),
+  );
+  const blinding = new Uint8Array(32);
+  blinding.set(digest.subarray(1), 1);
+  return blinding as Blinding;
+}
+
 function commitmentFields(
   input: Readonly<{
     domain?: number;

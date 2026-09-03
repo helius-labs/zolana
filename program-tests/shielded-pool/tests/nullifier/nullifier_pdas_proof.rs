@@ -13,7 +13,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, Rejection, Rpc, TransactionTrace};
+use zolana_program_test::{Rejection, Rpc, TransactionTrace};
 use zolana_test_utils::{
     nullifier_pda::{
         assert_nullifier_pda, assert_tree_lamports_after_spend, forester_fee_for_inputs,
@@ -27,7 +27,7 @@ use zolana_test_utils::{
         spend_input, SpendInputArgs, TransferProverInputsArgs,
     },
 };
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
 
@@ -36,7 +36,6 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
@@ -44,17 +43,16 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .owner_proof_input_hash()
         .expect("owner pk hash");
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
-    let utxo = Utxo {
-        owner: owner_public_key,
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    env.rpc
-        .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
+    let event = env
+        .rpc
+        .deposit_sol(&env.tree, &payer, 0, owner_field)
         .expect("proofless zero deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner_public_key)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);

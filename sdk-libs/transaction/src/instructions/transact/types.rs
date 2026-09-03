@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{MessageData, OutputDataEncoding};
+use zolana_event::{MessageData, OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
 
@@ -8,6 +8,7 @@ use super::external_data::ExternalData;
 use crate::{
     data::{Data, DataRecord},
     error::TransactionError,
+    serialization::{proofless::Proofless, scheme::EncryptedScheme, UtxoSerialization},
     utxo::{Blinding, ProofInputUtxo, Utxo},
 };
 
@@ -235,6 +236,22 @@ pub struct OutputSlot {
 impl OutputSlot {
     pub fn output_data(&self) -> Option<OutputDataEncoding> {
         OutputDataEncoding::try_from_slice(&self.payload).ok()
+    }
+
+    /// The UTXO a proofless deposit publishes in the clear: owner hash, asset,
+    /// amount and the SPP-derived blinding. Proofless is the one output kind
+    /// with no ciphertext, so this is how a depositor whose recipient holds no
+    /// viewing key (a program PDA) reads the deposited UTXO back from an
+    /// indexer. `None` for every encrypted output kind.
+    pub fn proofless_output(&self) -> Option<ProoflessOutput> {
+        let OutputDataEncoding::Plaintext(blob) = self.output_data()? else {
+            return None;
+        };
+        let (&scheme, body) = blob.split_first()?;
+        if EncryptedScheme::from_byte(scheme).ok()? != EncryptedScheme::Proofless {
+            return None;
+        }
+        Proofless::deserialize(body).ok()
     }
 }
 

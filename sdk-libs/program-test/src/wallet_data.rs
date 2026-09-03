@@ -16,22 +16,29 @@ pub(crate) fn wallet_shield_fields(
     blinding_seed: &[u8; 32],
     position: u8,
 ) -> Result<WalletShieldFields, ProgramTestError> {
-    let blinding = derive_blinding(blinding_seed, position);
-    let owner = recipient.owner_hash().map_err(TransactionError::from)?;
+    let (view_tag, owner) = wallet_shield_identity(recipient)?;
     Ok(WalletShieldFields {
-        view_tag: recipient.viewing_pubkey.x(),
+        view_tag,
         owner,
-        blinding,
+        blinding: derive_blinding(blinding_seed, position),
     })
 }
 
+/// The public recipient material a proofless deposit carries. SPP derives the
+/// blinding itself, so the plain `deposit` rail needs nothing else.
+pub(crate) fn wallet_shield_identity(
+    recipient: &ShieldedAddress,
+) -> Result<([u8; 32], [u8; 32]), ProgramTestError> {
+    let owner = recipient.owner_hash().map_err(TransactionError::from)?;
+    Ok((recipient.viewing_pubkey.x(), owner))
+}
+
 impl ZolanaProgramTest {
-    pub fn sol_shield_data(lamports: u64, owner: [u8; 32], blinding: [u8; 32]) -> AssetDeposit {
+    pub fn sol_shield_data(lamports: u64, owner: [u8; 32]) -> AssetDeposit {
         AssetDeposit {
             asset: DepositAsset::Sol,
             view_tag: [0u8; 32],
             owner,
-            blinding,
             amount: lamports,
             utxo_data: None,
             memo: None,
@@ -41,14 +48,12 @@ impl ZolanaProgramTest {
     pub fn spl_shield_data(
         amount: u64,
         owner: [u8; 32],
-        blinding: [u8; 32],
         mint: &Pubkey,
         user_token: &Pubkey,
     ) -> AssetDeposit {
         Self::spl_shield_data_with_program(
             amount,
             owner,
-            blinding,
             mint,
             user_token,
             Self::token_program_id(),
@@ -58,7 +63,6 @@ impl ZolanaProgramTest {
     pub fn spl_shield_data_with_program(
         amount: u64,
         owner: [u8; 32],
-        blinding: [u8; 32],
         mint: &Pubkey,
         user_token: &Pubkey,
         token_program: Pubkey,
@@ -67,7 +71,6 @@ impl ZolanaProgramTest {
             asset: Self::spl_asset_with_program(mint, user_token, token_program),
             view_tag: [0u8; 32],
             owner,
-            blinding,
             amount,
             utxo_data: None,
             memo: None,
@@ -77,15 +80,12 @@ impl ZolanaProgramTest {
     pub fn wallet_sol_shield_data(
         lamports: u64,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; 32],
-        position: u8,
     ) -> Result<AssetDeposit, ProgramTestError> {
-        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
+        let (view_tag, owner) = wallet_shield_identity(recipient)?;
         Ok(AssetDeposit {
             asset: DepositAsset::Sol,
-            view_tag: fields.view_tag,
-            owner: fields.owner,
-            blinding: fields.blinding,
+            view_tag,
+            owner,
             amount: lamports,
             utxo_data: None,
             memo: None,
@@ -95,17 +95,14 @@ impl ZolanaProgramTest {
     pub fn wallet_spl_shield_data(
         amount: u64,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; 32],
-        position: u8,
         mint: &Pubkey,
         user_token: &Pubkey,
     ) -> Result<AssetDeposit, ProgramTestError> {
-        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
+        let (view_tag, owner) = wallet_shield_identity(recipient)?;
         Ok(AssetDeposit {
             asset: Self::spl_asset(mint, user_token),
-            view_tag: fields.view_tag,
-            owner: fields.owner,
-            blinding: fields.blinding,
+            view_tag,
+            owner,
             amount,
             utxo_data: None,
             memo: None,

@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
+use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event::indexed_events_from_instruction_groups;
 use zolana_interface::{
@@ -29,14 +30,14 @@ use crate::{
     spl::mint_to,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_deposit, fetch_account, token_amount,
-        RingDepositAssertArgs,
+        wait_for_indexed_transaction, RingDepositAssertArgs,
     },
 };
 
 impl RingHarness {
     /// Build the recipient-visible, wallet-discoverable plain deposit data for
-    /// `name`: owner = recipient owner-hash, fresh blinding, the recipient
-    /// bootstrap view tag, and the public amount. No ring/program data.
+    /// `name`: owner = recipient owner-hash, the recipient bootstrap view tag,
+    /// and the public amount. SPP derives the blinding. No ring/program data.
     fn asset_deposit_data(
         &self,
         name: &str,
@@ -48,11 +49,31 @@ impl RingHarness {
             asset,
             view_tag: keypair.recipient_bootstrap_view_tag(),
             owner: keypair.owner_hash()?,
-            blinding: random_blinding(),
             amount,
             utxo_data: None,
             memo: None,
         })
+    }
+
+    /// The blinding SPP derived for a settled plain `deposit`, read back from
+    /// the indexer: it depends on the leaf index the output landed at, and a
+    /// proofless deposit publishes it in the clear.
+    fn indexed_deposit_blinding(
+        &self,
+        data: &AssetDeposit,
+        signature: Signature,
+    ) -> Result<[u8; 32]> {
+        let indexed = wait_for_indexed_transaction(&self.indexer, data.view_tag, signature);
+        indexed
+            .output_slots
+            .iter()
+            .filter(|slot| slot.view_tag == data.view_tag)
+            .find_map(|slot| {
+                slot.proofless_output()
+                    .filter(|out| out.owner == data.owner)
+            })
+            .map(|out| out.blinding)
+            .ok_or_else(|| anyhow!("no indexed deposit output for {signature}"))
     }
 
     /// Build the owner-hidden, wallet-discoverable ring deposit data for `name`:
@@ -99,13 +120,14 @@ impl RingHarness {
         }
         .instruction()
         .expect("deposit instruction");
-        send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
+        let blinding = self.indexed_deposit_blinding(&data, signature)?;
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
             owner,
             asset: SOL_MINT,
             amount,
-            blinding: data.blinding,
+            blinding,
             ring_program_id: None,
             data: Data::default(),
         });
@@ -135,13 +157,14 @@ impl RingHarness {
             deposits: vec![data.clone()],
         }
         .instruction()?;
-        send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let blinding = self.indexed_deposit_blinding(&data, signature)?;
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
             owner,
             asset: Address::new_from_array(spl.mint.to_bytes()),
             amount,
-            blinding: data.blinding,
+            blinding,
             ring_program_id: None,
             data: Data::default(),
         });

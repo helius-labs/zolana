@@ -26,6 +26,7 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
+use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
 use zolana_transaction::{
     instructions::transact::{
         encrypt_transaction_data, get_transaction_viewing_key, spp_proof_inputs::asset_field,
@@ -178,7 +179,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 memo: None,
             })
             .map_err(|e| anyhow!("maker funding deposit: {e:?}"))?;
-            deposit
+            let funding_view_tag = deposit.view_tag();
+            let funding_signature = deposit
                 .send(
                     env.client.rpc(),
                     &authority_solana,
@@ -186,11 +188,21 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                     &authority_solana,
                 )
                 .map_err(|e| anyhow!("send maker funding deposit: {e:?}"))?;
+            // SPP derives the blinding from the leaf index the output lands at.
+            // The escrow authority is a PDA holding no viewing key, but a
+            // proofless deposit publishes its UTXO in the clear, so the
+            // depositor-chosen view tag reads it back from the indexer.
+            let funding_blinding =
+                wait_for_indexed_utxo(env.client.indexer(), funding_view_tag, funding_signature)
+                    .output_slot
+                    .proofless_output()
+                    .ok_or_else(|| anyhow!("indexed maker funding is not a proofless UTXO"))?
+                    .blinding;
             Utxo {
                 owner: escrow_address.signing_pubkey,
                 asset: SOL_MINT,
                 amount: reserved,
-                blinding: deposit.deposit.blinding,
+                blinding: funding_blinding,
                 ring_program_id: None,
                 data: Data::default(),
             }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use solana_signature::Signature;
-use zolana_client::{IndexerPollConfig, Rpc, ZolanaIndexer};
+use zolana_client::{EncryptedUtxoMatch, IndexerPollConfig, Rpc, ZolanaIndexer};
 use zolana_transaction::{Address, Wallet};
 use zolana_wallet::{sync_wallet_with_config as client_sync_wallet_with_config, SyncWalletConfig};
 
@@ -61,12 +61,16 @@ fn indexer_poll() -> IndexerPollConfig {
     IndexerPollConfig::new(retries, delay_ms, delay_ms)
 }
 
+/// Polls until Photon serves the output `signature` created under `tag`, and
+/// returns that match. A proofless deposit publishes its blinding and UTXO hash
+/// in the clear, so the indexed match -- not a client-side recomputation -- is
+/// what identifies the deposited UTXO.
 pub(super) fn wait_for_indexed_utxo(
     indexer: &ZolanaIndexer,
     tag: [u8; 32],
     signature: Signature,
-) -> Result<()> {
-    indexer_poll()
+) -> Result<EncryptedUtxoMatch> {
+    let response = indexer_poll()
         .poll_until(
             || indexer.get_encrypted_utxos_by_tags(vec![tag], None, Some(50), None),
             |response| {
@@ -77,7 +81,11 @@ pub(super) fn wait_for_indexed_utxo(
             },
         )
         .with_context(|| format!("timed out waiting for Photon to index {signature}"))?;
-    Ok(())
+    response
+        .matches
+        .into_iter()
+        .find(|item| item.tx_signature == signature)
+        .with_context(|| format!("Photon returned no indexed output for {signature}"))
 }
 
 /// Poll the indexer until `leaf` is present in `tree`. Merge's `merge_transact`

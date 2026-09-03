@@ -29,6 +29,7 @@ use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
+    test_validator_asserts::wait_for_indexed_utxo,
 };
 use zolana_transaction::{
     instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
@@ -230,17 +231,30 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?;
-    creator_deposit.send(&rpc, &payer, tree, &payer)?;
+    let creator_view_tag = creator_deposit.view_tag();
+    let creator_signature = creator_deposit.send(&rpc, &payer, tree, &payer)?;
+    // SPP derives the blinding from the leaf index the output lands at. The
+    // escrow authority is a PDA holding no viewing key, but a proofless deposit
+    // publishes its UTXO in the clear, so the depositor-chosen view tag is
+    // enough to read it back from the indexer.
+    let creator_deposited = wait_for_indexed_utxo(&indexer, creator_view_tag, creator_signature)
+        .output_slot
+        .proofless_output()
+        .ok_or_else(|| anyhow!("indexed creator deposit is not a proofless UTXO"))?;
     let creator_input = SppProofInputUtxo::new(
         Utxo {
             owner: escrow_authority_address.signing_pubkey,
-            asset: SOL_MINT,
-            amount: SHIELD_AMOUNT,
-            blinding: creator_deposit.deposit.blinding,
+            asset: Address::new_from_array(creator_deposited.asset),
+            amount: creator_deposited.amount,
+            blinding: creator_deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
         escrow_nullifier_key,
+    );
+    assert_eq!(
+        (creator_input.utxo.asset, creator_input.utxo.amount),
+        (SOL_MINT, SHIELD_AMOUNT)
     );
 
     let creator_address = creator_shielded_keypair

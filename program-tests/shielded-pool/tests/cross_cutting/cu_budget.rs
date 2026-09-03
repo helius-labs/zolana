@@ -129,7 +129,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     let depositor = Keypair::new_from_array([3; 32]);
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
-    test.deposit_sol(&tree, &depositor, 1_000_000, [1; 32], [2; 32])
+    test.deposit_sol(&tree, &depositor, 1_000_000, [1; 32])
         .expect("deposit SOL");
     assert_last_under(&test, "deposit SOL", DEPOSIT_SOL_CU_CEILING);
 
@@ -138,7 +138,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("create token account");
     test.mint_to(&mint, &user_token, 1_000)
         .expect("mint tokens");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], [4; 32], &mint, &user_token);
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], &mint, &user_token);
     test.deposit(&tree, &depositor, &data).expect("deposit SPL");
     assert_last_under(&test, "deposit SPL", DEPOSIT_SPL_CU_CEILING);
 
