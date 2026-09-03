@@ -344,11 +344,20 @@ mod tests {
         let utxos = sender_plaintext()
             .into_utxos(&first_nullifier, &assets, None)
             .unwrap();
-        let sol_change = utxos.first().expect("sol change present");
-        assert_eq!(
-            sol_change.blinding,
-            derive_transact_output_blinding(&first_nullifier, &[5u8; 32], SOL_CHANGE_SLOT).unwrap()
-        );
+        let expected = vec![Utxo {
+            owner: PublicKey::zeroed(),
+            asset: SOL_MINT,
+            amount: 9,
+            blinding: derive_transact_output_blinding(
+                &first_nullifier,
+                &[5u8; 32],
+                SOL_CHANGE_SLOT,
+            )
+            .unwrap(),
+            ring_program_id: None,
+            data: Data::default(),
+        }];
+        assert_eq!(utxos, expected, "decoded sender change");
     }
 
     #[test]
