@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/elliptic"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -317,5 +318,26 @@ func TestCustomRingParametersCreateWitness(t *testing.T) {
 	}
 	if _, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("create gnark witness: %v", err)
+	}
+}
+
+func TestAssignRuleReadsTheEncodedBytes(t *testing.T) {
+	var encoded [ruleEncLen]byte
+	for i := range encoded {
+		encoded[i] = byte(i)
+	}
+	var wires transfer.RuleWires
+	assignRule(&wires, encoded)
+	for name, check := range map[string]struct{ got, want string }{
+		"subject":   {fmt.Sprint(wires.Subject), "31"},
+		"mode":      {fmt.Sprint(wires.Mode), "30"},
+		"mask":      {fmt.Sprint(wires.Mask), "29"},
+		"guardTag":  {fmt.Sprint(wires.GuardTag), "28"},
+		"threshold": {wires.Threshold.(*big.Int).Text(16), "1415161718191a1b"},
+		"altMask":   {fmt.Sprint(wires.AltMask), "19"},
+	} {
+		if check.got != check.want {
+			t.Errorf("%s: got %s, want %s", name, check.got, check.want)
+		}
 	}
 }
