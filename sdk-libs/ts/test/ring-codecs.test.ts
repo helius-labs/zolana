@@ -89,6 +89,36 @@ function signatureOf(byte: number) {
   return getBase58Decoder().decode(filled(byte, 64));
 }
 
+/** Rust `PolicyConfig` bytes, every part past the header defaults to zero. */
+function policyConfigBytes(
+  parts: Readonly<{
+    sources?: Uint8Array;
+    ruleCount?: number;
+    rules?: readonly Uint8Array[];
+    inlineCount?: number;
+    inlineAssets?: readonly Uint8Array[];
+    generation?: readonly number[];
+    generationSlot?: readonly number[];
+  }> = {},
+): Uint8Array {
+  const table = (rows: readonly Uint8Array[], slots: number) =>
+    Array.from({ length: slots }, (_, index) => [...(rows[index] ?? new Uint8Array(32))]).flat();
+  return Uint8Array.from([
+    3,
+    ...filled(42, 32),
+    ...filled(43, 32),
+    253,
+    252,
+    ...(parts.sources ?? new Uint8Array(33 * 8)),
+    parts.ruleCount ?? parts.rules?.length ?? 0,
+    ...table(parts.rules ?? [], 16),
+    parts.inlineCount ?? parts.inlineAssets?.length ?? 0,
+    ...table(parts.inlineAssets ?? [], 8),
+    ...(parts.generation ?? new Uint8Array(4)),
+    ...(parts.generationSlot ?? new Uint8Array(8)),
+  ]);
+}
+
 function capturingFetch(result: unknown): {
   fetch: typeof globalThis.fetch;
   bodies: Record<string, unknown>[];
@@ -348,14 +378,8 @@ describe("ring config", () => {
   });
 
   it("decodes the policy config account and rejects another layout", () => {
-    const data = Uint8Array.from([
-      3,
-      ...filled(42, 32),
-      ...filled(43, 32),
-      253,
-      252,
-      ...new Uint8Array(33 * 8),
-    ]);
+    const data = policyConfigBytes();
+    expect(data).toHaveLength(1113);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.entriesTree).toBe(addressOf(43));
@@ -363,26 +387,78 @@ describe("ring config", () => {
     expect(config.bump).toBe(252);
     expect(config.sources).toHaveLength(8);
     expect(config.sources.every((slot) => slot.listId === 0)).toBe(true);
+    expect(config.ruleCount).toBe(0);
+    expect(config.rules).toEqual([]);
+    expect(config.inlineCount).toBe(0);
+    expect(config.inlineAssets).toEqual([]);
+    expect(config.generation).toBe(0);
+    expect(config.generationSlot).toBe(0n);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
     expect(() => decodeRingPolicyConfig(Uint8Array.from([1, ...data.subarray(1)]))).toThrow(
+      "RING_POLICY_CONFIG_INVALID",
+    );
+    // The 331-byte layout without the rule table and the generation.
+    expect(() => decodeRingPolicyConfig(data.subarray(0, 331))).toThrow(
       "RING_POLICY_CONFIG_INVALID",
     );
   });
 
   it("decodes a live policy source slot", () => {
-    const data = Uint8Array.from([
-      3,
-      ...filled(42, 32),
-      ...filled(43, 32),
-      253,
-      252,
-      1,
-      ...filled(44, 32),
-      ...new Uint8Array(33 * 7),
-    ]);
-    const config = decodeRingPolicyConfig(data);
+    const config = decodeRingPolicyConfig(
+      policyConfigBytes({
+        sources: Uint8Array.from([1, ...filled(44, 32), ...new Uint8Array(33 * 7)]),
+      }),
+    );
     expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(44) });
     expect(config.sources[1]).toEqual({ listId: 0, namespace: addressOf(0) });
+  });
+
+  it("decodes a one-row rule table with an inline member and the generation", () => {
+    const rule = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+    const member = filled(45, 32);
+    const data = policyConfigBytes({
+      rules: [rule],
+      inlineAssets: [member],
+      generation: [4, 3, 2, 1],
+      generationSlot: [8, 7, 6, 5, 4, 3, 2, 1],
+    });
+    // Rust `PolicyConfig` offsets, the table at 331, the generation at 1101, the slot at 1105.
+    expect(data[331]).toBe(1);
+    expect(data.subarray(332, 364)).toEqual(rule);
+    expect(data[844]).toBe(1);
+    expect(data.subarray(845, 877)).toEqual(member);
+    expect(data.subarray(1101, 1105)).toEqual(Uint8Array.from([4, 3, 2, 1]));
+    expect(data.subarray(1105)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
+    const config = decodeRingPolicyConfig(data);
+    expect(config.ruleCount).toBe(1);
+    expect(config.rules).toEqual([rule]);
+    expect(config.inlineCount).toBe(1);
+    expect(config.inlineAssets).toEqual([member]);
+    expect(config.generation).toBe(0x01020304);
+    expect(config.generationSlot).toBe(0x0102030405060708n);
+  });
+
+  it("bounds the rule table by its width and refuses bytes past the counts", () => {
+    const row = filled(1, 32);
+    const full = decodeRingPolicyConfig(
+      policyConfigBytes({
+        rules: Array.from({ length: 16 }, () => row),
+        inlineAssets: Array.from({ length: 8 }, () => row),
+      }),
+    );
+    expect(full.ruleCount).toBe(16);
+    expect(full.inlineCount).toBe(8);
+    const refused: readonly [string, Parameters<typeof policyConfigBytes>[0]][] = [
+      ["ruleCount above 16", { ruleCount: 17 }],
+      ["inlineCount above 8", { inlineCount: 9 }],
+      ["a rule row past ruleCount", { ruleCount: 1, rules: [row, row] }],
+      ["an inline member past inlineCount", { inlineCount: 0, inlineAssets: [row] }],
+    ];
+    for (const [name, parts] of refused) {
+      expect(() => decodeRingPolicyConfig(policyConfigBytes(parts)), name).toThrow(
+        "RING_POLICY_CONFIG_INVALID",
+      );
+    }
   });
 
   it("builds the authority handover like Rust `SetAuthority`", async () => {

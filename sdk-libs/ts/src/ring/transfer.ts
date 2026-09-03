@@ -595,10 +595,10 @@ export async function proveCustomRingTransfer(
             ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
             : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
         ),
-        policyLen: 0,
-        rules: zeroFields(RING_RULE_SLOTS),
-        inlineAssets: zeroFields(RING_INLINE_ASSET_SLOTS),
-        inlineCount: 0,
+        policyLen: policy.config.ruleCount,
+        rules: paddedRows(policy.config.rules, RING_RULE_SLOTS),
+        inlineAssets: paddedRows(policy.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
+        inlineCount: policy.config.inlineCount,
         stateRoot: entriesRoots.stateRoot,
         nullifierRoot: entriesRoots.nullifierRoot,
         answers: Array.from({ length: RING_ANSWER_SLOTS }, () => disabledRuleAnswer()),
@@ -626,6 +626,15 @@ interface PolicyContext {
 }
 
 function policyContext(config: RingPolicyConfig, input: CustomRingTransferParams): PolicyContext {
+  if (config.ruleCount !== 0 || config.inlineCount !== 0) {
+    throw new RingError("RING_RULES_UNSUPPORTED", {
+      details: {
+        ringProgramId: input.ringProgramId,
+        ruleCount: config.ruleCount,
+        inlineCount: config.inlineCount,
+      },
+    });
+  }
   // The empty-table proof satisfies only an empty rule table, a rules-bearing
   // ring pins a different `policy_hash` and fails in proving.
   if (!equalBytes(config.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {
@@ -670,8 +679,10 @@ function checkEntriesRoots(
   });
 }
 
-function zeroFields(count: number): readonly Bytes32[] {
-  return Object.freeze(Array.from({ length: count }, () => new Uint8Array(32) as Bytes32));
+function paddedRows(rows: readonly Bytes32[], width: number): readonly Bytes32[] {
+  return Object.freeze(
+    Array.from({ length: width }, (_, index) => rows[index] ?? (new Uint8Array(32) as Bytes32)),
+  );
 }
 
 /**
