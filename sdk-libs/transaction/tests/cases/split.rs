@@ -37,6 +37,8 @@ pub(crate) fn build_split_tx(
         owner: owner_kp.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        // The split bundle carries its blindings literally.
+        first_nullifier: None,
     };
     let view_tag = owner_kp.get_sender_view_tag(0).unwrap();
     let ciphertext = Split::encode(

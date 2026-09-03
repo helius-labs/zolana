@@ -278,6 +278,7 @@ impl Scenario {
                 owner: self.alice.signing_pubkey(),
                 assets: &self.assets,
                 ring_program_id: None,
+                first_nullifier: None,
             };
             let cx = SplitEncode {
                 tx: tx_key,

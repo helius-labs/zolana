@@ -3,12 +3,25 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
+use crate::instructions::transact::Shape;
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
+    utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
 };
+
+/// Physical output slots the bundle describes. It names the two sender change
+/// slots positionally and has no way to say that one was dropped, so a slot's
+/// logical position is also its physical output index.
+const SPL_CHANGE_SLOT: u32 = 0;
+const SOL_CHANGE_SLOT: u32 = 1;
+const RECIPIENT_SLOT_BASE: u32 = 2;
+
+/// The widest supported shape has eight output slots, so no bundle describes a
+/// slot beyond this.
+const MAX_OUTPUT_SLOTS: u32 = 8;
+const _: () = assert!(Shape::IN1_OUT8.n_outputs() == MAX_OUTPUT_SLOTS as usize);
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferPlaintextSplChange {
@@ -29,6 +42,7 @@ pub struct TransferPlaintextSender {
 impl TransferPlaintextSender {
     fn into_indexed_utxos(
         self,
+        first_nullifier: &[u8; 32],
         blinding_seed: &[u8; 32],
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
@@ -48,7 +62,11 @@ impl TransferPlaintextSender {
                     owner: self.owner_pubkey,
                     asset: assets.resolve(spl.asset_id)?,
                     amount: spl.amount,
-                    blinding: derive_blinding(blinding_seed, 0),
+                    blinding: derive_transact_output_blinding(
+                        first_nullifier,
+                        blinding_seed,
+                        SPL_CHANGE_SLOT,
+                    )?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                     data: self.spl_data,
                 },
@@ -61,7 +79,11 @@ impl TransferPlaintextSender {
                     owner: self.owner_pubkey,
                     asset: SOL_MINT,
                     amount: sol_amount,
-                    blinding: derive_blinding(blinding_seed, 1),
+                    blinding: derive_transact_output_blinding(
+                        first_nullifier,
+                        blinding_seed,
+                        SOL_CHANGE_SLOT,
+                    )?,
                     ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                     data: self.sol_data,
                 },
@@ -137,20 +159,26 @@ impl TransferPlaintextUtxos {
 
     pub fn into_indexed_utxos(
         self,
+        first_nullifier: &[u8; 32],
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<(ViewTag, Utxo)>, TransactionError> {
         let mut utxos = Vec::new();
         if let Some(sender) = self.sender {
             utxos.extend(sender.into_indexed_utxos(
+                first_nullifier,
                 &self.blinding_seed,
                 assets,
                 ring_program_id,
             )?);
         }
         for (i, recipient) in self.recipient_slots.into_iter().enumerate() {
-            let position = u8::try_from(i + 2).map_err(|_| TransactionError::TooManyOutputs)?;
-            let blinding = derive_blinding(&self.blinding_seed, position);
+            let slot = u32::try_from(i)
+                .ok()
+                .and_then(|i| i.checked_add(RECIPIENT_SLOT_BASE))
+                .ok_or(TransactionError::TooManyOutputs)?;
+            let blinding =
+                derive_transact_output_blinding(first_nullifier, &self.blinding_seed, slot)?;
             utxos.push(recipient.into_indexed_utxo(blinding, assets, ring_program_id)?);
         }
         Ok(utxos)
@@ -158,11 +186,12 @@ impl TransferPlaintextUtxos {
 
     pub fn into_utxos(
         self,
+        first_nullifier: &[u8; 32],
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
         Ok(self
-            .into_indexed_utxos(assets, ring_program_id)?
+            .into_indexed_utxos(first_nullifier, assets, ring_program_id)?
             .into_iter()
             .map(|(_, utxo)| utxo)
             .collect())
@@ -171,6 +200,9 @@ impl TransferPlaintextUtxos {
 
 pub struct PlaintextEncode {
     pub blinding_seed: [u8; 32],
+    /// The transaction's first nullifier. Encoding recovers each output's slot
+    /// by matching its blinding against the derivation, which is bound to this.
+    pub first_nullifier: [u8; 32],
 }
 
 pub struct PlaintextTransfer;
@@ -189,7 +221,10 @@ impl UtxoSerialization for PlaintextTransfer {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.ring_program_id)
+        let first_nullifier = cx
+            .first_nullifier
+            .ok_or(TransactionError::MissingFirstNullifier)?;
+        plaintext.into_utxos(&first_nullifier, cx.assets, cx.ring_program_id)
     }
 
     fn from_utxos(
@@ -202,13 +237,26 @@ impl UtxoSerialization for PlaintextTransfer {
         let mut sol_amount = None;
         let mut spl_data = Data::default();
         let mut sol_data = Data::default();
-        let mut recipients: Vec<(u8, TransferPlaintextRecipient)> = Vec::new();
+        let mut recipients: Vec<(u32, TransferPlaintextRecipient)> = Vec::new();
+        // The blinding is the only record of which physical slot an output sat
+        // in, and the derivation is not invertible, so recover the slot by
+        // re-deriving every candidate a shape can hold.
         for utxo in utxos {
-            let position = (0..=u8::MAX)
-                .find(|&p| derive_blinding(&cx.blinding_seed, p) == utxo.blinding)
-                .ok_or(TransactionError::MissingOutput)?;
+            let mut slot = None;
+            for candidate in 0..MAX_OUTPUT_SLOTS {
+                let blinding = derive_transact_output_blinding(
+                    &cx.first_nullifier,
+                    &cx.blinding_seed,
+                    candidate,
+                )?;
+                if blinding == utxo.blinding {
+                    slot = Some(candidate);
+                    break;
+                }
+            }
+            let position = slot.ok_or(TransactionError::MissingOutput)?;
             match position {
-                0 => {
+                SPL_CHANGE_SLOT => {
                     sender_owner = Some(utxo.owner);
                     spl = Some(TransferPlaintextSplChange {
                         amount: utxo.amount,
@@ -216,7 +264,7 @@ impl UtxoSerialization for PlaintextTransfer {
                     });
                     spl_data = utxo.data.clone();
                 }
-                1 => {
+                SOL_CHANGE_SLOT => {
                     sender_owner = Some(utxo.owner);
                     sol_amount = Some(utxo.amount);
                     sol_data = utxo.data.clone();

@@ -6,9 +6,13 @@ use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    utxo::{derive_blinding, resolve_ring_program_id, Utxo},
+    utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, P256PubkeySchema, PublicKeySchema, SOL_MINT,
 };
+
+/// Physical output slots the sender bundle describes.
+const SPL_CHANGE_SLOT: u32 = 0;
+const SOL_CHANGE_SLOT: u32 = 1;
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct AnonymousTransferRecipientPlaintext {
@@ -82,8 +86,13 @@ impl AnonymousTransferSenderPlaintext {
         Ok(parsed)
     }
 
+    /// The bundle names the two sender change slots positionally and cannot say
+    /// that one of them was dropped, so a slot's logical position is also its
+    /// physical output index. `first_nullifier` is the transaction's; it is what
+    /// makes each derived blinding unique to that transaction.
     pub fn into_utxos(
         self,
+        first_nullifier: &[u8; 32],
         assets: &AssetRegistry,
         ring_program_id: Option<Address>,
     ) -> Result<Vec<Utxo>, TransactionError> {
@@ -99,7 +108,11 @@ impl AnonymousTransferSenderPlaintext {
                 owner: self.owner_pubkey,
                 asset: assets.resolve(self.spl_asset_id)?,
                 amount: self.spl_amount,
-                blinding: derive_blinding(&self.blinding_seed, 0),
+                blinding: derive_transact_output_blinding(
+                    first_nullifier,
+                    &self.blinding_seed,
+                    SPL_CHANGE_SLOT,
+                )?,
                 ring_program_id: resolve_ring_program_id(ring_program_id, &self.spl_data)?,
                 data: self.spl_data,
             });
@@ -109,7 +122,11 @@ impl AnonymousTransferSenderPlaintext {
                 owner: self.owner_pubkey,
                 asset: SOL_MINT,
                 amount: self.sol_amount,
-                blinding: derive_blinding(&self.blinding_seed, 1),
+                blinding: derive_transact_output_blinding(
+                    first_nullifier,
+                    &self.blinding_seed,
+                    SOL_CHANGE_SLOT,
+                )?,
                 ring_program_id: resolve_ring_program_id(ring_program_id, &self.sol_data)?,
                 data: self.sol_data,
             });
@@ -209,7 +226,10 @@ impl UtxoSerialization for AnonymousSenderBundle {
     }
 
     fn into_utxos(plaintext: Self::Plaintext, cx: &OwnerCx) -> Result<Vec<Utxo>, TransactionError> {
-        plaintext.into_utxos(cx.assets, cx.ring_program_id)
+        let first_nullifier = cx
+            .first_nullifier
+            .ok_or(TransactionError::MissingFirstNullifier)?;
+        plaintext.into_utxos(&first_nullifier, cx.assets, cx.ring_program_id)
     }
 
     fn from_utxos(
@@ -282,6 +302,53 @@ mod tests {
             .into_utxo(&assets, None)
             .unwrap();
         assert_eq!(utxo.data.memo(), Some(b"hello".as_slice()));
+    }
+
+    fn sender_plaintext() -> AnonymousTransferSenderPlaintext {
+        AnonymousTransferSenderPlaintext {
+            owner_pubkey: PublicKey::zeroed(),
+            spl_asset_id: 0,
+            spl_amount: 0,
+            sol_amount: 9,
+            blinding_seed: [5u8; 32],
+            recipient_viewing_pks: Vec::new(),
+            spl_data: Data::default(),
+            sol_data: Data::default(),
+        }
+    }
+
+    /// Decoding cannot derive a blinding without the transaction's first
+    /// nullifier, so a context that omits it is refused rather than falling back
+    /// to a value the circuit would never have accepted.
+    #[test]
+    fn sender_bundle_without_first_nullifier_is_rejected() {
+        let assets = AssetRegistry::default();
+        let owner_cx = OwnerCx {
+            owner: PublicKey::zeroed(),
+            assets: &assets,
+            ring_program_id: None,
+            first_nullifier: None,
+        };
+        assert_eq!(
+            AnonymousSenderBundle::into_utxos(sender_plaintext(), &owner_cx).unwrap_err(),
+            TransactionError::MissingFirstNullifier
+        );
+    }
+
+    /// Each change slot takes the blinding the circuit recomputes for its
+    /// physical output index.
+    #[test]
+    fn sender_change_takes_the_derived_blinding() {
+        let assets = AssetRegistry::default();
+        let first_nullifier = [7u8; 32];
+        let utxos = sender_plaintext()
+            .into_utxos(&first_nullifier, &assets, None)
+            .unwrap();
+        let sol_change = utxos.first().expect("sol change present");
+        assert_eq!(
+            sol_change.blinding,
+            derive_transact_output_blinding(&first_nullifier, &[5u8; 32], SOL_CHANGE_SLOT).unwrap()
+        );
     }
 
     #[test]

@@ -226,6 +226,8 @@ impl RingHarness {
             owner: recipient_address.signing_pubkey,
             assets: &self.assets,
             ring_program_id: Some(ring),
+            // A confidential slot carries its blinding literally.
+            first_nullifier: None,
         };
         // The recipient decrypts a plaintext `Utxo` (the on-chain leaf is the
         // `SppProofOutputUtxo` above); both carry identical fields so their hashes agree.

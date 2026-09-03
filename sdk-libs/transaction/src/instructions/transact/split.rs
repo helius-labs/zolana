@@ -448,6 +448,8 @@ mod tests {
             owner: keypair.signing_pubkey(),
             assets: &AssetRegistry::default(),
             ring_program_id: None,
+            // The split bundle carries its blindings literally.
+            first_nullifier: None,
         };
         let recovered = Split::into_utxos(plaintext, &owner_cx).expect("into utxos");
         assert_eq!(recovered.len(), usize::from(parts));

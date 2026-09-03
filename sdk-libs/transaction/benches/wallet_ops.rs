@@ -55,6 +55,7 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let cx = AnonymousSenderEncode {
         tx: tx_key,
@@ -221,6 +222,7 @@ fn decrypt(c: &mut Criterion) {
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let split_cx = SplitEncode {
         tx: split_tx_key,

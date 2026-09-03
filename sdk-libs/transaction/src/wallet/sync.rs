@@ -585,6 +585,7 @@ impl SyncCtx<'_> {
             owner: self.owner,
             assets,
             ring_program_id: None,
+            first_nullifier: cx.first_nullifier,
         };
         match output_data {
             OutputDataEncoding::Plaintext(blob) => {

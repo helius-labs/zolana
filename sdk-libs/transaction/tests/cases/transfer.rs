@@ -51,7 +51,10 @@ pub(crate) fn build_anonymous_transfer(
         .unwrap();
     let tx_viewing_pk = tx.pubkey();
 
-    let bookkeeping_change = sender_plaintext.clone().into_utxos(registry, None).unwrap();
+    let bookkeeping_change = sender_plaintext
+        .clone()
+        .into_utxos(&first_nullifier, registry, None)
+        .unwrap();
 
     let mut encode_change = Vec::new();
     if sender_plaintext.spl_amount > 0 {
@@ -59,7 +62,12 @@ pub(crate) fn build_anonymous_transfer(
             owner: sender_plaintext.owner_pubkey,
             asset: registry.resolve(sender_plaintext.spl_asset_id).unwrap(),
             amount: sender_plaintext.spl_amount,
-            blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 0),
+            blinding: zolana_transaction::utxo::derive_transact_output_blinding(
+                &first_nullifier,
+                &sender_plaintext.blinding_seed,
+                0,
+            )
+            .unwrap(),
             ring_program_id: None,
             data: sender_plaintext.spl_data.clone(),
         });
@@ -68,7 +76,12 @@ pub(crate) fn build_anonymous_transfer(
         owner: sender_plaintext.owner_pubkey,
         asset: zolana_transaction::SOL_MINT,
         amount: sender_plaintext.sol_amount,
-        blinding: zolana_transaction::utxo::derive_blinding(&sender_plaintext.blinding_seed, 1),
+        blinding: zolana_transaction::utxo::derive_transact_output_blinding(
+            &first_nullifier,
+            &sender_plaintext.blinding_seed,
+            1,
+        )
+        .unwrap(),
         ring_program_id: None,
         data: sender_plaintext.sol_data.clone(),
     });
@@ -76,6 +89,7 @@ pub(crate) fn build_anonymous_transfer(
         owner: sender_kp.signing_pubkey(),
         assets: registry,
         ring_program_id: None,
+        first_nullifier: Some(first_nullifier),
     };
     let sender_ciphertext = AnonymousSenderBundle::encode(
         &encode_change,
@@ -126,6 +140,7 @@ pub(crate) fn build_anonymous_transfer(
             owner: utxo.owner,
             assets: registry,
             ring_program_id: None,
+            first_nullifier: None,
         };
         let ciphertext = AnonymousRecipient::encode(
             core::slice::from_ref(&utxo),

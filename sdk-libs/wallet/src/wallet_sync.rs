@@ -2935,6 +2935,8 @@ mod tests {
             owner: keypair.signing_pubkey(),
             assets: &assets,
             ring_program_id: None,
+            // A proofless deposit carries its blinding literally.
+            first_nullifier: None,
         };
         let data_hash = output.data_hash.unwrap_or([0u8; 32]);
         let ring_data_hash = output.ring_data_hash.unwrap_or([0u8; 32]);

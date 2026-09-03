@@ -112,6 +112,7 @@ fn plaintext_transfers_are_canonical_and_indexed_by_owner() {
     cases::plaintext_transfer::output_amounts(&mut world, 100, 50, 40, 10);
     cases::plaintext_transfer::rejects_bad_discriminator(&mut world);
     cases::plaintext_transfer::sender_data_without_output(&mut world, "alice".into());
+    cases::plaintext_transfer::decode_without_first_nullifier_rejected(&mut world);
     cases::plaintext_transfer::ed25519_recipient_indexed();
 }
 
