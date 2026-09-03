@@ -110,20 +110,17 @@ impl ReleaseSet {
         }
     }
 
-    /// The ring cli links the rule features of the released policy binary.
     fn cli_binaries(self) -> &'static [CliBinary] {
         match self {
             Self::Localnet => &[CliBinary {
                 package: "zolana-cli",
                 bin: "zolana",
                 asset_stem: "zolana",
-                features: "",
             }],
             Self::CustomRings => &[CliBinary {
                 package: "custom-ring-cli",
                 bin: "zolana-ring",
                 asset_stem: "zolana-ring",
-                features: "allowlist,blocklist,freeze",
             }],
         }
     }
@@ -133,7 +130,6 @@ struct CliBinary {
     package: &'static str,
     bin: &'static str,
     asset_stem: &'static str,
-    features: &'static str,
 }
 
 struct ProgramSource {
@@ -194,16 +190,6 @@ const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
     file: "custom_ring_program.so",
     asset_stem: "custom-ring-program",
 };
-
-/// The rules-configured build a policy ring deploys, from the featured deploy dir.
-const RING_PROGRAM_POLICY_SOURCE: ProgramSource = ProgramSource {
-    role: "ring_program_policy",
-    file: "custom_ring_program.so",
-    asset_stem: "custom-ring-program-policy",
-};
-
-/// The featured deploy dir `just build-programs` writes the policy build into.
-const RING_POLICY_DEPLOY_DIR: &str = "target/deploy-ring-rules";
 
 pub fn run(options: Options) -> Result<()> {
     let (os, arch) = current_platform()?;
@@ -293,15 +279,9 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
     let repo = repo_root()?;
-    let policy_path = repo
-        .join(RING_POLICY_DEPLOY_DIR)
-        .join(RING_PROGRAM_POLICY_SOURCE.file);
-    require_file(&policy_path, "run `just build-programs` first")?;
     let mut lock = json!({
         "release_tag": options.tag,
         "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
-        "ring_program_policy":
-            stage_program(&RING_PROGRAM_POLICY_SOURCE, &policy_path, &options.tag, staging)?,
     });
     let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
     for source in &RING_KEY_SOURCES {
@@ -331,7 +311,6 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
             &repo,
             "zolana-ring-rpc",
             "ring-rpc",
-            "",
             &path,
             (os, arch) == host,
         )?;
@@ -387,7 +366,7 @@ fn build_binaries(options: &Options, staging: &Path, host: (&str, &str)) -> Resu
 
         let photon_asset = format!("photon-{os}-{arch}-{}", options.tag);
         let photon_path = staging.join(&photon_asset);
-        build_rust_binary(&repo, "photon-indexer", "photon", "", &photon_path, is_host)?;
+        build_rust_binary(&repo, "photon-indexer", "photon", &photon_path, is_host)?;
         out.push(binary_json(
             "photon",
             os,
@@ -411,14 +390,7 @@ fn build_cli_binaries(
         for cli in options.set.cli_binaries() {
             let asset = format!("{}-{os}-{arch}-{}", cli.asset_stem, options.tag);
             let path = staging.join(&asset);
-            build_rust_binary(
-                &repo,
-                cli.package,
-                cli.bin,
-                cli.features,
-                &path,
-                (os, arch) == host,
-            )?;
+            build_rust_binary(&repo, cli.package, cli.bin, &path, (os, arch) == host)?;
             assets.push(path);
         }
     }
@@ -490,42 +462,19 @@ fn build_prover(repo: &Path, os: &str, arch: &str, out: &Path) -> Result<()> {
 /// The host build uses cargo directly; linux-x64 builds in a Docker container so
 /// no host cross-linker is needed. Both are cache-first via the shared
 /// `target`/`target-linux-x64` dirs, so building a second binary is incremental.
-fn build_rust_binary(
-    repo: &Path,
-    package: &str,
-    bin: &str,
-    features: &str,
-    out: &Path,
-    host: bool,
-) -> Result<()> {
+fn build_rust_binary(repo: &Path, package: &str, bin: &str, out: &Path, host: bool) -> Result<()> {
     if host {
-        build_rust_binary_host(repo, package, bin, features, out)
+        build_rust_binary_host(repo, package, bin, out)
     } else {
-        build_rust_binary_linux_x64(repo, package, bin, features, out)
+        build_rust_binary_linux_x64(repo, package, bin, out)
     }
 }
 
-/// `--features` selector, empty when the binary takes none.
-fn feature_args(features: &str) -> Vec<&str> {
-    if features.is_empty() {
-        Vec::new()
-    } else {
-        vec!["--features", features]
-    }
-}
-
-fn build_rust_binary_host(
-    repo: &Path,
-    package: &str,
-    bin: &str,
-    features: &str,
-    out: &Path,
-) -> Result<()> {
+fn build_rust_binary_host(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
     println!("building {bin} (host)");
     let status = Command::new("cargo")
         .current_dir(repo)
         .args(["build", "--release", "-p", package, "--bin", bin])
-        .args(feature_args(features))
         .status()
         .with_context(|| format!("failed to run cargo build for {bin}"))?;
     if !status.success() {
@@ -536,22 +485,11 @@ fn build_rust_binary_host(
     Ok(())
 }
 
-fn build_rust_binary_linux_x64(
-    repo: &Path,
-    package: &str,
-    bin: &str,
-    features: &str,
-    out: &Path,
-) -> Result<()> {
+fn build_rust_binary_linux_x64(repo: &Path, package: &str, bin: &str, out: &Path) -> Result<()> {
     println!("building {bin} linux-x64 (docker {PHOTON_LINUX_BUILDER_IMAGE})");
     let mount = format!("{}:/work", path_str(repo)?);
-    let feature_flag = if features.is_empty() {
-        String::new()
-    } else {
-        format!(" --features {features}")
-    };
     let build = format!(
-        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin}{feature_flag} --target-dir /work/target-linux-x64"
+        "set -e; apt-get update -qq && apt-get install -y -qq pkg-config libssl-dev protobuf-compiler cmake clang build-essential >/dev/null 2>&1; cargo build --release -p {package} --bin {bin} --target-dir /work/target-linux-x64"
     );
     let status = Command::new("docker")
         .args([
@@ -740,13 +678,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in [
-        "ring_program",
-        "ring_program_policy",
-        "proving_key",
-        "audit_key",
-        "accounts",
-    ] {
+    for key in ["ring_program", "proving_key", "audit_key", "accounts"] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -896,16 +828,16 @@ fn print_help() {
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
-    println!("With --custom-rings the set is the ring program, its prover key, the ring rpc");
-    println!("and the zolana-ring cli.");
+    println!("With --custom-rings the set is the ring program, its two prover keys, the ring");
+    println!("rpc and the zolana-ring cli.");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
     println!(
-        "  --custom-rings          Release the ring program, its prover key, the ring rpc and"
+        "  --custom-rings          Release the ring program, its two prover keys, the ring rpc"
     );
-    println!("                          the zolana-ring cli only,");
+    println!("                          and the zolana-ring cli only,");
     println!("                          regenerating custom-rings/cli/release-artifacts.lock");
     println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
@@ -987,17 +919,11 @@ mod tests {
         let lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-            "ring_program_policy": {"asset": "custom-ring-program-policy-v1.so", "size": 1, "sha256": "x"},
             "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
             "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for section in [
-            "ring_program",
-            "ring_program_policy",
-            "proving_key",
-            "audit_key",
-        ] {
+        for section in ["ring_program", "proving_key", "audit_key"] {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
@@ -1006,7 +932,6 @@ mod tests {
             staged_asset_paths(Path::new("/stage"), &lock),
             vec![
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
-                PathBuf::from("/stage/custom-ring-program-policy-v1.so"),
                 PathBuf::from("/stage/custom-ring-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-audit-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
