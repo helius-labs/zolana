@@ -8,7 +8,6 @@ import {
   DepositAsset,
   TransactWithdrawal,
 } from "@heliuslabs/zolana/interface";
-import { randomBlinding } from "@heliuslabs/zolana/keypair";
 import {
   AssetRegistry,
   ConfidentialTransfer,
@@ -66,7 +65,6 @@ describe("example: deposit, transfer, withdraw", () => {
           asset: DepositAsset.sol(),
           viewTag: senderViewTag,
           recipientOwnerHash: senderAddress.ownerHash(),
-          blinding: randomBlinding(),
           amount: DEPOSIT_AMOUNT,
         },
       ],
