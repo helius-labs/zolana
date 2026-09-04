@@ -54,7 +54,7 @@ use zolana_test_utils::transact::{
     account_tagged_owner_addresses, build_transfer_prover_inputs, dummy_input,
     dummy_transfer_output, eddsa_input_utxo, external_data_hash_with_addresses, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_transact_proof,
-    prove_and_verify_transfer, same_tree, set_output_owner_tags, sol_public_slots, spend_input,
+    prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, spend_input,
     SpendInputArgs, TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
@@ -153,8 +153,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
-    let external_data_hash =
-        external_data_hash_for_discriminator(&transact_ix_data, discriminator, env.tree);
+    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
 
     // The real input contributes its utxo hash to private_tx_hash; the dummy
     // input and all outputs contribute zero.
@@ -244,11 +243,10 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
 fn external_data_hash_for_discriminator(
     transact_ix_data: &TransactIxData,
     discriminator: u8,
-    tree: Pubkey,
 ) -> [u8; 32] {
     let addresses =
         account_tagged_owner_addresses(transact_ix_data).expect("account-tagged owners");
-    external_data_hash_with_addresses(transact_ix_data, discriminator, same_tree(tree), &addresses)
+    external_data_hash_with_addresses(transact_ix_data, discriminator, &addresses)
         .expect("ring external data hash")
 }
 
@@ -384,8 +382,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     } else {
         tag::RING_TRANSACT
     };
-    let external_data_hash =
-        external_data_hash_for_discriminator(&transact_ix_data, discriminator, env.tree);
+    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
     let private_input_hashes: Vec<[u8; 32]> = std::iter::once(utxo_hash)
         .chain(std::iter::repeat_n(zero, usize::from(n_inputs) - 1))
         .collect();

@@ -296,7 +296,6 @@ fn phase_shielded_transfer(
     // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
-        tree: env.tree_pubkey,
         spend_inputs: vec![
             payer_spend_input,
             dummy_input_with_proof(&[20u8; 31], &transfer_dummy_nf, transfer_roots)
@@ -476,7 +475,6 @@ fn phase_unshield(
     // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
-        tree: env.tree_pubkey,
         spend_inputs: vec![
             recipient_spend_input,
             dummy_input_with_proof(&[21u8; 31], &withdraw_dummy_nf, withdraw_roots)

@@ -35,9 +35,6 @@ use super::{
     tree::{apply_input_tree, apply_output_tree},
 };
 
-const INPUT_TREE_ACCOUNT_INDEX: usize = 1;
-const OUTPUT_TREE_ACCOUNT_INDEX: usize = 2;
-
 /// Hash the serialized external-data prefix and the account addresses it names
 /// before mutable account parsing. Both inputs are borrowed directly from the
 /// runtime; this does not allocate or copy either instruction data or account
@@ -63,15 +60,8 @@ fn hash_external_data_from_accounts<'a>(
         .checked_sub(settlement_account_count)
         .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
 
-    let input_tree = tree_address(accounts, INPUT_TREE_ACCOUNT_INDEX)?;
-    let output_tree = tree_address(accounts, OUTPUT_TREE_ACCOUNT_INDEX)?;
     let discriminator = [instruction as u8];
-    let mut preimage = ExternalDataPreimage::new(
-        &discriminator,
-        external_data_prefix,
-        input_tree,
-        output_tree,
-    );
+    let mut preimage = ExternalDataPreimage::new(&discriminator, external_data_prefix);
     for transfer in interface_transfers.try_iter() {
         let transfer = decode_item(transfer)?;
         let group = accounts
@@ -103,13 +93,6 @@ fn hash_external_data_from_accounts<'a>(
     preimage.finish().map_err(caused_by(
         ShieldedPoolError::TransactProofVerificationFailed,
     ))
-}
-
-fn tree_address(accounts: &[AccountView], index: usize) -> Result<&[u8; 32], ProgramError> {
-    accounts
-        .get(index)
-        .map(|account| account.address().as_array())
-        .ok_or(ShieldedPoolError::InvalidTreeAccounts.into())
 }
 
 #[inline]
@@ -362,10 +345,9 @@ mod tests {
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
 
         // This is the same complete fixture used by the Rust client, Go prover,
-        // and TypeScript SDK. Accounts 1 and 2 are the input and output tree,
-        // account 7 is the account-backed output owner; settlement groups are
-        // the suffix in wire order. Arbitrary non-committed slots make an
-        // adjacent-index mistake visible.
+        // and TypeScript SDK. Account 7 is the account-backed output owner;
+        // settlement groups are the suffix in instruction order. Arbitrary
+        // non-committed slots make an adjacent-index mistake visible.
         let accounts = vec![
             account(1),
             account(2),
@@ -397,7 +379,7 @@ mod tests {
 
         let mut expected_preimage = vec![InstructionTag::RingTransact as u8];
         expected_preimage.extend_from_slice(external_data_prefix);
-        for byte in [2u8, 3, 20, 22, 23, 33] {
+        for byte in [20u8, 22, 23, 33] {
             expected_preimage.extend_from_slice(&[byte; 32]);
         }
         let expected = Sha256BE::hash(&expected_preimage).unwrap();
@@ -406,8 +388,8 @@ mod tests {
         assert_eq!(
             actual,
             [
-                0, 136, 175, 175, 95, 241, 142, 109, 78, 140, 29, 136, 32, 94, 140, 36, 228, 140,
-                241, 79, 128, 248, 18, 59, 248, 160, 28, 213, 99, 139, 161, 8,
+                0, 222, 47, 97, 173, 68, 253, 98, 205, 189, 27, 97, 10, 140, 198, 237, 212, 34,
+                217, 98, 116, 208, 46, 158, 75, 101, 153, 36, 240, 42, 194, 155,
             ],
             "Rust program, Rust client, Go, and TypeScript must share this protocol vector",
         );
@@ -447,18 +429,6 @@ mod tests {
             ),
             Err(ProgramError::Custom(
                 ShieldedPoolError::OwnerTagAccountMissing as u32
-            ))
-        );
-        assert_eq!(
-            hash_external_data_from_accounts(
-                InstructionTag::Transact,
-                external_data_prefix,
-                &[account(1)],
-                ix.interface_transfers,
-                ix.outputs,
-            ),
-            Err(ProgramError::Custom(
-                ShieldedPoolError::InvalidTreeAccounts as u32
             ))
         );
     }

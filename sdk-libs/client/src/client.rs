@@ -58,10 +58,7 @@ use solana_signature::Signature;
 use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_interface::instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData};
-use zolana_transaction::instructions::{
-    transact::{SppProofInputs, TransactTrees},
-    types::InputUtxoContext,
-};
+use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 
 use crate::{
     error::ClientError,
@@ -282,10 +279,6 @@ impl<R: Rpc> ZolanaClient<R> {
         proof_inputs: SppProofInputs,
         config: Option<IndexerRpcConfig>,
     ) -> Result<TransactIxData, ClientError> {
-        let proof_inputs = proof_inputs.with_trees(TransactTrees {
-            input_tree,
-            output_tree: self.output_tree,
-        });
         let commitments = proof_inputs.input_utxo_hashes()?;
         let spend_proofs =
             fetch_spend_proofs(self.blocking_indexer(), input_tree, &commitments, config)?;
@@ -318,10 +311,6 @@ impl<R: Rpc> ZolanaClient<R> {
         R: Sync,
     {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-        let trees = TransactTrees {
-            input_tree: signed.input_tree,
-            output_tree: self.output_tree,
-        };
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         // Two independent indexer round trips (317ms and 114ms on devnet) that
@@ -353,11 +342,7 @@ impl<R: Rpc> ZolanaClient<R> {
             spend_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
         let dummy_proofs =
             dummy_proofs.unwrap_or_else(|payload| std::panic::resume_unwind(payload))?;
-        let assembled = assemble(
-            signed.transaction.clone().with_trees(trees),
-            &spend_proofs,
-            &dummy_proofs,
-        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = {
             let _t = crate::timing::Phase::start("prove_transfer", 0);
@@ -375,7 +360,10 @@ impl<R: Rpc> ZolanaClient<R> {
                 cu_price_micro_lamports: self.cu_price_micro_lamports,
             },
             fee_payer,
-            trees,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
             owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
@@ -392,10 +380,6 @@ impl<R: Rpc> ZolanaClient<R> {
         prove: impl FnOnce(&ProverInputs) -> Result<ProofCompressed, ClientError>,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-        let trees = TransactTrees {
-            input_tree: signed.input_tree,
-            output_tree: self.output_tree,
-        };
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs = fetch_spend_proofs(
@@ -410,11 +394,7 @@ impl<R: Rpc> ZolanaClient<R> {
             &signed.transaction,
             None,
         )?;
-        let assembled = assemble(
-            signed.transaction.clone().with_trees(trees),
-            &spend_proofs,
-            &dummy_proofs,
-        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
         build_unsigned_solana_transaction(
             ComputeBudgetConfig {
@@ -422,7 +402,10 @@ impl<R: Rpc> ZolanaClient<R> {
                 cu_price_micro_lamports: self.cu_price_micro_lamports,
             },
             fee_payer,
-            trees,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
             owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
@@ -452,10 +435,6 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         recent_blockhash: Hash,
     ) -> Result<SolanaTransaction, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
-        let trees = TransactTrees {
-            input_tree: signed.input_tree,
-            output_tree: self.output_tree,
-        };
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
         let spend_proofs =
@@ -468,11 +447,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             None,
         )
         .await?;
-        let assembled = assemble(
-            signed.transaction.clone().with_trees(trees),
-            &spend_proofs,
-            &dummy_proofs,
-        )?;
+        let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let ProverInputs::Eddsa(inputs) = &assembled.prover_inputs;
         let proof = self.async_prover.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
@@ -483,7 +458,10 @@ impl<R: AsyncRpc> ZolanaClient<R> {
                 cu_price_micro_lamports: self.cu_price_micro_lamports,
             },
             fee_payer,
-            trees,
+            TransactTrees {
+                input_tree: signed.input_tree,
+                output_tree: self.output_tree,
+            },
             owner_signers,
             signed.settlement_transfers.clone(),
             assembled.with_proof(proof),
@@ -764,10 +742,6 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
     }
 
     async fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
-        let transaction = transaction.with_trees(TransactTrees {
-            input_tree: self.output_tree,
-            output_tree: self.output_tree,
-        });
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None).await?;
         let dummy_proofs = fetch_dummy_nullifier_proofs_async(
@@ -1021,10 +995,6 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     }
 
     fn prove(&self, transaction: SppProofInputs) -> Result<ProveResult, ClientError> {
-        let transaction = transaction.with_trees(TransactTrees {
-            input_tree: self.output_tree,
-            output_tree: self.output_tree,
-        });
         let commitments = transaction.input_utxo_hashes()?;
         let input_merkle_proofs = self.get_input_merkle_proofs(&commitments, None)?;
         let dummy_proofs = fetch_dummy_nullifier_proofs(
@@ -1044,6 +1014,11 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
             circuit_id,
         })
     }
+}
+
+struct TransactTrees {
+    input_tree: Address,
+    output_tree: Address,
 }
 
 struct ComputeBudgetConfig {

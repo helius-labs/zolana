@@ -7,14 +7,6 @@ Selection and approval text use UTXO terminology without changing version 3 snap
 
 Changed
 
-- **Breaking:** `ExternalData.hash()` commits to the input and output tree
-  addresses directly after the instruction prefix and throws
-  `TRANSACTION_MISSING_TRANSACT_TREES` until they are bound, `externalDataHash`
-  requires `inputTree` and `outputTree`, and digests differ from previous
-  releases → call `ExternalData.withTrees` or `SppProofInputs.withTrees` with
-  the trees the `transact` instruction names before hashing or proving;
-  `ZolanaClient.assembleAuthorizedPrivateTransaction` and the ring transfer
-  builders bind them for you.
 - **Breaking:** `transact` instruction data uses one flat order:
   `expiryUnixTs`, `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`,
   `ringDataHash`, `outputs`, `messages`, `privateTxHash`, `circuit`, `proof`,

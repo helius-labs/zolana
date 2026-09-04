@@ -26,8 +26,8 @@ use zolana_program_test::{test_blinding, ZolanaProgramTest};
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, real_output, same_tree,
-    set_output_owner_tags, spend_input, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
+    output_owner_pk_hashes, prove_and_verify_transfer, real_output, set_output_owner_tags,
+    spend_input, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
     TransferProverInputsArgs,
 };
 use zolana_transaction::{
@@ -298,8 +298,8 @@ fn prove_spend(
         &nullifier_pks,
     );
 
-    let external_hash = external_data_hash(&ix_data, resolved_transfers, same_tree(env.tree))
-        .expect("external data hash");
+    let external_hash =
+        external_data_hash(&ix_data, resolved_transfers).expect("external data hash");
     let private_tx = PrivateTxHash::new(
         &[note.utxo_hash, [0u8; 32]],
         &output_private_hashes,

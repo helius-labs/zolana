@@ -317,19 +317,12 @@ mod tests {
             transact::{spp_proof_inputs::asset_field, SettlementTransfer, SppProofInputs},
             types::SppProofInputUtxo,
         },
-        Data, ExternalData, SppProofOutputUtxo, TransactTrees, Utxo, SOL_MINT,
+        Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
     };
 
     use super::{attach_input_proofs, into_prover, ProverVariant};
     use crate::error::ClientError;
     use crate::rpc::{MerkleContext, NonInclusionProof, NULLIFIER_TREE_HEIGHT};
-
-    fn test_trees() -> TransactTrees {
-        TransactTrees {
-            input_tree: Address::new_from_array([11u8; 32]),
-            output_tree: Address::new_from_array([12u8; 32]),
-        }
-    }
 
     #[test]
     fn attaches_dummy_nullifier_proofs_in_slot_order() {
@@ -362,8 +355,7 @@ mod tests {
         let proof_inputs = SppProofInputs::new(
             vec![input],
             vec![SppProofOutputUtxo::default()],
-            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new())
-                .with_trees(test_trees()),
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
             Address::default(),
         );
 
@@ -386,7 +378,6 @@ mod tests {
                     spl_token_interface: Address::new_from_array([43u8; 32]),
                 })
                 .expect("valid SPL settlement");
-        let external_data = external_data.with_trees(test_trees());
         let proof_inputs = SppProofInputs::new(
             vec![SppProofInputUtxo::new_dummy()],
             vec![SppProofOutputUtxo::default()],

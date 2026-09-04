@@ -23,8 +23,8 @@ use zolana_test_utils::{
     transact::{
         build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
         external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-        output_owner_pk_hashes, prove_and_verify_transfer, same_tree, set_output_owner_tags,
-        sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
+        output_owner_pk_hashes, prove_and_verify_transfer, set_output_owner_tags, sol_public_slots,
+        spend_input, SpendInputArgs, TransferProverInputsArgs,
     },
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
@@ -108,8 +108,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
-    let external_hash = external_data_hash(&transact_ix_data, &[], same_tree(env.tree))
-        .expect("external data hash");
+    let external_hash = external_data_hash(&transact_ix_data, &[]).expect("external data hash");
     let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
         .hash()
         .expect("private tx hash");

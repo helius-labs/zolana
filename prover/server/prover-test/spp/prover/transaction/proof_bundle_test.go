@@ -272,8 +272,6 @@ func TestExternalDataHashMatchesRustWincodeVector(t *testing.T) {
 	// committed-address positions.
 	data := externalDataHashInput{
 		instructionDiscriminator: 15,
-		inputTree:                repeated32(2),
-		outputTree:               repeated32(3),
 		expiryUnixTs:             42,
 		txViewingPk:              repeated33(26),
 		salt:                     repeated16(27),
@@ -324,8 +322,8 @@ func TestExternalDataHashMatchesRustWincodeVector(t *testing.T) {
 	}
 
 	wantHash := [32]byte{
-		0, 136, 175, 175, 95, 241, 142, 109, 78, 140, 29, 136, 32, 94, 140, 36,
-		228, 140, 241, 79, 128, 248, 18, 59, 248, 160, 28, 213, 99, 139, 161, 8,
+		0, 222, 47, 97, 173, 68, 253, 98, 205, 189, 27, 97, 10, 140, 198, 237,
+		212, 34, 217, 98, 116, 208, 46, 158, 75, 101, 153, 36, 240, 42, 194, 155,
 	}
 	if got := mustExternalDataHash(t, data); got != wantHash {
 		t.Fatalf("external data hash = %x, want %x", got, wantHash)

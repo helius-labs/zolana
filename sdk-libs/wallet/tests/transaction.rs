@@ -35,8 +35,8 @@ use zolana_transaction::{
         DecodeCx, UtxoSerialization,
     },
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, OutputContext, SppProofOutputUtxo, TransactTrees,
-    TransactionError, Utxo, Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, ExternalData, OutputContext, SppProofOutputUtxo, TransactionError, Utxo,
+    Wallet, WalletUtxo, SOL_ASSET_ID, SOL_MINT,
 };
 use zolana_wallet::{
     create_transfer, create_withdrawal, sign_shielded_transaction, AnonymousRecipientSlot,
@@ -48,13 +48,6 @@ fn blinding(rng: &mut ThreadRng) -> [u8; 32] {
     let mut b = [0u8; 32];
     rng.fill_bytes(&mut b[1..]);
     b
-}
-
-fn test_trees() -> TransactTrees {
-    TransactTrees {
-        input_tree: Address::new_from_array([11u8; 32]),
-        output_tree: Address::new_from_array([12u8; 32]),
-    }
 }
 
 fn test_keypair() -> ShieldedKeypair {
@@ -347,7 +340,6 @@ fn transfer_round_trip_outputs_and_slots() {
         prover.external_data,
         ExternalData {
             instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
-            trees: None,
             expiry_unix_ts: u64::MAX,
             interface_transfers: Vec::new(),
             data_hash: None,
@@ -422,7 +414,7 @@ fn dummy_output_ciphertexts_are_indistinguishable_from_real() {
                 .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
                 .unwrap();
         }
-        let proof_inputs = sign(transfer, &sender).unwrap().with_trees(test_trees());
+        let proof_inputs = sign(transfer, &sender).unwrap();
         let commitments = proof_inputs.input_utxo_hashes().unwrap();
         let proofs: Vec<SpendProof> = commitments.iter().map(|_| fake_spend_proof(5)).collect();
         zolana_client::assemble(proof_inputs, &proofs, &[])
@@ -485,7 +477,7 @@ fn assemble_carries_ciphertext_and_decrypts() {
     transfer
         .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
-    let proof_inputs = sign(transfer, &sender).unwrap().with_trees(test_trees());
+    let proof_inputs = sign(transfer, &sender).unwrap();
 
     let commitments = proof_inputs.input_utxo_hashes().unwrap();
     let first_nullifier = commitments.first().unwrap().nullifier;
@@ -659,7 +651,6 @@ fn withdrawal_sets_external_data_and_change() {
         prover.external_data,
         ExternalData {
             instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
-            trees: None,
             expiry_unix_ts: u64::MAX,
             interface_transfers: vec![SettlementTransfer::Sol {
                 is_deposit: false,
@@ -807,12 +798,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
 
     assert_eq!(authority.approvals.load(Ordering::SeqCst), 1);
     assert_eq!(authority.p256_sign_calls.load(Ordering::SeqCst), 0);
-    prover_of(signed.transaction.with_trees(TransactTrees {
-        input_tree: Address::new_from_array([11u8; 32]),
-        output_tree: Address::new_from_array([12u8; 32]),
-    }))
-    .build()
-    .unwrap();
+    prover_of(signed.transaction).build().unwrap();
 }
 
 #[test]

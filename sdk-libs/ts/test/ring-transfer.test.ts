@@ -125,15 +125,13 @@ async function auditedProofInputs(
     }),
   );
   const proofInputs = frameDummyOutputs(
-    ring
-      .finalize({
-        txViewingPublicKey: encrypted.txViewingPublicKey,
-        salt: encrypted.salt,
-        payload: encrypted.payload,
-        messages: [encrypted.auditorMessage],
-        instructionDiscriminator: InstructionTag.ringTransact,
-      })
-      .withTrees({ inputTree: RING, outputTree: RING }),
+    ring.finalize({
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      payload: encrypted.payload,
+      messages: [encrypted.auditorMessage],
+      instructionDiscriminator: InstructionTag.ringTransact,
+    }),
   );
   return { proofInputs, recipient };
 }

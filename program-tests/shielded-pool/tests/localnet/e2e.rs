@@ -260,7 +260,6 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     let payer_bytes = cycle.payer.pubkey().to_bytes();
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
-        tree: cycle.tree_pubkey,
         spend_inputs: vec![payer_spend_input, transfer_dummy_input],
         root_index: 1,
         output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
@@ -379,7 +378,6 @@ fn phase_unshield(
 
     let recipient_bytes = cycle.recipient_owner.pubkey().to_bytes();
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
-        tree: cycle.tree_pubkey,
         spend_inputs: vec![recipient_spend_input, withdraw_dummy_input],
         root_index: 2,
         output_hashes: withdraw_output_hashes,

@@ -45,7 +45,7 @@ use zolana_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
     eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    public_sol_field, real_output, same_tree, set_output_owner_tags, sol_public_slots, spend_input,
+    public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
     spl_public_slots, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
     TransferProverInputsArgs,
 };
@@ -262,8 +262,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         recipient: recipient.to_bytes(),
     }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &resolved_transfers, same_tree(tree))
-            .expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
 
     // private_tx_hash uses the real input's utxo hash; the dummy input and all
     // outputs contribute zero.
@@ -476,8 +475,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         recipient: depositor.pubkey().to_bytes(),
     }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &resolved_transfers, same_tree(tree))
-            .expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx = PrivateTxHash::new(
         &[zero, zero],
         &[shielded_hash, zero, zero],
@@ -665,13 +663,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         &output_owner_hashes,
         &[nullifier_pk, zero, zero],
     );
-    let external_hash = external_data_hash_spl(
-        &data,
-        &user_token.to_bytes(),
-        &vault.to_bytes(),
-        same_tree(tree),
-    )
-    .expect("external data hash");
+    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
+        .expect("external data hash");
     let private_tx =
         PrivateTxHash::new(&[zero, zero], &[shielded_hash, zero, zero], &external_hash)
             .hash()
@@ -971,8 +964,8 @@ fn phase_transfer_to_recipient(
         &transfer_owner_pk_hashes,
         &[payer_nullifier_pk, recipient_nullifier_pk, zero],
     );
-    let transfer_external_hash = external_data_hash(&transfer_ix_data, &[], same_tree(tree))
-        .expect("transfer external data hash");
+    let transfer_external_hash =
+        external_data_hash(&transfer_ix_data, &[]).expect("transfer external data hash");
     let transfer_private_tx = PrivateTxHash::new(
         &[payer_utxo_hash, zero],
         &[change_hash, recipient_hash, zero],
@@ -1177,12 +1170,9 @@ fn phase_withdraw_recipient_utxo(
         amount: TRANSFER_AMOUNT,
         recipient: public_recipient.to_bytes(),
     }];
-    let withdraw_external_hash = external_data_hash(
-        &withdraw_ix_data,
-        &withdraw_resolved_transfers,
-        same_tree(tree),
-    )
-    .expect("withdraw external data hash");
+    let withdraw_external_hash =
+        external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)
+            .expect("withdraw external data hash");
     let withdraw_private_tx = PrivateTxHash::new(
         &[recipient_hash, zero],
         &[zero, zero, zero],

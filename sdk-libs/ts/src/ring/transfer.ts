@@ -445,15 +445,13 @@ export async function proveCustomRingTransfer(
   });
   try {
     const proofInputs = frameDummyOutputs(
-      prepared
-        .finalize({
-          txViewingPublicKey: encrypted.txViewingPublicKey,
-          salt: encrypted.salt,
-          payload: encrypted.payload,
-          messages: [encrypted.auditorMessage],
-          instructionDiscriminator: InstructionTag.ringTransact,
-        })
-        .withTrees({ inputTree: input.tree, outputTree: input.tree }),
+      prepared.finalize({
+        txViewingPublicKey: encrypted.txViewingPublicKey,
+        salt: encrypted.salt,
+        payload: encrypted.payload,
+        messages: [encrypted.auditorMessage],
+        instructionDiscriminator: InstructionTag.ringTransact,
+      }),
     );
     const data = await input.client.proveRingTransact(
       proofInputs,

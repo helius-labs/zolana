@@ -377,7 +377,6 @@ mod tests {
         };
         let external_data = ExternalData {
             instruction_discriminator: 0,
-            trees: None,
             expiry_unix_ts: 0,
             interface_transfers: Vec::new(),
             data_hash: None,

@@ -18,7 +18,6 @@
 mod test_indexer;
 
 use rand::RngCore;
-use solana_address::Address;
 use zolana_client::prover::SERVER_ADDRESS;
 use zolana_client::{
     spawn_prover, verify_confidential_transfer_proof, InputUtxoContext, ProverClient,
@@ -28,8 +27,7 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
-    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, TransactTrees,
-    Utxo, SOL_MINT,
+    instructions::types::SppProofInputUtxo, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::test_indexer::TestIndexer;
@@ -93,10 +91,6 @@ fn async_queue_result_count() -> Option<u64> {
 fn dummy_external_data(owner_tag: [u8; 32], n_outputs: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
-        trees: Some(TransactTrees {
-            input_tree: Address::new_from_array([11u8; 32]),
-            output_tree: Address::new_from_array([12u8; 32]),
-        }),
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,

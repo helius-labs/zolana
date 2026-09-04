@@ -68,8 +68,6 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
     inputUtxos: [input],
     outputs: [output],
     externalData: createExternalData({
-      inputTree: TREE,
-      outputTree: TREE,
       txViewingPublicKey: keypair.viewingPublicKey(),
       salt: new Uint8Array(16) as Bytes16,
       outputs: [{ utxoHash: output.hash(), ownerTag: { kind: "inline", value: ownerTag } }],

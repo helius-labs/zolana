@@ -10,7 +10,7 @@ use super::{
 use crate::{
     error::TransactionError,
     instructions::types::{InputUtxoContext, SppProofInputUtxo},
-    ExternalData, SppProofOutputUtxo, TransactTrees, SOL_MINT,
+    ExternalData, SppProofOutputUtxo, SOL_MINT,
 };
 
 pub const BN254_MODULUS_DEC: &str =
@@ -121,13 +121,6 @@ impl SppProofInputs {
             external_data,
             payer,
         }
-    }
-
-    /// Bind the tree accounts the `transact` will name; `external_data_hash`
-    /// commits to them, so they must be set before anything hashes or signs.
-    pub fn with_trees(mut self, trees: TransactTrees) -> Self {
-        self.external_data = self.external_data.with_trees(trees);
-        self
     }
 
     /// Unique non-payer Ed25519 and PDA input owners in first-input order. This

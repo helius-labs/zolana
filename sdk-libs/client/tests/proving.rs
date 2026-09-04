@@ -15,7 +15,7 @@ use zolana_transaction::{
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
     utxo::derive_blinding,
-    AssetRegistry, Data, ExternalData, SppProofOutputUtxo, TransactTrees, Utxo, SOL_MINT,
+    AssetRegistry, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -26,14 +26,6 @@ use crate::{
     prover::prove_and_verify_eddsa,
     test_indexer::TestIndexer,
 };
-
-/// Any fixed pair binds the proof; this harness never sends an instruction.
-fn test_trees() -> TransactTrees {
-    TransactTrees {
-        input_tree: Address::new_from_array([11u8; 32]),
-        output_tree: Address::new_from_array([12u8; 32]),
-    }
-}
 
 impl TransferHarness {
     /// Build the transfer described by the plan, assert its output UTXOs and
@@ -134,10 +126,7 @@ impl TransferHarness {
         }
 
         let seed = transfer.blinding_seed;
-        let proof_inputs = transfer
-            .sign(&sender, &assets)
-            .expect("sign")
-            .with_trees(test_trees());
+        let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
 
         let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;
@@ -372,7 +361,6 @@ impl OutputAssertions<'_> {
             external_data,
             &ExternalData {
                 instruction_discriminator: zolana_interface::instruction::tag::TRANSACT,
-                trees: Some(test_trees()),
                 expiry_unix_ts: u64::MAX,
                 interface_transfers,
                 data_hash: None,

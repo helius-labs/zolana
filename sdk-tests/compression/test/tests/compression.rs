@@ -171,7 +171,6 @@ fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let (utxo_root_index, utxo_root) = tree_root(&env.rpc, env.tree)?;
     let create = CreateProofInputParams {
         authority: env.authority.pubkey(),
-        tree: env.tree,
         new_value: 1,
         non_inclusion,
         utxo_root,

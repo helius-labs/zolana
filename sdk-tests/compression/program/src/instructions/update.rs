@@ -98,14 +98,8 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         .map_err(|_| CompressionError::SerializationFailed)?;
     let (_, external_data) = TransactIxDataRef::parse_with_external_data_prefix(&placeholder_bytes)
         .map_err(|_| CompressionError::SerializationFailed)?;
-    let external_data_hash = hash_external_data(
-        TRANSACT,
-        external_data,
-        parsed.input_tree.address().as_array(),
-        parsed.output_tree.address().as_array(),
-        core::iter::empty(),
-    )
-    .map_err(|_| CompressionError::HashingFailed)?;
+    let external_data_hash = hash_external_data(TRANSACT, external_data, core::iter::empty())
+        .map_err(|_| CompressionError::HashingFailed)?;
     transact.private_tx_hash =
         private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
     let transact_bytes = transact

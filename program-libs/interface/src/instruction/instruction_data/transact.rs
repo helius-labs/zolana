@@ -337,34 +337,27 @@ pub fn fetch_tag(
     }
 }
 
-const _: () = assert!(MAX_EXTERNAL_DATA_HASH_SLICES >= 4);
+const _: () = assert!(MAX_EXTERNAL_DATA_HASH_SLICES >= 2);
 
 /// Preimage of the `external_data_hash` public input (spec: `transact`
 /// external_data_hash): the instruction discriminator, the contiguous
-/// external-data prefix of the raw instruction data, the input and output tree
-/// addresses, then the account addresses the proof commits to, hashed once.
+/// external-data prefix of the raw instruction data, then the account addresses
+/// the proof commits to, hashed once.
 ///
 /// Holds only borrowed slice descriptors, so neither the program nor a client
 /// copies preimage bytes. The framing is unambiguous: the prefix encoding is
-/// self-delimiting, the tree addresses are fixed width, and the number of
-/// appended addresses is a function of the prefix alone (one per SOL leg, two
-/// per SPL leg, one per output whose owner tag names an account).
+/// self-delimiting and the number of appended addresses is a function of the
+/// prefix alone (one per SOL leg, two per SPL leg, one per output whose owner
+/// tag names an account).
 pub struct ExternalDataPreimage<'a> {
     slices: ArrayVec<&'a [u8], MAX_EXTERNAL_DATA_HASH_SLICES>,
 }
 
 impl<'a> ExternalDataPreimage<'a> {
-    pub fn new(
-        spp_instruction_discriminator: &'a [u8; 1],
-        external_data_prefix: &'a [u8],
-        input_tree: &'a [u8; 32],
-        output_tree: &'a [u8; 32],
-    ) -> Self {
+    pub fn new(spp_instruction_discriminator: &'a [u8; 1], external_data_prefix: &'a [u8]) -> Self {
         let mut slices = ArrayVec::new();
         slices.push(spp_instruction_discriminator.as_slice());
         slices.push(external_data_prefix);
-        slices.push(input_tree.as_slice());
-        slices.push(output_tree.as_slice());
         Self { slices }
     }
 
@@ -388,17 +381,10 @@ impl<'a> ExternalDataPreimage<'a> {
 pub fn hash_external_data<'a>(
     spp_instruction_discriminator: u8,
     external_data_prefix: &[u8],
-    input_tree: &[u8; 32],
-    output_tree: &[u8; 32],
     addresses: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {
     let discriminator = [spp_instruction_discriminator];
-    let mut preimage = ExternalDataPreimage::new(
-        &discriminator,
-        external_data_prefix,
-        input_tree,
-        output_tree,
-    );
+    let mut preimage = ExternalDataPreimage::new(&discriminator, external_data_prefix);
     for address in addresses {
         preimage.push_address(address)?;
     }
@@ -766,9 +752,6 @@ mod tests {
         }
     }
 
-    const INPUT_TREE: [u8; 32] = [2u8; 32];
-    const OUTPUT_TREE: [u8; 32] = [3u8; 32];
-
     fn hash_ix_external_data(data: &TransactIxData, addresses: &[[u8; 32]]) -> [u8; 32] {
         let bytes = data.serialize().expect("serialize instruction");
         let (_, external_data) =
@@ -776,8 +759,6 @@ mod tests {
         hash_external_data(
             crate::instruction::tag::TRANSACT,
             external_data,
-            &INPUT_TREE,
-            &OUTPUT_TREE,
             addresses.iter(),
         )
         .expect("external data hash")
@@ -920,23 +901,19 @@ mod tests {
         let bytes = base.serialize().expect("serialize instruction");
         let (_, external_data) =
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).expect("parse instruction");
-        let addresses = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 4];
+        let addresses = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 2];
         hash_external_data(
             crate::instruction::tag::TRANSACT,
             external_data,
-            &INPUT_TREE,
-            &OUTPUT_TREE,
             addresses.iter(),
         )
         .expect("protocol maximum fits the fixed-capacity preimage");
 
-        let too_many = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 3];
+        let too_many = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 1];
         assert_eq!(
             hash_external_data(
                 crate::instruction::tag::TRANSACT,
                 external_data,
-                &INPUT_TREE,
-                &OUTPUT_TREE,
                 too_many.iter(),
             ),
             Err(HasherError::InvalidInputLength(
@@ -955,29 +932,15 @@ mod tests {
         let bytes = base.serialize().expect("serialize instruction");
         let (_, external_data) =
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).expect("parse instruction");
-        let hash = |discriminator, input_tree, output_tree| {
+        assert_ne!(
+            hash_external_data(crate::instruction::tag::TRANSACT, external_data, [].iter())
+                .unwrap(),
             hash_external_data(
-                discriminator,
-                external_data,
-                input_tree,
-                output_tree,
-                [].iter(),
-            )
-            .unwrap()
-        };
-        let baseline = hash(crate::instruction::tag::TRANSACT, &INPUT_TREE, &OUTPUT_TREE);
-        assert_ne!(
-            baseline,
-            hash(
                 crate::instruction::tag::RING_TRANSACT,
-                &INPUT_TREE,
-                &OUTPUT_TREE
+                external_data,
+                [].iter()
             )
-        );
-        assert_ne!(
-            baseline,
-            hash(crate::instruction::tag::TRANSACT, &OUTPUT_TREE, &INPUT_TREE),
-            "swapping the tree keys must change the digest"
+            .unwrap(),
         );
     }
 }

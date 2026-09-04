@@ -48,7 +48,6 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
-  TransactTrees,
 } from "./instructions/index.js";
 export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";

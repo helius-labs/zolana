@@ -24,8 +24,8 @@ use zolana_interface::{
 };
 use zolana_program_test::Rejection;
 use zolana_transaction::{
-    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority,
-    TransactTrees, Utxo, SOL_MINT,
+    instructions::transact::SettlementTarget, Data, ShieldedTransaction, SyncWalletAuthority, Utxo,
+    SOL_MINT,
 };
 
 use super::{decode_output_blinding, RingHarness};
@@ -432,10 +432,6 @@ impl RingHarness {
         // external_data: it is folded into external_data_hash and private_tx_hash, so
         // the proof and the on-chain recompute must agree on it.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
-        proof_inputs = proof_inputs.with_trees(TransactTrees {
-            input_tree: self.tree,
-            output_tree: self.tree,
-        });
 
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring, rail, tamper)?;
@@ -777,10 +773,6 @@ impl RingHarness {
         transfer.send(&to_address, asset, amount)?;
         let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
-        proof_inputs = proof_inputs.with_trees(TransactTrees {
-            input_tree: self.tree,
-            output_tree: self.tree,
-        });
 
         // Assemble the instruction data with real nullifiers / root indices but a
         // zeroed proof, so verification is the only thing that fails.

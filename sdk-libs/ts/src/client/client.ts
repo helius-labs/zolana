@@ -787,11 +787,7 @@ export class ZolanaClient
       });
     }
     checkAuthorizedBinding(authorized, intentMismatch);
-    return this.proveTransact(
-      authorized.proofInputs.withTrees({ inputTree: authorized.tree, outputTree: this.tree }),
-      undefined,
-      context,
-    );
+    return this.proveTransact(authorized.proofInputs, undefined, context);
   }
 }
 

@@ -63,17 +63,12 @@ function hexBytes(value: string): Uint8Array {
   );
 }
 
-const INPUT_TREE = address("11111111111111111111111111111111");
-const OUTPUT_TREE = address("SysvarRent111111111111111111111111111111111");
-
 function externalDataInit(): ExternalDataInit {
   const publicKeyBytes = hexBytes(
     "02039b852db622408abe58a18c0f056631a6ca4b2cfeec198aae25017cad09d4e8",
   );
   if (publicKeyBytes.length !== 33) throw new TypeError("expected a compressed P256 key");
   return {
-    inputTree: INPUT_TREE,
-    outputTree: OUTPUT_TREE,
     txViewingPublicKey: P256PublicKey.fromBytes(publicKeyBytes as Bytes33),
     salt: bytes16(0x12),
     outputs: [],
@@ -116,8 +111,6 @@ describe("transact instruction layout", () => {
   it("matches the pinned Rust and Go external-data hash vector", () => {
     const digest = externalDataHash({
       instructionDiscriminator: 15,
-      inputTree: bytes32(2),
-      outputTree: bytes32(3),
       expiryUnixTs: 42n,
       txViewingPk: bytes33(26),
       salt: bytes16(27),
@@ -143,7 +136,7 @@ describe("transact instruction layout", () => {
     });
 
     expect(digest).toEqual(
-      hexBytes("0088afaf5ff18e6d4e8c1d88205e8c24e48cf14f80f8123bf8a01cd5638ba108"),
+      hexBytes("00de2f61ad44fd62cdbd1b610a8cc6edd422d96274d02e9e4b659924f02ac29b"),
     );
   });
 
@@ -208,49 +201,25 @@ describe("transact instruction layout", () => {
     expect(encoded.slice(0, privateTxHashOffset)).toEqual(expectedExternalData);
     expect(encoded.slice(privateTxHashOffset)).toEqual(expectedRemainder);
 
-    const inputTree = bytes32(0xe0);
-    const outputTree = bytes32(0xe1);
     const committedAddress = bytes32(0xdd);
     const expectedHash = sha256(
-      concat([Uint8Array.of(19), expectedExternalData, inputTree, outputTree, committedAddress]),
+      concat([Uint8Array.of(19), expectedExternalData, committedAddress]),
     );
     expectedHash[0] = 0;
-    const hashInput = {
-      instructionDiscriminator: 19,
-      inputTree,
-      outputTree,
-      expiryUnixTs: value.expiryUnixTs,
-      txViewingPk: value.txViewingPk,
-      salt: value.salt,
-      interfaceTransfers: value.interfaceTransfers,
-      dataHash: value.dataHash,
-      ringDataHash: value.ringDataHash,
-      outputs: value.outputs,
-      messages: value.messages,
-      committedAddresses: [committedAddress],
-    };
-    expect(externalDataHash(hashInput)).toEqual(expectedHash);
     expect(
-      externalDataHash({ ...hashInput, inputTree: outputTree, outputTree: inputTree }),
-    ).not.toEqual(expectedHash);
-  });
-
-  it("refuses to hash external data before the trees are bound", () => {
-    const { inputTree: _inputTree, outputTree: _outputTree, ...unbound } = externalDataInit();
-    const externalData = createExternalData(unbound);
-    expect(externalData.inputTree).toBeUndefined();
-    expect(externalData.outputTree).toBeUndefined();
-    expect(() => externalData.hash()).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_MISSING_TRANSACT_TREES" }),
-    );
-
-    const bound = externalData.withTrees({ inputTree: INPUT_TREE, outputTree: OUTPUT_TREE });
-    expect(bound.inputTree).toBe(INPUT_TREE);
-    expect(bound.outputTree).toBe(OUTPUT_TREE);
-    expect(bound.hash()).toEqual(createExternalData(externalDataInit()).hash());
-    expect(
-      externalData.withTrees({ inputTree: OUTPUT_TREE, outputTree: INPUT_TREE }).hash(),
-    ).not.toEqual(bound.hash());
+      externalDataHash({
+        instructionDiscriminator: 19,
+        expiryUnixTs: value.expiryUnixTs,
+        txViewingPk: value.txViewingPk,
+        salt: value.salt,
+        interfaceTransfers: value.interfaceTransfers,
+        dataHash: value.dataHash,
+        ringDataHash: value.ringDataHash,
+        outputs: value.outputs,
+        messages: value.messages,
+        committedAddresses: [committedAddress],
+      }),
+    ).toEqual(expectedHash);
   });
 
   it("binds both optional transaction-level hashes into externalDataHash", () => {
