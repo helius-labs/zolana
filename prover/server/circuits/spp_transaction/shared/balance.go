@@ -93,12 +93,18 @@ func rangeCheck64(api frontend.API, value frontend.Variable) {
 	abstractor.CallVoid(api, RangeCheck64{Value: value})
 }
 
+// RangeCheckSigned64 accepts a signed amount whose magnitude fits u64, i.e.
+// Value in [-(2^64-1), 2^64-1]. The shifted value Value + 2^64 lies in
+// [1, 2^65-1]: the 65-bit decomposition bounds it from above and the non-zero
+// check excludes -2^64, whose magnitude does not fit u64.
 type RangeCheckSigned64 struct {
 	Value frontend.Variable
 }
 
 func (gadget RangeCheckSigned64) DefineGadget(api frontend.API) interface{} {
-	api.ToBinary(api.Add(gadget.Value, signedAmountOffset()), signedAmountBits)
+	shifted := api.Add(gadget.Value, signedAmountOffset())
+	api.ToBinary(shifted, signedAmountBits)
+	api.AssertIsDifferent(shifted, 0)
 	return []frontend.Variable{}
 }
 
