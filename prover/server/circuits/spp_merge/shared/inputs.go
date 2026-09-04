@@ -8,6 +8,18 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
+// mergeInputContext holds the transaction-wide values every input slot shares.
+// FirstNullifier is zero while input 0 is constrained and input 0's derived
+// nullifier afterwards.
+type mergeInputContext struct {
+	OwnerHash         frontend.Variable
+	NullifierSecret   frontend.Variable
+	Asset             frontend.Variable
+	NullifierTreeRoot frontend.Variable
+	RingProgramID     frontend.Variable
+	FirstNullifier    frontend.Variable
+}
+
 // Checks:
 // UTXO or dummy:
 // - nullifier non inclusion
@@ -18,17 +30,14 @@ import (
 // 2. Dummy
 // - all UTXO fields and nullifier secret are zero
 // - nullifier is derived deterministically
+//
+// treeID and utxoTreeRoot are the input's selected tree slot.
 func constrainInput(
 	api frontend.API,
 	in Input,
-	userOwnerHash,
-	userNullifierSecret,
-	asset,
-	utxoTreeRoot,
-	nullifierTreeRoot,
+	ctx mergeInputContext,
 	treeID,
-	ringProgramID,
-	firstNullifier frontend.Variable,
+	utxoTreeRoot frontend.Variable,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
@@ -37,10 +46,10 @@ func constrainInput(
 	notDummy := isUtxo
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 
-	leafOwner := api.Select(isDummy, frontend.Variable(0), userOwnerHash)
-	leafAsset := api.Select(isDummy, frontend.Variable(0), asset)
-	leafRingProgramID := api.Select(isDummy, frontend.Variable(0), ringProgramID)
-	nullifierSecret := api.Select(isDummy, frontend.Variable(0), userNullifierSecret)
+	leafOwner := api.Select(isDummy, frontend.Variable(0), ctx.OwnerHash)
+	leafAsset := api.Select(isDummy, frontend.Variable(0), ctx.Asset)
+	leafRingProgramID := api.Select(isDummy, frontend.Variable(0), ctx.RingProgramID)
+	nullifierSecret := api.Select(isDummy, frontend.Variable(0), ctx.NullifierSecret)
 	utxo := transaction.UtxoCircuitFields{
 		Domain:        in.Domain,
 		Owner:         leafOwner,
@@ -71,7 +80,7 @@ func constrainInput(
 	})
 	nullifier = api.Select(
 		isDummy,
-		MergeDummyNullifier(api, userNullifierSecret, firstNullifier, slotIndex),
+		MergeDummyNullifier(api, ctx.NullifierSecret, ctx.FirstNullifier, slotIndex),
 		nullifier,
 	)
 
@@ -86,7 +95,7 @@ func constrainInput(
 		Height: transaction.NullifierTreeHeight,
 	})
 
-	api.AssertIsEqual(nfRoot, nullifierTreeRoot)
+	api.AssertIsEqual(nfRoot, ctx.NullifierTreeRoot)
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
 		Lo:  in.NullifierLowValue,
 		Mid: nullifier,

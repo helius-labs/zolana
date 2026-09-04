@@ -196,30 +196,23 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
+	ctx := mergeInputContext{
+		OwnerHash:         userOwnerHash,
+		NullifierSecret:   t.UserNullifierSecret,
+		Asset:             t.Asset,
+		NullifierTreeRoot: t.Public.NullifierTreeRoot,
+		RingProgramID:     t.RingProgramID,
+		FirstNullifier:    frontend.Variable(0),
+	}
 	for i := range t.Inputs {
-		firstNullifier := frontend.Variable(0)
-		if i > 0 {
-			firstNullifier = nullifiers[0]
-		}
 		treeID, utxoTreeRoot := transaction.SelectTreeSlot(
 			api,
 			t.Inputs[i].TreeSlot,
 			t.Public.TreeIDs,
 			t.Public.UtxoTreeRoots,
 		)
-		inputHashes[i], nullifiers[i] = constrainInput(
-			api,
-			t.Inputs[i],
-			userOwnerHash,
-			t.UserNullifierSecret,
-			t.Asset,
-			utxoTreeRoot,
-			t.Public.NullifierTreeRoot,
-			treeID,
-			t.RingProgramID,
-			firstNullifier,
-			i,
-		)
+		inputHashes[i], nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, treeID, utxoTreeRoot, i)
+		ctx.FirstNullifier = nullifiers[0]
 	}
 	transaction.AssertDistinctNullifiers(api, nullifiers)
 
