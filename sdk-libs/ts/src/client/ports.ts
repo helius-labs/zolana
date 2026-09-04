@@ -20,7 +20,11 @@ import { equal } from "../transaction/internal.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
-import type { CustomRingProofRequest } from "./prover/types.js";
+import type {
+  CustomRingBaseProofRequest,
+  CustomRingPolicyProofRequest,
+  RingTransactRoots,
+} from "./prover/types.js";
 import type {
   GetByNullifiersRequest,
   GetByTagsRequest,
@@ -107,8 +111,15 @@ export interface Prover {
     ringProgramId: Address,
     config?: IndexerRpcConfig,
     context?: RequestContext,
-  ): Promise<TransactInstructionData>;
-  proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Uint8Array>;
+  ): Promise<ProvenRingTransact>;
+  proveCustomRingPolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingBase(
+    inputs: CustomRingBaseProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;
 }
 
@@ -209,6 +220,12 @@ export interface MergeMaterialInput {
 export interface ProvedMerge {
   readonly data: MergeTransactInstructionData;
   readonly outputHash: Bytes32;
+}
+
+/** A proved ring transfer with the tree history entries the ring statement binds. */
+export interface ProvenRingTransact {
+  readonly data: TransactInstructionData;
+  readonly roots: RingTransactRoots;
 }
 
 export interface TransactionAssembler {

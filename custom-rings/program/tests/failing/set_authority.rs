@@ -52,8 +52,10 @@ fn set_authority_on_a_readonly_config_is_rejected() {
 fn set_authority_on_a_foreign_config_account_is_rejected() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = set_authority_fixture();
+    // A foreign address holds no valid config, so the load fails before the
+    // canonicality check.
     fixture.substitute("config", Pubkey::new_from_array([12u8; 32]));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidConfigPda));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
 
 #[test]

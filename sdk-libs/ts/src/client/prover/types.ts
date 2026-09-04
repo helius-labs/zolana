@@ -82,6 +82,14 @@ export type ProverInputs = Readonly<{
   payload: TransferInputs;
 }>;
 
+/** The tree history entries the ring statement binds. */
+export interface RingTransactRoots {
+  readonly stateRoot: Bytes32;
+  readonly stateRootIndex: number;
+  readonly nullifierRoot: Bytes32;
+  readonly nullifierRootIndex: number;
+}
+
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;
@@ -91,11 +99,108 @@ export interface AssembledTransfer {
   readonly privateTxHash: Bytes32;
   /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
   readonly inputRootIndexes: readonly (readonly [number, number])[];
+  /// The first input's roots and indices, the pair the ring statement binds.
+  readonly roots: RingTransactRoots;
   withProof(proof: TransactProof): TransactInstructionData;
 }
 
-/** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
-export interface CustomRingProofRequest {
+/** Rust `POLICY_INPUT_SLOTS` and `POLICY_OUTPUT_SLOTS`, the ring circuit's slot counts. */
+export const RING_INPUT_SLOTS = 5;
+export const RING_OUTPUT_SLOTS = 4;
+/** Rust `MAX_RULES` and `MAX_INLINE_ASSETS`, the fixed rule table width. */
+export const RING_RULE_SLOTS = 16;
+export const RING_INLINE_ASSET_SLOTS = 8;
+/** Rust `ANSWER_SLOTS`, the server rejects any other answers length. */
+export const RING_ANSWER_SLOTS = 10;
+/** Rust `MAX_SOURCES`, the positional source map width. */
+export const RING_SOURCE_SLOTS = 8;
+export const RING_STATE_PATH_LENGTH = 32;
+export const RING_NULLIFIER_PATH_LENGTH = 40;
+
+/** Mirrors Rust `CustomRingOpening`, one opened UTXO slot in circuit hash order. */
+export interface CustomRingOpening {
+  readonly domain: Bytes32;
+  readonly ownerPkHash: Bytes32;
+  readonly nullifierPk: Bytes32;
+  readonly asset: Bytes32;
+  readonly amount: Bytes32;
+  readonly blinding: Bytes32;
+  readonly dataHash: Bytes32;
+  readonly ringDataHash: Bytes32;
+  readonly ringProgramId: Bytes32;
+}
+
+/** Mirrors Rust `RuleAnswer`, one entry fact proven against the roots. */
+export interface CustomRingRuleAnswer {
+  readonly enabled: boolean;
+  readonly mode: number;
+  readonly listId: number;
+  readonly state: number;
+  readonly absentBranch: number;
+  readonly member: Bytes32;
+  readonly contentHash: Bytes32;
+  readonly version: bigint;
+  readonly low: Bytes32;
+  readonly next: Bytes32;
+  readonly nullifierPath: readonly Bytes32[];
+  readonly nullifierPathIndex: bigint;
+  readonly statePath: readonly Bytes32[];
+  readonly statePathIndex: bigint;
+}
+
+/** Mirrors Rust `RuleAnswer::default`. */
+export function disabledRuleAnswer(): CustomRingRuleAnswer {
+  const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
+  return Object.freeze({
+    enabled: false,
+    mode: 1,
+    listId: 1,
+    state: 1,
+    absentBranch: 1,
+    member: zero(),
+    contentHash: zero(),
+    version: 0n,
+    low: zero(),
+    next: zero(),
+    nullifierPath: Object.freeze(Array.from({ length: RING_NULLIFIER_PATH_LENGTH }, () => zero())),
+    nullifierPathIndex: 0n,
+    statePath: Object.freeze(Array.from({ length: RING_STATE_PATH_LENGTH }, () => zero())),
+    statePathIndex: 0n,
+  });
+}
+
+/** Mirrors Rust `SourceOwner`, slot `i` is empty or serves list `i + 1`. */
+export interface CustomRingSourceOwner {
+  readonly listId: number;
+  readonly ownerHash: Bytes32;
+}
+
+/** Policy custom-ring proof request; `auditorPublicKey` is an uncompressed SEC1 point. */
+export interface CustomRingPolicyProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly privateTxHash: Bytes32;
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
+  readonly auditorPublicKey: Uint8Array;
+  readonly nIn: number;
+  readonly nOut: number;
+  readonly inputs: readonly CustomRingOpening[];
+  readonly outputs: readonly CustomRingOpening[];
+  readonly addressChain: Bytes32;
+  readonly externalDataHash: Bytes32;
+  readonly sources: readonly CustomRingSourceOwner[];
+  readonly policyLen: number;
+  readonly rules: readonly Bytes32[];
+  readonly inlineAssets: readonly Bytes32[];
+  readonly inlineLimits: readonly bigint[];
+  readonly inlineCount: number;
+  readonly stateRoot: Bytes32;
+  readonly nullifierRoot: Bytes32;
+  readonly answers: readonly CustomRingRuleAnswer[];
+}
+
+/** Base custom-ring proof request, without policy enforcement. */
+export interface CustomRingBaseProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

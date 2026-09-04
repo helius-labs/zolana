@@ -25,9 +25,12 @@ pub struct RingProgram {
 /// Everything a custom-rings release ships, parsed from the embedded lock.
 pub struct RingRelease {
     pub tag: String,
-    pub program: Asset,
+    /// Absent from a lock older than the ring program.
+    pub program: Option<Asset>,
     /// Absent from a lock older than the key.
     pub proving_key: Option<Asset>,
+    /// Absent from a lock older than the audit key.
+    pub audit_key: Option<Asset>,
     pub binaries: Vec<Binary>,
 }
 
@@ -56,6 +59,8 @@ pub enum ReleaseError {
     NoRingProgram { tag: String },
     #[error("release {tag} ships no proving key for the prover")]
     NoProvingKey { tag: String },
+    #[error("release {tag} ships no audit proving key for the prover")]
+    NoAuditKey { tag: String },
     #[error("release {tag} ships no {role} for {os}-{arch}")]
     NoBinary {
         tag: String,
@@ -93,6 +98,7 @@ pub enum ReleaseError {
     File(#[from] FileError),
 }
 
+/// Every asset is optional, a missing one fails at use.
 #[derive(Debug, Deserialize)]
 struct ReleaseLock {
     release_tag: String,
@@ -101,29 +107,52 @@ struct ReleaseLock {
     #[serde(default)]
     proving_key: Option<Asset>,
     #[serde(default)]
+    audit_key: Option<Asset>,
+    #[serde(default)]
     binaries: Vec<Binary>,
+}
+
+impl From<ReleaseLock> for RingRelease {
+    fn from(lock: ReleaseLock) -> Self {
+        Self {
+            tag: lock.release_tag,
+            program: lock.ring_program,
+            proving_key: lock.proving_key,
+            audit_key: lock.audit_key,
+            binaries: lock.binaries,
+        }
+    }
 }
 
 impl RingRelease {
     pub fn from_lock() -> Result<Self, ReleaseError> {
-        let lock: ReleaseLock = serde_json::from_str(LOCK_JSON)?;
-        let program = lock
-            .ring_program
+        Self::parse(LOCK_JSON)
+    }
+
+    fn parse(lock_json: &str) -> Result<Self, ReleaseError> {
+        Ok(serde_json::from_str::<ReleaseLock>(lock_json)?.into())
+    }
+
+    pub fn program(&self) -> Result<&Asset, ReleaseError> {
+        self.program
+            .as_ref()
             .ok_or_else(|| ReleaseError::NoRingProgram {
-                tag: lock.release_tag.clone(),
-            })?;
-        Ok(Self {
-            tag: lock.release_tag,
-            program,
-            proving_key: lock.proving_key,
-            binaries: lock.binaries,
-        })
+                tag: self.tag.clone(),
+            })
     }
 
     pub fn proving_key(&self) -> Result<&Asset, ReleaseError> {
         self.proving_key
             .as_ref()
             .ok_or_else(|| ReleaseError::NoProvingKey {
+                tag: self.tag.clone(),
+            })
+    }
+
+    pub fn audit_key(&self) -> Result<&Asset, ReleaseError> {
+        self.audit_key
+            .as_ref()
+            .ok_or_else(|| ReleaseError::NoAuditKey {
                 tag: self.tag.clone(),
             })
     }
@@ -157,10 +186,14 @@ impl RingRelease {
 
 impl RingProgram {
     pub fn from_lock() -> Result<Self, ReleaseError> {
-        let release = RingRelease::from_lock()?;
+        Self::of(RingRelease::from_lock()?)
+    }
+
+    fn of(release: RingRelease) -> Result<Self, ReleaseError> {
+        let asset = release.program()?.clone();
         Ok(Self {
             tag: release.tag,
-            asset: release.program,
+            asset,
         })
     }
 
@@ -292,8 +325,68 @@ mod tests {
 
     #[test]
     fn the_embedded_lock_parses() {
-        let lock: ReleaseLock = serde_json::from_str(LOCK_JSON).expect("lock");
-        assert!(!lock.release_tag.is_empty());
+        let release = RingRelease::from_lock().expect("lock");
+        assert!(!release.tag.is_empty());
+        release.program().expect("the ring program");
+    }
+
+    const BINARIES_ONLY_LOCK: &str = r#"{
+        "release_tag": "v1",
+        "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}]
+    }"#;
+
+    const FULL_LOCK: &str = r#"{
+        "release_tag": "v1",
+        "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
+        "proving_key": {"asset": "custom-ring-key-v1.key", "size": 1, "sha256": "x"},
+        "audit_key": {"asset": "custom-ring-audit-key-v1.key", "size": 1, "sha256": "x"}
+    }"#;
+
+    #[test]
+    fn a_missing_asset_fails_at_use_and_never_at_parse() {
+        let release = RingRelease::parse(BINARIES_ONLY_LOCK).expect("parses");
+        assert!(matches!(
+            release.program(),
+            Err(ReleaseError::NoRingProgram { tag }) if tag == "v1"
+        ));
+        assert!(matches!(
+            RingProgram::of(RingRelease::parse(BINARIES_ONLY_LOCK).expect("parses")),
+            Err(ReleaseError::NoRingProgram { tag }) if tag == "v1"
+        ));
+        assert!(matches!(
+            release.audit_key(),
+            Err(ReleaseError::NoAuditKey { tag }) if tag == "v1"
+        ));
+        assert!(matches!(
+            release.proving_key(),
+            Err(ReleaseError::NoProvingKey { tag }) if tag == "v1"
+        ));
+        assert_eq!(
+            release
+                .binary("ring_rpc", "linux", "x64")
+                .expect("binary")
+                .name,
+            "ring-rpc-linux-x64-v1"
+        );
+    }
+
+    #[test]
+    fn a_full_release_serves_every_asset() {
+        let release = RingRelease::parse(FULL_LOCK).expect("parses");
+        assert_eq!(
+            release.program().expect("program").name,
+            "custom-ring-program-v1.so"
+        );
+        assert_eq!(
+            release.proving_key().expect("proving key").name,
+            "custom-ring-key-v1.key"
+        );
+        assert_eq!(
+            release.audit_key().expect("audit key").name,
+            "custom-ring-audit-key-v1.key"
+        );
+        let program = RingProgram::of(release).expect("program");
+        assert_eq!(program.tag, "v1");
     }
 
     #[test]

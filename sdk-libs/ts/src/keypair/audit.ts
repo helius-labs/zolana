@@ -136,19 +136,20 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
   });
 }
 
-/** Poseidon chain over `[private_tx_hash, tx_pk, auditor_pk, eph_pk, hash(ciphertext)]`, keys packed into two fields. */
-export function customRingPublicInputHash(
-  input: Readonly<{
-    privateTxHash: Bytes32;
-    txViewingPublicKey: P256PublicKey;
-    auditorPublicKey: P256PublicKey;
-    message: AuditorMessage;
-  }>,
-): Bytes32 {
+/** The base circuit's public-input elements, Rust `CustomRingBasePublicInput`. */
+export interface CustomRingBasePublicInput {
+  readonly privateTxHash: Bytes32;
+  readonly txViewingPublicKey: P256PublicKey;
+  readonly auditorPublicKey: P256PublicKey;
+  readonly message: AuditorMessage;
+}
+
+/** The eight-element prefix every custom-ring public input starts with. */
+function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
   const [ephLow, ephHigh] = pack33(input.message.ephemeralPublicKey.toBytes());
-  return hashChain([
+  return [
     input.privateTxHash,
     txLow,
     txHigh,
@@ -157,5 +158,23 @@ export function customRingPublicInputHash(
     ephLow,
     ephHigh,
     hashBytes(input.message.ciphertext) as Bytes32,
+  ];
+}
+
+/** Input order binds the audit statement, Rust `CustomRingBasePublicInput::hash`. */
+export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 {
+  return hashChain(auditChainElements(input));
+}
+
+/** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
+export function customRingPublicInputHash(
+  input: CustomRingBasePublicInput &
+    Readonly<{ policyHash: Bytes32; stateRoot: Bytes32; nullifierRoot: Bytes32 }>,
+): Bytes32 {
+  return hashChain([
+    ...auditChainElements(input),
+    checkedBytes(input.policyHash, 32, "policy hash"),
+    checkedBytes(input.stateRoot, 32, "state root"),
+    checkedBytes(input.nullifierRoot, 32, "nullifier root"),
   ]);
 }

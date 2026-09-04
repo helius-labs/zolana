@@ -1,0 +1,41 @@
+# A closed ring, only owners on the allow list may send or receive. A frozen
+# sender is refused even while it stays on the allow list. The entries live in
+# the tree named here instead of the default tree.
+
+name = "allowlist"
+target = "localnet"
+# Replace with the id of keys/program-keypair.json, `zolana-ring new` writes one.
+program_id = "71xpmf2e94nEd9T1S32trTQnhY39xfSUeNW7GH4quTw6"
+authority_keypair = "~/.config/solana/id.json"
+
+[localnet]
+rpc = "http://127.0.0.1:8899"
+indexer = "http://127.0.0.1:8784"
+prover = "http://127.0.0.1:3001"
+ring_rpc = "http://127.0.0.1:8785"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
+indexer = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com"
+prover = "https://d30sgubc9yxiri.cloudfront.net"
+ring_rpc = "https://d1ojzfopdqqs5r.cloudfront.net"
+ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
+
+[policy]
+# every entry the rules read lives in the named tree
+entries_tree = "Dn4cftC4fvAdQQgzNrr2r6MGt9HjBB8FxguBbcBFJXZn"
+
+# the sender must be on the allow list
+[[policy.rules]]
+subject = "sender"
+require = "allow"
+
+# each output owner must be on the allow list
+[[policy.rules]]
+subject = "output-owner"
+require = "allow"
+
+# the sender must not be on the frozen list
+[[policy.rules]]
+subject = "sender"
+forbid = "frozen"

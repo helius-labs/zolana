@@ -9,8 +9,8 @@
 #
 # Images live in the zolana-prover and zolana-ring-rpc repositories under
 # <service>-<branch>-<sha12>, built and pushed here when the tag is absent.
-# The prover task fetches the proving keys at start and converts the custom-ring key
-# itself. The ring RPC runs in derived mode, one root secret serves every ring
+# The prover task fetches the SPP transfer proving keys at start. The ring RPC
+# runs in derived mode, one root secret serves every ring
 # that takes its auditor key from it at `init`. Both services sit behind one
 # network load balancer and a CloudFront distribution each, so they are reached
 # over HTTPS on a stable amazon hostname.
@@ -58,7 +58,6 @@ prover_port=3001
 ring_rpc_port=8785
 redis_image="public.ecr.aws/docker/library/redis:7.4.4-alpine3.21"
 fetch_image="public.ecr.aws/docker/library/alpine:3.21"
-keys_release="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v2"
 # The prover embeds this lockfile, so reading the prefix here keeps the two aligned.
 published_keys="https://d3gbdb0egjwcw9.cloudfront.net/$(python3 -c "import json;print(json.load(open('$(dirname "$0")/../prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
 
@@ -116,18 +115,14 @@ ensure_role() {
     aws_ iam get-role --role-name "$role" --query Role.Arn --output text
 }
 
-# Runs in the fetch container, the custom-ring key is converted by the prover image afterwards.
+# Runs in the fetch container before the prover starts.
 key_fetch_script() {
-    local lock="prover/server/prover/provingkeys/proving-keys.lock" checksum="custom-rings/custom-ring-keys.CHECKSUM"
+    local lock="prover/server/prover/provingkeys/proving-keys.lock"
     local name sha
     printf 'set -eu\ncd /keys\n'
     # shellcheck disable=SC2016
     printf 'fetch() { [ -f "$2" ] && echo "$3  $2" | sha256sum -c -s && return; wget -q -O "$2.part" "$1" && echo "$3  $2.part" | sha256sum -c -s && mv "$2.part" "$2"; }\n'
-    for name in auditor_key_encryption_pk.bin auditor_key_encryption_vk.bin; do
-        sha="$(awk -v n="$name" '$2 == n { print $1 }' "$checksum")"
-        printf 'fetch %s/%s %s %s\n' "$keys_release" "$name" "$name" "$sha"
-    done
-    # 1_1 is the withdrawal shape, which has no recipient output.
+    # 1_1 is the withdrawal shape without a recipient output.
     for name in transfer_ring_1_1.key transfer_ring_1_2.key transfer_ring_2_2.key; do
         sha="$(jq -r --arg n "$name" '.keys[$n].sha256' "$lock")"
         printf 'fetch %s/%s %s %s\n' "$published_keys" "$name" "$name" "$sha"
@@ -239,13 +234,8 @@ register_prover() {
             {name: "redis", image: $redis, essential: true, logConfiguration: logs("redis")},
             {name: "fetch", image: $fetch, essential: false, user: "0", mountPoints: keys,
              command: ["sh", "-c", ($script + "\nchown -R 65532:65532 /keys")], logConfiguration: logs("fetch")},
-            {name: "convert", image: $image, essential: false, mountPoints: keys,
-             dependsOn: [{containerName: "fetch", condition: "SUCCESS"}],
-             command: ["convert-custom-ring", "--pk", "/keys/auditor_key_encryption_pk.bin",
-                       "--vk", "/keys/auditor_key_encryption_vk.bin", "--output", "/keys/custom_ring.key"],
-             logConfiguration: logs("convert")},
             {name: "prover", image: $image, essential: true, mountPoints: keys,
-             dependsOn: [{containerName: "redis", condition: "START"}, {containerName: "convert", condition: "SUCCESS"}],
+             dependsOn: [{containerName: "redis", condition: "START"}, {containerName: "fetch", condition: "SUCCESS"}],
              command: ["start", "--keys-dir", "/keys/", "--prover-address", ("0.0.0.0:" + ($port|tostring)),
                        "--auto-download=true", "--redis-url", "redis://127.0.0.1:6379/0"],
              portMappings: [{containerPort: $port, protocol: "tcp"}],

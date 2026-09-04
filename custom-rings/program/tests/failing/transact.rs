@@ -60,7 +60,7 @@ fn other_message() -> MessageData {
     }
 }
 
-/// Wire-valid `RingEddsa` payload; callers override the fields they attack.
+/// Wire-valid `RingEddsa` content; callers override the fields they attack.
 fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
@@ -94,8 +94,13 @@ fn bogus_proof() -> CustomRingProof {
 fn instruction_data(proof: CustomRingProof, transact: TransactIxData) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
-        &wincode::serialize(&CustomRingTransactIxData { proof, transact })
-            .expect("serialize transact body"),
+        &wincode::serialize(&CustomRingTransactIxData {
+            proof,
+            state_root_index: 0,
+            nullifier_root_index: 0,
+            transact,
+        })
+        .expect("serialize transact body"),
     );
     data
 }
@@ -157,8 +162,10 @@ fn uninitialized_config_is_rejected_exactly() {
 fn non_canonical_config_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = fixture_with_messages(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
+    // A foreign address holds no valid config, so the load fails before the
+    // canonicality check.
     fixture.substitute("config", Pubkey::new_from_array([73; 32]));
-    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidConfigPda));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ConfigNotInitialized));
 }
 
 #[test]
@@ -371,7 +378,7 @@ fn long_auditor_message_is_rejected_exactly() {
 }
 
 /// Exactly one message may claim the auditor's view tag: the proof covers one
-/// ciphertext, so a second tagged payload could be mistaken for the proven one.
+/// ciphertext, so a second tagged ciphertext could be mistaken for the proven one.
 #[test]
 fn two_auditor_messages_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

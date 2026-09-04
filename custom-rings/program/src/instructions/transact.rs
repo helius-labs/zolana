@@ -1,5 +1,6 @@
 use custom_ring_interface::{
-    CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+    CustomRingBasePublicInput, CustomRingPolicyPublicInput, CustomRingTransactIxData,
+    AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -13,20 +14,24 @@ use zolana_interface::instruction::{
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_config, validate_spp_program},
+        loader::{load_config, load_policy_config, validate_spp_program},
+        roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
 };
 
-/// Verifies the custom-ring proof against the recomputed public-input
-/// hash, then CPIs SPP `RING_TRANSACT` with the `ring_auth` PDA as signer.
+/// Verifies the ring proof against the recomputed public input, then CPIs SPP
+/// `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
-/// Accounts: `[payer(w,s), config]` followed by SPP's own `RING_TRANSACT` list
-/// (`payer, input_tree, output_tree, spp_program, system_program, ring_config,
-/// owner signers, settlement accounts`), which is forwarded position for
-/// position with only `ring_config` (this ring's `ring_auth` PDA) gaining a
-/// signature.
+/// The config `has_policy` flag pins the tier and no client input can override
+/// it. A policy ring verifies the folded eleven-element statement over the
+/// pinned policy hash and the entries-tree roots, its accounts
+/// `[payer(w,s), config, policy_config, entries_tree(r)]` precede the SPP list.
+/// A base ring verifies just the eight-element audit statement against the
+/// base verifying key, its accounts are `[payer(w,s), config]`. Only the SPP
+/// `RING_TRANSACT` list is forwarded, position for position, with `ring_config`
+/// gaining a signature.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -37,16 +42,31 @@ pub fn process_transact_ix(
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
 
-    let CustomRingTransactIxData { proof, transact } =
-        wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let CustomRingTransactIxData {
+        proof,
+        state_root_index,
+        nullifier_root_index,
+        transact,
+    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
 
-    // The forwarded list is taken before the expensive work so a malformed
-    // account list costs no pairing.
-    let spp_accounts = iter.remaining()?;
+    // The tier comes from the authenticated config, a policy ring cannot drop its
+    // policy accounts to spend through the lighter audit statement.
+    let (auditor_pubkey, has_policy) = {
+        let config = load_config(program_id, config_account)?;
+        (config.auditor_pubkey, config.has_policy)
+    };
+    let policy_accounts = if has_policy != 0 {
+        let policy_config_account = iter.next_account("policy_config")?;
+        let entries_tree_account = iter.next_account("entries_tree")?;
+        Some((policy_config_account, entries_tree_account))
+    } else {
+        None
+    };
+
+    // The forwarded list is validated before the pairing so a malformed account
+    // list costs no verification.
+    let spp_accounts = iter.remaining_mut()?;
     validate_spp_program(spp_accounts)?;
-
-    // The typed loader releases the account borrow before the CPI.
-    let auditor_pubkey = load_config(program_id, config_account)?.auditor_pubkey;
 
     if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());
@@ -65,27 +85,59 @@ pub fn process_transact_ix(
         .and_then(|tag| tag.try_into().ok())
         .ok_or(CustomRingError::InvalidAuditorPubkey)?;
     let message = select_auditor_message(&transact.messages, view_tag)?;
-    verify_groth16(
-        CompressedGroth16Proof {
-            a: &proof.proof_a,
-            b: &proof.proof_b,
-            c: &proof.proof_c,
-            commitment: &proof.commitment,
-            commitment_pok: &proof.commitment_pok,
-        },
-        CustomRingPublicInput {
-            private_tx_hash: &transact.private_tx_hash,
-            tx_viewing_pk: &transact.tx_viewing_pk,
-            auditor_pk: &auditor_pubkey,
-            eph_pk: message.eph_pk,
-            ciphertext: message.ciphertext,
+    let audit = CustomRingBasePublicInput {
+        private_tx_hash: &transact.private_tx_hash,
+        tx_viewing_pk: &transact.tx_viewing_pk,
+        auditor_pk: &auditor_pubkey,
+        eph_pk: message.eph_pk,
+        ciphertext: message.ciphertext,
+    };
+    let compressed = CompressedGroth16Proof {
+        a: &proof.proof_a,
+        b: &proof.proof_b,
+        c: &proof.proof_c,
+        commitment: &proof.commitment,
+        commitment_pok: &proof.commitment_pok,
+    };
+
+    match policy_accounts {
+        Some((policy_config_account, entries_tree_account)) => {
+            let (policy_hash, entries_tree) = {
+                let policy = load_policy_config(program_id, policy_config_account)?;
+                (policy.policy_hash, policy.entries_tree)
+            };
+            // The borrow drops before the CPI below, else SPP faults borrowing the
+            // aliased money tree.
+            let roots = load_roots(
+                entries_tree_account,
+                &entries_tree,
+                state_root_index,
+                nullifier_root_index,
+            )?;
+            verify_groth16(
+                compressed,
+                CustomRingPolicyPublicInput {
+                    audit,
+                    policy_hash: &policy_hash,
+                    state_root: &roots.state,
+                    nullifier_root: &roots.nullifier,
+                }
+                .hash()
+                .map_err(|_| CustomRingError::HashingFailed)?,
+                &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
+            )?;
         }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?,
-    )?;
+        None => {
+            verify_groth16(
+                compressed,
+                audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
+                &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
+            )?;
+        }
+    }
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the
-    // proof is verified against the parsed payload, so the bytes SPP sees must be
+    // proof is verified against the parsed content, so the bytes SPP sees must be
     // the ones that were parsed.
     let transact_bytes = transact
         .serialize()
@@ -108,7 +160,7 @@ struct AuditorMessageParts<'a> {
 /// The ring's convention is: exactly one message carries the auditor view tag,
 /// and it is the last one. Free-form messages before it stay allowed. Requiring
 /// uniqueness and a fixed position leaves no room for a second, differently
-/// tagged payload that an indexer or auditor might pick up instead of the proven
+/// tagged ciphertext that an indexer or auditor might pick up instead of the proven
 /// one -- the proof covers exactly one ciphertext, so exactly one message may
 /// claim the auditor's tag.
 fn select_auditor_message<'a>(
@@ -159,7 +211,7 @@ mod tests {
     use zolana_interface::merge_utils::ciphertext_hash;
 
     /// Fixture of the circuit's Go test
-    /// (`prover/server/circuits/custom_ring/circuit_test.go`, scalars
+    /// (`prover/server/circuits/custom_ring/audit/circuit_test.go`, scalars
     /// 0x11/0x22/0x33) and of the SDK's cross-language vectors
     /// (`custom-rings/sdk/tests/go_vectors.rs`). The compressed keys and the
     /// ciphertext are the values Go printed and the Go test feeds to the compiled
@@ -215,7 +267,7 @@ mod tests {
     /// or differently packed chain element changes this value.
     #[test]
     fn public_input_hash_matches_go_fixture() {
-        let hash = CustomRingPublicInput {
+        let hash = CustomRingBasePublicInput {
             private_tx_hash: &bytes::<32>(PRIVATE_TX_HASH),
             tx_viewing_pk: &bytes::<33>(TX_PK),
             auditor_pk: &bytes::<33>(AUDITOR_PK),

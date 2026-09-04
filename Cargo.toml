@@ -6,6 +6,7 @@ members = [
     "program-libs/hasher",
     "program-libs/indexed-array",
     "program-libs/interface",
+    "program-libs/ring-policy",
     "program-libs/user-registry-interface",
     "program-libs/tree",
     "program-tests/shielded-pool",
@@ -75,6 +76,7 @@ zolana-event = { path = "program-libs/event", version = "0.1.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
+zolana-ring-policy = { path = "program-libs/ring-policy", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }

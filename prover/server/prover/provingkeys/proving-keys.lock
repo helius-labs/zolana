@@ -1,5 +1,10 @@
 {
   "keys": {
+    "custom_ring_base.key": {
+      "sha256": "5a469eca19000e5d023c9c7711beac495e4faf72ab804c635c0d84541ddc3aeb",
+      "size": 89748463,
+      "source": "release"
+    },
     "batch_address-append_40_10.key": {
       "sha256": "681348a6071c5ac1dda489ba774471c07f0b68a3a3212638d3cfdb30fd4be955",
       "size": 137141216
@@ -8,9 +13,9 @@
       "sha256": "6b239feff3b56f023d53d7cb473d455b64b2b115a552b40d359dd974ce741c12",
       "size": 3764027068
     },
-    "custom_ring.key": {
-      "sha256": "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249",
-      "size": 89710022,
+    "custom_ring_policy.key": {
+      "sha256": "c6c7d8b1c368aec3dcb4b800f17acb4e99953b6786437db76cfb21907b42af8f",
+      "size": 179154007,
       "source": "release"
     },
     "merge_8_1.key": {

@@ -19,8 +19,10 @@ import type { TransactInstructionData, TransactWithdrawal } from "../interface/t
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 
+import { Writer } from "../interface/internal.js";
+
 import { checkedCustomRingProof } from "./codecs.js";
-import { ringConfigAddress, ringProgramDataAddress } from "./config.js";
+import { ringConfigAddress, ringPolicyConfigAddress, ringProgramDataAddress } from "./config.js";
 import { RingError } from "./error.js";
 
 /** Rust `tag::CREATE_CONFIG`, `tag::INIT_SPP_RING_CONFIG` and `tag::TRANSACT`. */
@@ -30,10 +32,21 @@ const RingProgramTag = Object.freeze({
   transact: 3,
 } as const);
 
-/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT` and `READ_ACCESS_COMPUTE_UNIT_LIMIT`. */
+/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT`, `READ_ACCESS_COMPUTE_UNIT_LIMIT` and `SET_PAUSED_COMPUTE_UNIT_LIMIT`. */
 export const RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_READ_ACCESS_COMPUTE_UNIT_LIMIT = 50_000;
+export const RING_SET_PAUSED_COMPUTE_UNIT_LIMIT = 50_000;
+
+export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
+  (
+    | Readonly<{ hasPolicy: false }>
+    | Readonly<{
+        hasPolicy: true;
+        /** The pinned `PolicyConfig.entriesTree`. */
+        entriesTree: Address;
+      }>
+  );
 
 /** Mirrors Rust `CreateConfig`. The authority signs, so the recorded authority consented to the role. */
 export async function createRingConfigInstruction(
@@ -42,6 +55,8 @@ export async function createRingConfigInstruction(
     payer: SignerAccount;
     authority: SignerAccount;
     auditorPublicKey: P256PublicKey;
+    /** A policy ring enforces its compiled rules, an audit-only ring skips them. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   if (isDerivationPoint(input.auditorPublicKey)) {
@@ -51,9 +66,10 @@ export async function createRingConfigInstruction(
     ringConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
   ]);
-  const data = new Uint8Array(1 + 33);
+  const data = new Uint8Array(1 + 33 + 1);
   data[0] = RingProgramTag.createConfig;
   data.set(input.auditorPublicKey.toBytes(), 1);
+  data[34] = input.hasPolicy ? 1 : 0;
   return {
     programAddress: input.ringProgramId,
     accounts: [
@@ -74,12 +90,15 @@ export async function initSppRingConfigInstruction(
     ringProgramId: Address;
     payer: SignerAccount;
     authority: SignerAccount;
+    /** A policy ring registers only after its policy config exists. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
-  const [config, protocolConfig, ringAuth] = await Promise.all([
+  const [config, protocolConfig, ringAuth, policyConfig] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     protocolConfigAddress(),
     ringAuthAddress(input.ringProgramId),
+    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -91,19 +110,30 @@ export async function initSppRingConfigInstruction(
       meta(ringAuth, false, true),
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
     ],
     data: Uint8Array.of(RingProgramTag.initSppRingConfig),
   };
 }
 
-/** Mirrors Rust `CustomRingTransact`. Data layout is `tag || proof || transact data`. */
+/**
+ * Mirrors Rust `CustomRingTransact`. Data layout is
+ * `tag || proof || state root index || nullifier root index || transact data`.
+ */
 export async function ringTransactInstruction(
   input: Readonly<{
     ringProgramId: Address;
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
+    /** Read for the policy roots, never forwarded to SPP. Required for the policy tier. */
+    entriesTree?: Address;
+    /** The config tier. False drops the policy_config and entries_tree accounts. */
+    hasPolicy?: boolean;
     proof: Uint8Array;
+    /** History entries the ring statement binds, unread by a ring without rules. */
+    stateRootIndex: number;
+    nullifierRootIndex: number;
     data: TransactInstructionData;
     /** Non-payer input owners, the ed25519 rail adds them as signers. */
     ownerSigners?: readonly SignerAccount[];
@@ -111,6 +141,7 @@ export async function ringTransactInstruction(
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<Instruction> {
+  const hasPolicy = input.hasPolicy ?? true;
   const [config, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
@@ -126,11 +157,16 @@ export async function ringTransactInstruction(
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
   const proof = checkedCustomRingProof(input.proof);
+  const rootIndexes = new Writer()
+    .u16(input.stateRootIndex, "stateRootIndex")
+    .u16(input.nullifierRootIndex, "nullifierRootIndex")
+    .finish();
   const transact = encodeTransactInstructionData(input.data);
-  const data = new Uint8Array(1 + proof.length + transact.length);
+  const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
   data[0] = RingProgramTag.transact;
   data.set(proof, 1);
-  data.set(transact, 1 + proof.length);
+  data.set(rootIndexes, 1 + proof.length);
+  data.set(transact, 1 + proof.length + rootIndexes.length);
   return {
     programAddress: input.ringProgramId,
     accounts: [
@@ -140,31 +176,50 @@ export async function ringTransactInstruction(
         ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
       },
       { address: config, role: AccountRole.READONLY },
+      ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
       ...pool,
     ],
     data,
   };
 }
 
+/** The policy tier reads `policy_config` and `entries_tree`, read-only and before the SPP list. */
+async function policyAccountMetas(
+  ringProgramId: Address,
+  entriesTree: Address | undefined,
+): Promise<readonly { address: Address; role: AccountRole }[]> {
+  if (entriesTree === undefined) {
+    throw new RingError("RING_ENTRIES_TREE_REQUIRED", { details: { ringProgramId } });
+  }
+  const policyConfig = await ringPolicyConfigAddress(ringProgramId);
+  return [
+    { address: policyConfig, role: AccountRole.READONLY },
+    { address: entriesTree, role: AccountRole.READONLY },
+  ];
+}
+
 /** Mirrors Rust `lookup_table_addresses`. */
 export async function ringLookupTableAddresses(
-  input: Readonly<{ ringProgramId: Address; tree: Address }>,
+  input: Readonly<{ ringProgramId: Address; trees: RingTransactTrees }>,
 ): Promise<readonly Address[]> {
   const [config, ringAuth] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
   ]);
+  const policy = input.trees.hasPolicy
+    ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
+    : [];
   // Nullifier PDAs are fresh per transaction, so none belongs in the table.
   const pool = await ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
-    inputTree: input.tree,
-    outputTree: input.tree,
+    inputTree: input.trees.tree,
+    outputTree: input.trees.outputTree,
     ringAuth,
     inputs: [],
   });
   const addresses = [
     config,
-    ...pool
+    ...[...policy, ...pool]
       .filter(
         (meta) =>
           meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,

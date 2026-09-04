@@ -7,7 +7,11 @@ import {
   type Blockhash,
   type TransactionSigner,
 } from "@solana/kit";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
+
+import type { CustomRingSourceOwner } from "../src/client/index.js";
+import type { CustomRingBasePublicInput as KeypairRingInput } from "../src/keypair/index.js";
+import type { CustomRingBasePublicInput as RingInput } from "../src/ring/index.js";
 
 import { EncryptedScheme, decodeOutputData } from "../src/transaction/index.js";
 // The encoder stays internal; only the decoders are needed by a relayed client.
@@ -75,6 +79,14 @@ async function kitTreePda(treeId: number) {
 }
 
 describe("public package surface", () => {
+  it("exports every type named by the custom-ring public API", () => {
+    expectTypeOf<KeypairRingInput>().toEqualTypeOf<RingInput>();
+    expectTypeOf<CustomRingSourceOwner>().toMatchTypeOf<{
+      readonly listId: number;
+      readonly ownerHash: Bytes32;
+    }>();
+  });
+
   it("creates the default client and initializes protocol crypto", async () => {
     const client = await createZolanaClient();
     expect(client.tree).toBe(TREE);
@@ -83,7 +95,8 @@ describe("public package surface", () => {
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
     expect(client.proveRingTransact).toBeTypeOf("function");
-    expect(client.proveCustomRing).toBeTypeOf("function");
+    expect(client.proveCustomRingPolicy).toBeTypeOf("function");
+    expect(client.proveCustomRingBase).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {

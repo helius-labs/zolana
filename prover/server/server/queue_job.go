@@ -636,8 +636,8 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
-	case common.CustomRingCircuitType:
-		proof, proofError = w.processCustomRingProof(job.Payload)
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+		proof, proofError = w.processCustomRingProof(job.Payload, proofRequestMeta.CircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
 	}
@@ -718,16 +718,31 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	return mergeprover.ProveMerge(ps, &params)
 }
 
-func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage) (*common.Proof, error) {
-	var params customring.CustomRingParameters
-	if err := json.Unmarshal(payload, &params); err != nil {
-		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)
+func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
+	switch circuitType {
+	case common.CustomRingBaseCircuitType:
+		var params customring.BaseParameters
+		if err := json.Unmarshal(payload, &params); err != nil {
+			return nil, fmt.Errorf("unmarshal custom-ring base params: %w", err)
+		}
+		ps, err := w.keyManager.GetRingSystem(common.CustomRingBaseCircuitType)
+		if err != nil {
+			return nil, fmt.Errorf("custom-ring base: %w", err)
+		}
+		return customring.ProveBase(ps, &params)
+	case common.CustomRingPolicyCircuitType:
+		var params customring.PolicyParameters
+		if err := json.Unmarshal(payload, &params); err != nil {
+			return nil, fmt.Errorf("unmarshal custom-ring policy params: %w", err)
+		}
+		ps, err := w.keyManager.GetRingSystem(common.CustomRingPolicyCircuitType)
+		if err != nil {
+			return nil, fmt.Errorf("custom-ring policy: %w", err)
+		}
+		return customring.ProvePolicy(ps, &params)
+	default:
+		return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
 	}
-	ps, err := w.keyManager.GetRingSystem(common.CustomRingCircuitType, customring.TransferVariant)
-	if err != nil {
-		return nil, fmt.Errorf("custom-ring: %w", err)
-	}
-	return customring.ProveCustomRing(ps, &params)
 }
 
 // removeFromProcessingQueue drops the entry a worker added when it started, by

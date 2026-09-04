@@ -15,9 +15,14 @@ path = "src/main.rs"
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
+bytemuck = { workspace = true }
 clap = { workspace = true }
+console = "0.16"
+custom-ring-interface = { workspace = true }
+# Only for the error codes the init hints name.
 custom-ring-program = { path = "../program", features = ["no-entrypoint"] }
 custom-ring-sdk = { path = "../sdk" }
+dialoguer = { version = "0.12", default-features = false }
 hex = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "json"] }
 serde = { workspace = true }
@@ -34,14 +39,17 @@ solana-system-interface = { workspace = true }
 solana-transaction-error = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
+toml_edit = "0.22"
 wincode = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-indexer-api = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-transaction = { workspace = true }
+zolana-wallet = { workspace = true }
 
 [dev-dependencies]
 solana-rpc-client-api = { workspace = true }

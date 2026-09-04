@@ -126,8 +126,8 @@ test-swap-program: build-programs
 # The Go circuit proof check. Needs the canonical keys, because the proof must
 # verify under the committed VERIFYINGKEY and gnark setup is non-deterministic,
 # so locally generated keys cannot pass.
-test-custom-ring: ensure-custom-ring-prover-key
-    cd prover/server && go test ./prover/custom_ring -run TestCustomRingProofVerifies -count=1
+test-custom-ring: ensure-custom-ring-live-keys
+    cd prover/server && go test ./prover/custom_ring -count=1
 
 # === Custom rings ===
 
@@ -240,62 +240,72 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
-# Same contract as swap-keys-tag, for the custom-ring program's single circuit.
-# gnark's Setup is non-deterministic, so the release assets are the
-# only key set matching the committed Rust verifying key. A circuit change
-# rotates them with `setup-custom-ring --pk-out --vk-out`, a new release tag
-# here and in tools/rings-test-deploy.sh, custom-ring-keys.CHECKSUM, the key
-# sha256 below and in proving-keys.lock, verifying_key.rs with its fingerprint
-# test, the vk hash in prove_test.go and the circuit fingerprint test.
-custom-ring-keys-tag := "custom-ring-keys-v2"
-
-ensure-custom-ring-prover-key: build-prover-server
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source_dir="custom-rings/build/gnark/audit"
-    mkdir -p "$source_dir" prover/server/proving-keys
-    # The release assets keep the retired circuit name.
-    for kind in pk vk; do
-        file="auditor_key_encryption_${kind}.bin"
-        path="$source_dir/${kind}.bin"
-        want="$(awk -v name="$file" '$2 == name { print $1 }' custom-rings/custom-ring-keys.CHECKSUM)"
-        # A file from an earlier release fails the checksum and is fetched again.
-        if [[ ! -f "$path" ]] || [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" != "$want" ]]; then
-            curl -fsSL "https://github.com/helius-labs/zolana/releases/download/{{custom-ring-keys-tag}}/$file" -o "$path"
-        fi
-        got="$(shasum -a 256 "$path" | awk '{ print $1 }')"
-        if [[ "$got" != "$want" ]]; then
-            echo "$file from {{custom-ring-keys-tag}} hashes to $got, custom-ring-keys.CHECKSUM pins $want" >&2
-            exit 1
-        fi
-    done
-    target/prover-server convert-custom-ring \
-        --pk "$source_dir/pk.bin" \
-        --vk "$source_dir/vk.bin" \
-        --output prover/server/proving-keys/custom_ring.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249" ]]
-    verify_dir="$(mktemp -d)"
-    trap 'rm -rf "$verify_dir"' EXIT
-    target/prover-server export-vk \
-        --keys-file prover/server/proving-keys/custom_ring.key \
-        --output "$verify_dir/vk.bin"
-    cmp "$source_dir/vk.bin" "$verify_dir/vk.bin"
-
-ensure-custom-ring-live-keys: ensure-custom-ring-prover-key
+# The two ring keys from the release the cli lock names and the ring transfer
+# shapes from the object store, each checked against proving-keys.lock.
+ensure-custom-ring-live-keys: && check-custom-ring-keys
     #!/usr/bin/env bash
     set -euo pipefail
     keys_dir="prover/server/proving-keys"
+    mkdir -p "$keys_dir"
     temp_dir="$(mktemp -d)"
     trap 'rm -rf "$temp_dir"' EXIT
-    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
-        want="$(python3 -c 'import json, sys; print(json.load(open("prover/server/prover/provingkeys/proving-keys.lock"))["keys"][sys.argv[1]]["sha256"])' "$name")"
-        path="$keys_dir/$name"
-        if [[ -f "$path" ]] && [[ "$(shasum -a 256 "$path" | awk '{ print $1 }')" == "$want" ]]; then
-            continue
+    pinned() {
+        python3 -c 'import json, sys; print(json.load(open("prover/server/prover/provingkeys/proving-keys.lock"))["keys"][sys.argv[1]]["sha256"])' "$1"
+    }
+    digest() {
+        shasum -a 256 "$1" | awk '{ print $1 }'
+    }
+    installed() {
+        [[ -f "$keys_dir/$1" ]] && [[ "$(digest "$keys_dir/$1")" == "$(pinned "$1")" ]]
+    }
+    fetch() {
+        name="$1" url="$2"
+        want="$(pinned "$name")"
+        curl -fsSL "$url" -o "$temp_dir/$name"
+        got="$(digest "$temp_dir/$name")"
+        if [[ "$got" != "$want" ]]; then
+            echo "$url hashes to $got, proving-keys.lock pins $want" >&2
+            exit 1
         fi
-        curl -fsSL "{{proving-keys-url}}/$name" -o "$temp_dir/$name"
-        [[ "$(shasum -a 256 "$temp_dir/$name" | awk '{ print $1 }')" == "$want" ]]
-        install -m 0644 "$temp_dir/$name" "$path"
+        install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
+    }
+    release_asset_url() {
+        python3 - "$1" <<'PY'
+    import json, sys
+    lock = json.load(open("custom-rings/cli/release-artifacts.lock"))
+    section = sys.argv[1]
+    if section not in lock:
+        sys.exit("release-artifacts.lock " + lock["release_tag"] + " has no " + section + ", cut a custom-rings release first")
+    print("https://github.com/helius-labs/zolana/releases/download/" + lock["release_tag"] + "/" + lock[section]["asset"])
+    PY
+    }
+    for pair in custom_ring_policy.key:proving_key custom_ring_base.key:audit_key; do
+        name="${pair%%:*}"
+        installed "$name" && continue
+        url="$(release_asset_url "${pair##*:}")"
+        fetch "$name" "$url"
+    done
+    for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
+        installed "$name" || fetch "$name" "{{proving-keys-url}}/$name"
+    done
+
+# The committed verifying keys must be the export of the pinned proving keys.
+check-custom-ring-keys: build-prover-server
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export_dir="$(mktemp -d)"
+    trap 'rm -rf "$export_dir"' EXIT
+    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs; do
+        key="${pair%%:*}"
+        module="${pair##*:}"
+        if [[ ! -f "prover/server/proving-keys/$key" ]]; then
+            echo "prover/server/proving-keys/$key is missing, run just ensure-custom-ring-live-keys" >&2
+            exit 1
+        fi
+        target/prover-server export-vk --keys-file "prover/server/proving-keys/$key" --output "$export_dir/$key.vkbin" >/dev/null
+        cargo run -q -p xtask -- bsb22-vk "$export_dir/$key.vkbin" "$export_dir" "$module" >/dev/null
+        rustfmt --config-path rustfmt.toml "$export_dir/$module"
+        diff -u "custom-rings/interface/src/$module" "$export_dir/$module"
     done
 
 # Program-side Groth16 matrices only. CI runs this variant: the client proving
@@ -346,6 +356,7 @@ test-sdk-libs:
     cargo nextest run -p custom-ring-sdk
     cargo nextest run -p custom-ring-cli
     cargo nextest run -p custom-ring-interface
+    cargo nextest run -p zolana-ring-policy
 
 # TypeScript SDK formatting, linting, types, unit tests, and package build.
 test-ts:
@@ -689,6 +700,11 @@ regen-swap-keys:
                 | awk -v n="${c}_${kind}.bin" '{print $1 "  " n}' >> "$base/swap-keys.CHECKSUM"
         done
     done
+
+# Rotate both ring proving keys with their verifying keys and lock entries,
+# then repin vk_fingerprint.rs and run release-custom-rings.
+regen-custom-ring-keys:
+    prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
 
 ensure-dynamic-swap-keys:
     #!/usr/bin/env bash
@@ -1239,6 +1255,44 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
       tools/ci/nextest-suite.sh -p custom-ring-test-validator --test ring --no-capture
     # The custom-ring proving key is guaranteed here.
     tools/ci/nextest-suite.sh -p custom-ring-sdk --run-ignored all -E 'binary(custom_ring_circuit)'
+    if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
+      cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
+    fi
+
+# Two-ring shared policy source lifecycle on a local validator. One curator
+# write refuses the subscriber's transfer, clearing it or re-pointing the
+# source re-admits it.
+test-custom-ring-shared: (_custom-ring-suite "shared_sources")
+
+# Policy rule lifecycle on a local validator over the rule table pinned from
+# ring.toml.
+test-custom-ring-rules: (_custom-ring-suite "policy_rules")
+
+# Policy rule re-pin on a local validator, set_policy_rules rewrites the rule
+# table of a live ring.
+test-custom-ring-repin: (_custom-ring-suite "policy_repin")
+
+_custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli ensure-photon ensure-smart-account
+    #!/usr/bin/env bash
+    set -euo pipefail
+    program_ids=$(cargo run -q -p xtask -- program-ids)
+    eval "$program_ids"
+    : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f solana-test-validator 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export CUSTOM_RING_PROGRAM_ID
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    cargo build -q -p custom-ring-cli
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
@@ -1446,7 +1500,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
     cargo nextest archive -p swap-test-validator --test swap --test take_verifiable_encryption --test cancel --archive-file {{dir}}/swap-test-validator.tar.zst
     cargo nextest archive -p timelock-escrow-test --test escrow --archive-file {{dir}}/timelock-escrow-test.tar.zst
     cargo nextest archive -p dynamic-swap-test --archive-file {{dir}}/dynamic-swap-test.tar.zst
-    cargo nextest archive -p custom-ring-test-validator --test ring --archive-file {{dir}}/custom-ring-test-validator.tar.zst
+    cargo nextest archive -p custom-ring-test-validator --test ring --test shared_sources --test policy_rules --test policy_repin --archive-file {{dir}}/custom-ring-test-validator.tar.zst
     cargo nextest archive -p custom-ring-sdk --test custom_ring_circuit --archive-file {{dir}}/custom-ring-sdk.tar.zst
     cargo nextest archive -p compression-example-test --test compression --archive-file {{dir}}/compression-example-test.tar.zst
 
@@ -1484,7 +1538,7 @@ build-spp-keys:
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
@@ -1526,7 +1580,7 @@ release tag *args: build-programs fetch-smart-account
     cargo run -p xtask -- create-release --tag {{tag}} {{args}}
 
 # The ring program and the zolana-ring cli only, under their own lockfile.
-release-custom-rings tag *args: build-programs
+release-custom-rings tag *args: build-programs check-custom-ring-keys
     cargo run -p xtask -- create-release --custom-rings --tag {{tag}} {{args}}
 
 # === Formatting and linting ===
@@ -1563,9 +1617,8 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # The `server` package's handler tests need redis, but the queue-routing
-    # unit test does not -- run it explicitly so routing stays covered in CI.
-    go test ./server/ -run '^TestGetQueueNameForCircuit$'
+    # Routing and timeout tests do not need Redis.
+    go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout)$'
 
 [private]
 xtask-create-verifying-keys:

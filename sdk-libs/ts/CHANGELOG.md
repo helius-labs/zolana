@@ -2,14 +2,47 @@
 
 ## 0.1.6-alpha — unreleased
 
-A tree derives from its id instead of one fixed address, holds its own fee
-schedule, and takes three instructions in one transaction to create. Every
-spent nullifier gets its own account, and the transact, merge, and ring
-builders take one nullifier account per input. Wallet replay keeps merge outputs when their inputs arrive in the same
-sync.
+Custom rings come in two tiers, an audit-only ring proves the auditor
+encryption alone and a policy ring proves its rule table over a dedicated
+entries tree, and a ring transfer can land its outputs in a tree other than
+the one it spends from. Trees now derive from ids, carry their own fee
+schedules, and create spent-nullifier accounts. Wallet replay keeps merge
+outputs when their inputs arrive in the same sync, and selection and approval
+text use UTXO terminology without changing version 3 snapshot keys.
 
 Breaking
 
+- Policy rule tables now carry one `inlineLimit` per inline asset and policy
+  prover requests carry the padded `inlineLimits` fields → recreate policy
+  config accounts and include the limits in custom prover integrations.
+- Custom-ring prover requests now use the explicit circuit types
+  `custom-ring-base` and `custom-ring-policy`; the ambiguous `audit` and
+  `transfer` variants were removed. Rename request types and prover methods to
+  their `Base` or `Policy` forms.
+- `createRingConfigInstruction` takes `hasPolicy` and `RingProgramConfig`
+  reports it → pass `true` for a ring that enforces compiled rules and `false`
+  for an audit-only ring.
+- `ringTransactInstruction` takes `stateRootIndex` and `nullifierRootIndex`,
+  a policy ring also needs `entriesTree`, and `hasPolicy: false` drops the
+  policy accounts → forward the fields of `ProvenRingTransfer`, a policy ring
+  without its entries tree is refused with `RING_ENTRIES_TREE_REQUIRED`.
+- `initSppRingConfigInstruction` takes `hasPolicy` and adds the policy config
+  account for a policy ring → pass the value given to
+  `createRingConfigInstruction`, a policy ring registers only after its policy
+  config exists.
+- `buildRingLookupTableTransaction` reads the tier and a policy ring's entries
+  tree from the chain, accepts `outputTree`, and needs `getAccount` on
+  `RingLookupTableClient`, `fetchRingLookupTable` and
+  `ringLookupTableAddresses` take the trees as `RingTransactTrees` → rebuild a
+  policy ring's table, one built by an earlier version is refused with
+  `RING_LOOKUP_TABLE_INCOMPLETE`, and pass a `ProvenRingTransfer` as the
+  `trees` of the fetch.
+- `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
+  data beside the `RingTransactRoots` the ring statement binds, and `Prover`
+  gains `proveCustomRingBase` → read `.data` where the instruction data was
+  used and add the method to a custom prover.
+- `customRingPublicInputHash` takes `policyHash`, `stateRoot`, and
+  `nullifierRoot` → use `auditPublicInputHash` for the audit statement alone.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the
   removed constant held.
@@ -46,6 +79,44 @@ Breaking
 
 Added
 
+- `proveCustomRingTransfer` proves the tier the ring config selects, and
+  `ProvenRingTransfer` reports `hasPolicy`, `outputTree`, `stateRootIndex`,
+  and `nullifierRootIndex`, with `entriesTree` when `hasPolicy` is true, a
+  policy ring with a non-empty rule table is refused with
+  `RING_RULES_UNSUPPORTED`.
+- `buildRingTransferTransaction`, `buildRingEntryTransaction`,
+  `buildRingExitTransaction`, and `buildRingWithdrawalTransaction` accept
+  `outputTree` for the outputs and, when the policy entries tree differs from
+  the input tree, `entriesRoots` as `RingEntriesRoots`, a missing or malformed
+  pair is refused with `RING_ENTRIES_ROOTS_REQUIRED` or
+  `RING_ENTRIES_ROOTS_INVALID`.
+- `fetchRingPolicyConfig` and `decodeRingPolicyConfig` read a policy ring's
+  `RingPolicyConfig` with its rule table hash, entries tree,
+  `RingPolicySource` list, rule rows and inline assets with their counts, and
+  `generation` with its `generationSlot`, `ringPolicyConfigAddress` and
+  `ringPolicyNamespaceAddress` derive its two accounts, and a missing or
+  malformed account is `RING_POLICY_CONFIG_NOT_FOUND` or
+  `RING_POLICY_CONFIG_INVALID`.
+- `ZolanaClient.proveCustomRingBase` proves the audit statement from a
+  `CustomRingBaseProofRequest`.
+- `setRingPausedInstruction` pauses or resumes a ring under its own authority,
+  the shielded pool refuses the ring's transactions while it is paused, and
+  `RING_SET_PAUSED_COMPUTE_UNIT_LIMIT` is its compute budget.
+- `ringOpenings` derives the `RingOpenings` a `CustomRingPolicyProofRequest` carries
+  from `SppProofInputs`, `ringNamespaceOwnerHash` derives the owner hash of a
+  list namespace, and `disabledRuleAnswer` fills an unused rule slot.
+- `decodeRuleTable` and `decodeRule` read the rule rows of a
+  `RingPolicyConfig` as `Rule` values with their `ListId` lists, and a row or
+  table the circuit cannot enforce is `RING_RULE_TABLE_INVALID` with the Rust
+  reason, `referencedLists` names the lists a table consults, and
+  `fetchRingConfigs` reads a ring's config with its policy config when the
+  ring has one.
+- `readRingEntry` and `readRingEntries` walk a namespace's entry lineages
+  through the indexer and return each live `ListEntry` with the transaction
+  that wrote it, `decodeListEntry` reads a published entry, `memberOfTag` and
+  `memberOfAsset` derive a `Member`, `RingListNamespace` derives entry
+  addresses and hashes, and a lineage whose spender carries no next version is
+  `RING_ENTRY_LINEAGE_BROKEN`.
 - `ShieldedPoolError` adds codes 7029 to 7062: deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
@@ -80,9 +151,12 @@ Changed
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
+- `RingLookupTableReader` is `KitRpcAccess` alone, `fetchRingLookupTable` no
+  longer reads `client.tree`.
 
 Fixed
 
+- `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
 
@@ -392,7 +466,7 @@ Added
 - `auditRing` and `auditRingTransaction` let a ring's auditor decrypt and
   attribute every transaction in the ring.
 - `ZolanaClient` gains ring proving and health calls (`proveRingTransact`,
-  `proveCustomRing`, `proverHealth`) and program-account reads
+  `proveCustomRingPolicy`, `proverHealth`) and program-account reads
   (`getProgramAccounts`).
 - `ConfidentialTransfer` binds a transfer to a ring (`withRingProgramId`),
   drops unused change slots (`withCompactChange`), and sends a note back to

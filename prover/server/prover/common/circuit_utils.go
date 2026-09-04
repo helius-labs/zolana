@@ -26,7 +26,6 @@ type BatchProofSystem struct {
 
 type RingProofSystem struct {
 	CircuitType      CircuitType
-	Variant          string
 	ProvingKey       groth16.ProvingKey
 	VerifyingKey     groth16.VerifyingKey
 	ConstraintSystem constraint.ConstraintSystem

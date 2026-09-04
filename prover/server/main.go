@@ -181,17 +181,17 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-custom-ring",
+				Name: "setup-custom-ring-policy",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring reads"},
+					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring-policy reads"},
 					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
 				},
 				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output")); err != nil {
+					if err := checkRingKeyName(context.String("output"), common.CustomRingPolicyKeyFile); err != nil {
 						return err
 					}
-					ps, err := customring.SetupCustomRing()
+					ps, err := customring.SetupPolicy()
 					if err != nil {
 						return err
 					}
@@ -209,7 +209,32 @@ func runCli() {
 				},
 			},
 			{
-				Name:  "convert-custom-ring",
+				Name: "setup-custom-ring-base",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file"},
+					&cli.StringFlag{Name: "pk-out", Usage: "raw gnark proving key (pk.WriteTo)"},
+					&cli.StringFlag{Name: "vk-out", Usage: "raw gnark verifying key (vk.WriteRawTo)", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.SetupBase()
+					if err != nil {
+						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("output"); path != "" {
+						if err := writeRingProofSystem(ps, path); err != nil {
+							return err
+						}
+					}
+					return writeKey(context.String("vk-out"), ps.VerifyingKey.WriteRawTo)
+				},
+			},
+			{
+				Name:  "convert-custom-ring-policy",
 				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
@@ -217,7 +242,7 @@ func runCli() {
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 				},
 				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCustomRing{
+					ps, err := customring.ConvertCustomRingPolicy{
 						ProvingKeyPath:   context.String("pk"),
 						VerifyingKeyPath: context.String("vk"),
 					}.Run()
@@ -501,7 +526,7 @@ func runCli() {
 					&cli.StringFlag{Name: "keys-dir", Usage: "Directory where key files are stored", Value: "./proving-keys/", Required: false},
 					&cli.StringSliceFlag{
 						Name:  "circuit",
-						Usage: "Specify enabled circuits including custom-ring",
+						Usage: "Specify enabled circuits including custom-ring-base and custom-ring-policy",
 					},
 					&cli.StringFlag{
 						Name:  "preload-keys",
@@ -666,7 +691,7 @@ func runCli() {
 							workersStarted = append(workersStarted, "transfer")
 						}
 
-						if startAll || enabledCircuitsMap["custom-ring"] {
+						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] {
 							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
 							workers = append(workers, customRingWorker)
 							go customRingWorker.Start()
@@ -1040,15 +1065,19 @@ func writeKey(path string, write func(io.Writer) (int64, error)) error {
 	return file.Close()
 }
 
-func checkRingKeyName(path string) error {
-	if filepath.Base(path) != common.CustomRingKeyFile {
-		return fmt.Errorf("output file must be named %s", common.CustomRingKeyFile)
+func checkRingKeyName(path string, want string) error {
+	if filepath.Base(path) != want {
+		return fmt.Errorf("output file must be named %s", want)
 	}
 	return nil
 }
 
 func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
-	if err := checkRingKeyName(path); err != nil {
+	want := common.CustomRingPolicyKeyFile
+	if ps.CircuitType == common.CustomRingBaseCircuitType {
+		want = common.CustomRingBaseKeyFile
+	}
+	if err := checkRingKeyName(path, want); err != nil {
 		return err
 	}
 	file, err := os.Create(path)

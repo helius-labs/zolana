@@ -13,8 +13,22 @@ import {
 } from "../internal.js";
 import { TransportFailure, checkedFetch, readBoundedJson } from "../../services/transport.js";
 import { parseProof } from "./proof.js";
+import {
+  RING_INLINE_ASSET_SLOTS,
+  RING_INPUT_SLOTS,
+  RING_NULLIFIER_PATH_LENGTH,
+  RING_OUTPUT_SLOTS,
+  RING_ANSWER_SLOTS,
+  RING_RULE_SLOTS,
+  RING_SOURCE_SLOTS,
+  RING_STATE_PATH_LENGTH,
+} from "./types.js";
 import type {
-  CustomRingProofRequest,
+  CustomRingBaseProofRequest,
+  CustomRingOpening,
+  CustomRingSourceOwner,
+  CustomRingRuleAnswer,
+  CustomRingPolicyProofRequest,
   Field,
   MergeInputs,
   Proof,
@@ -107,11 +121,21 @@ export class ProverClient {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
   }
 
-  async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
+  async proveCustomRingPolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context);
   }
 
-  /** The circuits the server serves. */
+  async proveCustomRingBase(
+    inputs: CustomRingBaseProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context);
+  }
+
+  /** The circuit types served by this prover. */
   async health(context?: RequestContext): Promise<ProverHealth> {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
@@ -352,11 +376,104 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
-/** Mirrors Rust `CustomRingProofRequest::body`, key order included. */
-export function customRingProofRequest(
-  inputs: CustomRingProofRequest,
+/** Mirrors Rust `CustomRingBaseProofRequest::body`, key order included. */
+export function customRingBaseProofRequest(
+  inputs: CustomRingBaseProofRequest,
 ): Readonly<Record<string, unknown>> {
-  const auditorPublicKey = inputs.auditorPublicKey;
+  return Object.freeze({
+    circuitType: "custom-ring-base",
+    publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
+    privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
+    txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
+    ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
+    auditorPk: auditorPkHex(inputs.auditorPublicKey),
+  });
+}
+
+/** Mirrors Rust `CustomRingPolicyProofRequest::body`, key order included. */
+export function customRingPolicyProofRequest(
+  inputs: CustomRingPolicyProofRequest,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "custom-ring-policy",
+    publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
+    privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
+    txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
+    ephSk: hex32(inputs.ephemeralSecret, "ephemeralSecret"),
+    auditorPk: auditorPkHex(inputs.auditorPublicKey),
+    nIn: u8(inputs.nIn, "nIn"),
+    nOut: u8(inputs.nOut, "nOut"),
+    inputs: sized(inputs.inputs, RING_INPUT_SLOTS, "inputs").map(openingJson),
+    outputs: sized(inputs.outputs, RING_OUTPUT_SLOTS, "outputs").map(openingJson),
+    addressChain: hex32(inputs.addressChain, "addressChain"),
+    externalDataHash: hex32(inputs.externalDataHash, "externalDataHash"),
+    sources: sized(inputs.sources, RING_SOURCE_SLOTS, "sources").map(sourceJson),
+    policyLen: u8(inputs.policyLen, "policyLen"),
+    ruleEnc: sized(inputs.rules, RING_RULE_SLOTS, "rules").map((rule) => hex32(rule, "rules")),
+    inlineAssets: sized(inputs.inlineAssets, RING_INLINE_ASSET_SLOTS, "inlineAssets").map((asset) =>
+      hex32(asset, "inlineAssets"),
+    ),
+    inlineLimits: sized(inputs.inlineLimits, RING_INLINE_ASSET_SLOTS, "inlineLimits").map((limit) =>
+      u64FieldHex(limit, "inlineLimits"),
+    ),
+    inlineCount: u8(inputs.inlineCount, "inlineCount"),
+    stateRoot: hex32(inputs.stateRoot, "stateRoot"),
+    nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
+    answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+  });
+}
+
+function openingJson(opening: CustomRingOpening): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    domain: hex32(opening.domain, "domain"),
+    ownerPkHash: hex32(opening.ownerPkHash, "ownerPkHash"),
+    nullifierPk: hex32(opening.nullifierPk, "nullifierPk"),
+    asset: hex32(opening.asset, "asset"),
+    amount: hex32(opening.amount, "amount"),
+    blinding: hex32(opening.blinding, "blinding"),
+    dataHash: hex32(opening.dataHash, "dataHash"),
+    ringDataHash: hex32(opening.ringDataHash, "ringDataHash"),
+    ringProgramId: hex32(opening.ringProgramId, "ringProgramId"),
+  });
+}
+
+function sourceJson(source: CustomRingSourceOwner): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    listId: u8(source.listId, "listId"),
+    ownerHash: hex32(source.ownerHash, "ownerHash"),
+  });
+}
+
+function answersJson(entry: CustomRingRuleAnswer): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    enabled: entry.enabled,
+    mode: u8(entry.mode, "mode"),
+    listId: u8(entry.listId, "listId"),
+    state: u8(entry.state, "state"),
+    absentBranch: u8(entry.absentBranch, "absentBranch"),
+    member: hex32(entry.member, "member"),
+    contentHash: hex32(entry.contentHash, "contentHash"),
+    version: u64Json(entry.version, "version"),
+    low: hex32(entry.low, "low"),
+    next: hex32(entry.next, "next"),
+    nfPathElements: sized(entry.nullifierPath, RING_NULLIFIER_PATH_LENGTH, "nullifierPath").map(
+      (element) => hex32(element, "nullifierPath"),
+    ),
+    nfPathIndex: u64Json(entry.nullifierPathIndex, "nullifierPathIndex"),
+    statePathElements: sized(entry.statePath, RING_STATE_PATH_LENGTH, "statePath").map((element) =>
+      hex32(element, "statePath"),
+    ),
+    statePathIndex: u64Json(entry.statePathIndex, "statePathIndex"),
+  });
+}
+
+/** Rust `field_hex`, the fixed-width hex the prover requires. */
+function hex32(bytes: Uint8Array, field: string): string {
+  return bytesHex(checkedBytes(bytes, 32, field));
+}
+
+/** The uncompressed SEC1 auditor point the circuit witnesses, `0x04 || x || y`. */
+function auditorPkHex(auditorPublicKey: Uint8Array): string {
   if (
     !(auditorPublicKey instanceof Uint8Array) ||
     auditorPublicKey.length !== UNCOMPRESSED_P256_LENGTH ||
@@ -364,15 +481,38 @@ export function customRingProofRequest(
   ) {
     throw new ClientError("CLIENT_INVALID_P256_KEY");
   }
-  return Object.freeze({
-    circuitType: "custom-ring",
-    variant: "transfer",
-    publicInputHash: bytesHex(checkedBytes(inputs.publicInputHash, 32, "publicInputHash")),
-    privateTxHash: bytesHex(checkedBytes(inputs.privateTxHash, 32, "privateTxHash")),
-    txViewingSk: bytesHex(checkedBytes(inputs.txViewingSecret, 32, "txViewingSecret")),
-    ephSk: bytesHex(checkedBytes(inputs.ephemeralSecret, 32, "ephemeralSecret")),
-    auditorPk: bytesHex(auditorPublicKey),
-  });
+  return bytesHex(auditorPublicKey);
+}
+
+function u8(value: number, field: string): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xff) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  }
+  return value;
+}
+
+/// Rust emits `u64` as a JSON number, the value must stay a safe integer.
+function u64Json(value: bigint, field: string): number {
+  if (typeof value !== "bigint" || value < 0n || value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  }
+  return Number(value);
+}
+
+function u64FieldHex(value: bigint, field: string): string {
+  if (typeof value !== "bigint" || value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  }
+  return `0x${value.toString(16).padStart(64, "0")}`;
+}
+
+function sized<T>(values: readonly T[], expected: number, field: string): readonly T[] {
+  if (!Array.isArray(values) || values.length !== expected) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: { field, expected, actual: Array.isArray(values) ? values.length : 0 },
+    });
+  }
+  return values;
 }
 
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {

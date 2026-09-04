@@ -286,7 +286,7 @@ impl TransactionSource for ChainSource {
     }
 
     async fn reader_granted(&self, request: ReaderGrant) -> Result<bool, ClientError> {
-        let address = request.reader.record_address(&request.ring);
+        let address = request.reader.entry_address(&request.ring);
         let Some(account) = self.rpc.get_account(address).await? else {
             return Ok(false);
         };

@@ -1,6 +1,6 @@
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
-    groth16::Groth16Verifier,
+    groth16::{Groth16Verifier, Groth16Verifyingkey},
 };
 use pinocchio::ProgramResult;
 
@@ -22,13 +22,13 @@ pub(crate) struct CompressedGroth16Proof<'a> {
 /// a commitment-carrying key requires the Pedersen proof-of-knowledge pairing,
 /// so accepting a commitment-less proof against it would skip a constraint the
 /// circuit relies on. The mismatched combinations are therefore rejected rather
-/// than coerced. The custom-ring circuit's emulated P256 arithmetic always produces
-/// a commitment, so this program only ever takes the first arm; the second is
-/// kept so the helper stays a faithful copy of the shared pattern.
+/// than coerced. Both ring statements carry one, their range checker commits
+/// over private wires.
 #[inline(never)]
 pub(crate) fn verify_groth16(
     proof: CompressedGroth16Proof,
     public_input_hash: [u8; 32],
+    verifying_key: &Groth16Verifyingkey,
 ) -> ProgramResult {
     let proof_a = decompress_g1(proof.a).map_err(|_| PROOF_ERR)?;
     let proof_b = decompress_g2(proof.b).map_err(|_| PROOF_ERR)?;
@@ -36,7 +36,6 @@ pub(crate) fn verify_groth16(
     let commitment = decompress_g1(proof.commitment).map_err(|_| PROOF_ERR)?;
     let commitment_pok = decompress_g1(proof.commitment_pok).map_err(|_| PROOF_ERR)?;
     let public_inputs = [public_input_hash];
-    let verifying_key = &custom_ring_interface::verifying_key::VERIFYINGKEY;
     let mut verifier = Groth16Verifier::new_with_commitment(
         &proof_a,
         &proof_b,

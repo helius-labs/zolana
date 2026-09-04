@@ -1,4 +1,5 @@
 use bytemuck::from_bytes;
+use custom_ring_interface::PolicyConfig;
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -12,17 +13,14 @@ pub fn load_config<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Ref<'a, RingProgramConfig>, ProgramError> {
-    let bump = PdaCheck {
+    let config = load_account::<RingProgramConfig>(program_id, account)?;
+    PdaCheck {
         program_id,
         address: account.address(),
         seeds: &[RingProgramConfig::SEED],
         mismatch: CustomRingError::InvalidConfigPda,
     }
-    .verify()?;
-    let config = load_account::<RingProgramConfig>(program_id, account)?;
-    if config.bump != bump {
-        return Err(CustomRingError::InvalidConfigPda.into());
-    }
+    .verify_stored_bump(config.bump)?;
     Ok(config)
 }
 
@@ -40,12 +38,28 @@ pub fn load_authorized_config<'a>(
 }
 
 #[inline(always)]
+pub fn load_policy_config<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, PolicyConfig>, ProgramError> {
+    let config = load_account::<PolicyConfig>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[PolicyConfig::SEED],
+        mismatch: CustomRingError::InvalidPolicyConfigPda,
+    }
+    .verify_stored_bump(config.bump)?;
+    Ok(config)
+}
+
+#[inline(always)]
 pub fn load_read_access_record<'a>(
     program_id: &Address,
     account: &'a AccountView,
     reader: &ReaderKeyBytes,
 ) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
-    let record = load_account::<ReadAccessRecord>(program_id, account)?;
+    let entry = load_account::<ReadAccessRecord>(program_id, account)?;
     let seed_hash =
         ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
@@ -55,10 +69,10 @@ pub fn load_read_access_record<'a>(
         mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
-    if record.reader != *reader || record.bump != bump {
+    if entry.reader != *reader || entry.bump != bump {
         return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
-    Ok(record)
+    Ok(entry)
 }
 
 /// Require the shielded-pool program to be among `accounts` and executable.

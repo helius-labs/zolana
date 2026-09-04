@@ -6,12 +6,17 @@ import {
 } from "@solana-program/address-lookup-table";
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
-import type { BlockhashProvider, KitRpcAccess, TreeContext } from "../client/ports.js";
+import type { BlockhashProvider, ChainReader, KitRpcAccess, TreeContext } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
 
+import { fetchRingConfigs } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
-import { ringLookupTableAddresses, ringSettlementStatics } from "./instructions.js";
+import {
+  ringLookupTableAddresses,
+  ringSettlementStatics,
+  type RingTransactTrees,
+} from "./instructions.js";
 
 export interface RingLookupTable {
   readonly transaction: Transaction;
@@ -20,23 +25,27 @@ export interface RingLookupTable {
   readonly slot: bigint;
 }
 
-export type RingLookupTableReader = TreeContext & KitRpcAccess;
-export type RingLookupTableClient = RingLookupTableReader & BlockhashProvider;
+export type RingLookupTableReader = KitRpcAccess;
+export type RingLookupTableClient = RingLookupTableReader &
+  TreeContext &
+  BlockhashProvider &
+  Pick<ChainReader, "getAccount">;
 
-/** One table serves every transact of the ring and tree pair. */
+/** One table serves every transact over the same ring and trees. */
 export async function buildRingLookupTableTransaction(
   input: Readonly<{
     client: RingLookupTableClient;
     ringProgramId: Address;
     feePayer: Address;
     tree?: Address;
+    outputTree?: Address;
   }>,
   context?: RequestContext,
 ): Promise<RingLookupTable> {
   try {
-    const tree = input.tree ?? input.client.tree;
+    const trees = await ringTransactTrees(input, context);
     const [addresses, slot, lifetime] = await Promise.all([
-      ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
+      ringLookupTableAddresses({ ringProgramId: input.ringProgramId, trees }),
       // The create instruction checks the slot against SlotHashes, so it must be finalized.
       input.client.solanaRpc.getSlot({ commitment: "finalized" }).send(),
       input.client.getLatestBlockhash(context),
@@ -75,15 +84,14 @@ export async function fetchRingLookupTable(
     client: RingLookupTableReader;
     ringProgramId: Address;
     address: Address;
-    tree?: Address;
+    trees: RingTransactTrees;
   }>,
 ): Promise<readonly Address[]> {
-  const tree = input.tree ?? input.client.tree;
   const [table, required] = await Promise.all([
     fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
       commitment: input.client.commitment,
     }),
-    ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
+    ringLookupTableAddresses({ ringProgramId: input.ringProgramId, trees: input.trees }),
   ]);
   if (!table.exists) {
     throw new RingError("RING_LOOKUP_TABLE_NOT_FOUND", { details: { address: input.address } });
@@ -96,4 +104,21 @@ export async function fetchRingLookupTable(
     });
   }
   return Object.freeze([...table.data.addresses]);
+}
+
+async function ringTransactTrees(
+  input: Readonly<{
+    client: RingLookupTableClient;
+    ringProgramId: Address;
+    tree?: Address;
+    outputTree?: Address;
+  }>,
+  context: RequestContext | undefined,
+): Promise<RingTransactTrees> {
+  const tree = input.tree ?? input.client.tree;
+  const outputTree = input.outputTree ?? tree;
+  const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
+  return configs.hasPolicy
+    ? { tree, outputTree, hasPolicy: true, entriesTree: configs.policy.entriesTree }
+    : { tree, outputTree, hasPolicy: false };
 }

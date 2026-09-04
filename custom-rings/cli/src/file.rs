@@ -86,6 +86,16 @@ pub fn read_keypair(path: &Path) -> Result<Keypair, FileError> {
     })
 }
 
+pub fn read_or_create_keypair(path: &Path) -> Result<Keypair, FileError> {
+    if path.is_file() {
+        read_keypair(path)
+    } else {
+        let keypair = Keypair::new();
+        write_keypair(&keypair, path)?;
+        Ok(keypair)
+    }
+}
+
 pub fn write_keypair(keypair: &Keypair, path: &Path) -> Result<(), FileError> {
     solana_keypair::write_keypair_file(keypair, path).map_err(|error| FileError::KeypairWrite {
         path: path.to_path_buf(),

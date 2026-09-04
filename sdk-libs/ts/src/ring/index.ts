@@ -1,6 +1,7 @@
 export {
   auditorMessageData,
   auditorViewTag,
+  auditPublicInputHash,
   customRingPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
@@ -9,7 +10,11 @@ export {
   encryptTransactionViewingSecret,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-export type { AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
+export type {
+  AuditorEncryption,
+  AuditorMessage,
+  CustomRingBasePublicInput,
+} from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
 export {
@@ -25,15 +30,52 @@ export type {
 export {
   CUSTOM_RING_PROOF_LENGTH,
   checkedCustomRingProof,
+  decodeRingPolicyConfig,
   decodeRingProgramConfig,
 } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
-export type { RingProgramConfig } from "./codecs.js";
+export type { RingPolicyConfig, RingPolicySource, RingProgramConfig } from "./codecs.js";
+export type { RingConfigs } from "./config.js";
 export {
+  LIST_IDS,
+  ListId,
+  RingListNamespace,
+  decodeListEntry,
+  decodeRule,
+  decodeRuleTable,
+  listIdFromByte,
+  listSet,
+  memberOfAsset,
+  memberOfTag,
+  readRingEntries,
+  readRingEntry,
+  referencedLists,
+} from "./policy.js";
+export type {
+  EntryHashes,
+  EntryIndexer,
+  EntryState,
+  ListEntry,
+  LiveEntry,
+  Member,
+  ReadRingEntriesInput,
+  ReadRingEntryInput,
+  Rule,
+  RuleGuard,
+  RuleSource,
+  RuleSubject,
+  RuleTable,
+} from "./policy.js";
+export {
+  fetchRingConfigs,
+  fetchRingPolicyConfig,
   fetchRingProgramConfig,
   ringConfigAddress,
+  ringPolicyConfigAddress,
+  ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   setRingAuthorityInstruction,
+  setRingPausedInstruction,
 } from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
 export type { RingDepositTransactionParams } from "./deposit.js";
@@ -43,11 +85,13 @@ export {
   RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
+  RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
   ringLookupTableAddresses,
   ringTransactInstruction,
 } from "./instructions.js";
+export type { RingTransactTrees } from "./instructions.js";
 export { listRegisteredRings } from "./registry.js";
 export type { RegisteredRing } from "./registry.js";
 export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
@@ -139,11 +183,13 @@ export {
   buildRingWithdrawalTransaction,
   frameDummyOutputs,
   proveCustomRingTransfer,
+  ringNamespaceOwnerHash,
   RING_TRANSACT_COMPUTE_UNIT_LIMIT,
 } from "./transfer.js";
 export type {
   CustomRingTransferParams,
   ProvenRingTransfer,
+  RingEntriesRoots,
   RingEntryTransactionParams,
   RingTransferClient,
   RingTransferTransactionParams,

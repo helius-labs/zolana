@@ -9,33 +9,53 @@ mod shared;
 mod transfer;
 #[cfg(feature = "solana-rpc")]
 mod v0;
+mod witness;
 
 pub use custom_ring_interface::{
-    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, ReaderIxData,
-    CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
+    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
     auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
 };
+pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
     instructions::{
         create_config::{CreateConfig, CreateConfigError},
         deposit::Deposit,
+        entry::{
+            CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
+            EntryProofError, LiveEntry, ProvenEntry, ReadEntry, UpdateEntry,
+        },
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
+        merge::{
+            CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
+            CustomRingMergeProver, CustomRingMergeWitness, PreparedCustomRingMerge,
+            ProvenCustomRingMerge, MERGE_INPUTS,
+        },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
+        set_paused::SetPaused,
+        set_policy_rules::SetPolicyRules,
+        set_policy_source::{SetSourceOwner, SourceOwner},
         transact::{
-            to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError,
-            CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
-            CustomRingPublicInputHash, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
+            to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
+            CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
+            CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
         },
     },
-    shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},
+    shared::{
+        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingConfig,
+        PolicyMatchError, ReaderKey, ReaderKeyError,
+    },
     transfer::{
         AsyncTransferProofEnvironment, CustomRingTransfer, CustomRingTransferInput, DepositError,
         ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,

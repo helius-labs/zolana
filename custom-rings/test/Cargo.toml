@@ -8,6 +8,7 @@ autotests = false
 [dependencies]
 anyhow = { workspace = true }
 bincode = { workspace = true }
+custom-ring-cli = { path = "../cli" }
 custom-ring-interface = { workspace = true }
 # The auditor side under test: `audit_ring_transactions` is the call whose
 # returned plaintexts the lifecycle asserts against what the sender sent.
@@ -32,6 +33,7 @@ zolana-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }
 zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
+zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
@@ -42,3 +44,15 @@ zeroize = { workspace = true }
 [[test]]
 name = "ring"
 path = "tests/ring.rs"
+
+[[test]]
+name = "shared_sources"
+path = "tests/shared_sources.rs"
+
+[[test]]
+name = "policy_rules"
+path = "tests/policy_rules.rs"
+
+[[test]]
+name = "policy_repin"
+path = "tests/policy_repin.rs"

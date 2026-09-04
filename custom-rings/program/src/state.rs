@@ -1,4 +1,5 @@
 use bytemuck::{from_bytes_mut, Pod};
+use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -8,6 +9,7 @@ use solana_curve25519::{
     edwards::{add_edwards, multiply_edwards, validate_edwards, PodEdwardsPoint},
     scalar::PodScalar,
 };
+use zolana_ring_policy::EncodedRuleTable;
 
 use crate::error::CustomRingError;
 
@@ -37,6 +39,7 @@ pub(crate) struct RingProgramConfigInitParams {
     pub authority: Address,
     pub auditor_pubkey: [u8; 33],
     pub bump: u8,
+    pub has_policy: u8,
 }
 
 impl RingProgramConfigInitParams {
@@ -49,6 +52,7 @@ impl RingProgramConfigInitParams {
                 authority: self.authority,
                 auditor_pubkey: self.auditor_pubkey,
                 bump: self.bump,
+                has_policy: self.has_policy,
             },
         )
     }
@@ -99,7 +103,7 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
 impl Account for ReadAccessRecord {
     const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessEntryAlreadyExists;
     const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
 
     fn discriminator(&self) -> u8 {
@@ -107,12 +111,12 @@ impl Account for ReadAccessRecord {
     }
 }
 
-pub(crate) struct ReadAccessRecordInitParams {
+pub(crate) struct ReadAccessEntryInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
 }
 
-impl ReadAccessRecordInitParams {
+impl ReadAccessEntryInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(
@@ -126,10 +130,52 @@ impl ReadAccessRecordInitParams {
     }
 }
 
+impl Account for PolicyConfig {
+    const DISCRIMINATOR: u8 = POLICY_CONFIG;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::PolicyConfigNotInitialized;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::PolicyConfigAlreadyInitialized;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidPolicyConfigPda;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct PolicyConfigInitParams {
+    pub policy_hash: [u8; 32],
+    pub entries_tree: Address,
+    pub namespace_bump: u8,
+    pub bump: u8,
+    pub sources: [SourceSlot; N_SOURCE_SLOTS],
+    pub rules: EncodedRuleTable,
+    pub generation_slot: u64,
+}
+
+impl PolicyConfigInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(
+            account,
+            PolicyConfig {
+                discriminator: POLICY_CONFIG,
+                policy_hash: self.policy_hash,
+                entries_tree: self.entries_tree,
+                namespace_bump: self.namespace_bump,
+                bump: self.bump,
+                sources: self.sources,
+                rules: self.rules,
+                generation: 1u32.to_le_bytes(),
+                generation_slot: self.generation_slot.to_le_bytes(),
+            },
+        )
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
+    impl Sealed for super::PolicyConfig {}
 }
 
 #[inline(always)]
