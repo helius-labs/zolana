@@ -222,7 +222,7 @@ impl Theme {
 impl Icon {
     pub const fn glyph(self) -> &'static str {
         match self {
-            Self::Ring => "💍",
+            Self::Ring => "🪐",
             Self::Policy => "📜",
             Self::Lists => "🗂",
             Self::Curator => "🤝",
