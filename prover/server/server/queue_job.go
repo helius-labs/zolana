@@ -719,6 +719,15 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 }
 
 func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage) (*common.Proof, error) {
+	proof, err := w.customRingProof(payload)
+	if err != nil {
+		// A public hash mismatch logs both hashes, no other cause carries witness values.
+		logging.Logger().Error().Err(err).Msg(errCustomRingProof.Error())
+	}
+	return proof, err
+}
+
+func (w *BaseQueueWorker) customRingProof(payload json.RawMessage) (*common.Proof, error) {
 	var params customring.CustomRingParameters
 	if err := json.Unmarshal(payload, &params); err != nil {
 		return nil, fmt.Errorf("unmarshal custom-ring params: %w", err)
