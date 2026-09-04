@@ -1,6 +1,6 @@
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-use zolana_interface::{instruction::UpdateProtocolConfigData, state::tree_account_size};
+use zolana_interface::instruction::UpdateProtocolConfigData;
 use zolana_program_test::{TransactionOutcome, ZolanaProgramTest};
 
 // Per-op CU ceilings, pinned at roughly 3x the consumption observed on the
@@ -14,7 +14,7 @@ const CREATE_PROTOCOL_CONFIG_CU_CEILING: u64 = 15_000; // observed 5_538
 
 // Worst of the seven protocol-config updates below (observed 179-240).
 const CONFIG_UPDATE_CU_CEILING: u64 = 750;
-const CREATE_TREE_CU_CEILING: u64 = 1_800; // observed 581
+const CREATE_TREE_CU_CEILING: u64 = 50_000; // observed 16_129 across the allocation steps
 const PAUSE_TREE_CU_CEILING: u64 = 800; // observed 250-251
 const CREATE_ASSET_COUNTER_CU_CEILING: u64 = 14_000; // observed 4_600
 const CREATE_SPL_INTERFACE_CU_CEILING: u64 = 23_000; // observed 7_706
@@ -96,9 +96,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         assert_last_under(&test, name, CONFIG_UPDATE_CU_CEILING);
     }
 
-    let tree = test
-        .create_tree(tree_account_size() as u64, &authority)
-        .expect("create tree");
+    let tree = test.create_tree(&authority).expect("create tree");
     assert_last_under(&test, "create tree", CREATE_TREE_CU_CEILING);
     test.pause_tree(&authority, &tree, true)
         .expect("pause tree");
@@ -131,7 +129,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     let depositor = Keypair::new_from_array([3; 32]);
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
-    test.deposit_sol(&tree.pubkey(), &depositor, 1_000_000, [1; 32], [2; 32])
+    test.deposit_sol(&tree, &depositor, 1_000_000, [1; 32], [2; 32])
         .expect("deposit SOL");
     assert_last_under(&test, "deposit SOL", DEPOSIT_SOL_CU_CEILING);
 
@@ -141,8 +139,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     test.mint_to(&mint, &user_token, 1_000)
         .expect("mint tokens");
     let data = ZolanaProgramTest::spl_shield_data(1_000, [3; 32], [4; 32], &mint, &user_token);
-    test.deposit(&tree.pubkey(), &depositor, &data)
-        .expect("deposit SPL");
+    test.deposit(&tree, &depositor, &data).expect("deposit SPL");
     assert_last_under(&test, "deposit SPL", DEPOSIT_SPL_CU_CEILING);
 
     test.load_ring_test_program()
@@ -158,7 +155,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         .expect("re-enable ring config");
 
     let ring_data = test.ring_sol_shield_data(1_000_000, [5; 32], [6; 32]);
-    test.ring_deposit(&tree.pubkey(), &depositor, &ring_data)
+    test.ring_deposit(&tree, &depositor, &ring_data)
         .expect("ring deposit SOL");
     assert_last_under(&test, "ring deposit SOL", RING_DEPOSIT_SOL_CU_CEILING);
 

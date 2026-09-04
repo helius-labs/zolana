@@ -19,7 +19,7 @@ proofs = []
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-event = { workspace = true, features = ["program-test"] }
-zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
 zeroize = { workspace = true }
@@ -59,7 +59,7 @@ tokio = { workspace = true, features = ["time", "rt", "macros"] }
 base64 = { workspace = true }
 borsh = { workspace = true }
 bs58 = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon", "std"] }
+zolana-hasher = { workspace = true, features = ["std"] }
 zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }

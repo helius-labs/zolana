@@ -63,13 +63,6 @@ enum WalletMode {
     P256,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-struct SolanaKeypairFile {
-    version: u8,
-    secret_hex: String,
-    pubkey: String,
-}
-
 pub(super) struct WalletMaterial {
     pub(super) keypair: ShieldedKeypair,
     pub(super) funding: Keypair,
@@ -389,53 +382,6 @@ fn harden_secret_permissions(file: &File, path: &Path) -> Result<()> {
         .with_context(|| format!("failed to set permissions on {}", path.display()))?;
     #[cfg(not(unix))]
     let _ = (file, path);
-    Ok(())
-}
-
-pub(super) fn load_or_create_solana_keypair(path: &Path) -> Result<Keypair> {
-    if path.exists() {
-        let bytes = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
-        let file: SolanaKeypairFile = serde_json::from_slice(&bytes)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
-        let secret = parse_hex_array::<32>(&file.secret_hex)?;
-        let keypair = Keypair::new_from_array(secret);
-        if keypair.pubkey().to_string() != file.pubkey {
-            bail!("keypair {} pubkey does not match secret", path.display());
-        }
-        return Ok(keypair);
-    }
-
-    let keypair = Keypair::new();
-    let file = SolanaKeypairFile {
-        version: 1,
-        secret_hex: hex::encode(keypair.secret_bytes()),
-        pubkey: keypair.pubkey().to_string(),
-    };
-    write_json_secret(path, &file)?;
-    Ok(keypair)
-}
-
-pub(super) fn write_json_secret<T: Serialize>(path: &Path, value: &T) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
-    // Create the file 0600 up front so a secret is never briefly world-readable
-    // between open and chmod. `mode` applies only on creation, so still enforce
-    // 0600 afterwards for the overwrite-an-existing-file case.
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options
-        .open(path)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    file.write_all(&serde_json::to_vec_pretty(value)?)?;
-    #[cfg(unix)]
-    {
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("failed to set permissions on {}", path.display()))?;
-    }
     Ok(())
 }
 

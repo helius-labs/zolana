@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
@@ -10,7 +11,7 @@ use crate::instructions::protocol_config::loader::load_and_validate_protocol_aut
 
 pub fn process_pause_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = *bytemuck::try_from_bytes::<PauseTreeData>(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;

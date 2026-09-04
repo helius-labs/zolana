@@ -6,14 +6,14 @@
 //! [`ZolanaProgramTest`] transaction history.
 
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_interface::state::tree_account_size;
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub struct LiteSvmPoolBackend {
     pub rpc: ZolanaProgramTest,
     pub authority: Keypair,
-    pub tree: Keypair,
+    pub tree: Pubkey,
 }
 
 impl LiteSvmPoolBackend {
@@ -21,7 +21,7 @@ impl LiteSvmPoolBackend {
         let mut rpc = ZolanaProgramTest::new()?;
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)?;
-        let tree = rpc.create_tree(tree_account_size() as u64, &authority)?;
+        let tree = rpc.create_tree(&authority)?;
         Ok(Self {
             rpc,
             authority,

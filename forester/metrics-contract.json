@@ -110,6 +110,27 @@
         "tree_pubkey",
         "metric"
       ]
+    },
+    {
+      "name": "forester_fee_balance_lamports",
+      "labels": [
+        "tree_type",
+        "tree_pubkey"
+      ]
+    },
+    {
+      "name": "forester_append_reimbursement_lamports",
+      "labels": [
+        "tree_type",
+        "tree_pubkey"
+      ]
+    },
+    {
+      "name": "forester_reimbursement_shortfall_lamports_total",
+      "labels": [
+        "tree_type",
+        "tree_pubkey"
+      ]
     }
   ]
 }

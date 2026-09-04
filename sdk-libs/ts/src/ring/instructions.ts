@@ -147,11 +147,12 @@ export async function ringTransactInstruction(
     ringAuthAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const answers = ringTransactAccounts({
+  const pool = await ringTransactAccounts({
     payer: input.payer,
     inputTree: input.inputTree,
     outputTree: input.outputTree,
     ringAuth,
+    inputs: input.data.inputs,
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
@@ -176,7 +177,7 @@ export async function ringTransactInstruction(
       },
       { address: config, role: AccountRole.READONLY },
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
-      ...answers,
+      ...pool,
     ],
     data,
   };
@@ -208,15 +209,17 @@ export async function ringLookupTableAddresses(
   const policy = input.trees.hasPolicy
     ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
     : [];
-  const answers = ringTransactAccounts({
+  // Nullifier PDAs are fresh per transaction, so none belongs in the table.
+  const pool = await ringTransactAccounts({
     payer: SHIELDED_POOL_PROGRAM_ID,
     inputTree: input.trees.tree,
     outputTree: input.trees.outputTree,
     ringAuth,
+    inputs: [],
   });
   const addresses = [
     config,
-    ...[...policy, ...answers]
+    ...[...policy, ...pool]
       .filter(
         (meta) =>
           meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,

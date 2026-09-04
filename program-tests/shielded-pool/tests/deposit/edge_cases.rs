@@ -1,4 +1,3 @@
-use solana_signer::Signer;
 use solana_system_interface::error::SystemError;
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 
@@ -8,7 +7,7 @@ use shielded_pool_tests::support::fixtures::Pool;
 fn sol_deposit_rejects_insufficient_lamports_without_changing_root() {
     let mut pool = Pool::initialized();
     let poor = pool.funded_signer(2_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
 
     let err = pool
@@ -23,7 +22,7 @@ fn sol_deposit_rejects_insufficient_lamports_without_changing_root() {
 fn repeated_sol_deposit_data_creates_distinct_leaves() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(1_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data = ZolanaProgramTest::sol_shield_data(1_000_000, [7u8; 32], [7u8; 32]);
     let root0 = pool.rpc.state_root(&tree).expect("root");
     pool.rpc
@@ -45,7 +44,7 @@ fn repeated_sol_deposit_data_creates_distinct_leaves() {
 fn unpaused_tree_accepts_sol_deposit_after_pause() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     pool.rpc
         .pause_tree(&pool.authority, &pool.tree, true)
         .expect("pause tree");

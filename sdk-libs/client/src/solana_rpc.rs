@@ -30,7 +30,7 @@ use solana_rpc_client::{
     rpc_client::RpcClient,
 };
 use solana_signature::Signature;
-use solana_transaction::Transaction;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, TransactionStatus, UiCompiledInstruction, UiInstruction, UiLoadedAddresses,
@@ -681,6 +681,18 @@ impl Rpc for SolanaRpc {
             })
     }
 
+    fn process_versioned_transaction(
+        &self,
+        transaction: VersionedTransaction,
+    ) -> Result<Signature, ClientError> {
+        self.client
+            .send_and_confirm_transaction(&transaction)
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "process_versioned_transaction",
+                source,
+            })
+    }
+
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
         self.client
             .confirm_transaction(&signature)
@@ -820,6 +832,19 @@ impl AsyncRpc for AsyncSolanaRpc {
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",
+                source,
+            })
+    }
+
+    async fn process_versioned_transaction(
+        &self,
+        transaction: VersionedTransaction,
+    ) -> Result<Signature, ClientError> {
+        self.client
+            .send_and_confirm_transaction(&transaction)
+            .await
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "process_versioned_transaction",
                 source,
             })
     }

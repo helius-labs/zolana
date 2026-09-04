@@ -10,6 +10,7 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
+use super::verify::MAX_INPUTS;
 use crate::instructions::ring_config::loader::load_active_ring_config;
 use crate::instructions::settlement::{
     validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
@@ -20,6 +21,7 @@ pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
     pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
 }
@@ -30,8 +32,9 @@ impl<'a> TransactAccounts<'a> {
     /// 3. output tree - mut
     /// 4. self program - program id match
     /// 5. system program - program id match
-    /// 6. N signers - signer
-    ///    6 + N: transfer settlement accounts -
+    /// 6. I nullifier PDAs - mut, one per input in `inputs` order
+    ///    6 + I: N signers - signer
+    ///    6 + I + N: transfer settlement accounts -
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -48,7 +51,7 @@ impl<'a> TransactAccounts<'a> {
 
     /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
-        iter: AccountIterator<'a>,
+        mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
         input_tree: &'a mut AccountView,
@@ -57,6 +60,13 @@ impl<'a> TransactAccounts<'a> {
     ) -> Result<Box<Self>, ProgramError> {
         // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
+
+        let mut nullifier_pdas = ArrayVec::new();
+        for _ in 0..ix.inputs.len() {
+            nullifier_pdas
+                .try_push(iter.next_mut("nullifier_pda")?)
+                .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        }
 
         let remaining = iter.remaining_unchecked_mut()?;
         // 2. Search first account that is not signer.
@@ -158,6 +168,7 @@ impl<'a> TransactAccounts<'a> {
             payer,
             input_tree,
             output_tree,
+            nullifier_pdas,
             owner_signers,
             settlements,
         }))
@@ -169,7 +180,8 @@ pub struct RingTransactAccounts;
 impl RingTransactAccounts {
     /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
     /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), then owner signers and settlement
+    /// account (the ring's `ring_auth` PDA), one writable nullifier PDA per input
+    /// in `inputs` order, then owner signers and settlement
     /// accounts. Returns the parsed transact accounts and the ring's
     /// `program_id`, read from the validated, unpaused `RingConfig` (never
     /// re-derived; the create-time `ring_auth` derivation already bound it).

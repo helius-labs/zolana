@@ -17,5 +17,5 @@ groth16-solana = { workspace = true, optional = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
 wincode = { workspace = true }
 zolana-ring-policy = { workspace = true }
-zolana-hasher = { workspace = true, features = ["poseidon", "sha256"] }
+zolana-hasher = { workspace = true }
 zolana-interface = { workspace = true }

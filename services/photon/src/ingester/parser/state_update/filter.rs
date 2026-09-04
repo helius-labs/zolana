@@ -163,7 +163,7 @@ mod tests {
             queue_pubkey: tree_pk,
             root_history_capacity: RingsTreeKind::Nullifier.root_history_capacity(),
             input_queue_zkp_batch_size:
-                zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+                zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
             height: RingsTreeKind::Nullifier.tree_height(),
             sequence_number: 0,
             next_index: 0,
