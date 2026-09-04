@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -30,6 +30,12 @@ pub struct Options {
     lock_path: PathBuf,
     upload: bool,
     prerelease: bool,
+}
+
+struct ReleaseUpload<'a> {
+    options: &'a Options,
+    assets: &'a [PathBuf],
+    target: &'a str,
 }
 
 /// Which assets a release carries, each set has its own lock and cli.
@@ -207,7 +213,12 @@ pub fn run(options: Options) -> Result<()> {
     assets.extend(cli_assets);
 
     if options.upload {
-        upload_release(&options, &assets, &git_head()?)?;
+        ReleaseUpload {
+            options: &options,
+            assets: &assets,
+            target: &git_head()?,
+        }
+        .run()?;
         warn_if_lockfile_uncommitted(&options.lock_path, &options.tag)?;
     } else {
         println!(
@@ -702,80 +713,99 @@ fn existing_surfpool_fields(lock_path: &Path) -> (String, String) {
     }
 }
 
-fn upload_release(options: &Options, assets: &[PathBuf], target: &str) -> Result<()> {
-    let tag = options.tag.as_str();
-    // Both sets share one tag, a release already cut at this commit takes the
-    // other set's assets. A release at another commit is recreated so the tag
-    // moves to the released commit. Best-effort: ignore "not found".
-    if release_target(tag).as_deref() == Some(target) {
-        let mut args = vec!["release", "upload", tag, "--clobber"]
-            .into_iter()
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        for asset in assets {
-            args.push(path_str(asset)?);
-        }
+impl ReleaseUpload<'_> {
+    fn run(self) -> Result<()> {
+        let existing = release_target(&self.options.tag)?;
+        let args = self.args(existing.as_deref())?;
         let status = Command::new("gh")
             .args(&args)
             .status()
-            .context("failed to run gh release upload")?;
+            .context("failed to publish release assets")?;
         if !status.success() {
-            bail!("gh release upload failed with status {status}");
+            bail!("release upload failed with status {status}");
         }
-        println!("added {} assets to release {tag} at {target}", assets.len());
-        return Ok(());
+        println!(
+            "published {} assets to release {} at {}",
+            self.assets.len(),
+            self.options.tag,
+            self.target
+        );
+        Ok(())
     }
-    let _ = Command::new("gh")
-        .args(["release", "delete", tag, "--yes", "--cleanup-tag"])
-        .status();
 
-    let mut args = vec![
-        "release".to_string(),
-        "create".to_string(),
-        tag.to_string(),
-        "--target".to_string(),
-        target.to_string(),
-        "--title".to_string(),
-        options.set.title(tag),
-        "--notes".to_string(),
-        options.set.notes(tag),
-    ];
-    if options.prerelease {
-        args.push("--prerelease".to_string());
+    fn args(&self, existing: Option<&str>) -> Result<Vec<String>> {
+        let tag = &self.options.tag;
+        let mut args = match existing {
+            Some(target) if target == self.target => {
+                vec!["release".to_string(), "upload".to_string(), tag.clone()]
+            }
+            Some(target) => {
+                bail!(
+                    "release {tag} targets {target}, choose a new tag for {}",
+                    self.target
+                )
+            }
+            None => {
+                let mut args = vec![
+                    "release".to_string(),
+                    "create".to_string(),
+                    tag.clone(),
+                    "--target".to_string(),
+                    self.target.to_string(),
+                    "--title".to_string(),
+                    self.options.set.title(tag),
+                    "--notes".to_string(),
+                    self.options.set.notes(tag),
+                ];
+                if self.options.prerelease {
+                    args.push("--prerelease".to_string());
+                }
+                args
+            }
+        };
+        for asset in self.assets {
+            args.push(path_str(asset)?);
+        }
+        Ok(args)
     }
-    for asset in assets {
-        args.push(path_str(asset)?);
-    }
-    let status = Command::new("gh")
-        .args(&args)
-        .status()
-        .context("failed to run gh release create")?;
-    if !status.success() {
-        bail!("gh release create failed with status {status}");
-    }
-    println!("published release {tag} at {target}");
-    Ok(())
 }
 
-/// The commit a published release was cut at, `None` without one.
-fn release_target(tag: &str) -> Option<String> {
+fn release_target(tag: &str) -> Result<Option<String>> {
     let output = Command::new("gh")
         .args([
-            "release",
-            "view",
-            tag,
-            "--json",
-            "targetCommitish",
-            "-q",
-            ".targetCommitish",
+            "api",
+            "--include",
+            &format!("repos/{{owner}}/{{repo}}/releases/tags/{tag}"),
         ])
         .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+        .context("failed to query release")?;
+    decode_release_target(output)
+}
+
+fn decode_release_target(output: Output) -> Result<Option<String>> {
+    let response = std::str::from_utf8(&output.stdout).context("invalid release response")?;
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .or_else(|| response.split_once("\n\n"))
+        .ok_or_else(|| anyhow!("release lookup returned no HTTP response"))?;
+    let status = headers
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("HTTP/"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or_else(|| anyhow!("release lookup returned no HTTP status"))?;
+    match status {
+        "404" if !output.status.success() => Ok(None),
+        "200" if output.status.success() => {
+            let release: Value = serde_json::from_str(body).context("invalid release JSON")?;
+            let target = release["target_commitish"]
+                .as_str()
+                .filter(|target| !target.trim().is_empty())
+                .ok_or_else(|| anyhow!("release response has no target commit"))?;
+            Ok(Some(target.to_string()))
+        }
+        _ => bail!("release lookup failed with HTTP status {status}"),
     }
-    let target = String::from_utf8(output.stdout).ok()?.trim().to_string();
-    (!target.is_empty()).then_some(target)
 }
 
 fn current_platform() -> Result<(&'static str, &'static str)> {
@@ -905,6 +935,90 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_upload_preserves_the_other_bundle_and_existing_assets() {
+        for set in [ReleaseSet::Localnet, ReleaseSet::CustomRings] {
+            let options = Options {
+                tag: "v1".to_string(),
+                set,
+                deploy_dir: PathBuf::new(),
+                staging_dir: PathBuf::new(),
+                lock_path: PathBuf::new(),
+                upload: true,
+                prerelease: true,
+            };
+            let assets = [PathBuf::from("/stage/bundle")];
+            let upload = ReleaseUpload {
+                options: &options,
+                assets: &assets,
+                target: "released-commit",
+            };
+            assert_eq!(
+                upload.args(Some("released-commit")).unwrap(),
+                ["release", "upload", "v1", "/stage/bundle"]
+            );
+            assert!(upload.args(Some("other-commit")).is_err());
+            let create = upload.args(None).unwrap();
+            assert_eq!(
+                &create[..5],
+                ["release", "create", "v1", "--target", "released-commit"]
+            );
+            assert!(create.iter().any(|arg| arg == "--prerelease"));
+            assert_eq!(create.last().unwrap(), "/stage/bundle");
+            for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
+                assert!(!create.iter().any(|arg| arg == forbidden));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn release_lookup_accepts_only_a_target_or_an_http_not_found() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let response = |text: &str, exit_code| Output {
+            status: std::process::ExitStatus::from_raw(exit_code),
+            stdout: text.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        };
+        assert_eq!(
+            decode_release_target(response(
+                "HTTP/2.0 200 OK\nContent-Type: application/json\r\n\r\n{\"target_commitish\":\"commit\"}",
+                0,
+            ))
+            .unwrap(),
+            Some("commit".to_string())
+        );
+        assert_eq!(
+            decode_release_target(response("HTTP/2.0 404 Not Found\n\n{}", 256)).unwrap(),
+            None
+        );
+        for text in [
+            "",
+            "release not found",
+            "HTTP/2.0 403 Forbidden\n\n{}",
+            "HTTP/2.0 429 Too Many Requests\n\n{}",
+            "HTTP/2.0 500 Internal Server Error\n\n{}",
+            "HTTP/2.0 200 OK\n\n{\"target_commitish\":\"commit\"}",
+        ] {
+            assert!(
+                decode_release_target(response(text, 256)).is_err(),
+                "{text:?}"
+            );
+        }
+        for body in [
+            "{}",
+            "{",
+            "{\"target_commitish\":null}",
+            "{\"target_commitish\":\"\"}",
+        ] {
+            assert!(
+                decode_release_target(response(&format!("HTTP/2.0 200 OK\n\n{body}"), 0)).is_err(),
+                "{body:?}"
+            );
+        }
+    }
 
     #[test]
     fn the_snapshot_bundle_hashes_the_same_on_every_build() {
