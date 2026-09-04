@@ -700,8 +700,27 @@ fn existing_surfpool_fields(lock_path: &Path) -> (String, String) {
 
 fn upload_release(options: &Options, assets: &[PathBuf], target: &str) -> Result<()> {
     let tag = options.tag.as_str();
-    // Delete any existing release + tag so the re-publish is clean and the tag is
-    // recreated at the released commit. Best-effort: ignore "not found".
+    // Both sets share one tag, a release already cut at this commit takes the
+    // other set's assets. A release at another commit is recreated so the tag
+    // moves to the released commit. Best-effort: ignore "not found".
+    if release_target(tag).as_deref() == Some(target) {
+        let mut args = vec!["release", "upload", tag, "--clobber"]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        for asset in assets {
+            args.push(path_str(asset)?);
+        }
+        let status = Command::new("gh")
+            .args(&args)
+            .status()
+            .context("failed to run gh release upload")?;
+        if !status.success() {
+            bail!("gh release upload failed with status {status}");
+        }
+        println!("added {} assets to release {tag} at {target}", assets.len());
+        return Ok(());
+    }
     let _ = Command::new("gh")
         .args(["release", "delete", tag, "--yes", "--cleanup-tag"])
         .status();
@@ -732,6 +751,27 @@ fn upload_release(options: &Options, assets: &[PathBuf], target: &str) -> Result
     }
     println!("published release {tag} at {target}");
     Ok(())
+}
+
+/// The commit a published release was cut at, `None` without one.
+fn release_target(tag: &str) -> Option<String> {
+    let output = Command::new("gh")
+        .args([
+            "release",
+            "view",
+            tag,
+            "--json",
+            "targetCommitish",
+            "-q",
+            ".targetCommitish",
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let target = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    (!target.is_empty()).then_some(target)
 }
 
 fn current_platform() -> Result<(&'static str, &'static str)> {
