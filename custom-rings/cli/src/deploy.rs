@@ -216,10 +216,12 @@ impl Deploy<'_> {
         }
 
         let mut command = Command::new("solana");
+        // RPC only, the TPU client wants a websocket port another service may hold.
         command
             .args([
                 "program",
                 "deploy",
+                "--use-rpc",
                 "--url",
                 &rpc.client().url(),
                 "--keypair",
