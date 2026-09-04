@@ -1,4 +1,4 @@
-// Package customring holds the single circuit of the custom ring
+// Package base holds the base circuit of the custom ring
 // program. It proves that the per-transaction viewing secret key of an SPP
 // transaction is verifiably encrypted to the ring's auditor public key, and that
 // the transaction's published viewing public key really is that secret's public
@@ -18,13 +18,13 @@
 //
 // The on-chain Rust recompute in
 // custom-rings/program/src/instructions/transact.rs
-// (CustomRingPublicInput::hash) MUST mirror this chain order element for element:
+// (CustomRingBasePublicInput::hash) MUST mirror this chain order element for element:
 // gadget.HashChain here == zolana_hasher::hash_chain::create_hash_chain_from_slice
 // there, gadget.HashBytes here == zolana_hasher::primitives::hash_bytes
 // (== zolana_interface::merge_utils::ciphertext_hash::<32>) there, and the
 // packing of elements 2..7 is defined by pack.go. Every comment step below is
 // tagged with the chain element(s) it produces.
-package customring
+package base
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -40,7 +40,7 @@ import (
 // AUDIT_ENC_INFO constant byte for byte.
 const auditEncInfo = "CRING/adt1"
 
-// Circuit is the custom-ring proof.
+// CustomRingBaseCircuit is the audit-only custom-ring proof.
 //
 // Both scalars are witnessed as 32 big-endian bytes and the auditor key as the
 // 65-byte uncompressed SEC1 point, because that is what the p256 gadgets
@@ -48,7 +48,7 @@ const auditEncInfo = "CRING/adt1"
 // is range-checked in Define: p256's byte-to-limb conversion does not
 // range-check, so unconstrained bytes would let a prover feed unnormalized
 // limbs into the emulated field.
-type Circuit struct {
+type CustomRingBaseCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
 	// PrivateTxHash is the SPP transaction hash, folded into the public input
@@ -69,16 +69,16 @@ type Circuit struct {
 	AuditorPk [65]frontend.Variable
 }
 
-// BlockWires carries the audit block's witnesses into a folding circuit.
-type BlockWires struct {
+// AuditBlockWires carries the audit block's witnesses into a folding circuit.
+type AuditBlockWires struct {
 	PrivateTxHash frontend.Variable
 	TxViewingSk   [32]frontend.Variable
 	EphSk         [32]frontend.Variable
 	AuditorPk     [65]frontend.Variable
 }
 
-func (c *Circuit) Define(api frontend.API) error {
-	elements := DefineBlock(api, BlockWires{
+func (c *CustomRingBaseCircuit) Define(api frontend.API) error {
+	elements := DefineAuditBlock(api, AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
 		TxViewingSk:   c.TxViewingSk,
 		EphSk:         c.EphSk,
@@ -90,8 +90,8 @@ func (c *Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-// DefineBlock constrains steps (a) to (j) and returns chain elements 1 to 8.
-func DefineBlock(api frontend.API, w BlockWires) [8]frontend.Variable {
+// DefineAuditBlock constrains steps (a) to (j) and returns chain elements 1 to 8.
+func DefineAuditBlock(api frontend.API, w AuditBlockWires) [8]frontend.Variable {
 	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
 	// the range checker the emulated P-256 arithmetic already instantiates, so
 	// these checks share its lookup table.

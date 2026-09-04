@@ -65,7 +65,8 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		CircuitType(circuitType) == TransferRingAuthorityCircuitType ||
 		CircuitType(circuitType) == MergeCircuitType ||
 		CircuitType(circuitType) == MergeRingCircuitType ||
-		CircuitType(circuitType) == CustomRingCircuitType
+		CircuitType(circuitType) == CustomRingBaseCircuitType ||
+		CircuitType(circuitType) == CustomRingPolicyCircuitType
 
 	// Extract nInputs/nOutputs (transfer circuits only). For logging/metrics; the
 	// handler re-reads the authoritative values from the unmarshalled params.
@@ -94,7 +95,8 @@ func ParseProofRequestMeta(data []byte) (ProofRequestMeta, error) {
 		numInputs = len(inclusionInputs)
 	}
 	// Transfer circuits report their shape via nInputs/nOutputs.
-	if isFixedShape && CircuitType(circuitType) != CustomRingCircuitType {
+	if isFixedShape && CircuitType(circuitType) != CustomRingBaseCircuitType &&
+		CircuitType(circuitType) != CustomRingPolicyCircuitType {
 		numInputs = int(nInputs)
 	}
 

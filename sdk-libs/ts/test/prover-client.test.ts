@@ -9,9 +9,9 @@ import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { disabledRuleAnswer } from "../src/client/prover/types.js";
 import type {
-  CustomRingAuditRequest,
+  CustomRingBaseProofRequest,
   CustomRingOpening,
-  CustomRingProofRequest,
+  CustomRingPolicyProofRequest,
   MergeInputs,
   ProverInputs,
   TransferInput,
@@ -68,7 +68,7 @@ function zeroOpening(): CustomRingOpening {
 }
 
 /** The Rust wire-format test's request, `the_request_matches_the_server_wire_format`. */
-function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
+function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest {
   return {
     publicInputHash: bytes(0),
     privateTxHash: bytes(1),
@@ -92,8 +92,8 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingProofRequest {
   };
 }
 
-/** The no-policy subset, Rust `AuditProofRequest`. */
-function auditRequest(auditorPublicKey: Uint8Array): CustomRingAuditRequest {
+/** The no-policy request, matching Rust `CustomRingBaseProofRequest`. */
+function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest {
   return {
     publicInputHash: bytes(0),
     privateTxHash: bytes(1),
@@ -103,10 +103,9 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingAuditRequest {
   };
 }
 
-/** Key order from Rust `AuditProofRequestJson` in `request_ring.rs`. */
+/** Key order from Rust `CustomRingBaseProofRequestJson` in `request_ring.rs`. */
 const EXPECTED_AUDIT_BODY = {
-  circuitType: "custom-ring",
-  variant: "audit",
+  circuitType: "custom-ring-base",
   publicInputHash: fieldHex(0),
   privateTxHash: fieldHex(1),
   txViewingSk: fieldHex(2),
@@ -143,10 +142,9 @@ const EXPECTED_RULE_ANSWER = {
   statePathIndex: 0,
 };
 
-/** Key order from Rust `CustomRingProofRequestJson` in `request_ring.rs`. */
+/** Key order from Rust `CustomRingPolicyProofRequestJson` in `request_ring.rs`. */
 const EXPECTED_RING_BODY = {
-  circuitType: "custom-ring",
-  variant: "transfer",
+  circuitType: "custom-ring-policy",
   publicInputHash: fieldHex(0),
   privateTxHash: fieldHex(1),
   txViewingSk: fieldHex(2),
@@ -300,7 +298,7 @@ describe("prover request routing", () => {
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });
 
-  it("encodes the custom-ring request byte for byte like Rust `CustomRingProofRequest::body`", async () => {
+  it("encodes the custom-ring request byte for byte like Rust `CustomRingPolicyProofRequest::body`", async () => {
     const raw: string[] = [];
     const deliveries: (string | null)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
@@ -314,7 +312,7 @@ describe("prover request routing", () => {
     // The Rust test's inputs, the auditor key is the P-256 point of the scalar [4; 32].
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
-    await prover.proveCustomRing(ringRequest(auditorPublicKey));
+    await prover.proveCustomRingPolicy(ringRequest(auditorPublicKey));
 
     expect(raw[0]).toBe(JSON.stringify(EXPECTED_RING_BODY));
     expect(deliveries).toEqual([null]);
@@ -341,10 +339,8 @@ describe("prover request routing", () => {
       "sources",
       "stateRoot",
       "txViewingSk",
-      "variant",
     ]);
-    expect(body["circuitType"]).toBe("custom-ring");
-    expect(body["variant"]).toBe("transfer");
+    expect(body["circuitType"]).toBe("custom-ring-policy");
     expect(body["auditorPk"]).toHaveLength(132);
     expect(body["publicInputHash"]).toHaveLength(66);
     const answers = body["answers"] as Record<string, unknown>[];
@@ -356,18 +352,20 @@ describe("prover request routing", () => {
     expect(Object.keys(sources[0] ?? {}).sort()).toEqual(["listId", "ownerHash"]);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
-      await expect(prover.proveCustomRing(ringRequest(auditorPublicKey))).rejects.toMatchObject({
+      await expect(
+        prover.proveCustomRingPolicy(ringRequest(auditorPublicKey)),
+      ).rejects.toMatchObject({
         code: "CLIENT_INVALID_P256_KEY",
       });
     }
     // The server rejects `answers.len() != 10`, an unpadded answers array must not leave the client.
     await expect(
-      prover.proveCustomRing({ ...ringRequest(auditorPublicKey), answers: [] }),
+      prover.proveCustomRingPolicy({ ...ringRequest(auditorPublicKey), answers: [] }),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_LENGTH" });
     expect(raw).toHaveLength(1);
   });
 
-  it("encodes the audit request byte for byte like Rust `AuditProofRequest::body`", async () => {
+  it("encodes the base request byte for byte like Rust `CustomRingBaseProofRequest::body`", async () => {
     const raw: string[] = [];
     const deliveries: (string | null)[] = [];
     const fetch = vi.fn(async (_input: URL | string, init?: RequestInit) => {
@@ -380,7 +378,7 @@ describe("prover request routing", () => {
     const prover = new ProverClient({ url: "https://prover.example", fetch });
     const auditorPublicKey = p256.getPublicKey(bytes(4), false);
 
-    await prover.proveCustomRingAudit(auditRequest(auditorPublicKey));
+    await prover.proveCustomRingBase(auditRequest(auditorPublicKey));
 
     expect(raw[0]).toBe(JSON.stringify(EXPECTED_AUDIT_BODY));
     // The audit proof is queued, never sent inline.
@@ -393,14 +391,13 @@ describe("prover request routing", () => {
       "privateTxHash",
       "publicInputHash",
       "txViewingSk",
-      "variant",
     ]);
-    expect(body["variant"]).toBe("audit");
+    expect(body["circuitType"]).toBe("custom-ring-base");
     expect(body["auditorPk"]).toHaveLength(132);
 
     for (const auditorPublicKey of [new Uint8Array(33).fill(2), new Uint8Array(65).fill(2)]) {
       await expect(
-        prover.proveCustomRingAudit(auditRequest(auditorPublicKey)),
+        prover.proveCustomRingBase(auditRequest(auditorPublicKey)),
       ).rejects.toMatchObject({ code: "CLIENT_INVALID_P256_KEY" });
     }
     expect(raw).toHaveLength(1);
@@ -544,13 +541,19 @@ describe("prover request routing", () => {
     const fetch = vi.fn(async (input: URL | string) => {
       urls.push(new URL(input));
       return new Response(
-        JSON.stringify({ circuits: ["transfer-ring", "custom-ring"], status: "ok" }),
+        JSON.stringify({
+          circuits: ["transfer-ring", "custom-ring-base", "custom-ring-policy"],
+          status: "ok",
+        }),
         { headers: { "content-type": "application/json" } },
       );
     }) as typeof globalThis.fetch;
     const prover = new ProverClient({ url: "https://prover.example/base?tenant=alpha", fetch });
     const health = await prover.health();
-    expect(health).toEqual({ status: "ok", circuits: ["transfer-ring", "custom-ring"] });
+    expect(health).toEqual({
+      status: "ok",
+      circuits: ["transfer-ring", "custom-ring-base", "custom-ring-policy"],
+    });
     expect(urls[0]?.pathname).toBe("/base/health");
     expect(urls[0]?.searchParams.get("tenant")).toBe("alpha");
   });

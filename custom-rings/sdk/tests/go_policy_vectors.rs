@@ -1,8 +1,8 @@
 //! Pins the entry and policy hashing to the Go circuit. The values are the
-//! fixture `prover/server/circuits/custom_ring/transfer/circuit_test.go` prints
+//! fixture `prover/server/circuits/custom_ring/policy/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
-use custom_ring_interface::{AuditPublicInput, CustomRingPublicInput};
+use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInput};
 use zolana_ring_policy::{
     entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
     Member, Mode, Rule, RuleTable, SourceMap, Subject,
@@ -223,7 +223,7 @@ fn the_inline_asset_member_is_the_utxo_asset_field() {
 
 #[test]
 fn the_public_input_chain_extends_the_audit_chain() {
-    let audit = AuditPublicInput {
+    let audit = CustomRingBasePublicInput {
         private_tx_hash: &[1u8; 32],
         tx_viewing_pk: &[2u8; 33],
         auditor_pk: &[3u8; 33],
@@ -231,7 +231,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         ciphertext: &[5u8; 32],
     };
     let elements = audit.elements().expect("elements");
-    let policy = CustomRingPublicInput {
+    let policy = CustomRingPolicyPublicInput {
         audit,
         policy_hash: &hex32(POLICY_HASH),
         state_root: &[6u8; 32],

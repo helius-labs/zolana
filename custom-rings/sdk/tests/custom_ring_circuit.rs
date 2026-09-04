@@ -3,7 +3,7 @@
 //! `prover/custom_ring` suite. Rust and Go public-input parity is pinned by
 //! `go_vectors.rs` and `go_policy_vectors.rs`.
 
-use custom_ring_interface::verifying_key::VERIFYINGKEY;
+use custom_ring_interface::policy_verifying_key::VERIFYINGKEY;
 use custom_ring_sdk::AuditorMessage;
 use zolana_keypair::ViewingKey;
 

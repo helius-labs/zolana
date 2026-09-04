@@ -61,8 +61,8 @@ describe("public package surface", () => {
     expect(client.proveTransact).toBeTypeOf("function");
     expect("rpc" in client).toBe(false);
     expect(client.proveRingTransact).toBeTypeOf("function");
-    expect(client.proveCustomRing).toBeTypeOf("function");
-    expect(client.proveCustomRingAudit).toBeTypeOf("function");
+    expect(client.proveCustomRingPolicy).toBeTypeOf("function");
+    expect(client.proveCustomRingBase).toBeTypeOf("function");
   });
 
   it("exposes only the objects needed for the common wallet flow", () => {

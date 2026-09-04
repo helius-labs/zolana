@@ -44,10 +44,10 @@ export {
 } from "./prover/types.js";
 export type {
   CompressedProof,
-  CustomRingAuditRequest,
+  CustomRingBaseProofRequest,
   CustomRingOpening,
   CustomRingRuleAnswer,
-  CustomRingProofRequest,
+  CustomRingPolicyProofRequest,
   Proof,
   RingTransactRoots,
 } from "./prover/types.js";

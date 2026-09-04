@@ -1,6 +1,6 @@
 {
   "keys": {
-    "audit.key": {
+    "custom_ring_base.key": {
       "sha256": "5a469eca19000e5d023c9c7711beac495e4faf72ab804c635c0d84541ddc3aeb",
       "size": 89748463,
       "source": "release"
@@ -13,7 +13,7 @@
       "sha256": "6b239feff3b56f023d53d7cb473d455b64b2b115a552b40d359dd974ce741c12",
       "size": 3764027068
     },
-    "custom_ring.key": {
+    "custom_ring_policy.key": {
       "sha256": "4bb6d6393d12580e79b1fb783f8c232103ff8a67acabbd7a31b6aafacb666325",
       "size": 177498505,
       "source": "release"

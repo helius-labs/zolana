@@ -24,11 +24,11 @@ import {
   RING_STATE_PATH_LENGTH,
 } from "./types.js";
 import type {
-  CustomRingAuditRequest,
+  CustomRingBaseProofRequest,
   CustomRingOpening,
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
-  CustomRingProofRequest,
+  CustomRingPolicyProofRequest,
   Field,
   MergeInputs,
   Proof,
@@ -121,18 +121,21 @@ export class ProverClient {
     return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
   }
 
-  async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingProofRequest(inputs)), "queued", context);
-  }
-
-  async proveCustomRingAudit(
-    inputs: CustomRingAuditRequest,
+  async proveCustomRingPolicy(
+    inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingAuditRequest(inputs)), "queued", context);
+    return this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context);
   }
 
-  /** The circuits the server serves, `custom-ring` among them only with a queue. */
+  async proveCustomRingBase(
+    inputs: CustomRingBaseProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingBaseProofRequest(inputs)), "queued", context);
+  }
+
+  /** The circuit types served by this prover. */
   async health(context?: RequestContext): Promise<ProverHealth> {
     const url = new URL(this.#url);
     url.pathname = url.pathname.replace(/\/prove$/u, HEALTH_PATH);
@@ -373,13 +376,12 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   });
 }
 
-/** Mirrors Rust `AuditProofRequest::body`, the no-policy subset with `variant:"audit"`, key order included. */
-export function customRingAuditRequest(
-  inputs: CustomRingAuditRequest,
+/** Mirrors Rust `CustomRingBaseProofRequest::body`, key order included. */
+export function customRingBaseProofRequest(
+  inputs: CustomRingBaseProofRequest,
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    circuitType: "custom-ring",
-    variant: "audit",
+    circuitType: "custom-ring-base",
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),
@@ -388,13 +390,12 @@ export function customRingAuditRequest(
   });
 }
 
-/** Mirrors Rust `CustomRingProofRequest::body`, key order included. */
-export function customRingProofRequest(
-  inputs: CustomRingProofRequest,
+/** Mirrors Rust `CustomRingPolicyProofRequest::body`, key order included. */
+export function customRingPolicyProofRequest(
+  inputs: CustomRingPolicyProofRequest,
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    circuitType: "custom-ring",
-    variant: "transfer",
+    circuitType: "custom-ring-policy",
     publicInputHash: hex32(inputs.publicInputHash, "publicInputHash"),
     privateTxHash: hex32(inputs.privateTxHash, "privateTxHash"),
     txViewingSk: hex32(inputs.txViewingSecret, "txViewingSecret"),

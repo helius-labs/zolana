@@ -1,6 +1,6 @@
 use custom_ring_interface::{
-    AuditPublicInput, CustomRingPublicInput, CustomRingTransactIxData, AUDIT_CIPHERTEXT_LEN,
-    COMPRESSED_P256_KEY_LEN,
+    CustomRingBasePublicInput, CustomRingPolicyPublicInput, CustomRingTransactIxData,
+    AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -28,8 +28,8 @@ use crate::{
 /// it. A policy ring verifies the folded eleven-element statement over the
 /// pinned policy hash and the entries-tree roots, its accounts
 /// `[payer(w,s), config, policy_config, entries_tree(r)]` precede the SPP list.
-/// An audit-only ring verifies just the eight-element audit statement against
-/// `AUDIT_VERIFYINGKEY`, its accounts are `[payer(w,s), config]`. Only the SPP
+/// A base ring verifies just the eight-element audit statement against the
+/// base verifying key, its accounts are `[payer(w,s), config]`. Only the SPP
 /// `RING_TRANSACT` list is forwarded, position for position, with `ring_config`
 /// gaining a signature.
 #[inline(never)]
@@ -85,7 +85,7 @@ pub fn process_transact_ix(
         .and_then(|tag| tag.try_into().ok())
         .ok_or(CustomRingError::InvalidAuditorPubkey)?;
     let message = select_auditor_message(&transact.messages, view_tag)?;
-    let audit = AuditPublicInput {
+    let audit = CustomRingBasePublicInput {
         private_tx_hash: &transact.private_tx_hash,
         tx_viewing_pk: &transact.tx_viewing_pk,
         auditor_pk: &auditor_pubkey,
@@ -116,7 +116,7 @@ pub fn process_transact_ix(
             )?;
             verify_groth16(
                 compressed,
-                CustomRingPublicInput {
+                CustomRingPolicyPublicInput {
                     audit,
                     policy_hash: &policy_hash,
                     state_root: &roots.state,
@@ -124,14 +124,14 @@ pub fn process_transact_ix(
                 }
                 .hash()
                 .map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::verifying_key::VERIFYINGKEY,
+                &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
             )?;
         }
         None => {
             verify_groth16(
                 compressed,
                 audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::audit_verifying_key::VERIFYINGKEY,
+                &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
             )?;
         }
     }
@@ -267,7 +267,7 @@ mod tests {
     /// or differently packed chain element changes this value.
     #[test]
     fn public_input_hash_matches_go_fixture() {
-        let hash = AuditPublicInput {
+        let hash = CustomRingBasePublicInput {
             private_tx_hash: &bytes::<32>(PRIVATE_TX_HASH),
             tx_viewing_pk: &bytes::<33>(TX_PK),
             auditor_pk: &bytes::<33>(AUDITOR_PK),

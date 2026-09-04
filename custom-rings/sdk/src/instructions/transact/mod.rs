@@ -10,6 +10,6 @@ pub use proof::{
 };
 pub use request::CustomRingPrivateTxHash;
 pub use request_ring::{
-    AuditProofRequest, CustomRingOpening, CustomRingProofRequest, RuleAnswer, SourceOwnerEntry,
-    NULLIFIER_PATH_LEN, STATE_PATH_LEN,
+    CustomRingBaseProofRequest, CustomRingOpening, CustomRingPolicyProofRequest, RuleAnswer,
+    SourceOwnerEntry, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
 };

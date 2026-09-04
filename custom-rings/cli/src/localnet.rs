@@ -26,8 +26,8 @@ use crate::{
 
 /// SIMD-0500 off, the ring program deploys as SBPF v0 like on devnet.
 const SBPF_V0_FEATURE: &str = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g";
-const PROVING_KEY_FILE: &str = "custom_ring.key";
-const AUDIT_KEY_FILE: &str = "audit.key";
+const POLICY_PROVING_KEY_FILE: &str = "custom_ring_policy.key";
+const BASE_PROVING_KEY_FILE: &str = "custom_ring_base.key";
 const RING_RPC: Tool = Tool {
     name: "ring-rpc serve",
     install: "rerun `zolana-ring localnet`, it downloads the ring rpc of the release",
@@ -137,8 +137,11 @@ fn bring_up(
             tool.check_installed()?;
         }
         let keys_dir = prover_keys_dir()?;
-        release.ensure_as(release.proving_key()?, &keys_dir.join(PROVING_KEY_FILE))?;
-        release.ensure_as(release.audit_key()?, &keys_dir.join(AUDIT_KEY_FILE))?;
+        release.ensure_as(
+            release.proving_key()?,
+            &keys_dir.join(POLICY_PROVING_KEY_FILE),
+        )?;
+        release.ensure_as(release.audit_key()?, &keys_dir.join(BASE_PROVING_KEY_FILE))?;
         start_validator(ports)?;
     }
     check_prover_serves_custom_ring(&urls.prover)?;
@@ -216,10 +219,9 @@ fn check_prover_serves_custom_ring(prover_url: &str) -> Result<(), LocalnetError
             url: url.clone(),
             source,
         })?;
-    if health
-        .circuits
+    if ["custom-ring-base", "custom-ring-policy"]
         .iter()
-        .any(|circuit| circuit == "custom-ring")
+        .all(|required| health.circuits.iter().any(|circuit| circuit == required))
     {
         return Ok(());
     }

@@ -84,7 +84,7 @@ export type RingTransferClient = TreeContext &
   BlockhashProvider &
   KitRpcAccess &
   Pick<ChainReader, "getAccount"> &
-  Pick<Prover, "proveRingTransact" | "proveCustomRing" | "proveCustomRingAudit">;
+  Pick<Prover, "proveRingTransact" | "proveCustomRingPolicy" | "proveCustomRingBase">;
 
 export interface RingTransferTransactionParams {
   readonly client: RingTransferClient;
@@ -540,7 +540,7 @@ export async function proveCustomRingTransfer(
     } as const;
 
     if (policy === undefined) {
-      const proof = await input.client.proveCustomRingAudit(
+      const proof = await input.client.proveCustomRingBase(
         {
           publicInputHash: auditPublicInputHash({
             privateTxHash: data.privateTxHash,
@@ -567,7 +567,7 @@ export async function proveCustomRingTransfer(
     const entriesRoots = policy.suppliedEntriesRoots ?? roots;
     // A ring without rules proves the empty table over its own openings, every
     // further policy field is zero or disabled.
-    const proof = await input.client.proveCustomRing(
+    const proof = await input.client.proveCustomRingPolicy(
       {
         publicInputHash: customRingPublicInputHash({
           privateTxHash: data.privateTxHash,

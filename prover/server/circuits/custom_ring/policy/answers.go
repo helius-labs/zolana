@@ -1,4 +1,4 @@
-package transfer
+package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -42,7 +42,7 @@ type entries struct {
 	nullifierRoot frontend.Variable
 }
 
-func (c *Circuit) defineAnswers(api frontend.API, checker frontend.Rangechecker) [NAnswers]answerView {
+func (c *CustomRingPolicyCircuit) defineAnswers(api frontend.API, checker frontend.Rangechecker) [NAnswers]answerView {
 	var out [NAnswers]answerView
 	for i, entry := range c.Answers {
 		out[i] = entry.define(api, checker, entries{

@@ -1,4 +1,4 @@
-package transfer
+package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -22,7 +22,7 @@ type RuleWires struct {
 	Threshold frontend.Variable
 }
 
-func (c *Circuit) definePolicy(
+func (c *CustomRingPolicyCircuit) definePolicy(
 	api frontend.API,
 	checker frontend.Rangechecker,
 ) (frontend.Variable, [NRules]frontend.Variable) {
@@ -76,7 +76,7 @@ func (w RuleWires) define(api frontend.API, checker frontend.Rangechecker, enabl
 
 // policyHash mirrors ring_policy::RuleTable::hash, the head's length element
 // closing the variable-length preimage.
-func (c *Circuit) policyHash(api frontend.API) frontend.Variable {
+func (c *CustomRingPolicyCircuit) policyHash(api frontend.API) frontend.Variable {
 	length := frontend.Variable(0)
 	for size, bit := range c.LenOneHot {
 		length = api.Add(length, api.Mul(bit, size))

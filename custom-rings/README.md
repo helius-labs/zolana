@@ -91,7 +91,7 @@ carries the ring program it deploys. On `PATH` before `zolana-ring deploy`:
 localnet release of this repository is on `PATH` too. Photon, the prover, the
 SPP programs and their protocol accounts come from that release, the
 validator is the Anza `solana-test-validator`, the ring RPC and the prover's
-two ring keys, `custom_ring.key` and `audit.key`, come from the custom-rings
+two ring keys, `custom_ring_policy.key` and `custom_ring_base.key`, come from the custom-rings
 release the ring cli came from,
 and the ring RPC serves `keys/auditor.key`, created when missing. A rerun
 keeps a live validator and its ledger and replaces the ring RPC with this

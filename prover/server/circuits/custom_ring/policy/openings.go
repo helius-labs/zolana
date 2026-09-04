@@ -1,4 +1,4 @@
-package transfer
+package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -33,7 +33,7 @@ type openings struct {
 	outputs [NOut]slotView
 }
 
-func (c *Circuit) defineOpenings(api frontend.API, checker frontend.Rangechecker) openings {
+func (c *CustomRingPolicyCircuit) defineOpenings(api frontend.API, checker frontend.Rangechecker) openings {
 	assertOneHot(api, c.NInOneHot[:])
 	assertOneHot(api, c.NOutOneHot[:])
 	activeIn := suffixSums(api, c.NInOneHot[:])

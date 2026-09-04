@@ -28,11 +28,14 @@ const (
 	// to the default merge.
 	MergeRingCircuitType CircuitType = "merge-ring"
 
-	// CustomRingCircuitType proves the audit statement and the ring's rule
-	// table in one proof, one verification per transact.
-	CustomRingCircuitType CircuitType = "custom-ring"
+	// CustomRingBaseCircuitType proves the custom ring's audit statement only.
+	CustomRingBaseCircuitType CircuitType = "custom-ring-base"
+
+	// CustomRingPolicyCircuitType folds the audit statement with policy
+	// enforcement in one proof and one verification per transact.
+	CustomRingPolicyCircuitType CircuitType = "custom-ring-policy"
 )
 
-const CustomRingKeyFile = "custom_ring.key"
+const CustomRingPolicyKeyFile = "custom_ring_policy.key"
 
-const AuditKeyFile = "audit.key"
+const CustomRingBaseKeyFile = "custom_ring_base.key"

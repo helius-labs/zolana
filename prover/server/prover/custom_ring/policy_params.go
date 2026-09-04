@@ -11,7 +11,7 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 )
@@ -19,11 +19,9 @@ import (
 const (
 	scalarLen             = 32
 	uncompressedPubkeyLen = 65
-	TransferVariant       = "transfer"
-
-	ruleEncLen   = 32
-	activeState  = 1
-	clearedState = 2
+	ruleEncLen            = 32
+	activeState           = 1
+	clearedState          = 2
 )
 
 // Opening is one UTXO slot the statement opens, ordered as the circuit
@@ -67,7 +65,7 @@ type SourceOwner struct {
 	OwnerHash *big.Int
 }
 
-type CustomRingParameters struct {
+type PolicyParameters struct {
 	PublicInputHash *big.Int
 	PrivateTxHash   *big.Int
 	TxViewingSk     [scalarLen]byte
@@ -76,22 +74,22 @@ type CustomRingParameters struct {
 
 	NIn     uint8
 	NOut    uint8
-	Inputs  [transfer.NIn]Opening
-	Outputs [transfer.NOut]Opening
+	Inputs  [policy.NIn]Opening
+	Outputs [policy.NOut]Opening
 
 	AddressChain     *big.Int
 	ExternalDataHash *big.Int
 
-	Sources      [transfer.NSources]SourceOwner
+	Sources      [policy.NSources]SourceOwner
 	PolicyLen    uint8
-	RuleEnc      [transfer.NRules][ruleEncLen]byte
-	InlineAssets [transfer.NInlineAssets]*big.Int
+	RuleEnc      [policy.NRules][ruleEncLen]byte
+	InlineAssets [policy.NInlineAssets]*big.Int
 	InlineCount  uint8
 
 	StateRoot     *big.Int
 	NullifierRoot *big.Int
 
-	Answers [transfer.NAnswers]Answer
+	Answers [policy.NAnswers]Answer
 }
 
 type openingJSON struct {
@@ -128,9 +126,8 @@ type ruleAnswerJSON struct {
 	StatePathIndex    uint64   `json:"statePathIndex"`
 }
 
-type customRingParametersJSON struct {
+type policyParametersJSON struct {
 	CircuitType      string            `json:"circuitType"`
-	Variant          string            `json:"variant"`
 	PublicInputHash  string            `json:"publicInputHash"`
 	PrivateTxHash    string            `json:"privateTxHash"`
 	TxViewingSk      string            `json:"txViewingSk"`
@@ -152,10 +149,9 @@ type customRingParametersJSON struct {
 	Answers          []ruleAnswerJSON  `json:"answers"`
 }
 
-func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
-	raw := customRingParametersJSON{
-		CircuitType:      string(common.CustomRingCircuitType),
-		Variant:          TransferVariant,
+func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
+	raw := policyParametersJSON{
+		CircuitType:      string(common.CustomRingPolicyCircuitType),
 		PublicInputHash:  common.ToHex(p.PublicInputHash),
 		PrivateTxHash:    common.ToHex(p.PrivateTxHash),
 		TxViewingSk:      bytesHex(p.TxViewingSk[:]),
@@ -194,28 +190,25 @@ func (p *CustomRingParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(raw)
 }
 
-func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
-	var raw customRingParametersJSON
+func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
+	var raw policyParametersJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.CircuitType != string(common.CustomRingCircuitType) {
-		return fmt.Errorf("custom-ring: unexpected circuitType %q", raw.CircuitType)
+	if raw.CircuitType != string(common.CustomRingPolicyCircuitType) {
+		return fmt.Errorf("custom-ring-policy: unexpected circuitType %q", raw.CircuitType)
 	}
-	if raw.Variant != TransferVariant {
-		return fmt.Errorf("custom-ring: unexpected variant %q", raw.Variant)
+	if raw.NIn == 0 || int(raw.NIn) > policy.NIn {
+		return fmt.Errorf("custom-ring: nIn %d is outside 1..%d", raw.NIn, policy.NIn)
 	}
-	if raw.NIn == 0 || int(raw.NIn) > transfer.NIn {
-		return fmt.Errorf("custom-ring: nIn %d is outside 1..%d", raw.NIn, transfer.NIn)
+	if raw.NOut == 0 || int(raw.NOut) > policy.NOut {
+		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, policy.NOut)
 	}
-	if raw.NOut == 0 || int(raw.NOut) > transfer.NOut {
-		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, transfer.NOut)
+	if int(raw.PolicyLen) > policy.NRules {
+		return fmt.Errorf("custom-ring: policyLen %d exceeds %d", raw.PolicyLen, policy.NRules)
 	}
-	if int(raw.PolicyLen) > transfer.NRules {
-		return fmt.Errorf("custom-ring: policyLen %d exceeds %d", raw.PolicyLen, transfer.NRules)
-	}
-	if int(raw.InlineCount) > transfer.NInlineAssets {
-		return fmt.Errorf("custom-ring: inlineCount %d exceeds %d", raw.InlineCount, transfer.NInlineAssets)
+	if int(raw.InlineCount) > policy.NInlineAssets {
+		return fmt.Errorf("custom-ring: inlineCount %d exceeds %d", raw.InlineCount, policy.NInlineAssets)
 	}
 
 	var err error
@@ -249,8 +242,8 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 	if p.ExternalDataHash, err = fieldFromHex(raw.ExternalDataHash, "externalDataHash"); err != nil {
 		return err
 	}
-	if len(raw.Sources) != transfer.NSources {
-		return fmt.Errorf("custom-ring: sources holds %d slots, expected %d", len(raw.Sources), transfer.NSources)
+	if len(raw.Sources) != policy.NSources {
+		return fmt.Errorf("custom-ring: sources holds %d slots, expected %d", len(raw.Sources), policy.NSources)
 	}
 	for i, src := range raw.Sources {
 		owner, err := fieldFromHex(src.OwnerHash, "sources")
@@ -279,16 +272,16 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 	if err = readOpenings(p.Outputs[:], raw.Outputs, "outputs"); err != nil {
 		return err
 	}
-	if len(raw.RuleEnc) != transfer.NRules {
-		return fmt.Errorf("custom-ring: ruleEnc holds %d rules, expected %d", len(raw.RuleEnc), transfer.NRules)
+	if len(raw.RuleEnc) != policy.NRules {
+		return fmt.Errorf("custom-ring: ruleEnc holds %d rules, expected %d", len(raw.RuleEnc), policy.NRules)
 	}
 	for i, encoded := range raw.RuleEnc {
 		if err = bytesFromHex(p.RuleEnc[i][:], encoded, "ruleEnc"); err != nil {
 			return err
 		}
 	}
-	if len(raw.InlineAssets) != transfer.NInlineAssets {
-		return fmt.Errorf("custom-ring: inlineAssets holds %d entries, expected %d", len(raw.InlineAssets), transfer.NInlineAssets)
+	if len(raw.InlineAssets) != policy.NInlineAssets {
+		return fmt.Errorf("custom-ring: inlineAssets holds %d entries, expected %d", len(raw.InlineAssets), policy.NInlineAssets)
 	}
 	for i, asset := range raw.InlineAssets {
 		if p.InlineAssets[i], err = fieldFromHex(asset, "inlineAssets"); err != nil {
@@ -298,8 +291,8 @@ func (p *CustomRingParameters) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("custom-ring: inlineAssets[%d] is non-zero padding after inlineCount %d", i, raw.InlineCount)
 		}
 	}
-	if len(raw.Answers) != transfer.NAnswers {
-		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), transfer.NAnswers)
+	if len(raw.Answers) != policy.NAnswers {
+		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), policy.NAnswers)
 	}
 	for i, entry := range raw.Answers {
 		if err = readPoolEntry(&p.Answers[i], entry); err != nil {
@@ -434,11 +427,11 @@ func readPath(dst []*big.Int, src []string, name string) error {
 	return nil
 }
 
-func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
+func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, error) {
 	if p.PublicInputHash == nil || p.PrivateTxHash == nil {
 		return nil, fmt.Errorf("custom-ring: missing hash")
 	}
-	circuit := &transfer.Circuit{
+	circuit := &policy.CustomRingPolicyCircuit{
 		PublicInputHash:  p.PublicInputHash,
 		PrivateTxHash:    p.PrivateTxHash,
 		AddressChain:     p.AddressChain,
@@ -447,7 +440,7 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 		NullifierRoot:    p.NullifierRoot,
 	}
 	for i, src := range p.Sources {
-		circuit.Sources[i] = transfer.SourceWires{
+		circuit.Sources[i] = policy.SourceWires{
 			ListId:    src.ListId,
 			OwnerHash: src.OwnerHash,
 		}
@@ -479,7 +472,7 @@ func (p *CustomRingParameters) CreateWitness() (*transfer.Circuit, error) {
 	return circuit, nil
 }
 
-func assignOpening(dst *transfer.OpeningWires, src *Opening) {
+func assignOpening(dst *policy.OpeningWires, src *Opening) {
 	dst.Domain = src.Domain
 	dst.OwnerPkHash = src.OwnerPkHash
 	dst.NullifierPk = src.NullifierPk
@@ -505,7 +498,7 @@ func assignOneHot(dst []frontend.Variable, set int) {
 
 // Byte order mirrors `Rule::encoded`, byte 31 is the subject, bytes 20..28 the
 // threshold and byte 19 the alt mask.
-func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
+func assignRule(dst *policy.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Packed = new(big.Int).SetBytes(encoded[:])
 	dst.Subject = encoded[31]
 	dst.Mode = encoded[30]
@@ -515,7 +508,7 @@ func assignRule(dst *transfer.RuleWires, encoded [ruleEncLen]byte) {
 	dst.AltMask = encoded[19]
 }
 
-func assignPoolEntry(dst *transfer.RuleAnswerWires, src *Answer) {
+func assignPoolEntry(dst *policy.RuleAnswerWires, src *Answer) {
 	dst.Enabled = boolVar(src.Enabled)
 	dst.Mode = src.Mode
 	dst.ListId = src.ListId
