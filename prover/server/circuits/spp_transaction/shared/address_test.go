@@ -18,7 +18,19 @@ func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *b
 	return spptest.MustNullifier(t, utxoHash, spptest.AsBigInt(fields.Blinding), nullifierSecret)
 }
 
+// makeAddressSlot turns input idx into an address slot owned by the Solana
+// signer ownerPkHash and registers that signer.
 func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkHash, seed *big.Int) {
+	t.Helper()
+	setAddressSlot(t, &assignment.Inputs[idx], ownerPkHash, ownerPkHash, seed)
+	assignment.SignerPkHashes[0] = ownerPkHash
+}
+
+// setAddressSlot rewrites in as an address slot: owner hash over ownerPkHash
+// and the nullifier pk of the zero nullifier secret, every non-seed field
+// pinned to zero. ownerTag is the slot's private owner identity: the pk field
+// itself for a Solana owner, zero for the shared P256 owner.
+func setAddressSlot(t testing.TB, in *testInput, ownerPkHash, ownerTag, seed *big.Int) {
 	t.Helper()
 	nullifierSecret := spptest.Fe(0)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
@@ -26,7 +38,6 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	if err != nil {
 		t.Fatalf("address slot owner hash: %v", err)
 	}
-	in := &assignment.Inputs[idx]
 	in.Utxo.Domain = spptest.Fe(AddressDomain)
 	in.Utxo.Owner = owner
 	in.Utxo.Asset = spptest.Fe(0)
@@ -35,8 +46,7 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	in.Utxo.DataHash = spptest.Fe(0)
 	in.Utxo.RingDataHash = spptest.Fe(0)
 	in.Utxo.RingProgramID = spptest.Fe(0)
-	in.OwnerPkHash = ownerPkHash
-	assignment.SignerPkHashes[0] = ownerPkHash
+	in.OwnerPkHash = ownerTag
 	in.NullifierSecret = nullifierSecret
 	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }

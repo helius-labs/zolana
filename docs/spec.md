@@ -988,7 +988,7 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 | ring_program_id | single `pk_field` of the policy ring authorizing the transaction's UTXOs; `0` (non-ring / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | signer_pk_hashes | Payer first, then first-occurrence-deduplicated Ed25519 owner signers, then zero padding to `N_inputs + 1`; folded as a fixed-width right hash chain. |
-| P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a real P256 UTXO/address has `ring_program_id = 0`, otherwise `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
+| P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a spent P256 UTXO has `ring_program_id = 0`, otherwise `0`. Address slots never force it: an address always has `ring_program_id = 0`, and counting it would publish the identity of a ring P256 spender who creates an address in the same proof. A proof whose only P256 slots are addresses publishes `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
 | published output owner hash chain (owner-signed variants) | Fixed-width per-output vector folded into a final hash-chain field. `ConfidentialEddsa` publishes every resolved owner tag. `RingEddsa` and `RingP256` publish `hash_bytes_32(fetch_tag)` only where the output ciphertext is structurally `OutputDataEncoding::Encrypted` with confidential scheme byte `3`; other slots contribute `0`. `RingAuthority` omits this field. |
 
 The rows are in preimage order: every variant shares the rows through
@@ -1001,7 +1001,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A real default-ring P256 input/address additionally forces the conditional public owner hash described above. |
+| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A spent default-ring P256 UTXO additionally forces the conditional public owner hash described above; an address slot does not. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -1100,8 +1100,8 @@ intermediary cannot replace either value while reusing the proof.
 (`RingEddsa`), shared-P256 ring (`RingP256`), or ring-authority
 (`RingAuthority`) circuit and its fixed shape. `RingP256` carries the BSB22
 commitment/PoK and an optional raw P256 x-coordinate owner tag. The tag is
-present exactly when the transaction contains a real default-ring P256
-UTXO/address; SPP hashes it into the public-input preimage.
+present exactly when the transaction spends a default-ring P256 UTXO (address
+slots do not count); SPP hashes it into the public-input preimage.
 It is a selector only — not a public input and never hashed into
 `private_tx_hash` or `external_data_hash`. SPP validates it fail-closed: its
 family must match the dispatched instruction and its dimensions must match the

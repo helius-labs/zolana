@@ -135,6 +135,24 @@ func refreshCustomRingP256PublicInputHash(
 	p256PkHash *big.Int,
 ) {
 	t.Helper()
+	refreshCustomRingP256PublicInputHashWithOwner(
+		t,
+		assignment,
+		messageDigest,
+		defaultP256OwnerPkHash(assignment, p256PkHash),
+	)
+}
+
+// refreshCustomRingP256PublicInputHashWithOwner recomputes the public-input
+// hash with an explicit value for the published default P256 owner field, so a
+// test can claim a publication the circuit must refuse.
+func refreshCustomRingP256PublicInputHashWithOwner(
+	t testing.TB,
+	assignment *testAssignment,
+	messageDigest [32]byte,
+	publishedP256Owner *big.Int,
+) {
+	t.Helper()
 	messageHash, err := protocol.HashBytes(messageDigest[:])
 	if err != nil {
 		t.Fatalf("P256 message hash: %v", err)
@@ -152,7 +170,7 @@ func refreshCustomRingP256PublicInputHash(
 		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputNullifierTreeRoots())),
 		spptest.AsBigInt(assignment.PrivateTxHash),
 		messageHash,
-		defaultP256OwnerPkHash(assignment, p256PkHash),
+		publishedP256Owner,
 		spptest.AsBigInt(assignment.ExternalDataHash),
 	}
 	for i := 0; i < NPublicSlots; i++ {
@@ -172,10 +190,13 @@ func refreshCustomRingP256PublicInputHash(
 	assignment.PublicInputHash = spptest.MustHashChain(t, fields)
 }
 
+// defaultP256OwnerPkHash mirrors the public field the circuit binds: the P256
+// identity while a spent default-ring UTXO belongs to it, zero otherwise.
+// Address slots never publish the identity.
 func defaultP256OwnerPkHash(assignment *testAssignment, p256PkHash *big.Int) *big.Int {
 	for _, input := range assignment.Inputs {
 		domain := spptest.AsBigInt(input.Utxo.Domain).Int64()
-		if (domain == UtxoDomain || domain == AddressDomain) &&
+		if domain == UtxoDomain &&
 			spptest.AsBigInt(input.OwnerPkHash).Sign() == 0 &&
 			spptest.AsBigInt(input.Utxo.RingProgramID).Sign() == 0 {
 			return new(big.Int).Set(p256PkHash)
@@ -477,6 +498,137 @@ func TestCustomRingP256AcceptsDummyOutputNamingPublishedP256Owner(t *testing.T) 
 	assert.SolvingSucceeded(
 		circuit,
 		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// makeP256AddressSlot turns input idx into an address slot owned by the shared
+// P256 owner. The zero owner tag selects the P256 key; the owner hash binds
+// its pk field.
+func makeP256AddressSlot(
+	t testing.TB,
+	assignment *testAssignment,
+	idx int,
+	owner *ecdsa.PrivateKey,
+	seed *big.Int,
+) {
+	t.Helper()
+	setAddressSlot(t, &assignment.Inputs[idx], p256OwnerPkHash(t, owner), spptest.Fe(0), seed)
+}
+
+// p256AddressAssignment spends a P256 UTXO in input 0 and creates a P256
+// address in input 1, both owned by the same key. inRing places the spend in
+// the policy ring; the address always sits in the default ring.
+func p256AddressAssignment(t testing.TB, inRing bool) (*testAssignment, p256Authorization) {
+	t.Helper()
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	solAsset := protocol.SolAsset()
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{
+			sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(100)),
+			sampleUtxoWithAssetAndAmount(20, solAsset, spptest.Fe(0)),
+		},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(100))),
+	)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	if inRing {
+		assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+		rebuildAfterOwnerChange(t, assignment)
+	}
+	makeP256AddressSlot(t, assignment, 1, owner, spptest.Fe(0xABCDEF))
+	finalizeAddressAssignment(t, assignment, true, false)
+	return assignment, authorizeP256(t, assignment, owner, owner)
+}
+
+// p256AddressOnlyAssignment creates a single P256 address and spends nothing.
+func p256AddressOnlyAssignment(t testing.TB) (*testAssignment, p256Authorization) {
+	t.Helper()
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	solAsset := protocol.SolAsset()
+	assignment := buildCircuitAssignmentFromUtxos(
+		t,
+		shape,
+		[]protocol.Utxo{sampleUtxoWithAssetAndAmount(10, solAsset, spptest.Fe(0))},
+		twoOutputUtxos(sampleUtxoWithAssetAndAmount(100, solAsset, spptest.Fe(0))),
+	)
+	owner := spptest.FixedP256Key(t, 11)
+	makeP256AddressSlot(t, assignment, 0, owner, spptest.Fe(0xABCDEF))
+	finalizeAddressAssignment(t, assignment, true, false)
+	return assignment, authorizeP256(t, assignment, owner, owner)
+}
+
+// claimingPublishedP256Owner rebuilds the witness with the shared identity
+// forced into the public default-owner field and its public-input hash.
+func claimingPublishedP256Owner(
+	t testing.TB,
+	assignment *testAssignment,
+	authorization p256Authorization,
+) frontend.Circuit {
+	t.Helper()
+	var digest [32]byte
+	authorization.high.FillBytes(digest[:16])
+	authorization.low.FillBytes(digest[16:])
+	refreshCustomRingP256PublicInputHashWithOwner(t, assignment, digest, authorization.pkHash)
+	circuit := asCustomRingP256(assignment, authorization).(*customring.CustomRingP256Circuit)
+	circuit.Public.DefaultP256OwnerPkHash = authorization.pkHash
+	return circuit
+}
+
+// A ring P256 spender may create an address in the same proof. The address
+// always carries ring id 0, but it spends nothing, so it neither counts as a
+// default-ring input nor publishes the shared identity.
+func TestCustomRingP256AcceptsAddressDuringRingSpend(t *testing.T) {
+	assert := test.NewAssert(t)
+	circuit := MustNewCustomRingP256Circuit(Shape(protocol.Shape{NInputs: 2, NOutputs: 2}))
+	assignment, authorization := p256AddressAssignment(t, true)
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+	assert.SolvingFailed(
+		circuit,
+		claimingPublishedP256Owner(t, assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// A default-ring P256 spend publishes the identity regardless of an address
+// slot beside it.
+func TestCustomRingP256PublishesOwnerForDefaultSpendWithAddress(t *testing.T) {
+	assert := test.NewAssert(t)
+	circuit := MustNewCustomRingP256Circuit(Shape(protocol.Shape{NInputs: 2, NOutputs: 2}))
+	assignment, authorization := p256AddressAssignment(t, false)
+	if defaultP256OwnerPkHash(assignment, authorization.pkHash).Sign() == 0 {
+		t.Fatal("default-ring P256 spend must publish the shared owner")
+	}
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// Creating an address alone spends nothing and publishes nothing: the public
+// default-owner field must be zero even though the address sits in ring 0.
+func TestCustomRingP256AddressOnlyKeepsOwnerPrivate(t *testing.T) {
+	assert := test.NewAssert(t)
+	circuit := MustNewCustomRingP256Circuit(Shape(protocol.Shape{NInputs: 1, NOutputs: 2}))
+	assignment, authorization := p256AddressOnlyAssignment(t)
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+	assert.SolvingFailed(
+		circuit,
+		claimingPublishedP256Owner(t, assignment, authorization),
 		test.WithCurves(ecc.BN254),
 	)
 }

@@ -50,7 +50,7 @@ pub struct RingTransferP256ProofResult {
     pub private_tx_hash: [u8; 32],
     pub input_root_indices: Vec<(u16, u16)>,
     /// Raw P256 x-coordinate carried in `CircuitId::RingP256` when the shared
-    /// owner has a real default-ring input/address.
+    /// owner spends a default-ring UTXO. Address slots never set it.
     pub default_owner_tag: Option<[u8; 32]>,
 }
 

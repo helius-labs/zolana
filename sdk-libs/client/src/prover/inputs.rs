@@ -160,7 +160,8 @@ pub struct TransferP256Inputs {
     pub p256_message_hash_low: BigUint,
     pub p256_message_hash_high: BigUint,
     /// Program-derived public hash of the P256 x-coordinate when the shared
-    /// owner has a real default-ring input/address; zero for ring-only P256.
+    /// owner spends a default-ring UTXO; zero for ring-only P256 and for
+    /// address slots, which never publish the owner.
     pub default_p256_owner_pk_hash: BigUint,
     pub public_assets: [BigUint; N_PUBLIC_SLOTS],
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
