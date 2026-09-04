@@ -788,24 +788,57 @@ fn current_platform() -> Result<(&'static str, &'static str)> {
     Ok((os, arch))
 }
 
+/// Fixed times, owners and order, the bundle hashes the same on every build.
 fn tar_gz(source_dir: &Path, archive: &Path) -> Result<()> {
-    // COPYFILE_DISABLE stops macOS bsdtar from adding AppleDouble (._*) sidecars;
-    // the excludes drop any that already exist. Without this, GNU tar on Linux
-    // would materialize them and the validator would choke parsing them as
-    // account JSON. The CLI extractor excludes them too (defense in depth).
-    let status = Command::new("tar")
-        .env("COPYFILE_DISABLE", "1")
-        .args(["--exclude=._*", "--exclude=.DS_Store", "-czf"])
-        .arg(archive)
-        .arg("-C")
-        .arg(source_dir)
-        .arg(".")
-        .status()
-        .with_context(|| format!("failed to tar {}", source_dir.display()))?;
-    if !status.success() {
-        bail!("tar failed for {}", source_dir.display());
+    let file = fs::File::create(archive)
+        .with_context(|| format!("failed to create {}", archive.display()))?;
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+        file,
+        flate2::Compression::default(),
+    ));
+    for relative in snapshot_files(source_dir, Path::new(""))? {
+        let data = fs::read(source_dir.join(&relative))
+            .with_context(|| format!("failed to read {}", relative.display()))?;
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(0);
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, &relative, data.as_slice())
+            .with_context(|| format!("failed to archive {}", relative.display()))?;
     }
+    builder
+        .into_inner()
+        .and_then(flate2::write::GzEncoder::finish)
+        .with_context(|| format!("failed to finish {}", archive.display()))?;
     Ok(())
+}
+
+/// Sorted relative paths, without the macOS sidecars the validator cannot parse.
+fn snapshot_files(root: &Path, relative: &Path) -> Result<Vec<PathBuf>> {
+    let dir = root.join(relative);
+    let mut entries = fs::read_dir(&dir)
+        .with_context(|| format!("failed to read {}", dir.display()))?
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    let mut files = Vec::new();
+    for entry in entries {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("._") || name == ".DS_Store" {
+            continue;
+        }
+        let path = relative.join(name.as_ref());
+        if entry.file_type()?.is_dir() {
+            files.extend(snapshot_files(root, &path)?);
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(files)
 }
 
 fn reset_dir(dir: &Path) -> Result<()> {
@@ -868,6 +901,42 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_snapshot_bundle_hashes_the_same_on_every_build() {
+        let root = std::env::temp_dir().join(format!("snapshot-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("accounts");
+        fs::create_dir_all(dir.join("nested")).unwrap();
+        fs::write(dir.join("b.json"), b"{}").unwrap();
+        fs::write(dir.join("a.json"), b"[]").unwrap();
+        fs::write(dir.join("nested/c.json"), b"1").unwrap();
+        fs::write(dir.join("._a.json"), b"sidecar").unwrap();
+        let first = root.join("first.tar.gz");
+        tar_gz(&dir, &first).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(dir.join("a.json"), b"[]").unwrap();
+        let second = root.join("second.tar.gz");
+        tar_gz(&dir, &second).unwrap();
+        assert_eq!(fs::read(&first).unwrap(), fs::read(&second).unwrap());
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(
+            fs::File::open(&first).unwrap(),
+        ));
+        let names: Vec<String> = archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["a.json", "b.json", "nested/c.json"]);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn sha256_hex_matches_known_vector() {
