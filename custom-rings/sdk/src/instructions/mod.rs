@@ -3,6 +3,7 @@ pub mod deposit;
 pub mod entry;
 pub mod grant_read_access;
 pub mod init_spp_ring_config;
+pub mod merge;
 pub(crate) mod policy_table;
 pub mod revoke_read_access;
 pub mod set_authority;

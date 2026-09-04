@@ -2,8 +2,9 @@
 //! key of an SPP `transact` is verifiably encrypted to the ring's auditor key,
 //! then forwards the transaction to SPP signed with the ring authority PDA.
 //!
-//! The scope includes confidential transfers, Solana eddsa signers, and reader
-//! grants. See `custom-rings/program/tests` for the enforced contract.
+//! The scope includes confidential transfers, owner preserving merges, Solana
+//! eddsa signers, and reader grants. See `custom-rings/program/tests` for the
+//! enforced contract.
 
 mod error;
 mod instructions;
@@ -16,8 +17,8 @@ use custom_ring_interface::tag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    process_create_config_ix, process_deposit_ix, process_grant_read_access_ix,
-    process_init_spp_ring_config_ix, process_revoke_read_access_ix, process_set_authority_ix,
+    process_create_config_ix, process_grant_read_access_ix, process_init_spp_ring_config_ix,
+    process_revoke_read_access_ix, process_set_authority_ix, process_spp_forward_ix,
     process_transact_ix,
 };
 use crate::instructions::{
@@ -44,7 +45,9 @@ pub fn process_instruction(
         tag::INIT_SPP_RING_CONFIG => process_init_spp_ring_config_ix(program_id, accounts, ix_data),
         tag::TRANSACT => process_transact_ix(program_id, accounts, ix_data),
         // The forwarder passes the tag byte on as well: SPP's dispatcher strips it.
-        tag::DEPOSIT => process_deposit_ix(program_id, accounts, instruction_data),
+        tag::DEPOSIT => process_spp_forward_ix(program_id, accounts, instruction_data),
+        // SPP proves that owner, asset, value, and ring ownership stay unchanged.
+        tag::MERGE => process_spp_forward_ix(program_id, accounts, instruction_data),
         tag::GRANT_READ_ACCESS => process_grant_read_access_ix(program_id, accounts, ix_data),
         tag::REVOKE_READ_ACCESS => process_revoke_read_access_ix(program_id, accounts, ix_data),
         tag::SET_AUTHORITY => process_set_authority_ix(program_id, accounts, ix_data),
