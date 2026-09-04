@@ -2,7 +2,11 @@
 //! fixture `prover/server/circuits/custom_ring/policy/circuit_test.go` prints
 //! under `PRINT_POLICY_VECTORS=1`, so a change on either side fails here.
 
-use custom_ring_interface::{CustomRingBasePublicInput, CustomRingPolicyPublicInput};
+use custom_ring_interface::{
+    CustomRingBasePublicInput, CustomRingPolicyPublicInput, PolicyConfig, SourceSlot,
+    N_SOURCE_SLOTS, POLICY_CONFIG,
+};
+use solana_address::Address;
 use zolana_ring_policy::{
     entry_nullifier, entry_seed, EntryState, Guard, ListEntry, ListId, ListNamespace, ListSet,
     Member, Mode, Rule, RuleTable, SourceMap, Subject,
@@ -32,6 +36,11 @@ const MIXED_RULE_POLICY_HASH: &str =
     "1d6806016526767233ca9acecf59629642e061ae50a0018192a78eb6617f46f8";
 const PER_ASSET_POLICY_HASH: &str =
     "2903cae630b7cd871a2074e617e68dcd52fc866b28fab7c509033ef87357143d";
+const PER_ASSET_RULES: RuleTable = RuleTable::builder()
+    .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+    .inline_assets(ASSET_MEMBERS)
+    .inline_limits(&[123])
+    .build();
 
 struct Vector {
     seed: &'static str,
@@ -218,16 +227,39 @@ fn source_map_hashing_matches_the_go_fixture() {
 
 #[test]
 fn per_asset_limit_hashing_matches_the_go_fixture() {
-    const LIMITED: RuleTable = RuleTable::builder()
-        .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
-        .inline_assets(ASSET_MEMBERS)
-        .inline_limits(&[123])
-        .build();
     let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
     assert_eq!(
-        LIMITED.hash(&map).expect("per-asset hash"),
+        PER_ASSET_RULES.hash(&map).expect("per-asset hash"),
         hex32(PER_ASSET_POLICY_HASH)
     );
+}
+
+#[test]
+fn policy_account_bytes_match_the_typescript_vector() {
+    let sources = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("sources");
+    let mut slots = [SourceSlot {
+        list_id: 0,
+        namespace: Address::default(),
+    }; N_SOURCE_SLOTS];
+    slots[ListId::Allow.slot()] = SourceSlot {
+        list_id: ListId::Allow as u8,
+        namespace: Address::new_from_array(RECORDS_PDA),
+    };
+    let config = PolicyConfig {
+        discriminator: POLICY_CONFIG,
+        policy_hash: PER_ASSET_RULES.hash(&sources).expect("policy hash"),
+        entries_tree: Address::new_from_array([0x22; 32]),
+        namespace_bump: 254,
+        bump: 253,
+        sources: slots,
+        rules: PER_ASSET_RULES.encode(),
+        generation: 0x01020304u32.to_le_bytes(),
+        generation_slot: 0x0102030405060708u64.to_le_bytes(),
+    };
+    let encoded: String = include_str!("fixtures/policy-config.hex")
+        .split_whitespace()
+        .collect();
+    assert_eq!(hex::encode(bytemuck::bytes_of(&config)), encoded);
 }
 
 #[test]

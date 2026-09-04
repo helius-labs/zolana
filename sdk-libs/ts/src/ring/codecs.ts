@@ -7,6 +7,7 @@ import {
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
+import { bytesToBigInt } from "../transaction/internal.js";
 
 import { RingError } from "./error.js";
 
@@ -108,7 +109,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
 function countedLimits(reader: Reader, count: number): readonly bigint[] {
   const limits: bigint[] = [];
   for (let index = 0; index < RING_INLINE_ASSET_SLOTS; index += 1) {
-    const limit = reader.u64("inlineLimits");
+    const limit = bytesToBigInt(reader.bytes(8, "inlineLimits"));
     if (index < count) limits.push(limit);
     else if (limit !== 0n) {
       throw new RingError("RING_POLICY_CONFIG_INVALID", {

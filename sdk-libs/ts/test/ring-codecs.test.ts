@@ -1,4 +1,5 @@
 import { ed25519 } from "@noble/curves/ed25519.js";
+import { readFileSync } from "node:fs";
 import {
   AccountRole,
   address,
@@ -106,7 +107,7 @@ function policyConfigBytes(
     Array.from({ length: slots }, (_, index) => [...(rows[index] ?? new Uint8Array(32))]).flat();
   const limits = Array.from({ length: 8 }, (_, index) => {
     const bytes = new Uint8Array(8);
-    new DataView(bytes.buffer).setBigUint64(0, parts.inlineLimits?.[index] ?? 0n, true);
+    new DataView(bytes.buffer).setBigUint64(0, parts.inlineLimits?.[index] ?? 0n, false);
     return [...bytes];
   }).flat();
   return Uint8Array.from([
@@ -437,7 +438,7 @@ describe("ring config", () => {
     expect(data.subarray(332, 364)).toEqual(rule);
     expect(data[844]).toBe(1);
     expect(data.subarray(845, 877)).toEqual(member);
-    expect(data.subarray(1101, 1109)).toEqual(Uint8Array.from([123, 0, 0, 0, 0, 0, 0, 0]));
+    expect(data.subarray(1101, 1109)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
     expect(data.subarray(1165, 1169)).toEqual(Uint8Array.from([4, 3, 2, 1]));
     expect(data.subarray(1169)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
     const config = decodeRingPolicyConfig(data);
@@ -448,6 +449,29 @@ describe("ring config", () => {
     expect(config.inlineLimits).toEqual([123n]);
     expect(config.generation).toBe(0x01020304);
     expect(config.generationSlot).toBe(0x0102030405060708n);
+  });
+
+  it("decodes the Rust policy account vector", () => {
+    const encoded = readFileSync(
+      new URL("../../../custom-rings/sdk/tests/fixtures/policy-config.hex", import.meta.url),
+      "utf8",
+    );
+    const config = decodeRingPolicyConfig(hex(encoded.replace(/\s/g, "")));
+    expect(config.inlineLimits).toEqual([123n]);
+    expect(config.generation).toBe(0x01020304);
+    expect(config.generationSlot).toBe(0x0102030405060708n);
+    expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(0x11) });
+  });
+
+  it("decodes every byte of an unsigned per-asset limit", () => {
+    const limits = [0n, 123n, 0x0102030405060708n, (1n << 64n) - 1n];
+    const config = decodeRingPolicyConfig(
+      policyConfigBytes({
+        inlineAssets: limits.map(() => filled(1, 32)),
+        inlineLimits: limits,
+      }),
+    );
+    expect(config.inlineLimits).toEqual(limits);
   });
 
   it("bounds the rule table by its width and refuses bytes past the counts", () => {
