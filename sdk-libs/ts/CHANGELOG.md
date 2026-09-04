@@ -156,6 +156,7 @@ Changed
 
 Fixed
 
+- `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
 
