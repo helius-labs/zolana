@@ -42,13 +42,15 @@ import (
 type Transaction struct {
 	Shape Shape
 
-	Nullifiers         []frontend.Variable
-	OutputHashes       []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
-	// Raw u16 ids of the tree every input is spent from and the tree every
-	// output is appended to; each enters its side's utxo hashes.
-	InputTreeID  frontend.Variable
+	Nullifiers   []frontend.Variable
+	OutputHashes []frontend.Variable
+	// InputTrees tree slots: the raw u16 id and utxo root of each tree inputs
+	// may be spent from. An input picks its slot privately (Input.TreeSlot).
+	TreeIDs       []frontend.Variable
+	UtxoTreeRoots []frontend.Variable
+	// One nullifier root for every input.
+	NullifierTreeRoot frontend.Variable
+	// Raw u16 id of the tree every output is appended to.
 	OutputTreeID frontend.Variable
 
 	Inputs  []Input
@@ -102,8 +104,8 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	checks := []LengthCheck{
 		{"nullifier", len(t.Nullifiers), t.Shape.NInputs},
 		{"output hash", len(t.OutputHashes), t.Shape.NOutputs},
-		{"utxo tree root", len(t.UtxoTreeRoots), t.Shape.NInputs},
-		{"nullifier tree root", len(t.NullifierTreeRoots), t.Shape.NInputs},
+		{"tree id", len(t.TreeIDs), InputTrees},
+		{"utxo tree root", len(t.UtxoTreeRoots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
 	for _, check := range append(checks, extra...) {
@@ -134,12 +136,13 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			api.Mul(api.Sub(1, t.AllowDummyInputs), api.Sub(1, in.isUtxo(api))),
 			0,
 		)
+		treeID, utxoTreeRoot := SelectTreeSlot(api, in.TreeSlot, t.TreeIDs, t.UtxoTreeRoots)
 		signals := PublicInputUtxoInputs{
 			Nullifier:         t.Nullifiers[i],
-			UtxoTreeRoot:      t.UtxoTreeRoots[i],
-			NullifierTreeRoot: t.NullifierTreeRoots[i],
+			UtxoTreeRoot:      utxoTreeRoot,
+			NullifierTreeRoot: t.NullifierTreeRoot,
 			SignerPk:          signers[i],
-			TreeID:            t.InputTreeID,
+			TreeID:            treeID,
 		}
 		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
 	}
@@ -185,9 +188,9 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
 		gadget.HashChain(api, t.Nullifiers),
 		gadget.HashChain(api, t.OutputHashes),
+		gadget.HashChain(api, t.TreeIDs),
 		gadget.HashChain(api, t.UtxoTreeRoots),
-		gadget.HashChain(api, t.NullifierTreeRoots),
-		t.InputTreeID,
+		t.NullifierTreeRoot,
 		t.OutputTreeID,
 		t.PrivateTxHash,
 	}
@@ -246,6 +249,8 @@ const (
 	// NPublicSlots is the number of distinct public assets whose aggregate
 	// movement can be proven in one transaction.
 	NPublicSlots = 3
+	// InputTrees is the number of input tree slots a proof spends from.
+	InputTrees = 5
 	// DummyDomain is the domain tag for dummy (padding) utxos.
 	DummyDomain = 1
 	// AddressDomain is the domain tag for address utxos, separating address

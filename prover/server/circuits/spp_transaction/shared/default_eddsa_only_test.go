@@ -308,7 +308,7 @@ func refreshDummyOutputHashes(t testing.TB, assignment *testAssignment) {
 // dummyOutputAssignment: the real output's hash enters, the dummy contributes 0.
 func refreshDummyOutputPrivateTxHash(t testing.TB, assignment *testAssignment) {
 	t.Helper()
-	inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.InputTreeID)
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0))
 	realOutputHash := spptest.AsBigInt(assignment.Outputs[0].Hash)
 	privateTxHash := spptest.MustPrivateTxHash(
 		t,

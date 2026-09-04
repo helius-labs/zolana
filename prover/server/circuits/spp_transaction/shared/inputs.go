@@ -14,6 +14,8 @@ type Input struct {
 	Utxo              UtxoCircuitFields
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
+	// TreeSlot selects the public tree slot this input is spent from.
+	TreeSlot frontend.Variable
 
 	NullifierLowValue        frontend.Variable
 	NullifierNextValue       frontend.Variable
@@ -62,6 +64,20 @@ func inputUtxos(inputs []Input) []UtxoCircuitFields {
 		out[i] = inputs[i].Utxo
 	}
 	return out
+}
+
+// SelectTreeSlot returns the tree id and utxo root of slot `slot`, asserting
+// the slot is in range so every input hashes under exactly one published tree.
+func SelectTreeSlot(api frontend.API, slot frontend.Variable, treeIDs, roots []frontend.Variable) (frontend.Variable, frontend.Variable) {
+	var hits, treeID, root frontend.Variable = 0, 0, 0
+	for k := range treeIDs {
+		sel := api.IsZero(api.Sub(slot, k))
+		hits = api.Add(hits, sel)
+		treeID = api.Add(treeID, api.Mul(sel, treeIDs[k]))
+		root = api.Add(root, api.Mul(sel, roots[k]))
+	}
+	api.AssertIsEqual(hits, 1)
+	return treeID, root
 }
 
 // AssertDistinctNullifiers asserts pairwise inequality so no input slot is

@@ -29,7 +29,7 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
-		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.InputTreeID)
+		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
 	}
 	privateOutputHashes := make([]*big.Int, len(assignment.Outputs))
 	for i := range assignment.Outputs {

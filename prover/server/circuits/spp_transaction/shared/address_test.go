@@ -59,7 +59,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 	for i := range assignment.Inputs {
 		in := assignment.Inputs[i]
 		domain := spptest.AsBigInt(in.Utxo.Domain).Int64()
-		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.InputTreeID)
+		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.inputTreeID(i))
 		if domain == UtxoDomain {
 			inputHashes[i] = utxoHash
 		} else {

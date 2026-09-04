@@ -29,9 +29,9 @@ type (
 type CustomRingP256Public struct {
 	Nullifiers                   []frontend.Variable
 	OutputHashes                 []frontend.Variable
+	TreeIDs                      []frontend.Variable
 	UtxoTreeRoots                []frontend.Variable
-	NullifierTreeRoots           []frontend.Variable
-	InputTreeID                  frontend.Variable
+	NullifierTreeRoot            frontend.Variable
 	OutputTreeID                 frontend.Variable
 	PrivateTxHash                frontend.Variable
 	P256MessageHashLow           frontend.Variable
@@ -73,8 +73,8 @@ func NewCustomRingP256Circuit(shape shared.Shape) (*CustomRingP256Circuit, error
 		Public: CustomRingP256Public{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
-			UtxoTreeRoots:                make([]frontend.Variable, shape.NInputs),
-			NullifierTreeRoots:           make([]frontend.Variable, shape.NInputs),
+			TreeIDs:                      make([]frontend.Variable, shared.InputTrees),
+			UtxoTreeRoots:                make([]frontend.Variable, shared.InputTrees),
 			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
@@ -93,24 +93,24 @@ func (c *CustomRingP256Circuit) transaction(
 	p256MessageHash frontend.Variable,
 ) shared.Transaction {
 	return shared.Transaction{
-		Shape:              c.Shape,
-		Nullifiers:         c.Public.Nullifiers,
-		OutputHashes:       c.Public.OutputHashes,
-		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
-		NullifierTreeRoots: c.Public.NullifierTreeRoots,
-		InputTreeID:        c.Public.InputTreeID,
-		OutputTreeID:       c.Public.OutputTreeID,
-		Inputs:             c.Private.Inputs,
-		Outputs:            c.Private.Outputs,
-		TxSecret:           c.Private.TxSecret,
-		PrivateTxHash:      c.Public.PrivateTxHash,
-		ExternalDataHash:   c.Public.ExternalDataHash,
-		PublicAssets:       c.Public.PublicAssets,
-		PublicAmounts:      c.Public.PublicAmounts,
-		RingProgramID:      c.Public.RingProgramID,
-		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:   c.Public.AllowDummyInputs,
-		PublicInputHash:    c.Public.PublicInputHash,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		TreeIDs:           c.Public.TreeIDs,
+		UtxoTreeRoots:     c.Public.UtxoTreeRoots,
+		NullifierTreeRoot: c.Public.NullifierTreeRoot,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		TxSecret:          c.Private.TxSecret,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     c.Public.RingProgramID,
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageAfterPrivateTxHash: []frontend.Variable{
 			p256MessageHash,
 			c.Public.DefaultP256OwnerPkHash,

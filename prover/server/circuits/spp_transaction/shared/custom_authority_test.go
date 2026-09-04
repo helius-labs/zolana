@@ -177,7 +177,7 @@ func buildRingAuthorityAssignmentWithAddressInput(
 	inputHashes := make([]*big.Int, shape.NInputs)
 	addressHashes := make([]*big.Int, shape.NInputs)
 	for i := range assignment.Inputs {
-		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.InputTreeID)
+		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
 		if i == addressIndex {
 			addressHashes[i] = utxoHash
 			inputHashes[i] = big.NewInt(0)

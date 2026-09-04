@@ -15,11 +15,22 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-// Distinct test tree ids so a swapped input/output id is caught.
+// testInputTreeID is slot 0's tree id; testOutputTreeID is distinct from every
+// slot id so a swapped input/output id is caught.
 const (
 	testInputTreeID  = 7
 	testOutputTreeID = 11
 )
+
+// testSlotTreeIDs returns InputTrees distinct tree ids, slot 0 = testInputTreeID.
+func testSlotTreeIDs() []frontend.Variable {
+	ids := []int64{testInputTreeID, 17, 19, 23, 29}
+	out := make([]frontend.Variable, InputTrees)
+	for k := range out {
+		out[k] = spptest.Fe(ids[k])
+	}
+	return out
+}
 
 // testUtxoHash mirrors utxoHashGadget:
 // Poseidon(domain, treeID, asset, amount, dataHash, ringHash, ownerUtxoHash).
@@ -44,15 +55,21 @@ func testUtxoHash(t testing.TB, u protocol.Utxo, treeID frontend.Variable) *big.
 }
 
 // testPublicInputHash mirrors Transaction.publicInputHash: protocol's preimage
-// with the two tree ids inserted after the nullifier-tree-root chain.
-func testPublicInputHash(t testing.TB, inputs protocol.PublicInputs, inputTreeID, outputTreeID frontend.Variable) *big.Int {
+// with the tree slots, the nullifier root, and the output tree id after the
+// output hash chain. The root fields of `inputs` are ignored.
+func testPublicInputHash(
+	t testing.TB,
+	inputs protocol.PublicInputs,
+	treeIDs, utxoTreeRoots []frontend.Variable,
+	nullifierTreeRoot, outputTreeID frontend.Variable,
+) *big.Int {
 	t.Helper()
 	fields := []*big.Int{
 		spptest.MustHashChain(t, inputs.Nullifiers),
 		spptest.MustHashChain(t, inputs.OutputUtxoHashes),
-		spptest.MustHashChain(t, inputs.UtxoTreeRoots),
-		spptest.MustHashChain(t, inputs.NullifierTreeRoots),
-		spptest.AsBigInt(inputTreeID),
+		spptest.MustHashChain(t, spptest.ToBigInts(treeIDs)),
+		spptest.MustHashChain(t, spptest.ToBigInts(utxoTreeRoots)),
+		spptest.AsBigInt(nullifierTreeRoot),
 		spptest.AsBigInt(outputTreeID),
 		inputs.PrivateTxHash,
 		inputs.ExternalDataHash,
@@ -95,15 +112,25 @@ func TestUtxoHashCircuitBindsTreeID(t *testing.T) {
 	assert.SolvingFailed(&utxoHashPinCircuit{}, assignment, test.WithCurves(ecc.BN254))
 }
 
-// Publishing another input tree id breaks inclusion: the leaves were hashed
-// under the fixture's input tree.
-func TestCircuitRejectsInputTreeIDMismatch(t *testing.T) {
+// An input hashed under slot 0 cannot claim slot 1: the slot's tree id enters
+// the utxo hash, so the leaf is no longer under the root.
+func TestCircuitRejectsInputClaimingOtherSlot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	assignment.InputTreeID = spptest.Fe(testOutputTreeID)
-	refreshPublicInputHash(t, assignment)
+	assignment.Inputs[0].TreeSlot = spptest.Fe(1)
+
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// A slot index outside the published slots selects no tree and is rejected.
+func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	assignment.Inputs[0].TreeSlot = spptest.Fe(InputTrees)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

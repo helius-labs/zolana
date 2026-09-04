@@ -89,7 +89,7 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 
 	// Recompute the private tx hash with the duplicated input hash, then refresh
 	// the public input hash so distinctness is the only failing constraint.
-	inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.InputTreeID)
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0))
 	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
 		t,
 		[]*big.Int{inputHash, inputHash},

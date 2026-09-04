@@ -46,7 +46,7 @@ func TestCircuitRejectsForeignPrivateTxBlinding(t *testing.T) {
 	assignment := buildCircuitAssignment(t, shape)
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
-		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.InputTreeID)
+		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
 	}
 	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
 		t,

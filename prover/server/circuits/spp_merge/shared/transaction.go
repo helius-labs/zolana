@@ -14,6 +14,7 @@ import (
 // MergeInputs is the fixed merge shape. Fewer real inputs use dummy slots.
 const (
 	MergeInputs = 8
+	InputTrees  = transaction.InputTrees
 	UtxoDomain  = transaction.UtxoDomain
 	DummyDomain = transaction.DummyDomain
 )
@@ -28,6 +29,8 @@ type Input struct {
 
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
+	// TreeSlot selects the public tree slot this input is spent from.
+	TreeSlot frontend.Variable
 
 	NullifierLowValue        frontend.Variable
 	NullifierNextValue       frontend.Variable
@@ -53,10 +56,12 @@ type CommonPublicInputs struct {
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
-	// Raw u16 ids of the input tree and the output tree.
-	InputTreeID  frontend.Variable
+	// Input tree slots: raw u16 tree ids and utxo roots.
+	TreeIDs       []frontend.Variable
+	UtxoTreeRoots []frontend.Variable
+	// One nullifier root for every input.
+	NullifierTreeRoot frontend.Variable
+	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
 }
 
@@ -96,9 +101,9 @@ func NewInputs() []Input {
 // NewCommonPublicInputs allocates the per-input public signal slices.
 func NewCommonPublicInputs() CommonPublicInputs {
 	return CommonPublicInputs{
-		Nullifiers:         make([]frontend.Variable, MergeInputs),
-		UtxoTreeRoots:      make([]frontend.Variable, MergeInputs),
-		NullifierTreeRoots: make([]frontend.Variable, MergeInputs),
+		Nullifiers:    make([]frontend.Variable, MergeInputs),
+		TreeIDs:       make([]frontend.Variable, transaction.InputTrees),
+		UtxoTreeRoots: make([]frontend.Variable, transaction.InputTrees),
 	}
 }
 
@@ -107,9 +112,9 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	return []frontend.Variable{
 		gadget.HashChain(api, p.Nullifiers),
 		p.OutputHash,
+		gadget.HashChain(api, p.TreeIDs),
 		gadget.HashChain(api, p.UtxoTreeRoots),
-		gadget.HashChain(api, p.NullifierTreeRoots),
-		p.InputTreeID,
+		p.NullifierTreeRoot,
 		p.OutputTreeID,
 		p.PrivateTxHash,
 		p.ExternalDataHash,
@@ -129,18 +134,19 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 	checks := []struct {
 		name string
 		got  int
+		want int
 	}{
-		{"nullifier", len(t.Public.Nullifiers)},
-		{"utxo tree root", len(t.Public.UtxoTreeRoots)},
-		{"nullifier tree root", len(t.Public.NullifierTreeRoots)},
+		{"nullifier", len(t.Public.Nullifiers), numInputs},
+		{"tree id", len(t.Public.TreeIDs), transaction.InputTrees},
+		{"utxo tree root", len(t.Public.UtxoTreeRoots), transaction.InputTrees},
 	}
 	for _, check := range checks {
-		if check.got != numInputs {
+		if check.got != check.want {
 			return fmt.Errorf(
 				"merge: %s count mismatch: got %d want %d",
 				check.name,
 				check.got,
-				numInputs,
+				check.want,
 			)
 		}
 	}
@@ -190,31 +196,28 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
-	inputHashes[0], nullifiers[0] = constrainInput(
-		api,
-		t.Inputs[0],
-		userOwnerHash,
-		t.UserNullifierSecret,
-		t.Asset,
-		t.Public.UtxoTreeRoots[0],
-		t.Public.NullifierTreeRoots[0],
-		t.Public.InputTreeID,
-		t.RingProgramID,
-		frontend.Variable(0),
-		0,
-	)
-	for i := 1; i < len(t.Inputs); i++ {
+	for i := range t.Inputs {
+		firstNullifier := frontend.Variable(0)
+		if i > 0 {
+			firstNullifier = nullifiers[0]
+		}
+		treeID, utxoTreeRoot := transaction.SelectTreeSlot(
+			api,
+			t.Inputs[i].TreeSlot,
+			t.Public.TreeIDs,
+			t.Public.UtxoTreeRoots,
+		)
 		inputHashes[i], nullifiers[i] = constrainInput(
 			api,
 			t.Inputs[i],
 			userOwnerHash,
 			t.UserNullifierSecret,
 			t.Asset,
-			t.Public.UtxoTreeRoots[i],
-			t.Public.NullifierTreeRoots[i],
-			t.Public.InputTreeID,
+			utxoTreeRoot,
+			t.Public.NullifierTreeRoot,
+			treeID,
 			t.RingProgramID,
-			nullifiers[0],
+			firstNullifier,
 			i,
 		)
 	}
