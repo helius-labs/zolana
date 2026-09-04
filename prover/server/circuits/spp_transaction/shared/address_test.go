@@ -141,6 +141,21 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
+// An address slot inserts a nullifier without spending a UTXO leaf, so it
+// consumes nullifier capacity exactly like a padding dummy and must be gated by
+// the same public flag.
+func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment, _, _ := buildRingAddressAssignment(t)
+
+	assignment.AllowDummyInputs = spptest.Fe(0)
+	finalizeAddressAssignment(t, assignment, true, false)
+
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

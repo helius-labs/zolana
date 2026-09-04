@@ -122,8 +122,12 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
+		// AllowDummyInputs is SPP's nullifier-capacity gate: a spend consumes a
+		// nullifier leaf for a UTXO leaf that already exists, while dummy and
+		// address slots insert a nullifier without spending one. When the gate is
+		// off, every input slot must therefore be a real spend, not just non-dummy.
 		api.AssertIsEqual(
-			api.Mul(api.Sub(1, t.AllowDummyInputs), in.isDummy(api)),
+			api.Mul(api.Sub(1, t.AllowDummyInputs), api.Sub(1, in.isUtxo(api))),
 			0,
 		)
 		signals := PublicInputUtxoInputs{
