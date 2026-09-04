@@ -61,7 +61,7 @@ func reassignInputToFreshTrees(t testing.TB, assignment *testAssignment, idx int
 	}
 
 	in := &assignment.Inputs[idx]
-	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.InputTreeID)
 
 	const freshStateLeafIndex = 99
 	stateRoot, stateProofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{
@@ -238,7 +238,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	// A padding dummy derives its nullifier with nullifier_secret = 0, its
 	// blinding being the sole source of unpredictability (spec: SPP Proof).
 	in.NullifierSecret = spptest.Fe(0)
-	dummyUtxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+	dummyUtxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.InputTreeID)
 	in.Nullifier = spptest.MustNullifier(
 		t,
 		dummyUtxoHash,

@@ -59,6 +59,8 @@ type testAssignment struct {
 	RingProgramID    frontend.Variable
 	AllowDummyInputs frontend.Variable
 	SignerPkHashes   []frontend.Variable
+	InputTreeID      frontend.Variable
+	OutputTreeID     frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -172,6 +174,8 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			OutputHashes:                 a.OutputHashes(),
 			UtxoTreeRoots:                a.InputUtxoRoots(),
 			NullifierTreeRoots:           a.InputNullifierTreeRoots(),
+			InputTreeID:                  a.InputTreeID,
+			OutputTreeID:                 a.OutputTreeID,
 			PrivateTxHash:                a.PrivateTxHash,
 			ExternalDataHash:             a.ExternalDataHash,
 			PublicAssets:                 a.PublicAssets,
@@ -200,6 +204,8 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			OutputHashes:       a.OutputHashes(),
 			UtxoTreeRoots:      a.InputUtxoRoots(),
 			NullifierTreeRoots: a.InputNullifierTreeRoots(),
+			InputTreeID:        a.InputTreeID,
+			OutputTreeID:       a.OutputTreeID,
 			PrivateTxHash:      a.PrivateTxHash,
 			ExternalDataHash:   a.ExternalDataHash,
 			PublicAssets:       a.PublicAssets,
@@ -225,6 +231,8 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			OutputHashes:        a.OutputHashes(),
 			UtxoTreeRoots:       a.InputUtxoRoots(),
 			NullifierTreeRoots:  a.InputNullifierTreeRoots(),
+			InputTreeID:         a.InputTreeID,
+			OutputTreeID:        a.OutputTreeID,
 			PrivateTxHash:       a.PrivateTxHash,
 			ExternalDataHash:    a.ExternalDataHash,
 			PublicAssets:        a.PublicAssets,
@@ -321,7 +329,7 @@ func buildCircuitAssignmentExact(
 			inputOwnerPkHashes[i] = testSolanaPkField(t)
 		}
 		inputCircuitUtxos[i] = fieldsFromUtxo(utxo)
-		inputHash := spptest.MustUtxoHash(t, utxo)
+		inputHash := testUtxoHash(t, utxo, spptest.Fe(testInputTreeID))
 		inputHashes[i] = inputHash
 		nullifier := spptest.MustNullifier(t, inputHash, utxo.Blinding, nullifierSecrets[i])
 		nullifiers[i] = nullifier
@@ -372,7 +380,7 @@ func buildCircuitAssignmentExact(
 	for i := 0; i < shape.NOutputs; i++ {
 		utxo := outputUtxos[i]
 		outputCircuitUtxos[i] = fieldsFromUtxo(utxo)
-		outputHash := spptest.MustUtxoHash(t, utxo)
+		outputHash := testUtxoHash(t, utxo, spptest.Fe(testOutputTreeID))
 		OutputHashes[i] = outputHash
 		outputHashVariables[i] = outputHash
 		outputOwnerPkHashes[i] = testSolanaPkField(t)
@@ -443,8 +451,7 @@ func buildCircuitAssignmentExact(
 		}
 	}
 	publicInputs.OutputOwnerPkHashes = publishedOutputOwnerPkHashes
-	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
-	publicInputHash := spptest.MustHash(t, publicInputHashValue, err)
+	publicInputHash := testPublicInputHash(t, publicInputs, spptest.Fe(testInputTreeID), spptest.Fe(testOutputTreeID))
 
 	inputs := make([]testInput, shape.NInputs)
 	for i := 0; i < shape.NInputs; i++ {
@@ -485,6 +492,8 @@ func buildCircuitAssignmentExact(
 		RingProgramID:    publicInputs.RingProgramID,
 		AllowDummyInputs: publicInputs.AllowDummyInputs,
 		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
+		InputTreeID:      spptest.Fe(testInputTreeID),
+		OutputTreeID:     spptest.Fe(testOutputTreeID),
 		PublicInputHash:  publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
@@ -558,8 +567,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bin
 	if bindOutputOwnerTags {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())
 	}
-	publicInputHashValue, err := protocol.PublicInputHash(publicInputs)
-	assignment.PublicInputHash = spptest.MustHash(t, publicInputHashValue, err)
+	assignment.PublicInputHash = testPublicInputHash(t, publicInputs, assignment.InputTreeID, assignment.OutputTreeID)
 }
 
 func defaultBalancedUtxos(t testing.TB, shape protocol.Shape) ([]protocol.Utxo, []protocol.Utxo) {
@@ -644,7 +652,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	stateEntries := make(map[uint64]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
-		inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo))
+		inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.InputTreeID)
 		inputHashes[i] = inputHash
 		stateEntries[defaultStateLeafIndex(i)] = inputHash
 	}
@@ -713,9 +721,10 @@ func refreshDerivedOutputBlindings(t testing.TB, assignment *testAssignment) {
 	for i := range assignment.Outputs {
 		blinding, err := protocol.OutputBlinding(firstNullifier, seed, i)
 		assignment.Outputs[i].Utxo.Blinding = spptest.MustHash(t, blinding, err)
-		assignment.Outputs[i].Hash = spptest.MustUtxoHash(
+		assignment.Outputs[i].Hash = testUtxoHash(
 			t,
 			circuitFieldsToUtxo(assignment.Outputs[i].Utxo),
+			assignment.OutputTreeID,
 		)
 	}
 }

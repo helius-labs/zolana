@@ -14,7 +14,7 @@ import (
 
 func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *big.Int) *big.Int {
 	t.Helper()
-	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(fields))
+	utxoHash := testUtxoHash(t, circuitFieldsToUtxo(fields), spptest.Fe(testInputTreeID))
 	return spptest.MustNullifier(t, utxoHash, spptest.AsBigInt(fields.Blinding), nullifierSecret)
 }
 
@@ -59,7 +59,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 	for i := range assignment.Inputs {
 		in := assignment.Inputs[i]
 		domain := spptest.AsBigInt(in.Utxo.Domain).Int64()
-		utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.InputTreeID)
 		if domain == UtxoDomain {
 			inputHashes[i] = utxoHash
 		} else {

@@ -29,6 +29,7 @@ type PublicInputUtxoInputs struct {
 	UtxoTreeRoot      frontend.Variable
 	NullifierTreeRoot frontend.Variable
 	SignerPk          frontend.Variable
+	TreeID            frontend.Variable
 }
 
 func NewInputs(n int) []Input {
@@ -87,7 +88,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 
 	// Checks for UTXO, dummy UTXO, adddress:
 	// 1. nullifier must not exist in nullifier tree.
-	utxoHash := UtxoHashCircuit(api, in.Utxo)
+	utxoHash := UtxoHashCircuit(api, in.Utxo, signals.TreeID)
 	in.checkNonInclusion(api, utxoHash, signals)
 
 	// Checks UTXO and address:

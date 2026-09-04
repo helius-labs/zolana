@@ -17,10 +17,11 @@ const (
 	NumOutputs = 2
 )
 
-// Utxo is the witness of one UTXO. It carries the precomputed owner_hash and the
-// data and ring-program hashes; the circuit hashes the UTXO, matching
-// zolana_transaction's Utxo::hash.
+// Utxo is the witness of one UTXO. It carries the precomputed owner_hash, the
+// data and ring-program hashes, and the raw id of its tree; the circuit hashes
+// the UTXO, matching zolana_transaction's Utxo::hash.
 type Utxo struct {
+	TreeID          frontend.Variable
 	OwnerHash       frontend.Variable
 	Asset           frontend.Variable
 	Amount          frontend.Variable
@@ -41,7 +42,7 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 		DataHash:      u.ProgramDataHash,
 		RingDataHash:  u.RingDataHash,
 		RingProgramID: u.RingProgramID,
-	})
+	}, u.TreeID)
 }
 
 // PublicInputs are the ring circuit's public inputs.

@@ -145,6 +145,15 @@ func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
 	}
 }
 
+// The leaves stay hashed under the fixture's tree ids while the public inputs
+// (and their hash) publish them swapped, so only the utxo hashes can reject.
+func TestMergeCircuitRejectsSwappedTreeIDs(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{swapPublishedTreeIDs: true})
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected tree id binding failure, got solved")
+	}
+}
+
 func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
 	a := buildValidWitness(t)
 	a.ExternalDataHash = big.NewInt(0xDEAD)

@@ -15,7 +15,8 @@ func constrainOutput(
 	userOwnerHash,
 	asset,
 	amount,
-	ringProgramID frontend.Variable,
+	ringProgramID,
+	treeID frontend.Variable,
 ) frontend.Variable {
 
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: amount})
@@ -31,5 +32,5 @@ func constrainOutput(
 		RingProgramID: ringProgramID,
 	}
 	// DataHash is fixed to zero, so no owner signature is needed.
-	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0))
+	return transaction.ConstrainOutput(api, utxo, hash, frontend.Variable(0), treeID)
 }

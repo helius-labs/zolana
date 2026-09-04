@@ -29,6 +29,8 @@ type CustomRingP256Public struct {
 	OutputHashes                 []frontend.Variable
 	UtxoTreeRoots                []frontend.Variable
 	NullifierTreeRoots           []frontend.Variable
+	InputTreeID                  frontend.Variable
+	OutputTreeID                 frontend.Variable
 	PrivateTxHash                frontend.Variable
 	P256MessageHashLow           frontend.Variable
 	P256MessageHashHigh          frontend.Variable
@@ -94,6 +96,8 @@ func (c *CustomRingP256Circuit) transaction(
 		OutputHashes:       c.Public.OutputHashes,
 		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
 		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		InputTreeID:        c.Public.InputTreeID,
+		OutputTreeID:       c.Public.OutputTreeID,
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
 		TxSecret:           c.Private.TxSecret,

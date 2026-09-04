@@ -55,6 +55,9 @@ type CommonPublicInputs struct {
 
 	UtxoTreeRoots      []frontend.Variable
 	NullifierTreeRoots []frontend.Variable
+	// Raw u16 ids of the input tree and the output tree.
+	InputTreeID  frontend.Variable
+	OutputTreeID frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -106,6 +109,8 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		p.OutputHash,
 		gadget.HashChain(api, p.UtxoTreeRoots),
 		gadget.HashChain(api, p.NullifierTreeRoots),
+		p.InputTreeID,
+		p.OutputTreeID,
 		p.PrivateTxHash,
 		p.ExternalDataHash,
 		p.AllowDummyInputs,
@@ -193,6 +198,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Asset,
 		t.Public.UtxoTreeRoots[0],
 		t.Public.NullifierTreeRoots[0],
+		t.Public.InputTreeID,
 		t.RingProgramID,
 		frontend.Variable(0),
 		0,
@@ -206,6 +212,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 			t.Asset,
 			t.Public.UtxoTreeRoots[i],
 			t.Public.NullifierTreeRoots[i],
+			t.Public.InputTreeID,
 			t.RingProgramID,
 			nullifiers[0],
 			i,
@@ -228,6 +235,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Asset,
 		sumInputs,
 		t.RingProgramID,
+		t.Public.OutputTreeID,
 	)
 
 	addressHashes := make([]frontend.Variable, len(inputHashes))

@@ -26,6 +26,7 @@ func constrainInput(
 	asset,
 	utxoTreeRoot,
 	nullifierTreeRoot,
+	treeID,
 	ringProgramID,
 	firstNullifier frontend.Variable,
 	slotIndex int,
@@ -51,7 +52,7 @@ func constrainInput(
 		RingProgramID: leafRingProgramID,
 	}
 	transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
-	utxoHash := transaction.UtxoHashCircuit(api, utxo)
+	utxoHash := transaction.UtxoHashCircuit(api, utxo, treeID)
 
 	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
 	statePathIndices := api.ToBinary(in.StatePathIndex, transaction.StateTreeHeight)

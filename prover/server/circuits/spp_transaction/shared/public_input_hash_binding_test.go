@@ -73,6 +73,14 @@ func assertPublicInputHashBindsEveryField(
 			},
 		)
 	}
+	mutations = append(mutations,
+		publicInputHashMutation{name: "input_tree_id", run: func() {
+			refreshWithChangedField(&assignment.InputTreeID)
+		}},
+		publicInputHashMutation{name: "output_tree_id", run: func() {
+			refreshWithChangedField(&assignment.OutputTreeID)
+		}},
+	)
 	for i := range assignment.Outputs {
 		index := i
 		mutations = append(mutations, publicInputHashMutation{

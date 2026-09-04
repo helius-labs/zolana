@@ -21,6 +21,8 @@ type CustomRingAuthorityPublic struct {
 	OutputHashes       []frontend.Variable
 	UtxoTreeRoots      []frontend.Variable
 	NullifierTreeRoots []frontend.Variable
+	InputTreeID        frontend.Variable
+	OutputTreeID       frontend.Variable
 	PrivateTxHash      frontend.Variable
 	ExternalDataHash   frontend.Variable
 	PublicAssets       [shared.NPublicSlots]frontend.Variable
@@ -73,6 +75,8 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		OutputHashes:       c.Public.OutputHashes,
 		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
 		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		InputTreeID:        c.Public.InputTreeID,
+		OutputTreeID:       c.Public.OutputTreeID,
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
 		TxSecret:           c.Private.TxSecret,

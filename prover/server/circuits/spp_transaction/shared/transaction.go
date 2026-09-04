@@ -46,6 +46,10 @@ type Transaction struct {
 	OutputHashes       []frontend.Variable
 	UtxoTreeRoots      []frontend.Variable
 	NullifierTreeRoots []frontend.Variable
+	// Raw u16 ids of the tree every input is spent from and the tree every
+	// output is appended to; each enters its side's utxo hashes.
+	InputTreeID  frontend.Variable
+	OutputTreeID frontend.Variable
 
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
@@ -135,6 +139,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			UtxoTreeRoot:      t.UtxoTreeRoots[i],
 			NullifierTreeRoot: t.NullifierTreeRoots[i],
 			SignerPk:          signers[i],
+			TreeID:            t.InputTreeID,
 		}
 		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
 	}
@@ -148,7 +153,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			utxo.Blinding,
 			DeriveOutputBlinding(api, t.Nullifiers[0], outputBlindingSeed, i),
 		)
-		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
+		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i], t.OutputTreeID)
 	}
 
 	// 3. check balance
@@ -182,6 +187,8 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 		gadget.HashChain(api, t.OutputHashes),
 		gadget.HashChain(api, t.UtxoTreeRoots),
 		gadget.HashChain(api, t.NullifierTreeRoots),
+		t.InputTreeID,
+		t.OutputTreeID,
 		t.PrivateTxHash,
 	}
 	fields = append(fields, t.PreimageAfterPrivateTxHash...)

@@ -29,13 +29,14 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 	t.Helper()
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
-		inputHashes[i] = spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo))
+		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.InputTreeID)
 	}
 	privateOutputHashes := make([]*big.Int, len(assignment.Outputs))
 	for i := range assignment.Outputs {
-		assignment.Outputs[i].Hash = spptest.MustUtxoHash(
+		assignment.Outputs[i].Hash = testUtxoHash(
 			t,
 			circuitFieldsToUtxo(assignment.Outputs[i].Utxo),
+			assignment.OutputTreeID,
 		)
 		if spptest.AsBigInt(assignment.Outputs[i].Utxo.Domain).Int64() == DummyDomain {
 			privateOutputHashes[i] = big.NewInt(0)

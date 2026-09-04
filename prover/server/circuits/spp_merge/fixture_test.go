@@ -43,6 +43,36 @@ type mergeFixtureOptions struct {
 	// (same UTXO, same paths, same nullifier); only the distinctness
 	// constraint can reject the resulting witness.
 	duplicateFirstInput bool
+	// swapPublishedTreeIDs publishes the tree ids swapped while the leaves stay
+	// hashed under the fixture's ids, so only the utxo hashes can reject.
+	swapPublishedTreeIDs bool
+}
+
+// Distinct so a swapped input/output id is caught.
+const (
+	fixtureInputTreeID  = 7
+	fixtureOutputTreeID = 11
+)
+
+// mergeUtxoHash mirrors the circuit's seven-field utxo hash; protocol.UtxoHash
+// still hashes six fields.
+func mergeUtxoHash(t *testing.T, u protocol.Utxo, treeID int64) *big.Int {
+	t.Helper()
+	ownerUtxoHash, err := protocol.OwnerUtxoHash(u.Owner, u.Blinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ringHash, err := poseidon.Hash([]*big.Int{u.RingDataHash, u.RingProgramID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := poseidon.Hash([]*big.Int{
+		u.Domain, big.NewInt(treeID), u.Asset, u.Amount, u.DataHash, ringHash, ownerUtxoHash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 type mergeWitnessFixture struct {
@@ -156,10 +186,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			RingDataHash:  ringData[i],
 			RingProgramID: ringProgramID,
 		}
-		h, err := protocol.UtxoHash(inUtxos[i])
-		if err != nil {
-			t.Fatal(err)
-		}
+		h := mergeUtxoHash(t, inUtxos[i], fixtureInputTreeID)
 		inHashes[i] = h
 		stateEntries[uint64(i)] = h
 	}
@@ -216,10 +243,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		RingDataHash:  outputRingData,
 		RingProgramID: ringProgramID,
 	}
-	outHash, err := protocol.UtxoHash(outUtxo)
-	if err != nil {
-		t.Fatal(err)
-	}
+	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
 
 	externalDataHash := big.NewInt(0xABCDEF)
 
@@ -298,11 +322,17 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if options.allowDummyInputs != nil {
 		allowDummyInputs = options.allowDummyInputs
 	}
+	inputTreeID, outputTreeID := big.NewInt(fixtureInputTreeID), big.NewInt(fixtureOutputTreeID)
+	if options.swapPublishedTreeIDs {
+		inputTreeID, outputTreeID = outputTreeID, inputTreeID
+	}
 	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
 		hashChain(t, pubUtxoRoots),
 		hashChain(t, pubNfRoots),
+		inputTreeID,
+		outputTreeID,
 		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
@@ -330,6 +360,8 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
+	public.InputTreeID = inputTreeID
+	public.OutputTreeID = outputTreeID
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &inputs[i]

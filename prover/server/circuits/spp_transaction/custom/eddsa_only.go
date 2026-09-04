@@ -23,6 +23,9 @@ type CustomRingEddsaOnlyPublic struct {
 	UtxoTreeRoots []frontend.Variable
 	// Nullifier tree roots to prove non-inclusion of input nullifiers.
 	NullifierTreeRoots []frontend.Variable
+	// Raw u16 ids of the input tree and the output tree.
+	InputTreeID  frontend.Variable
+	OutputTreeID frontend.Variable
 	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
@@ -92,6 +95,8 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		OutputHashes:       c.Public.OutputHashes,
 		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
 		NullifierTreeRoots: c.Public.NullifierTreeRoots,
+		InputTreeID:        c.Public.InputTreeID,
+		OutputTreeID:       c.Public.OutputTreeID,
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
 		TxSecret:           c.Private.TxSecret,
