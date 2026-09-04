@@ -37,7 +37,7 @@ use custom_ring_sdk::{
     V0WithLookupTable,
 };
 use custom_ring_test_validator::{
-    cli::{RingProject, RingToml},
+    cli::{merged, RingProject, RingToml},
     policy::EMPTY,
     shared::{
         custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
@@ -448,6 +448,61 @@ fn cli_init_hands_the_config_over_and_reruns_from_the_chain() -> Result<()> {
         !spp_ring_config(rpc, ring)?.is_paused(),
         "reopened by the cli"
     );
+    project.remove()?;
+    Ok(())
+}
+
+/// The operator can consolidate notes owned by the persistent demo wallet. The
+/// command proves, lands and reads back the merge instead of stopping at an
+/// instruction-builder assertion.
+#[test]
+fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let tree = env.register_default_tree()?;
+    let ring = CustomRing::new(custom_ring_program_id()?);
+    let auditor = ViewingKey::new();
+    let project = RingProject::create(&env, &auditor.pubkey())?;
+    project.write_config(RingToml {
+        env: &env,
+        ring_rpc: "http://127.0.0.1:1",
+        policy: None,
+    })?;
+    project.run(&["init"])?;
+
+    // The first run creates the persistent sender key, but correctly refuses
+    // to manufacture a merge from fewer than two notes.
+    let empty = project.output(&["merge", "--count", "2"])?;
+    assert!(!empty.status.success(), "an empty wallet cannot merge");
+    let empty_text = merged(&empty);
+    assert!(
+        empty_text.contains("found only 0 mergeable notes"),
+        "{empty_text}"
+    );
+    let sender = project.demo_sender()?;
+
+    for amount in [3_000_000_u64, 5_000_000] {
+        let receipt = RingDeposit {
+            ring,
+            payer: &env.payer,
+            recipient: &sender,
+            tree,
+            asset: DepositAsset::Sol,
+            amount,
+        }
+        .send(rpc)?;
+        custom_ring_cli::transact::wait_for_indexed_transaction(indexer, receipt.signature)?;
+    }
+
+    let output = project.run(&["merge", "--count", "2"])?;
+    for line in [
+        "inputs      2",
+        "amount      8000000",
+        "merge is value-preserving",
+    ] {
+        assert!(output.contains(line), "{line} in\n{output}");
+    }
     project.remove()?;
     Ok(())
 }

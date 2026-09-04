@@ -49,6 +49,7 @@ zolana-ring-client = { workspace = true, features = ["solana-rpc"] }
 zolana-ring-policy = { workspace = true }
 zolana-ring-rpc = { path = "../../services/ring-rpc" }
 zolana-transaction = { workspace = true }
+zolana-wallet = { workspace = true }
 
 [dev-dependencies]
 solana-rpc-client-api = { workspace = true }

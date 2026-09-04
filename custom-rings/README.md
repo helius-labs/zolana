@@ -159,6 +159,10 @@ recipient in `Allow` first, unless a curator serves `Allow`. `zolana-ring
 transfer` sends an amount to a shielded address. Both spend from
 `keys/sender-keypair.json`, created on first use. Its change and fee budget
 stay spendable with that key, keep it with the other keys.
+`zolana-ring merge` syncs that sender, selects the smallest two to eight clean
+notes of one mint on one tree, and consolidates them. It merges SOL by default;
+`--mint <address>` selects a registered SPL mint and `--count` caps the input
+count.
 `zolana-ring pipeline` runs deploy to transact and takes `--program-so` like
 `deploy`.
 
@@ -255,6 +259,10 @@ The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Ring deposits are public on chain and
 not part of the auditor's view. A ring deposit passes no policy check, the ring
 only lends its `ring_auth` signature, the rules apply when the note is spent.
+Ring merge is also ciphertext-free: it combines up to eight notes of one owner,
+asset and ring into one note without moving value to another owner. It is not in
+the auditor-tag scan; any later transfer of the merged value still takes the
+normal audited policy path.
 SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction. The released
 transfer proof does not prove that a ciphertext matches a committed output.

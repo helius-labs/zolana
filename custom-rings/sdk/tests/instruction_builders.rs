@@ -764,6 +764,7 @@ fn ring_instruction_tags_are_stable() {
     assert_eq!(tag::SET_PAUSED, 11);
     assert_eq!(tag::SET_POLICY_RULES, 12);
     assert_eq!(tag::DEPOSIT, 14);
+    assert_eq!(tag::MERGE, 16);
 }
 
 const CURATOR_A: CustomRing = CustomRing::new(Address::new_from_array([20; 32]));

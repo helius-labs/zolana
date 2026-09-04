@@ -10,6 +10,8 @@ mod deposit;
 mod dispatch;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
+#[path = "failing/merge.rs"]
+mod merge;
 #[path = "failing/read_access.rs"]
 mod read_access;
 #[path = "failing/set_authority.rs"]

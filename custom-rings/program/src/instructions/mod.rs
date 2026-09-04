@@ -1,7 +1,7 @@
 mod create_config;
 mod create_entry;
 mod create_policy;
-mod deposit;
+mod forward;
 mod grant_read_access;
 mod init_spp_ring_config;
 mod loader;
@@ -20,7 +20,7 @@ mod verifier;
 pub(crate) use create_config::process_create_config_ix;
 pub(crate) use create_entry::process_create_entry_ix;
 pub(crate) use create_policy::process_create_policy_ix;
-pub(crate) use deposit::process_deposit_ix;
+pub(crate) use forward::process_spp_forward_ix;
 pub(crate) use grant_read_access::process_grant_read_access_ix;
 pub(crate) use init_spp_ring_config::process_init_spp_ring_config_ix;
 pub(crate) use revoke_read_access::process_revoke_read_access_ix;

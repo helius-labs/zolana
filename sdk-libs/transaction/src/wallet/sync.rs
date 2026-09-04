@@ -37,7 +37,7 @@ use crate::{
 pub(super) struct TxIndex {
     pub(super) sender_sites: HashMap<ViewTag, Vec<usize>>,
     pub(super) recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
-    pub(super) merge_sites: HashMap<ViewTag, Vec<(usize, usize)>>,
+    pub(super) merge_sites: Vec<(usize, usize)>,
 }
 
 /// A merge publishes no per-transaction encryption material: no
@@ -52,15 +52,12 @@ impl TxIndex {
     pub(super) fn build(transactions: &[ShieldedTransaction], report: &mut SyncReport) -> Self {
         let mut sender_sites: HashMap<ViewTag, Vec<usize>> = HashMap::new();
         let mut recipient_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
-        let mut merge_sites: HashMap<ViewTag, Vec<(usize, usize)>> = HashMap::new();
+        let mut merge_sites = Vec::new();
         for (t, tx) in transactions.iter().enumerate() {
             let mut classified = false;
             if is_merge_site(tx) {
-                for (slot_index, slot) in tx.output_slots.iter().enumerate() {
-                    merge_sites
-                        .entry(slot.view_tag)
-                        .or_default()
-                        .push((t, slot_index));
+                for slot_index in 0..tx.output_slots.len() {
+                    merge_sites.push((t, slot_index));
                     classified = true;
                 }
                 if !classified {
@@ -1172,9 +1169,12 @@ impl Wallet {
             }
         }
 
-        if let Some(sites) = index.merge_sites.get(&owner_tag) {
-            ctx.resolve_merge_sites(transactions, sites)?;
-        }
+        // Default merges tag their output with the owner tag; ring merges use
+        // the first input nullifier so the owner identity is not published.
+        // Every merge transaction that reached this sync came through one of
+        // our queried tags or nullifiers, and reconstruction still requires
+        // every real nullifier plus the final output commitment to match.
+        ctx.resolve_merge_sites(transactions, &index.merge_sites)?;
 
         let report = ctx.report;
 

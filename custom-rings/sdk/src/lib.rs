@@ -36,6 +36,11 @@ pub use crate::{
         },
         grant_read_access::GrantReadAccess,
         init_spp_ring_config::InitSppRingConfig,
+        merge::{
+            CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
+            CustomRingMergeProver, CustomRingMergeWitness, PreparedCustomRingMerge,
+            ProvenCustomRingMerge, MERGE_INPUTS,
+        },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
         set_paused::SetPaused,
