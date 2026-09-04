@@ -559,17 +559,18 @@ fn entries_tree_view(account: &mut Account) -> TreeAccount<'_> {
 /// The initialized tree after `rotations` nonzero nullifier roots.
 pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
     let mut account = initialized_entries_tree_account();
-    let mut tree = entries_tree_view(&mut account);
-    let nullifier = tree.nullifier_tree();
-    for rotation in 1..=rotations {
-        let mut root = [0u8; 32];
-        root[..2].copy_from_slice(&rotation.to_le_bytes());
-        let cursor = nullifier.root_history.current_index as usize;
-        nullifier.root_history.roots[cursor] = root;
-        nullifier.root_history.current_index =
-            ((cursor + 1) % nullifier.root_history.roots.len()) as u64;
+    {
+        let mut tree = entries_tree_view(&mut account);
+        let nullifier = tree.nullifier_tree();
+        for rotation in 1..=rotations {
+            let mut root = [0u8; 32];
+            root[..2].copy_from_slice(&rotation.to_le_bytes());
+            let cursor = nullifier.root_history.current_index as usize;
+            nullifier.root_history.roots[cursor] = root;
+            nullifier.root_history.current_index =
+                ((cursor + 1) % nullifier.root_history.roots.len()) as u64;
+        }
     }
-    drop(tree);
     account
 }
 
