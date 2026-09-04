@@ -565,6 +565,9 @@ fn git_head() -> Result<String> {
 /// Build the initialized account set fully in-process with LiteSVM. No maintainer
 /// keypairs and no running validator are needed: every authority is generated
 /// here.
+/// Public on purpose, the localnet protocol authority is nobody's secret.
+const LOCALNET_SNAPSHOT_AUTHORITY_SEED: [u8; 32] = *b"zolana localnet snapshot authori";
+
 pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
     let shielded_so = deploy_dir.join("shielded_pool_program.so");
     require_file(&shielded_so, "run `just build-programs` first")?;
@@ -573,7 +576,8 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
     let mut test = ZolanaProgramTest::with_program_path(&shielded_so)
         .map_err(|e| anyhow!("failed to boot litesvm: {e:?}"))?;
 
-    let authority = Keypair::new();
+    // A fixed localnet authority, the bundle hashes the same on every build.
+    let authority = Keypair::new_from_array(LOCALNET_SNAPSHOT_AUTHORITY_SEED);
     test.create_protocol_config_permissionless(&authority)
         .map_err(|e| anyhow!("create_protocol_config failed: {e:?}"))?;
     test.create_asset_counter(&authority)
