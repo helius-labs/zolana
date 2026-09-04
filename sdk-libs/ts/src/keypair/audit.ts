@@ -137,7 +137,7 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
 }
 
 /** The base circuit's public-input elements, Rust `CustomRingBasePublicInput`. */
-interface CustomRingBasePublicInput {
+export interface CustomRingBasePublicInput {
   readonly privateTxHash: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly auditorPublicKey: P256PublicKey;

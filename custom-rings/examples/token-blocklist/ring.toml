@@ -22,6 +22,8 @@ ring_rpc = "https://d1ojzfopdqqs5r.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
+# every entry the rules read lives in the named tree
+entries_tree = "7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE"
 
 # each asset must not be on the block list
 [[policy.rules]]

@@ -23,3 +23,5 @@ ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 # No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.
 [policy]
+# every entry the rules read lives in the named tree
+entries_tree = "7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE"

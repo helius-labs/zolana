@@ -259,11 +259,16 @@ mod tests {
         assert!(ask.is_drained());
         let config = RingConfig::load(&dest.join("governed").join(RING_TOML)).expect("load");
         assert_eq!(config.target, Target::Devnet);
-        let compiled = config
-            .policy
-            .expect("policy tier")
-            .compile(Target::Devnet)
-            .expect("compiles");
+        let written_policy = config.policy.expect("policy tier");
+        assert_eq!(
+            written_policy.entries_tree(),
+            zolana_interface::pda::tree(0)
+        );
+        assert!(
+            written_policy.entries_tree.is_some(),
+            "the default is written explicitly"
+        );
+        let compiled = written_policy.compile(Target::Devnet).expect("compiles");
         assert_eq!(
             compiled.rules,
             RuleTable::builder()
