@@ -1,4 +1,4 @@
-package customring_test
+package base_test
 
 import (
 	"math/big"
@@ -11,8 +11,8 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	customring "zolana/prover/circuits/custom_ring"
-	"zolana/prover/circuits/custom_ring/audittest"
+	base "zolana/prover/circuits/custom_ring/base"
+	"zolana/prover/circuits/custom_ring/base/audittest"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 	"zolana/prover/prover-test/spp/spptest"
 )
@@ -36,7 +36,7 @@ func testConstraintSystem(t *testing.T) constraint.ConstraintSystem {
 		compiledCs, compileErr = frontend.Compile(
 			ecc.BN254.ScalarField(),
 			r1cs.NewBuilder,
-			&customring.Circuit{},
+			&base.CustomRingBaseCircuit{},
 			frontend.WithCompressThreshold(300),
 		)
 		if compileErr == nil {
@@ -85,11 +85,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	tests := []struct {
 		name   string
 		keys   func(audittest.Keys) audittest.Keys
-		tamper func(*testing.T, *customring.Circuit)
+		tamper func(*testing.T, *base.CustomRingBaseCircuit)
 	}{
 		{
 			name: "public input hash off by one",
-			tamper: func(t *testing.T, c *customring.Circuit) {
+			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
 				hash, ok := c.PublicInputHash.(*big.Int)
 				if !ok {
 					t.Fatalf("unexpected public input type %T", c.PublicInputHash)
@@ -99,31 +99,31 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "private tx hash not the one in the chain",
-			tamper: func(_ *testing.T, c *customring.Circuit) {
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.PrivateTxHash = big.NewInt(7)
 			},
 		},
 		{
 			name: "plaintext scalar byte flipped",
-			tamper: func(_ *testing.T, c *customring.Circuit) {
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.TxViewingSk[31] = 0
 			},
 		},
 		{
 			name: "auditor key off curve",
-			tamper: func(_ *testing.T, c *customring.Circuit) {
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.AuditorPk[64] = 0
 			},
 		},
 		{
 			name: "auditor key uncompressed prefix not 4",
-			tamper: func(_ *testing.T, c *customring.Circuit) {
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.AuditorPk[0] = 6
 			},
 		},
 		{
 			name: "witnessed byte out of range",
-			tamper: func(_ *testing.T, c *customring.Circuit) {
+			tamper: func(_ *testing.T, c *base.CustomRingBaseCircuit) {
 				c.EphSk[0] = 256
 			},
 		},
@@ -131,7 +131,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			// The attack shape, a well-formed key that is not the one the
 			// public input hash commits to.
 			name: "valid but different auditor key",
-			tamper: func(t *testing.T, c *customring.Circuit) {
+			tamper: func(t *testing.T, c *base.CustomRingBaseCircuit) {
 				other := audittest.PrivateKey(t, audittest.Scalar(0x44))
 				substitute := audittest.Uncompressed(t, other.PublicKey().Bytes())
 				for i, value := range substitute {
@@ -187,7 +187,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 	}
 }
 
-func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *customring.Circuit) {
+func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *base.CustomRingBaseCircuit) {
 	t.Helper()
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
@@ -198,16 +198,16 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *customring.
 	}
 }
 
-func validAssignment(t *testing.T) *customring.Circuit {
+func validAssignment(t *testing.T) *base.CustomRingBaseCircuit {
 	t.Helper()
 	return buildAssignment(t, audittest.DefaultKeys(t))
 }
 
-func buildAssignment(t *testing.T, keys audittest.Keys) *customring.Circuit {
+func buildAssignment(t *testing.T, keys audittest.Keys) *base.CustomRingBaseCircuit {
 	t.Helper()
 	privateTxHash := big.NewInt(0xabcdef)
-	wires := keys.BlockWires(privateTxHash)
-	return &customring.Circuit{
+	wires := keys.AuditBlockWires(privateTxHash)
+	return &base.CustomRingBaseCircuit{
 		PublicInputHash: spptest.MustHashChain(t, keys.ChainElements(t, privateTxHash)),
 		PrivateTxHash:   wires.PrivateTxHash,
 		TxViewingSk:     wires.TxViewingSk,

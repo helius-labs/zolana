@@ -136,16 +136,16 @@ export function parseAuditorMessage(data: Uint8Array): AuditorMessage {
   });
 }
 
-/** The audit statement's public-input elements, Rust `AuditPublicInput`. */
-interface AuditPublicInput {
+/** The base circuit's public-input elements, Rust `CustomRingBasePublicInput`. */
+interface CustomRingBasePublicInput {
   readonly privateTxHash: Bytes32;
   readonly txViewingPublicKey: P256PublicKey;
   readonly auditorPublicKey: P256PublicKey;
   readonly message: AuditorMessage;
 }
 
-/** The eight-element prefix every custom-ring public input starts with, Rust `AuditPublicInput::elements`. */
-function auditChainElements(input: AuditPublicInput): readonly Bytes32[] {
+/** The eight-element prefix every custom-ring public input starts with. */
+function auditChainElements(input: CustomRingBasePublicInput): readonly Bytes32[] {
   const [txLow, txHigh] = pack33(input.txViewingPublicKey.toBytes());
   const [auditorLow, auditorHigh] = pack33(input.auditorPublicKey.toBytes());
   const [ephLow, ephHigh] = pack33(input.message.ephemeralPublicKey.toBytes());
@@ -161,14 +161,14 @@ function auditChainElements(input: AuditPublicInput): readonly Bytes32[] {
   ];
 }
 
-/** Input order binds the audit statement, Rust `AuditPublicInput::hash`. */
-export function auditPublicInputHash(input: AuditPublicInput): Bytes32 {
+/** Input order binds the audit statement, Rust `CustomRingBasePublicInput::hash`. */
+export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 {
   return hashChain(auditChainElements(input));
 }
 
-/** The audit prefix then `[policy_hash, state_root, nullifier_root]`, Rust `CustomRingPublicInput::hash`. */
+/** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
 export function customRingPublicInputHash(
-  input: AuditPublicInput &
+  input: CustomRingBasePublicInput &
     Readonly<{ policyHash: Bytes32; stateRoot: Bytes32; nullifierRoot: Bytes32 }>,
 ): Bytes32 {
   return hashChain([

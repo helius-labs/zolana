@@ -6,14 +6,14 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/circuits/custom_ring/policy"
 )
 
-func R1CSCustomRing() (constraint.ConstraintSystem, error) {
+func R1CSPolicy() (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		&transfer.Circuit{},
+		&policy.CustomRingPolicyCircuit{},
 		frontend.WithCompressThreshold(300),
 	)
 }

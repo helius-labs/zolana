@@ -1,4 +1,4 @@
-package transfer
+package policy
 
 import (
 	"fmt"
@@ -13,7 +13,7 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	"zolana/prover/circuits/custom_ring/audittest"
+	"zolana/prover/circuits/custom_ring/base/audittest"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )
@@ -49,7 +49,7 @@ func testConstraintSystem(t *testing.T) constraint.ConstraintSystem {
 		compiledCs, compileErr = frontend.Compile(
 			ecc.BN254.ScalarField(),
 			r1cs.NewBuilder,
-			&Circuit{},
+			&CustomRingPolicyCircuit{},
 			frontend.WithCompressThreshold(300),
 		)
 		if compileErr == nil {
@@ -159,11 +159,11 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		build func(*testing.T) *Circuit
+		build func(*testing.T) *CustomRingPolicyCircuit
 	}{
 		{
 			name: "rule dropped from the table",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.LenOneHot[4] = big.NewInt(0)
 				c.LenOneHot[3] = big.NewInt(1)
@@ -172,7 +172,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "entry mode swapped",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].Mode = big.NewInt(ModeAbsent)
 				return c
@@ -180,7 +180,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "entry listId swapped",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].ListId = big.NewInt(kindBlock)
 				return c
@@ -188,7 +188,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "entry proves a different member",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].Member = new(big.Int).Add(spptest.AsBigInt(c.Answers[0].Member), big.NewInt(1))
 				return c
@@ -196,7 +196,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "zero member",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].Member = big.NewInt(0)
 				return c
@@ -204,7 +204,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "present member claimed absent",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].Mode = big.NewInt(ModeAbsent)
 				c.Answers[0].AbsentBranch = big.NewInt(AbsentBranchNoAddress)
@@ -213,7 +213,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "cleared entry claimed present",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[2].Mode = big.NewInt(ModePresent)
 				return c
@@ -221,7 +221,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "stale state root",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.StateRoot = new(big.Int).Add(spptest.AsBigInt(c.StateRoot), big.NewInt(1))
 				return c
@@ -229,7 +229,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "entry inclusion proof does not open the state root",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].StatePathElements[0] = big.NewInt(1)
 				return c
@@ -237,7 +237,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "entry absence proof does not open the nullifier root",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[1].NfPathElements[0] = big.NewInt(1)
 				return c
@@ -245,7 +245,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "curator slot dropped from the map",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.dropCuratorSlot = true
 				return buildAssignment(t, f)
@@ -253,7 +253,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "live source slots swapped in the witness",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Sources[kindAllow-1], c.Sources[kindFrozen-1] =
 					c.Sources[kindFrozen-1], c.Sources[kindAllow-1]
@@ -262,7 +262,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "curator slot repointed at the own owner",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.curatorSlotOwn = true
 				return buildAssignment(t, f)
@@ -270,7 +270,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "live listId duplicated into a second slot in the witness",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Sources[4] = c.Sources[kindFrozen-1]
 				return c
@@ -278,7 +278,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "guard bypassed above the threshold",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.amount = guardThreshold + 1
 				return buildAssignment(t, f)
@@ -286,7 +286,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "guard bypassed by structuring below the threshold",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.amount = guardThreshold - 500
 				f.secondAmount = guardThreshold - 500
@@ -295,7 +295,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "output owner group excludes the recipient's list",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.outputOwnerMask = lmask(kindBlock, kindApproval)
 				return buildAssignment(t, f)
@@ -303,7 +303,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "asset outside the inline allowlist",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.inlineAsset = fill(0xe5)
 				return buildAssignment(t, f)
@@ -311,7 +311,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "input openings swapped",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Inputs[0], c.Inputs[1] = c.Inputs[1], c.Inputs[0]
 				return c
@@ -319,7 +319,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "dummy input reclassified as a utxo",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Inputs[1].Domain = big.NewInt(protocol.UtxoDomain)
 				return c
@@ -327,7 +327,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "output count understated",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.NOutOneHot[1] = big.NewInt(0)
 				c.NOutOneHot[0] = big.NewInt(1)
@@ -336,7 +336,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "tx scalar zero",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.keys = func(k audittest.Keys) audittest.Keys {
 					return k.WithInfinityTxScalar(big.NewInt(0))
@@ -346,7 +346,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "alt mask swapped with the primary mask",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				// Under the swapped wires the Approval absence would cover, only
 				// the packed row disagrees.
 				f := mixedFixture()
@@ -358,7 +358,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "alt list answered in the primary mode",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := mixedFixture()
 				f.recipient = approvedKey
 				f.answers = []int{senderNotFrozen, approvedBlocked}
@@ -367,7 +367,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "primary-only list answered in the alt mode",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := mixedFixture()
 				f.answers = []int{senderNotFrozen, allowedNotApproved}
 				return buildAssignment(t, f)
@@ -375,7 +375,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "inline rule carrying an alt mask",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.inlineAltMask = lmask(kindBlock)
 				return buildAssignment(t, f)
@@ -383,7 +383,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "rule mode outside present and absent",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				// The guard exempts the recipient, only the mode assertion rejects.
 				f := defaultFixture()
 				f.guardedMode = 3
@@ -392,7 +392,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		},
 		{
 			name: "alt mask bit past the eighth list",
-			build: func(t *testing.T) *Circuit {
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
 				f.outputOwnerAltMask = 1 << NSources
 				return buildAssignment(t, f)
@@ -453,7 +453,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, mixedMap)))
 }
 
-func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *Circuit) {
+func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingPolicyCircuit) {
 	t.Helper()
 	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
 	if err != nil {
@@ -464,7 +464,7 @@ func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *Circuit) {
 	}
 }
 
-func validAssignment(t *testing.T) *Circuit {
+func validAssignment(t *testing.T) *CustomRingPolicyCircuit {
 	t.Helper()
 	return buildAssignment(t, defaultFixture())
 }
@@ -797,12 +797,12 @@ func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big
 		s.policyHash, s.stateRoot, s.nullifierRoot))
 }
 
-func buildAssignment(t *testing.T, f fixture) *Circuit {
+func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	t.Helper()
 	s := newStatement(t, f)
 
-	wires := s.keys.BlockWires(s.privateTxHash)
-	c := &Circuit{
+	wires := s.keys.AuditBlockWires(s.privateTxHash)
+	c := &CustomRingPolicyCircuit{
 		PublicInputHash:  s.publicInputHash,
 		PrivateTxHash:    wires.PrivateTxHash,
 		TxViewingSk:      wires.TxViewingSk,

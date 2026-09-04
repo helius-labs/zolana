@@ -42,9 +42,9 @@ pub use crate::{
         set_policy_rules::SetPolicyRules,
         set_policy_source::{SetSourceOwner, SourceOwner},
         transact::{
-            to_instruction_proof, AuditProofRequest, CustomRingPrivateTxHash, CustomRingProofError,
-            CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
-            CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
+            to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
+            CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
+            CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
         },
     },
     shared::{

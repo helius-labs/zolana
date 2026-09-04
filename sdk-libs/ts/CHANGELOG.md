@@ -11,6 +11,10 @@ without changing version 3 snapshot keys.
 
 Breaking
 
+- Custom-ring prover requests now use the explicit circuit types
+  `custom-ring-base` and `custom-ring-policy`; the ambiguous `audit` and
+  `transfer` variants were removed. Rename request types and prover methods to
+  their `Base` or `Policy` forms.
 - `createRingConfigInstruction` takes `hasPolicy` and `RingProgramConfig`
   reports it → pass `true` for a ring that enforces compiled rules and `false`
   for an audit-only ring.
@@ -31,7 +35,7 @@ Breaking
   `trees` of the fetch.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
-  gains `proveCustomRingAudit` → read `.data` where the instruction data was
+  gains `proveCustomRingBase` → read `.data` where the instruction data was
   used and add the method to a custom prover.
 - `customRingPublicInputHash` takes `policyHash`, `stateRoot`, and
   `nullifierRoot` → use `auditPublicInputHash` for the audit statement alone.
@@ -56,12 +60,12 @@ Added
   `ringPolicyNamespaceAddress` derive its two accounts, and a missing or
   malformed account is `RING_POLICY_CONFIG_NOT_FOUND` or
   `RING_POLICY_CONFIG_INVALID`.
-- `ZolanaClient.proveCustomRingAudit` proves the audit statement from a
-  `CustomRingAuditRequest`.
+- `ZolanaClient.proveCustomRingBase` proves the audit statement from a
+  `CustomRingBaseProofRequest`.
 - `setRingPausedInstruction` pauses or resumes a ring under its own authority,
   the shielded pool refuses the ring's transactions while it is paused, and
   `RING_SET_PAUSED_COMPUTE_UNIT_LIMIT` is its compute budget.
-- `ringOpenings` derives the `RingOpenings` a `CustomRingProofRequest` carries
+- `ringOpenings` derives the `RingOpenings` a `CustomRingPolicyProofRequest` carries
   from `SppProofInputs`, `ringNamespaceOwnerHash` derives the owner hash of a
   list namespace, and `disabledRuleAnswer` fills an unused rule slot.
 - `decodeRuleTable` and `decodeRule` read the rule rows of a
@@ -396,7 +400,7 @@ Added
 - `auditRing` and `auditRingTransaction` let a ring's auditor decrypt and
   attribute every transaction in the ring.
 - `ZolanaClient` gains ring proving and health calls (`proveRingTransact`,
-  `proveCustomRing`, `proverHealth`) and program-account reads
+  `proveCustomRingPolicy`, `proverHealth`) and program-account reads
   (`getProgramAccounts`).
 - `ConfidentialTransfer` binds a transfer to a ring (`withRingProgramId`),
   drops unused change slots (`withCompactChange`), and sends a note back to
