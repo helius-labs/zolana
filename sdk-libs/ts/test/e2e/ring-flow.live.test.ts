@@ -19,6 +19,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  LocalKeys,
   ShieldedKeypair,
   SigningKey,
   SPL_TOKEN_2022_PROGRAM_ID,
@@ -28,7 +29,6 @@ import {
   syncWallet,
   type Bytes32,
 } from "../../src/index.js";
-import { KeypairWalletAuthority } from "../../src/transaction/wallet/authority.js";
 import { sha256 } from "../../src/interface/internal.js";
 import { P256PublicKey } from "../../src/keypair/public-key.js";
 import {
@@ -67,10 +67,10 @@ interface Actor {
   readonly signer: KeyPairSigner;
   readonly keypair: ShieldedKeypair;
   readonly wallet: Wallet;
-  readonly authority: KeypairWalletAuthority;
+  readonly keys: LocalKeys;
 }
 
-async function freshActor(): Promise<Actor> {
+async function freshActor(client: ZolanaClient): Promise<Actor> {
   const seed = new Uint8Array(32);
   globalThis.crypto.getRandomValues(seed);
   const signer = await createKeyPairSignerFromBytes(
@@ -81,7 +81,7 @@ async function freshActor(): Promise<Actor> {
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
+    keys: LocalKeys.fromKeypair(keypair, client.proofService),
   };
 }
 
@@ -160,7 +160,7 @@ async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
   await syncWallet({
     client,
     wallet: actor.wallet,
-    authority: actor.authority,
+    keys: actor.keys,
     config: { requireSlot: await currentSlot(client) },
   });
 }
@@ -197,8 +197,8 @@ describe("ring flow", () => {
     const health = await ringRpc.health();
     expect(health.mode).toBe("local");
 
-    const sender = await freshActor();
-    const recipient = await freshActor();
+    const sender = await freshActor(client);
+    const recipient = await freshActor(client);
     await airdrop(client, sender.signer.address);
 
     const amount = 1_000_000_000n;
@@ -235,7 +235,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: sender.wallet,
-      authority: sender.authority,
+      keys: sender.keys,
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
       amount,
@@ -283,7 +283,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: recipient.signer.address,
       recipient: sender.keypair.shieldedAddress(),
       amount: amount / 2n,
@@ -310,7 +310,7 @@ describe("ring flow", () => {
     expect(hopAmounts).toEqual([amount / 2n, amount / 2n]);
 
     // A delegated reader reads after the grant and not after the revoke.
-    const delegate = (await freshActor()).signer;
+    const delegate = (await freshActor(client)).signer;
     expect(await ringReadError(ringRpc, ringProgramId, delegate)).toBe(-32600);
     await sendInstruction(
       client,
@@ -392,8 +392,8 @@ describe("ring flow", () => {
     const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const mintAuthority = await signerFromWalletFile(requiredEnv("ZOLANA_TEST_AUTHORITY_WALLET"));
 
-    const sender = await freshActor();
-    const recipient = await freshActor();
+    const sender = await freshActor(client);
+    const recipient = await freshActor(client);
     await airdrop(client, sender.signer.address);
     await airdrop(client, recipient.signer.address);
 
@@ -438,7 +438,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: sender.wallet,
-      authority: sender.authority,
+      keys: sender.keys,
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
       asset: mint,
@@ -475,7 +475,7 @@ describe("ring flow", () => {
         client,
         ringProgramId,
         wallet: recipient.wallet,
-        authority: recipient.authority,
+        keys: recipient.keys,
         feePayer: relayer.address,
         recipient: sender.keypair.shieldedAddress(),
         asset: mint,
@@ -492,7 +492,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: recipient.signer.address,
       recipient: sender.keypair.shieldedAddress(),
       asset: mint,
@@ -530,7 +530,7 @@ describe("ring flow", () => {
       client,
       ringProgramId,
       wallet: recipient.wallet,
-      authority: recipient.authority,
+      keys: recipient.keys,
       feePayer: recipient.signer.address,
       recipient: mintAuthority.address,
       asset: mint,

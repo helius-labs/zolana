@@ -9,6 +9,22 @@ function rightAlign(bytes: Uint8Array): Bytes32 {
   return output as Bytes32;
 }
 
+/** Poseidon over the commitment, the blinding and the right-aligned secret: the one nullifier derivation. */
+function deriveNullifier(utxoHash: Bytes32, blinding: Bytes32, secret: Bytes32): Bytes32 {
+  const hash = checkedBytes<Bytes32>(utxoHash, 32, "UTXO hash");
+  const blind = checkedBytes<Bytes32>(blinding, 32, "blinding");
+  return poseidon([hash, blind, secret]) as Bytes32;
+}
+
+/**
+ * The nullifier of an unused proof slot: the derivation under an all-zero
+ * secret, which no wallet holds, so it can be computed and checked without a
+ * key. The circuit expects it on every slot marked dummy.
+ */
+export function zeroKeyNullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
+  return deriveNullifier(utxoHash, blinding, new Uint8Array(32) as Bytes32);
+}
+
 export class NullifierKey {
   #secret: Uint8Array;
   #destroyed = false;
@@ -28,9 +44,13 @@ export class NullifierKey {
 
   nullifier(utxoHash: Bytes32, blinding: Bytes32): Bytes32 {
     this.#assertUsable();
-    const hash = checkedBytes<Bytes32>(utxoHash, 32, "UTXO hash");
-    const blind = checkedBytes<Bytes32>(blinding, 32, "blinding");
-    return poseidon([hash, blind, rightAlign(this.#secret)]) as Bytes32;
+    return deriveNullifier(utxoHash, blinding, rightAlign(this.#secret));
+  }
+
+  /** An independent copy of the key; destroying either leaves the other usable. */
+  clone(): NullifierKey {
+    this.#assertUsable();
+    return new NullifierKey(copyBytes(this.#secret));
   }
 
   secretBytes(): Bytes31 {

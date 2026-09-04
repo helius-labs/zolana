@@ -289,3 +289,13 @@ export function sleep(delayMs: bigint, context?: RequestContext): Promise<void> 
     context?.signal?.addEventListener("abort", abort, { once: true });
   });
 }
+
+/** Whether `candidate` carries the two proving methods; callers name the error. */
+export function hasProofMethods(candidate: unknown): boolean {
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    typeof Reflect.get(candidate, "prove") === "function" &&
+    typeof Reflect.get(candidate, "proveMerge") === "function"
+  );
+}

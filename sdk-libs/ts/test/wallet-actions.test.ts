@@ -8,21 +8,28 @@ import {
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
+import { LocalKeys } from "../src/client/keys.js";
 import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransaction,
+  type ProofService,
 } from "../src/client/ports.js";
 import type { DepositClient, PrivateTransactionClient } from "../src/wallet/index.js";
 import { SPL_TOKEN_2022_PROGRAM_ID, type Bytes32 } from "../src/interface/index.js";
-import { NullifierKey, ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
+import {
+  NullifierKey,
+  ShieldedKeypair,
+  SigningKey,
+  type ViewingKey,
+} from "../src/keypair/index.js";
 import {
   Data,
-  KeypairWalletAuthority,
-  ProofInputUtxo,
+  LocalShieldedKeys,
   SOL_MINT,
   Utxo,
   Wallet,
   decryptToBalances,
+  type ShieldedKeys,
 } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import {
@@ -40,9 +47,9 @@ import {
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
-import { approveIntent } from "../src/transaction/wallet/intent.js";
+import { approveIntent, type ApprovalRequest } from "../src/transaction/wallet/intent.js";
 import { withdrawalSetupInstructions } from "../src/flows/settlement.js";
-import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
+import { buildMergeTransaction, createMerge, type MergeClient } from "../src/wallet/merge.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
 import {
   buildSplitTransaction,
@@ -66,12 +73,47 @@ function spendingKeypair(): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
-function mergeMaterial(keypair: ShieldedKeypair): MergeMaterial {
-  return new MergeMaterial({
-    signingPublicKey: keypair.signingPublicKey(),
-    viewingPublicKey: keypair.viewingPublicKey(),
-    nullifierKey: keypair.nullifierKey(),
+/** Unit tests never reach the prover; the keys still need one to exist. */
+function stubProofs(): ProofService {
+  return {
+    prove: vi.fn(async () => {
+      throw new Error("prove must not be called");
+    }),
+    proveMerge: vi.fn(async () => {
+      throw new Error("proveMerge must not be called");
+    }),
+  };
+}
+
+function localKeys(keypair: ShieldedKeypair): LocalKeys {
+  return LocalKeys.fromKeypair(keypair, stubProofs());
+}
+
+/** Records every approval a build asks for and grants it. */
+function recordingApproval(): Readonly<{
+  approve: (request: ApprovalRequest) => Promise<ReturnType<typeof approveIntent>>;
+  requests: ApprovalRequest[];
+}> {
+  const requests: ApprovalRequest[] = [];
+  return {
+    approve: (request) => {
+      requests.push(request);
+      return Promise.resolve(approveIntent(request.intent));
+    },
+    requests,
+  };
+}
+
+/** Every per-transaction key a build mints, so a test can check they were wiped. */
+function captureTransactionKeys(keys: LocalKeys): ViewingKey[] {
+  const minted: ViewingKey[] = [];
+  const mint = keys.transactionKeys.bind(keys);
+  vi.spyOn(keys, "transactionKeys").mockImplementation(async (requests) => {
+    const result = await mint(requests);
+    minted.push(...result);
+    return result;
   });
+  return minted;
 }
 
 function fundedWallet(
@@ -220,10 +262,7 @@ describe("private transaction construction", () => {
       authorizePrivateTransaction(
         created.transaction,
         wallet,
-        new KeypairWalletAuthority({
-          solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-          keypair,
-        }),
+        LocalShieldedKeys.fromKeypair(keypair),
       ),
     ).rejects.toMatchObject({ code: "TRANSACTION_ED25519_PAYER_MISMATCH" });
   });
@@ -276,7 +315,7 @@ describe("private transaction construction", () => {
     });
   });
 
-  it("keeps split and merge conservation in their internal intent models", () => {
+  it("keeps split and merge conservation in their internal intent models", async () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
     const split = createSplit({
@@ -286,13 +325,77 @@ describe("private transaction construction", () => {
       parts: 2,
       input: wallet.utxos()[2]!.outputContext.hash,
     });
-    const merge = createMerge({
+    const merge = await createMerge({
       wallet,
-      material: mergeMaterial(keypair),
+      keys: LocalShieldedKeys.fromKeypair(keypair),
       asset: SOL_MINT,
     });
     expect(split).toMatchObject({ numOutputs: 2, perOutputAmount: 50n });
     expect(merge).toMatchObject({ numInputs: 2, mergedAmount: 50n });
+  });
+});
+
+describe("keys at the wallet boundary", () => {
+  it("refuses a merge whose key holder answers the derivation batch short", async () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = fundedWallet(keypair, [20n, 30n]);
+    const local = LocalShieldedKeys.fromKeypair(keypair);
+    const short: ShieldedKeys = {
+      address: () => local.address(),
+      viewingPublicKeys: () => local.viewingPublicKeys(),
+      decrypt: (requests) => local.decrypt(requests),
+      derive: async (requests) => (await local.derive(requests)).slice(1),
+      transactionKeys: (requests) => local.transactionKeys(requests),
+    };
+    await expect(createMerge({ wallet, keys: short, asset: SOL_MINT })).rejects.toMatchObject({
+      code: "WALLET_KEYS_BATCH_MISMATCH",
+    });
+    // The refused merge holds nothing.
+    expect(wallet._reservationEntries()).toHaveLength(0);
+  });
+
+  it("treats the fee payer as the Solana account of a P256 owner", async () => {
+    // A P256 identity has no Solana key of its own; the account that registered
+    // it and signs for it is the fee payer, so approval and the registry record
+    // both go by that account.
+    const keypair = ShieldedKeypair.generate("p256");
+    const wallet = fundedWallet(keypair, [20n, 30n]);
+    const { approve, requests } = recordingApproval();
+    const never = (member: string) => (): never => {
+      throw new Error(`${member} must not be called`);
+    };
+    const client: MergeClient = {
+      tree: TREE,
+      getAccount: vi.fn(async () => undefined),
+      proveMerge: never("proveMerge"),
+      assembleAuthorizedMergeTransaction: never("assembleAuthorizedMergeTransaction"),
+      getInputMerkleProofs: never("getInputMerkleProofs"),
+      getNonInclusionProofs: never("getNonInclusionProofs"),
+    };
+
+    await expect(
+      buildMergeTransaction({ client, wallet, keys: localKeys(keypair), approve, feePayer: PAYER }),
+    ).rejects.toMatchObject({
+      code: "WALLET_BUILD_MERGE",
+      causeCode: "WALLET_USER_REGISTRY_RECORD_NOT_FOUND",
+    });
+    expect(requests.map((request) => request.solanaPublicKey)).toEqual([PAYER]);
+    expect(wallet._reservationEntries()).toHaveLength(0);
+  });
+
+  it("refuses keys without a prover before copying any secret", () => {
+    const keypair = ShieldedKeypair.generate();
+    const minted: NullifierKey[] = [];
+    const nullifier = keypair.nullifierKey.bind(keypair);
+    vi.spyOn(keypair, "nullifierKey").mockImplementation(() => {
+      const key = nullifier();
+      minted.push(key);
+      return key;
+    });
+    expect(() =>
+      Reflect.apply(LocalKeys.fromKeypair, LocalKeys, [keypair, { prove: "later" }]),
+    ).toThrowError(expect.objectContaining({ code: "CLIENT_INVALID_CONFIG" }));
+    expect(minted).toHaveLength(0);
   });
 });
 
@@ -344,7 +447,7 @@ describe("unsigned public transaction builders", () => {
     await buildWithdrawalTransaction({
       client,
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: payer, keypair }),
+      keys: localKeys(keypair),
       feePayer: payer,
       recipient: RECIPIENT,
       asset: SPL_MINT,
@@ -377,10 +480,7 @@ describe("unsigned public transaction builders", () => {
       buildTransferTransaction({
         client,
         wallet,
-        authority: new KeypairWalletAuthority({
-          solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-          keypair,
-        }),
+        keys: localKeys(keypair),
         feePayer: RECIPIENT,
         recipient: ShieldedKeypair.generate().shieldedAddress(),
         amount: 25n,
@@ -391,6 +491,46 @@ describe("unsigned public transaction builders", () => {
     });
   });
 
+  it("hands the build's request context to the key holder", async () => {
+    // A remote holder stops its round trip when the caller's signal fires;
+    // that only works if the build passes the context it was given on.
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [20n, 30n, 100n]);
+    const local = LocalShieldedKeys.fromKeypair(keypair);
+    const seen: unknown[] = [];
+    const keys: ShieldedKeys = {
+      address: () => local.address(),
+      viewingPublicKeys: () => local.viewingPublicKeys(),
+      decrypt: (requests) => local.decrypt(requests),
+      derive: (requests, context) => {
+        seen.push(context);
+        return local.derive(requests);
+      },
+      transactionKeys: (requests, context) => {
+        seen.push(context);
+        return local.transactionKeys(requests);
+      },
+    };
+    const context = { signal: new AbortController().signal, timeoutMs: 1_000 };
+    const { client } = capturePrivateBuild();
+
+    await buildTransferTransaction(
+      {
+        client,
+        wallet,
+        keys: { ...keys, ...stubProofs() },
+        feePayer: keypair.shieldedAddress().solanaAddress(),
+        recipient: ShieldedKeypair.generate().shieldedAddress(),
+        amount: 25n,
+      },
+      context,
+    );
+    await createMerge({ wallet, keys, asset: SOL_MINT }, context);
+
+    expect(seen).toHaveLength(2);
+    expect(seen.every((entry) => entry === context)).toBe(true);
+  });
+
   it("does not mutate spend state and holds the UTXOs after a build", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
@@ -399,7 +539,7 @@ describe("unsigned public transaction builders", () => {
     const input = {
       client,
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: payer, keypair }),
+      keys: localKeys(keypair),
       feePayer: payer,
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       amount: 25n,
@@ -425,7 +565,7 @@ describe("unsigned public transaction builders", () => {
     await buildSplitTransaction({
       client,
       wallet,
-      authority: new KeypairWalletAuthority({ solanaPublicKey: payer, keypair }),
+      keys: localKeys(keypair),
       feePayer: payer,
     });
 
@@ -642,29 +782,24 @@ describe("ring approval summary", () => {
   it("approves the exact amount moved into the ring", async () => {
     const keypair = spendingKeypair();
     const wallet = ringUtxoWallet(keypair, [[40n, undefined]]);
-    const authority = new KeypairWalletAuthority({
-      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-      keypair,
-    });
-    const approvals: string[] = [];
-    vi.spyOn(authority, "requestUserApproval").mockImplementation(async (request) => {
-      approvals.push(request.summary);
-      expect(request.intent).toMatchObject({ kind: "ringEntry", amount: 25n });
-      return approveIntent(request.intent);
-    });
+    const { approve, requests } = recordingApproval();
 
     await expect(
       buildRingEntryTransaction({
         client: ringTransferClient({ tree: TREE }),
         ringProgramId: RING,
         wallet,
-        authority,
+        keys: localKeys(keypair),
+        approve,
         feePayer: keypair.shieldedAddress().solanaAddress(),
         amount: 25n,
         lookupTable: RECIPIENT,
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_ENTRY" });
-    expect(approvals).toEqual([`ring entry of 25 SOL into ring ${RING}`]);
+    expect(requests.map((request) => request.summary)).toEqual([
+      `ring entry of 25 SOL into ring ${RING}`,
+    ]);
+    expect(requests[0]?.intent).toMatchObject({ kind: "ringEntry", amount: 25n });
   });
 
   async function capturedSummary(
@@ -674,21 +809,14 @@ describe("ring approval summary", () => {
   ): Promise<string> {
     const keypair = spendingKeypair();
     const wallet = ringUtxoWallet(keypair, utxos);
-    const authority = new KeypairWalletAuthority({
-      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-      keypair,
-    });
-    const approvals: string[] = [];
-    vi.spyOn(authority, "requestUserApproval").mockImplementation(async (request) => {
-      approvals.push(request.summary);
-      return approveIntent(request.intent);
-    });
+    const { approve, requests } = recordingApproval();
     await expect(
       buildRingTransferTransaction({
         client: ringTransferClient({ tree: TREE }),
         ringProgramId: RING,
         wallet,
-        authority,
+        keys: localKeys(keypair),
+        approve,
         feePayer: keypair.shieldedAddress().solanaAddress(),
         recipient: ShieldedKeypair.generate().shieldedAddress(),
         amount,
@@ -696,7 +824,7 @@ describe("ring approval summary", () => {
         lookupTable: RECIPIENT,
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_TRANSFER" });
-    const summary = approvals[0];
+    const summary = requests[0]?.summary;
     if (summary === undefined) throw new Error("approval not requested");
     return summary;
   }
@@ -727,31 +855,19 @@ describe("ring approval summary", () => {
   });
 });
 
-function captureSpendKeys(authority: KeypairWalletAuthority): NullifierKey[] {
-  const spendKeys: NullifierKey[] = [];
-  const open = authority.withSpendSession.bind(authority);
-  vi.spyOn(authority, "withSpendSession").mockImplementation((run) =>
-    open((session) => {
-      spendKeys.push(session.nullifierKey());
-      return run(session);
-    }),
-  );
-  return spendKeys;
-}
-
-describe("spend key lifecycle", () => {
-  it("wipes the spend key and every input clone once the build succeeds", async () => {
+describe("key lifecycle", () => {
+  it("wipes the per-transaction key once the build succeeds and never lends the nullifier key", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
     const { client, assemble } = capturePrivateBuild();
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: payer, keypair });
-    const spendKeys = captureSpendKeys(authority);
+    const keys = localKeys(keypair);
+    const minted = captureTransactionKeys(keys);
 
     await buildTransferTransaction({
       client,
       wallet,
-      authority,
+      keys,
       feePayer: payer,
       recipient: ShieldedKeypair.generate().shieldedAddress(),
       amount: 25n,
@@ -761,49 +877,42 @@ describe("spend key lifecycle", () => {
       .authorized;
     const material = authorizedPrivateTransactionMaterial(authorized);
     if (material === undefined) throw new Error("authorization was not minted");
-    for (const proofInput of material.proofInputs.inputUtxos) {
-      expect(() => proofInput.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    // Proof inputs carry the nullifier public key and the nullifier, never the secret.
+    const real = material.proofInputs.inputUtxos.filter((proofInput) => !proofInput.isDummy());
+    expect(real).toHaveLength(1);
+    for (const proofInput of real) {
+      expect(Object.keys(proofInput)).not.toContain("nullifierKey");
+      expect(proofInput.nullifierPublicKey).toEqual(keypair.nullifierPublicKey());
     }
-    expect(spendKeys).toHaveLength(1);
-    expect(() => spendKeys[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    expect(minted).toHaveLength(1);
+    expect(() => minted[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
   });
 
-  it("wipes the spend key and constructed clones when authorization fails", async () => {
+  it("wipes the per-transaction key and releases the inputs when approval fails", async () => {
     const keypair = spendingKeypair();
     const payer = keypair.shieldedAddress().solanaAddress();
     const wallet = fundedWallet(keypair, [100n]);
-    const { client } = capturePrivateBuild();
-    const authority = new KeypairWalletAuthority({ solanaPublicKey: payer, keypair });
-    const spendKeys: NullifierKey[] = [];
-    const open = authority.withSpendSession.bind(authority);
-    vi.spyOn(authority, "withSpendSession").mockImplementation((run) =>
-      open((session) => {
-        spendKeys.push(session.nullifierKey());
-        return run({
-          ...session,
-          encryptConfidentialTransfer: () => Promise.reject(new Error("refused")),
-        });
-      }),
-    );
-    const destroyed = vi.spyOn(ProofInputUtxo.prototype, "destroy");
+    const { client, assemble } = capturePrivateBuild();
+    const keys = localKeys(keypair);
+    const minted = captureTransactionKeys(keys);
+    const input = {
+      client,
+      wallet,
+      keys,
+      feePayer: payer,
+      recipient: ShieldedKeypair.generate().shieldedAddress(),
+      amount: 25n,
+    } as const;
 
-    try {
-      await expect(
-        buildTransferTransaction({
-          client,
-          wallet,
-          authority,
-          feePayer: payer,
-          recipient: ShieldedKeypair.generate().shieldedAddress(),
-          amount: 25n,
-        }),
-      ).rejects.toMatchObject({ code: "WALLET_BUILD_TRANSFER" });
-      expect(destroyed).toHaveBeenCalledTimes(1);
-      expect(spendKeys).toHaveLength(1);
-      expect(() => spendKeys[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
-    } finally {
-      destroyed.mockRestore();
-    }
+    await expect(
+      buildTransferTransaction({ ...input, approve: () => Promise.reject(new Error("refused")) }),
+    ).rejects.toMatchObject({ code: "WALLET_BUILD_TRANSFER" });
+    expect(assemble).not.toHaveBeenCalled();
+    expect(minted).toHaveLength(1);
+    expect(() => minted[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
+    // The refused build holds nothing: the same UTXO funds the next one.
+    await buildTransferTransaction(input);
+    expect(assemble).toHaveBeenCalledTimes(1);
   });
 
   it("decryptToBalances wipes its minted keys", async () => {
@@ -829,18 +938,5 @@ describe("spend key lifecycle", () => {
     expect(mintedNullifier).toHaveLength(1);
     expect(() => mintedViewing[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
     expect(() => mintedNullifier[0]?.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
-  });
-
-  it("fromDerivationSeed builds working keys after wiping the derived secrets", async () => {
-    const seed = new Uint8Array(64).fill(7);
-    const authority = KeypairWalletAuthority.fromDerivationSeed({
-      solanaPublicKey: PAYER,
-      derivationSeed: seed,
-    });
-    const address = await authority.shieldedAddress();
-    const publicKey = await authority.withSpendSession((session) =>
-      Promise.resolve(session.nullifierKey().publicKey()),
-    );
-    expect(publicKey).toEqual(address.nullifierPublicKey);
   });
 });

@@ -61,8 +61,8 @@ export class ViewingKey implements ViewingKeyLike {
   /**
    * The viewing key of the wallet whose ed25519 `derivationSeed` is the
    * signature over `ed25519DerivationMessage(publicKey)`. Same key as
-   * `KeypairWalletAuthority.fromDerivationSeed` holds, without the nullifier
-   * key, so nothing here hashes.
+   * `LocalShieldedKeys.fromDerivationSeed` holds, without the nullifier key,
+   * so nothing here hashes.
    */
   static fromDerivationSeed(derivationSeed: Uint8Array): ViewingKey {
     return roleExpansion(derivationSeed, "ed25519", (roles) =>
@@ -73,6 +73,12 @@ export class ViewingKey implements ViewingKeyLike {
   publicKey(): P256PublicKey {
     this.#assertUsable();
     return P256PublicKey.fromSecret(this.#secret);
+  }
+
+  /** An independent copy of the key; destroying either leaves the other usable. */
+  clone(): ViewingKey {
+    this.#assertUsable();
+    return new ViewingKey(copyBytes(this.#secret));
   }
 
   secretBytes(): Bytes32 {

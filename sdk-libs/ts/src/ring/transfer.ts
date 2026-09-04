@@ -4,6 +4,7 @@ import type {
   KitRpcAccess,
   Prover,
   TreeContext,
+  WalletKeys,
 } from "../client/ports.js";
 import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
@@ -27,15 +28,18 @@ import {
   type PreparedTransfer,
 } from "../transaction/instructions/transact.js";
 import { EncryptedScheme, encodeOutputData } from "../transaction/serialization/codecs.js";
-import { ProofInputUtxo } from "../transaction/utxo.js";
-import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
+import { encryptCustomRingTransfer } from "../transaction/wallet/encrypt-rails.js";
 import {
+  approveUnattended,
   checkIntentApproval,
   checkPreparedTransfer,
   checkTransactData,
+  ownerSolanaAccount,
   withdrawalIntentRecipient,
+  type ApprovalHandler,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
+import { proofInputFromEntry, withTransactionKey } from "../wallet/private-transaction.js";
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { ownerSignerAddresses } from "../client/prover/assembly.js";
@@ -64,8 +68,9 @@ export interface RingTransferTransactionParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly keys: WalletKeys;
   readonly feePayer: Address;
+  readonly approve?: ApprovalHandler;
   readonly recipient: Address | ShieldedAddress;
   readonly asset?: Address;
   readonly amount: bigint;
@@ -86,8 +91,9 @@ export interface RingWithdrawalTransactionParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  readonly keys: WalletKeys;
   readonly feePayer: Address;
+  readonly approve?: ApprovalHandler;
   /** Any Solana account. It needs no registry record and need not exist yet. */
   readonly recipient: Address;
   readonly asset?: Address;
@@ -105,8 +111,7 @@ export interface CustomRingTransferParams {
   readonly client: RingTransferClient;
   readonly ringProgramId: Address;
   readonly prepared: PreparedTransfer;
-  /** The encryption capability of an open spend session. */
-  readonly session: Pick<SpendSession, "encryptCustomRingTransfer">;
+  readonly keys: WalletKeys;
   readonly assets: AssetRegistry;
   readonly tree: Address;
 }
@@ -226,8 +231,9 @@ type RingSpendParams = Pick<
   | "client"
   | "ringProgramId"
   | "wallet"
-  | "authority"
+  | "keys"
   | "feePayer"
+  | "approve"
   | "asset"
   | "amount"
   | "lookupTable"
@@ -263,104 +269,84 @@ async function buildRingSpend<R>(
   strategy: RingSpendStrategy<R>,
   context?: RequestContext,
 ): Promise<Transaction> {
-  return input.authority.withSpendSession(async (session) => {
-    let inputs: readonly ProofInputUtxo[] = [];
-    let reservation: UtxoReservation | undefined;
-    try {
-      await initializePoseidon();
-      const asset = input.asset ?? SOL_MINT;
-      const nullifierKey = session.nullifierKey();
-      const [resolved, address] = await Promise.all([
-        strategy.resolve(),
-        input.authority.shieldedAddress(),
-      ]);
-      const selected = selectRingInputs(
-        input.wallet,
-        input.ringProgramId,
-        asset,
-        input.amount,
-        strategy.selection,
-        input.client.tree,
-      );
-      reservation = reserveEntries(input.wallet, selected);
-      inputs = selected.map(
-        (entry) =>
-          new ProofInputUtxo({
-            utxo: entry.utxo,
-            nullifierKey,
-            ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-            ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-          }),
-      );
-      const transfer = new ConfidentialTransfer(
-        address,
-        inputs,
-        input.feePayer,
-      ).withCompactChange();
-      if (strategy.changeRing === "ring") {
-        transfer.withRingProgramId(input.ringProgramId);
-      }
-      const plan = strategy.configure({ transfer, resolved, selected, asset, owner: address });
-      const approval = await input.authority.requestUserApproval({
-        solanaPublicKey: input.authority.solanaPublicKey(),
-        intent: plan.intent,
-        summary: plan.summary,
-      });
-      checkIntentApproval(approval, plan.intent, ringIntentMismatch);
-      const prepared = transfer.prepare();
-      checkPreparedTransfer(prepared, plan.intent, ringIntentMismatch);
-      const proven = await proveCustomRingTransfer(
-        {
-          client: input.client,
-          ringProgramId: input.ringProgramId,
-          prepared,
-          session,
-          assets: input.wallet.registry,
-          tree: input.client.tree,
-        },
-        context,
-      );
-      checkTransactData(proven.data, plan.intent, ringIntentMismatch);
-      const [instruction, tableAddresses, lifetime] = await Promise.all([
-        ringTransactInstruction({
-          ringProgramId: input.ringProgramId,
-          payer: proven.payer,
-          inputTree: proven.tree,
-          outputTree: proven.tree,
-          proof: proven.proof,
-          data: proven.data,
-          ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
-          ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
-        }),
-        fetchRingLookupTable({
-          client: input.client,
-          ringProgramId: input.ringProgramId,
-          address: input.lookupTable,
-          tree: proven.tree,
-        }),
-        input.client.getLatestBlockhash(context),
-      ]);
-      return compileUnsignedTransaction({
-        feePayer: input.feePayer,
-        lifetime,
-        computeUnitLimit: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-        ...(input.computeUnitPriceMicroLamports === undefined
-          ? {}
-          : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
-        instructions: [...(plan.setupInstructions ?? []), instruction],
-        lookupTables: { [input.lookupTable]: [...tableAddresses] },
-        sizeShape: {
-          inputs: proven.data.inputs.length,
-          outputs: proven.data.outputs.length,
-        },
-      });
-    } catch (cause) {
-      if (reservation !== undefined) input.wallet._releaseReservation(reservation.id);
-      throw wrapRingError(strategy.errorCode, cause);
-    } finally {
-      for (const proofInput of inputs) proofInput.destroy();
+  let reservation: UtxoReservation | undefined;
+  try {
+    await initializePoseidon();
+    const asset = input.asset ?? SOL_MINT;
+    const address = input.keys.address();
+    const resolved = await strategy.resolve();
+    const selected = selectRingInputs(
+      input.wallet,
+      input.ringProgramId,
+      asset,
+      input.amount,
+      strategy.selection,
+      input.client.tree,
+    );
+    reservation = reserveEntries(input.wallet, selected);
+    const inputs = selected.map((entry) => proofInputFromEntry(entry, address));
+    const transfer = new ConfidentialTransfer(address, inputs, input.feePayer).withCompactChange();
+    if (strategy.changeRing === "ring") {
+      transfer.withRingProgramId(input.ringProgramId);
     }
-  });
+    const plan = strategy.configure({ transfer, resolved, selected, asset, owner: address });
+    const approval = await (input.approve ?? approveUnattended)({
+      solanaPublicKey: ownerSolanaAccount(address, input.feePayer),
+      intent: plan.intent,
+      summary: plan.summary,
+    });
+    checkIntentApproval(approval, plan.intent, ringIntentMismatch);
+    const prepared = transfer.prepare();
+    checkPreparedTransfer(prepared, plan.intent, ringIntentMismatch);
+    const proven = await proveCustomRingTransfer(
+      {
+        client: input.client,
+        ringProgramId: input.ringProgramId,
+        prepared,
+        keys: input.keys,
+        assets: input.wallet.registry,
+        tree: input.client.tree,
+      },
+      context,
+    );
+    checkTransactData(proven.data, plan.intent, ringIntentMismatch);
+    const [instruction, tableAddresses, lifetime] = await Promise.all([
+      ringTransactInstruction({
+        ringProgramId: input.ringProgramId,
+        payer: proven.payer,
+        inputTree: proven.tree,
+        outputTree: proven.tree,
+        proof: proven.proof,
+        data: proven.data,
+        ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
+        ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
+      }),
+      fetchRingLookupTable({
+        client: input.client,
+        ringProgramId: input.ringProgramId,
+        address: input.lookupTable,
+        tree: proven.tree,
+      }),
+      input.client.getLatestBlockhash(context),
+    ]);
+    return compileUnsignedTransaction({
+      feePayer: input.feePayer,
+      lifetime,
+      computeUnitLimit: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
+      ...(input.computeUnitPriceMicroLamports === undefined
+        ? {}
+        : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+      instructions: [...(plan.setupInstructions ?? []), instruction],
+      lookupTables: { [input.lookupTable]: [...tableAddresses] },
+      sizeShape: {
+        inputs: proven.data.inputs.length,
+        outputs: proven.data.outputs.length,
+      },
+    });
+  } catch (cause) {
+    if (reservation !== undefined) input.wallet._releaseReservation(reservation.id);
+    throw wrapRingError(strategy.errorCode, cause);
+  }
 }
 
 /**
@@ -437,12 +423,17 @@ export async function proveCustomRingTransfer(
   }
   const prepared = input.prepared;
   checkRingMembership(prepared, input.ringProgramId);
-  const encrypted = await input.session.encryptCustomRingTransfer({
-    firstNullifier: prepared.firstNullifier,
-    outputs: prepared.outputs,
-    assets: input.assets,
-    auditorPublicKey: config.auditorPublicKey,
-  });
+  const encrypted = await withTransactionKey(
+    input.keys,
+    prepared.firstNullifier,
+    (tx) =>
+      encryptCustomRingTransfer(tx, {
+        outputs: prepared.outputs,
+        assets: input.assets,
+        auditorPublicKey: config.auditorPublicKey,
+      }),
+    context,
+  );
   try {
     const proofInputs = frameDummyOutputs(
       prepared.finalize({
@@ -456,6 +447,7 @@ export async function proveCustomRingTransfer(
     const data = await input.client.proveRingTransact(
       proofInputs,
       input.ringProgramId,
+      input.keys,
       undefined,
       context,
     );
@@ -557,8 +549,9 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     client: input.client,
     ringProgramId: input.ringProgramId,
     wallet: input.wallet,
-    authority: input.authority,
+    keys: input.keys,
     feePayer: input.feePayer,
+    ...(input.approve === undefined ? {} : { approve: input.approve }),
     amount: input.amount,
     lookupTable: input.lookupTable,
     ...(asset === undefined ? {} : { asset }),

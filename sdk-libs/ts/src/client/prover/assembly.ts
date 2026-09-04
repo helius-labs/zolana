@@ -376,7 +376,6 @@ export function createRealInput(
     nullifierTreeRoot: asField(bytesField(proof.nullifier.root, "nullifier root")),
     nullifier: asField(bytesField(input.nullifier(), "nullifier")),
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
-    nullifierSecret: asField(bytesField(input.nullifierKey.secretBytes(), "nullifier secret")),
   });
 }
 
@@ -432,7 +431,7 @@ function inputCircuitUtxo(input: ProofInputUtxo, dummy = false): CircuitUtxo {
     ? 0n
     : poseidon([
         bytesField(input.utxo.owner.ownerProofInputHash(), "owner public key"),
-        bytesField(input.nullifierKey.publicKey(), "nullifier public key"),
+        bytesField(input.nullifierPublicKey, "nullifier public key"),
       ]);
   return Object.freeze({
     domain: asField(BigInt(dummy ? DUMMY_DOMAIN : UTXO_DOMAIN)),

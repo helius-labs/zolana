@@ -15,11 +15,17 @@ export type SyncWalletReportMustStayAbsent = SyncWalletReport;
 // @ts-expect-error -- stable discovery has no configurable counter window.
 export const obsoleteSyncConfig: SyncWalletConfig = { tagWindow: 1n };
 
-import type { WalletAuthority } from "../src/transaction/index.js";
-declare const authority: WalletAuthority;
-// @ts-expect-error -- key material is session-scoped.
-export const unscopedSpendKey = authority.spendNullifierKey;
-// @ts-expect-error -- sync material is session-scoped.
-export const unscopedSyncMaterial = authority.syncMaterial;
-// @ts-expect-error -- encryption runs inside withSpendSession.
-export const unscopedEncrypt = authority.encryptConfidentialTransfer;
+import type { ShieldedKeys } from "../src/transaction/index.js";
+import type { WalletKeys } from "../src/client/index.js";
+declare const keys: ShieldedKeys;
+declare const walletKeys: WalletKeys;
+// @ts-expect-error -- no long-lived secret leaves the keys.
+export const leakedNullifierKey = keys.nullifierKey;
+// @ts-expect-error -- no long-lived secret leaves the keys.
+export const leakedViewingKey = keys.viewingKey;
+// @ts-expect-error -- the shared point would make the keys a chosen-point ECDH oracle.
+export const rawEcdh = keys.ecdh;
+// @ts-expect-error -- the SDK signs with the caller's Solana signer, never through the keys.
+export const signer = walletKeys.signTransaction;
+// @ts-expect-error -- proving lives on the client-layer WalletKeys, not on ShieldedKeys.
+export const proveOnShieldedKeys = keys.prove;

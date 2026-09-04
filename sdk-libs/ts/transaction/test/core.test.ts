@@ -41,8 +41,11 @@ const DUMMY_ORACLE_HASH = "21bad49e7dfee8758b2bd68372ce628c95826624661c03cd7657c
 const DUMMY_ORACLE_NULLIFIER = "14b3997656396c9e75335686e9a673fcc06da33bd7e3b4191ed8d1372719a976";
 
 const DUMMY_BLINDING = new Uint8Array(32).fill(7) as Bytes32;
-const ZERO_NULLIFIER_KEY = (): NullifierKey =>
-  NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
+/** The two values a canonical dummy over `DUMMY_BLINDING` carries in place of a key. */
+const DUMMY_KEY = (): Readonly<{ nullifierPublicKey: Bytes32; nullifier: Bytes32 }> => ({
+  nullifierPublicKey: new Uint8Array(32) as Bytes32,
+  nullifier: ProofInputUtxo.dummy(DUMMY_BLINDING).nullifier(),
+});
 
 const ZERO_ADDRESS = "11111111111111111111111111111111" as Address;
 const RING = "SysvarRent111111111111111111111111111111111" as Address;
@@ -58,7 +61,9 @@ function zeroOwnerUtxo(overrides: Partial<ConstructorParameters<typeof Utxo>[0]>
   });
 }
 
-// The same seven cases the Rust `check_canonical_dummy` table rejects.
+// The cases the Rust `check_canonical_dummy` table rejects. Rust holds the
+// key and checks it is the zero key; a proof input here carries the key's two
+// derived values instead, so that one case is two.
 function noncanonicalDummies(): readonly (readonly [
   string,
   ConstructorParameters<typeof ProofInputUtxo>[0],
@@ -68,15 +73,15 @@ function noncanonicalDummies(): readonly (readonly [
       "asset",
       {
         utxo: zeroOwnerUtxo({ asset: "SysvarRent111111111111111111111111111111111" as Address }),
-        nullifierKey: ZERO_NULLIFIER_KEY(),
+        ...DUMMY_KEY(),
       },
     ],
-    ["amount", { utxo: zeroOwnerUtxo({ amount: 1n }), nullifierKey: ZERO_NULLIFIER_KEY() }],
+    ["amount", { utxo: zeroOwnerUtxo({ amount: 1n }), ...DUMMY_KEY() }],
     [
       "data",
       {
         utxo: zeroOwnerUtxo({ data: new Data([{ kind: "utxoData", bytes: Uint8Array.of(1) }]) }),
-        nullifierKey: ZERO_NULLIFIER_KEY(),
+        ...DUMMY_KEY(),
       },
     ],
     [
@@ -85,24 +90,22 @@ function noncanonicalDummies(): readonly (readonly [
         utxo: zeroOwnerUtxo({
           ringProgramId: "SysvarRent111111111111111111111111111111111" as Address,
         }),
-        nullifierKey: ZERO_NULLIFIER_KEY(),
+        ...DUMMY_KEY(),
       },
     ],
+    ["data_hash", { utxo: zeroOwnerUtxo(), ...DUMMY_KEY(), dataHash: scalar(9) }],
+    ["ring_data_hash", { utxo: zeroOwnerUtxo(), ...DUMMY_KEY(), ringDataHash: scalar(10) }],
     [
-      "data_hash",
-      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), dataHash: scalar(9) },
-    ],
-    [
-      "ring_data_hash",
-      { utxo: zeroOwnerUtxo(), nullifierKey: ZERO_NULLIFIER_KEY(), ringDataHash: scalar(10) },
-    ],
-    [
-      "nullifier_key",
+      "nullifier_public_key",
       {
         utxo: zeroOwnerUtxo(),
-        nullifierKey: NullifierKey.fromSecret(new Uint8Array(31).fill(11) as Bytes31),
+        ...DUMMY_KEY(),
+        nullifierPublicKey: NullifierKey.fromSecret(
+          new Uint8Array(31).fill(11) as Bytes31,
+        ).publicKey(),
       },
     ],
+    ["nullifier", { utxo: zeroOwnerUtxo(), ...DUMMY_KEY(), nullifier: scalar(12) }],
   ];
 }
 
@@ -200,9 +203,7 @@ describe("transaction core", () => {
     expect(base.hash(scalar(8), dataHash, ringHash)).not.toEqual(hash);
     expect(base.nullifier(hash, nullifier)).not.toEqual(base.nullifier(scalar(9), nullifier));
 
-    const proof = new ProofInputUtxo({
-      utxo: base,
-      nullifierKey: nullifier,
+    const proof = ProofInputUtxo.fromNullifierKey(base, nullifier, {
       dataHash,
       ringDataHash: ringHash,
     });
@@ -217,7 +218,8 @@ describe("transaction core", () => {
             amount: 0n,
             blinding: new Uint8Array(32) as Bytes32,
           }),
-          nullifierKey: NullifierKey.fromSecret(new Uint8Array(31) as Bytes31),
+          nullifierPublicKey: ZERO_HASH(),
+          nullifier: ZERO_HASH(),
         }),
     ).toThrow(
       expect.objectContaining({
@@ -259,15 +261,15 @@ describe("transaction core", () => {
   it("binds padded dummy output tags to the real input signer", () => {
     const { keypair, nullifier } = ed25519Material();
     const owner = keypair.shieldedAddress();
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
+    const input = ProofInputUtxo.fromNullifierKey(
+      new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
         amount: 42n,
         blinding: scalar(6),
       }),
-      nullifierKey: nullifier,
-    });
+      nullifier,
+    );
     const transfer = new ConfidentialTransfer(owner, [input], owner.solanaAddress()).withShape({
       inputs: 1,
       outputs: 8,
@@ -310,7 +312,7 @@ describe("transaction core", () => {
     const canonical = ProofInputUtxo.dummy(DUMMY_BLINDING);
     const explicit = new ProofInputUtxo({
       utxo: zeroOwnerUtxo(),
-      nullifierKey: ZERO_NULLIFIER_KEY(),
+      ...DUMMY_KEY(),
       dataHash: ZERO_HASH(),
       ringDataHash: ZERO_HASH(),
     });
@@ -328,7 +330,7 @@ describe("transaction core", () => {
       () =>
         new ProofInputUtxo({
           utxo: zeroOwnerUtxo({ ringProgramId: ZERO_ADDRESS }),
-          nullifierKey: ZERO_NULLIFIER_KEY(),
+          ...DUMMY_KEY(),
         }),
     ).toThrow(
       expect.objectContaining({
@@ -353,26 +355,24 @@ describe("transaction core", () => {
       amount: 42n,
       blinding,
     });
-    const unboundInput = new ProofInputUtxo({ utxo, nullifierKey: nullifier });
+    const unboundInput = ProofInputUtxo.fromNullifierKey(utxo, nullifier);
 
-    const normalizedInput = new ProofInputUtxo({
-      utxo,
-      nullifierKey: nullifier,
+    const normalizedInput = ProofInputUtxo.fromNullifierKey(utxo, nullifier, {
       ringDataHash: ZERO_HASH(),
     });
     expect(normalizedInput.ringDataHash).toBeUndefined();
     expect(normalizedInput.hash()).toEqual(unboundInput.hash());
 
-    const zeroRingInput = new ProofInputUtxo({
-      utxo: new Utxo({
+    const zeroRingInput = ProofInputUtxo.fromNullifierKey(
+      new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
         amount: 42n,
         blinding,
         ringProgramId: ZERO_ADDRESS,
       }),
-      nullifierKey: nullifier,
-    });
+      nullifier,
+    );
     expect(zeroRingInput.hash()).not.toEqual(unboundInput.hash());
 
     const output = createProofOutput({
@@ -412,9 +412,11 @@ describe("transaction core", () => {
       ringProgramId: RING,
     });
 
+    // The hashes are stored as given and checked where they are hashed.
     const ringBound = new ProofInputUtxo({
       utxo,
-      nullifierKey: nullifier,
+      nullifierPublicKey: nullifier.publicKey(),
+      nullifier: scalar(1),
       ringDataHash: aboveModulus,
     });
     expect(ringBound.ringDataHash).toEqual(aboveModulus);
@@ -425,7 +427,8 @@ describe("transaction core", () => {
     expect(() =>
       new ProofInputUtxo({
         utxo,
-        nullifierKey: nullifier,
+        nullifierPublicKey: nullifier.publicKey(),
+        nullifier: scalar(1),
         dataHash: aboveModulus,
       }).hash(),
     ).toThrow(expect.objectContaining({ code: "TRANSACTION_POSEIDON" }));
