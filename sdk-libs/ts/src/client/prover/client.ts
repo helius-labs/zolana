@@ -24,6 +24,8 @@ import type {
 } from "./types.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+/** An error body is a code and a message; anything larger is not read. */
+const MAX_REASON_BYTES = 4096;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 2_000n;
 /// Per-request bound, mirroring the Rust client's `PROVE_REQUEST_TIMEOUT_SECS`.
@@ -100,11 +102,15 @@ export class ProverClient {
   }
 
   async prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(proverRequest(inputs)), "inResponse", context);
+    return this.#send(JSON.stringify(proverRequest(inputs, completeSecret)), "inResponse", context);
   }
 
   async proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof> {
-    return this.#send(JSON.stringify(mergeProverRequest(inputs)), "inResponse", context);
+    return this.#send(
+      JSON.stringify(mergeProverRequest(inputs, completeSecret)),
+      "inResponse",
+      context,
+    );
   }
 
   async proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Proof> {
@@ -128,7 +134,7 @@ export class ProverClient {
       }
       if (!response.ok) {
         throw new ClientError("CLIENT_PROVER_HTTP", {
-          details: { method: "health", status: response.status },
+          details: { method: "health", status: response.status, ...(await proverReason(response)) },
         });
       }
       const value = await decodeResponse(response);
@@ -186,7 +192,12 @@ export class ProverClient {
             // Rust fails fast on any non-success status; only a transport failure retries.
             if (!response.ok) {
               throw new ClientError("CLIENT_PROVER_HTTP", {
-                details: { method: "prove", status: response.status, attempts: attempt },
+                details: {
+                  method: "prove",
+                  status: response.status,
+                  attempts: attempt,
+                  ...(await proverReason(response)),
+                },
               });
             }
             let value: unknown;
@@ -267,7 +278,11 @@ export class ProverClient {
         }
         if (response.status >= 400 && response.status < 500) {
           throw new ClientError("CLIENT_PROVER_HTTP", {
-            details: { method: "proveStatus", status: response.status },
+            details: {
+              method: "proveStatus",
+              status: response.status,
+              ...(await proverReason(response)),
+            },
           });
         }
         if (response.status >= 500) {
@@ -308,7 +323,31 @@ export class ProverClient {
   }
 }
 
-function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
+/** The JSON body the prover accepts; every field a hex string but the slot counts. */
+export type ProverRequestBody = Readonly<Record<string, unknown>>;
+
+/** How a nullifier secret slot is written: the prover client requires it, a holder's transport leaves it open. */
+type SecretEncoder = (secret: Field | undefined) => string | null;
+
+const completeSecret: SecretEncoder = (secret) => hex(requireSecret(secret));
+const pendingSecret: SecretEncoder = (secret) => (secret === undefined ? null : hex(secret));
+
+/**
+ * The body `ProofService.prove` would post, with `null` in every nullifier
+ * secret slot a `ProofAuthority` has yet to fill: what a remote key holder is
+ * sent, to complete and forward to its prover. `ProverClient` itself refuses
+ * a body with a slot still open.
+ */
+export function proverRequestBody(inputs: ProverInputs): ProverRequestBody {
+  return proverRequest(inputs, pendingSecret);
+}
+
+/** The merge counterpart of `proverRequestBody`. */
+export function mergeProverRequestBody(inputs: MergeInputs): ProverRequestBody {
+  return mergeProverRequest(inputs, pendingSecret);
+}
+
+function mergeProverRequest(inputs: MergeInputs, secret: SecretEncoder): ProverRequestBody {
   return Object.freeze({
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
@@ -316,7 +355,7 @@ function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknow
     asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
-    userNullifierSecret: hex(inputs.userNullifierSecret),
+    userNullifierSecret: secret(inputs.userNullifierSecret),
     externalDataHash: hex(inputs.externalDataHash),
     privateTxHash: hex(inputs.privateTxHash),
     publicInputHash: hex(inputs.publicInputHash),
@@ -375,13 +414,13 @@ export function customRingProofRequest(
   });
 }
 
-function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
+function proverRequest(inputs: ProverInputs, secret: SecretEncoder): ProverRequestBody {
   const payload = inputs.payload;
   return Object.freeze({
     circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
-    inputs: payload.inputs.map(inputJson),
+    inputs: payload.inputs.map((input) => inputJson(input, secret)),
     outputs: payload.outputs.map(outputJson),
     externalDataHash: hex(payload.externalDataHash),
     privateTxHash: hex(payload.privateTxHash),
@@ -395,7 +434,7 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
   });
 }
 
-function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
+function inputJson(input: TransferInput, secret: SecretEncoder): Readonly<Record<string, unknown>> {
   return Object.freeze({
     utxo: utxoJson(input),
     isDummy: hex(input.isDummy),
@@ -409,7 +448,7 @@ function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
     nullifierTreeRoot: hex(input.nullifierTreeRoot),
     nullifier: hex(input.nullifier),
     ownerPkHash: hex(input.ownerPublicKeyHash),
-    nullifierSecret: hex(input.nullifierSecret),
+    nullifierSecret: secret(input.nullifierSecret),
   });
 }
 
@@ -437,6 +476,12 @@ function utxoJson(value: TransferInput | TransferOutput): Readonly<Record<string
   });
 }
 
+/** Inputs reach the prover only complete; a missing secret is a `ProofAuthority` that did not run. */
+function requireSecret(secret: Field | undefined): Field {
+  if (secret === undefined) throw new ClientError("CLIENT_MISSING_NULLIFIER_SECRET");
+  return secret;
+}
+
 function hex(value: Field): string {
   return `0x${value.toString(16)}`;
 }
@@ -459,6 +504,27 @@ async function decodeResponse(response: Response): Promise<unknown> {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const MAX_REASON_CHARS = 200;
+
+/**
+ * The prover's `{ code, message }` error body as one bounded string, so a
+ * refused request says why (an unknown circuit, a malformed field, a missing
+ * key) instead of only its status. Untrusted text; absent when unreadable.
+ */
+async function proverReason(response: Response): Promise<Readonly<{ reason?: string }>> {
+  let body: unknown;
+  try {
+    body = await readBoundedJson(response, MAX_REASON_BYTES);
+  } catch {
+    return {};
+  }
+  if (!isObject(body)) return {};
+  const parts = [body["code"], body["message"]].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  );
+  return parts.length === 0 ? {} : { reason: parts.join(": ").slice(0, MAX_REASON_CHARS) };
 }
 
 function asyncPollConfig(input: AsyncPollConfig | undefined): AsyncPollConfig {

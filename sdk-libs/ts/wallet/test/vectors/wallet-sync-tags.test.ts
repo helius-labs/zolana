@@ -1,9 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../../../src/interface/index.js";
-import { ShieldedKeypair, SigningKey, ViewingKey } from "../../../src/keypair/index.js";
-import { AssetRegistry, Wallet, type WalletSyncMaterial } from "../../../src/transaction/index.js";
-import { syncWallet, type SyncAuthority, type SyncClient } from "../../../src/wallet/index.js";
+import {
+  ShieldedKeypair,
+  SigningKey,
+  ViewingKey,
+  type P256PublicKey,
+} from "../../../src/keypair/index.js";
+import {
+  AssetRegistry,
+  LocalShieldedKeys,
+  Wallet,
+  type ShieldedKeys,
+} from "../../../src/transaction/index.js";
+import { syncWallet, type SyncClient } from "../../../src/wallet/index.js";
 import fixture from "../../../vectors/wallet-sync-tags-v1.json" with { type: "json" };
 
 interface Case {
@@ -71,9 +81,26 @@ function recorder(): Readonly<{
   return { client, shielded, deposits, nullifiers };
 }
 
-function authority(material: WalletSyncMaterial): SyncAuthority {
+function keysFor(owner: ShieldedKeypair, viewingKeys: readonly ViewingKey[]): LocalShieldedKeys {
+  return LocalShieldedKeys.fromKeys({
+    address: owner.shieldedAddress(),
+    viewingKeys,
+    nullifierKey: owner.nullifierKey(),
+  });
+}
+
+/** Keys that answer as `inner` but report a different address or key set. */
+function misreporting(
+  inner: ShieldedKeys,
+  overrides: Partial<Pick<ShieldedKeys, "address" | "viewingPublicKeys">>,
+): ShieldedKeys {
   return {
-    withSyncSession: (run) => run({ syncMaterial: () => Promise.resolve(material) }),
+    address: () => inner.address(),
+    viewingPublicKeys: () => inner.viewingPublicKeys(),
+    decrypt: (requests) => inner.decrypt(requests),
+    derive: (requests) => inner.derive(requests),
+    transactionKeys: (requests) => inner.transactionKeys(requests),
+    ...overrides,
   };
 }
 
@@ -87,11 +114,7 @@ describe("wallet sync stable-tag vectors", () => {
     const recorded = recorder();
     await syncWallet({
       wallet: new Wallet({ identity: owner.shieldedAddress() }),
-      authority: authority({
-        identity: owner.shieldedAddress(),
-        viewingKeys: [owner.viewingKey()],
-        nullifierKey: owner.nullifierKey(),
-      }),
+      keys: keysFor(owner, [owner.viewingKey()]),
       client: recorded.client,
     });
 
@@ -119,11 +142,7 @@ describe("wallet sync stable-tag vectors", () => {
 
       await syncWallet({
         wallet,
-        authority: authority({
-          identity: owner.shieldedAddress(),
-          viewingKeys: retained,
-          nullifierKey: owner.nullifierKey(),
-        }),
+        keys: keysFor(owner, retained),
         client: recorded.client,
         config: { queryChunk: item.queryChunk },
       });
@@ -149,11 +168,7 @@ describe("wallet sync stable-tag vectors", () => {
 
     await syncWallet({
       wallet: new Wallet({ identity: owner.shieldedAddress() }),
-      authority: authority({
-        identity: owner.shieldedAddress(),
-        viewingKeys: [key],
-        nullifierKey: owner.nullifierKey(),
-      }),
+      keys: keysFor(owner, [key]),
       client: recorder().client,
     });
 
@@ -163,29 +178,28 @@ describe("wallet sync stable-tag vectors", () => {
     expect(key).not.toHaveProperty("recipientSharedViewTag");
   });
 
-  it("rejects mismatched material before issuing discovery queries", async () => {
+  it("rejects mismatched keys before issuing discovery queries", async () => {
     const owner = keypair();
     const other = keypair("other");
-    for (const material of [
-      {
-        identity: other.shieldedAddress(),
-        viewingKeys: [owner.viewingKey()],
-        nullifierKey: other.nullifierKey(),
-      },
-      {
-        identity: owner.shieldedAddress(),
-        viewingKeys: [viewingKey("rotated")],
-        nullifierKey: owner.nullifierKey(),
-      },
-    ] satisfies readonly WalletSyncMaterial[]) {
+    const ownerKeys = keysFor(owner, [owner.viewingKey()]);
+    const rotatedOnly: readonly P256PublicKey[] = [viewingKey("rotated").publicKey()];
+    for (const [keys, causeCode] of [
+      // Another wallet's keys.
+      [keysFor(other, [other.viewingKey()]), "TRANSACTION_KEYS_IDENTITY_MISMATCH"],
+      // The right address, but the identity's viewing key is not among those held.
+      [
+        misreporting(ownerKeys, { viewingPublicKeys: () => rotatedOnly }),
+        "TRANSACTION_MISSING_CURRENT_VIEWING_KEY",
+      ],
+    ] as const) {
       const recorded = recorder();
       await expect(
         syncWallet({
           wallet: new Wallet({ identity: owner.shieldedAddress() }),
-          authority: authority(material),
+          keys,
           client: recorded.client,
         }),
-      ).rejects.toMatchObject({ code: "WALLET_SYNC" });
+      ).rejects.toMatchObject({ code: "WALLET_SYNC", causeCode });
       expect(recorded.shielded).toHaveLength(0);
       expect(recorded.deposits).toHaveLength(0);
       expect(recorded.nullifiers).not.toHaveBeenCalled();

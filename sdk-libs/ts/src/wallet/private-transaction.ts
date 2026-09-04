@@ -3,26 +3,30 @@ import {
   type AuthorizedPrivateTransaction,
 } from "../client/ports.js";
 import { initializePoseidon } from "../hasher/index.js";
-import type { Address, Bytes32, Instruction } from "../interface/types.js";
+import type { Address, Bytes32, Instruction, RequestContext } from "../interface/types.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
+import { ViewingKey } from "../keypair/viewing-key.js";
 import type { Data } from "../transaction/data.js";
 import { ConfidentialSplit } from "../transaction/instructions/builders.js";
 import { ConfidentialTransfer, type SppProofInputs } from "../transaction/instructions/transact.js";
 import { TransactionError } from "../transaction/error.js";
 import { ProofInputUtxo, type Utxo } from "../transaction/utxo.js";
 import {
+  approveUnattended,
   checkAuthorizedBinding,
   checkIntentApproval,
   checkPreparedTransfer,
   withdrawalIntentRecipient,
+  type ApprovalHandler,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
-import type { Wallet } from "../transaction/wallet/state.js";
+import type { ShieldedKeys } from "../transaction/wallet/keys.js";
+import { encryptConfidentialTransfer, encryptSplit } from "../transaction/wallet/encrypt-rails.js";
+import type { Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 
 import { UnsignedPrivateTransaction } from "./actions.js";
 import { WalletError } from "./error.js";
 import { equalBytes } from "./internal.js";
-import type { SpendSession, WalletAuthority } from "../transaction/wallet/authority.js";
 
 function intentMismatch(field: string): WalletError {
   return new WalletError("WALLET_INTENT_MISMATCH", { details: { field } });
@@ -89,8 +93,10 @@ function matchingInput(
 export async function authorizePrivateTransaction(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
-  authority: WalletAuthority,
+  keys: ShieldedKeys,
   setupInstructions: readonly Instruction[] = [],
+  approve: ApprovalHandler = approveUnattended,
+  context?: RequestContext,
 ): Promise<AuthorizedPrivateTransaction> {
   await initializePoseidon();
   const unsignedInputs = transaction._inputs();
@@ -101,7 +107,7 @@ export async function authorizePrivateTransaction(
       });
     }
   });
-  const address = await authority.shieldedAddress();
+  const address = keys.address();
   // The default transact appends no owner signer accounts, the owner must pay.
   if (address.solanaAddress() !== transaction.payer()) {
     throw new TransactionError("TRANSACTION_ED25519_PAYER_MISMATCH", {
@@ -109,43 +115,39 @@ export async function authorizePrivateTransaction(
       payer: transaction.payer(),
     });
   }
-  return authority.withSpendSession(async (session) => {
-    const nullifierKey = session.nullifierKey();
-    let inputs: readonly ProofInputUtxo[] = [];
-    try {
-      inputs = unsignedInputs.map(
-        ({ entry }) =>
-          new ProofInputUtxo({
-            utxo: entry.utxo,
-            nullifierKey,
-            ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
-            ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
-          }),
-      );
-      return await authorizeWithInputs(
-        transaction,
-        wallet,
-        authority,
-        session,
-        address,
-        inputs,
-        setupInstructions,
-      );
-    } catch (cause) {
-      for (const proofInput of inputs) proofInput.destroy();
-      throw cause;
-    }
+  const inputs = unsignedInputs.map(({ entry }) => proofInputFromEntry(entry, address));
+  return authorizeWithInputs(
+    transaction,
+    wallet,
+    keys,
+    approve,
+    address,
+    inputs,
+    setupInstructions,
+    context,
+  );
+}
+
+/** A stored UTXO already carries the nullifier its sync derived. */
+export function proofInputFromEntry(entry: WalletUtxo, address: ShieldedAddress): ProofInputUtxo {
+  return new ProofInputUtxo({
+    utxo: entry.utxo,
+    nullifierPublicKey: address.nullifierPublicKey,
+    nullifier: entry.nullifier,
+    ...(entry.dataHash === undefined ? {} : { dataHash: entry.dataHash }),
+    ...(entry.ringDataHash === undefined ? {} : { ringDataHash: entry.ringDataHash }),
   });
 }
 
 async function authorizeWithInputs(
   transaction: UnsignedPrivateTransaction,
   wallet: Wallet,
-  authority: WalletAuthority,
-  session: SpendSession,
+  keys: ShieldedKeys,
+  approve: ApprovalHandler,
   address: ShieldedAddress,
   inputs: readonly ProofInputUtxo[],
   setupInstructions: readonly Instruction[],
+  context: RequestContext | undefined,
 ): Promise<AuthorizedPrivateTransaction> {
   const action = transaction._action();
   let proofInputs: SppProofInputs;
@@ -163,19 +165,25 @@ async function authorizeWithInputs(
       perOutputAmount: action.perOutputAmount,
       payer: transaction.payer(),
     }).prepare();
-    const encrypted = await session.encryptSplit({
-      firstNullifier: prepared.firstNullifier,
-      viewTag: prepared.owner.confidentialViewTag(),
-      bundle: prepared.bundlePlaintext(wallet.registry),
-    });
+    const encrypted = await withTransactionKey(
+      keys,
+      prepared.firstNullifier,
+      (tx) =>
+        encryptSplit(tx, {
+          viewingPublicKey: address.viewingPublicKey,
+          viewTag: prepared.owner.confidentialViewTag(),
+          bundle: prepared.bundlePlaintext(wallet.registry),
+        }),
+      context,
+    );
     intent = {
       kind: "split",
       asset: action.asset,
       numOutputs: action.numOutputs,
       perOutputAmount: action.perOutputAmount,
     };
-    const approval = await authority.requestUserApproval({
-      solanaPublicKey: authority.solanaPublicKey(),
+    const approval = await approve({
+      solanaPublicKey: address.solanaAddress(),
       intent,
       summary: transaction._summary(),
     });
@@ -195,11 +203,13 @@ async function authorizeWithInputs(
       transfer.withdraw(action.asset, action.amount, action.target);
     }
     const prepared = transfer.prepare();
-    const encrypted = await session.encryptConfidentialTransfer({
-      firstNullifier: prepared.firstNullifier,
-      outputs: prepared.outputs,
-      assets: wallet.registry,
-    });
+    const encrypted = await withTransactionKey(
+      keys,
+      prepared.firstNullifier,
+      (tx) =>
+        encryptConfidentialTransfer(tx, { outputs: prepared.outputs, assets: wallet.registry }),
+      context,
+    );
     intent =
       action.kind === "transfer"
         ? {
@@ -214,8 +224,8 @@ async function authorizeWithInputs(
             amount: action.amount,
             recipient: withdrawalIntentRecipient(action.target),
           };
-    const approval = await authority.requestUserApproval({
-      solanaPublicKey: authority.solanaPublicKey(),
+    const approval = await approve({
+      solanaPublicKey: address.solanaAddress(),
       intent,
       summary: transaction._summary(),
     });
@@ -241,4 +251,32 @@ async function authorizeWithInputs(
   });
   checkAuthorizedBinding(material, intentMismatch);
   return mintAuthorizedPrivateTransaction(material, approvedIntentHash);
+}
+
+/**
+ * The per-transaction key exists for the one synchronous sealing step and is
+ * destroyed with it, whether `use` returns or throws. `use` is synchronous so
+ * the key cannot outlive the call.
+ * @internal
+ */
+export async function withTransactionKey<T>(
+  keys: ShieldedKeys,
+  firstNullifier: Bytes32,
+  use: (tx: ViewingKey) => T extends Promise<unknown> ? never : T,
+  context?: RequestContext,
+): Promise<T> {
+  const minted = await keys.transactionKeys(
+    [{ viewingPublicKey: keys.address().viewingPublicKey, firstNullifier }],
+    context,
+  );
+  const [tx] = minted;
+  if (minted.length !== 1 || !(tx instanceof ViewingKey)) {
+    for (const key of minted) if (key instanceof ViewingKey) key.destroy();
+    throw new TransactionError("TRANSACTION_KEYS_BATCH_MISMATCH");
+  }
+  try {
+    return use(tx);
+  } finally {
+    tx.destroy();
+  }
 }

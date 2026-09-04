@@ -944,27 +944,16 @@ export function encryptAnonymous(
   return inTransactionCategory(() => tx.encryptSlot(recipient, plaintext, salt, slotIndex));
 }
 
-export function decryptAnonymous(
-  key: ViewingKeyLike,
-  txViewingPublicKey: P256PublicKey,
-  ciphertext: Uint8Array,
-  salt: Bytes16,
-  slotIndex: number,
-): Uint8Array {
-  return inTransactionCategory(() =>
-    key.decryptUtxo(ciphertext, txViewingPublicKey, salt, slotIndex),
-  );
-}
-
 export const encryptSplit = encryptAnonymous;
-export const decryptSplit = decryptAnonymous;
 
 /**
  * The published body carries the counterparty key in front of the ciphertext.
  * Rust reports a body too short to hold one as `InvalidLength { expected: 33 }`
  * even though 33 is a minimum, so the detail keys match across the two.
  */
-function splitEmbeddedKey(body: Uint8Array): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
+export function splitEmbeddedKey(
+  body: Uint8Array,
+): Readonly<{ key: P256PublicKey; rest: Uint8Array }> {
   if (body.length < 33) {
     throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
       expected: 33,
@@ -995,19 +984,6 @@ function inTransactionCategory<T>(run: () => T): T {
       typeof code === "string" ? { keypair: code } : {},
     );
   }
-}
-
-export function decryptConfidential(
-  key: ViewingKeyLike,
-  txViewingPublicKey: P256PublicKey,
-  body: Uint8Array,
-  salt: Bytes16,
-  slotIndex: number,
-): ConfidentialOutputPlaintext {
-  const { rest } = inTransactionCategory(() => splitEmbeddedKey(body));
-  return decodeConfidential(
-    inTransactionCategory(() => key.decryptUtxo(rest, txViewingPublicKey, salt, slotIndex)),
-  );
 }
 
 export function decryptConfidentialAsSender(

@@ -5,12 +5,34 @@ export type {
   IndexerReader,
   KitRpcAccess,
   MergeAssembler,
-  MergeMaterialInput,
+  MergeInputs,
+  ProofAuthority,
   ProofReader,
+  ProofService,
   ProvedMerge,
+  ProverInputs,
   TransactionAssembler,
   TreeContext,
+  WalletKeys,
 } from "@heliuslabs/zolana/client";
+export { LocalKeys } from "@heliuslabs/zolana/client";
+export type {
+  DecryptRequest,
+  DeriveRequest,
+  ShieldedKeys,
+  TransactionKeyRequest,
+} from "@heliuslabs/zolana/transaction";
+export {
+  LocalShieldedKeys,
+  approveUnattended,
+  encryptConfidentialTransfer,
+} from "@heliuslabs/zolana/transaction";
+export {
+  LocalKeys as RootLocalKeys,
+  LocalShieldedKeys as RootLocalShieldedKeys,
+  type ShieldedKeys as RootShieldedKeys,
+  type WalletKeys as RootWalletKeys,
+} from "@heliuslabs/zolana";
 export type {
   DepositClient,
   MergeClient,

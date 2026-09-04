@@ -5,8 +5,6 @@ import type {
   RequestContext,
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
-import { NullifierKey } from "../../keypair/nullifier-key.js";
-import { ShieldedPublicKey } from "../../keypair/public-key.js";
 import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
 
 import type { ProofReader } from "../ports.js";
@@ -31,11 +29,6 @@ import type { Field, MergeInputs, TransferInput } from "./types.js";
 
 const MERGE_INSTRUCTION_TAG = 13;
 
-export interface MergeMaterialInput {
-  readonly signingPublicKey: ShieldedPublicKey;
-  readonly nullifierKey: NullifierKey;
-}
-
 export interface MergeAssembly {
   readonly proverInputs: MergeInputs;
   readonly expiryUnixTs: bigint;
@@ -54,21 +47,20 @@ export interface MergeAssembly {
 
 export async function assembleMerge(
   prepared: PreparedMerge,
-  material: MergeMaterialInput,
   indexer: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">,
   tree: Address,
   context?: RequestContext,
 ): Promise<MergeAssembly> {
   try {
-    validateMergeMaterial(prepared, material);
-    const dummyNullifiers = prepared.dummyNullifiers(material.nullifierKey);
+    validatePreparedMerge(prepared);
+    const dummyNullifiers = prepared.dummyNullifiers();
     const [proofs, dummyResponse] = await Promise.all([
       indexer.getInputMerkleProofs(prepared.inputUtxoHashes(), undefined, context),
       dummyNullifiers.length === 0
         ? Promise.resolve(undefined)
         : indexer.getNonInclusionProofs(tree, dummyNullifiers, undefined, context),
     ]);
-    return assembleMergeUnchecked(prepared, material, proofs, dummyResponse?.proofs ?? [], tree);
+    return assembleMergeUnchecked(prepared, proofs, dummyResponse?.proofs ?? [], tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -76,13 +68,12 @@ export async function assembleMerge(
 
 export function assembleMergeWithProofs(
   prepared: PreparedMerge,
-  material: MergeMaterialInput,
   proofs: readonly SpendProof[],
   tree: Address,
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
 ): MergeAssembly {
   try {
-    return assembleMergeUnchecked(prepared, material, proofs, dummyNullifierProofs, tree);
+    return assembleMergeUnchecked(prepared, proofs, dummyNullifierProofs, tree);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -90,12 +81,11 @@ export function assembleMergeWithProofs(
 
 function assembleMergeUnchecked(
   prepared: PreparedMerge,
-  material: MergeMaterialInput,
   proofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
   tree: Address,
 ): MergeAssembly {
-  validateMergeMaterial(prepared, material);
+  validatePreparedMerge(prepared);
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
   if (proofs.length !== realInputs.length) {
     throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
@@ -103,7 +93,7 @@ function assembleMergeUnchecked(
     });
   }
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
-  const dummyNullifiers = prepared.dummyNullifiers(material.nullifierKey);
+  const dummyNullifiers = prepared.dummyNullifiers();
   if (dummyNullifierProofs.length !== dummyNullifiers.length) {
     throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
       details: {
@@ -230,10 +220,7 @@ function assembleMergeUnchecked(
     output,
     ownerPublicKeyHash: asField(ownerPublicKeyHash),
     userNullifierPublicKey: asField(
-      bytesField(material.nullifierKey.publicKey(), "merge nullifier public key"),
-    ),
-    userNullifierSecret: asField(
-      bytesField(material.nullifierKey.secretBytes(), "merge nullifier secret"),
+      bytesField(prepared.nullifierPublicKey, "merge nullifier public key"),
     ),
     externalDataHash: asField(bytesToBigInt(externalDataHash)),
     privateTxHash: asField(bytesToBigInt(privateTxHash)),
@@ -279,26 +266,22 @@ function assembleMergeUnchecked(
   });
 }
 
-function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialInput): void {
+function validatePreparedMerge(prepared: PreparedMerge): void {
   if (!(prepared instanceof PreparedMerge)) throw new ClientError("CLIENT_INVALID_MERGE");
-  if (
-    !(material.signingPublicKey instanceof ShieldedPublicKey) ||
-    !(material.nullifierKey instanceof NullifierKey)
-  ) {
-    throw new ClientError("CLIENT_INVALID_MERGE_MATERIAL");
-  }
   if (prepared.inputs.length !== MERGE_INPUTS) {
     throw new ClientError("CLIENT_INVALID_MERGE_SHAPE", {
       details: { expected: MERGE_INPUTS, actual: prepared.inputs.length },
     });
   }
-  if (!equal(prepared.signingPublicKey.toBytes(), material.signingPublicKey.toBytes())) {
-    throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
-  }
-  const expectedNullifierPublicKey = material.nullifierKey.publicKey();
   prepared.inputs.forEach((input) => {
-    if (!input.isDummy() && !equal(input.nullifierKey.publicKey(), expectedNullifierPublicKey)) {
+    if (!input.isDummy() && !equal(input.nullifierPublicKey, prepared.nullifierPublicKey)) {
       throw new ClientError("CLIENT_MERGE_NULLIFIER_KEY_MISMATCH");
+    }
+    if (
+      !input.isDummy() &&
+      !equal(input.utxo.owner.toBytes(), prepared.signingPublicKey.toBytes())
+    ) {
+      throw new ClientError("CLIENT_MERGE_SIGNING_KEY_MISMATCH");
     }
   });
 }
