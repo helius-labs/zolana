@@ -1,16 +1,16 @@
 //! Account layouts, instruction data, and audit statement hashing of the
 //! custom ring program, shared by the program, the SDK, and the services.
 
-pub mod audit;
+pub mod base_public_input;
 #[cfg(feature = "verifying-keys")]
-pub mod audit_verifying_key;
+pub mod base_verifying_key;
 pub mod instruction;
-pub mod public_input;
-pub mod state;
+pub mod policy_public_input;
 #[cfg(feature = "verifying-keys")]
-pub mod verifying_key;
+pub mod policy_verifying_key;
+pub mod state;
 
-pub use audit::{pack32_to_2fe, pack33_to_2fe, AuditPublicInput, FieldPair};
+pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use instruction::{
     tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,
     PolicyTableIxData, ReaderIxData, SetPausedIxData, SetPolicySourceIxData, SourceSpec,
@@ -20,7 +20,7 @@ pub use instruction::{
     SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
     SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
-pub use public_input::CustomRingPublicInput;
+pub use policy_public_input::CustomRingPolicyPublicInput;
 pub use state::{
     PolicyConfig, ReadAccessRecord, RingProgramConfig, SourceSlot, CONFIG_PDA_SEED, N_SOURCE_SLOTS,
     POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,

@@ -23,7 +23,8 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.TransferRingAuthorityCircuitType, "zk_transfer_queue"},
 		{common.MergeCircuitType, "zk_transfer_queue"},
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
-		{common.CustomRingCircuitType, "zk_custom_ring_queue"},
+		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
+		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
@@ -44,7 +45,7 @@ func TestCustomRingWorkerRejectsOtherCircuits(t *testing.T) {
 
 func TestCustomRingFailureDetailsDoNotContainWitnessData(t *testing.T) {
 	const marker = "private-witness-marker"
-	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring","txViewingSk":"` + marker + `"}`)}
+	job := &ProofJob{Payload: json.RawMessage(`{"circuitType":"custom-ring-base","txViewingSk":"` + marker + `"}`)}
 
 	worker := &BaseQueueWorker{queueName: "zk_custom_ring_queue"}
 	details := worker.failureDetails(job, errors.New(marker))
@@ -65,17 +66,26 @@ func TestCustomRingCachedFailureDoesNotContainWitnessData(t *testing.T) {
 }
 
 func TestCustomRingIsServedOnEveryRail(t *testing.T) {
-	if (proveHandler{}).shouldUseQueueForCircuit(common.CustomRingCircuitType) {
-		t.Fatal("custom ring routed to a queue the server does not have")
-	}
-	queued := proveHandler{enableQueue: true, redisQueue: &RedisQueue{}}
-	if !queued.shouldUseQueueForCircuit(common.CustomRingCircuitType) {
-		t.Fatal("custom ring skipped the queue the server has")
-	}
-	for _, circuit := range servedCircuits() {
-		if circuit == common.CustomRingCircuitType {
-			return
+	for _, want := range []common.CircuitType{
+		common.CustomRingBaseCircuitType,
+		common.CustomRingPolicyCircuitType,
+	} {
+		if (proveHandler{}).shouldUseQueueForCircuit(want) {
+			t.Fatalf("%s routed to a queue the server does not have", want)
+		}
+		queued := proveHandler{enableQueue: true, redisQueue: &RedisQueue{}}
+		if !queued.shouldUseQueueForCircuit(want) {
+			t.Fatalf("%s skipped the queue the server has", want)
+		}
+		found := false
+		for _, circuit := range servedCircuits() {
+			if circuit == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s missing from the served circuits", want)
 		}
 	}
-	t.Fatal("custom ring missing from the served circuits")
 }

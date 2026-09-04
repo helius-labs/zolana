@@ -21,8 +21,8 @@ import { equal } from "../transaction/internal.js";
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
 import type { ProverHealth } from "./prover/client.js";
 import type {
-  CustomRingAuditRequest,
-  CustomRingProofRequest,
+  CustomRingBaseProofRequest,
+  CustomRingPolicyProofRequest,
   RingTransactRoots,
 } from "./prover/types.js";
 import type {
@@ -112,9 +112,12 @@ export interface Prover {
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
-  proveCustomRing(inputs: CustomRingProofRequest, context?: RequestContext): Promise<Uint8Array>;
-  proveCustomRingAudit(
-    inputs: CustomRingAuditRequest,
+  proveCustomRingPolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingBase(
+    inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;

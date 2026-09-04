@@ -10,7 +10,7 @@ import (
 	"zolana/prover/prover/common"
 )
 
-func ProveCustomRing(ps *common.RingProofSystem, params *CustomRingParameters) (*common.Proof, error) {
+func ProvePolicy(ps *common.RingProofSystem, params *PolicyParameters) (*common.Proof, error) {
 	assignment, err := params.CreateWitness()
 	if err != nil {
 		return nil, err

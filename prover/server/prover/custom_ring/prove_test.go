@@ -9,7 +9,7 @@ import (
 	"github.com/consensys/gnark/backend/groth16"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
@@ -28,9 +28,9 @@ var auditChainElements = [7]string{
 }
 
 func TestCustomRingProofVerifies(t *testing.T) {
-	loadedSystem := loadRingSystem(t, common.CustomRingKeyFile)
+	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
 	params := rulesFreeParams(t)
-	proof, err := ProveCustomRing(loadedSystem, params)
+	proof, err := ProvePolicy(loadedSystem, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,9 +48,9 @@ func TestCustomRingProofVerifies(t *testing.T) {
 }
 
 func TestAuditProofVerifies(t *testing.T) {
-	ps := loadRingSystem(t, common.AuditKeyFile)
-	params := auditParams(t)
-	proof, err := ProveAudit(ps, params)
+	ps := loadRingSystem(t, common.CustomRingBaseKeyFile)
+	params := baseParams(t)
+	proof, err := ProveBase(ps, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +67,11 @@ func TestAuditProofVerifies(t *testing.T) {
 	}
 }
 
-// auditParams builds the audit statement over the same fixture scalars as
+// baseParams builds the audit statement over the same fixture scalars as
 // auditChainElements, the private_tx_hash a pass-through.
-func auditParams(t *testing.T) *AuditParameters {
+func baseParams(t *testing.T) *BaseParameters {
 	t.Helper()
-	p := &AuditParameters{
+	p := &BaseParameters{
 		PrivateTxHash: big.NewInt(0xabcdef),
 		TxViewingSk:   testScalar(0x11),
 		EphSk:         testScalar(0x22),
@@ -96,9 +96,9 @@ func auditParams(t *testing.T) *AuditParameters {
 
 // rulesFreeParams opens a one input one output transfer against a length zero
 // rule table with every answer slot disabled.
-func rulesFreeParams(t *testing.T) *CustomRingParameters {
+func rulesFreeParams(t *testing.T) *PolicyParameters {
 	t.Helper()
-	p := &CustomRingParameters{
+	p := &PolicyParameters{
 		NIn:              1,
 		NOut:             1,
 		AddressChain:     big.NewInt(0x77),
@@ -161,7 +161,7 @@ func rulesFreeParams(t *testing.T) *CustomRingParameters {
 	})
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
-	policyElements := []*big.Int{tableDomain, big.NewInt(transfer.PolicyVersion)}
+	policyElements := []*big.Int{tableDomain, big.NewInt(policy.PolicyVersion)}
 	for range p.Sources {
 		policyElements = append(policyElements, big.NewInt(0), big.NewInt(0))
 	}

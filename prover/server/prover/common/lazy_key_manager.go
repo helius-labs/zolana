@@ -32,8 +32,8 @@ func NewLazyKeyManager(keysDir string, downloadConfig *DownloadConfig) *LazyKeyM
 	}
 }
 
-func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType, variant string) (*RingProofSystem, error) {
-	key := fmt.Sprintf("%s_%s", circuitType, variant)
+func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType) (*RingProofSystem, error) {
+	key := string(circuitType)
 	m.mu.RLock()
 	if ps, exists := m.ringSystems[key]; exists {
 		m.mu.RUnlock()
@@ -54,9 +54,9 @@ func (m *LazyKeyManager) GetRingSystem(circuitType CircuitType, variant string) 
 	}
 	defer m.releaseLoadingLock(key, loadChan)
 
-	keyPath := m.determineRingKeyPath(circuitType, variant)
+	keyPath := m.determineRingKeyPath(circuitType)
 	if keyPath == "" {
-		return nil, fmt.Errorf("no key file mapping for %s variant %s", circuitType, variant)
+		return nil, fmt.Errorf("no key file mapping for circuit %s", circuitType)
 	}
 	if err := EnsureProvingKey(keyPath, m.downloadConfig.AutoDownload, m.downloadConfig); err != nil {
 		return nil, fmt.Errorf("failed to download key %s: %w", keyPath, err)
@@ -310,12 +310,12 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	return ""
 }
 
-func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType, variant string) string {
-	if circuitType == CustomRingCircuitType && variant == "transfer" {
-		return m.keyPath(CustomRingKeyFile)
+func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
+	if circuitType == CustomRingPolicyCircuitType {
+		return m.keyPath(CustomRingPolicyKeyFile)
 	}
-	if circuitType == CustomRingCircuitType && variant == "audit" {
-		return m.keyPath(AuditKeyFile)
+	if circuitType == CustomRingBaseCircuitType {
+		return m.keyPath(CustomRingBaseKeyFile)
 	}
 	return ""
 }
@@ -455,8 +455,7 @@ func (m *LazyKeyManager) cacheSystem(system interface{}) error {
 			Msg("Cached TransferProofSystem")
 
 	case *RingProofSystem:
-		key := fmt.Sprintf("%s_%s", ps.CircuitType, ps.Variant)
-		m.ringSystems[key] = ps
+		m.ringSystems[string(ps.CircuitType)] = ps
 
 	default:
 		return fmt.Errorf("unknown system type: %T", system)

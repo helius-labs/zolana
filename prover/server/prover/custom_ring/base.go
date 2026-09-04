@@ -12,26 +12,24 @@ import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
 
-	customring "zolana/prover/circuits/custom_ring"
+	base "zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/prover/common"
 )
 
 // The audit-only rail proves just the audit block, the same eight-element
 // statement the folded circuit carries as its prefix.
 
-const AuditVariant = "audit"
-
-func R1CSAudit() (constraint.ConstraintSystem, error) {
+func R1CSBase() (constraint.ConstraintSystem, error) {
 	return frontend.Compile(
 		ecc.BN254.ScalarField(),
 		r1cs.NewBuilder,
-		&customring.Circuit{},
+		&base.CustomRingBaseCircuit{},
 		frontend.WithCompressThreshold(300),
 	)
 }
 
-func SetupAudit() (*common.RingProofSystem, error) {
-	ccs, err := R1CSAudit()
+func SetupBase() (*common.RingProofSystem, error) {
+	ccs, err := R1CSBase()
 	if err != nil {
 		return nil, err
 	}
@@ -40,17 +38,16 @@ func SetupAudit() (*common.RingProofSystem, error) {
 		return nil, err
 	}
 	return &common.RingProofSystem{
-		CircuitType:      common.CustomRingCircuitType,
-		Variant:          AuditVariant,
+		CircuitType:      common.CustomRingBaseCircuitType,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,
 	}, nil
 }
 
-// AuditParameters is the audit statement witness, the prefix of the folded
-// CustomRingParameters.
-type AuditParameters struct {
+// BaseParameters is the audit statement witness, the prefix of the folded
+// PolicyParameters.
+type BaseParameters struct {
 	PublicInputHash *big.Int
 	PrivateTxHash   *big.Int
 	TxViewingSk     [scalarLen]byte
@@ -58,9 +55,8 @@ type AuditParameters struct {
 	AuditorPk       [uncompressedPubkeyLen]byte
 }
 
-type auditParametersJSON struct {
+type baseParametersJSON struct {
 	CircuitType     string `json:"circuitType"`
-	Variant         string `json:"variant"`
 	PublicInputHash string `json:"publicInputHash"`
 	PrivateTxHash   string `json:"privateTxHash"`
 	TxViewingSk     string `json:"txViewingSk"`
@@ -68,10 +64,9 @@ type auditParametersJSON struct {
 	AuditorPk       string `json:"auditorPk"`
 }
 
-func (p *AuditParameters) MarshalJSON() ([]byte, error) {
-	return json.Marshal(auditParametersJSON{
-		CircuitType:     string(common.CustomRingCircuitType),
-		Variant:         AuditVariant,
+func (p *BaseParameters) MarshalJSON() ([]byte, error) {
+	return json.Marshal(baseParametersJSON{
+		CircuitType:     string(common.CustomRingBaseCircuitType),
 		PublicInputHash: common.ToHex(p.PublicInputHash),
 		PrivateTxHash:   common.ToHex(p.PrivateTxHash),
 		TxViewingSk:     bytesHex(p.TxViewingSk[:]),
@@ -80,16 +75,13 @@ func (p *AuditParameters) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (p *AuditParameters) UnmarshalJSON(data []byte) error {
-	var raw auditParametersJSON
+func (p *BaseParameters) UnmarshalJSON(data []byte) error {
+	var raw baseParametersJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.CircuitType != string(common.CustomRingCircuitType) {
-		return fmt.Errorf("custom-ring: unexpected circuitType %q", raw.CircuitType)
-	}
-	if raw.Variant != AuditVariant {
-		return fmt.Errorf("custom-ring: unexpected variant %q", raw.Variant)
+	if raw.CircuitType != string(common.CustomRingBaseCircuitType) {
+		return fmt.Errorf("custom-ring-base: unexpected circuitType %q", raw.CircuitType)
 	}
 	var err error
 	if p.PublicInputHash, err = fieldFromHex(raw.PublicInputHash, "publicInputHash"); err != nil {
@@ -119,11 +111,11 @@ func (p *AuditParameters) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (p *AuditParameters) CreateWitness() (*customring.Circuit, error) {
+func (p *BaseParameters) CreateWitness() (*base.CustomRingBaseCircuit, error) {
 	if p.PublicInputHash == nil || p.PrivateTxHash == nil {
 		return nil, fmt.Errorf("custom-ring: missing hash")
 	}
-	circuit := &customring.Circuit{
+	circuit := &base.CustomRingBaseCircuit{
 		PublicInputHash: p.PublicInputHash,
 		PrivateTxHash:   p.PrivateTxHash,
 	}
@@ -133,7 +125,7 @@ func (p *AuditParameters) CreateWitness() (*customring.Circuit, error) {
 	return circuit, nil
 }
 
-func ProveAudit(ps *common.RingProofSystem, params *AuditParameters) (*common.Proof, error) {
+func ProveBase(ps *common.RingProofSystem, params *BaseParameters) (*common.Proof, error) {
 	assignment, err := params.CreateWitness()
 	if err != nil {
 		return nil, err

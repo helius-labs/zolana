@@ -75,7 +75,7 @@ describe("ring audit encryption", () => {
     );
   });
 
-  it("hashes the audit statement to the eight-element prefix like Rust `AuditPublicInput::hash`", () => {
+  it("hashes the audit statement like Rust `CustomRingBasePublicInput::hash`", () => {
     expect(
       auditPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,

@@ -174,13 +174,13 @@ impl RingKeySource {
 const RING_KEY_SOURCES: [RingKeySource; 2] = [
     RingKeySource {
         section: "proving_key",
-        prover_file: "custom_ring.key",
-        asset_stem: "custom-ring-key",
+        prover_file: "custom_ring_policy.key",
+        asset_stem: "custom-ring-policy-key",
     },
     RingKeySource {
         section: "audit_key",
-        prover_file: "audit.key",
-        asset_stem: "custom-ring-audit-key",
+        prover_file: "custom_ring_base.key",
+        asset_stem: "custom-ring-base-key",
     },
 ];
 
@@ -932,8 +932,8 @@ mod tests {
             staged_asset_paths(Path::new("/stage"), &lock),
             vec![
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
-                PathBuf::from("/stage/custom-ring-key-v1.key"),
-                PathBuf::from("/stage/custom-ring-audit-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-base-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );

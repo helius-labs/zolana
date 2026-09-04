@@ -175,8 +175,8 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
-/** Mirrors Rust `CustomRingProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
-export interface CustomRingProofRequest {
+/** Policy custom-ring proof request; `auditorPublicKey` is an uncompressed SEC1 point. */
+export interface CustomRingPolicyProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;
@@ -198,8 +198,8 @@ export interface CustomRingProofRequest {
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 
-/** Mirrors Rust `AuditProofRequest`, the no-policy subset of `CustomRingProofRequest`. */
-export interface CustomRingAuditRequest {
+/** Base custom-ring proof request, without policy enforcement. */
+export interface CustomRingBaseProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
   readonly txViewingSecret: Bytes32;

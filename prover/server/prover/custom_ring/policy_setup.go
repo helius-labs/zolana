@@ -12,14 +12,14 @@ import (
 	"zolana/prover/prover/common"
 )
 
-type ConvertCustomRing struct {
+type ConvertCustomRingPolicy struct {
 	ProvingKeyPath   string
 	VerifyingKeyPath string
 }
 
-func SetupCustomRing() (*common.RingProofSystem, error) {
-	fmt.Println("Setting up custom-ring")
-	ccs, err := R1CSCustomRing()
+func SetupPolicy() (*common.RingProofSystem, error) {
+	fmt.Println("Setting up custom-ring-policy")
+	ccs, err := R1CSPolicy()
 	if err != nil {
 		return nil, err
 	}
@@ -30,8 +30,8 @@ func SetupCustomRing() (*common.RingProofSystem, error) {
 	return proofSystem(pk, vk, ccs), nil
 }
 
-func (c ConvertCustomRing) Run() (*common.RingProofSystem, error) {
-	ccs, err := R1CSCustomRing()
+func (c ConvertCustomRingPolicy) Run() (*common.RingProofSystem, error) {
+	ccs, err := R1CSPolicy()
 	if err != nil {
 		return nil, err
 	}
@@ -60,8 +60,7 @@ func readKey(path string, key io.ReaderFrom) error {
 
 func proofSystem(pk groth16.ProvingKey, vk groth16.VerifyingKey, ccs constraint.ConstraintSystem) *common.RingProofSystem {
 	return &common.RingProofSystem{
-		CircuitType:      common.CustomRingCircuitType,
-		Variant:          TransferVariant,
+		CircuitType:      common.CustomRingPolicyCircuitType,
 		ProvingKey:       pk,
 		VerifyingKey:     vk,
 		ConstraintSystem: ccs,

@@ -1,4 +1,4 @@
-// Package audittest recomputes the audit block of package customring on the host.
+// Package audittest recomputes the audit block of package base on the host.
 package audittest
 
 import (
@@ -10,13 +10,13 @@ import (
 
 	"github.com/consensys/gnark/frontend"
 
-	customring "zolana/prover/circuits/custom_ring"
+	base "zolana/prover/circuits/custom_ring/base"
 	ve "zolana/prover/circuits/verifiable-encryption"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-// Mirrors the unexported key-schedule info string of package customring.
+// Mirrors the unexported key-schedule info string of package base.
 const auditEncInfo = "CRING/adt1"
 
 type Keys struct {
@@ -66,15 +66,15 @@ func (k Keys) WithInfinityEphScalar(value *big.Int) Keys {
 	return k
 }
 
-func (k Keys) BlockWires(privateTxHash *big.Int) customring.BlockWires {
-	w := customring.BlockWires{PrivateTxHash: privateTxHash}
+func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
+	w := base.AuditBlockWires{PrivateTxHash: privateTxHash}
 	setBytes(w.TxViewingSk[:], k.txSk[:])
 	setBytes(w.EphSk[:], k.ephSk[:])
 	setBytes(w.AuditorPk[:], k.auditorPk[:])
 	return w
 }
 
-// Chain elements 1 to 8 of package customring.
+// Chain elements 1 to 8 of package base.
 func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
 	t.Helper()
 	dhLo, dhHi := pack32(k.dh)
@@ -83,7 +83,7 @@ func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
 	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
 
 	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
-		tag(customring.DomSepCRShared),
+		tag(base.DomSepCRShared),
 		dhLo, dhHi,
 		ephLo, ephHi,
 		auditorLo, auditorHi,
@@ -143,12 +143,12 @@ func compress(t testing.TB, publicKey []byte) [33]byte {
 	return out
 }
 
-// Mirrors customring.Pack32To2FECircuit.
+// Mirrors base.Pack32To2FECircuit.
 func pack32(bytes [32]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(bytes[:31]), new(big.Int).SetUint64(uint64(bytes[31]))
 }
 
-// Mirrors customring.Pack33To2FECircuit.
+// Mirrors base.Pack33To2FECircuit.
 func pack33(key [33]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(key[:31]), new(big.Int).SetUint64(uint64(key[31])<<8 | uint64(key[32]))
 }

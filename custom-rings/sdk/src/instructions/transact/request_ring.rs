@@ -76,7 +76,7 @@ impl Default for RuleAnswer {
 /// One positional source slot, slot `i` is empty or serves list `i + 1`.
 pub use zolana_ring_policy::SourceOwner as SourceOwnerEntry;
 
-pub struct CustomRingProofRequest {
+pub struct CustomRingPolicyProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
@@ -98,8 +98,8 @@ pub struct CustomRingProofRequest {
     pub answers: Vec<RuleAnswer>,
 }
 
-/// Request for the audit statement alone, the no-policy proof.
-pub struct AuditProofRequest {
+/// Request for the base custom-ring statement, without policy enforcement.
+pub struct CustomRingBaseProofRequest {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub tx_viewing_key: ViewingKey,
@@ -107,7 +107,7 @@ pub struct AuditProofRequest {
     pub auditor_key: P256Pubkey,
 }
 
-impl ProveRequest for AuditProofRequest {
+impl ProveRequest for CustomRingBaseProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
@@ -116,9 +116,8 @@ impl ProveRequest for AuditProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = AuditProofRequestJson {
-            circuit_type: "custom-ring",
-            variant: "audit",
+        let json = CustomRingBaseProofRequestJson {
+            circuit_type: "custom-ring-base",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
             tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
@@ -127,7 +126,7 @@ impl ProveRequest for AuditProofRequest {
         };
         serde_json::to_string(&json)
             .map(Zeroizing::new)
-            .map_err(|_| ClientError::Prover("audit request serialization failed".to_string()))
+            .map_err(|_| ClientError::Prover("base request serialization failed".to_string()))
     }
 
     fn delivery(&self) -> Delivery {
@@ -136,10 +135,9 @@ impl ProveRequest for AuditProofRequest {
 }
 
 #[derive(Serialize)]
-struct AuditProofRequestJson<'a> {
+struct CustomRingBaseProofRequestJson<'a> {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
-    variant: &'static str,
     #[serde(rename = "publicInputHash")]
     public_input_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -152,7 +150,7 @@ struct AuditProofRequestJson<'a> {
     auditor_pk: String,
 }
 
-impl ProveRequest for CustomRingProofRequest {
+impl ProveRequest for CustomRingPolicyProofRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         let tx_viewing_secret = self.tx_viewing_key.secret_bytes();
         let ephemeral_secret = self.ephemeral_key.secret_bytes();
@@ -161,9 +159,8 @@ impl ProveRequest for CustomRingProofRequest {
             .to_p256()
             .map_err(|_| ClientError::Prover("invalid audit public key".to_string()))?;
         let auditor_pk = auditor_key.to_encoded_point(false);
-        let json = CustomRingProofRequestJson {
-            circuit_type: "custom-ring",
-            variant: "transfer",
+        let json = CustomRingPolicyProofRequestJson {
+            circuit_type: "custom-ring-policy",
             public_input_hash: field_hex(&self.public_input_hash),
             private_tx_hash: field_hex(&self.private_tx_hash),
             tx_viewing_sk: SecretHex(tx_viewing_secret.as_slice()),
@@ -286,10 +283,9 @@ struct RuleAnswerJson {
 }
 
 #[derive(Serialize)]
-struct CustomRingProofRequestJson<'a> {
+struct CustomRingPolicyProofRequestJson<'a> {
     #[serde(rename = "circuitType")]
     circuit_type: &'static str,
-    variant: &'static str,
     #[serde(rename = "publicInputHash")]
     public_input_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -332,8 +328,8 @@ mod tests {
 
     use super::*;
 
-    fn request() -> CustomRingProofRequest {
-        CustomRingProofRequest {
+    fn request() -> CustomRingPolicyProofRequest {
+        CustomRingPolicyProofRequest {
             public_input_hash: [1u8; 32],
             private_tx_hash: [2u8; 32],
             tx_viewing_key: ViewingKey::from_bytes(&[3u8; 32]).expect("viewing key"),
@@ -388,10 +384,9 @@ mod tests {
                 "sources",
                 "stateRoot",
                 "txViewingSk",
-                "variant",
             ]
         );
-        assert_eq!(object["circuitType"], "custom-ring");
+        assert_eq!(object["circuitType"], "custom-ring-policy");
         assert_eq!(
             object["ruleEnc"].as_array().expect("rules").len(),
             MAX_RULES

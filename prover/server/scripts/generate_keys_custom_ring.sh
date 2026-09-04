@@ -18,18 +18,18 @@ go build -o light-prover .
 (cd "$repo_root" && cargo build -q -p xtask)
 xtask="$repo_root/target/debug/xtask"
 
-echo "Generating custom-ring -> ${keys_dir}/custom_ring.key"
-./light-prover setup-custom-ring --output "$keys_dir/custom_ring.key" --vk-out "$tmp_dir/custom_ring.vkbin"
-echo "Generating audit -> ${keys_dir}/audit.key"
-./light-prover setup-audit --output "$keys_dir/audit.key" --vk-out "$tmp_dir/audit.vkbin"
+echo "Generating custom-ring-policy -> ${keys_dir}/custom_ring_policy.key"
+./light-prover setup-custom-ring-policy --output "$keys_dir/custom_ring_policy.key" --vk-out "$tmp_dir/custom_ring_policy.vkbin"
+echo "Generating custom-ring-base -> ${keys_dir}/custom_ring_base.key"
+./light-prover setup-custom-ring-base --output "$keys_dir/custom_ring_base.key" --vk-out "$tmp_dir/custom_ring_base.vkbin"
 
-for pair in custom_ring:verifying_key.rs audit:audit_verifying_key.rs; do
+for pair in custom_ring_policy:policy_verifying_key.rs custom_ring_base:base_verifying_key.rs; do
     stem="${pair%%:*}"
     module="${pair##*:}"
     "$xtask" bsb22-vk "$tmp_dir/$stem.vkbin" "$vkey_dir" "$module"
     rustfmt "$vkey_dir/$module"
 done
 
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key --release audit.key --only-release
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --only-release
 
 echo "Done. Ring proving keys in ${keys_dir}, verifying keys in ${vkey_dir}"

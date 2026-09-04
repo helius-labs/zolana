@@ -61,7 +61,7 @@ import { assemble } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { CustomRingAuditRequest, CustomRingProofRequest } from "./prover/types.js";
+import type { CustomRingBaseProofRequest, CustomRingPolicyProofRequest } from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -592,24 +592,24 @@ export class ZolanaClient
     }
   }
 
-  async proveCustomRing(
-    inputs: CustomRingProofRequest,
+  async proveCustomRingPolicy(
+    inputs: CustomRingPolicyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
     try {
-      const proof = await this.#prover.proveCustomRing(inputs, context);
+      const proof = await this.#prover.proveCustomRingPolicy(inputs, context);
       return compressProof(proof).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }
   }
 
-  async proveCustomRingAudit(
-    inputs: CustomRingAuditRequest,
+  async proveCustomRingBase(
+    inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array> {
     try {
-      const proof = await this.#prover.proveCustomRingAudit(inputs, context);
+      const proof = await this.#prover.proveCustomRingBase(inputs, context);
       return compressProof(proof).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);

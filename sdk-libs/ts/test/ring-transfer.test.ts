@@ -44,7 +44,10 @@ import {
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
 import { assemble, ownerSignerAddresses, ringOpenings } from "../src/client/prover/assembly.js";
-import type { CustomRingAuditRequest, CustomRingProofRequest } from "../src/client/prover/types.js";
+import type {
+  CustomRingBaseProofRequest,
+  CustomRingPolicyProofRequest,
+} from "../src/client/prover/types.js";
 import {
   ringAuditReader,
   ringTransferClient,
@@ -925,8 +928,8 @@ describe("ring proof folded fields", () => {
       finalized = proofInputs;
       return { data, roots: SPP_ROOTS };
     });
-    let request: CustomRingProofRequest | undefined;
-    const proveCustomRing = vi.fn(async (input: CustomRingProofRequest) => {
+    let request: CustomRingPolicyProofRequest | undefined;
+    const proveCustomRingPolicy = vi.fn(async (input: CustomRingPolicyProofRequest) => {
       request = input;
       return new Uint8Array(192);
     });
@@ -935,7 +938,7 @@ describe("ring proof folded fields", () => {
         tree: RING,
         getAccount: accounts.getAccount,
         proveRingTransact,
-        proveCustomRing,
+        proveCustomRingPolicy,
       }),
       ringProgramId: RING,
       prepared,
@@ -1011,7 +1014,7 @@ describe("ring proof folded fields", () => {
     const txHash = scalar(91);
     const data = ringInstructionData(txHash);
     let finalized: SppProofInputs | undefined;
-    let request: CustomRingAuditRequest | undefined;
+    let request: CustomRingBaseProofRequest | undefined;
 
     const proven = await proveCustomRingTransfer({
       client: ringTransferClient({
@@ -1021,7 +1024,7 @@ describe("ring proof folded fields", () => {
           finalized = proofInputs;
           return { data, roots: SPP_ROOTS };
         },
-        proveCustomRingAudit: async (input) => {
+        proveCustomRingBase: async (input) => {
           request = input;
           return new Uint8Array(192);
         },

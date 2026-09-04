@@ -6,15 +6,15 @@ use crate::{AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN};
 /// Inputs of the auditor circuit's single public input.
 ///
 /// The chain order is pinned by the circuit's package comment
-/// (`prover/server/circuits/custom_ring/circuit.go`) and is
-/// numbered 1..8 there; [`AuditPublicInput::hash`] mirrors it element for
+/// (`prover/server/circuits/custom_ring/base/circuit.go`) and is
+/// numbered 1..8 there; [`CustomRingBasePublicInput::hash`] mirrors it element for
 /// element. Recomputing the hash on-chain from values the program itself trusts
 /// -- `private_tx_hash` and `tx_viewing_pk` from the forwarded SPP content, the
 /// auditor key from the ring config account, the ephemeral key and ciphertext
 /// from the published message -- is what binds the proof to this transaction: a
 /// proof for any other transaction, viewing key, auditor, or ciphertext hashes
 /// to a different public input and fails verification.
-pub struct AuditPublicInput<'a> {
+pub struct CustomRingBasePublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     pub tx_viewing_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
     pub auditor_pk: &'a [u8; COMPRESSED_P256_KEY_LEN],
@@ -28,7 +28,7 @@ pub struct FieldPair {
     pub hi: [u8; 32],
 }
 
-impl AuditPublicInput<'_> {
+impl CustomRingBasePublicInput<'_> {
     /// Input order binds the audit statement.
     /// `HashChain([private_tx_hash, tx_pk_lo, tx_pk_hi, auditor_lo, auditor_hi,
     /// eph_lo, eph_hi, ct_hash])`.

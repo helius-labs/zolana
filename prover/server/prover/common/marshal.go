@@ -287,10 +287,9 @@ func (ps *RingProofSystem) UnsafeReadFrom(r io.Reader) (int64, error) {
 
 func ReadSystemFromFile(path string) (interface{}, error) {
 	lowerPath := strings.ToLower(path)
-	if filepath.Base(lowerPath) == AuditKeyFile {
+	if filepath.Base(lowerPath) == CustomRingBaseKeyFile {
 		ps := &RingProofSystem{
-			CircuitType: CustomRingCircuitType,
-			Variant:     "audit",
+			CircuitType: CustomRingBaseCircuitType,
 		}
 		file, err := os.Open(path)
 		if err != nil {
@@ -303,10 +302,9 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		return ps, nil
 	}
-	if filepath.Base(lowerPath) == CustomRingKeyFile {
+	if filepath.Base(lowerPath) == CustomRingPolicyKeyFile {
 		ps := &RingProofSystem{
-			CircuitType: CustomRingCircuitType,
-			Variant:     "transfer",
+			CircuitType: CustomRingPolicyCircuitType,
 		}
 		file, err := os.Open(path)
 		if err != nil {

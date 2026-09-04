@@ -24,7 +24,7 @@
 //! [`CustomRingProofParams`]) and invalidates an SPP proof taken over the first
 //! message, so it is called once per transaction.
 
-use custom_ring_interface::{AuditPublicInput, CustomRingProof};
+use custom_ring_interface::{CustomRingBasePublicInput, CustomRingProof};
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{ClientError, Proof, ProofCompressed};
@@ -134,7 +134,7 @@ impl CustomRingProofParams {
 
 /// An encryption waiting for the `private_tx_hash` it will be bound to.
 impl PendingCustomRingProof {
-    /// The public input recomputed from `CustomRingPublicInput`, the one
+    /// The public input recomputed from `CustomRingPolicyPublicInput`, the one
     /// implementation the program calls on-chain, so a folded request cannot
     /// drift from what verification recomputes.
     /// The circuit recomputes `private_tx_hash` over the chains and the
@@ -145,8 +145,10 @@ impl PendingCustomRingProof {
         external_data_hash: &[u8; 32],
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
-    ) -> Result<crate::instructions::transact::CustomRingProofRequest, CustomRingProofInputError>
-    {
+    ) -> Result<
+        crate::instructions::transact::CustomRingPolicyProofRequest,
+        CustomRingProofInputError,
+    > {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -154,8 +156,8 @@ impl PendingCustomRingProof {
             ephemeral_sk,
             message,
         } = self;
-        let public_input_hash = custom_ring_interface::CustomRingPublicInput {
-            audit: AuditPublicInput {
+        let public_input_hash = custom_ring_interface::CustomRingPolicyPublicInput {
+            audit: CustomRingBasePublicInput {
                 private_tx_hash: private_tx_hash.as_ref(),
                 tx_viewing_pk: tx_viewing_pk.as_bytes(),
                 auditor_pk: auditor_pk.as_bytes(),
@@ -169,40 +171,43 @@ impl PendingCustomRingProof {
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
 
-        Ok(crate::instructions::transact::CustomRingProofRequest {
-            public_input_hash,
-            private_tx_hash: *private_tx_hash.as_ref(),
-            tx_viewing_key,
-            ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
-            auditor_key: auditor_pk,
-            n_in: witness.n_in,
-            n_out: witness.n_out,
-            inputs: witness.inputs,
-            outputs: witness.outputs,
-            // SPP folds a zero address slot per input into `private_tx_hash`.
-            address_chain: zolana_hasher::hash_chain::create_hash_chain_from_slice(&vec![
+        Ok(
+            crate::instructions::transact::CustomRingPolicyProofRequest {
+                public_input_hash,
+                private_tx_hash: *private_tx_hash.as_ref(),
+                tx_viewing_key,
+                ephemeral_key: ViewingKey::from_bytes(&ephemeral_sk)?,
+                auditor_key: auditor_pk,
+                n_in: witness.n_in,
+                n_out: witness.n_out,
+                inputs: witness.inputs,
+                outputs: witness.outputs,
+                // SPP folds a zero address slot per input into `private_tx_hash`.
+                address_chain: zolana_hasher::hash_chain::create_hash_chain_from_slice(&vec![
                 [0u8; 32];
                 witness.n_in
                     as usize
             ])
-            .map_err(|_| CustomRingProofInputError::Hashing)?,
-            external_data_hash: *external_data_hash,
-            sources: witness.sources,
-            policy_len: witness.policy_len,
-            rules: witness.rules,
-            inline_assets: witness.inline_assets,
-            inline_count: witness.inline_count,
-            state_root: witness.roots.state,
-            nullifier_root: witness.roots.nullifier,
-            answers: witness.answers,
-        })
+                .map_err(|_| CustomRingProofInputError::Hashing)?,
+                external_data_hash: *external_data_hash,
+                sources: witness.sources,
+                policy_len: witness.policy_len,
+                rules: witness.rules,
+                inline_assets: witness.inline_assets,
+                inline_count: witness.inline_count,
+                state_root: witness.roots.state,
+                nullifier_root: witness.roots.nullifier,
+                answers: witness.answers,
+            },
+        )
     }
 
     /// Proves the audit statement alone over the unchanged ciphertext.
-    pub fn finish_audit(
+    pub fn finish_base(
         self,
         private_tx_hash: CustomRingPrivateTxHash,
-    ) -> Result<crate::instructions::transact::AuditProofRequest, CustomRingProofInputError> {
+    ) -> Result<crate::instructions::transact::CustomRingBaseProofRequest, CustomRingProofInputError>
+    {
         let Self {
             tx_viewing_key,
             tx_viewing_pk,
@@ -210,7 +215,7 @@ impl PendingCustomRingProof {
             ephemeral_sk,
             message,
         } = self;
-        let public_input_hash = AuditPublicInput {
+        let public_input_hash = CustomRingBasePublicInput {
             private_tx_hash: private_tx_hash.as_ref(),
             tx_viewing_pk: tx_viewing_pk.as_bytes(),
             auditor_pk: auditor_pk.as_bytes(),
@@ -220,7 +225,7 @@ impl PendingCustomRingProof {
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
 
-        Ok(crate::instructions::transact::AuditProofRequest {
+        Ok(crate::instructions::transact::CustomRingBaseProofRequest {
             public_input_hash,
             private_tx_hash: *private_tx_hash.as_ref(),
             tx_viewing_key,
@@ -252,7 +257,7 @@ mod tests {
     use super::super::{CustomRingOpening, SourceOwnerEntry};
     use super::*;
     use crate::witness::{CustomRingWitness, TransactRoots};
-    use custom_ring_interface::CustomRingPublicInput;
+    use custom_ring_interface::CustomRingPolicyPublicInput;
     use zolana_ring_policy::{
         MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
     };
@@ -321,8 +326,8 @@ mod tests {
             )
             .expect("finish");
 
-        let expected = CustomRingPublicInput {
-            audit: AuditPublicInput {
+        let expected = CustomRingPolicyPublicInput {
+            audit: CustomRingBasePublicInput {
                 private_tx_hash: &private_tx_hash,
                 tx_viewing_pk: tx_pk.as_bytes(),
                 auditor_pk: auditor_pk.as_bytes(),

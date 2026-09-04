@@ -18,8 +18,8 @@ func TestRingKeysCarryTheCompiledCircuits(t *testing.T) {
 		file    string
 		compile func() (constraint.ConstraintSystem, error)
 	}{
-		{name: TransferVariant, file: common.CustomRingKeyFile, compile: R1CSCustomRing},
-		{name: AuditVariant, file: common.AuditKeyFile, compile: R1CSAudit},
+		{name: string(common.CustomRingPolicyCircuitType), file: common.CustomRingPolicyKeyFile, compile: R1CSPolicy},
+		{name: string(common.CustomRingBaseCircuitType), file: common.CustomRingBaseKeyFile, compile: R1CSBase},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

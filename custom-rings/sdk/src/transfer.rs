@@ -41,9 +41,9 @@ use zolana_tree::{TreeAccount, TreeError};
 use crate::{
     policy_config_table, to_instruction_proof,
     witness::{CustomRingWitness, CustomRingWitnessInput, TransactRoots},
-    AccountReadError, AuditProofRequest, CustomRing, CustomRingProof, CustomRingProofError,
-    CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest, CustomRingTransact,
-    Deposit, EncryptedAudit, PendingCustomRingProof, PolicyMatchError,
+    AccountReadError, CustomRing, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
+    CustomRingProof, CustomRingProofError, CustomRingProofInputError, CustomRingProofParams,
+    CustomRingTransact, Deposit, EncryptedAudit, PendingCustomRingProof, PolicyMatchError,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -270,7 +270,7 @@ impl<'a> CustomRingTransfer<'a> {
         let tier = if config.has_policy {
             staged.policy_tier(&environment)?
         } else {
-            Tier::Audit
+            Tier::Base
         };
         let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
         let spp_proof =
@@ -315,7 +315,7 @@ impl<'a> CustomRingTransfer<'a> {
         let tier = if config.has_policy {
             staged.policy_tier_async(&environment).await?
         } else {
-            Tier::Audit
+            Tier::Base
         };
         let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
         // Both witnesses are complete, and neither proof is an input to the
@@ -408,7 +408,7 @@ impl<'a> CustomRingTransfer<'a> {
 /// A policy ring proves the folded statement over its entries-tree roots, an
 /// audit-only ring proves the audit statement alone.
 enum Tier {
-    Audit,
+    Base,
     Policy {
         policy_hash: [u8; 32],
         entries_tree: Address,
@@ -522,7 +522,7 @@ impl StagedTransfer {
         .build()?;
         let private_tx_hash = ring_result.private_tx_hash.try_into()?;
         let request = match tier {
-            Tier::Audit => TierRequest::Audit(self.pending_proof.finish_audit(private_tx_hash)?),
+            Tier::Base => TierRequest::Base(self.pending_proof.finish_base(private_tx_hash)?),
             Tier::Policy {
                 policy_hash,
                 entries_tree,
@@ -566,9 +566,9 @@ impl StagedTransfer {
 /// The tier's prover request, with the accounts and roots the instruction binds
 /// for it.
 enum TierRequest {
-    Audit(AuditProofRequest),
+    Base(CustomRingBaseProofRequest),
     Policy {
-        request: Box<CustomRingProofRequest>,
+        request: Box<CustomRingPolicyProofRequest>,
         entries_tree: Address,
         roots: TransactRoots,
     },
@@ -577,14 +577,14 @@ enum TierRequest {
 impl ProveRequest for TierRequest {
     fn body(&self) -> Result<Zeroizing<String>, ClientError> {
         match self {
-            Self::Audit(request) => request.body(),
+            Self::Base(request) => request.body(),
             Self::Policy { request, .. } => request.body(),
         }
     }
 
     fn delivery(&self) -> Delivery {
         match self {
-            Self::Audit(request) => request.delivery(),
+            Self::Base(request) => request.delivery(),
             Self::Policy { request, .. } => request.delivery(),
         }
     }
@@ -594,7 +594,7 @@ impl TierRequest {
     fn proven(self, proof: Proof) -> Result<TierProof, TransferError> {
         let proof = to_instruction_proof(proof)?;
         Ok(match self {
-            Self::Audit(_) => TierProof::Audit(proof),
+            Self::Base(_) => TierProof::Base(proof),
             Self::Policy {
                 entries_tree,
                 roots,
@@ -610,7 +610,7 @@ impl TierRequest {
 
 /// The tier's proof in the instruction's wire encoding.
 enum TierProof {
-    Audit(CustomRingProof),
+    Base(CustomRingProof),
     Policy {
         proof: CustomRingProof,
         entries_tree: Address,
@@ -643,7 +643,7 @@ impl WitnessedTransfer {
         ring: TierProof,
     ) -> Result<ProvenTransfer, TransferError> {
         let (proof, entries_tree, state_root_index, nullifier_root_index) = match ring {
-            TierProof::Audit(proof) => (proof, None, 0, 0),
+            TierProof::Base(proof) => (proof, None, 0, 0),
             TierProof::Policy {
                 proof,
                 entries_tree,

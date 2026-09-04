@@ -12,12 +12,12 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 
-	"zolana/prover/circuits/custom_ring/transfer"
+	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/circuits/verifiable-encryption/p256"
 )
 
-func sampleAuditParams() *AuditParameters {
-	p := &AuditParameters{
+func sampleBaseParams() *BaseParameters {
+	p := &BaseParameters{
 		PublicInputHash: big.NewInt(0x1234),
 		PrivateTxHash:   big.NewInt(0xabcdef),
 	}
@@ -29,14 +29,14 @@ func sampleAuditParams() *AuditParameters {
 	return p
 }
 
-func sampleParams() *CustomRingParameters {
-	audit := sampleAuditParams()
-	p := &CustomRingParameters{
-		PublicInputHash:  audit.PublicInputHash,
-		PrivateTxHash:    audit.PrivateTxHash,
-		TxViewingSk:      audit.TxViewingSk,
-		EphSk:            audit.EphSk,
-		AuditorPk:        audit.AuditorPk,
+func sampleParams() *PolicyParameters {
+	base := sampleBaseParams()
+	p := &PolicyParameters{
+		PublicInputHash:  base.PublicInputHash,
+		PrivateTxHash:    base.PrivateTxHash,
+		TxViewingSk:      base.TxViewingSk,
+		EphSk:            base.EphSk,
+		AuditorPk:        base.AuditorPk,
 		NIn:              2,
 		NOut:             2,
 		AddressChain:     big.NewInt(0x31),
@@ -107,13 +107,13 @@ func zeroedPoolEntry() Answer {
 	return entry
 }
 
-func TestCustomRingParametersJSONRoundTrip(t *testing.T) {
+func TestPolicyParametersJSONRoundTrip(t *testing.T) {
 	p := sampleParams()
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var got CustomRingParameters
+	var got PolicyParameters
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestCustomRingParametersJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCustomRingParametersWireFormat(t *testing.T) {
+func TestPolicyParametersWireFormat(t *testing.T) {
 	data, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -157,7 +157,7 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 		t.Fatalf("unmarshal raw: %v", err)
 	}
 	keys := []string{
-		"circuitType", "variant", "publicInputHash", "privateTxHash",
+		"circuitType", "publicInputHash", "privateTxHash",
 		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "sources",
 		"policyLen", "ruleEnc", "inlineAssets", "inlineCount", "stateRoot",
@@ -171,11 +171,8 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 			t.Fatalf("missing key %q", key)
 		}
 	}
-	if got := string(raw["circuitType"]); got != `"custom-ring"` {
+	if got := string(raw["circuitType"]); got != `"custom-ring-policy"` {
 		t.Fatalf("circuitType: got %s", got)
-	}
-	if got := string(raw["variant"]); got != `"transfer"` {
-		t.Fatalf("variant: got %s", got)
 	}
 	for key, length := range map[string]int{
 		"publicInputHash": 2 + 2 + 64,
@@ -187,12 +184,12 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 		}
 	}
 	for key, count := range map[string]int{
-		"inputs":       transfer.NIn,
-		"outputs":      transfer.NOut,
-		"sources":      transfer.NSources,
-		"ruleEnc":      transfer.NRules,
-		"inlineAssets": transfer.NInlineAssets,
-		"answers":      transfer.NAnswers,
+		"inputs":       policy.NIn,
+		"outputs":      policy.NOut,
+		"sources":      policy.NSources,
+		"ruleEnc":      policy.NRules,
+		"inlineAssets": policy.NInlineAssets,
+		"answers":      policy.NAnswers,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -204,7 +201,7 @@ func TestCustomRingParametersWireFormat(t *testing.T) {
 	}
 }
 
-func TestCustomRingParametersRejectBadInput(t *testing.T) {
+func TestPolicyParametersRejectBadInput(t *testing.T) {
 	base, err := json.Marshal(sampleParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -218,7 +215,6 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 	tests := map[string]func(map[string]interface{}){
 		"missing circuit type": func(m map[string]interface{}) { delete(m, "circuitType") },
 		"foreign circuit type": func(m map[string]interface{}) { m["circuitType"] = "transfer" },
-		"foreign variant":      func(m map[string]interface{}) { m["variant"] = "merge" },
 		"short scalar":         func(m map[string]interface{}) { m["txViewingSk"] = "0x00" },
 		"long auditor pk":      func(m map[string]interface{}) { m["auditorPk"] = m["auditorPk"].(string) + "00" },
 		"non hex":              func(m map[string]interface{}) { m["ephSk"] = strings.Repeat("zz", 33) },
@@ -234,19 +230,19 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 			m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16)
 		},
 		"zero input count":     func(m map[string]interface{}) { m["nIn"] = 0 },
-		"input count too high": func(m map[string]interface{}) { m["nIn"] = transfer.NIn + 1 },
-		"policy len too high":  func(m map[string]interface{}) { m["policyLen"] = transfer.NRules + 1 },
+		"input count too high": func(m map[string]interface{}) { m["nIn"] = policy.NIn + 1 },
+		"policy len too high":  func(m map[string]interface{}) { m["policyLen"] = policy.NRules + 1 },
 		"inline count too high": func(m map[string]interface{}) {
-			m["inlineCount"] = transfer.NInlineAssets + 1
+			m["inlineCount"] = policy.NInlineAssets + 1
 		},
 		"nonzero inline padding": func(m map[string]interface{}) {
 			m["inlineAssets"].([]interface{})[1] = "0x01" + strings.Repeat("00", 31)
 		},
 		"missing input slot": func(m map[string]interface{}) { m["inputs"] = m["inputs"].([]interface{})[:1] },
-		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:transfer.NRules-1] },
-		"missing answer":     func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:transfer.NAnswers-1] },
+		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:policy.NRules-1] },
+		"missing answer":     func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:policy.NAnswers-1] },
 		"short sources": func(m map[string]interface{}) {
-			m["sources"] = m["sources"].([]interface{})[:transfer.NSources-1]
+			m["sources"] = m["sources"].([]interface{})[:policy.NSources-1]
 		},
 		"source listId at wrong position": func(m map[string]interface{}) {
 			source(m, 1)["listId"] = 1
@@ -263,17 +259,16 @@ func TestCustomRingParametersRejectBadInput(t *testing.T) {
 			answers(m)["nfPathElements"] = paths[:len(paths)-1]
 		},
 	}
-	rejectTampered[CustomRingParameters](t, base, tests)
+	rejectTampered[PolicyParameters](t, base, tests)
 }
 
-func TestAuditParametersRejectBadInput(t *testing.T) {
-	base, err := json.Marshal(sampleAuditParams())
+func TestBaseParametersRejectBadInput(t *testing.T) {
+	base, err := json.Marshal(sampleBaseParams())
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
 	tests := map[string]func(map[string]interface{}){
 		"foreign circuit type": func(m map[string]interface{}) { m["circuitType"] = "transfer" },
-		"foreign variant":      func(m map[string]interface{}) { m["variant"] = TransferVariant },
 		"zero tx scalar":       func(m map[string]interface{}) { m["txViewingSk"] = zeroScalarHex },
 		"tx scalar at order":   func(m map[string]interface{}) { m["txViewingSk"] = orderScalarHex() },
 		"zero eph scalar":      func(m map[string]interface{}) { m["ephSk"] = zeroScalarHex },
@@ -281,7 +276,7 @@ func TestAuditParametersRejectBadInput(t *testing.T) {
 		"invalid point":        func(m map[string]interface{}) { m["auditorPk"] = "0x04" + strings.Repeat("00", 64) },
 		"short field":          func(m map[string]interface{}) { m["privateTxHash"] = "0x01" },
 	}
-	rejectTampered[AuditParameters](t, base, tests)
+	rejectTampered[BaseParameters](t, base, tests)
 }
 
 const zeroScalarHex = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -311,7 +306,7 @@ func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[
 	}
 }
 
-func TestCustomRingParametersCreateWitness(t *testing.T) {
+func TestPolicyParametersCreateWitness(t *testing.T) {
 	assignment, err := sampleParams().CreateWitness()
 	if err != nil {
 		t.Fatalf("create assignment: %v", err)
@@ -326,7 +321,7 @@ func TestAssignRuleReadsTheEncodedBytes(t *testing.T) {
 	for i := range encoded {
 		encoded[i] = byte(i)
 	}
-	var wires transfer.RuleWires
+	var wires policy.RuleWires
 	assignRule(&wires, encoded)
 	for name, check := range map[string]struct{ got, want string }{
 		"subject":   {fmt.Sprint(wires.Subject), "31"},

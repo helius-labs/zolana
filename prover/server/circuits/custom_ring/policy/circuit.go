@@ -1,4 +1,4 @@
-// Package transfer holds the universal custom ring circuit: package audit's
+// Package policy holds the policy custom-ring circuit: package base's
 // verifiable-encryption statement, unchanged, folded with a policy block that
 // decides one SPP transaction against a compiled rule table and an answers
 // array of policy entry proofs.
@@ -7,7 +7,7 @@
 // chain over these eleven elements in this exact order:
 //
 //  1. private_tx_hash    -- recomputed from the witnessed openings
-//  2. tx_viewing_pk_lo   -- audit block, see package audit
+//  2. tx_viewing_pk_lo   -- audit block, see package base
 //  3. tx_viewing_pk_hi
 //  4. auditor_pk_lo
 //  5. auditor_pk_hi
@@ -21,14 +21,14 @@
 // The Rust mirror of element 9 is program-libs/ring-policy, table hashing in
 // rule_table.rs over the entry derivation in entry.rs. Element 1 comes from the
 // SPP transaction circuit, elements 10 and 11 from the tree account, and
-// elements 2 to 8 keep the mirror named in package audit.
-package transfer
+// elements 2 to 8 keep the mirror named in package base.
+package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/std/rangecheck"
 
-	audit "zolana/prover/circuits/custom_ring"
+	base "zolana/prover/circuits/custom_ring/base"
 	"zolana/prover/circuits/gadget"
 )
 
@@ -39,7 +39,8 @@ type SourceWires struct {
 	OwnerHash frontend.Variable
 }
 
-type Circuit struct {
+// CustomRingPolicyCircuit folds the audit block with policy enforcement.
+type CustomRingPolicyCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
 	PrivateTxHash frontend.Variable
@@ -67,8 +68,8 @@ type Circuit struct {
 	Answers [NAnswers]RuleAnswerWires
 }
 
-func (c *Circuit) Define(api frontend.API) error {
-	elements := audit.DefineBlock(api, audit.BlockWires{
+func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
+	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
 		TxViewingSk:   c.TxViewingSk,
 		EphSk:         c.EphSk,

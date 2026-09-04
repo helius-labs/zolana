@@ -1,4 +1,4 @@
-package transfer
+package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
@@ -7,7 +7,7 @@ import (
 // evaluate closes every enabled rule against every live instance of its
 // subject, covered by an answer proving one of the rule's (list, mode)
 // alternatives about the instance or by the amount guard.
-func (c *Circuit) evaluate(
+func (c *CustomRingPolicyCircuit) evaluate(
 	api frontend.API,
 	slots openings,
 	answers [NAnswers]answerView,
@@ -113,7 +113,7 @@ func assertCovered(api frontend.API, instance, covered frontend.Variable) {
 
 // inlineCoverage matches output assets against the policy's inline members, the
 // zero padding member never matching.
-func (c *Circuit) inlineCoverage(api frontend.API, outputs [NOut]slotView) [NOut]frontend.Variable {
+func (c *CustomRingPolicyCircuit) inlineCoverage(api frontend.API, outputs [NOut]slotView) [NOut]frontend.Variable {
 	inInline := suffixSums(api, c.InlineCountOneHot[:])
 	var listed [NInlineAssets]frontend.Variable
 	for m, member := range c.InlineAssets {

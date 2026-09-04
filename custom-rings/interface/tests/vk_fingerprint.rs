@@ -31,12 +31,12 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 }
 
 #[test]
-fn verifying_key_fingerprint_is_pinned() {
+fn policy_verifying_key_fingerprint_is_pinned() {
     let mut preimage = Vec::new();
     absorb(
         &mut preimage,
-        "verifying_key",
-        &custom_ring_interface::verifying_key::VERIFYINGKEY,
+        "policy_verifying_key",
+        &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
     );
     let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -44,24 +44,24 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00e02a0a54656f2ec612a58416f80ffc6139123553274c6d0561cabeb0e55165",
-        "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+        fingerprint, "0011774dea65e99c8eb2934bd46c3a72dd2538d9287ba407d0763885ac51a77a",
+        "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
 
 #[test]
-fn audit_verifying_key_fingerprint_is_pinned() {
+fn base_verifying_key_fingerprint_is_pinned() {
     let mut preimage = Vec::new();
     absorb(
         &mut preimage,
-        "audit_verifying_key",
-        &custom_ring_interface::audit_verifying_key::VERIFYINGKEY,
+        "base_verifying_key",
+        &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
     );
     let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00f93b21247e181324dec11d8e4c7d6c4219b955ec2b0498a7f3428b73d32ac0",
-        "audit verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+        fingerprint, "00ba2e93d00c3959cb1ca31c416c3a000aff12860bb1f767cdd137b595e7c0b2",
+        "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

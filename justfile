@@ -273,7 +273,7 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
     print("https://github.com/helius-labs/zolana/releases/download/" + lock["release_tag"] + "/" + lock[section]["asset"])
     PY
     }
-    for pair in custom_ring.key:proving_key audit.key:audit_key; do
+    for pair in custom_ring_policy.key:proving_key custom_ring_base.key:audit_key; do
         name="${pair%%:*}"
         installed "$name" && continue
         url="$(release_asset_url "${pair##*:}")"
@@ -289,7 +289,7 @@ check-custom-ring-keys: build-prover-server
     set -euo pipefail
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
-    for pair in custom_ring.key:verifying_key.rs audit.key:audit_verifying_key.rs; do
+    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs; do
         key="${pair%%:*}"
         module="${pair##*:}"
         if [[ ! -f "prover/server/proving-keys/$key" ]]; then
@@ -1539,7 +1539,7 @@ build-spp-keys:
             "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key --release audit.key
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws

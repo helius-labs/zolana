@@ -78,14 +78,14 @@ echo "==> refreshing circuit fingerprints"
 echo "    paste the printed values into prover/server/prover/fingerprint/fingerprint_test.go"
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key --release audit.key
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # The lock's prefix carries the new version hash; upload the full key set into that
 # immutable version folder. Old version folders are left untouched, so previously
 # published CLIs keep working -- no overwrite and no CloudFront invalidation.
 lock_prefix="$(python3 -c "import json; print(json.load(open('prover/provingkeys/proving-keys.lock'))['prefix'])")"
 echo "==> uploading proving keys to s3://$bucket/$lock_prefix/ (immutable version folder)"
-aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key' --exclude 'custom_ring.key' --exclude 'audit.key'
+aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key' --exclude 'custom_ring_policy.key' --exclude 'custom_ring_base.key'
 
 cat <<EOF
 
@@ -99,6 +99,6 @@ Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
   3. commit the regenerated
      prover/server/prover/provingkeys/proving-keys.lock
      (its hash drives the CI cache key automatically -- no tag bump)
-  4. publish custom_ring.key and audit.key with
+  4. publish custom_ring_policy.key and custom_ring_base.key with
      just release-custom-rings <tag> --upload --prerelease
 EOF
