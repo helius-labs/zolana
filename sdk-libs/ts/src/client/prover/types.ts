@@ -192,6 +192,7 @@ export interface CustomRingPolicyProofRequest {
   readonly policyLen: number;
   readonly rules: readonly Bytes32[];
   readonly inlineAssets: readonly Bytes32[];
+  readonly inlineLimits: readonly bigint[];
   readonly inlineCount: number;
   readonly stateRoot: Bytes32;
   readonly nullifierRoot: Bytes32;

@@ -30,11 +30,12 @@ export interface RingPolicyConfig {
   readonly namespaceBump: number;
   readonly bump: number;
   readonly sources: readonly RingPolicySource[];
-  /** Mirrors Rust `EncodedRuleTable`, `rules` and `inlineAssets` hold only the counted rows. */
+  /** Counted arrays exclude zero padding. */
   readonly ruleCount: number;
   readonly rules: readonly Bytes32[];
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
+  readonly inlineLimits: readonly bigint[];
   readonly generation: number;
   readonly generationSlot: bigint;
 }
@@ -60,7 +61,7 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 1113;
+const RING_POLICY_CONFIG_SIZE = 1177;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -84,6 +85,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   );
   const rules = countedRows(reader, RING_RULE_SLOTS, "rules");
   const inlineAssets = countedRows(reader, RING_INLINE_ASSET_SLOTS, "inlineAssets");
+  const inlineLimits = countedLimits(reader, inlineAssets.length);
   const generation = reader.u32("generation");
   const generationSlot = reader.u64("generationSlot");
   reader.done();
@@ -97,9 +99,24 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
     rules,
     inlineCount: inlineAssets.length,
     inlineAssets,
+    inlineLimits,
     generation,
     generationSlot,
   });
+}
+
+function countedLimits(reader: Reader, count: number): readonly bigint[] {
+  const limits: bigint[] = [];
+  for (let index = 0; index < RING_INLINE_ASSET_SLOTS; index += 1) {
+    const limit = reader.u64("inlineLimits");
+    if (index < count) limits.push(limit);
+    else if (limit !== 0n) {
+      throw new RingError("RING_POLICY_CONFIG_INVALID", {
+        details: { field: "inlineLimits", index },
+      });
+    }
+  }
+  return Object.freeze(limits);
 }
 
 /** Mirrors Rust `EncodedRuleTable::decode`. */

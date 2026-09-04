@@ -64,6 +64,7 @@ func sampleParams() *PolicyParameters {
 	}
 	for i := range p.InlineAssets {
 		p.InlineAssets[i] = big.NewInt(0)
+		p.InlineLimits[i] = big.NewInt(0)
 	}
 	p.InlineAssets[0] = big.NewInt(0x60)
 	for i := range p.Answers {
@@ -160,7 +161,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"circuitType", "publicInputHash", "privateTxHash",
 		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
 		"outputs", "addressChain", "externalDataHash", "sources",
-		"policyLen", "ruleEnc", "inlineAssets", "inlineCount", "stateRoot",
+		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot",
 		"nullifierRoot", "answers",
 	}
 	if len(raw) != len(keys) {
@@ -189,6 +190,7 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		"sources":      policy.NSources,
 		"ruleEnc":      policy.NRules,
 		"inlineAssets": policy.NInlineAssets,
+		"inlineLimits": policy.NInlineAssets,
 		"answers":      policy.NAnswers,
 	} {
 		var entries []json.RawMessage

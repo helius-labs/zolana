@@ -194,6 +194,7 @@ impl PendingCustomRingProof {
                 policy_len: witness.policy_len,
                 rules: witness.rules,
                 inline_assets: witness.inline_assets,
+                inline_limits: witness.inline_limits,
                 inline_count: witness.inline_count,
                 state_root: witness.roots.state,
                 nullifier_root: witness.roots.nullifier,
@@ -290,6 +291,7 @@ mod tests {
             rules: [[0u8; 32]; MAX_RULES],
             policy_len: 0,
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
+            inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
             answers: Vec::new(),
         }

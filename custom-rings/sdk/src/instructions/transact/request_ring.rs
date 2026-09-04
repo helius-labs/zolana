@@ -92,6 +92,7 @@ pub struct CustomRingPolicyProofRequest {
     pub policy_len: u8,
     pub rules: [[u8; 32]; MAX_RULES],
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
+    pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
@@ -176,6 +177,7 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             policy_len: self.policy_len,
             rule_enc: self.rules.iter().map(field_hex).collect(),
             inline_assets: self.inline_assets.iter().map(field_hex).collect(),
+            inline_limits: self.inline_limits.iter().map(limit_hex).collect(),
             inline_count: self.inline_count,
             state_root: field_hex(&self.state_root),
             nullifier_root: field_hex(&self.nullifier_root),
@@ -210,6 +212,12 @@ fn source_json(source: &SourceOwnerEntry) -> CustomRingSourceJson {
         list_id: source.list_id,
         owner_hash: field_hex(&source.owner_hash),
     }
+}
+
+fn limit_hex(limit: &u64) -> String {
+    let mut field = [0u8; 32];
+    field[24..].copy_from_slice(&limit.to_be_bytes());
+    field_hex(&field)
 }
 
 fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
@@ -313,6 +321,8 @@ struct CustomRingPolicyProofRequestJson<'a> {
     rule_enc: Vec<String>,
     #[serde(rename = "inlineAssets")]
     inline_assets: Vec<String>,
+    #[serde(rename = "inlineLimits")]
+    inline_limits: Vec<String>,
     #[serde(rename = "inlineCount")]
     inline_count: u8,
     #[serde(rename = "stateRoot")]
@@ -347,6 +357,7 @@ mod tests {
             policy_len: 1,
             rules: [[0u8; 32]; MAX_RULES],
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
+            inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
@@ -372,6 +383,7 @@ mod tests {
                 "externalDataHash",
                 "inlineAssets",
                 "inlineCount",
+                "inlineLimits",
                 "inputs",
                 "nIn",
                 "nOut",

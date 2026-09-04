@@ -66,7 +66,8 @@ export type RuleSource =
 
 export type RuleGuard =
   | Readonly<{ kind: "always" }>
-  | Readonly<{ kind: "aboveAmount"; amount: bigint }>;
+  | Readonly<{ kind: "aboveAmount"; amount: bigint }>
+  | Readonly<{ kind: "aboveAmountByAsset" }>;
 
 export interface Rule {
   readonly subject: RuleSubject;
@@ -77,6 +78,7 @@ export interface Rule {
 export interface RuleTable {
   readonly rules: readonly Rule[];
   readonly inlineAssets: readonly Bytes32[];
+  readonly inlineLimits: readonly bigint[];
 }
 
 const RULE_SLOTS = 16;
@@ -121,6 +123,9 @@ export function decodeRule(row: Bytes32): Rule {
     guard = { kind: "always" };
   } else if (guardTag === 1) {
     guard = { kind: "aboveAmount", amount: threshold };
+  } else if (guardTag === 2) {
+    if (threshold !== 0n) throw ruleTableInvalid("ThresholdWithoutGuard");
+    guard = { kind: "aboveAmountByAsset" };
   } else {
     throw ruleTableInvalid("UnknownGuardTag");
   }
@@ -142,11 +147,15 @@ function checkRule(rule: Rule): void {
     if (rule.subject === "sender") throw ruleTableInvalid("SenderGuard");
     if (rule.guard.amount === 0n) throw ruleTableInvalid("ZeroThreshold");
   }
+  if (rule.guard.kind === "aboveAmountByAsset") {
+    if (rule.subject !== "outputOwner") throw ruleTableInvalid("PerAssetGuardNotOwner");
+    if (rule.source.kind === "inlineAssets") throw ruleTableInvalid("PerAssetGuardInline");
+  }
 }
 
 /** Mirrors Rust `EncodedRuleTable::decode`, the padding is checked by `decodeRingPolicyConfig`. */
 export function decodeRuleTable(
-  config: Pick<RingPolicyConfig, "rules" | "inlineAssets">,
+  config: Pick<RingPolicyConfig, "rules" | "inlineAssets" | "inlineLimits">,
 ): RuleTable {
   if (config.rules.length > RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
   if (config.inlineAssets.length > INLINE_ASSET_SLOTS) {
@@ -160,6 +169,7 @@ export function decodeRuleTable(
   let ownerGuard = false;
   let inlineRule = false;
   let unguardedInline = false;
+  let perAssetGuard = false;
   for (const rule of rules) {
     const signature = ruleSignature(rule);
     if (signatures.has(signature)) throw ruleTableInvalid("DuplicateRule");
@@ -169,16 +179,31 @@ export function decodeRuleTable(
       unguardedInline = rule.guard.kind === "always";
     }
     if (rule.subject === "outputOwner" && rule.guard.kind === "aboveAmount") ownerGuard = true;
+    if (rule.guard.kind === "aboveAmountByAsset") perAssetGuard = true;
   }
   const pool = config.inlineAssets.length;
   if (inlineRule && pool === 0) throw ruleTableInvalid("InlineWithoutPool");
-  if (!inlineRule && pool > 0) throw ruleTableInvalid("PoolWithoutInlineRule");
+  if (!inlineRule && !perAssetGuard && pool > 0) throw ruleTableInvalid("PoolWithoutInlineRule");
   if (ownerGuard && !(unguardedInline && pool === 1)) {
     throw ruleTableInvalid("OwnerGuardWithoutInlineAsset");
   }
+  if (config.inlineLimits.length !== pool) throw ruleTableInvalid("MissingAssetLimit");
+  if (perAssetGuard) {
+    if (pool === 0 || config.inlineLimits.some((limit) => limit === 0n)) {
+      throw ruleTableInvalid("MissingAssetLimit");
+    }
+    const assets = new Set(config.inlineAssets.map((asset) => bytesKey(asset)));
+    if (assets.size !== pool) throw ruleTableInvalid("DuplicateInlineAsset");
+  } else if (config.inlineLimits.some((limit) => limit !== 0n)) {
+    throw ruleTableInvalid("AssetLimitWithoutGuard");
+  }
   const answers = rules.reduce((total, rule) => total + maxAnswers(rule), 0);
   if (answers > ANSWER_SLOTS) throw ruleTableInvalid("TooManyAnswers");
-  return Object.freeze({ rules: Object.freeze(rules), inlineAssets: config.inlineAssets });
+  return Object.freeze({
+    rules: Object.freeze(rules),
+    inlineAssets: config.inlineAssets,
+    inlineLimits: config.inlineLimits,
+  });
 }
 
 function ruleSignature(rule: Rule): string {

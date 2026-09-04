@@ -12,6 +12,9 @@ text use UTXO terminology without changing version 3 snapshot keys.
 
 Breaking
 
+- Policy rule tables now carry one `inlineLimit` per inline asset and policy
+  prover requests carry the padded `inlineLimits` fields → recreate policy
+  config accounts and include the limits in custom prover integrations.
 - Custom-ring prover requests now use the explicit circuit types
   `custom-ring-base` and `custom-ring-policy`; the ambiguous `audit` and
   `transfer` variants were removed. Rename request types and prover methods to

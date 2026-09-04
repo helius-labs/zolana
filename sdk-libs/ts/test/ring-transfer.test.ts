@@ -244,6 +244,7 @@ async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, ruleCount =
           ...new Uint8Array(32 * 16).fill(1, 0, 32 * ruleCount),
           0,
           ...new Uint8Array(32 * 8),
+          ...new Uint8Array(8 * 8),
           ...new Uint8Array(4 + 8),
         ]),
       };
@@ -914,7 +915,7 @@ describe("ring proof folded fields", () => {
 
   it("pins the empty-rule policy hash to Rust `EMPTY_POLICY_HASH`", () => {
     expect(Buffer.from(RING_EMPTY_RULES_POLICY_HASH).toString("hex")).toBe(
-      "1fdd9c12850df78caef73299c35baf2a64eb41a13b6374e3684a8dc29f3343d4",
+      "16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400",
     );
   });
 

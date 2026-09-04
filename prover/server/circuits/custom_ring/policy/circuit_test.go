@@ -146,6 +146,18 @@ func TestCircuitSolvesAggregatedGuard(t *testing.T) {
 	solve(t, cs, buildAssignment(t, f))
 }
 
+func TestCircuitSolvesPerAssetLimits(t *testing.T) {
+	cs := testConstraintSystem(t)
+
+	f := defaultFixture()
+	f.amount = 900
+	f.secondAmount = 1500
+	f.secondTransferred = fill(0xe5)
+	f.secondInlineAsset = fill(0xe5)
+	f.perAssetLimits = []uint64{1000, 2000}
+	solve(t, cs, buildAssignment(t, f))
+}
+
 func TestCircuitSolvesRulesFreeWitness(t *testing.T) {
 	cs := testConstraintSystem(t)
 
@@ -294,6 +306,39 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			},
 		},
 		{
+			name: "per-asset guard bypassed above one asset limit",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := defaultFixture()
+				f.amount = 900
+				f.secondAmount = 1500
+				f.secondTransferred = fill(0xe5)
+				f.secondInlineAsset = fill(0xe5)
+				f.perAssetLimits = []uint64{800, 2000}
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "per-asset guard bypassed by splitting one asset",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := defaultFixture()
+				f.amount = 600
+				f.secondAmount = 600
+				f.perAssetLimits = []uint64{1000}
+				return buildAssignment(t, f)
+			},
+		},
+		{
+			name: "per-asset guard used with an unconfigured asset",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := defaultFixture()
+				f.amount = 500
+				f.secondAmount = 1
+				f.secondTransferred = fill(0xe5)
+				f.perAssetLimits = []uint64{1000}
+				return buildAssignment(t, f)
+			},
+		},
+		{
 			name: "output owner group excludes the recipient's list",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
@@ -437,20 +482,24 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("private_tx_hash      %s\n", hex32(s.privateTxHash))
 	fmt.Printf("public_input_hash    %s\n", hex32(s.publicInputHash))
 
-	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, emptySources())))
+	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, nil, emptySources())))
 	oneMap := emptySources()
 	oneMap[kindAllow-1] = source{listId: kindAllow, owner: s.ownOwnerHash}
 	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)}}
-	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, oneMap)))
+	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap)))
 	twoMap := oneMap
 	twoMap[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
 	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)})
-	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, twoMap)))
+	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, nil, twoMap)))
 	mixedMap := emptySources()
 	mixedMap[kindBlock-1] = source{listId: kindBlock, owner: s.ownOwnerHash}
 	mixedMap[kindApproval-1] = source{listId: kindApproval, owner: s.ownOwnerHash}
 	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), altMask: lmask(kindBlock)}}
-	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, mixedMap)))
+	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, nil, mixedMap)))
+	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow), guardTag: GuardAboveAmountByAsset}}
+	fmt.Printf("per_asset_policy_hash %s\n", hex32(hostPolicyHash(
+		t, perAssetRule, []*big.Int{pkField(t, fill(0xd4))}, []uint64{123}, oneMap,
+	)))
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingPolicyCircuit) {
@@ -482,6 +531,9 @@ type fixture struct {
 	answers            []int // entry indices filling the answer slots
 	transferred        [32]byte
 	inlineAsset        [32]byte
+	secondTransferred  [32]byte
+	secondInlineAsset  [32]byte
+	perAssetLimits     []uint64
 	rulesFree          bool
 	dropCuratorSlot    bool
 	curatorSlotOwn     bool
@@ -602,6 +654,7 @@ type statement struct {
 	sources          [NSources]source
 	rules            []rule
 	inlineAssets     []*big.Int
+	inlineLimits     []uint64
 	policyHash       *big.Int
 
 	entries []entry
@@ -682,6 +735,14 @@ func newStatement(t *testing.T, f fixture) *statement {
 		{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
+	if f.secondInlineAsset != [32]byte{} {
+		s.inlineAssets = append(s.inlineAssets, pkField(t, f.secondInlineAsset))
+	}
+	if f.perAssetLimits != nil {
+		s.rules[3].guardTag = GuardAboveAmountByAsset
+		s.rules[3].threshold = 0
+		s.inlineLimits = f.perAssetLimits
+	}
 	if f.outputOwnerMask != 0 {
 		s.rules[0].mask = f.outputOwnerMask
 	}
@@ -695,14 +756,18 @@ func newStatement(t *testing.T, f fixture) *statement {
 		s.inlineAssets = nil
 		s.sources = emptySources()
 	}
-	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.sources)
+	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources)
 
 	s.keys = audittest.DefaultKeys(t)
 	if f.keys != nil {
 		s.keys = f.keys(s.keys)
 	}
 	s.buildTrees(t)
-	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, f.amount, f.secondAmount)
+	secondAsset := asset
+	if f.secondTransferred != [32]byte{} {
+		secondAsset = pkField(t, f.secondTransferred)
+	}
+	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, secondAsset, f.amount, f.secondAmount)
 	return s
 }
 
@@ -735,7 +800,11 @@ func (s *statement) buildTrees(t *testing.T) {
 	}
 }
 
-func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big.Int, amount, secondAmount uint64) {
+func (s *statement) buildTransaction(
+	t *testing.T,
+	recipient, sender, asset, secondAsset *big.Int,
+	amount, secondAmount uint64,
+) {
 	t.Helper()
 	spent := OpeningWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
@@ -768,7 +837,7 @@ func (s *statement) buildTransaction(t *testing.T, recipient, sender, asset *big
 			Domain:        big.NewInt(protocol.UtxoDomain),
 			OwnerPkHash:   recipient,
 			NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(11)),
-			Asset:         asset,
+			Asset:         secondAsset,
 			Amount:        new(big.Int).SetUint64(secondAmount),
 			Blinding:      big.NewInt(0x55),
 			DataHash:      big.NewInt(0),
@@ -849,10 +918,14 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 
 	for m := range c.InlineAssets {
 		c.InlineAssets[m] = big.NewInt(0)
+		c.InlineLimits[m] = big.NewInt(0)
 		c.InlineCountOneHot[m] = big.NewInt(0)
 	}
 	for m, member := range s.inlineAssets {
 		c.InlineAssets[m] = member
+		if m < len(s.inlineLimits) {
+			c.InlineLimits[m] = new(big.Int).SetUint64(s.inlineLimits[m])
+		}
 	}
 	c.InlineCountOneHot[NInlineAssets] = big.NewInt(0)
 	c.InlineCountOneHot[len(s.inlineAssets)] = big.NewInt(1)
@@ -963,7 +1036,13 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 }
 
 // hostPolicyHash mirrors ring_policy::RuleTable::hash.
-func hostPolicyHash(t *testing.T, rules []rule, inlineAssets []*big.Int, sources [NSources]source) *big.Int {
+func hostPolicyHash(
+	t *testing.T,
+	rules []rule,
+	inlineAssets []*big.Int,
+	inlineLimits []uint64,
+	sources [NSources]source,
+) *big.Int {
 	t.Helper()
 	elements := []*big.Int{policyTableDomain, big.NewInt(PolicyVersion)}
 	for _, slot := range sources {
@@ -973,7 +1052,14 @@ func hostPolicyHash(t *testing.T, rules []rule, inlineAssets []*big.Int, sources
 	for _, r := range rules {
 		elements = append(elements, r.packed())
 	}
-	return spptest.MustHashChain(t, append(elements, inlineAssets...))
+	for i, asset := range inlineAssets {
+		limit := uint64(0)
+		if i < len(inlineLimits) {
+			limit = inlineLimits[i]
+		}
+		elements = append(elements, asset, new(big.Int).SetUint64(limit))
+	}
+	return spptest.MustHashChain(t, elements)
 }
 
 func hostUtxoHash(t *testing.T, w OpeningWires) *big.Int {

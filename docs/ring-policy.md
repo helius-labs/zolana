@@ -16,7 +16,7 @@ trees.
 Seven terms carry the whole design.
 
 - The **rule table** (`RuleTable`) holds at most `MAX_RULES` rules and
-  `MAX_INLINE_ASSETS` inline assets. It is data, written from `ring.toml`
+  `MAX_INLINE_ASSETS` inline asset-limit pairs. It is data, written from `ring.toml`
   into the ring's policy config and pinned there by hash.
 - A **member** (`Member`) is a field element naming who or what a rule checks,
   an owner tag or a mint. The tag hashes as the UTXO's owner proof input, the
@@ -72,6 +72,22 @@ threshold. The exemption sums every output with the same subject value, owner
 or mint, a payment split across slots does not escape it. It is per-transaction
 and does not bound a total across transactions.
 
+`AboveAmountByAsset` puts several thresholds on one output-owner rule. The
+table pairs each inline mint with its limit. Outputs are grouped by owner and
+mint, and the owner needs the rule's list answer if any group exceeds its
+limit. A mint absent from the map is refused. This remains one rule, so it
+does not add an answer per configured mint.
+
+```toml
+[[policy.rules]]
+subject = "output-owner"
+require = "allow"
+limits = [
+  { asset = "11111111111111111111111111111111", above = 1000000000 },
+  { asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", above = 1000000 },
+]
+```
+
 `RuleTableBuilder::try_build` refuses a table the circuit cannot enforce and
 names the reason (`RuleTableError`). Two rules with the same signature,
 subject plus both list sets, a guarded sender rule, a zero threshold, an
@@ -91,10 +107,10 @@ carries its absent set in byte 19, a rule with absent lists only is `Absent`
 primary with byte 19 zero. `Rule::decode` refuses every other row, the
 stored rows are exactly what `encoded` emits. The circuit range-checks the
 components and re-derives the row by weighted sum (`ruleShift` in
-`prover/server/circuits/custom_ring/transfer/constants.go`).
+`prover/server/circuits/custom_ring/policy/constants.go`).
 
 `EncodedRuleTable::hash` chains `POLICY_TABLE_DOMAIN`, `POLICY_VERSION`, the
-eight source slots, the rule count, every row, and the inline assets. The
+eight source slots, the rule count, every row, and the inline asset-limit pairs. The
 count closes the variable-length preimage. The source map ties the table to
 the entries serving each list. `POLICY_VERSION` moves with any change of the
 row encoding.
@@ -385,8 +401,9 @@ the cli loads and re-renders.
 - The builder rejects `ExitDestination` rules, no layer enforces exit
   destinations.
 - Sender rules take no amount guard, a transfer has no single sender amount.
-- An owner amount guard needs a single unguarded inline asset rule and reads
-  in that asset's base units. An asset guard reads in its own asset's units.
+- A scalar owner amount guard needs a single unguarded inline asset rule and
+  reads in that asset's base units. A per-asset owner guard supports up to
+  `MAX_INLINE_ASSETS` mint-limit pairs and refuses any other mint.
 - The builder asserts a spend from one key at `POLICY_OUTPUT_SLOTS` distinct
   recipients fits `ANSWER_SLOTS`. A shape past `POLICY_INPUT_SLOTS` inputs or
   `POLICY_OUTPUT_SLOTS` outputs, or a spend whose answers exceed

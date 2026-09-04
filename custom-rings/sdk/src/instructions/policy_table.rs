@@ -68,6 +68,7 @@ impl PolicyTable<'_> {
                 sources,
                 rules: self.rules.rules().iter().map(Rule::encoded).collect(),
                 inline_assets: self.rules.inline_assets().to_vec(),
+                inline_limits: self.rules.inline_limits().to_vec(),
             },
             curators,
         })

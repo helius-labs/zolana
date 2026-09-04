@@ -61,12 +61,28 @@ fn create_policy_stores_rows_and_members_verbatim() {
     assert_eq!(config.generation_slot(), WARPED_SLOT);
 }
 
+#[test]
+fn create_policy_stores_per_asset_limits_verbatim() {
+    const RULES: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+        .inline_assets(&[[3u8; 32], [4u8; 32]])
+        .inline_limits(&[5, 7])
+        .build();
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&RULES, &own_specs(&RULES));
+    let config = stored_policy_config(&mollusk, &create_policy_fixture_with(&table));
+    assert_eq!(config.rules, RULES.encode());
+    assert_eq!(config.rules.inline_limits[0], 5u64.to_be_bytes());
+    assert_eq!(config.rules.inline_limits[1], 7u64.to_be_bytes());
+    assert_eq!(config.policy_hash, policy_hash_for(&RULES, &config.sources));
+}
+
 type Tamper = fn(&mut PolicyTableIxData);
 
 #[test]
 fn create_policy_refuses_rows_the_circuit_cannot_enforce() {
     let (mollusk, _) = setup_mollusk();
-    let cases: [(&str, Tamper); 7] = [
+    let cases: [(&str, Tamper); 9] = [
         ("unknown subject", |table| table.rules[0][31] = 9),
         ("list in both sets", |table| {
             table.rules[0][19] = table.rules[0][29];
@@ -94,6 +110,12 @@ fn create_policy_refuses_rows_the_circuit_cannot_enforce() {
         }),
         ("members without an inline rule", |table| {
             table.rules.truncate(2);
+        }),
+        ("per-asset guard without limits", |table| {
+            table.rules[0][28] = 2;
+        }),
+        ("limits without a per-asset guard", |table| {
+            table.inline_limits = vec![5, 7];
         }),
     ];
     for (label, tamper) in cases {

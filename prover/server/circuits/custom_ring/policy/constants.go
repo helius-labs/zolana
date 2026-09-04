@@ -14,7 +14,7 @@ const (
 
 // PolicyVersion enters the policy_hash preimage, mirroring
 // ring_policy::POLICY_VERSION.
-const PolicyVersion = 3
+const PolicyVersion = 4
 
 // What a rule ranges over, ExitDestination having no in-circuit instance.
 const (
@@ -40,6 +40,8 @@ const (
 
 // GuardAboveAmount exempts an instance at or below the rule's threshold.
 const GuardAboveAmount = 1
+
+const GuardAboveAmountByAsset = 2
 
 const (
 	AbsentBranchNoAddress = 1

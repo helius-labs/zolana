@@ -84,6 +84,7 @@ type PolicyParameters struct {
 	PolicyLen    uint8
 	RuleEnc      [policy.NRules][ruleEncLen]byte
 	InlineAssets [policy.NInlineAssets]*big.Int
+	InlineLimits [policy.NInlineAssets]*big.Int
 	InlineCount  uint8
 
 	StateRoot     *big.Int
@@ -143,6 +144,7 @@ type policyParametersJSON struct {
 	PolicyLen        uint8             `json:"policyLen"`
 	RuleEnc          []string          `json:"ruleEnc"`
 	InlineAssets     []string          `json:"inlineAssets"`
+	InlineLimits     []string          `json:"inlineLimits"`
 	InlineCount      uint8             `json:"inlineCount"`
 	StateRoot        string            `json:"stateRoot"`
 	NullifierRoot    string            `json:"nullifierRoot"`
@@ -167,6 +169,7 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		PolicyLen:        p.PolicyLen,
 		RuleEnc:          make([]string, 0, len(p.RuleEnc)),
 		InlineAssets:     make([]string, 0, len(p.InlineAssets)),
+		InlineLimits:     make([]string, 0, len(p.InlineLimits)),
 		InlineCount:      p.InlineCount,
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
@@ -183,6 +186,9 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 	}
 	for _, asset := range p.InlineAssets {
 		raw.InlineAssets = append(raw.InlineAssets, common.ToHex(asset))
+	}
+	for _, limit := range p.InlineLimits {
+		raw.InlineLimits = append(raw.InlineLimits, common.ToHex(limit))
 	}
 	for i := range p.Answers {
 		raw.Answers = append(raw.Answers, writeAnswer(&p.Answers[i]))
@@ -282,6 +288,20 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	}
 	if len(raw.InlineAssets) != policy.NInlineAssets {
 		return fmt.Errorf("custom-ring: inlineAssets holds %d entries, expected %d", len(raw.InlineAssets), policy.NInlineAssets)
+	}
+	if len(raw.InlineLimits) != policy.NInlineAssets {
+		return fmt.Errorf("custom-ring: inlineLimits holds %d entries, expected %d", len(raw.InlineLimits), policy.NInlineAssets)
+	}
+	for i, limit := range raw.InlineLimits {
+		if p.InlineLimits[i], err = fieldFromHex(limit, "inlineLimits"); err != nil {
+			return err
+		}
+		if p.InlineLimits[i].BitLen() > 64 {
+			return fmt.Errorf("custom-ring: inlineLimits[%d] exceeds 64 bits", i)
+		}
+		if i >= int(raw.InlineCount) && p.InlineLimits[i].Sign() != 0 {
+			return fmt.Errorf("custom-ring: inlineLimits[%d] is non-zero padding after inlineCount %d", i, raw.InlineCount)
+		}
 	}
 	for i, asset := range raw.InlineAssets {
 		if p.InlineAssets[i], err = fieldFromHex(asset, "inlineAssets"); err != nil {
@@ -465,6 +485,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	}
 	for i := range circuit.InlineAssets {
 		circuit.InlineAssets[i] = p.InlineAssets[i]
+		circuit.InlineLimits[i] = p.InlineLimits[i]
 	}
 	for i := range circuit.Answers {
 		assignPoolEntry(&circuit.Answers[i], &p.Answers[i])

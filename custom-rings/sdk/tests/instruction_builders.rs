@@ -900,6 +900,7 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
             ],
             rules: encoded.rules[..3].to_vec(),
             inline_assets: vec![ASSET],
+            inline_limits: vec![0],
         }
     );
     // The group row carries its absent alternative at byte 19.

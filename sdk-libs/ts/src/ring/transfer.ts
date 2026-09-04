@@ -77,7 +77,7 @@ const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
  * @internal
  */
 export const RING_EMPTY_RULES_POLICY_HASH = hexToBytes(
-  "1fdd9c12850df78caef73299c35baf2a64eb41a13b6374e3684a8dc29f3343d4",
+  "16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400",
 ) as Bytes32;
 
 export type RingTransferClient = TreeContext &
@@ -598,6 +598,12 @@ export async function proveCustomRingTransfer(
         policyLen: policy.config.ruleCount,
         rules: paddedRows(policy.config.rules, RING_RULE_SLOTS),
         inlineAssets: paddedRows(policy.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
+        inlineLimits: Object.freeze(
+          Array.from(
+            { length: RING_INLINE_ASSET_SLOTS },
+            (_, index) => policy.config.inlineLimits[index] ?? 0n,
+          ),
+        ),
         inlineCount: policy.config.inlineCount,
         stateRoot: entriesRoots.stateRoot,
         nullifierRoot: entriesRoots.nullifierRoot,

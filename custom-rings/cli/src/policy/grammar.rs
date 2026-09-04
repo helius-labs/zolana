@@ -36,6 +36,14 @@ pub struct RuleSpec {
     pub subject: SubjectName,
     pub source: SourceSpec,
     pub above: Option<u64>,
+    pub limits: Option<Vec<AssetLimitSpec>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AssetLimitSpec {
+    pub asset: Base58Address,
+    pub above: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -71,6 +79,12 @@ pub struct CompiledPolicy {
     pub shared_sources: Vec<(ListId, CustomRing)>,
 }
 
+pub(crate) struct PolicyRows {
+    pub rules: Vec<Rule>,
+    pub assets: Vec<[u8; 32]>,
+    pub limits: Vec<u64>,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PolicyError {
     #[error("unknown list {name}")]
@@ -93,6 +107,14 @@ pub enum PolicyError {
     UnreferencedSource { list: ListName, cluster: Target },
     #[error("rule {} takes no amount guard, a sender has no output amount", rule + 1)]
     SenderGuard { rule: usize },
+    #[error("a rule names both above and limits, give one amount guard")]
+    SeveralGuardForms,
+    #[error("rule {} has no per-asset limits", rule + 1)]
+    EmptyLimits { rule: usize },
+    #[error("rule {} takes per-asset limits only for an output-owner list rule", rule + 1)]
+    PerAssetGuard { rule: usize },
+    #[error("rule {} defines a different inline asset map", rule + 1)]
+    ConflictingAssetMap { rule: usize },
     #[error("rule {} threshold {amount} exceeds what a toml integer holds", rule + 1)]
     ThresholdTooLarge { rule: usize, amount: u64 },
     #[error("rule {} asset {mint} derives no member", rule + 1)]
@@ -120,6 +142,8 @@ struct RawRule {
     assets: Option<Vec<Base58Address>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     above: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limits: Option<Vec<AssetLimitSpec>>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -309,6 +333,9 @@ impl TryFrom<RawRule> for RuleSpec {
     type Error = PolicyError;
 
     fn try_from(raw: RawRule) -> Result<Self, PolicyError> {
+        if raw.above.is_some() && raw.limits.is_some() {
+            return Err(PolicyError::SeveralGuardForms);
+        }
         let forms = [
             raw.require.map(SourceSpec::Require),
             raw.forbid.map(SourceSpec::Forbid),
@@ -327,6 +354,7 @@ impl TryFrom<RawRule> for RuleSpec {
             subject: raw.subject,
             source,
             above: raw.above,
+            limits: raw.limits,
         })
     }
 }
@@ -340,6 +368,7 @@ impl From<RuleSpec> for RawRule {
             any: None,
             assets: None,
             above: rule.above,
+            limits: rule.limits,
         };
         match rule.source {
             SourceSpec::Require(list) => raw.require = Some(list),
@@ -400,7 +429,12 @@ impl SourceSpec {
 
 impl RuleSpec {
     /// The row of `index`, its inline members appended to `assets`.
-    pub fn rule(&self, index: usize, assets: &mut Vec<[u8; 32]>) -> Result<Rule, PolicyError> {
+    pub fn rule(
+        &self,
+        index: usize,
+        assets: &mut Vec<[u8; 32]>,
+        limits: &mut Vec<u64>,
+    ) -> Result<Rule, PolicyError> {
         let subject = self.subject.subject();
         let rule = match &self.source {
             SourceSpec::Require(list) => Rule::require(subject, list.id()),
@@ -420,14 +454,16 @@ impl RuleSpec {
                 Rule::any_of(subject, present, absent)
             }
             SourceSpec::Assets(mints) => {
+                let mut members = Vec::with_capacity(mints.len());
                 for mint in mints {
                     let member = Member::asset(&mint.0).map_err(|source| PolicyError::Asset {
                         rule: index,
                         mint: mint.0,
                         source,
                     })?;
-                    assets.push(*member.as_bytes());
+                    members.push(*member.as_bytes());
                 }
+                merge_assets(index, assets, &members)?;
                 Rule {
                     subject,
                     source: RuleSource::InlineAssets,
@@ -435,6 +471,35 @@ impl RuleSpec {
                 }
             }
         };
+        if let Some(configured) = &self.limits {
+            if configured.is_empty() {
+                return Err(PolicyError::EmptyLimits { rule: index });
+            }
+            if !matches!(subject, Subject::OutputOwner)
+                || matches!(&self.source, SourceSpec::Assets(_))
+            {
+                return Err(PolicyError::PerAssetGuard { rule: index });
+            }
+            let mut members = Vec::with_capacity(configured.len());
+            let mut amounts = Vec::with_capacity(configured.len());
+            for limit in configured {
+                let member =
+                    Member::asset(&limit.asset.0).map_err(|source| PolicyError::Asset {
+                        rule: index,
+                        mint: limit.asset.0,
+                        source,
+                    })?;
+                members.push(*member.as_bytes());
+                amounts.push(limit.above);
+            }
+            merge_assets(index, assets, &members)?;
+            if limits.is_empty() {
+                limits.extend_from_slice(&amounts);
+            } else if *limits != amounts {
+                return Err(PolicyError::ConflictingAssetMap { rule: index });
+            }
+            return Ok(rule.above_by_asset());
+        }
         match self.above {
             Some(_) if matches!(subject, Subject::Sender) => {
                 Err(PolicyError::SenderGuard { rule: index })
@@ -445,6 +510,21 @@ impl RuleSpec {
     }
 }
 
+fn merge_assets(
+    rule: usize,
+    current: &mut Vec<[u8; 32]>,
+    incoming: &[[u8; 32]],
+) -> Result<(), PolicyError> {
+    if current.is_empty() {
+        current.extend_from_slice(incoming);
+        Ok(())
+    } else if current == incoming {
+        Ok(())
+    } else {
+        Err(PolicyError::ConflictingAssetMap { rule })
+    }
+}
+
 impl PolicySpec {
     pub fn entries_tree(&self) -> Address {
         self.entries_tree
@@ -452,31 +532,35 @@ impl PolicySpec {
             .unwrap_or_else(|| pda::tree(0))
     }
 
-    /// The rows and the inline assets the builder gets, in row order.
-    pub fn rows(&self) -> Result<(Vec<Rule>, Vec<[u8; 32]>), PolicyError> {
+    pub(crate) fn rows(&self) -> Result<PolicyRows, PolicyError> {
         if self.rules.len() > MAX_RULES {
             return Err(PolicyError::TooManyRules {
                 count: self.rules.len(),
             });
         }
         let mut assets = Vec::new();
+        let mut limits = Vec::new();
         let rows = self
             .rules
             .iter()
             .enumerate()
-            .map(|(index, rule)| rule.rule(index, &mut assets))
+            .map(|(index, rule)| rule.rule(index, &mut assets, &mut limits))
             .collect::<Result<Vec<_>, _>>()?;
         if assets.len() > MAX_INLINE_ASSETS {
             return Err(PolicyError::TooManyAssets {
                 count: assets.len(),
             });
         }
-        Ok((rows, assets))
+        Ok(PolicyRows {
+            rules: rows,
+            assets,
+            limits,
+        })
     }
 
     pub fn compile(&self, target: Target) -> Result<CompiledPolicy, PolicyError> {
-        let (rows, assets) = self.rows()?;
-        let rules = compile_rows(&rows, &assets)?;
+        let rows = self.rows()?;
+        let rules = compile_rows(&rows.rules, &rows.assets, &rows.limits)?;
         let referenced = rules.referenced();
         let shared_sources = self
             .sources
@@ -521,26 +605,37 @@ impl CompiledPolicy {
     }
 }
 
-fn build(rows: &[Rule], assets: &[[u8; 32]]) -> Result<RuleTable, RuleTableError> {
+fn build(rows: &[Rule], assets: &[[u8; 32]], limits: &[u64]) -> Result<RuleTable, RuleTableError> {
     rows.iter()
         .fold(
-            RuleTable::builder().inline_assets(assets),
+            RuleTable::builder()
+                .inline_assets(assets)
+                .inline_limits(limits),
             |builder, rule| builder.rule(*rule),
         )
         .try_build()
 }
 
 /// The builder refusal named with the first row that triggers it.
-pub fn compile_rows(rows: &[Rule], assets: &[[u8; 32]]) -> Result<RuleTable, PolicyError> {
-    build(rows, assets).map_err(|error| PolicyError::Refused {
-        rule: first_refusal(rows, assets, error),
+pub fn compile_rows(
+    rows: &[Rule],
+    assets: &[[u8; 32]],
+    limits: &[u64],
+) -> Result<RuleTable, PolicyError> {
+    build(rows, assets, limits).map_err(|error| PolicyError::Refused {
+        rule: first_refusal(rows, assets, limits, error),
         message: error.message(),
     })
 }
 
-fn first_refusal(rows: &[Rule], assets: &[[u8; 32]], error: RuleTableError) -> usize {
+fn first_refusal(
+    rows: &[Rule],
+    assets: &[[u8; 32]],
+    limits: &[u64],
+    error: RuleTableError,
+) -> usize {
     (1..=rows.len())
-        .find(|len| build(&rows[..*len], assets) == Err(error))
+        .find(|len| build(&rows[..*len], assets, limits) == Err(error))
         .map_or(rows.len().saturating_sub(1), |len| len - 1)
 }
 
@@ -567,6 +662,9 @@ pub fn describe(rule: &Rule) -> String {
         Guard::Always => format!("{subject} {condition}"),
         Guard::AboveAmount(amount) => {
             format!("{subject} {condition} when the amount is above {amount}")
+        }
+        Guard::AboveAmountByAsset => {
+            format!("{subject} {condition} when its per-asset amount is above the limit")
         }
     }
 }
@@ -674,6 +772,28 @@ above = 1000000
         assert!(policy.rules.is_empty());
         assert_eq!(policy.entries_tree, pda::tree(0));
         assert!(policy.shared_sources.is_empty());
+    }
+
+    #[test]
+    fn one_owner_rule_compiles_a_limit_per_asset() {
+        let policy = compiled(&format!(
+            r#"
+[[rules]]
+subject = "output-owner"
+require = "allow"
+limits = [
+  {{ asset = "{MINT}", above = 1000000 }},
+  {{ asset = "{CURATOR}", above = 2000000 }},
+]
+"#
+        ))
+        .expect("per-asset rule");
+        assert_eq!(
+            policy.rules.rules(),
+            &[Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset()]
+        );
+        assert_eq!(policy.rules.inline_assets().len(), 2);
+        assert_eq!(policy.rules.inline_limits(), &[1_000_000, 2_000_000]);
     }
 
     #[test]

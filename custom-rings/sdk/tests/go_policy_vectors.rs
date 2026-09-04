@@ -22,14 +22,16 @@ const ASSET_MEMBERS: &[[u8; 32]] = &[[
 
 const RECORDS_OWNER_HASH: &str = "1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be";
 const CURATOR_OWNER_HASH: &str = "2719a8eec7b597c45bf36e95b85af000cbceef719715713fadec78fe81c88280";
-const POLICY_HASH: &str = "1db847daec40e138a5be37ab789143afc4a442dfe49f616bbd30aad698ce391b";
-const EMPTY_POLICY_HASH: &str = "1fdd9c12850df78caef73299c35baf2a64eb41a13b6374e3684a8dc29f3343d4";
+const POLICY_HASH: &str = "243120278b6c15d93cd9b27feeb0586457cf41798c30c534da48f66e3fd76b69";
+const EMPTY_POLICY_HASH: &str = "16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400";
 const ONE_RULE_POLICY_HASH: &str =
-    "14a5b73c52527adc8c5e7442e18762f016351ab266a6d3d6b8b63da5179bca6d";
+    "226e9c2ba91e63d29176d27dd80711d501c284769b4d1a76c5c1676259bfd3ff";
 const TWO_RULE_POLICY_HASH: &str =
-    "291890be727291b0c20683434745529fc2339d407104995ba797398e4602f231";
+    "0ab720d70035f79c4c91e8677e4753a855c3f7be0fcaf8f655883d258821189c";
 const MIXED_RULE_POLICY_HASH: &str =
-    "249c5e81375513a119473aa5df5fda06d261ea06b83d6b8b9cf30b7a233a04d9";
+    "1d6806016526767233ca9acecf59629642e061ae50a0018192a78eb6617f46f8";
+const PER_ASSET_POLICY_HASH: &str =
+    "2903cae630b7cd871a2074e617e68dcd52fc866b28fab7c509033ef87357143d";
 
 struct Vector {
     seed: &'static str,
@@ -211,6 +213,20 @@ fn source_map_hashing_matches_the_go_fixture() {
     assert_eq!(
         TWO_RULES.hash(&two_map).expect("two rule hash"),
         hex32(TWO_RULE_POLICY_HASH)
+    );
+}
+
+#[test]
+fn per_asset_limit_hashing_matches_the_go_fixture() {
+    const LIMITED: RuleTable = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+        .inline_assets(ASSET_MEMBERS)
+        .inline_limits(&[123])
+        .build();
+    let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
+    assert_eq!(
+        LIMITED.hash(&map).expect("per-asset hash"),
+        hex32(PER_ASSET_POLICY_HASH)
     );
 }
 

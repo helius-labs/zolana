@@ -77,7 +77,10 @@ An asset rule over lists reads entries the config authority or a curator
 writes, like an owner rule. The inline form, `Rule::allow_only_assets`, keeps
 the mints inside the pinned table. They move only with a re-pin under the
 upgrade authority, out of reach of a compromised config authority. An owner
-amount guard reads its units from that one inline rule.
+scalar amount guard reads its units from that one inline rule. A per-asset
+owner guard instead pairs up to eight inline mints with independent limits.
+It aggregates outputs by owner and mint, and still consumes at most one list
+answer per owner for that rule.
 
 Entries have two states and no delete. `Active` and `Cleared` are both live
 UTXOs. Removal spends the `Active` version into a `Cleared` successor at the
@@ -411,7 +414,7 @@ makes reuse inexpressible.
   ring's spendable UTXOs are not confined to it and may live in any
   registered tree.
 - The shape is fixed at five inputs, four outputs, ten answers, sixteen
-  rules, eight sources, eight inline assets. The answers array is the
+  rules, eight sources, eight inline asset-limit pairs. The answers array is the
   per-transfer screening budget, larger transfers must split.
 - The builder rejects any table carrying `ExitDestination`.
 - A rule-less ring still resolves and windows roots. Its clients fetch
