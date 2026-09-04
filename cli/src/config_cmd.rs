@@ -4,8 +4,8 @@ use solana_pubkey::Pubkey;
 use crate::{
     args::{ConfigAddAssetOptions, ConfigAssetCommand, ConfigCommand, ConfigSetOptions},
     cli_config::{
-        config_file_path, default_keypair_path, CliConfigFile, DEFAULT_INDEXER_URL,
-        DEFAULT_PROVER_URL, DEFAULT_RPC_URL, DEFAULT_TREE,
+        config_file_path, default_keypair_path, default_tree, CliConfigFile, DEFAULT_INDEXER_URL,
+        DEFAULT_PROVER_URL, DEFAULT_RPC_URL,
     },
 };
 
@@ -50,7 +50,8 @@ fn run_config_get() -> Result<()> {
         config.prover_url.as_deref(),
         Some(DEFAULT_PROVER_URL),
     );
-    print_field("Tree", config.tree.as_deref(), Some(DEFAULT_TREE));
+    let default_tree = default_tree().to_string();
+    print_field("Tree", config.tree.as_deref(), Some(&default_tree));
     print_assets(&config);
     Ok(())
 }

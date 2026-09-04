@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, state::SplAssetRegistry, SPL_INTERFACE_PDA_SEED};
@@ -50,10 +51,10 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
         let mut counter = load_spl_asset_counter_mut(asset_counter)?;
         counter
             .check_discriminator()
-            .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?;
         counter
             .allocate_id()
-            .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?
+            .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?
     };
     // Create asset registry account.
     {
@@ -74,7 +75,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
             bump: registry_bump,
         }
         .execute()
-        .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?;
         RegistryInitParams {
             mint: mint_key,
             asset_id,
@@ -100,7 +101,7 @@ pub fn process_create_spl_interface(accounts: &mut [AccountView], data: &[u8]) -
             bump: spl_interface_bump,
         }
         .execute()
-        .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?;
         SplInterfaceInitParams {
             token_program,
             spl_interface,

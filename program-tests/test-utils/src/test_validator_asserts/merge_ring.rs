@@ -3,6 +3,7 @@ use solana_pubkey::Pubkey;
 use zolana_client::{ClientError, Rpc};
 
 use super::{state_root_from, to_address, wait_for_merkle_proof, wait_for_nullifier_present};
+use crate::nullifier_pda::{assert_nullifier_pdas, assert_tree_lamports_after_spend};
 
 /// Inputs for [`assert_merge_ring`]. The merge consolidates the 8-input shape
 /// into the single `output_hash`; `input_nullifiers` are the nullifiers the merge
@@ -20,6 +21,8 @@ pub struct MergeRingAssertArgs<'a> {
 /// nullifiers, verify
 ///
 /// - the tree root advanced (the output was appended),
+/// - the tree collected the forester fee and funded exactly one nullifier
+///   nullifier PDA per input; every nullifier PDA exists with its rent, owner, size and bump,
 /// - photon serves a merkle inclusion proof for the consolidated output, tracking
 ///   the on-chain root,
 /// - every spent input nullifier is now present in the nullifier tree (its
@@ -41,11 +44,14 @@ pub fn assert_merge_ring<R: Rpc, I: Rpc>(
     } = args;
 
     let root_before = state_root_from(tree_before);
-    let root_after = state_root_from(&super::fetch_account(rpc, tree)?);
+    let tree_after =
+        assert_tree_lamports_after_spend(rpc, tree, tree_before, input_nullifiers.len() as u64)?;
+    let root_after = state_root_from(&tree_after);
     assert_ne!(
         root_after, root_before,
         "consolidated output must be appended"
     );
+    assert_nullifier_pdas(rpc, tree, input_nullifiers)?;
 
     let proof = wait_for_merkle_proof(indexer, to_address(tree), output_hash);
     assert_eq!(

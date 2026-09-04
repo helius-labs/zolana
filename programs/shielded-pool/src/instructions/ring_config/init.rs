@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -17,7 +18,7 @@ impl RingConfigInitParams {
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         let mut data = account
             .try_borrow_mut()
-            .map_err(|_| ShieldedPoolError::InvalidRingConfig)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidRingConfig))?;
         if data.len() != RingConfig::SIZE || data.iter().any(|byte| *byte != 0) {
             return Err(ShieldedPoolError::InvalidRingConfig.into());
         }

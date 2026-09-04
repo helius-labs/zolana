@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
@@ -44,7 +45,7 @@ fn validate_token_program(token_program: &Address) -> Result<(), ProgramError> {
 fn read_token_mint(mint: &AccountView) -> Result<TokenMintState, ProgramError> {
     let data = mint
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))?;
     let decimals = *data
         .get(SPL_TOKEN_MINT_DECIMALS_OFFSET)
         .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
@@ -184,9 +185,9 @@ fn read_token_account(
 
     let data = account
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))?;
     let state = PodStateWithExtensions::<PodAccount>::unpack(&data)
-        .map_err(|_| ShieldedPoolError::InvalidSettlementAccounts)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSettlementAccounts))?;
     if state.base.state != SPL_TOKEN_ACCOUNT_INITIALIZED {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }

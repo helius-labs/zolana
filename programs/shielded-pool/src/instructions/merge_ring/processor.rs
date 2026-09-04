@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
@@ -13,8 +14,11 @@ use zolana_interface::{
 
 use super::account::MergeRingAccounts;
 use crate::instructions::{
-    merge::{processor::process_merge_core, verify::MergeOwnerBinding},
-    shared::check_not_expired,
+    merge::{
+        processor::{process_merge_core, validate_field_elements, MergeCoreAccounts},
+        verify::MergeOwnerBinding,
+    },
+    shared::{check_field_element, check_not_expired},
 };
 
 /// Policy-ring analog of `merge_transact`, invoked via CPI from a ring program.
@@ -23,9 +27,16 @@ use crate::instructions::{
 /// `protocol_config.merge_authorities`.
 #[inline(never)]
 pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
-    let ix =
-        MergeRingIxDataRef::from_bytes(data).map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+    let ix = MergeRingIxDataRef::from_bytes(data)
+        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
+    validate_field_elements(merge)?;
+    check_field_element(
+        ix.output_ring_data_hash,
+        "output ring data hash",
+        None,
+        ShieldedPoolError::NonCanonicalRingDataHash,
+    )?;
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
@@ -37,7 +48,9 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         output_utxo_hash: merge.output_utxo_hash,
     }
     .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
 
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified
@@ -55,9 +68,12 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     // `ring_data_hash` is published in the event so the wallet can reconstruct
     // the ring output.
     process_merge_core(
-        merge_accounts.input_tree,
-        merge_accounts.output_tree,
-        merge_accounts.payer,
+        MergeCoreAccounts {
+            input_tree: merge_accounts.input_tree,
+            output_tree: merge_accounts.output_tree,
+            payer: merge_accounts.payer,
+            nullifier_pdas: merge_accounts.nullifier_pdas,
+        },
         merge,
         external_data_hash,
         owner_binding,

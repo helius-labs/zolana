@@ -9,6 +9,7 @@ use zolana_interface::{
 use zolana_transaction::{Address, SOL_MINT};
 use zolana_wallet::create_associated_token_account_with_program;
 
+pub(super) use crate::cli_config::parse_pubkey;
 use crate::cli_config::CliConfigFile;
 
 pub(super) fn ensure_positive(amount: u64) -> Result<()> {
@@ -23,12 +24,6 @@ pub(super) fn parse_address(value: &str) -> Result<Address> {
         return Ok(SOL_MINT);
     }
     Ok(Address::new_from_array(parse_pubkey(value)?.to_bytes()))
-}
-
-pub(super) fn parse_pubkey(value: &str) -> Result<Pubkey> {
-    value
-        .parse::<Pubkey>()
-        .with_context(|| format!("invalid pubkey `{value}`"))
 }
 
 pub(super) fn format_address(address: Address) -> String {

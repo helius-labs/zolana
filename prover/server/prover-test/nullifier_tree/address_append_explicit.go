@@ -13,7 +13,7 @@ import (
 // (init element {0, 2^248-1} at index 0, next_index 1). Unlike
 // BuildTestAddressTree, which fabricates sequential values, this replays the
 // exact values a caller queued, so the resulting proof/new_root match what the
-// on-chain light-batched-merkle-tree produces for the same queue. startIndex is
+// on-chain zolana-tree nullifier_tree produces for the same queue. startIndex is
 // the tree's next_index when the batch is processed (1 for the first batch
 // after init); values are appended at startIndex, startIndex+1, ...
 func BuildAddressAppendParamsFromValues(

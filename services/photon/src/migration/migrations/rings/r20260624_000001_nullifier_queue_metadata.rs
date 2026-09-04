@@ -23,7 +23,7 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .default(
-                                zolana_interface::state::ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE
+                                zolana_interface::state::NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE
                                     as i64,
                             ),
                     )

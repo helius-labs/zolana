@@ -25,6 +25,7 @@ use zolana_user_registry_interface::{
 use super::LifecycleHarness;
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
+    nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
         wait_for_merkle_proof, wait_for_non_inclusion_proof,
@@ -223,21 +224,30 @@ impl LifecycleHarness {
             &merge_key.pubkey(),
             &[&merge_key],
         )?;
-        // A successful merge collects the forester fee from the inner payer: one
-        // 20-lamport share per inserted nullifier, transferred into the tree.
-        let forester_fee = MERGE_INPUT_COUNT as u64 * 20;
+        // A successful merge collects the tree's insertion fee from the inner payer:
+        // fee_per_nullifier per inserted nullifier, transferred into the tree. The
+        // tree then funds one nullifier PDA per inserted nullifier.
+        let forester_fee =
+            forester_fee_for_inputs(&tree_before, &self.tree, MERGE_INPUT_COUNT as u64)?;
         let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
             forester_fee,
             "merge must charge the payer one forester share per nullifier"
         );
+        let nullifier_pda_rent = nullifier_pda_rent(&self.rpc)?;
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
-            tree_after.lamports - tree_before.lamports,
-            forester_fee,
-            "merge forester fee must accrue to the tree"
+            tree_before.lamports - tree_after.lamports,
+            MERGE_INPUT_COUNT as u64 * nullifier_pda_rent - forester_fee,
+            "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
+        assert_eq!(
+            result.nullifiers.len(),
+            MERGE_INPUT_COUNT,
+            "merge queues one nullifier per input slot"
+        );
+        assert_nullifier_pdas(&self.rpc, &self.tree, &result.nullifiers)?;
         assert_account_unchanged(&self.rpc, &user_record, &user_record_before)?;
 
         // Only commit the fixture's spendable set after the validator accepted the

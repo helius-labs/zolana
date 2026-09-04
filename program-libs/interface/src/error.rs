@@ -126,6 +126,36 @@ pub enum ShieldedPoolError {
     SplAssetCounterAlreadyInitialized = 7046,
     #[error("ring is paused")]
     RingPaused = 7047,
+    #[error("nullifier is already queued in the nullifier tree")]
+    NullifierAlreadyQueued = 7048,
+    #[error("tree does not hold enough lamports to fund a nullifier PDA")]
+    InsufficientNullifierPdaRent = 7049,
+    #[error("nullifier PDA batch is not reclaimable yet")]
+    NullifierPdaNotClosable = 7050,
+    #[error("nullifier PDA account is invalid")]
+    InvalidNullifierPda = 7051,
+    #[error("tree id does not match the protocol config's next tree id")]
+    InvalidTreeId = 7052,
+    #[error("nullifier PDA belongs to a different tree")]
+    NullifierPdaTreeMismatch = 7053,
+    #[error("tree id space is exhausted")]
+    TreeIdOverflow = 7054,
+    #[error("reimbursement recipient must not be a program-owned account")]
+    InvalidReimbursementRecipient = 7055,
+    #[error("output utxo hash is not a canonical BN254 field element")]
+    NonCanonicalOutputUtxoHash = 7056,
+    #[error("input nullifier is not a canonical BN254 field element")]
+    NonCanonicalInputNullifier = 7057,
+    #[error("private tx hash is not a canonical BN254 field element")]
+    NonCanonicalPrivateTxHash = 7058,
+    #[error("ring data hash is not a canonical BN254 field element")]
+    NonCanonicalRingDataHash = 7059,
+    #[error("deposit entry field is not a canonical BN254 field element")]
+    NonCanonicalDepositField = 7060,
+    #[error("nullifier tree root is not a canonical BN254 field element")]
+    NonCanonicalRoot = 7061,
+    #[error("tree holds no lamports above its rent, fee balance, and working capital")]
+    NoClaimableTreeLamports = 7062,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -154,6 +184,7 @@ impl From<TreeError> for ShieldedPoolError {
         match error {
             TreeError::Paused => ShieldedPoolError::TreePaused,
             TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed,
+            TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee,
             _ => ShieldedPoolError::InvalidTreeAccounts,
         }
     }
@@ -215,6 +246,21 @@ mod tests {
                 ZeroNetInterfaceTransferAmount => 7045,
                 SplAssetCounterAlreadyInitialized => 7046,
                 RingPaused => 7047,
+                NullifierAlreadyQueued => 7048,
+                InsufficientNullifierPdaRent => 7049,
+                NullifierPdaNotClosable => 7050,
+                InvalidNullifierPda => 7051,
+                InvalidTreeId => 7052,
+                NullifierPdaTreeMismatch => 7053,
+                TreeIdOverflow => 7054,
+                InvalidReimbursementRecipient => 7055,
+                NonCanonicalOutputUtxoHash => 7056,
+                NonCanonicalInputNullifier => 7057,
+                NonCanonicalPrivateTxHash => 7058,
+                NonCanonicalRingDataHash => 7059,
+                NonCanonicalDepositField => 7060,
+                NonCanonicalRoot => 7061,
+                NoClaimableTreeLamports => 7062,
             }
         }
 
@@ -265,6 +311,21 @@ mod tests {
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
+            NullifierAlreadyQueued,
+            InsufficientNullifierPdaRent,
+            NullifierPdaNotClosable,
+            InvalidNullifierPda,
+            InvalidTreeId,
+            NullifierPdaTreeMismatch,
+            TreeIdOverflow,
+            InvalidReimbursementRecipient,
+            NonCanonicalOutputUtxoHash,
+            NonCanonicalInputNullifier,
+            NonCanonicalPrivateTxHash,
+            NonCanonicalRingDataHash,
+            NonCanonicalDepositField,
+            NonCanonicalRoot,
+            NoClaimableTreeLamports,
         ];
         for variant in variants {
             assert_eq!(
@@ -273,7 +334,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 44 variants on this branch.
-        assert_eq!(variants.len(), 44, "variant count drifted");
+        // The list above must contain every live variant.
+        assert_eq!(variants.len(), 59, "variant count drifted");
     }
 }

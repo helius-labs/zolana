@@ -21,13 +21,13 @@ use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface, CreateTree},
     pda,
-    state::tree_account_size,
+    state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedKeypair, SigningKey};
-use zolana_smart_account_client::execute_sync_ix;
+use zolana_smart_account_client::{execute_sync_each, execute_sync_ix};
 use zolana_transaction::{AssetRegistry, ShieldedTransaction, Utxo, Wallet, WalletUtxo};
-use zolana_tree::InitAddressTreeAccountsInstructionData;
+use zolana_tree::NullifierTreeInitParams;
 
 use crate::{
     localnet::{
@@ -249,7 +249,7 @@ impl<D> LocalnetHarness<D> {
         let merge_key = Keypair::new();
         let tree_key = Keypair::new();
         let ring_key = Keypair::new();
-        rpc.airdrop(&payer.pubkey(), 100_000_000_000)?;
+        rpc.airdrop(&payer.pubkey(), 500_000_000_000)?;
         rpc.airdrop(&authority.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&forester_key.pubkey(), 1_000_000_000)?;
         rpc.airdrop(&merge_key.pubkey(), 1_000_000_000)?;
@@ -288,6 +288,7 @@ impl<D> LocalnetHarness<D> {
             ring_creation_authority: accounts.ring_vault.to_bytes().into(),
             ring_creation_is_permissionless: config.ring_creation_is_permissionless,
             spl_interface_creation_is_permissionless: false,
+            fee_authority: accounts.protocol_vault.to_bytes().into(),
         }
         .instruction();
         let create_config_sync = execute_sync_ix(
@@ -321,41 +322,34 @@ impl<D> LocalnetHarness<D> {
     pub fn create_tree(
         rpc: &mut SolanaRpc,
         setup: &ProtocolSetup,
-        nullifier_params: Option<InitAddressTreeAccountsInstructionData>,
+        nullifier_params: Option<NullifierTreeInitParams>,
     ) -> Result<(Pubkey, Address)> {
-        let tree = Keypair::new();
-        let rent = rpc
-            .get_minimum_balance_for_rent_exemption(tree_account_size())
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let alloc_ix = zolana_program_test::system_create_account_ix(
-            &setup.payer.pubkey(),
-            &tree.pubkey(),
-            rent,
-            tree_account_size() as u64,
-            &pda::shielded_pool_program_id(),
-        );
         let create = CreateTree {
+            payer: setup.payer.pubkey(),
             authority: setup.accounts.tree_vault,
-            tree: tree.pubkey(),
+            tree_id: zolana_program_test::next_tree_id(rpc)?,
+            nullifier_params: nullifier_params.unwrap_or_else(nullifier_tree_params),
+            fees: default_tree_fees(
+                nullifier_params
+                    .unwrap_or_else(nullifier_tree_params)
+                    .input_queue_zkp_batch_size,
+            )
+            .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
         };
-        let create_tree_ix = match nullifier_params {
-            Some(params) => create.instruction_with_nullifier_params(params),
-            None => create.instruction(),
-        };
-        let create_tree_sync = execute_sync_ix(
+        let steps = execute_sync_each(
             &setup.accounts.tree_settings,
             0,
             &[setup.tree_key.pubkey()],
-            &[create_tree_ix],
+            &create.instructions(),
         );
         send_transaction(
             rpc,
-            &[alloc_ix, create_tree_sync],
+            &steps,
             &setup.payer.pubkey(),
-            &[&setup.payer, &tree, &setup.tree_key],
+            &[&setup.payer, &setup.tree_key],
         )?;
 
-        let tree = tree.pubkey();
+        let tree = create.tree();
         Ok((tree, Address::new_from_array(tree.to_bytes())))
     }
 

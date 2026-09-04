@@ -2,7 +2,10 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::{MessageData, TransactIxData},
+    instruction::{
+        instruction_data::transact::{MessageData, TransactIxData},
+        nullifier_pda_accounts,
+    },
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedAddress;
@@ -48,21 +51,26 @@ impl Make {
         if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
+        let nullifier_pdas = nullifier_pda_accounts(
+            &tree,
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,
             transact: spp_proof,
         })
         .map_err(err)?;
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(order_authority_pda(), false),
         ];
+        accounts.extend(nullifier_pdas);
+        accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));
         let mut instruction_data = vec![tag::MAKE];
         instruction_data.extend_from_slice(&serialized_ix);
         Ok(Instruction {

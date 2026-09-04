@@ -206,7 +206,7 @@ fn select_candidates(
 
 #[cfg(test)]
 mod tests {
-    use zolana_interface::DEFAULT_TREE_ADDRESS;
+    use zolana_interface::pda;
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{Data, DataRecord, OutputContext, Utxo, WalletUtxo};
 
@@ -288,13 +288,7 @@ mod tests {
             Default::default(),
         )
         .expect("wallet");
-        wallet.utxos.push(note(
-            &owner,
-            ring,
-            Address::from_str_const(DEFAULT_TREE_ADDRESS),
-            10,
-            1,
-        ));
+        wallet.utxos.push(note(&owner, ring, pda::tree(0), 10, 1));
 
         assert!(select_candidates(&wallet, ring, SOL_MINT, MERGE_INPUTS).is_none());
         assert_eq!(largest_candidate_group(&wallet, ring, SOL_MINT), 1);

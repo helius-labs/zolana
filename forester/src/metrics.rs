@@ -54,6 +54,9 @@ pub mod names {
     pub const BATCHES_SUBMITTED: &str = "forester_batches_submitted_total";
     pub const INDEXER_RESPONSE_SECONDS: &str = "forester_indexer_response_time_seconds";
     pub const INDEXER_PROOF_COUNT: &str = "forester_indexer_proof_count";
+    pub const FEE_BALANCE: &str = "forester_fee_balance_lamports";
+    pub const APPEND_REIMBURSEMENT: &str = "forester_append_reimbursement_lamports";
+    pub const REIMBURSEMENT_SHORTFALL: &str = "forester_reimbursement_shortfall_lamports_total";
 
     pub const ALL: &[&str] = &[
         QUEUE_LENGTH,
@@ -67,6 +70,9 @@ pub mod names {
         BATCHES_SUBMITTED,
         INDEXER_RESPONSE_SECONDS,
         INDEXER_PROOF_COUNT,
+        FEE_BALANCE,
+        APPEND_REIMBURSEMENT,
+        REIMBURSEMENT_SHORTFALL,
     ];
 }
 
@@ -131,6 +137,29 @@ pub fn set_zkp_batches(tree_pubkey: &str, zkp_batch_size: u64, ready: u64, appli
         &mut registry.gauges,
         names::QUEUE_ZKP_BATCHES_APPLIED,
         (tags, applied as f64),
+    );
+}
+
+pub fn set_fee_schedule(tree_pubkey: &str, append_reimbursement: u64, fee_balance: u64) {
+    let tags = labels(&[("tree_type", "nullifier"), ("tree_pubkey", tree_pubkey)]);
+    let mut registry = registry().lock().expect("metrics registry poisoned");
+    set(
+        &mut registry.gauges,
+        names::APPEND_REIMBURSEMENT,
+        (tags.clone(), append_reimbursement as f64),
+    );
+    set(
+        &mut registry.gauges,
+        names::FEE_BALANCE,
+        (tags, fee_balance as f64),
+    );
+}
+
+pub fn add_reimbursement_shortfall(tree_pubkey: &str, lamports: u64) {
+    add(
+        names::REIMBURSEMENT_SHORTFALL,
+        labels(&[("tree_type", "nullifier"), ("tree_pubkey", tree_pubkey)]),
+        lamports as f64,
     );
 }
 

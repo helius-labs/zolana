@@ -1,19 +1,30 @@
-use pinocchio::{address::Address, error::ProgramError, AccountView};
+use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
+use pinocchio::{
+    address::{address_eq, Address},
+    error::ProgramError,
+    AccountView,
+};
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::hash_bytes;
-use zolana_interface::{error::ShieldedPoolError, merge_utils::owner_proof_input_hash_compressed};
+use zolana_interface::{
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
+    merge_utils::owner_proof_input_hash_compressed,
+};
 use zolana_user_registry_interface::{
     state::UserRecord, USER_RECORD_SEED, USER_REGISTRY_PROGRAM_ID,
 };
 
 /// Validated accounts for `merge_transact`, in loader order: `input_tree` and
 /// `output_tree` (writable), `payer` (signer, pays fees), `user_record`
-/// (read-only).
+/// (read-only), System Program, the program account (for the `emit_event`
+/// self-CPI), then one writable nullifier PDA per input.
 pub struct MergeTransactAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
@@ -27,11 +38,22 @@ impl<'a> MergeTransactAccounts<'a> {
         if !pinocchio_system::check_id(system_program.address()) {
             return Err(ShieldedPoolError::InvalidSystemProgram.into());
         }
+        let shielded_pool_program = iter.next_account("shielded_pool_program")?;
+        if !address_eq(shielded_pool_program.address(), &crate::ID) {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+        let mut nullifier_pdas = ArrayVec::new();
+        for _ in 0..MERGE_INPUT_COUNT {
+            nullifier_pdas
+                .try_push(iter.next_mut("nullifier_pda")?)
+                .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+        }
         Ok(Self {
             input_tree,
             output_tree,
             payer,
             user_record,
+            nullifier_pdas,
         })
     }
 }
@@ -67,9 +89,9 @@ pub fn load_user_record(
     }
     let data = account
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let record = UserRecord::try_from_account_data(&data)
-        .map_err(|_| ShieldedPoolError::InvalidUserRecord)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let (expected_record, expected_bump) =
         Address::find_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id);
     if account.address() != &expected_record || record.bump != expected_bump {
@@ -86,7 +108,7 @@ pub fn load_user_record(
             .ok_or(ShieldedPoolError::InvalidUserRecord)?;
         signing_view_tag.copy_from_slice(&owner_p256[1..]);
         owner_proof_input_hash_compressed(&owner_p256)
-            .map_err(|_| ShieldedPoolError::InvalidUserRecord)?
+            .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?
     };
     Ok(UserPkFields {
         signing_pk_field,
