@@ -49,6 +49,7 @@ pub struct CustomRingWitness {
     pub rules: [[u8; 32]; MAX_RULES],
     pub policy_len: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
+    pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
     pub answers: Vec<RuleAnswer>,
 }
@@ -166,14 +167,43 @@ impl<'a> CustomRingWitnessInput<'a> {
     /// The rule's guard exempts the subject when the total it receives in the
     /// transaction is at or below the threshold, the same sum the circuit weighs.
     fn guard_exempts(&self, rule: &Rule, member: &Member) -> Result<bool, TransferError> {
-        let Guard::AboveAmount(threshold) = rule.guard else {
-            return Ok(false);
-        };
-        // The circuit guards outputs only.
-        if matches!(rule.subject, Subject::Sender | Subject::ExitDestination) {
-            return Ok(false);
+        match rule.guard {
+            Guard::Always => Ok(false),
+            Guard::AboveAmount(threshold) => {
+                if matches!(rule.subject, Subject::Sender | Subject::ExitDestination) {
+                    return Ok(false);
+                }
+                Ok(self.subject_total(rule.subject, member)? <= u128::from(threshold))
+            }
+            Guard::AboveAmountByAsset => self.asset_limits_exempt(member),
         }
-        Ok(self.subject_total(rule.subject, member)? <= u128::from(threshold))
+    }
+
+    fn asset_limits_exempt(&self, owner: &Member) -> Result<bool, TransferError> {
+        let assets = self.policy.inline_assets();
+        let limits = self.policy.inline_limits();
+        let mut totals = [0u128; MAX_INLINE_ASSETS];
+        for output in self.outputs {
+            let Some(address) = output.owner_address.as_ref() else {
+                continue;
+            };
+            let tag = address
+                .confidential_view_tag()
+                .map_err(|_| TransferError::PolicyHashing)?;
+            if Member::owner_tag(&tag).map_err(|_| TransferError::PolicyHashing)? != *owner {
+                continue;
+            }
+            let asset = Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?;
+            let index = assets
+                .iter()
+                .position(|known| known == asset.as_bytes())
+                .ok_or(TransferError::PolicyAssetUnsupported)?;
+            totals[index] += u128::from(output.amount);
+        }
+        Ok(totals
+            .iter()
+            .zip(limits)
+            .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
     /// The total the subject value receives across live outputs, aggregated per
@@ -453,6 +483,7 @@ impl ResolvedWitness<'_> {
             rules: table.rules,
             policy_len: table.rule_count,
             inline_assets: table.inline_assets,
+            inline_limits: table.inline_limits.map(u64::from_be_bytes),
             inline_count: table.inline_count,
             answers,
         })
@@ -722,7 +753,15 @@ mod tests {
     }
 
     fn output(address: zolana_keypair::ShieldedAddress, amount: u64) -> SppProofOutputUtxo {
-        SppProofOutputUtxo::new(Address::new_from_array([9; 32]), amount, address).expect("output")
+        output_asset(Address::new_from_array([9; 32]), address, amount)
+    }
+
+    fn output_asset(
+        asset: Address,
+        address: zolana_keypair::ShieldedAddress,
+        amount: u64,
+    ) -> SppProofOutputUtxo {
+        SppProofOutputUtxo::new(asset, amount, address).expect("output")
     }
 
     const EMPTY: RuleTable = RuleTable::builder().build();
@@ -848,6 +887,59 @@ mod tests {
         assert!(split
             .guard_exempts(&guarded, &other_member)
             .expect("below the threshold"));
+    }
+
+    #[test]
+    fn per_asset_guard_uses_each_mint_limit_and_rejects_an_unknown_mint() {
+        let (owner, address) = recipient();
+        let first = Address::new_from_array([8; 32]);
+        let second = Address::new_from_array([9; 32]);
+        let members = [
+            *Member::asset(&first).expect("first").as_bytes(),
+            *Member::asset(&second).expect("second").as_bytes(),
+        ];
+        let policy = RuleTable::builder()
+            .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
+            .inline_assets(&members)
+            .inline_limits(&[10, 20])
+            .build();
+        let config = config(&policy);
+        let rule = &policy.rules()[0];
+        let below = [
+            output_asset(first, address, 4),
+            output_asset(first, address, 6),
+            output_asset(second, address, 20),
+        ];
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &below,
+        };
+        assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
+
+        let above = [output_asset(first, address, 11)];
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &above,
+        };
+        assert!(!input
+            .guard_exempts(rule, &owner)
+            .expect("above first limit"));
+
+        let unknown = [output_asset(Address::new_from_array([7; 32]), address, 1)];
+        let input = CustomRingWitnessInput {
+            policy: &policy,
+            policy_config: &config,
+            inputs: &[],
+            outputs: &unknown,
+        };
+        assert!(matches!(
+            input.guard_exempts(rule, &owner),
+            Err(TransferError::PolicyAssetUnsupported)
+        ));
     }
 
     #[test]
@@ -1300,6 +1392,10 @@ mod tests {
         assert_eq!(witness.rules, config.rules.rules);
         assert_eq!(witness.policy_len, config.rules.rule_count);
         assert_eq!(witness.inline_assets, config.rules.inline_assets);
+        assert_eq!(
+            witness.inline_limits,
+            config.rules.inline_limits.map(u64::from_be_bytes)
+        );
         assert_eq!(witness.inline_count, config.rules.inline_count);
         assert_eq!(witness.rules[0][19], ListSet::single(ListId::Block).bits());
         assert_eq!(witness.inline_assets[0], ASSETS[0]);

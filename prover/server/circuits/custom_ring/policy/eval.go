@@ -14,6 +14,7 @@ func (c *CustomRingPolicyCircuit) evaluate(
 	enabled [NRules]frontend.Variable,
 ) {
 	inline := c.inlineCoverage(api, slots.outputs)
+	assetLimits := c.assetLimits(api, slots.outputs)
 
 	var eqOutputOwner, eqOutputAsset [NAnswers][NOut]frontend.Variable
 	var eqSender [NAnswers][NIn]frontend.Variable
@@ -45,6 +46,7 @@ func (c *CustomRingPolicyCircuit) evaluate(
 
 	for k, rule := range c.Rules {
 		isInline := api.IsZero(rule.Mask)
+		isPerAsset := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmountByAsset))
 		onOutputOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
 		onAsset := api.IsZero(api.Sub(rule.Subject, SubjectAsset))
 		// SubjectExitDestination has no instance here, nothing constrains a rule
@@ -68,21 +70,30 @@ func (c *CustomRingPolicyCircuit) evaluate(
 			// The exemption weighs the total sent to the same subject value, a
 			// payment split into sub-threshold slots no longer escapes the rule.
 			aggregated := frontend.Variable(0)
+			assetAggregated := frontend.Variable(0)
 			for jp := range slots.outputs {
 				otherVal := api.Select(onAsset, slots.outputs[jp].asset, slots.outputs[jp].owner)
 				liveOther := api.Select(onAsset, liveAsset[jp], liveOwner[jp])
 				same := api.IsZero(api.Sub(otherVal, subjectVal))
 				aggregated = api.Add(aggregated, api.Mul(api.Mul(liveOther, same), slots.outputs[jp].amount))
+				sameOwner := api.IsZero(api.Sub(slots.outputs[jp].owner, slots.outputs[j].owner))
+				sameAsset := api.IsZero(api.Sub(slots.outputs[jp].asset, slots.outputs[j].asset))
+				assetAggregated = api.Add(assetAggregated, api.Mul(liveOwner[jp], sameOwner, sameAsset, slots.outputs[jp].amount))
 			}
 			terms := make([]frontend.Variable, NAnswers)
 			for e := range matched {
 				terms[e] = api.Mul(matched[e], api.Select(onAsset, eqOutputAsset[e][j], eqOutputOwner[e][j]))
 			}
+			instance := api.Mul(onOutput, api.Select(onAsset, liveAsset[j], liveOwner[j]))
+			api.AssertIsEqual(api.Mul(instance, isPerAsset, api.Sub(1, assetLimits[j].found)), 0)
 			rule.assertGuardedAnswered(
 				api,
-				api.Mul(onOutput, api.Select(onAsset, liveAsset[j], liveOwner[j])),
+				instance,
 				api.Select(isInline, inline[j], anyOf(api, terms)),
 				aggregated,
+				assetAggregated,
+				assetLimits[j].threshold,
+				assetLimits[j].found,
 			)
 		}
 
@@ -99,12 +110,39 @@ func (c *CustomRingPolicyCircuit) evaluate(
 	}
 }
 
-func (w RuleWires) assertGuardedAnswered(api frontend.API, instance, covered, aggregated frontend.Variable) {
-	exempt := api.Mul(
+func (w RuleWires) assertGuardedAnswered(
+	api frontend.API,
+	instance, covered, aggregated, assetAggregated, assetThreshold, assetFound frontend.Variable,
+) {
+	exempt := api.Add(api.Mul(
 		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmount)),
 		atMostAggregated(api, aggregated, w.Threshold),
-	)
+	), api.Mul(
+		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmountByAsset)),
+		assetFound,
+		atMostAggregated(api, assetAggregated, assetThreshold),
+	))
 	api.AssertIsEqual(api.Mul(instance, api.Mul(api.Sub(1, covered), api.Sub(1, exempt))), 0)
+}
+
+type assetLimit struct {
+	found     frontend.Variable
+	threshold frontend.Variable
+}
+
+func (c *CustomRingPolicyCircuit) assetLimits(api frontend.API, outputs [NOut]slotView) [NOut]assetLimit {
+	inInline := suffixSums(api, c.InlineCountOneHot[:])
+	var limits [NOut]assetLimit
+	for j, out := range outputs {
+		matches := make([]frontend.Variable, NInlineAssets)
+		threshold := frontend.Variable(0)
+		for m, asset := range c.InlineAssets {
+			matches[m] = api.Mul(inInline[m+1], api.IsZero(api.Sub(asset, out.asset)))
+			threshold = api.Add(threshold, api.Mul(matches[m], c.InlineLimits[m]))
+		}
+		limits[j] = assetLimit{found: anyOf(api, matches), threshold: threshold}
+	}
+	return limits
 }
 
 func assertCovered(api frontend.API, instance, covered frontend.Variable) {

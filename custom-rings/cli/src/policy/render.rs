@@ -46,8 +46,9 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     }
     let mut rules = ArrayOfTables::new();
     let mut assets = Vec::new();
+    let mut limits = Vec::new();
     for (index, rule) in spec.rules.iter().enumerate() {
-        let row = rule.rule(index, &mut assets)?;
+        let row = rule.rule(index, &mut assets, &mut limits)?;
         let mut table = rule_table(rule, index)?;
         table
             .decor_mut()
@@ -96,6 +97,23 @@ fn rule_table(rule: &RuleSpec, index: usize) -> Result<Table, PolicyError> {
             amount,
         })?;
         table.insert("above", value(amount));
+    }
+    if let Some(limits) = &rule.limits {
+        let limits: Array = limits
+            .iter()
+            .map(|limit| {
+                let amount =
+                    i64::try_from(limit.above).map_err(|_| PolicyError::ThresholdTooLarge {
+                        rule: index,
+                        amount: limit.above,
+                    })?;
+                let mut inline = InlineTable::new();
+                inline.insert("asset", limit.asset.0.to_string().into());
+                inline.insert("above", amount.into());
+                Ok(inline)
+            })
+            .collect::<Result<Array, PolicyError>>()?;
+        table.insert("limits", value(limits));
     }
     Ok(table)
 }
@@ -196,6 +214,7 @@ above = 1000000
                 subject: crate::policy::SubjectName::OutputOwner,
                 source: SourceSpec::Require("allow".parse().expect("list")),
                 above: Some(u64::MAX),
+                limits: None,
             }],
             ..Default::default()
         };

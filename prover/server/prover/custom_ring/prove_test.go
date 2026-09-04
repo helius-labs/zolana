@@ -148,6 +148,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	}
 	for i := range p.InlineAssets {
 		p.InlineAssets[i] = big.NewInt(0)
+		p.InlineLimits[i] = big.NewInt(0)
 	}
 	for i := range p.Answers {
 		p.Answers[i] = zeroedPoolEntry()

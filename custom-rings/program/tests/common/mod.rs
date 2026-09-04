@@ -593,6 +593,7 @@ pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxDa
         sources: specs.to_vec(),
         rules: rules.rules().iter().map(Rule::encoded).collect(),
         inline_assets: rules.inline_assets().to_vec(),
+        inline_limits: rules.inline_limits().to_vec(),
     }
 }
 

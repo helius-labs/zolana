@@ -172,12 +172,16 @@ pub(crate) fn repin(live: &mut PolicyConfig, repin: Repin<'_>) -> ProgramResult 
 
 #[inline(never)]
 fn decode_policy_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, CustomRingError> {
-    EncodedRuleTable::from_parts(&table.rules, &table.inline_assets)
-        .and_then(|encoded| encoded.decode().map(|_| encoded))
-        .map_err(|error| {
-            solana_msg::sol_log(error.message());
-            CustomRingError::InvalidPolicyRules
-        })
+    EncodedRuleTable::from_parts_with_limits(
+        &table.rules,
+        &table.inline_assets,
+        &table.inline_limits,
+    )
+    .and_then(|encoded| encoded.decode().map(|_| encoded))
+    .map_err(|error| {
+        solana_msg::sol_log(error.message());
+        CustomRingError::InvalidPolicyRules
+    })
 }
 
 #[inline(never)]

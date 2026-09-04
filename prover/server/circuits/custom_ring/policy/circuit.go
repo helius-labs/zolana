@@ -60,6 +60,7 @@ type CustomRingPolicyCircuit struct {
 	LenOneHot         [NRules + 1]frontend.Variable
 	Rules             [NRules]RuleWires
 	InlineAssets      [NInlineAssets]frontend.Variable
+	InlineLimits      [NInlineAssets]frontend.Variable
 	InlineCountOneHot [NInlineAssets + 1]frontend.Variable
 
 	StateRoot     frontend.Variable

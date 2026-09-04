@@ -122,6 +122,16 @@ describe("rule rows", () => {
         }),
       ).guard,
     ).toEqual({ kind: "aboveAmount", amount: 2000n });
+    expect(
+      decodeRule(
+        row({
+          subject: OUTPUT_OWNER,
+          mode: PRESENT,
+          mask: bit(ListId.allow),
+          guardTag: 2,
+        }),
+      ).guard,
+    ).toEqual({ kind: "aboveAmountByAsset" });
   });
 
   it("orders a set in slot order", () => {
@@ -146,12 +156,13 @@ describe("rule rows", () => {
         "ThresholdWithoutGuard",
         { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, threshold: 1n },
       ],
-      ["UnknownGuardTag", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, guardTag: 2 }],
+      ["UnknownGuardTag", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, guardTag: 3 }],
       ["ExitDestination", { subject: EXIT, mode: PRESENT, mask: allow }],
       ["ListInBothSets", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, alternative: allow }],
       ["InlineNotAsset", { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0 }],
       ["SenderGuard", { subject: SENDER, mode: PRESENT, mask: allow, guardTag: 1, threshold: 5n }],
       ["ZeroThreshold", { subject: OUTPUT_OWNER, mode: PRESENT, mask: allow, guardTag: 1 }],
+      ["PerAssetGuardNotOwner", { subject: ASSET, mode: PRESENT, mask: allow, guardTag: 2 }],
     ];
     for (const [expected, input] of cases) {
       expect(reason(() => decodeRule(row(input)))).toBe(expected);
@@ -169,6 +180,12 @@ describe("rule tables", () => {
     guardTag: 1,
     threshold: 2000n,
   });
+  const perAsset = row({
+    subject: OUTPUT_OWNER,
+    mode: PRESENT,
+    mask: bit(ListId.allow),
+    guardTag: 2,
+  });
   const mint = filled(0x14);
 
   it("decodes the Go fixture table and names its lists", () => {
@@ -180,32 +197,71 @@ describe("rule tables", () => {
         guardedOwner,
       ],
       inlineAssets: [mint],
+      inlineLimits: [0n],
     });
     expect(table.rules).toHaveLength(4);
     expect(table.rules[3]?.guard).toEqual({ kind: "aboveAmount", amount: 2000n });
     expect(referencedLists(table.rules)).toEqual([ListId.allow, ListId.frozen, ListId.approval]);
-    expect(decodeRuleTable({ rules: [], inlineAssets: [] }).rules).toEqual([]);
+    expect(decodeRuleTable({ rules: [], inlineAssets: [], inlineLimits: [] }).rules).toEqual([]);
+    const limited = decodeRuleTable({
+      rules: [perAsset],
+      inlineAssets: [mint],
+      inlineLimits: [2000n],
+    });
+    expect(limited.rules[0]?.guard).toEqual({ kind: "aboveAmountByAsset" });
+    expect(limited.inlineLimits).toEqual([2000n]);
   });
 
   it("refuses every table Rust refuses", () => {
     const sender = (id: ListId): Bytes32 => row({ subject: SENDER, mode: PRESENT, mask: bit(id) });
     const cases: readonly [
       string,
-      { rules: readonly Bytes32[]; inlineAssets: readonly Bytes32[] },
+      {
+        rules: readonly Bytes32[];
+        inlineAssets: readonly Bytes32[];
+        inlineLimits: readonly bigint[];
+      },
     ][] = [
-      ["TooManyRules", { rules: Array.from({ length: 17 }, () => requireAllow), inlineAssets: [] }],
+      [
+        "TooManyRules",
+        {
+          rules: Array.from({ length: 17 }, () => requireAllow),
+          inlineAssets: [],
+          inlineLimits: [],
+        },
+      ],
       [
         "TooManyInlineAssets",
-        { rules: [inline], inlineAssets: Array.from({ length: 9 }, () => mint) },
+        {
+          rules: [inline],
+          inlineAssets: Array.from({ length: 9 }, () => mint),
+          inlineLimits: Array.from({ length: 9 }, () => 0n),
+        },
       ],
-      ["ZeroInlineAsset", { rules: [inline], inlineAssets: [filled(0)] }],
-      ["DuplicateRule", { rules: [requireAllow, requireAllow], inlineAssets: [] }],
-      ["InlineWithoutPool", { rules: [inline], inlineAssets: [] }],
-      ["PoolWithoutInlineRule", { rules: [requireAllow], inlineAssets: [mint] }],
-      ["OwnerGuardWithoutInlineAsset", { rules: [guardedOwner], inlineAssets: [] }],
+      ["ZeroInlineAsset", { rules: [inline], inlineAssets: [filled(0)], inlineLimits: [0n] }],
+      [
+        "DuplicateRule",
+        { rules: [requireAllow, requireAllow], inlineAssets: [], inlineLimits: [] },
+      ],
+      ["InlineWithoutPool", { rules: [inline], inlineAssets: [], inlineLimits: [] }],
+      [
+        "PoolWithoutInlineRule",
+        { rules: [requireAllow], inlineAssets: [mint], inlineLimits: [0n] },
+      ],
       [
         "OwnerGuardWithoutInlineAsset",
-        { rules: [guardedOwner, inline], inlineAssets: [mint, mint] },
+        { rules: [guardedOwner], inlineAssets: [], inlineLimits: [] },
+      ],
+      ["MissingAssetLimit", { rules: [perAsset], inlineAssets: [], inlineLimits: [] }],
+      ["MissingAssetLimit", { rules: [perAsset], inlineAssets: [mint], inlineLimits: [0n] }],
+      [
+        "DuplicateInlineAsset",
+        { rules: [perAsset], inlineAssets: [mint, mint], inlineLimits: [1n, 2n] },
+      ],
+      ["AssetLimitWithoutGuard", { rules: [inline], inlineAssets: [mint], inlineLimits: [1n] }],
+      [
+        "OwnerGuardWithoutInlineAsset",
+        { rules: [guardedOwner, inline], inlineAssets: [mint, mint], inlineLimits: [0n, 0n] },
       ],
       [
         "TooManyAnswers",
@@ -217,6 +273,7 @@ describe("rule tables", () => {
             row({ subject: OUTPUT_OWNER, mode: ABSENT, mask: bit(ListId.block) }),
           ],
           inlineAssets: [],
+          inlineLimits: [],
         },
       ],
     ];

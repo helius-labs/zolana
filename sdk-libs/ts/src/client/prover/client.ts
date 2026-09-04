@@ -413,6 +413,9 @@ export function customRingPolicyProofRequest(
     inlineAssets: sized(inputs.inlineAssets, RING_INLINE_ASSET_SLOTS, "inlineAssets").map((asset) =>
       hex32(asset, "inlineAssets"),
     ),
+    inlineLimits: sized(inputs.inlineLimits, RING_INLINE_ASSET_SLOTS, "inlineLimits").map((limit) =>
+      u64FieldHex(limit, "inlineLimits"),
+    ),
     inlineCount: u8(inputs.inlineCount, "inlineCount"),
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
@@ -494,6 +497,13 @@ function u64Json(value: bigint, field: string): number {
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
   }
   return Number(value);
+}
+
+function u64FieldHex(value: bigint, field: string): string {
+  if (typeof value !== "bigint" || value < 0n || value > 0xffff_ffff_ffff_ffffn) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  }
+  return `0x${value.toString(16).padStart(64, "0")}`;
 }
 
 function sized<T>(values: readonly T[], expected: number, field: string): readonly T[] {

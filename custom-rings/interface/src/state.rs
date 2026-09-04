@@ -118,8 +118,8 @@ impl PolicyConfig {
 }
 
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 1113);
+const _: () = assert!(PolicyConfig::SIZE == 1177);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
 const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 331);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1101);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1105);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1165);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1169);

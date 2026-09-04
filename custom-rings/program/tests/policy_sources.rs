@@ -302,17 +302,17 @@ fn an_own_served_kind_passes_the_source_gate() {
 #[test]
 fn the_layout_pins_every_field_offset() {
     let account = released_config();
-    assert_eq!(PolicyConfig::SIZE, 1113);
+    assert_eq!(PolicyConfig::SIZE, 1177);
     assert_eq!(account.data.len(), PolicyConfig::SIZE);
     assert_eq!(account.data[33..65], entries_tree().to_bytes());
     let sources = own_source_slots(&RELEASED_RULES);
     assert_eq!(&account.data[67..331], bytemuck::bytes_of(&sources));
     assert_eq!(
-        &account.data[331..1101],
+        &account.data[331..1165],
         bytemuck::bytes_of(&RELEASED_RULES.encode())
     );
-    assert_eq!(account.data[1101..1105], 1u32.to_le_bytes());
-    assert_eq!(account.data[1105..1113], 0u64.to_le_bytes());
+    assert_eq!(account.data[1165..1169], 1u32.to_le_bytes());
+    assert_eq!(account.data[1169..1177], 0u64.to_le_bytes());
 }
 
 /// Both SPP trees must equal the entries tree, an entry written through another

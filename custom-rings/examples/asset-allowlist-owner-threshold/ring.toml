@@ -1,7 +1,5 @@
-# A ring for one asset with a large-transfer check. Only the listed mint may
-# move. An owner receiving more than the threshold in one transfer, in base
-# units of that mint, must be on the allow list, smaller totals pass without
-# a check.
+# A ring with a limit per asset. Only configured mints may move. An owner who
+# receives more than a mint's limit must be on the allow list.
 
 name = "asset-allowlist-owner-threshold"
 target = "localnet"
@@ -24,13 +22,11 @@ ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
 
-# each asset must be one of the listed assets
-[[policy.rules]]
-subject = "asset"
-assets = ["81BQMnpjfFMVchsbqvR1j7Ett9rwsqi8aFh114GgzLDK"]
-
-# each output owner must be on the allow list when the amount is above 1000000
+# each output owner must be allowed above the limit for that output's mint
 [[policy.rules]]
 subject = "output-owner"
 require = "allow"
-above = 1000000
+limits = [
+  { asset = "11111111111111111111111111111111", above = 1000000000 },
+  { asset = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", above = 1000000 },
+]

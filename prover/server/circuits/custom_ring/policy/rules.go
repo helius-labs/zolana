@@ -40,7 +40,9 @@ func (c *CustomRingPolicyCircuit) definePolicy(
 	// A non-zero value after that prefix would otherwise be uncommitted padding
 	// that inlineCoverage could still use to satisfy an asset rule.
 	for m, member := range c.InlineAssets {
+		checker.Check(c.InlineLimits[m], 64)
 		api.AssertIsEqual(api.Mul(api.Sub(1, inInline[m+1]), member), 0)
+		api.AssertIsEqual(api.Mul(api.Sub(1, inInline[m+1]), c.InlineLimits[m]), 0)
 	}
 	return c.policyHash(api), enabled
 }
@@ -92,6 +94,11 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API) frontend.Variable
 	for k, rule := range c.Rules {
 		packed[k] = rule.Packed
 	}
-	afterRules := foldSelect(api, head, packed, c.LenOneHot[:])
-	return foldSelect(api, afterRules, c.InlineAssets[:], c.InlineCountOneHot[:])
+	acc := foldSelect(api, head, packed, c.LenOneHot[:])
+	inInline := suffixSums(api, c.InlineCountOneHot[:])
+	for m, asset := range c.InlineAssets {
+		next := gadget.HashChain(api, []frontend.Variable{acc, asset, c.InlineLimits[m]})
+		acc = api.Select(inInline[m+1], next, acc)
+	}
+	return acc
 }

@@ -165,6 +165,8 @@ pub enum TransferError {
     PolicyShapeUnsupported,
     #[error("a policy rule refuses the transfer")]
     PolicyRuleUnsatisfied,
+    #[error("the transfer uses an asset without a configured policy limit")]
+    PolicyAssetUnsupported,
     #[error("the indexer proved the entries against more than one root")]
     PolicyRootMismatch,
     #[error("no policy source serves the list")]

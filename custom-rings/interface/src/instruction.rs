@@ -98,6 +98,8 @@ pub struct PolicyTableIxData {
     pub rules: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub inline_assets: Vec<[u8; 32]>,
+    #[wincode(with = "containers::Vec<u64, FixIntLen<u8>>")]
+    pub inline_limits: Vec<u64>,
 }
 
 /// One hash over the stored rows plus one curator verification.

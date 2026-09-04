@@ -377,8 +377,8 @@ impl Wizard<'_> {
             ui::refusal("no rule to remove");
             return Ok(());
         }
-        let (rows, _) = spec.rows()?;
-        let sentences: Vec<String> = rows.iter().map(describe).collect();
+        let rows = spec.rows()?;
+        let sentences: Vec<String> = rows.rules.iter().map(describe).collect();
         let items: Vec<String> = sentences
             .iter()
             .enumerate()
@@ -432,6 +432,7 @@ impl Wizard<'_> {
             subject,
             source: form(list),
             above,
+            limits: None,
         })
     }
 
@@ -463,6 +464,7 @@ impl Wizard<'_> {
             subject,
             source: SourceSpec::Any(alternatives),
             above,
+            limits: None,
         }))
     }
 
@@ -477,6 +479,7 @@ impl Wizard<'_> {
             subject: SubjectName::Asset,
             source: SourceSpec::Assets(mints),
             above,
+            limits: None,
         })
     }
 

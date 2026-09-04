@@ -66,8 +66,10 @@ fn every_example_loads_and_compiles_on_both_clusters() {
             assert_eq!(compiled.rules.rules().len(), policy.rules.len());
             for rule in compiled.rules.rules() {
                 forms.above |= matches!(rule.guard, Guard::AboveAmount(_));
+                forms.above |= matches!(rule.guard, Guard::AboveAmountByAsset);
                 forms.assets |= matches!(rule.source, RuleSource::InlineAssets);
             }
+            forms.assets |= !compiled.rules.inline_assets().is_empty();
         }
         forms.empty_table |= policy.rules.is_empty();
         forms.entries_tree |= policy.entries_tree.is_some();
