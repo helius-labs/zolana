@@ -279,25 +279,31 @@ func TestEnsureProvingKeyNotInManifestMissingErrors(t *testing.T) {
 	}
 }
 
-func TestEnsureProvingKeySourcedKeyIsNotFetched(t *testing.T) {
+func TestEnsureProvingKeySourcedKeyIsFetched(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "sourced.key")
+	body := []byte("body")
+	entry := entryFor(body)
+	entry.Source = "release"
 
 	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
-		"sourced.key": {Sha256: sha256Hex([]byte("body")), Size: 4, Source: "release"},
+		"sourced.key": entry,
 	}})
 
 	server := newCountingServer()
+	server.setBody("/proving-keys/sourced.key", body)
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
 
-	err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
-	if err == nil || !strings.Contains(err.Error(), "not on the object store") {
-		t.Fatalf("error = %v, want an object-store error naming the source", err)
+	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
+		t.Fatalf("EnsureProvingKey() error = %v", err)
 	}
-	if got := server.requests("/proving-keys/sourced.key"); got != 0 {
-		t.Fatalf("requests = %d, want the download skipped", got)
+	if got := server.requests("/proving-keys/sourced.key"); got != 1 {
+		t.Fatalf("requests = %d, want one download", got)
+	}
+	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
+		t.Fatalf("key on disk = %q, want %q", got, body)
 	}
 }
 
