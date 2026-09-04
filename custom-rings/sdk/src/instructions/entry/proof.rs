@@ -57,6 +57,8 @@ pub struct EntryProof {
     pub proof: TransactProof,
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
+    /// The public input nullifier whose writable queue PDA SPP requires.
+    pub nullifier: [u8; 32],
 }
 
 pub(super) struct EntryWitness<'a> {
@@ -211,6 +213,7 @@ impl EntryWitness<'_> {
                 .to_transact_proof(),
             nullifier_tree_root_index: non_inclusion.root_index,
             utxo_tree_root_index: utxo_root_index,
+            nullifier: slot.nullifier,
         })
     }
 }

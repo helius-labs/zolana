@@ -227,6 +227,7 @@ impl<'a> MutationAccounts<'a> {
         let output_tree = iter.next_mut("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
         let system_program = iter.next_account("system_program")?;
+        let _nullifier_pda = iter.next_mut("nullifier_pda")?;
         let entries = iter.next_account("entries")?;
         if !iter.iterator_is_empty() {
             return Err(ProgramError::InvalidArgument);

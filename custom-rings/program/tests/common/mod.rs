@@ -712,7 +712,8 @@ pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8
 
 /// The account layout `MutationAccounts` expects, `[config, policy_config,
 /// payer(w,s), input_tree(w), output_tree(w), spp_program, system_program,
-/// entries]`. SPP is not loaded, only the ring's pre-CPI validation is assertable.
+/// nullifier_pda(w), entries]`. SPP is not loaded, only the ring's pre-CPI
+/// validation is assertable.
 fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
     vec![
         Slot {
@@ -742,6 +743,11 @@ fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
         },
         spp_program_slot(),
         system_program_slot(),
+        Slot {
+            label: "nullifier_pda",
+            meta: AccountMeta::new(Pubkey::new_from_array([99; 32]), false),
+            account: account(0),
+        },
         Slot {
             label: "entries",
             meta: AccountMeta::new_readonly(namespace_pda().0, false),
