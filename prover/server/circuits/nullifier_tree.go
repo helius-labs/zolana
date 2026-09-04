@@ -1,6 +1,7 @@
 package circuits
 
 import (
+	"fmt"
 	"math/big"
 
 	"zolana/prover/circuits/gadget"
@@ -29,7 +30,72 @@ type BatchAddressTreeAppendCircuit struct {
 	TreeHeight       uint32
 }
 
+// ValidateLayout checks the six element slices against BatchSize and each proof
+// row against TreeHeight before Define adds any constraints.
+//
+// BatchSize and TreeHeight are template constants fixed at trusted setup. They
+// size the compiled constraint system, and gnark rejects a witness whose slice
+// lengths differ from the compiled schema, so only the template used for key
+// generation can be malformed. HashChain commits to all of NewElementValues
+// while the update loop inserts the first BatchSize elements. A template with a
+// longer slice would compile into a key whose hashchain covers elements the
+// tree update skips. Running the check inside Define also covers templates
+// built directly rather than through the prover constructors.
+func (circuit *BatchAddressTreeAppendCircuit) ValidateLayout() error {
+	if circuit.BatchSize == 0 {
+		return fmt.Errorf("address append: BatchSize must be >= 1")
+	}
+	if circuit.TreeHeight == 0 {
+		return fmt.Errorf("address append: TreeHeight must be >= 1")
+	}
+	batchSize := int(circuit.BatchSize)
+	checks := []struct {
+		name string
+		got  int
+	}{
+		{"low element value", len(circuit.LowElementValues)},
+		{"low element next value", len(circuit.LowElementNextValues)},
+		{"low element index", len(circuit.LowElementIndices)},
+		{"low element proof", len(circuit.LowElementProofs)},
+		{"new element value", len(circuit.NewElementValues)},
+		{"new element proof", len(circuit.NewElementProofs)},
+	}
+	for _, check := range checks {
+		if check.got != batchSize {
+			return fmt.Errorf(
+				"address append: %s count mismatch: got %d want %d",
+				check.name,
+				check.got,
+				batchSize,
+			)
+		}
+	}
+	treeHeight := int(circuit.TreeHeight)
+	for i := 0; i < batchSize; i++ {
+		if got := len(circuit.LowElementProofs[i]); got != treeHeight {
+			return fmt.Errorf(
+				"address append: low element proof %d height: got %d want %d",
+				i,
+				got,
+				treeHeight,
+			)
+		}
+		if got := len(circuit.NewElementProofs[i]); got != treeHeight {
+			return fmt.Errorf(
+				"address append: new element proof %d height: got %d want %d",
+				i,
+				got,
+				treeHeight,
+			)
+		}
+	}
+	return nil
+}
+
 func (circuit *BatchAddressTreeAppendCircuit) Define(api frontend.API) error {
+	if err := circuit.ValidateLayout(); err != nil {
+		return err
+	}
 	currentRoot := circuit.OldRoot
 
 	for i := uint32(0); i < circuit.BatchSize; i++ {
