@@ -76,6 +76,7 @@ impl TestEnv {
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
         let rpc = self.client.rpc();
+        SolanaRpc::new(self.rpc_url.clone()).airdrop(&self.payer.pubkey(), PAYER_AIRDROP)?;
         let params = nullifier_tree_params();
         let creation = create_tree_instructions(
             rpc,

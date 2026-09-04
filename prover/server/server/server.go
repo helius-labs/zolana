@@ -986,14 +986,7 @@ func (handler proveHandler) handleSyncProof(w http.ResponseWriter, r *http.Reque
 			Msg("Processing batch operation synchronously - this may cause timeouts")
 	}
 
-	estimatedTime := handler.getEstimatedTimeSeconds(meta.CircuitType)
-	timeoutDuration := time.Duration(estimatedTime*2) * time.Second
-	if timeoutDuration < 10*time.Second {
-		timeoutDuration = 10 * time.Second
-	}
-	if timeoutDuration > 300*time.Second {
-		timeoutDuration = 300 * time.Second
-	}
+	timeoutDuration := handler.syncProofTimeout(meta.CircuitType)
 
 	ctx, cancel := context.WithTimeout(r.Context(), timeoutDuration)
 	defer cancel()
@@ -1126,7 +1119,6 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
 	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
-		// Sub second warm, the first request loads the proving key.
 		return "1-10 seconds"
 	default:
 		return "1-3 seconds"
@@ -1148,6 +1140,19 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 60
 	default:
 		return 1
+	}
+}
+
+const maxSyncProofTimeout = 5 * time.Minute
+
+func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
+	switch circuitType {
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+		// Includes lazy key download and loading.
+		return maxSyncProofTimeout
+	default:
+		estimate := time.Duration(handler.getEstimatedTimeSeconds(circuitType)) * time.Second
+		return min(maxSyncProofTimeout, max(10*time.Second, 2*estimate))
 	}
 }
 
