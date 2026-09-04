@@ -53,7 +53,11 @@ type Transaction struct {
 	// blinding is derived from it, the first nullifier, and the output index.
 	OutputBlindingSeed frontend.Variable
 
-	PrivateTxHash     frontend.Variable
+	PrivateTxHash frontend.Variable
+	// PrivateTxBlinding is private transaction material. It is the final
+	// private_tx_hash preimage element and never reaches a public signal, so
+	// candidate input UTXO hashes cannot reproduce the published hash.
+	PrivateTxBlinding frontend.Variable
 	ExternalDataHash  frontend.Variable
 	PublicAssets      [NPublicSlots]frontend.Variable
 	PublicAmounts     [NPublicSlots]frontend.Variable
@@ -161,6 +165,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		outputHashes,
 		addressHashes,
 		t.ExternalDataHash,
+		t.PrivateTxBlinding,
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 

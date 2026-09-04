@@ -12,6 +12,7 @@ type privateTxHashGadget struct {
 	OutputUtxoHashes  []frontend.Variable
 	AddressUtxoHashes []frontend.Variable
 	ExternalDataHash  frontend.Variable
+	Blinding          frontend.Variable
 }
 
 func (gadget privateTxHashGadget) DefineGadget(api frontend.API) interface{} {
@@ -23,6 +24,7 @@ func (gadget privateTxHashGadget) DefineGadget(api frontend.API) interface{} {
 		outputChain,
 		addressChain,
 		gadget.ExternalDataHash,
+		gadget.Blinding,
 	})
 }
 
@@ -32,11 +34,14 @@ func PrivateTxHashCircuit(
 	outputUtxoHashes []frontend.Variable,
 	addressUtxoHashes []frontend.Variable,
 	externalDataHash frontend.Variable,
+	blinding frontend.Variable,
 ) frontend.Variable {
+	api.AssertIsDifferent(blinding, 0)
 	return abstractor.Call(api, privateTxHashGadget{
 		InputUtxoHashes:   inputUtxoHashes,
 		OutputUtxoHashes:  outputUtxoHashes,
 		AddressUtxoHashes: addressUtxoHashes,
 		ExternalDataHash:  externalDataHash,
+		Blinding:          blinding,
 	})
 }

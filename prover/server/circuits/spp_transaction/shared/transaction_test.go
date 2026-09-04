@@ -52,13 +52,14 @@ type testAssignment struct {
 	Outputs            []testOutput
 	OutputBlindingSeed frontend.Variable
 
-	ExternalDataHash frontend.Variable
-	PrivateTxHash    frontend.Variable
-	PublicAssets     [NPublicSlots]frontend.Variable
-	PublicAmounts    [NPublicSlots]frontend.Variable
-	RingProgramID    frontend.Variable
-	AllowDummyInputs frontend.Variable
-	SignerPkHashes   []frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxHash     frontend.Variable
+	PrivateTxBlinding frontend.Variable
+	PublicAssets      [NPublicSlots]frontend.Variable
+	PublicAmounts     [NPublicSlots]frontend.Variable
+	RingProgramID     frontend.Variable
+	AllowDummyInputs  frontend.Variable
+	SignerPkHashes    []frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -189,6 +190,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
 			OutputBlindingSeed:  a.OutputBlindingSeed,
+			PrivateTxBlinding:   a.PrivateTxBlinding,
 		},
 	}
 }
@@ -214,6 +216,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
 			OutputBlindingSeed: a.OutputBlindingSeed,
+			PrivateTxBlinding:  a.PrivateTxBlinding,
 		},
 	}
 }
@@ -240,6 +243,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			Outputs:            a.outputUtxos(),
 			OutputNullifierPks: a.outputNullifierPks(),
 			OutputBlindingSeed: a.OutputBlindingSeed,
+			PrivateTxBlinding:  a.PrivateTxBlinding,
 		},
 	}
 }
@@ -378,7 +382,15 @@ func buildCircuitAssignmentExact(
 	}
 
 	externalDataHash := spptest.Fe(300)
-	privateTxHash := spptest.MustPrivateTxHash(t, inputHashes, OutputHashes, noAddressHashes(shape.NInputs), externalDataHash)
+	privateTxBlinding := spptest.Fe(0xB11D)
+	privateTxHash := spptest.MustPrivateTxHash(
+		t,
+		inputHashes,
+		OutputHashes,
+		noAddressHashes(shape.NInputs),
+		externalDataHash,
+		privateTxBlinding,
+	)
 	payerPkHash := testPayerPkHash()
 	signerPkHashes := zeroFields(shape.NInputs + 1)
 	signerPkHashes[0] = new(big.Int).Set(payerPkHash)
@@ -469,6 +481,7 @@ func buildCircuitAssignmentExact(
 		Inputs:             inputs,
 		Outputs:            outputs,
 		OutputBlindingSeed: outputBlindingSeed,
+		PrivateTxBlinding:  privateTxBlinding,
 		ExternalDataHash:   externalDataHash,
 		PrivateTxHash:      privateTxHash,
 		RingProgramID:      publicInputs.RingProgramID,
@@ -668,6 +681,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		OutputHashes,
 		noAddressHashes(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		spptest.AsBigInt(assignment.PrivateTxBlinding),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshPublicInputHash(t, assignment)

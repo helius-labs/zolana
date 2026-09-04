@@ -53,6 +53,7 @@ type CustomRingEddsaOnlyPrivate struct {
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
 	OutputBlindingSeed  frontend.Variable
+	PrivateTxBlinding   frontend.Variable
 }
 
 type CustomRingEddsaOnlyCircuit struct {
@@ -96,6 +97,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		Outputs:            c.Private.Outputs,
 		OutputBlindingSeed: c.Private.OutputBlindingSeed,
 		PrivateTxHash:      c.Public.PrivateTxHash,
+		PrivateTxBlinding:  c.Private.PrivateTxBlinding,
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,

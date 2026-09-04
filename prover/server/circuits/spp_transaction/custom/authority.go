@@ -37,6 +37,7 @@ type CustomRingAuthorityPrivate struct {
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	OutputBlindingSeed frontend.Variable
+	PrivateTxBlinding  frontend.Variable
 }
 
 type CustomRingAuthorityCircuit struct {
@@ -77,6 +78,7 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		Outputs:            c.Private.Outputs,
 		OutputBlindingSeed: c.Private.OutputBlindingSeed,
 		PrivateTxHash:      c.Public.PrivateTxHash,
+		PrivateTxBlinding:  c.Private.PrivateTxBlinding,
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,

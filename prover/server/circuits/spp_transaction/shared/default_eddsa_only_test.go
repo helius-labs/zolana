@@ -270,6 +270,7 @@ func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
 		[]*big.Int{realOutputHash, big.NewInt(0)},
 		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		spptest.AsBigInt(assignment.PrivateTxBlinding),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshDefaultRingPublicInputHash(t, assignment)
