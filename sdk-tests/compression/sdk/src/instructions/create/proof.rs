@@ -1,5 +1,5 @@
 use anyhow::Result;
-use compression_example_program::state::field_u64;
+use compression_example_program::state::{field_u64, output_blinding, version_blinding};
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_client::{
@@ -72,6 +72,8 @@ impl CreateProofInputParams {
             nullifier_secret: BigUint::ZERO,
         };
 
+        // The address nullifier is the transaction's first nullifier, which the
+        // circuit binds the output blinding to.
         let account_utxo = AccountUtxo {
             pda,
             state: AccountState {
@@ -79,6 +81,7 @@ impl CreateProofInputParams {
                 authority: self.authority.to_bytes(),
                 value: self.new_value,
                 version: 0,
+                blinding: output_blinding(&address_nullifier, 0)?,
             },
         };
         let output = account_utxo.output_utxo()?;
@@ -123,6 +126,7 @@ impl CreateProofInputParams {
         let transfer_inputs = TransferInputs {
             inputs: vec![input],
             outputs: vec![transfer_output],
+            output_blinding_seed: be(&version_blinding(0)),
             external_data_hash: be(&external_hash),
             private_tx_hash: be(&private_tx),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),

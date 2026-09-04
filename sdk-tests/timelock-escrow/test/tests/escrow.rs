@@ -19,8 +19,8 @@ use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -57,7 +57,7 @@ fn escrow_then_withdraw() -> Result<()> {
         creator: creator.keypair.shielded_address()?,
         unlock_timestamp: UNLOCK_TIMESTAMP,
     };
-    let escrow_utxo = EscrowUtxo {
+    let mut escrow_utxo = EscrowUtxo {
         terms,
         blinding: random_blinding(),
         asset: SOL_MINT,
@@ -78,6 +78,12 @@ fn escrow_then_withdraw() -> Result<()> {
     let change_amount = u64::try_from(leftover)
         .map_err(|_| anyhow!("insufficient shielded balance: {leftover}"))?;
     let change = SppProofOutputUtxo::new(escrow_utxo_asset, change_amount, creator_address)?;
+    let mut transaction_outputs = vec![change, escrow_output_utxo];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+    let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .map_err(|_| anyhow!("escrow transaction must have two outputs"))?;
+    escrow_utxo.blinding = escrow_output_utxo.blinding;
     let change_blinding = change.blinding;
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
@@ -101,7 +107,8 @@ fn escrow_then_withdraw() -> Result<()> {
         encoded.output_utxos,
         external_data,
         creator_address.solana_address()?,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
     let spp_proof = client
@@ -161,16 +168,18 @@ fn escrow_then_withdraw() -> Result<()> {
 
     // withdraw: after `unlock_timestamp`, spend the escrow UTXO back to the
     // creator.
-    let source_output = escrow_utxo.source_output(creator_address, random_blinding());
-    let source_output_blinding = source_output.blinding;
-    let source_output_hash = source_output
-        .hash()
-        .map_err(|e| anyhow!("source output hash: {e:?}"))?;
+    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
     let escrow_input_utxo = escrow_utxo
         .to_input_utxo()
         .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
     let input_utxos = vec![escrow_input_utxo];
+    let output_blinding_seed =
+        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
+    let source_output_blinding = source_output.blinding;
+    let source_output_hash = source_output
+        .hash()
+        .map_err(|e| anyhow!("source output hash: {e:?}"))?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
         .map_err(|e| anyhow!("withdraw transaction viewing key: {e:?}"))?;
@@ -194,7 +203,8 @@ fn escrow_then_withdraw() -> Result<()> {
         encoded.output_utxos,
         external_data,
         creator_address.solana_address()?,
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     let withdraw_proof_inputs = WithdrawProofInputParams {
         escrow_utxo: escrow_utxo.clone(),

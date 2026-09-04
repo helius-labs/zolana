@@ -17,10 +17,11 @@ const (
 	NumOutputs = 2
 )
 
-// Utxo is the witness of one UTXO. It carries the precomputed owner_hash and the
-// data and ring-program hashes; the circuit hashes the UTXO, matching
-// zolana_transaction's Utxo::hash.
+// Utxo is the witness of one UTXO. It carries the precomputed owner_hash, the
+// data and ring-program hashes, and the raw id of its tree; the circuit hashes
+// the UTXO, matching zolana_transaction's Utxo::hash.
 type Utxo struct {
+	TreeID          frontend.Variable
 	OwnerHash       frontend.Variable
 	Asset           frontend.Variable
 	Amount          frontend.Variable
@@ -41,7 +42,7 @@ func (u Utxo) Hash(api frontend.API) frontend.Variable {
 		DataHash:      u.ProgramDataHash,
 		RingDataHash:  u.RingDataHash,
 		RingProgramID: u.RingProgramID,
-	})
+	}, u.TreeID)
 }
 
 // PublicInputs are the ring circuit's public inputs.
@@ -51,13 +52,15 @@ type PublicInputs struct {
 }
 
 // PrivateTxHashCircuit proves the witnessed inputs and outputs fold, with the
-// external data hash, into the public PrivateTxHash.
+// external data hash and the private transaction blinding, into the public
+// PrivateTxHash.
 type PrivateTxHashCircuit struct {
-	Public           PublicInputs
-	Inputs           [NumInputs]Utxo
-	Outputs          [NumOutputs]Utxo
-	AddressHashes    [NumInputs]frontend.Variable
-	ExternalDataHash frontend.Variable
+	Public            PublicInputs
+	Inputs            [NumInputs]Utxo
+	Outputs           [NumOutputs]Utxo
+	AddressHashes     [NumInputs]frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
@@ -73,7 +76,14 @@ func (c *PrivateTxHashCircuit) Define(api frontend.API) error {
 	for i := range c.AddressHashes {
 		addressHashes[i] = c.AddressHashes[i]
 	}
-	h := transaction.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, c.ExternalDataHash)
+	h := transaction.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		c.ExternalDataHash,
+		c.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(c.Public.PrivateTxHash, h)
 	_ = c.Public.RingProgramID
 	return nil

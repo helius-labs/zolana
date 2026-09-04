@@ -129,6 +129,7 @@ pub struct BatchAddressAppendInputs {
 pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
+    pub output_blinding_seed: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
@@ -147,6 +148,7 @@ pub struct TransferInputs {
 pub struct TransferP256Inputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
+    pub output_blinding_seed: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub p256_pub_x: BigUint,
@@ -158,7 +160,8 @@ pub struct TransferP256Inputs {
     pub p256_message_hash_low: BigUint,
     pub p256_message_hash_high: BigUint,
     /// Program-derived public hash of the P256 x-coordinate when the shared
-    /// owner has a real default-ring input/address; zero for ring-only P256.
+    /// owner spends a default-ring UTXO; zero for ring-only P256 and for
+    /// address slots, which never publish the owner.
     pub default_p256_owner_pk_hash: BigUint,
     pub public_assets: [BigUint; N_PUBLIC_SLOTS],
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],

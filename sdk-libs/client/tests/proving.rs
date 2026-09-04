@@ -14,7 +14,7 @@ use zolana_transaction::{
         SettlementTarget, SettlementTransfer, SENDER_SLOT_COUNT,
     },
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     AssetRegistry, Data, ExternalData, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 
@@ -260,19 +260,19 @@ impl OutputAssertions<'_> {
         let owner_addr = sender.shielded_address().unwrap();
         let mut expected = Vec::new();
         // Slots 0 and 1 hold the sender's SPL and SOL change: a real change UTXO when
-        // kept, otherwise an empty (owner = None) UTXO whose blinding still derives from
-        // its fixed position.
+        // kept, otherwise an empty (owner = None) UTXO. Either way the circuit fixes
+        // the blinding to its physical slot, so an empty slot still looks real.
         expected.push(if change(Asset::Spl) > 0 {
             SppProofOutputUtxo {
                 owner_address: Some(owner_addr),
                 asset: spl_mint(),
                 amount: change(Asset::Spl),
-                blinding: derive_blinding(&seed, 0),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 0).unwrap(),
                 ..Default::default()
             }
         } else {
             SppProofOutputUtxo {
-                blinding: derive_blinding(&seed, 0),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 0).unwrap(),
                 owner_tag: Some(self.dummy_owner_tag),
                 ..Default::default()
             }
@@ -282,12 +282,12 @@ impl OutputAssertions<'_> {
                 owner_address: Some(owner_addr),
                 asset: SOL_MINT,
                 amount: change(Asset::Sol),
-                blinding: derive_blinding(&seed, 1),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 1).unwrap(),
                 ..Default::default()
             }
         } else {
             SppProofOutputUtxo {
-                blinding: derive_blinding(&seed, 1),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 1).unwrap(),
                 owner_tag: Some(self.dummy_owner_tag),
                 ..Default::default()
             }
@@ -297,19 +297,29 @@ impl OutputAssertions<'_> {
                 owner_address: Some(recipient.shielded_address().unwrap()),
                 asset: asset_addr(send.asset),
                 amount: send.amount,
-                blinding: derive_blinding(&seed, 2 + i as u8),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 2 + i as u32)
+                    .unwrap(),
                 ..Default::default()
             });
         }
         // The builder pads to the fixed (2,3) shape: the real outputs are the prefix,
-        // and any trailing slots are dummy padding (owner = 0, amount = 0, random
-        // blinding), which cannot be asserted by value.
+        // and any trailing slots are dummy padding (owner = 0, amount = 0). The
+        // circuit fixes every slot's blinding to its physical index, padding
+        // included, so those are asserted by value too.
         let real = outputs
             .get(..expected.len())
             .expect("padded outputs include every real slot");
         assert_eq!(real, expected.as_slice());
         let padding = outputs.get(expected.len()..).unwrap_or(&[]);
         assert!(padding.iter().all(|o| o.is_dummy() && o.amount == 0));
+        for (offset, output) in padding.iter().enumerate() {
+            let slot = u32::try_from(expected.len() + offset).expect("slot fits u32");
+            assert_eq!(
+                output.blinding,
+                derive_transact_output_blinding(first_nullifier, &seed, slot).unwrap(),
+                "padding blinding at slot {slot}"
+            );
+        }
 
         // Public movements: one `(asset, net amount)` slot per interface transfer,
         // signed net per asset, idle slots `(0, 0)`. The plan carries at most one
@@ -398,7 +408,7 @@ impl OutputAssertions<'_> {
             expected_change.push(ConfidentialOutputPlaintext {
                 asset_id: SPL_ASSET_ID,
                 amount: change(Asset::Spl),
-                blinding: derive_blinding(&seed, 0),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 0).unwrap(),
                 ring_program_id: None,
                 data: Data::default(),
             });
@@ -407,7 +417,7 @@ impl OutputAssertions<'_> {
             expected_change.push(ConfidentialOutputPlaintext {
                 asset_id: zolana_transaction::SOL_ASSET_ID,
                 amount: change(Asset::Sol),
-                blinding: derive_blinding(&seed, 1),
+                blinding: derive_transact_output_blinding(first_nullifier, &seed, 1).unwrap(),
                 ring_program_id: None,
                 data: Data::default(),
             });
@@ -427,7 +437,12 @@ impl OutputAssertions<'_> {
                             Asset::Spl => SPL_ASSET_ID,
                         },
                         amount: send.amount,
-                        blinding: derive_blinding(&seed, 2 + i as u8),
+                        blinding: derive_transact_output_blinding(
+                            first_nullifier,
+                            &seed,
+                            2 + i as u32,
+                        )
+                        .unwrap(),
                         ring_program_id: None,
                         data: Data::default(),
                     },

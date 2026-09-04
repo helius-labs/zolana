@@ -55,6 +55,7 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let cx = AnonymousSenderEncode {
         tx: tx_key,
@@ -221,13 +222,13 @@ fn decrypt(c: &mut Criterion) {
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let split_cx = SplitEncode {
         tx: split_tx_key,
         recipient_pubkey: alice.viewing_pubkey(),
         salt: split_salt,
         slot_index: 0,
-        blinding_seed: split_blinding_seed,
     };
     let split_plaintext = Split::from_utxos(&split_outputs, &split_owner_cx, &split_cx).unwrap();
     let split_bytes = Split::serialize(&split_plaintext).unwrap();

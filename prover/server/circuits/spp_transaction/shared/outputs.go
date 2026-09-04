@@ -22,7 +22,7 @@ func OutputOwners(outputs []UtxoCircuitFields) []frontend.Variable {
 }
 
 // ConstrainOutput validates and hash-binds one transaction output.
-func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned frontend.Variable) frontend.Variable {
+func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned, treeID frontend.Variable) frontend.Variable {
 	isUtxo := utxo.isUtxo(api)
 	api.AssertIsEqual(api.Add(isUtxo, utxo.isDummy(api)), 1)
 
@@ -36,7 +36,7 @@ func ConstrainOutput(api frontend.API, utxo UtxoCircuitFields, hash, ownerSigned
 	dataIsSet := api.Sub(1, api.IsZero(utxo.DataHash))
 	AssertWhen(api, api.Mul(isUtxo, dataIsSet), ownerSigned)
 
-	utxoHash := UtxoHashCircuit(api, utxo)
+	utxoHash := UtxoHashCircuit(api, utxo, treeID)
 	api.AssertIsEqual(utxoHash, hash)
 
 	return api.Select(isUtxo, utxoHash, frontend.Variable(0))

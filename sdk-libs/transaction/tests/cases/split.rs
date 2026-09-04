@@ -37,6 +37,8 @@ pub(crate) fn build_split_tx(
         owner: owner_kp.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        // The split bundle carries its blindings literally.
+        first_nullifier: None,
     };
     let view_tag = owner_kp.get_sender_view_tag(0).unwrap();
     let ciphertext = Split::encode(
@@ -48,7 +50,6 @@ pub(crate) fn build_split_tx(
             recipient_pubkey: owner_kp.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: SPLIT_BLINDING_SEED,
         },
     )
     .unwrap();
@@ -101,7 +102,9 @@ pub(crate) fn build_split(
         num_outputs,
         asset_id: SPLIT_ASSET_ID,
         asset_amount: amount,
-        blinding_seed: SPLIT_BLINDING_SEED,
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&SPLIT_BLINDING_SEED, index as u8)
+        }),
         data: Data::default(),
     };
     let owner_kp = world.fresh_keypair(&owner);
@@ -120,7 +123,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld) {
 
 pub(crate) fn split_blindings(world: &mut TransactionWorld, count: usize) {
     let bundle = world.split_bundle.as_ref().unwrap();
-    let blindings = bundle.output_blindings();
+    let blindings = bundle.output_blindings().unwrap();
     assert_eq!(blindings.len(), count);
     let mut seen = HashSet::new();
     for blinding in blindings {
@@ -135,7 +138,9 @@ pub(crate) fn split_data_zero_outputs(world: &mut TransactionWorld, owner: Strin
         num_outputs: 0,
         asset_id: 2,
         asset_amount: 0,
-        blinding_seed: [3u8; 32],
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&[3u8; 32], index as u8)
+        }),
         data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(

@@ -278,13 +278,13 @@ impl Scenario {
                 owner: self.alice.signing_pubkey(),
                 assets: &self.assets,
                 ring_program_id: None,
+                first_nullifier: None,
             };
             let cx = SplitEncode {
                 tx: tx_key,
                 recipient_pubkey: self.alice.viewing_pubkey(),
                 salt,
                 slot_index: 0,
-                blinding_seed,
             };
             let ciphertext = Split::encode(&outputs, &owner_cx, sender_view_tag, &cx).unwrap();
 

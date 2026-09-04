@@ -19,8 +19,8 @@ use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -79,7 +79,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let order_utxo = OrderUtxo {
+        let mut order_utxo = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
@@ -96,6 +96,13 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
         let change = SppProofOutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
+        let mut transaction_outputs = vec![change, order_output_utxo];
+        let output_blinding_seed =
+            prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+        let [change, order_output_utxo]: [_; 2] = transaction_outputs
+            .try_into()
+            .map_err(|_| anyhow!("make transaction must have two outputs"))?;
+        order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
             .hash()
@@ -129,7 +136,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             encoded.output_utxos,
             external_data,
             maker_address.solana_address()?,
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
 
         let spp_proof = client
             .indexer()
@@ -174,16 +182,18 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         let order_utxo = order.order_utxo;
         let taker_viewing_pubkey = order.taker_viewing_pubkey;
 
-        let source_output = order_utxo.source_output(maker_address, random_blinding());
-        let source_output_hash = source_output
-            .hash()
-            .map_err(|e| anyhow!("source output hash: {e:?}"))?;
+        let mut source_output = order_utxo.source_output(maker_address, random_blinding());
 
         let order_input_utxo = order_utxo
             .to_input_utxo()
             .map_err(|e| anyhow!("order spend: {e:?}"))?;
 
         let input_utxos = vec![order_input_utxo];
+        let output_blinding_seed =
+            prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
+        let source_output_hash = source_output
+            .hash()
+            .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
             .map_err(|e| anyhow!("cancel transaction viewing key: {e:?}"))?;
 
@@ -207,7 +217,8 @@ fn make_and_cancel_swap_inline() -> Result<()> {
             encoded.output_utxos,
             external_data,
             maker_address.solana_address()?,
-        );
+        )
+        .with_output_blinding_seed(output_blinding_seed);
 
         let cancel_proof_inputs = CancelProofInputParams {
             order_utxo: order_utxo.clone(),

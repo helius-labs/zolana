@@ -193,7 +193,9 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
         num_outputs: parts,
         asset_id: SOL_ASSET_ID,
         asset_amount: input.amount / u64::from(parts),
-        blinding_seed: [seq; 32],
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&[seq; 32], index as u8)
+        }),
         data: Data::default(),
     };
     let outputs = bundle.clone().into_utxos(&assets, None).unwrap();
@@ -208,6 +210,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
         owner: owner_kp.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let sender_view_tag = owner_kp.get_sender_view_tag(tx_count).unwrap();
     let ciphertext = Split::encode(
@@ -219,7 +222,6 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
             recipient_pubkey: owner_kp.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [seq; 32],
         },
     )
     .unwrap();

@@ -116,11 +116,14 @@ mod tests {
     }
 
     fn account_state(pda: &Address, value: u64, version: u64) -> AccountState {
+        let address = derived_address(pda);
         AccountState {
-            address: derived_address(pda),
+            address,
             authority: AUTHORITY,
             value,
             version,
+            blinding: compression_example_program::state::output_blinding(&address, version)
+                .unwrap(),
         }
     }
 

@@ -42,7 +42,7 @@ pub struct TakeVerifiableEncryptionPublicInput<'a> {
 
 impl TakeVerifiableEncryptionPublicInput<'_> {
     pub fn hash(&self) -> Result<[u8; 32], ProgramError> {
-        let ciphertext: &[u8; 71] = self
+        let ciphertext: &[u8; 72] = self
             .destination_ciphertext
             .try_into()
             .map_err(|_| ProgramError::from(SwapError::InvalidInstructionData))?;

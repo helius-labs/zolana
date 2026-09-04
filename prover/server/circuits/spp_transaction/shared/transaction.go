@@ -42,13 +42,23 @@ import (
 type Transaction struct {
 	Shape Shape
 
-	Nullifiers         []frontend.Variable
-	OutputHashes       []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
+	Nullifiers   []frontend.Variable
+	OutputHashes []frontend.Variable
+	// InputTrees tree slots: the raw u16 id and utxo root of each tree inputs
+	// may be spent from. An input picks its slot privately (Input.TreeSlot).
+	TreeIDs       []frontend.Variable
+	UtxoTreeRoots []frontend.Variable
+	// One nullifier root for every input.
+	NullifierTreeRoot frontend.Variable
+	// Raw u16 id of the tree every output is appended to.
+	OutputTreeID frontend.Variable
 
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
+	// TxSecret is the transaction's single private random value. The output
+	// blinding seed, each output blinding, and the private tx blinding derive
+	// from it and the first nullifier (derivation.go).
+	TxSecret frontend.Variable
 
 	PrivateTxHash     frontend.Variable
 	ExternalDataHash  frontend.Variable
@@ -94,8 +104,8 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	checks := []LengthCheck{
 		{"nullifier", len(t.Nullifiers), t.Shape.NInputs},
 		{"output hash", len(t.OutputHashes), t.Shape.NOutputs},
-		{"utxo tree root", len(t.UtxoTreeRoots), t.Shape.NInputs},
-		{"nullifier tree root", len(t.NullifierTreeRoots), t.Shape.NInputs},
+		{"tree id", len(t.TreeIDs), InputTrees},
+		{"utxo tree root", len(t.UtxoTreeRoots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
 	for _, check := range append(checks, extra...) {
@@ -118,24 +128,35 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
+		// AllowDummyInputs is SPP's nullifier-capacity gate: a spend consumes a
+		// nullifier leaf for a UTXO leaf that already exists, while dummy and
+		// address slots insert a nullifier without spending one. When the gate is
+		// off, every input slot must therefore be a real spend, not just non-dummy.
 		api.AssertIsEqual(
-			api.Mul(api.Sub(1, t.AllowDummyInputs), in.isDummy(api)),
+			api.Mul(api.Sub(1, t.AllowDummyInputs), api.Sub(1, in.isUtxo(api))),
 			0,
 		)
+		treeID, utxoTreeRoot := SelectTreeSlot(api, in.TreeSlot, t.TreeIDs, t.UtxoTreeRoots)
 		signals := PublicInputUtxoInputs{
 			Nullifier:         t.Nullifiers[i],
-			UtxoTreeRoot:      t.UtxoTreeRoots[i],
-			NullifierTreeRoot: t.NullifierTreeRoots[i],
+			UtxoTreeRoot:      utxoTreeRoot,
+			NullifierTreeRoot: t.NullifierTreeRoot,
 			SignerPk:          signers[i],
+			TreeID:            treeID,
 		}
 		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 
 	// 2. check outputs
+	outputBlindingSeed := DeriveOutputBlindingSeed(api, t.Nullifiers[0], t.TxSecret)
 	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
 	for i, utxo := range t.Outputs {
-		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
+		api.AssertIsEqual(
+			utxo.Blinding,
+			DeriveOutputBlinding(api, t.Nullifiers[0], outputBlindingSeed, i),
+		)
+		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i], t.OutputTreeID)
 	}
 
 	// 3. check balance
@@ -154,6 +175,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		outputHashes,
 		addressHashes,
 		t.ExternalDataHash,
+		DerivePrivateTxBlinding(api, t.Nullifiers[0], t.TxSecret),
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 
@@ -166,8 +188,10 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
 		gadget.HashChain(api, t.Nullifiers),
 		gadget.HashChain(api, t.OutputHashes),
+		gadget.HashChain(api, t.TreeIDs),
 		gadget.HashChain(api, t.UtxoTreeRoots),
-		gadget.HashChain(api, t.NullifierTreeRoots),
+		t.NullifierTreeRoot,
+		t.OutputTreeID,
 		t.PrivateTxHash,
 	}
 	fields = append(fields, t.PreimageAfterPrivateTxHash...)
@@ -225,6 +249,8 @@ const (
 	// NPublicSlots is the number of distinct public assets whose aggregate
 	// movement can be proven in one transaction.
 	NPublicSlots = 3
+	// InputTrees is the number of input tree slots a proof spends from.
+	InputTrees = 5
 	// DummyDomain is the domain tag for dummy (padding) utxos.
 	DummyDomain = 1
 	// AddressDomain is the domain tag for address utxos, separating address

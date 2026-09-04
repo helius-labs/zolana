@@ -58,21 +58,32 @@ func assertPublicInputHashBindsEveryField(
 	}
 	for i := range assignment.Inputs {
 		index := i
+		mutations = append(mutations, publicInputHashMutation{
+			name: fmt.Sprintf("nullifiers/%d", index),
+			run:  func() { refreshWithChangedField(&assignment.Inputs[index].Nullifier) },
+		})
+	}
+	for k := range assignment.TreeIDs {
+		slot := k
 		mutations = append(mutations,
 			publicInputHashMutation{
-				name: fmt.Sprintf("nullifiers/%d", index),
-				run:  func() { refreshWithChangedField(&assignment.Inputs[index].Nullifier) },
+				name: fmt.Sprintf("tree_ids/%d", slot),
+				run:  func() { refreshWithChangedField(&assignment.TreeIDs[slot]) },
 			},
 			publicInputHashMutation{
-				name: fmt.Sprintf("utxo_tree_roots/%d", index),
-				run:  func() { refreshWithChangedField(&assignment.Inputs[index].UtxoTreeRoot) },
-			},
-			publicInputHashMutation{
-				name: fmt.Sprintf("nullifier_tree_roots/%d", index),
-				run:  func() { refreshWithChangedField(&assignment.Inputs[index].NullifierTreeRoot) },
+				name: fmt.Sprintf("utxo_tree_roots/%d", slot),
+				run:  func() { refreshWithChangedField(&assignment.UtxoTreeRoots[slot]) },
 			},
 		)
 	}
+	mutations = append(mutations,
+		publicInputHashMutation{name: "nullifier_tree_root", run: func() {
+			refreshWithChangedField(&assignment.NullifierTreeRoot)
+		}},
+		publicInputHashMutation{name: "output_tree_id", run: func() {
+			refreshWithChangedField(&assignment.OutputTreeID)
+		}},
+	)
 	for i := range assignment.Outputs {
 		index := i
 		mutations = append(mutations, publicInputHashMutation{

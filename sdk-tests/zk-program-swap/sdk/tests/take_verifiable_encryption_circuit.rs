@@ -60,6 +60,13 @@ fn blinding(byte: u8) -> Blinding {
     out
 }
 
+fn full_width_blinding() -> Blinding {
+    let mut out = [0u8; 32];
+    out[0] = 0x10;
+    out[31] = 21;
+    out
+}
+
 fn sample_order() -> OrderTermsProofInput {
     let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
     OrderTermsProofInput {
@@ -118,7 +125,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         destination_owner,
         &destination_mint,
         destination_amount,
-        &blinding(21),
+        &full_width_blinding(),
     )
     .expect("destination output utxo");
     let external_data_hash = fe(8);
@@ -161,7 +168,7 @@ fn sample_ciphertext(order: &OrderTermsProofInput) -> ([u8; DESTINATION_CIPHERTE
         &blinding(7),
         &Address::new_from_array([2u8; 32]),
         order.destination_amount,
-        &blinding(21),
+        &full_width_blinding(),
     )
     .expect("destination ciphertext")
 }
@@ -294,7 +301,7 @@ fn take_prove_verify_and_round_trip() {
         );
     }
 
-    let (asset, amount) =
+    let (asset, amount, recovered_blinding) =
         decrypt_destination(&blinding(7), &ciphertext).expect("decrypt destination ciphertext");
     assert_eq!(
         (asset, amount),
@@ -304,6 +311,7 @@ fn take_prove_verify_and_round_trip() {
         ),
         "the maker recovers (destination_asset, destination_amount) by decrypting with the order utxo blinding"
     );
+    assert_eq!(recovered_blinding, inputs.destination_output.blinding);
 }
 
 #[test]

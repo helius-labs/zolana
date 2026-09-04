@@ -21,8 +21,8 @@ use crate::{
         resolve_shape,
         transact::assembly::{
             assemble_inputs, assemble_outputs, bool_field,
-            confidential_marked_output_owner_pk_hashes, OwnerMode, PublicInputs,
-            TransferSpendInput,
+            confidential_marked_output_owner_pk_hashes, validate_output_blindings, OwnerMode,
+            PublicInputs, TransferSpendInput,
         },
         Shape, TransferP256Inputs,
     },
@@ -31,6 +31,7 @@ use crate::{
 pub struct RingTransferP256Prover {
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    pub output_blinding_seed: [u8; 32],
     pub external_data: ExternalData,
     pub public_transfers: PublicTransfers,
     pub signer_pk_hashes: Vec<[u8; 32]>,
@@ -49,7 +50,7 @@ pub struct RingTransferP256ProofResult {
     pub private_tx_hash: [u8; 32],
     pub input_root_indices: Vec<(u16, u16)>,
     /// Raw P256 x-coordinate carried in `CircuitId::RingP256` when the shared
-    /// owner has a real default-ring input/address.
+    /// owner spends a default-ring UTXO. Address slots never set it.
     pub default_owner_tag: Option<[u8; 32]>,
 }
 
@@ -64,6 +65,11 @@ impl RingTransferP256Prover {
         }
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingP256)?;
+        let first_nullifier = assembled_inputs
+            .nullifiers
+            .first()
+            .ok_or(ClientError::NoInputs)?;
+        validate_output_blindings(&self.outputs, first_nullifier, &self.output_blinding_seed)?;
         let assembled_outputs = assemble_outputs(&self.outputs)?;
         let external_data_hash = self.external_data.hash()?;
         let published_output_owner_pk_hashes =
@@ -111,6 +117,7 @@ impl RingTransferP256Prover {
         let inputs = TransferP256Inputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
+            output_blinding_seed: be(&self.output_blinding_seed),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             p256_pub_x: be(&pub_x),

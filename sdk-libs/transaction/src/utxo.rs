@@ -17,6 +17,10 @@ use crate::{
 /// output, which is a field element by construction.
 pub type Blinding = [u8; 32];
 
+/// Domain separator for SPP transaction output blindings: ASCII `"TXOB"`.
+/// This must match `OutputBlindingDomainV1` in the Go circuit.
+pub const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1: u32 = 0x5458_4f42;
+
 /// Derives the output blinding for `position` from a 32-byte seed. The
 /// preimage uses the seed's low 31 bytes, so a right-aligned 31-byte seed
 /// yields the same values as the legacy 31-byte representation.
@@ -28,6 +32,23 @@ pub fn derive_blinding(seed: &Blinding, position: u8) -> Blinding {
     let mut out = [0u8; 32];
     out[1..].copy_from_slice(&digest[1..]);
     out
+}
+
+/// Derives the final blinding for one physical SPP transaction output slot.
+/// The first nullifier makes the derivation unique across accepted
+/// transactions, while `output_index` makes every slot unique within one
+/// transaction. Only the final result is shared with the output recipient.
+pub fn derive_transact_output_blinding(
+    first_nullifier: &[u8; 32],
+    seed: &Blinding,
+    output_index: u32,
+) -> Result<Blinding, TransactionError> {
+    Ok(Poseidon::hashv(&[
+        &right_align(&DOMAIN_TRANSACT_OUTPUT_BLINDING_V1.to_be_bytes()),
+        first_nullifier,
+        &right_align(seed),
+        &right_align(&output_index.to_be_bytes()),
+    ])?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

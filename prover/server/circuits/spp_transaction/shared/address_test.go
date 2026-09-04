@@ -14,11 +14,23 @@ import (
 
 func addressNullifier(t testing.TB, fields UtxoCircuitFields, nullifierSecret *big.Int) *big.Int {
 	t.Helper()
-	utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(fields))
+	utxoHash := testUtxoHash(t, circuitFieldsToUtxo(fields), spptest.Fe(testInputTreeID))
 	return spptest.MustNullifier(t, utxoHash, spptest.AsBigInt(fields.Blinding), nullifierSecret)
 }
 
+// makeAddressSlot turns input idx into an address slot owned by the Solana
+// signer ownerPkHash and registers that signer.
 func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkHash, seed *big.Int) {
+	t.Helper()
+	setAddressSlot(t, &assignment.Inputs[idx], ownerPkHash, ownerPkHash, seed)
+	assignment.SignerPkHashes[0] = ownerPkHash
+}
+
+// setAddressSlot rewrites in as an address slot: owner hash over ownerPkHash
+// and the nullifier pk of the zero nullifier secret, every non-seed field
+// pinned to zero. ownerTag is the slot's private owner identity: the pk field
+// itself for a Solana owner, zero for the shared P256 owner.
+func setAddressSlot(t testing.TB, in *testInput, ownerPkHash, ownerTag, seed *big.Int) {
 	t.Helper()
 	nullifierSecret := spptest.Fe(0)
 	nullifierPk := spptest.MustNullifierPk(t, nullifierSecret)
@@ -26,7 +38,6 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	if err != nil {
 		t.Fatalf("address slot owner hash: %v", err)
 	}
-	in := &assignment.Inputs[idx]
 	in.Utxo.Domain = spptest.Fe(AddressDomain)
 	in.Utxo.Owner = owner
 	in.Utxo.Asset = spptest.Fe(0)
@@ -35,20 +46,20 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 	in.Utxo.DataHash = spptest.Fe(0)
 	in.Utxo.RingDataHash = spptest.Fe(0)
 	in.Utxo.RingProgramID = spptest.Fe(0)
-	in.OwnerPkHash = ownerPkHash
-	assignment.SignerPkHashes[0] = ownerPkHash
+	in.OwnerPkHash = ownerTag
 	in.NullifierSecret = nullifierSecret
 	in.Nullifier = addressNullifier(t, in.Utxo, nullifierSecret)
 }
 
 func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, requiresP256, confidential bool) {
 	t.Helper()
+	refreshDerivedOutputBlindings(t, assignment)
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
 	addressHashes := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
 		in := assignment.Inputs[i]
 		domain := spptest.AsBigInt(in.Utxo.Domain).Int64()
-		utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.inputTreeID(i))
 		if domain == UtxoDomain {
 			inputHashes[i] = utxoHash
 		} else {
@@ -74,6 +85,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		outputHashes,
 		addressHashes,
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	if requiresP256 {
@@ -137,6 +149,21 @@ func TestAddressSlotConfidentialSolves(t *testing.T) {
 	finalizeAddressAssignment(t, assignment, false, true)
 
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// An address slot inserts a nullifier without spending a UTXO leaf, so it
+// consumes nullifier capacity exactly like a padding dummy and must be gated by
+// the same public flag.
+func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment, _, _ := buildRingAddressAssignment(t)
+
+	assignment.AllowDummyInputs = spptest.Fe(0)
+	finalizeAddressAssignment(t, assignment, true, false)
+
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 func TestAddressSlotRejectsWrongOwner(t *testing.T) {

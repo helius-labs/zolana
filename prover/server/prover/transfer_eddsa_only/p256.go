@@ -22,8 +22,9 @@ type P256TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 
-	Inputs  []InputParams
-	Outputs []OutputParams
+	Inputs             []InputParams
+	Outputs            []OutputParams
+	OutputBlindingSeed *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
@@ -51,6 +52,7 @@ type P256TransferParametersJSON struct {
 	NOutputs                     uint32             `json:"nOutputs"`
 	Inputs                       []InputParamsJSON  `json:"inputs"`
 	Outputs                      []OutputParamsJSON `json:"outputs"`
+	OutputBlindingSeed           string             `json:"outputBlindingSeed"`
 	ExternalDataHash             string             `json:"externalDataHash"`
 	PrivateTxHash                string             `json:"privateTxHash"`
 	P256PubX                     string             `json:"p256PubX"`
@@ -75,6 +77,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		NOutputs:                     p.NOutputs,
 		Inputs:                       p.Inputs,
 		Outputs:                      p.Outputs,
+		OutputBlindingSeed:           p.OutputBlindingSeed,
 		ExternalDataHash:             p.ExternalDataHash,
 		PrivateTxHash:                p.PrivateTxHash,
 		PublicAssets:                 p.PublicAssets,
@@ -92,6 +95,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		NOutputs:                     base.NOutputs,
 		Inputs:                       base.Inputs,
 		Outputs:                      base.Outputs,
+		OutputBlindingSeed:           base.OutputBlindingSeed,
 		ExternalDataHash:             base.ExternalDataHash,
 		PrivateTxHash:                base.PrivateTxHash,
 		P256PubX:                     feHex(p.P256PubX),
@@ -126,6 +130,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		NOutputs:                     params.NOutputs,
 		Inputs:                       params.Inputs,
 		Outputs:                      params.Outputs,
+		OutputBlindingSeed:           params.OutputBlindingSeed,
 		ExternalDataHash:             params.ExternalDataHash,
 		PrivateTxHash:                params.PrivateTxHash,
 		PublicAssets:                 params.PublicAssets,
@@ -142,6 +147,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.NOutputs = base.NOutputs
 	p.Inputs = base.Inputs
 	p.Outputs = base.Outputs
+	p.OutputBlindingSeed = base.OutputBlindingSeed
 	p.ExternalDataHash = base.ExternalDataHash
 	p.PrivateTxHash = base.PrivateTxHash
 	p.PublicAssets = base.PublicAssets
@@ -237,6 +243,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
+			OutputBlindingSeed:  p.OutputBlindingSeed,
 			P256Pub: customring.P256PublicKey{
 				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),

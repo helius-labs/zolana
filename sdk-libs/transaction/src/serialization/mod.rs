@@ -47,6 +47,10 @@ pub struct OwnerCx<'a> {
     pub owner: PublicKey,
     pub assets: &'a AssetRegistry,
     pub ring_program_id: Option<Address>,
+    /// The transaction's first nullifier, which a transact output blinding
+    /// derives from. `None` for a rail whose payload holds the blinding itself
+    /// (deposits, confidential slots, anonymous recipients, split, merge).
+    pub first_nullifier: Option<[u8; 32]>,
 }
 
 pub trait UtxoSerialization {

@@ -60,11 +60,11 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 			want: "utxo tree root count mismatch",
 		},
 		{
-			name: "nullifier root count",
+			name: "tree id count",
 			mutate: func(c *merge.Circuit) {
-				c.NullifierTreeRoots = c.NullifierTreeRoots[:len(c.NullifierTreeRoots)-1]
+				c.TreeIDs = c.TreeIDs[:len(c.TreeIDs)-1]
 			},
-			want: "nullifier tree root count mismatch",
+			want: "tree id count mismatch",
 		},
 		{
 			name: "state path height",
@@ -142,6 +142,25 @@ func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
 	a.Inputs[0].Amount = big.NewInt(999)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected value-conservation failure, got solved")
+	}
+}
+
+// Tree slots let a merge spend inputs from different trees: input 1 sits in
+// slot 1 with its own tree id and state root.
+func TestMergeCircuitAcceptsInputFromSecondSlot(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{inputSlot: 1})
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("expected second-slot merge to solve: %v", err)
+	}
+}
+
+// An input hashed under slot 1 cannot claim slot 0: the slot's tree id enters
+// the utxo hash and the leaf is under another root.
+func TestMergeCircuitRejectsWrongSlot(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{inputSlot: 1})
+	a.Inputs[1].TreeSlot = big.NewInt(0)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected tree slot binding failure, got solved")
 	}
 }
 

@@ -8,7 +8,7 @@ use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::error::CompressionError;
 
-pub const STATE_DATA_LEN: usize = 80;
+pub const STATE_DATA_LEN: usize = 112;
 const OUTPUT_DATA_PLAINTEXT: u8 = 0;
 pub const ACCOUNT_DATA_DOMAIN: &[u8; 42] = b"zolana:compression-example:account-data:v1";
 
@@ -28,8 +28,34 @@ pub fn field_u64(value: u64) -> [u8; 32] {
     right_align(&value.to_be_bytes())
 }
 
+/// Private seed for the output blinding. A plaintext example has nothing to
+/// hide, so the version keeps every blinding re-derivable from state the client
+/// already holds.
 pub fn version_blinding(version: u64) -> [u8; 32] {
     field_u64(version)
+}
+
+/// Domain separator for SPP transaction output blindings: ASCII `"TXOB"`. Must
+/// match `DOMAIN_TRANSACT_OUTPUT_BLINDING_V1` in
+/// `sdk-libs/transaction/src/utxo.rs` and `OutputBlindingDomainV1` in the Go
+/// circuit.
+const OUTPUT_BLINDING_DOMAIN_V1: u32 = 0x5458_4f42;
+
+/// Create and update each publish exactly one output, in slot 0.
+const OUTPUT_SLOT: u32 = 0;
+
+/// The blinding the transfer circuit recomputes for this example's single output
+/// slot. The first nullifier makes the value unique across accepted
+/// transactions, which also means a version alone does not determine it: the
+/// current blinding lives in the account state, and the spent one arrives in the
+/// update instruction data.
+pub fn output_blinding(first_nullifier: &[u8; 32], version: u64) -> Result<[u8; 32], ProgramError> {
+    hashv(&[
+        &right_align(&OUTPUT_BLINDING_DOMAIN_V1.to_be_bytes()),
+        first_nullifier,
+        &version_blinding(version),
+        &right_align(&OUTPUT_SLOT.to_be_bytes()),
+    ])
 }
 
 pub struct PdaOwner {
@@ -73,6 +99,10 @@ pub struct AccountState {
     pub authority: [u8; 32],
     pub value: u64,
     pub version: u64,
+    /// The UTXO blinding, published with the plaintext state because it is
+    /// derived from the creating transaction's first nullifier and so cannot be
+    /// recovered from the other fields.
+    pub blinding: [u8; 32],
 }
 
 impl AccountState {
@@ -85,15 +115,12 @@ impl AccountState {
             &authority_field,
             &field_u64(self.value),
             &field_u64(self.version),
+            &self.blinding,
         ])
     }
 
-    pub fn blinding(&self) -> [u8; 32] {
-        version_blinding(self.version)
-    }
-
     pub fn utxo_hash(&self, owner_hash: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-        state_utxo_hash(owner_hash, &self.data_hash()?, &self.blinding())
+        state_utxo_hash(owner_hash, &self.data_hash()?, &self.blinding)
     }
 
     pub fn to_vec(&self) -> Result<Vec<u8>, ProgramError> {
@@ -141,7 +168,7 @@ mod tests {
     use solana_address::address;
     use zolana_interface::event::OutputDataEncoding;
     use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
-    use zolana_transaction::{ProofInputUtxo, SOL_MINT};
+    use zolana_transaction::{utxo::derive_transact_output_blinding, ProofInputUtxo, SOL_MINT};
 
     const TEST_PDA: solana_address::Address =
         address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");
@@ -150,11 +177,13 @@ mod tests {
     fn commitments_match_existing_utxo_types() {
         let authority = [8u8; 32];
         let pda_owner = PdaOwner::new(TEST_PDA.as_array()).unwrap();
+        let first_nullifier = [3u8; 32];
         let state = AccountState {
             address: pda_owner.address().unwrap(),
             authority,
             value: 42,
             version: 9,
+            blinding: output_blinding(&first_nullifier, 9).unwrap(),
         };
         let data_hash = state.data_hash().unwrap();
         let owner = PublicKey::from_pda(&TEST_PDA);
@@ -179,8 +208,12 @@ mod tests {
                 .unwrap()
         );
 
-        let output_blinding = state.blinding();
-        let output = ProofInputUtxo::new(expected_owner_hash, &SOL_MINT, 0, &output_blinding)
+        assert_eq!(
+            state.blinding,
+            derive_transact_output_blinding(&first_nullifier, &version_blinding(9), 0).unwrap(),
+            "output blinding must match the canonical SDK derivation"
+        );
+        let output = ProofInputUtxo::new(expected_owner_hash, &SOL_MINT, 0, &state.blinding)
             .unwrap()
             .with_data_hash(data_hash);
         assert_eq!(
@@ -197,6 +230,7 @@ mod tests {
             authority: [8u8; 32],
             value: 42,
             version: 9,
+            blinding: output_blinding(&[3u8; 32], 9).unwrap(),
         };
         let encoded = state.to_output_data().unwrap();
         let envelope: OutputDataEncoding = borsh::from_slice(&encoded).unwrap();

@@ -47,21 +47,21 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// reassignInputToFreshTrees moves input idx onto an independent state tree and an
-// independent nullifier tree so the proof spans more than one root. The other
-// inputs keep the roots assigned by buildCircuitAssignment, so the witness has
-// distinct UtxoTreeRoot/NullifierTreeRoot values across inputs. The input's UTXO
-// and nullifier are unchanged, so only the membership witnesses and roots are
-// rewritten; the public input hash is refreshed since per-input roots are
-// committed in it.
-func reassignInputToFreshTrees(t testing.TB, assignment *testAssignment, idx int) (stateRoot, nullifierRoot *big.Int) {
+// moveInputToSlot moves input idx into tree slot `slot`: its UTXO is rehashed
+// under that slot's tree id and becomes the sole leaf of a fresh state tree
+// published as that slot's root. The nullifier follows the new hash and stays
+// absent from the shared nullifier tree; derived outputs and both hashes are
+// refreshed. Call it with idx > 0 so the first nullifier keeps seeding the
+// output blindings.
+func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 	t.Helper()
 	if idx < 0 || idx >= len(assignment.Inputs) {
-		t.Fatalf("reassign input index %d out of range", idx)
+		t.Fatalf("move input index %d out of range", idx)
 	}
 
 	in := &assignment.Inputs[idx]
-	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+	in.TreeSlot = spptest.Fe(int64(slot))
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.TreeIDs[slot])
 
 	const freshStateLeafIndex = 99
 	stateRoot, stateProofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{
@@ -70,71 +70,84 @@ func reassignInputToFreshTrees(t testing.TB, assignment *testAssignment, idx int
 	stateProof := stateProofs[freshStateLeafIndex]
 	fillStateProofElements(in.StatePathElements, stateProof.PathElements)
 	in.StatePathIndex = new(big.Int).SetUint64(stateProof.PathIndex)
-	in.UtxoTreeRoot = stateRoot
+	assignment.UtxoTreeRoots[slot] = stateRoot
 
+	in.Nullifier = spptest.MustNullifier(
+		t,
+		inputHash,
+		spptest.AsBigInt(in.Utxo.Blinding),
+		spptest.AsBigInt(in.NullifierSecret),
+	)
 	nullifierTree := spptest.MustNewNullifierTree(t)
-	// Insert an unrelated nullifier so this tree's root differs from the empty
-	// tree the other inputs prove against; the input's own nullifier stays absent.
-	if err := nullifierTree.Insert(spptest.Fe(3)); err != nil {
-		t.Fatalf("perturb nullifier tree: %v", err)
-	}
 	nfWitness := spptest.MustNonInclusion(t, nullifierTree, spptest.AsBigInt(in.Nullifier))
 	in.NullifierLowValue = nfWitness.LowValue
 	in.NullifierNextValue = nfWitness.NextValue
 	fillStateProofElements(in.NullifierLowPathElements, nfWitness.PathElements)
 	in.NullifierLowPathIndex = new(big.Int).SetUint64(nfWitness.LowIndex)
-	in.NullifierTreeRoot = nullifierTree.Root()
 
+	refreshDerivedOutputBlindings(t, assignment)
+	inputHashes := make([]*big.Int, len(assignment.Inputs))
+	for i := range assignment.Inputs {
+		inputHashes[i] = testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
+	}
+	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
+		t,
+		inputHashes,
+		spptest.ToBigInts(assignment.OutputHashes()),
+		noAddressHashes(len(inputHashes)),
+		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
+	)
 	refreshPublicInputHash(t, assignment)
-	return stateRoot, nullifierTree.Root()
 }
 
-// Per-input roots let one transaction spend inputs from different historical
-// roots. This proves two inputs against two distinct state roots and two
-// distinct nullifier roots in a single proof.
-func TestCircuitAcceptsInputsFromDifferentRoots(t *testing.T) {
+// Tree slots let one transaction spend inputs from different trees. This proves
+// two inputs against two slots with distinct tree ids and state roots.
+func TestCircuitAcceptsInputsFromDifferentSlots(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	stateRoot, nullifierRoot := reassignInputToFreshTrees(t, assignment, 1)
+	moveInputToSlot(t, assignment, 1, 1)
 
-	if stateRoot.Cmp(spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)) == 0 {
-		t.Fatal("expected distinct state roots across inputs")
-	}
-	if nullifierRoot.Cmp(spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)) == 0 {
-		t.Fatal("expected distinct nullifier roots across inputs")
+	if spptest.AsBigInt(assignment.UtxoTreeRoots[1]).Cmp(spptest.AsBigInt(assignment.UtxoTreeRoots[0])) == 0 {
+		t.Fatal("expected distinct state roots across slots")
 	}
 
 	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// An input proving inclusion in one state root cannot claim a different root:
-// the path no longer hashes to the claimed UtxoTreeRoot. The public input hash
-// is refreshed to the wrong root so the inclusion check is the sole failure.
+// An input proving inclusion in its slot's tree cannot be published under
+// another slot's root: the path no longer hashes to the claimed root. The public
+// input hash is refreshed to the wrong root so the inclusion check is the sole
+// failure.
 func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	reassignInputToFreshTrees(t, assignment, 1)
-	assignment.Inputs[1].UtxoTreeRoot = spptest.AsBigInt(assignment.Inputs[0].UtxoTreeRoot)
+	moveInputToSlot(t, assignment, 1, 1)
+	assignment.UtxoTreeRoots[1] = assignment.UtxoTreeRoots[0]
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// An input's non-inclusion witness is checked against one nullifier root:
-// claiming a different NullifierTreeRoot fails the non-inclusion check. The
-// public input hash is refreshed to the wrong root so that check is the sole
-// failure.
+// Every non-inclusion witness is checked against the one nullifier root:
+// claiming a different root fails the non-inclusion check. The public input
+// hash is refreshed to the wrong root so that check is the sole failure.
 func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
-	reassignInputToFreshTrees(t, assignment, 1)
-	assignment.Inputs[1].NullifierTreeRoot = spptest.AsBigInt(assignment.Inputs[0].NullifierTreeRoot)
+	nullifierTree := spptest.MustNewNullifierTree(t)
+	// An unrelated insertion moves the root away from the empty tree the
+	// witnesses were built against.
+	if err := nullifierTree.Insert(spptest.Fe(3)); err != nil {
+		t.Fatalf("perturb nullifier tree: %v", err)
+	}
+	assignment.NullifierTreeRoot = nullifierTree.Root()
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -233,18 +246,18 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 	in.Utxo.Owner = spptest.Fe(0)
 	in.Utxo.Asset = spptest.Fe(0)
 	in.Utxo.Amount = spptest.Fe(0)
-	in.UtxoTreeRoot = spptest.Fe(0)
 	in.OwnerPkHash = spptest.Fe(0)
 	// A padding dummy derives its nullifier with nullifier_secret = 0, its
 	// blinding being the sole source of unpredictability (spec: SPP Proof).
 	in.NullifierSecret = spptest.Fe(0)
-	dummyUtxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(in.Utxo))
+	dummyUtxoHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.inputTreeID(0))
 	in.Nullifier = spptest.MustNullifier(
 		t,
 		dummyUtxoHash,
 		spptest.AsBigInt(in.Utxo.Blinding),
 		spptest.AsBigInt(in.NullifierSecret),
 	)
+	refreshDerivedOutputBlindings(t, assignment)
 
 	// The dummy contributes 0 to the private-tx-hash chain, so recompute it with
 	// the input hash zeroed, then refresh the public-input hash from the
@@ -256,6 +269,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		OutputHashes,
 		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshPublicInputHash(t, assignment)
@@ -302,8 +316,8 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
-	assignment.Inputs[0].UtxoTreeRoot = spptest.Fe(8)
-	assignment.Inputs[0].NullifierTreeRoot = spptest.Fe(9)
+	assignment.UtxoTreeRoots[0] = spptest.Fe(8)
+	assignment.NullifierTreeRoot = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

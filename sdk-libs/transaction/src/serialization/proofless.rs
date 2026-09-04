@@ -105,6 +105,8 @@ mod tests {
             owner,
             assets: &assets,
             ring_program_id: None,
+            // A proofless deposit carries its blinding literally.
+            first_nullifier: None,
         };
         let encode_cx = ProoflessEncode {
             owner_hash: [0u8; 32],

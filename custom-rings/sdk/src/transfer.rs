@@ -386,6 +386,7 @@ impl StagedTransfer {
         let ring_result = RingTransferProver {
             inputs,
             outputs: self.proof_inputs.output_utxos.clone(),
+            output_blinding_seed: self.proof_inputs.output_blinding_seed,
             external_data: self.proof_inputs.external_data.clone(),
             public_transfers: self.proof_inputs.public_transfers()?,
             signer_pk_hashes: self

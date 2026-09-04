@@ -50,6 +50,7 @@ type TransferParametersJSON struct {
 	NOutputs                     uint32             `json:"nOutputs"`
 	Inputs                       []InputParamsJSON  `json:"inputs"`
 	Outputs                      []OutputParamsJSON `json:"outputs"`
+	OutputBlindingSeed           string             `json:"outputBlindingSeed"`
 	ExternalDataHash             string             `json:"externalDataHash"`
 	PrivateTxHash                string             `json:"privateTxHash"`
 	PublicAssets                 []string           `json:"publicAssets"`
@@ -79,6 +80,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		CircuitType:                  circuitType,
 		NInputs:                      p.NInputs,
 		NOutputs:                     p.NOutputs,
+		OutputBlindingSeed:           feHex(p.OutputBlindingSeed),
 		ExternalDataHash:             feHex(p.ExternalDataHash),
 		PrivateTxHash:                feHex(p.PrivateTxHash),
 		PublicAssets:                 feHexSlice(p.PublicAssets),
@@ -128,6 +130,12 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
 	p.Variant = variantFromCircuitType(params.CircuitType)
+	if params.OutputBlindingSeed == "" {
+		return fmt.Errorf("spp: outputBlindingSeed is required")
+	}
+	if p.OutputBlindingSeed, err = feFromHex(params.OutputBlindingSeed); err != nil {
+		return err
+	}
 
 	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
 		return err

@@ -91,6 +91,8 @@ pub(crate) struct TransferInputsJson {
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
     pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "outputBlindingSeed")]
+    pub output_blinding_seed: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -123,6 +125,8 @@ pub(crate) struct TransferP256InputsJson {
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
     pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "outputBlindingSeed")]
+    pub output_blinding_seed: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
@@ -425,6 +429,7 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        output_blinding_seed: big_uint_to_string(&inputs.output_blinding_seed),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         public_assets: inputs
@@ -480,6 +485,7 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        output_blinding_seed: big_uint_to_string(&inputs.output_blinding_seed),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
@@ -545,6 +551,7 @@ mod merge_tests {
         let inputs = TransferP256Inputs {
             inputs: Vec::new(),
             outputs: Vec::new(),
+            output_blinding_seed: BigUint::from(15u8),
             external_data_hash: BigUint::from(1u8),
             private_tx_hash: BigUint::from(2u8),
             p256_pub_x: BigUint::from(3u8),
@@ -692,6 +699,7 @@ mod merge_tests {
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_pk: BigUint::ZERO,
             }],
+            output_blinding_seed: BigUint::from(10u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),

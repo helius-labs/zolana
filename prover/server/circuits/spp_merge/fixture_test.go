@@ -43,6 +43,47 @@ type mergeFixtureOptions struct {
 	// (same UTXO, same paths, same nullifier); only the distinctness
 	// constraint can reject the resulting witness.
 	duplicateFirstInput bool
+	// inputSlot places input 1 in that tree slot: hashed under the slot's tree
+	// id and the sole leaf of a second state tree published as the slot's root.
+	inputSlot int
+}
+
+// Slot 0's tree id is fixtureInputTreeID; fixtureOutputTreeID differs from
+// every slot id so a swapped input/output id is caught.
+const (
+	fixtureInputTreeID  = 7
+	fixtureOutputTreeID = 11
+)
+
+// fixtureSlotTreeIDs returns InputTrees distinct tree ids, slot 0 = fixtureInputTreeID.
+func fixtureSlotTreeIDs() []*big.Int {
+	ids := []int64{fixtureInputTreeID, 17, 19, 23, 29}
+	out := make([]*big.Int, mergeshared.InputTrees)
+	for k := range out {
+		out[k] = big.NewInt(ids[k])
+	}
+	return out
+}
+
+// mergeUtxoHash mirrors the circuit's seven-field utxo hash; protocol.UtxoHash
+// still hashes six fields.
+func mergeUtxoHash(t *testing.T, u protocol.Utxo, treeID int64) *big.Int {
+	t.Helper()
+	ownerUtxoHash, err := protocol.OwnerUtxoHash(u.Owner, u.Blinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ringHash, err := poseidon.Hash([]*big.Int{u.RingDataHash, u.RingProgramID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := poseidon.Hash([]*big.Int{
+		u.Domain, big.NewInt(treeID), u.Asset, u.Amount, u.DataHash, ringHash, ownerUtxoHash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 type mergeWitnessFixture struct {
@@ -137,6 +178,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 
 	// Real input UTXOs and their state-tree leaves. Slot 0 is always real: the
 	// output blinding derives from its blinding.
+	if options.inputSlot < 0 || options.inputSlot >= mergeshared.InputTrees {
+		t.Fatalf("input slot %d out of range", options.inputSlot)
+	}
+	treeIDs := fixtureSlotTreeIDs()
+	inputSlots := []int{0, options.inputSlot}
 	inUtxos := make([]protocol.Utxo, numReal)
 	inHashes := make([]*big.Int, numReal)
 	stateEntries := map[uint64]*big.Int{}
@@ -156,16 +202,31 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			RingDataHash:  ringData[i],
 			RingProgramID: ringProgramID,
 		}
-		h, err := protocol.UtxoHash(inUtxos[i])
-		if err != nil {
-			t.Fatal(err)
-		}
+		h := mergeUtxoHash(t, inUtxos[i], treeIDs[inputSlots[i]].Int64())
 		inHashes[i] = h
 		stateEntries[uint64(i)] = h
+	}
+	// Every slot publishes the slot-0 state root under its own tree id. An
+	// input placed in another slot is instead the sole leaf of a second tree
+	// published as that slot's root.
+	if options.inputSlot != 0 {
+		delete(stateEntries, 1)
 	}
 	stateRoot, stateProofs, err := protocol.BuildSparseStateTree(stateEntries)
 	if err != nil {
 		t.Fatal(err)
+	}
+	slotRoots := make([]*big.Int, mergeshared.InputTrees)
+	for k := range slotRoots {
+		slotRoots[k] = stateRoot
+	}
+	if options.inputSlot != 0 {
+		otherRoot, otherProofs, err := protocol.BuildSparseStateTree(map[uint64]*big.Int{1: inHashes[1]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		stateProofs[1] = otherProofs[1]
+		slotRoots[options.inputSlot] = otherRoot
 	}
 	if options.duplicateFirstInput {
 		stateProofs[1] = stateProofs[0]
@@ -216,10 +277,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		RingDataHash:  outputRingData,
 		RingProgramID: ringProgramID,
 	}
-	outHash, err := protocol.UtxoHash(outUtxo)
-	if err != nil {
-		t.Fatal(err)
-	}
+	outHash := mergeUtxoHash(t, outUtxo, fixtureOutputTreeID)
 
 	externalDataHash := big.NewInt(0xABCDEF)
 
@@ -236,7 +294,17 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	for i := range addressHashes {
 		addressHashes[i] = big.NewInt(0)
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputHashChainInputs, []*big.Int{outHash}, addressHashes, externalDataHash)
+	privateTxBlinding, err := protocol.PrivateTxBlinding(nullifiers[0], nullifierSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateTxHash, err := protocol.PrivateTxHash(
+		inputHashChainInputs,
+		[]*big.Int{outHash},
+		addressHashes,
+		externalDataHash,
+		privateTxBlinding,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,27 +340,26 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 
 	// Public columns (real + dummy), reused verbatim in the public input hash.
 	pubNullifiers := make([]*big.Int, merge.MergeInputs)
-	pubUtxoRoots := make([]*big.Int, merge.MergeInputs)
-	pubNfRoots := make([]*big.Int, merge.MergeInputs)
 	for i := 0; i < merge.MergeInputs; i++ {
 		if i < numReal {
 			pubNullifiers[i] = nullifiers[i]
 		} else {
 			pubNullifiers[i] = dummyNullifier(i)
 		}
-		pubUtxoRoots[i] = stateRoot
-		pubNfRoots[i] = nfRoot
 	}
 
 	allowDummyInputs := big.NewInt(1)
 	if options.allowDummyInputs != nil {
 		allowDummyInputs = options.allowDummyInputs
 	}
+	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
-		hashChain(t, pubUtxoRoots),
-		hashChain(t, pubNfRoots),
+		hashChain(t, treeIDs),
+		hashChain(t, slotRoots),
+		nfRoot,
+		outputTreeID,
 		privateTxHash,
 		externalDataHash,
 		allowDummyInputs,
@@ -320,13 +387,19 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
+	public.NullifierTreeRoot = nfRoot
+	public.OutputTreeID = outputTreeID
+	for k := range treeIDs {
+		public.TreeIDs[k] = treeIDs[k]
+		public.UtxoTreeRoots[k] = slotRoots[k]
+	}
 
 	for i := 0; i < merge.MergeInputs; i++ {
 		in := &inputs[i]
 		public.Nullifiers[i] = pubNullifiers[i]
-		public.UtxoTreeRoots[i] = pubUtxoRoots[i]
-		public.NullifierTreeRoots[i] = pubNfRoots[i]
+		in.TreeSlot = big.NewInt(0)
 		if i < numReal {
+			in.TreeSlot = big.NewInt(int64(inputSlots[i]))
 			in.Domain = big.NewInt(protocol.UtxoDomain)
 			in.Amount = amounts[i]
 			in.Blinding = blindings[i]

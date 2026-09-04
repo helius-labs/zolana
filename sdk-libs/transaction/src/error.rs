@@ -61,6 +61,9 @@ pub enum TransactionError {
     #[error("missing encryption context for scheme")]
     MissingEncryptionContext,
 
+    #[error("output blinding derivation requires the transaction's first nullifier")]
+    MissingFirstNullifier,
+
     #[error("transaction has no inputs")]
     NoInputs,
 

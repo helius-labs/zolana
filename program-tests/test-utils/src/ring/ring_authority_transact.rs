@@ -22,6 +22,7 @@ use zolana_keypair::{random_blinding, random_salt, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
+    utxo::derive_transact_output_blinding,
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
@@ -202,11 +203,12 @@ impl RingHarness {
         // owner tag, the exact tag `Wallet::sync`'s confidential scan queries.
         let recipient_address = recipient_keypair.shielded_address()?;
         let recipient_view_tag = recipient_address.signing_pubkey.confidential_view_tag()?;
+        let output_blinding_seed = random_blinding();
         let output = SppProofOutputUtxo {
             owner_address: Some(recipient_address),
             asset,
             amount,
-            blinding: random_blinding(),
+            blinding: derive_transact_output_blinding(&nullifier, &output_blinding_seed, 0)?,
             ring_program_id: Some(ring),
             ring_data_hash: None,
             data_hash: None,
@@ -224,6 +226,8 @@ impl RingHarness {
             owner: recipient_address.signing_pubkey,
             assets: &self.assets,
             ring_program_id: Some(ring),
+            // A confidential slot carries its blinding literally.
+            first_nullifier: None,
         };
         // The recipient decrypts a plaintext `Utxo` (the on-chain leaf is the
         // `SppProofOutputUtxo` above); both carry identical fields so their hashes agree.
@@ -268,6 +272,7 @@ impl RingHarness {
         };
 
         let result = RingAuthorityProver {
+            output_blinding_seed,
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),

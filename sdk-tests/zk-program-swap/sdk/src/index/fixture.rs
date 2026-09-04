@@ -7,8 +7,8 @@ use zolana_keypair::{P256Pubkey, ShieldedAddress, ShieldedKeypair};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, OutputContext,
-            OutputSlot, SppProofInputs, SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, OutputContext, OutputSlot, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -89,7 +89,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         expiry: 2_000_000_000,
         take_mode: TAKE_MODE_DERIVED,
     };
-    let order_utxo = OrderUtxo {
+    let mut order_utxo = OrderUtxo {
         terms,
         blinding: test_blinding(11),
         source_mint,
@@ -117,12 +117,19 @@ pub(crate) fn order_fixture() -> OrderFixture {
     let spend = SppProofInputUtxo::new(input_utxo, &maker_keypair);
     let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
 
-    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
     let change_amount =
         u64::try_from(input_sum(&input_utxos, &source_mint) - i128::from(order_output_utxo.amount))
             .expect("change amount");
     let change =
         SppProofOutputUtxo::new(source_mint, change_amount, maker_address).expect("change output");
+    let mut transaction_outputs = vec![change, order_output_utxo];
+    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive output blindings");
+    let [change, order_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("make transaction has two outputs");
+    order_utxo.blinding = order_output_utxo.blinding;
+    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
     let marker_message = OrderMarker {
         order_utxo_hash,
         maker_pubkey,
@@ -152,7 +159,8 @@ pub(crate) fn order_fixture() -> OrderFixture {
         encoded.output_utxos,
         external_data,
         Address::default(),
-    );
+    )
+    .with_output_blinding_seed(output_blinding_seed);
 
     OrderFixture {
         tx: shielded_transaction(&spp_proof_inputs),

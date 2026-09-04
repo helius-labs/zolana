@@ -54,10 +54,10 @@ func (c *Circuit) checkVerifiableEncryption(api frontend.API) frontend.Variable 
 	aesGadget := aes.NewAESGadget(api)
 	key, nonce := ve.KeySchedule(api, sharedSecret, mergeKdfInfoVars(), len(mergeKdfInfo))
 
-	var plaintext [71]frontend.Variable
+	var plaintext [72]frontend.Variable
 	copy(plaintext[0:8], ve.FieldToBytesBE(api, c.Core.Order.DestinationAmount, 8))
 	copy(plaintext[8:40], ve.FieldToBytesBE(api, c.Core.Order.DestinationAsset, 32))
-	copy(plaintext[40:71], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 31))
+	copy(plaintext[40:72], ve.FieldToBytesBE(api, c.Core.DestinationOutput.Blinding, 32))
 	ciphertext := aes.CTREncrypt(api, aesGadget, key, nonce, plaintext[:])
 	return gadget.HashChain(api, gadget.PackBytesBE(api, ciphertext))
 }

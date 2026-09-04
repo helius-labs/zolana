@@ -132,6 +132,9 @@ pub fn build_transfer(
         owner: spec.sender.signing_pubkey(),
         assets,
         ring_program_id: None,
+        // The sender bundle publishes a seed; the change blindings derive from
+        // it and this nullifier.
+        first_nullifier: Some(spec.first_nullifier),
     };
     let change =
         AnonymousSenderBundle::into_utxos(sender_plaintext.clone(), &sender_owner_cx).unwrap();
@@ -158,6 +161,8 @@ pub fn build_transfer(
         owner: spec.recipient.signing_pubkey(),
         assets,
         ring_program_id: None,
+        // An anonymous recipient slot carries its blinding literally.
+        first_nullifier: None,
     };
     let recipient_cx = AnonymousRecipientEncode {
         tx: tx_key,
@@ -245,6 +250,8 @@ pub fn build_unified_transfer(
         owner: spec.sender.signing_pubkey(),
         assets,
         ring_program_id: None,
+        // A confidential slot carries its blinding literally.
+        first_nullifier: None,
     };
     let change_ciphertext = Confidential::encode(
         std::slice::from_ref(&change_utxo),
@@ -266,6 +273,7 @@ pub fn build_unified_transfer(
         owner: spec.recipient.signing_pubkey(),
         assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let recipient_ciphertext = Confidential::encode(
         std::slice::from_ref(&recipient_utxo),

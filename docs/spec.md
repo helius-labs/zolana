@@ -35,6 +35,7 @@
 - [UTXO](#utxo)
   - [UTXO Hash](#utxo-hash)
   - [Nullifier](#nullifier)
+  - [Output Blinding](#output-blinding)
 - [Output UTXO Serialization](#output-utxo-serialization)
   - [UTXO Data](#utxo-data)
   - [Transfer](#transfer-2)
@@ -570,8 +571,9 @@ struct Utxo {
     asset: Address,
     /// Amount in the smallest unit of `asset`.
     amount: u64,
-    /// Random bytes ensuring distinct UTXO hashes for equal
-    /// `(owner, asset, amount)` triples.
+    /// Field element ensuring distinct UTXO hashes for equal
+    /// `(owner, asset, amount)` triples. A `deposit` sets it freely; a
+    /// `transact` output takes the value in [Output Blinding](#output-blinding).
     blinding: [u8; 31],
     /// Arbitrary data committed via `data_hash`; the application circuit/SDK
     /// interprets it.
@@ -608,6 +610,35 @@ nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
 utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
+## Output Blinding
+
+The `transact` circuits recompute the blinding of every output slot, so a sender
+cannot choose one:
+
+```
+blinding_i = Poseidon("TXOB", nullifier_0, output_blinding_seed, i)
+```
+
+`"TXOB"` is those four ASCII bytes read as a 32-bit integer. `nullifier_0` is the
+transaction's first published nullifier. `i` is the output's final slot index
+after padding, counting from zero. `output_blinding_seed` is a random value the
+sender supplies as a private circuit input.
+
+A nullifier enters the nullifier tree once, so a blinding derived from
+`nullifier_0` is unique to one accepted transaction, and two accepted
+transactions cannot commit the same output `utxo_hash`.
+
+A recipient needs the blinding to spend. The [confidential](#transfer-2) and
+[split](#utxo-split) layouts include the derived blindings. The layouts that
+describe several slots from one payload (the anonymous [Sender](#sender) bundle
+and the [plaintext transfer](#plaintext-transfer)) disclose
+`output_blinding_seed` instead, and their reader re-derives each slot.
+
+Two rails do not use this derivation. A [`deposit`](#deposit) sends `blinding` in
+the clear and the program hashes the value as given. [Merge](#merge) proves a
+different circuit and takes its output blinding from the owner's nullifier secret
+(`merge_output_blinding`, see [Methods](#methods)).
+
 ## Empty UTXO
 
 Fixed-size circuits pad unused output slots with empty UTXOs, most often a
@@ -616,20 +647,20 @@ sender's absent SPL or SOL change. Every field is zero except `blinding`:
 ```
 owner = asset = amount = 0
 utxo_data = ring_data = ring_program_id = None
-blinding = Sha256BE(blinding_seed || u8(position))
+blinding = per [Output Blinding](#output-blinding)
 ```
 
 `owner = 0` leaves the output permanently unspendable: spending it later requires
-keys whose `owner_hash` is 0, which no one holds. The per-position `blinding` keeps
-each empty change output reconstructible by the owner from the sender bundle's
-`blinding_seed` and gives it a distinct `utxo_hash`, so it looks like a real output.
-The sender ciphertext also stays fixed-size (amounts are fixed-width), so neither
-the output hash nor the ciphertext reveals whether the sender kept change.
+keys whose `owner_hash` is 0, which no one holds. An empty change output still
+takes its slot's derived `blinding`, so it has a distinct `utxo_hash` and looks
+like a real output, and an owner who knows the seed can reconstruct it. The sender
+ciphertext also stays fixed-size (amounts are fixed-width), so neither the output
+hash nor the ciphertext reveals whether the sender kept change.
 
 `owner = 0` is exactly the dummy-output condition, so an empty change output is a
 dummy: it contributes `0` to the output hash chain. Padding slots beyond the
-sender's change and recipients are dummies too; they hold no value, so their
-`blinding` is freshly random rather than position-derived.
+sender's change and recipients are dummies too, and the circuit derives their
+blindings from the same seed and their slot index.
 
 The confidential default ring reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
 
@@ -720,13 +751,11 @@ struct TransferRecipientPlaintext {
 
 #### Sender
 
-The sender change bundle encodes two outputs (SPL change + SOL change). Per-output blindings derive from a single seed:
-
-```
-blinding_i = Sha256BE(blinding_seed || u8(position_i))
-```
-
-with `position = 0` for the SPL output and `position = 1` for the SOL output.
+The sender change bundle encodes two outputs (SPL change + SOL change). It
+publishes the seed rather than the blindings, and each output takes the blinding
+[Output Blinding](#output-blinding) gives its slot: `0` for the SPL output, `1`
+for the SOL output. The bundle cannot say that a change slot was dropped, so
+those two indices are also the outputs' physical slots.
 
 ```rust
 /// 57 B plaintext for confidential transfers with both `data` fields empty
@@ -741,7 +770,8 @@ struct TransferSenderPlaintext {
     spl_amount: u64,
     /// `0` if no SOL change.
     sol_amount: u64,
-    /// Seed for the two per-output blindings (formula above).
+    /// Seed both change blindings derive from; see
+    /// [Output Blinding](#output-blinding).
     blinding_seed: [u8; 31],
     /// Records for the SPL change UTXO (position 0): `ring_data` hashed via
     /// the ring program's scheme into the `ring_data_hash` slot of
@@ -832,7 +862,7 @@ Sizes assume confidential transfers with every `data` field empty (`count = 0`).
 
 ## Plaintext Transfer
 
-The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from `blinding_seed` (formula in [Sender](#sender)): position `0` SPL change, `1` SOL change, recipient slot `i` position `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
+The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, and the AES-CTR ciphertext wrapper are absent. Output blindings derive from the published `blinding_seed` as in [Output Blinding](#output-blinding): slot `0` SPL change, `1` SOL change, recipient slot `i` at `2 + i`. The sender bundle and each recipient slot are indexed by their `owner_pubkey`, like the encrypted [Transfer](#transfer-2).
 
 A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients. Payloads are public, so dummy slots hide nothing: only the sender bundle and real recipient outputs carry `data`.
 
@@ -873,18 +903,15 @@ A split commits eight owner-bound outputs. Slots `0..M` have the requested amoun
 slots `M..8` have amount zero. All share owner, asset, and owner tag. The wallet
 tracks slots `0..M`.
 
-The ciphertext encodes owner, asset, amount, `M`, and blinding seed. Each output derives:
-
-```
-blinding_i = Sha256BE(blinding_seed || u8(i))
-```
-
-for `i = 0 .. 7`.
+The ciphertext encodes owner, asset, amount, `M`, and all eight blindings. A
+split's slot index is its physical output index, so those are the values
+[Output Blinding](#output-blinding) gives each slot. The bundle includes them
+rather than the seed.
 
 ### Plaintext Layout
 
 ```rust
-/// 83 B plaintext → 83 B ciphertext (no tag) with an empty
+/// 300 B plaintext → 300 B ciphertext (no tag) with an empty
 /// `data` field. See [UTXO Data](#utxo-data) for the growth per
 /// populated record.
 struct SplitBundlePlaintext {
@@ -896,8 +923,8 @@ struct SplitBundlePlaintext {
     asset_id: u64,
     /// Shared across all M outputs.
     asset_amount: u64,
-    /// Seed for the M per-output blindings (formula above).
-    blinding_seed: [u8; 31],
+    /// Every slot's blinding, in slot order. The wallet reads the first M.
+    output_blindings: [[u8; 31]; 8],
     /// Empty (plain outputs).
     data: Data,
 }
@@ -906,7 +933,7 @@ struct SplitBundlePlaintext {
 ### Instruction Data Layout
 
 ```rust
-/// 135 bytes total when the plaintext `data` field is empty; populated
+/// 352 bytes total when the plaintext `data` field is empty; populated
 /// records grow the ciphertext by `3 + len` bytes each. Packed; the
 /// ciphertext is prefixed with a `u16_le` length.
 /// Tagged by the sender's `owner` pubkey in the transact instruction data
@@ -917,7 +944,7 @@ struct SplitEncryptedUtxos {
     tx_viewing_pk: P256Pubkey,
     /// Per-transaction CSPRNG salt.
     salt: [u8; 16],
-    /// 83-byte plaintext (no tag).
+    /// 300-byte plaintext (no tag).
     ciphertext: Vec<u8>,
 }
 ```
@@ -961,7 +988,7 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 | ring_program_id | single `pk_field` of the policy ring authorizing the transaction's UTXOs; `0` (non-ring / default transact) — instruction data |
 | payer_pubkey_hash | `Sha256BE(payer)` derived by SPP from the `payer` account |
 | signer_pk_hashes | Payer first, then first-occurrence-deduplicated Ed25519 owner signers, then zero padding to `N_inputs + 1`; folded as a fixed-width right hash chain. |
-| P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a real P256 UTXO/address has `ring_program_id = 0`, otherwise `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
+| P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a spent P256 UTXO has `ring_program_id = 0`, otherwise `0`. Address slots never force it: an address always has `ring_program_id = 0`, and counting it would publish the identity of a ring P256 spender who creates an address in the same proof. A proof whose only P256 slots are addresses publishes `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
 | published output owner hash chain (owner-signed variants) | Fixed-width per-output vector folded into a final hash-chain field. `ConfidentialEddsa` publishes every resolved owner tag. `RingEddsa` and `RingP256` publish `hash_bytes_32(fetch_tag)` only where the output ciphertext is structurally `OutputDataEncoding::Encrypted` with confidential scheme byte `3`; other slots contribute `0`. `RingAuthority` omits this field. |
 
 The rows are in preimage order: every variant shares the rows through
@@ -974,7 +1001,7 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A real default-ring P256 input/address additionally forces the conditional public owner hash described above. |
+| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A spent default-ring P256 UTXO additionally forces the conditional public owner hash described above; an address slot does not. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
@@ -1073,8 +1100,8 @@ intermediary cannot replace either value while reusing the proof.
 (`RingEddsa`), shared-P256 ring (`RingP256`), or ring-authority
 (`RingAuthority`) circuit and its fixed shape. `RingP256` carries the BSB22
 commitment/PoK and an optional raw P256 x-coordinate owner tag. The tag is
-present exactly when the transaction contains a real default-ring P256
-UTXO/address; SPP hashes it into the public-input preimage.
+present exactly when the transaction spends a default-ring P256 UTXO (address
+slots do not count); SPP hashes it into the public-input preimage.
 It is a selector only — not a public input and never hashed into
 `private_tx_hash` or `external_data_hash`. SPP validates it fail-closed: its
 family must match the dispatched instruction and its dimensions must match the

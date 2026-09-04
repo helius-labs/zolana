@@ -12,7 +12,7 @@ use swap_program::{
     verifying_keys::take::VERIFYINGKEY,
 };
 use swap_prover::{CircuitId, OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
-use swap_sdk::{instructions::take::derive_destination_blinding, state::DataHash};
+use swap_sdk::state::DataHash;
 use zolana_hasher::primitives::hash_bytes;
 use zolana_keypair::ViewingKey;
 use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
@@ -119,8 +119,7 @@ fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
 }
 
 fn sample_inputs() -> TakeProofInputs {
-    let derived = derive_destination_blinding(&blinding(7)).expect("derive destination blinding");
-    build_inputs(derived)
+    build_inputs(blinding(17))
 }
 
 fn verify_with_vk(
@@ -250,16 +249,10 @@ fn take_rejects_tampered_public_input() {
 }
 
 #[test]
-fn take_rejects_wrong_destination_blinding() {
+fn take_accepts_protocol_assigned_destination_blinding() {
     ensure_keys();
-
-    let mut wrong_blinding =
-        derive_destination_blinding(&blinding(7)).expect("derive destination blinding");
-    wrong_blinding[30] ^= 0x01;
-    let inputs = build_inputs(wrong_blinding);
-
-    assert!(
-        inputs.prove().is_err(),
-        "proving must fail when the destination output blinding is not derived from the order utxo blinding"
-    );
+    let inputs = build_inputs(blinding(29));
+    inputs
+        .prove()
+        .expect("the custom proof accepts the final blinding assigned by SPP");
 }

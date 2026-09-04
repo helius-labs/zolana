@@ -15,6 +15,13 @@ func (s Signers) Contains(api frontend.API, identity frontend.Variable) frontend
 	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(identity)))
 }
 
+// WithoutPayer drops the payer, leaving the deduplicated owner signers and the
+// zero padding. The signer vector always carries the payer first, so it is
+// never empty.
+func (s Signers) WithoutPayer() Signers {
+	return s[1:]
+}
+
 // ContainsEach returns one bit per identity, set when that identity signed.
 func (signers Signers) ContainsEach(api frontend.API, identities []frontend.Variable) []frontend.Variable {
 	signed := make([]frontend.Variable, len(identities))
@@ -56,8 +63,7 @@ func AuthorizedEddsaInputOwners(
 }
 
 // P256Signers resolves the zero owner-tag sentinel to the shared P256 owner.
-// Non-zero tags remain Solana signer identities. The resolved tags let dummy
-// slots reuse a P256 participant without publishing the private owner identity.
+// Non-zero tags remain Solana signer identities.
 func P256Signers(
 	api frontend.API,
 	inputs []Input,
@@ -65,9 +71,8 @@ func P256Signers(
 	authorizedEddsa Signers,
 	p256PkHash frontend.Variable,
 	p256SignatureValid frontend.Variable,
-) (Signers, []frontend.Variable) {
+) Signers {
 	signers := make(Signers, len(inputs))
-	resolvedOwnerPkHashes := make([]frontend.Variable, len(inputs))
 	hasP256Input := frontend.Variable(0)
 	for i, in := range inputs {
 		carriesContent := in.isUtxoOrAddress(api)
@@ -83,34 +88,52 @@ func P256Signers(
 		)
 		hasP256Input = api.Add(hasP256Input, api.Mul(carriesContent, isP256))
 		signers[i] = api.Mul(carriesContent, pkHash)
-		resolvedOwnerPkHashes[i] = pkHash
 	}
 	// RingP256 is the mixed P256/Ed25519 rail, not an alternative all-Ed25519
 	// selector. All-Ed25519 transactions use RingEddsa.
 	api.AssertIsDifferent(hasP256Input, 0)
-	return signers, resolvedOwnerPkHashes
+	return signers
 }
 
 // AssertDefaultP256Owner publishes the shared P256 identity iff at least one
-// real P256 UTXO/address belongs to the default ring. Ring-only P256 inputs keep
-// the shared owner private and require the public field to be zero.
+// spent P256 UTXO belongs to the default ring. Ring-only P256 inputs keep the
+// shared owner private and require the public field to be zero.
+//
+// A ring P256 input is an anonymous spend, so the shared identity must stay out
+// of the transaction's public data: no default-ring P256 input may force it
+// into defaultP256OwnerPkHash, and no published output owner tag may equal it.
+// Publishing the identity without a ring P256 input is allowed; moving a
+// default-ring P256 UTXO into the ring names the depositor, not a ring spender.
+//
+// Address slots count as neither. An address always carries RingProgramID 0
+// (checkAddress), so treating it as a default-ring input would publish the
+// identity of a ring spender who creates an address in the same proof and
+// would forbid that combination. Creating an address spends nothing, so it
+// never forces the identity into public data; a P256 address-only proof
+// publishes zero.
 func AssertDefaultP256Owner(
 	api frontend.API,
 	inputs []Input,
 	ownerPkHashes []frontend.Variable,
+	publishedOutputOwnerPkHashes []frontend.Variable,
 	p256PkHash frontend.Variable,
 	defaultP256OwnerPkHash frontend.Variable,
 ) {
 	hasDefaultP256 := frontend.Variable(0)
+	hasRingP256 := frontend.Variable(0)
 	for i, in := range inputs {
-		carriesContent := in.isUtxoOrAddress(api)
 		isP256 := api.IsZero(ownerPkHashes[i])
 		isDefaultRing := api.IsZero(in.Utxo.RingProgramID)
-		hasDefaultP256 = api.Add(
-			hasDefaultP256,
-			api.Mul(carriesContent, isP256, isDefaultRing),
-		)
+		realP256 := api.Mul(in.isUtxo(api), isP256)
+		hasDefaultP256 = api.Add(hasDefaultP256, api.Mul(realP256, isDefaultRing))
+		hasRingP256 = api.Add(hasRingP256, api.Mul(realP256, api.Sub(1, isDefaultRing)))
 	}
 	hasDefaultP256 = api.Sub(1, api.IsZero(hasDefaultP256))
+	hasRingP256 = api.Sub(1, api.IsZero(hasRingP256))
 	api.AssertIsEqual(defaultP256OwnerPkHash, api.Mul(hasDefaultP256, p256PkHash))
+
+	api.AssertIsEqual(api.Mul(hasRingP256, hasDefaultP256), 0)
+	for _, published := range publishedOutputOwnerPkHashes {
+		assertZeroWhen(api, hasRingP256, api.IsZero(api.Sub(published, p256PkHash)))
+	}
 }

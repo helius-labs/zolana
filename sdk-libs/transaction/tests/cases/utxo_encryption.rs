@@ -99,7 +99,10 @@ pub(crate) fn standard_transfer_round_trips(
         spl_data: Data::default(),
         sol_data: Data::default(),
     };
-    let expected_change = sender_pt.clone().into_utxos(&registry, None).unwrap();
+    let expected_change = sender_pt
+        .clone()
+        .into_utxos(&first_nullifier, &registry, None)
+        .unwrap();
     assert_eq!(expected_change.len(), 2);
 
     let salt = random_salt();
@@ -113,6 +116,7 @@ pub(crate) fn standard_transfer_round_trips(
         owner: sender.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: Some(first_nullifier),
     };
     let sender_ciphertext = AnonymousSenderBundle::encode(
         &expected_change,
@@ -133,6 +137,7 @@ pub(crate) fn standard_transfer_round_trips(
         owner: recipient_utxo.owner,
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let recipient_ciphertext = AnonymousRecipient::encode(
         core::slice::from_ref(&recipient_utxo),
@@ -241,7 +246,9 @@ pub(crate) fn data_without_output_rejected(world: &mut TransactionWorld, name: S
         sol_data: Data::default(),
     };
     assert_eq!(
-        spl_only.into_utxos(&registry, None).unwrap_err(),
+        spl_only
+            .into_utxos(&[9u8; 32], &registry, None)
+            .unwrap_err(),
         TransactionError::DataWithoutOutput
     );
     let sol_only = AnonymousTransferSenderPlaintext {
@@ -255,7 +262,9 @@ pub(crate) fn data_without_output_rejected(world: &mut TransactionWorld, name: S
         sol_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
-        sol_only.into_utxos(&registry, None).unwrap_err(),
+        sol_only
+            .into_utxos(&[9u8; 32], &registry, None)
+            .unwrap_err(),
         TransactionError::DataWithoutOutput
     );
 }
@@ -269,7 +278,9 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
         num_outputs: 4,
         asset_id: SPL_ASSET_ID,
         asset_amount: 200,
-        blinding_seed: [3u8; 32],
+        output_blindings: core::array::from_fn(|index| {
+            zolana_transaction::utxo::derive_blinding(&[3u8; 32], index as u8)
+        }),
         data: Data::default(),
     };
     let expected = split_pt.clone().into_utxos(&registry, None).unwrap();
@@ -283,6 +294,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
         owner: owner.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let ciphertext = Split::encode(
         &expected,
@@ -293,7 +305,6 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
             recipient_pubkey: owner.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [3u8; 32],
         },
     )
     .unwrap();
