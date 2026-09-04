@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::{anyhow, bail, Context, Result};
+use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
@@ -21,6 +22,7 @@ pub struct Options {
     tree_creation_permissionless: Option<bool>,
     ring_creation_permissionless: Option<bool>,
     spl_interface_creation_permissionless: Option<bool>,
+    fee_authority: Option<Address>,
     yes: bool,
     dry_run: bool,
 }
@@ -34,6 +36,7 @@ impl Options {
         let mut tree_creation_permissionless = None;
         let mut ring_creation_permissionless = None;
         let mut spl_interface_creation_permissionless = None;
+        let mut fee_authority = None;
         let mut yes = false;
         let mut dry_run = false;
 
@@ -79,6 +82,9 @@ impl Options {
                         "--spl-interface-creation-permissionless",
                     ));
                 }
+                "--fee-authority" => {
+                    fee_authority = Some(parse_address(args.next(), "--fee-authority"));
+                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -95,8 +101,9 @@ impl Options {
         if tree_creation_permissionless.is_none()
             && ring_creation_permissionless.is_none()
             && spl_interface_creation_permissionless.is_none()
+            && fee_authority.is_none()
         {
-            usage_and_exit("at least one --*-permissionless flag is required");
+            usage_and_exit("at least one --*-permissionless flag or --fee-authority is required");
         }
 
         Self {
@@ -107,6 +114,7 @@ impl Options {
             tree_creation_permissionless,
             ring_creation_permissionless,
             spl_interface_creation_permissionless,
+            fee_authority,
             yes,
             dry_run,
         }
@@ -129,23 +137,24 @@ impl Options {
         if let Some(value) = self.spl_interface_creation_permissionless {
             updates.push(UpdateProtocolConfigData::SplInterfaceCreationPermissionless(value));
         }
+        if let Some(value) = self.fee_authority {
+            updates.push(UpdateProtocolConfigData::FeeAuthority(value));
+        }
         updates
     }
 }
 
 struct OnChainConfig {
     protocol_authority: Pubkey,
+    tree_creation_authority: Pubkey,
+    forester_authority: Pubkey,
+    ring_creation_authority: Pubkey,
+    fee_authority: Pubkey,
     tree_creation_is_permissionless: u8,
     ring_creation_is_permissionless: u8,
     spl_interface_creation_is_permissionless: u8,
     lamports: u64,
     len: usize,
-}
-
-fn field<const N: usize>(data: &[u8], offset: usize, name: &str) -> Result<[u8; N]> {
-    data.get(offset..offset + N)
-        .and_then(|bytes| <[u8; N]>::try_from(bytes).ok())
-        .ok_or_else(|| anyhow!("protocol config too small for {name}"))
 }
 
 fn read_protocol_config(rpc: &SolanaRpc) -> Result<OnChainConfig> {
@@ -154,21 +163,19 @@ fn read_protocol_config(rpc: &SolanaRpc) -> Result<OnChainConfig> {
         .get_account(to_address(&config_pda))
         .context("fetching protocol_config")?
         .ok_or_else(|| anyhow!("protocol config {config_pda} does not exist on this cluster"))?;
-    let data = &account.data;
-    if data.len() != ProtocolConfig::SIZE {
-        bail!(
-            "protocol config has unexpected size {} (expected {})",
-            data.len(),
-            ProtocolConfig::SIZE
-        );
-    }
+    let config = ProtocolConfig::from_account_bytes(&account.data)
+        .map_err(|e| anyhow!("protocol config {config_pda} has invalid data: {e:?}"))?;
     Ok(OnChainConfig {
-        protocol_authority: Pubkey::new_from_array(field::<32>(data, 1, "protocol_authority")?),
-        tree_creation_is_permissionless: field::<1>(data, 129, "tree flag")?[0],
-        ring_creation_is_permissionless: field::<1>(data, 130, "ring flag")?[0],
-        spl_interface_creation_is_permissionless: field::<1>(data, 131, "spl interface flag")?[0],
+        protocol_authority: Pubkey::new_from_array(config.protocol_authority.to_bytes()),
+        tree_creation_authority: Pubkey::new_from_array(config.tree_creation_authority.to_bytes()),
+        forester_authority: Pubkey::new_from_array(config.forester_authority.to_bytes()),
+        ring_creation_authority: Pubkey::new_from_array(config.ring_creation_authority.to_bytes()),
+        fee_authority: Pubkey::new_from_array(config.fee_authority.to_bytes()),
+        tree_creation_is_permissionless: config.tree_creation_is_permissionless,
+        ring_creation_is_permissionless: config.ring_creation_is_permissionless,
+        spl_interface_creation_is_permissionless: config.spl_interface_creation_is_permissionless,
         lamports: account.lamports,
-        len: data.len(),
+        len: account.data.len(),
     })
 }
 
@@ -176,6 +183,16 @@ fn print_config(label: &str, config: &OnChainConfig) {
     println!("{label}:");
     println!("  size={} lamports={}", config.len, config.lamports);
     println!("  protocol_authority={}", config.protocol_authority);
+    println!(
+        "  tree_creation_authority={}",
+        config.tree_creation_authority
+    );
+    println!("  forester_authority={}", config.forester_authority);
+    println!(
+        "  ring_creation_authority={}",
+        config.ring_creation_authority
+    );
+    println!("  fee_authority={}", config.fee_authority);
     println!(
         "  tree_creation_is_permissionless={}",
         config.tree_creation_is_permissionless != 0
@@ -190,19 +207,19 @@ fn print_config(label: &str, config: &OnChainConfig) {
     );
 }
 
-/// The protocol authority is a Squads vault PDA; recover its settings account
-/// by scanning every seed the smart-account program has handed out so far.
-fn find_protocol_settings(rpc: &SolanaRpc, protocol_authority: &Pubkey) -> Result<Pubkey> {
+/// Each authority is a Squads vault PDA; recover its settings account by
+/// scanning every seed the smart-account program has handed out so far.
+pub fn find_vault_settings(rpc: &SolanaRpc, vault_authority: &Pubkey) -> Result<Pubkey> {
     let program_config = read_program_config(rpc)?;
     for seed in 1..=program_config.smart_account_index {
         let (settings, _) = settings_pda(seed);
         let (vault, _) = smart_account_pda(&settings, 0);
-        if vault == *protocol_authority {
+        if vault == *vault_authority {
             return Ok(settings);
         }
     }
     bail!(
-        "no smart-account settings found whose vault matches protocol authority {protocol_authority} \
+        "no smart-account settings found whose vault matches authority {vault_authority} \
          (scanned seeds 1..={})",
         program_config.smart_account_index
     )
@@ -233,7 +250,7 @@ pub fn run(options: Options) -> Result<()> {
     println!("protocol_config={}", pda::protocol_config());
     print_config("current config", &config);
 
-    let settings = find_protocol_settings(&rpc, &config.protocol_authority)?;
+    let settings = find_vault_settings(&rpc, &config.protocol_authority)?;
     println!("protocol_settings={settings}");
 
     let mut instructions = Vec::new();
@@ -286,6 +303,14 @@ fn parse_bool(value: Option<String>, flag: &str) -> bool {
     }
 }
 
+fn parse_address(value: Option<String>, flag: &str) -> Address {
+    value
+        .as_deref()
+        .and_then(|value| Pubkey::from_str(value).ok())
+        .map(|key| to_address(&key))
+        .unwrap_or_else(|| usage_and_exit(&format!("{flag} expects a base58 pubkey")))
+}
+
 fn usage_and_exit(message: &str) -> ! {
     eprintln!("error: {message}");
     print_help();
@@ -313,6 +338,7 @@ fn print_help() {
     );
     println!("  --spl-interface-creation-permissionless <true|false>");
     println!("                                                   set spl_interface_creation_is_permissionless");
+    println!("  --fee-authority <PUBKEY>                         set fee_authority");
     println!("  --yes                                            confirm mainnet sends");
     println!(
         "  --dry-run                                        print current state, send nothing"

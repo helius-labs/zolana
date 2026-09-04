@@ -16,7 +16,7 @@ import {
   transactInstruction,
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
-import { DEFAULT_TREE_ADDRESS } from "../interface/program.js";
+import { treeAddress } from "../interface/pda/index.js";
 import type {
   Bytes32,
   RequestContext,
@@ -146,7 +146,7 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
 
-    const tree = input.tree ?? DEFAULT_TREE_ADDRESS;
+    const tree = input.tree ?? treeAddress(0);
     checkedAddress(tree, "tree");
     const commitment = input.commitment ?? DEFAULT_COMMITMENT;
     if (!isCommitment(commitment)) {
@@ -715,7 +715,7 @@ export class ZolanaClient
     checkedAddress(input.feePayer, "feePayer");
     checkedAddress(input.userRecord, "userRecord");
     const lifetime = await this.getLatestBlockhash(context);
-    return buildUnsignedMergeTransaction({
+    return await buildUnsignedMergeTransaction({
       tree: this.tree,
       feePayer: input.feePayer,
       userRecord: input.userRecord,
@@ -756,7 +756,7 @@ export class ZolanaClient
     const data = await this.#proveAuthorizedPrivateTransaction(authorized, feePayer, context);
     checkTransactData(data, authorized.intent, intentMismatch);
     const lifetime = await this.getLatestBlockhash(context);
-    return buildUnsignedTransaction({
+    return await buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
       ...(this.#computeUnitPrice === undefined
         ? {}
@@ -792,7 +792,7 @@ export class ZolanaClient
 /** Mirrors Rust `MERGE_CU_LIMIT`, the merge verifies one proof over eight inputs. */
 export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 
-export function buildUnsignedTransaction(
+export async function buildUnsignedTransaction(
   input: Readonly<{
     computeUnitLimit: number;
     computeUnitPriceMicroLamports?: bigint;
@@ -804,7 +804,7 @@ export function buildUnsignedTransaction(
     data: TransactInstructionData;
     lifetime: LatestBlockhash;
   }>,
-): Transaction {
+): Promise<Transaction> {
   checkedAddress(input.inputTree, "inputTree");
   checkedAddress(input.outputTree, "outputTree");
   return compileUnsignedTransaction({
@@ -818,7 +818,7 @@ export function buildUnsignedTransaction(
       ? {}
       : { setupInstructions: input.setupInstructions }),
     instructions: [
-      transactInstruction({
+      await transactInstruction({
         payer: input.feePayer,
         inputTree: input.inputTree,
         outputTree: input.outputTree,
@@ -833,7 +833,7 @@ export function buildUnsignedTransaction(
   });
 }
 
-export function buildUnsignedMergeTransaction(
+export async function buildUnsignedMergeTransaction(
   input: Readonly<{
     tree: Address;
     feePayer: Address;
@@ -842,7 +842,7 @@ export function buildUnsignedMergeTransaction(
     computeUnitPriceMicroLamports?: bigint;
     data: MergeTransactInstructionData;
   }>,
-): Transaction {
+): Promise<Transaction> {
   checkedAddress(input.tree, "tree");
   checkedAddress(input.userRecord, "userRecord");
   return compileUnsignedTransaction({
@@ -853,7 +853,7 @@ export function buildUnsignedMergeTransaction(
       ? {}
       : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
     instructions: [
-      mergeTransactInstruction({
+      await mergeTransactInstruction({
         inputTree: input.tree,
         outputTree: input.tree,
         payer: input.feePayer,

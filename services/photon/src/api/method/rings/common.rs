@@ -203,7 +203,7 @@ pub(super) fn non_inclusion_proof_from_context(
 /// Position of a root within its own tree's history ring.
 ///
 /// Only the nullifier tree reaches here, and its sequence number *is* the
-/// chain's: it comes from `BatchAddressAppendEvent`, not from a local counter.
+/// chain's: it comes from `NullifierTreeUpdateEvent`, not from a local counter.
 /// The state tree has no such field in its event, so it reads its index from
 /// the tree account instead -- see `RootIndexCache`.
 ///
@@ -526,8 +526,11 @@ mod tests {
             "this test is only meaningful while the capacities differ"
         );
 
-        // Chosen so the two capacities disagree about where it lands.
-        let root_seq = state_capacity + 5;
+        // The smaller ring has wrapped exactly once here and the larger has
+        // not, so the two disagree about where it lands for any pair of
+        // distinct capacities. A fixed offset would collapse as soon as one
+        // capacity divides the other.
+        let root_seq = nullifier_capacity.min(state_capacity);
         let info = tree_info_with(nullifier_capacity);
 
         let nullifier = root_index(root_seq, RingsTreeKind::Nullifier, &info).expect("nullifier");

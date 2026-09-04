@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -8,8 +9,9 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_address_append_event, protocol_config::loader::load_protocol_config,
-    shared::reimburse_forester,
+    event::emit_batch_nullifier_append_event,
+    protocol_config::loader::validate_forester_authority,
+    shared::{check_reimbursement_recipient, nullifier_tree_error, pay_reimbursement},
 };
 
 pub fn process_batch_update_nullifier_tree(
@@ -17,27 +19,32 @@ pub fn process_batch_update_nullifier_tree(
     data: &[u8],
 ) -> ProgramResult {
     let instruction = BatchUpdateNullifierTreeData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let protocol_config = iter.next_account("protocol_config")?;
     let tree = iter.next_mut("tree")?;
     let reimbursement_recipient = iter.next_mut("reimbursement_recipient")?;
 
-    let config = load_protocol_config(protocol_config)?;
-    config
-        .check_forester_authority(authority.address())
-        .map_err(ShieldedPoolError::from)?;
-    drop(config);
+    validate_forester_authority(protocol_config, authority)?;
+    check_reimbursement_recipient(reimbursement_recipient)?;
 
-    let event = {
+    let applied = {
         let mut tree_account =
             TreeAccount::from_account_view_mut(&mut *tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
                 .map_err(ShieldedPoolError::from)?;
-        tree_account
-            .nullifer_tree()
-            .update_tree_from_address_queue(instruction)
-            .map_err(|_| ShieldedPoolError::NullifierTreeUpdateFailed)?
+        let tree_pubkey = tree_account.pubkey();
+        let event = tree_account
+            .nullifier_tree()
+            .update_tree_from_queue(tree_pubkey, instruction)
+            .map_err(nullifier_tree_error)?;
+        match event {
+            Some(event) => {
+                let paid = tree_account.take_append_reimbursement(event.num_update);
+                Some((event, paid))
+            }
+            None => None,
+        }
     };
 
     // The emit self-CPI passes no accounts, so the tree borrow does not conflict.
@@ -45,10 +52,10 @@ pub fn process_batch_update_nullifier_tree(
     // processor. Photon's parser records batch updates from the emitted event in
     // successful transactions only (its `tx.error` guard); an emit-then-fail
     // shape would either drop a genuine update or wedge the indexer on a forged
-    // one. Keep every fallible step (including `reimburse_forester`) above it.
-    if let Some(event) = event {
-        reimburse_forester(tree, reimbursement_recipient, event.num_update)?;
-        emit_batch_address_append_event(&event)?;
+    // one. Keep every fallible step (including `pay_reimbursement`) above it.
+    if let Some((event, paid)) = applied {
+        pay_reimbursement(tree, reimbursement_recipient, paid)?;
+        emit_batch_nullifier_append_event(&event)?;
     }
     Ok(())
 }

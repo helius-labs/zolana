@@ -12,9 +12,11 @@ pub struct ProtocolConfig {
     pub tree_creation_authority: Address,
     pub forester_authority: Address,
     pub ring_creation_authority: Address,
+    pub fee_authority: Address,
     pub tree_creation_is_permissionless: u8,
     pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
+    pub next_tree_id: u16,
 }
 
 impl ProtocolConfig {
@@ -61,6 +63,12 @@ impl ProtocolConfig {
             .ok_or(InterfaceError::Unauthorized)
     }
 
+    pub fn check_fee_authority(&self, authority: &Address) -> Result<(), InterfaceError> {
+        address_eq(&self.fee_authority, authority)
+            .then_some(())
+            .ok_or(InterfaceError::Unauthorized)
+    }
+
     pub fn allows_permissionless_tree_creation(&self) -> bool {
         self.tree_creation_is_permissionless != 0
     }
@@ -74,5 +82,7 @@ impl ProtocolConfig {
     }
 }
 
-const _: () = assert!(ProtocolConfig::SIZE == 132);
-const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 1);
+const _: () = assert!(ProtocolConfig::SIZE == 166);
+const _: () = assert!(core::mem::align_of::<ProtocolConfig>() == 2);
+const _: () = assert!(core::mem::offset_of!(ProtocolConfig, fee_authority) == 129);
+const _: () = assert!(core::mem::offset_of!(ProtocolConfig, next_tree_id) == 164);

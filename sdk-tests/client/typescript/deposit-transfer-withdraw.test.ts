@@ -113,7 +113,7 @@ describe("example: deposit, transfer, withdraw", () => {
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the transfer.
     // Private transfers move balances only between private token accounts, not public token accounts.
-    const transferInstruction = transactInstruction({
+    const transferInstruction = await transactInstruction({
       payer: senderSigner,
       inputTree: client.tree,
       outputTree: client.tree,
@@ -166,7 +166,7 @@ describe("example: deposit, transfer, withdraw", () => {
     const withdrawalData = await client.proveTransact(withdrawalProofInputs);
 
     // 5. Build the instruction with the state Merkle tree and Solana accounts required for the withdrawal.
-    const withdrawalInstruction = transactInstruction({
+    const withdrawalInstruction = await transactInstruction({
       payer: senderSigner,
       inputTree: client.tree,
       outputTree: client.tree,

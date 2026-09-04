@@ -1,4 +1,6 @@
 pub mod batch_update_nullifier_tree;
+pub mod claim_tree_lamports;
+pub mod close_nullifier_pdas;
 pub mod create_asset_counter;
 pub mod create_spl_interface;
 pub mod create_tree;
@@ -7,8 +9,10 @@ pub(crate) mod event;
 pub(crate) mod hash;
 pub mod merge;
 pub mod merge_ring;
+pub(crate) mod nullifier_pda;
 pub mod protocol_config;
 pub mod ring_config;
+pub mod set_tree_fees;
 pub mod settlement;
 pub(crate) mod shared;
 pub mod transact;

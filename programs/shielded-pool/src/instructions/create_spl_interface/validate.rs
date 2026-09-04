@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     address::{address_eq, Address},
     error::ProgramError,
@@ -29,23 +30,23 @@ pub fn validate_token_mint_for_interface(
     }
     let data = mint
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSplTokenMint))?;
 
     let state = PodStateWithExtensions::<PodMint>::unpack(&data)
-        .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSplTokenMint))?;
     if !bool::from(state.base.is_initialized) {
         return Err(ShieldedPoolError::InvalidSplTokenMint.into());
     }
     let extension_types = state
         .get_extension_types()
-        .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidSplTokenMint))?;
     if !extension_types.iter().all(is_allowed_mint_extension) {
         return Err(ShieldedPoolError::UnsupportedToken2022Extension.into());
     }
     let account_extensions = ExtensionType::get_required_init_account_extensions(&extension_types);
     let token_account_len =
         ExtensionType::try_calculate_account_len::<PodAccount>(&account_extensions)
-            .map_err(|_| ShieldedPoolError::InvalidSplTokenMint)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidSplTokenMint))?;
 
     Ok(ValidatedTokenMint { token_account_len })
 }

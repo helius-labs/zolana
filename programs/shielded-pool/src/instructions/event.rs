@@ -24,12 +24,12 @@ pub fn emit_general_event(kind: EventKind, event: GeneralEvent) -> ProgramResult
     emit_encoded_event(&encode_event_instruction(kind, event))
 }
 
-/// Emit a batch address-append event. The payload is the
-/// `BatchAddressAppendEvent` produced by the nullifier-tree update.
+/// Emit a nullifier-tree batch-update event. The payload is the
+/// `NullifierTreeUpdateEvent` produced by the nullifier-tree update.
 #[inline(never)]
-pub fn emit_batch_address_append_event<T: BorshSerialize>(event: &T) -> ProgramResult {
+pub fn emit_batch_nullifier_append_event<T: BorshSerialize>(event: &T) -> ProgramResult {
     emit_encoded_event(&encode_event_instruction_with(
-        EventKind::BatchAddressAppend,
+        EventKind::NullifierTreeUpdate,
         event,
     ))
 }

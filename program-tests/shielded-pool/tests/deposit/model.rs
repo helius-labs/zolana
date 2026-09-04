@@ -38,7 +38,7 @@ proptest! {
     ) {
         let mut pool = Pool::initialized();
         let depositor = pool.funded_signer(5_000_000_000);
-        let tree = pool.tree.pubkey();
+        let tree = pool.tree;
         let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
         let mut paused = false;
 

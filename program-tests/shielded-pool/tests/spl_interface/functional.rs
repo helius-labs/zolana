@@ -156,7 +156,7 @@ fn spl_deposit_moves_tokens_emits_the_exact_output_and_updates_the_indexer() {
         &user_token,
     )
     .expect("SPL deposit data");
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
     let user_before = pool
@@ -221,7 +221,7 @@ fn token_2022_interface_and_proofless_deposit_settle() {
         token_program,
     );
     pool.rpc
-        .deposit(&pool.tree.pubkey(), &depositor, &data)
+        .deposit(&pool.tree, &depositor, &data)
         .expect("settle Token-2022 deposit");
     assert_eq!(pool.rpc.token_balance(&source), Some(600));
     assert_eq!(pool.rpc.token_balance(&vault), Some(400));

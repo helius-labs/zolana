@@ -1,14 +1,20 @@
-use zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData;
+use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_tree::{
     error::TreeError,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
-    TreeAccount, INITIALIZED,
+    NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, INITIALIZED,
 };
 
 // Must equal the pool's `UTXO_TREE_HEIGHT` (lib.rs) — `TreeAccount::init`
 // rejects any other height with `HeightTooLarge`.
 const HEIGHT: u8 = 32;
 const DISCRIMINATOR: u8 = 7;
+const TREE_ID: u16 = 11;
+const FEES: TreeFeeSchedule = TreeFeeSchedule {
+    fee_per_nullifier: 190,
+    append_reimbursement: 5_000,
+    close_reimbursement: 170,
+};
 
 fn leaf(i: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];
@@ -18,20 +24,29 @@ fn leaf(i: u8) -> [u8; 32] {
 
 #[test]
 fn init_then_reload() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
 
     let pubkey = [2u8; 32];
 
     let appended_root = {
-        let mut tree =
-            TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+        let mut tree = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .unwrap();
 
         assert_eq!(tree.discriminator(), DISCRIMINATOR);
         assert_eq!(tree.state(), INITIALIZED);
         assert_eq!(tree.utxo_tree().height(), HEIGHT as usize);
         assert_eq!(tree.utxo_tree().next_index(), 0);
-        assert_eq!(tree.nullifer_tree().pubkey().to_bytes(), pubkey);
+        assert_eq!(tree.pubkey(), pubkey);
+        assert_eq!(tree.tree_id(), TREE_ID);
 
         let empty_root = tree.utxo_tree().root();
         assert_ne!(empty_root, [0u8; 32]);
@@ -61,13 +76,72 @@ fn init_then_reload() {
 }
 
 #[test]
+fn append_rejects_a_non_canonical_leaf() {
+    let params = NullifierTreeInitParams::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
+    let root_before = tree.utxo_tree().root();
+
+    assert_eq!(
+        tree.utxo_tree().append(BN254_SCALAR_MODULUS_BE),
+        Err(TreeError::Hash)
+    );
+    assert_eq!(tree.utxo_tree().root(), root_before);
+    assert_eq!(tree.utxo_tree().next_index(), 0);
+}
+
+#[test]
+fn reload_rejects_inconsistent_nullifier_batch_metadata() {
+    let params = NullifierTreeInitParams::default();
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    let pubkey = [2u8; 32];
+
+    {
+        let mut tree = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .unwrap();
+        tree.nullifier_tree().batches[0].batch_size += 1;
+    }
+
+    assert_eq!(
+        TreeAccount::from_bytes(&mut bytes, pubkey).err().unwrap(),
+        TreeError::Deserialize
+    );
+}
+
+#[test]
 fn append_batch_matches_sequential() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let pubkey = [2u8; 32];
     let count = 10u8;
 
     let mut seq_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut seq = TreeAccount::init(&mut seq_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+    let mut seq = TreeAccount::init(
+        &mut seq_bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        pubkey,
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
     for i in 0..count {
         seq.utxo_tree().append(leaf(i + 1)).unwrap();
     }
@@ -76,8 +150,16 @@ fn append_batch_matches_sequential() {
     let seq_cursor = seq.utxo_tree().current_root_index();
 
     let mut batch_bytes = vec![0u8; TreeAccount::account_size()];
-    let mut batch =
-        TreeAccount::init(&mut batch_bytes, DISCRIMINATOR, HEIGHT, pubkey, params).unwrap();
+    let mut batch = TreeAccount::init(
+        &mut batch_bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        pubkey,
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
     let leaves: Vec<[u8; 32]> = (0..count).map(|i| leaf(i + 1)).collect();
     batch.utxo_tree().append_batch(leaves.iter()).unwrap();
 
@@ -104,44 +186,48 @@ fn append_batch_matches_sequential() {
 #[test]
 fn init_rejects_invalid_nullifier_params() {
     let pubkey = [2u8; 32];
-    let valid = InitAddressTreeAccountsInstructionData::default();
+    let valid = NullifierTreeInitParams::default();
     let invalid = [
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_zkp_batch_size: 0,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: 0,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: valid.input_queue_zkp_batch_size + 1,
             ..valid
         },
         // Divisible and correct quotient, but no verifying key exists for
         // zkp batch size 100: the tree could never be forested.
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             input_queue_batch_size: 12_000,
             input_queue_zkp_batch_size: 100,
             ..valid
         },
-        InitAddressTreeAccountsInstructionData {
+        NullifierTreeInitParams {
             height: 30,
-            ..valid
-        },
-        InitAddressTreeAccountsInstructionData {
-            root_history_capacity: 1,
             ..valid
         },
     ];
     for params in invalid {
         let mut bytes = vec![0u8; TreeAccount::account_size()];
-        let err = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, pubkey, params)
-            .err()
-            .expect("invalid params must be rejected");
+        let err = TreeAccount::init(
+            &mut bytes,
+            DISCRIMINATOR,
+            HEIGHT,
+            pubkey,
+            TREE_ID,
+            params,
+            FEES,
+        )
+        .err()
+        .expect("invalid params must be rejected");
         assert!(
-            matches!(err, TreeError::AddressInit),
-            "params {params:?} failed with {err:?}, expected AddressInit"
+            matches!(err, TreeError::NullifierInit),
+            "params {params:?} failed with {err:?}, expected NullifierInit"
         );
     }
 }
@@ -173,9 +259,18 @@ fn append_fails_when_tree_is_full() {
 
 #[test]
 fn root_history_wraps_around() {
-    let params = InitAddressTreeAccountsInstructionData::default();
+    let params = NullifierTreeInitParams::default();
     let mut bytes = vec![0u8; TreeAccount::account_size()];
-    let mut tree = TreeAccount::init(&mut bytes, DISCRIMINATOR, HEIGHT, [2u8; 32], params).unwrap();
+    let mut tree = TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        params,
+        FEES,
+    )
+    .unwrap();
 
     // Append past capacity so the ring buffer wraps. Cursor starts at 0 (the
     // empty root), so after N appends it sits at N % capacity.

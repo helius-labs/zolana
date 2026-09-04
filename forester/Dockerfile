@@ -1,7 +1,7 @@
 # Build the SPP forester binary.
 #
 # The forester crate depends on workspace crates (zolana-tree,
-# zolana-batched-merkle-tree, zolana-interface, ...), so the build context must
+# zolana-tree, zolana-interface, ...), so the build context must
 # be the repository root, not just forester/:
 #
 #   docker build -f forester/Dockerfile .

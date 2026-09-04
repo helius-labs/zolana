@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -23,7 +24,8 @@ use super::{
 };
 use crate::instructions::{
     event::emit_general_event,
-    shared::{check_not_expired, collect_forester_fee},
+    nullifier_pda::create_nullifier_pdas,
+    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -39,8 +41,8 @@ pub fn process_transact_ix(
     instruction: InstructionTag,
 ) -> ProgramResult {
     // 1. Deserialize instruction data.
-    let ix =
-        TransactIxDataRef::from_bytes(data).map_err(|_| ProgramError::InvalidInstructionData)?;
+    let ix = TransactIxDataRef::from_bytes(data)
+        .map_err(caused_by(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type.
     validate_circuit_type(&ix, instruction)?;
 
@@ -59,7 +61,7 @@ pub fn process_transact_ix(
         &mut owner_hashes,
     )?;
     // 6. Check accounts.
-    let transact_accounts = match ix.circuit {
+    let mut transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
             let (transact_accounts, ring_program_id) =
@@ -83,6 +85,22 @@ pub fn process_transact_ix(
     )?;
     // 8. Insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
+    // The fee transfer CPI includes the tree, so it must run before
+    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
+    // only its own accounts into the transaction context, and a pending tree
+    // debit without the matching nullifier PDA credits trips the runtime's
+    // UnbalancedInstruction check.
+    collect_forester_fee(
+        transact_accounts.payer,
+        transact_accounts.input_tree,
+        input_tree_result.forester_fee,
+    )?;
+    create_nullifier_pdas(
+        transact_accounts.payer,
+        transact_accounts.input_tree,
+        &mut transact_accounts.nullifier_pdas,
+        &input_tree_result,
+    )?;
     // 9. Append new utxo hashes.
     let tree_write =
         apply_output_tree(transact_accounts.output_tree, &ix, input_tree_result.inputs)?;
@@ -102,20 +120,15 @@ pub fn process_transact_ix(
         messages: &ix.messages,
     }
     .hash()
-    .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+    .map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))?;
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
     TransactProof::new(&ix, &proof_inputs).verify()?;
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
-
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        ix.inputs.len() as u64,
-        input_tree_result.zkp_batch_size,
-    )?;
 
     let event = build_transact_event(
         &ix,
@@ -130,6 +143,8 @@ pub fn process_transact_ix(
 /// 1. Circuit is allowed for the instruction type
 /// 2. Circuit parameters (in, out) match instruction data
 /// 3. Circuit variant exists with in out public params is supported.
+/// 4. Nullifiers, output utxo hashes, and the private tx hash are canonical
+///    field elements.
 pub fn validate_circuit_type(
     ix: &TransactIxDataRef<'_>,
     instruction_tag: InstructionTag,
@@ -157,5 +172,20 @@ pub fn validate_circuit_type(
     {
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
-    Ok(())
+    check_field_elements(
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
+        "input nullifier",
+        ShieldedPoolError::NonCanonicalInputNullifier,
+    )?;
+    check_field_elements(
+        ix.outputs.iter().map(|output| output.utxo_hash),
+        "output utxo hash",
+        ShieldedPoolError::NonCanonicalOutputUtxoHash,
+    )?;
+    check_field_element(
+        ix.private_tx_hash,
+        "private tx hash",
+        None,
+        ShieldedPoolError::NonCanonicalPrivateTxHash,
+    )
 }

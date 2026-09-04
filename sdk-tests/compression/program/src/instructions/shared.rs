@@ -14,7 +14,7 @@ use zolana_interface::instruction::tag::TRANSACT;
 
 use crate::error::CompressionError;
 
-pub const DEFAULT_TREE: Address = address!("trEEbaNobcTESNmtsPBj3FX27q5sDCQePV2kb12FYho");
+pub const DEFAULT_TREE: Address = address!("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
 pub const SPP_PROGRAM: Address = address!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
@@ -34,6 +34,7 @@ pub struct TransitionAccounts<'a> {
     pub output_tree: &'a AccountView,
     pub spp_program: &'a AccountView,
     pub system_program: &'a AccountView,
+    pub nullifier_pda: &'a AccountView,
     pub owner_pda: &'a AccountView,
     pub pda: Address,
     pub bump: u8,
@@ -58,6 +59,7 @@ impl<'a> TransitionAccounts<'a> {
         if system_program.address() != &Address::default() {
             return Err(CompressionError::InvalidAccounts.into());
         }
+        let nullifier_pda = iter.next_mut("nullifier_pda")?;
         let owner_pda = iter.next_account("owner_pda")?;
         if !address_eq(owner_pda.address(), &pda) {
             return Err(CompressionError::InvalidPda.into());
@@ -72,6 +74,7 @@ impl<'a> TransitionAccounts<'a> {
             output_tree,
             spp_program,
             system_program,
+            nullifier_pda,
             owner_pda,
             pda,
             bump,

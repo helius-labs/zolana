@@ -1,6 +1,6 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     cpi::invoke,
-    error::ProgramError,
     instruction::{InstructionAccount, InstructionView},
     AccountView, Address, ProgramResult,
 };
@@ -19,7 +19,7 @@ impl RegistryInitParams {
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         let mut data = account
             .try_borrow_mut()
-            .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+            .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?;
         if data.len() != SplAssetRegistry::SIZE || data.iter().any(|byte| *byte != 0) {
             return Err(ShieldedPoolError::InvalidSplAssetRegistry.into());
         }
@@ -54,6 +54,6 @@ impl SplInterfaceInitParams<'_> {
             data: &instruction_data,
         };
         invoke(&instruction, &[self.spl_interface, self.mint])
-            .map_err(|_| ProgramError::from(ShieldedPoolError::InvalidSplAssetRegistry))
+            .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))
     }
 }

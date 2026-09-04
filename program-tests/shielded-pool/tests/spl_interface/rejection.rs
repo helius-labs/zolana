@@ -480,7 +480,7 @@ fn spl_deposit_rejects_foreign_source() {
     let mut pool = Pool::initialized();
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, _) = spl_depositor(&mut pool, mint_a, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let other_owner = Keypair::new();
     let foreign_token = pool
         .rpc
@@ -508,7 +508,7 @@ fn spl_deposit_rejects_noncanonical_vault() {
     let mut pool = Pool::initialized();
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint_a, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let data =
         ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &user_token);
     let decoy_vault = pool
@@ -530,7 +530,7 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
     let mut pool = Pool::initialized();
     let (mint_a, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint_a, 1_000_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let user_before = pool.rpc.token_balance(&user_token).expect("user balance");
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
@@ -563,7 +563,7 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
     let mut pool = Pool::initialized();
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000);
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
 
     let err = pool
@@ -671,7 +671,7 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
         &source,
         token_program,
     );
-    let tree = pool.tree.pubkey();
+    let tree = pool.tree;
     let root_before = pool.rpc.state_root(&tree).expect("root");
 
     let err = pool

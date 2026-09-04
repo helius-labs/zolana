@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use light_array_map::ArrayMap;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
@@ -20,7 +21,10 @@ use super::{
         ProoflessOutputCtx,
     },
 };
-use crate::instructions::hash::{field_from_u64, UTXO_DOMAIN_FIELD};
+use crate::instructions::{
+    hash::{field_from_u64, UTXO_DOMAIN_FIELD},
+    shared::check_field_element,
+};
 
 #[derive(Clone, Copy)]
 enum ProcessingEntry<'a> {
@@ -28,10 +32,42 @@ enum ProcessingEntry<'a> {
     Ring(RingDepositEntryRef<'a>),
 }
 
+fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -> ProgramResult {
+    let index = Some(entry_index);
+    let error = ShieldedPoolError::NonCanonicalDepositField;
+    match entry {
+        ProcessingEntry::Default(entry) => {
+            check_field_element(entry.owner, "deposit owner", index, error)?;
+            check_field_element(entry.blinding, "deposit blinding", index, error)?;
+            if let Some(utxo_data) = entry.utxo_data {
+                check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
+            }
+        }
+        ProcessingEntry::Ring(entry) => {
+            check_field_element(
+                entry.owner_utxo_hash,
+                "ring deposit owner utxo hash",
+                index,
+                error,
+            )?;
+            if let Some(data_hash) = entry.data_hash {
+                check_field_element(data_hash, "ring deposit data hash", index, error)?;
+            }
+            check_field_element(
+                entry.ring_data_hash,
+                "ring deposit ring data hash",
+                index,
+                error,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = DepositIxDataRef::from_bytes(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     process_deposit_internal::<false>(
         accounts,
         &data.assets,
@@ -41,7 +77,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
 
 pub fn process_ring_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = RingDepositIxDataRef::from_bytes(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     process_deposit_internal::<true>(
         accounts,
         &data.assets,
@@ -74,7 +110,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut outputs = Vec::with_capacity(entry_count);
     let mut utxo_hashes = Vec::with_capacity(entry_count);
 
-    for processing_entry in entries {
+    for (entry_index, processing_entry) in entries.enumerate() {
+        check_entry_field_elements(entry_index, &processing_entry)?;
         let (asset_index, amount) = match processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
             ProcessingEntry::Ring(entry) => (entry.asset_index, entry.amount),
@@ -88,8 +125,9 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ProcessingEntry::Default(entry) => {
                 let data_hash = entry.utxo_data.map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
-                    Poseidon::hashv(&[entry.owner.as_slice(), entry.blinding.as_slice()])
-                        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+                    Poseidon::hashv(&[entry.owner.as_slice(), entry.blinding.as_slice()]).map_err(
+                        caused_by(ShieldedPoolError::TransactProofVerificationFailed),
+                    )?;
                 (data_hash, &zero, owner_utxo_hash)
             }
             ProcessingEntry::Ring(entry) => (
@@ -107,7 +145,9 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ring_hash.as_slice(),
             owner_utxo_hash.as_slice(),
         ])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed)?;
+        .map_err(caused_by(
+            ShieldedPoolError::TransactProofVerificationFailed,
+        ))?;
         utxo_hashes.push(utxo_hash);
 
         match asset_sums.get_mut_by_key(&asset_index) {
@@ -188,6 +228,7 @@ fn hash_with_program_id(
     data_hash: &[u8; 32],
     program_id_field: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
-    Poseidon::hashv(&[data_hash.as_slice(), program_id_field.as_slice()])
-        .map_err(|_| ShieldedPoolError::TransactProofVerificationFailed.into())
+    Poseidon::hashv(&[data_hash.as_slice(), program_id_field.as_slice()]).map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))
 }

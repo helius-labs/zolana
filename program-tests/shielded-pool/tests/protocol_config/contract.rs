@@ -97,7 +97,7 @@ fn update_rejects_a_malformed_borsh_payload() {
     // Unknown enum tag: UpdateProtocolConfigData has variants 0..=6.
     let mut unknown_variant = base.clone();
     unknown_variant.data.truncate(1);
-    unknown_variant.data.push(7);
+    unknown_variant.data.push(8);
     let error = backend
         .create_and_send_default_payer_transaction(&[unknown_variant], &[&authority])
         .expect_err("an unknown update variant must be rejected");
@@ -148,9 +148,11 @@ fn create_and_update_protocol_config() {
         tree_creation_authority: authority.pubkey().to_bytes().into(),
         forester_authority: authority.pubkey().to_bytes().into(),
         ring_creation_authority: authority.pubkey().to_bytes().into(),
+        fee_authority: authority.pubkey().to_bytes().into(),
         tree_creation_is_permissionless: 0,
         ring_creation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 0,
+        next_tree_id: 0,
     };
     assert_eq!(read_config(&backend), expected, "config after create");
 
@@ -184,6 +186,16 @@ fn create_and_update_protocol_config() {
         .expect("update ring creation authority");
     expected.ring_creation_authority = next_ring.pubkey().to_bytes().into();
     assert_eq!(read_config(&backend), expected, "ring authority rotated");
+
+    let next_fee = Keypair::new();
+    backend
+        .send_protocol_config_update(
+            &authority,
+            UpdateProtocolConfigData::FeeAuthority(next_fee.pubkey().to_bytes().into()),
+        )
+        .expect("update fee authority");
+    expected.fee_authority = next_fee.pubkey().to_bytes().into();
+    assert_eq!(read_config(&backend), expected, "fee authority rotated");
 
     backend
         .send_protocol_config_update(

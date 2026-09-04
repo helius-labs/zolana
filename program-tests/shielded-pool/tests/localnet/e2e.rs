@@ -121,7 +121,7 @@ fn phase_setup() -> TestResult<SolCycle> {
         &rpc.airdrop(&recipient_owner.pubkey(), 1_000_000)?,
     );
 
-    let tree_pubkey = tree.pubkey();
+    let tree_pubkey = tree;
     let state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     let nf_tree = nullifier_tree()?;
     Ok(SolCycle {

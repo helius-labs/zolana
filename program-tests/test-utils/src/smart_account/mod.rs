@@ -21,8 +21,8 @@ pub mod settings;
 pub use roles::Role;
 pub use settings::settings_member_keys;
 pub use zolana_smart_account_client::{
-    create_smart_account_ix, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
-    treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
+    create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
+    smart_account_pda, treasury_pda, Permissions, SmartAccountSigner, SMART_ACCOUNT_PROGRAM_ID,
 };
 
 // Anchor account discriminator: sha256("account:ProgramConfig")[0..8]

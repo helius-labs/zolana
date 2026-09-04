@@ -14,6 +14,7 @@ pub struct CreateProtocolConfigData {
     pub ring_creation_authority: Address,
     pub ring_creation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
+    pub fee_authority: Address,
 }
 
 #[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
@@ -26,6 +27,7 @@ pub enum UpdateProtocolConfigData {
     TreeCreationPermissionless(bool),
     RingCreationPermissionless(bool),
     SplInterfaceCreationPermissionless(bool),
+    FeeAuthority(Address),
 }
 
 #[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]

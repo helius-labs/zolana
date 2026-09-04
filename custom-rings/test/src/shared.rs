@@ -7,10 +7,7 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
-use std::path::Path;
-
 use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use custom_ring_sdk::{
     CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, V0WithLookupTable,
     TRANSACT_COMPUTE_UNIT_LIMIT,
@@ -19,7 +16,6 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_rent::Rent;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
@@ -27,13 +23,13 @@ use zolana_client::{
     SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
-    instruction::{CreateProtocolConfig, CreateTree},
+    instruction::CreateProtocolConfig,
     pda,
-    state::{tree_account_size, SplAssetCounter},
-    DEFAULT_TREE_ADDRESS, SHIELDED_POOL_PROGRAM_ID,
+    state::{default_tree_fees, nullifier_tree_params, SplAssetCounter},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{P256Pubkey, ShieldedKeypair};
-use zolana_program_test::system_create_account_ix;
+use zolana_program_test::create_tree_instructions;
 use zolana_ring_policy::{ListId, RuleTable};
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
@@ -76,58 +72,35 @@ pub struct TestEnv {
     standard_accounts: smart_account::StandardAccounts,
 }
 
-enum TreeSlot<'a> {
-    /// Allocated in genesis at `DEFAULT_TREE_ADDRESS`, `CreateTree` takes it unsigned.
-    Fixture,
-    Fresh(&'a Keypair),
-}
-
 impl TestEnv {
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
-        let tree = Keypair::new();
-        self.register_tree(TreeSlot::Fresh(&tree))
+        let rpc = self.client.rpc();
+        let params = nullifier_tree_params();
+        let creation = create_tree_instructions(
+            rpc,
+            &self.payer.pubkey(),
+            &self.standard_accounts.tree_vault,
+            params,
+            default_tree_fees(params.input_queue_zkp_batch_size).expect("default tree fees"),
+        )?;
+        let syncs = smart_account::execute_sync_each(
+            &self.standard_accounts.tree_settings,
+            0,
+            &[self.tree_creation_authority.pubkey()],
+            &creation.instructions,
+        );
+        rpc.create_and_send_transaction(
+            &syncs,
+            self.payer.pubkey(),
+            &[&self.payer, &self.tree_creation_authority],
+        )?;
+        Ok(creation.tree)
     }
 
     /// The tree the cli names by default.
     pub fn register_default_tree(&self) -> Result<Address> {
-        self.register_tree(TreeSlot::Fixture)
-    }
-
-    fn register_tree(&self, slot: TreeSlot<'_>) -> Result<Address> {
-        let rpc = self.client.rpc();
-        let mut instructions = Vec::with_capacity(2);
-        let mut signers: Vec<&dyn Signer> = vec![&self.payer, &self.tree_creation_authority];
-        let tree = match slot {
-            TreeSlot::Fixture => Address::from_str_const(DEFAULT_TREE_ADDRESS),
-            TreeSlot::Fresh(keypair) => {
-                let rent = rpc
-                    .get_minimum_balance_for_rent_exemption(tree_account_size())
-                    .map_err(|e| anyhow!("{e}"))?;
-                instructions.push(system_create_account_ix(
-                    &self.payer.pubkey(),
-                    &keypair.pubkey(),
-                    rent,
-                    tree_account_size() as u64,
-                    &pda::shielded_pool_program_id(),
-                ));
-                signers.push(keypair);
-                keypair.pubkey()
-            }
-        };
-        let create_tree_ix = CreateTree {
-            authority: self.standard_accounts.tree_vault,
-            tree,
-        }
-        .instruction();
-        instructions.push(smart_account::execute_sync_ix(
-            &self.standard_accounts.tree_settings,
-            0,
-            &[self.tree_creation_authority.pubkey()],
-            &[create_tree_ix],
-        ));
-        rpc.create_and_send_transaction(&instructions, self.payer.pubkey(), &signers)?;
-        Ok(tree)
+        Ok(self.tree)
     }
 
     pub fn fund(&self, recipient: Address, lamports: u64) -> Result<()> {
@@ -359,7 +332,6 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
             authority: &upgrade_authority,
         })
         .collect();
-    write_default_tree_fixture(&validator.account_dir)?;
     validator.start_with_upgradeable_programs(&ring_deployments);
 
     spawn_workspace_prover();
@@ -408,6 +380,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     let create_config_ix = CreateProtocolConfig {
         authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault.to_bytes().into(),
+        fee_authority: accounts.protocol_vault.to_bytes().into(),
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
@@ -424,35 +397,27 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     );
     rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
 
-    let tree = Keypair::new();
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size())
-        .map_err(|e| anyhow!("{e}"))?;
-    let alloc_ix = system_create_account_ix(
+    let tree_creation = create_tree_instructions(
+        &rpc,
         &payer.pubkey(),
-        &tree.pubkey(),
-        rent,
-        tree_account_size() as u64,
-        &pda::shielded_pool_program_id(),
-    );
-    let create_tree_ix = CreateTree {
-        authority: accounts.tree_vault,
-        tree: tree.pubkey(),
-    }
-    .instruction();
-    let create_tree_sync = smart_account::execute_sync_ix(
+        &accounts.tree_vault,
+        nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .expect("default tree fees"),
+    )?;
+    let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,
         0,
         &[tree_creation_authority.pubkey()],
-        &[create_tree_ix],
+        &tree_creation.instructions,
     );
     rpc.create_and_send_transaction(
-        &[alloc_ix, create_tree_sync],
+        &create_tree_syncs,
         payer_address,
-        &[&payer, &tree, &tree_creation_authority],
+        &[&payer, &tree_creation_authority],
     )?;
 
-    let tree = tree.pubkey();
+    let tree = tree_creation.tree;
 
     let usdc_mint = create_mint(&rpc, &payer)?;
     RegisterSplAsset {
@@ -509,24 +474,6 @@ pub fn ring_program_so() -> String {
     let artifacts = WorkspaceArtifacts::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
     std::env::var("CUSTOM_RING_PROGRAM_SO")
         .unwrap_or_else(|_| artifacts.path("target/deploy/custom_ring_program.so"))
-}
-
-/// The default tree account as the release snapshots ship it.
-fn write_default_tree_fixture(account_dir: &str) -> Result<()> {
-    let size = tree_account_size();
-    let json = format!(
-        r#"{{"pubkey":"{DEFAULT_TREE_ADDRESS}","account":{{"lamports":{},"data":["{}","base64"],"owner":"{}","executable":false,"rentEpoch":{}}}}}"#,
-        Rent::default().minimum_balance(size),
-        STANDARD.encode(vec![0u8; size]),
-        pda::shielded_pool_program_id(),
-        u64::MAX,
-    );
-    std::fs::create_dir_all(account_dir)?;
-    std::fs::write(
-        Path::new(account_dir).join(format!("{DEFAULT_TREE_ADDRESS}.json")),
-        json,
-    )?;
-    Ok(())
 }
 
 /// A fresh ed25519 actor: one keypair funded on chain, its shielded address,

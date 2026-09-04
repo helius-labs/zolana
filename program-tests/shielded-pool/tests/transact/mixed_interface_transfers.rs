@@ -66,7 +66,7 @@ fn build_spend_note(
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let roots = tree_roots(&env.rpc, &env.tree.pubkey(), 1);
+    let roots = tree_roots(&env.rpc, &env.tree, 1);
 
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -126,7 +126,7 @@ fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
     let event = env
         .rpc
-        .deposit_sol(&env.tree.pubkey(), &payer, amount, owner_field, blinding)
+        .deposit_sol(&env.tree, &payer, amount, owner_field, blinding)
         .expect("SOL deposit");
     let zero = [0u8; 32];
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
@@ -182,7 +182,7 @@ fn deposit_spl_note_with_program(
     );
     let event = env
         .rpc
-        .deposit(&env.tree.pubkey(), &payer, &data)
+        .deposit(&env.tree, &payer, &data)
         .expect("SPL deposit");
     let zero = [0u8; 32];
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
@@ -394,8 +394,8 @@ fn sol_split_case(reorder_recipients: bool) {
     );
     let mut ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
@@ -543,8 +543,8 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     };
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
@@ -703,8 +703,8 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let sol_vault_before = env.rpc.svm.get_balance(&sol_vault).unwrap_or(0);
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree.pubkey(),
-        output_tree: env.tree.pubkey(),
+        input_tree: env.tree,
+        output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),

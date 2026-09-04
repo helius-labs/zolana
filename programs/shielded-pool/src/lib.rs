@@ -12,7 +12,7 @@ pub mod testing {
     };
     pub use crate::instructions::settlement::{Settlement, SettlementAccountsSol};
     pub use crate::instructions::shared::{
-        forester_fee_amount, reimburse_forester_with_rent_minimum, tree_error,
+        check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error,
     };
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
@@ -26,6 +26,8 @@ use zolana_interface::instruction::tag::InstructionTag;
 
 use crate::instructions::{
     batch_update_nullifier_tree::process_batch_update_nullifier_tree,
+    claim_tree_lamports::process_claim_tree_lamports,
+    close_nullifier_pdas::process_close_nullifier_pdas,
     create_asset_counter::process_create_asset_counter,
     create_spl_interface::processor::process_create_spl_interface,
     create_tree::process_create_tree,
@@ -40,6 +42,7 @@ use crate::instructions::{
         create::process_create_ring_config, update::process_update_ring_config,
         update_owner::process_update_ring_config_owner,
     },
+    set_tree_fees::process_set_tree_fees,
     transact::process_transact_ix,
 };
 
@@ -92,5 +95,8 @@ pub fn process_instruction(
         InstructionTag::UpdateRingConfig => process_update_ring_config(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
+        InstructionTag::CloseNullifierPdas => process_close_nullifier_pdas(accounts, payload),
+        InstructionTag::SetTreeFees => process_set_tree_fees(accounts, payload),
+        InstructionTag::ClaimTreeLamports => process_claim_tree_lamports(accounts, payload),
     }
 }

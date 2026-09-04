@@ -2,6 +2,7 @@
 //! (`transact`, `merge_transact`). `verify_groth16` decompresses the proof points
 //! and runs the pairing check.
 
+use crate::instructions::shared::caused_by;
 use groth16_solana::{
     decompression::{decompress_g1, decompress_g2},
     groth16::{Groth16Verifier, Groth16Verifyingkey},
@@ -29,15 +30,15 @@ pub fn verify_groth16(
     encoding_err: ShieldedPoolError,
     verify_err: ShieldedPoolError,
 ) -> ProgramResult {
-    let proof_a = decompress_g1(proof.a).map_err(|_| encoding_err)?;
-    let proof_b = decompress_g2(proof.b).map_err(|_| encoding_err)?;
-    let proof_c = decompress_g1(proof.c).map_err(|_| encoding_err)?;
+    let proof_a = decompress_g1(proof.a).map_err(caused_by(encoding_err))?;
+    let proof_b = decompress_g2(proof.b).map_err(caused_by(encoding_err))?;
+    let proof_c = decompress_g1(proof.c).map_err(caused_by(encoding_err))?;
     let public_inputs = [public_input_hash];
 
     match (proof.commitment, verifying_key.vk_commitment.is_some()) {
         (Some((commitment, commitment_pok)), true) => {
-            let commitment = decompress_g1(commitment).map_err(|_| encoding_err)?;
-            let commitment_pok = decompress_g1(commitment_pok).map_err(|_| encoding_err)?;
+            let commitment = decompress_g1(commitment).map_err(caused_by(encoding_err))?;
+            let commitment_pok = decompress_g1(commitment_pok).map_err(caused_by(encoding_err))?;
             let mut verifier = Groth16Verifier::new_with_commitment(
                 &proof_a,
                 &proof_b,
@@ -47,14 +48,14 @@ pub fn verify_groth16(
                 &public_inputs,
                 verifying_key,
             )
-            .map_err(|_| verify_err)?;
-            verifier.verify().map_err(|_| verify_err)?;
+            .map_err(caused_by(verify_err))?;
+            verifier.verify().map_err(caused_by(verify_err))?;
         }
         (None, false) => {
             let mut verifier =
                 Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
-                    .map_err(|_| verify_err)?;
-            verifier.verify().map_err(|_| verify_err)?;
+                    .map_err(caused_by(verify_err))?;
+            verifier.verify().map_err(caused_by(verify_err))?;
         }
         _ => return Err(verify_err.into()),
     }

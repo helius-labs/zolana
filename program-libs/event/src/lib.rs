@@ -59,7 +59,7 @@ pub struct SplTransfer {
     pub asset: Option<[u8; 32]>,
 }
 
-/// A cascade of `num_update` address-append zkp batches applied in one
+/// A cascade of `num_update` nullifier-tree zkp batch updates applied in one
 /// instruction. `new_root` is the final root; the intermediate roots live in
 /// the tree's `root_history` at indices `first_root_index .. first_root_index +
 /// num_update` (mod `root_history_capacity`). The per-batch values for the
@@ -74,7 +74,7 @@ pub struct SplTransfer {
 /// so checking after a single batch mismatches whenever a cascade occurs.
 #[repr(C)]
 #[derive(BorshDeserialize, BorshSerialize, Debug, PartialEq, Clone, Eq)]
-pub struct BatchAddressAppendEvent {
+pub struct NullifierTreeUpdateEvent {
     pub merkle_tree_pubkey: [u8; 32],
     pub zkp_batch_size: u16,
     pub old_next_index: u64,
@@ -93,10 +93,10 @@ pub enum EventKind {
     Deposit = 1,
     Transact = 2,
     Merge = 3,
-    /// Address/nullifier-tree batch append. Body is a
-    /// [`BatchAddressAppendEvent`] (one cascade event per update), not a
+    /// Nullifier-tree batch update. Body is a
+    /// [`NullifierTreeUpdateEvent`] (one cascade event per update), not a
     /// [`GeneralEvent`].
-    BatchAddressAppend = 4,
+    NullifierTreeUpdate = 4,
 }
 
 impl EventKind {
@@ -105,7 +105,7 @@ impl EventKind {
             1 => Some(Self::Deposit),
             2 => Some(Self::Transact),
             3 => Some(Self::Merge),
-            4 => Some(Self::BatchAddressAppend),
+            4 => Some(Self::NullifierTreeUpdate),
             _ => None,
         }
     }

@@ -1,16 +1,15 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{spawn_prover, Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::{CreateProtocolConfig, CreateTree},
-    pda,
-    state::tree_account_size,
+    instruction::CreateProtocolConfig,
+    state::{default_tree_fees, nullifier_tree_params},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_program_test::system_create_account_ix;
+use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
     localnet::LocalnetValidator,
     smart_account::{self, StandardSigners},
@@ -111,6 +110,7 @@ pub fn setup() -> Result<SetupContext> {
     let create_config_ix = CreateProtocolConfig {
         authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault,
+        fee_authority: accounts.protocol_vault,
         tree_creation_authority: accounts.tree_vault,
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault,
@@ -127,34 +127,26 @@ pub fn setup() -> Result<SetupContext> {
     );
     rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
 
-    let tree = Keypair::new();
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size())
-        .map_err(|e| anyhow!("{e}"))?;
-    let alloc_ix = system_create_account_ix(
+    let tree_creation = create_tree_instructions(
+        &rpc,
         &payer.pubkey(),
-        &tree.pubkey(),
-        rent,
-        tree_account_size() as u64,
-        &pda::shielded_pool_program_id(),
-    );
-    let create_tree_ix = CreateTree {
-        authority: accounts.tree_vault,
-        tree: tree.pubkey(),
-    }
-    .instruction();
-    let create_tree_sync = smart_account::execute_sync_ix(
+        &accounts.tree_vault,
+        nullifier_tree_params(),
+        default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
+            .ok_or_else(|| anyhow::anyhow!("default tree fees do not fit the zkp batch size"))?,
+    )?;
+    let create_tree_syncs = smart_account::execute_sync_each(
         &accounts.tree_settings,
         0,
         &[tree_creation_authority.pubkey()],
-        &[create_tree_ix],
+        &tree_creation.instructions,
     );
     rpc.create_and_send_transaction(
-        &[alloc_ix, create_tree_sync],
+        &create_tree_syncs,
         payer_address,
-        &[&payer, &tree, &tree_creation_authority],
+        &[&payer, &tree_creation_authority],
     )?;
-    let tree = tree.pubkey();
+    let tree = tree_creation.tree;
 
     let sender = new_wallet(&mut rpc)?;
     let recipient_address = new_wallet(&mut rpc)?.shielded_address()?;

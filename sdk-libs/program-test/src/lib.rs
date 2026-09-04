@@ -6,14 +6,13 @@
 //! Usage:
 //! ```ignore
 //! use zolana_program_test::ZolanaProgramTest;
-//! use zolana_interface::state::tree_account_size;
 //! use solana_keypair::Keypair;
 //!
 //! let mut test = ZolanaProgramTest::new()?;
 //! let authority = Keypair::new();
 //! test.create_protocol_config(&authority)?;
-//! let tree = test.create_tree(tree_account_size() as u64, &authority)?;
-//! let root = test.state_root(&tree.pubkey())?;
+//! let tree = test.create_tree(&authority)?;
+//! let root = test.state_root(&tree)?;
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -42,7 +41,8 @@ pub use indexer::{
 };
 pub mod instructions;
 pub use instructions::{
-    create_tree_instructions, rpc_state_root, system_create_account_ix, RING_TEST_PROGRAM_ID,
+    create_tree_instructions, next_tree_id, rpc_state_root, system_create_account_ix, TreeCreation,
+    RING_TEST_PROGRAM_ID,
 };
 mod paths;
 mod rejection;
@@ -92,6 +92,8 @@ pub enum ProgramTestError {
     Rpc(String),
     #[error("pubkey: {0}")]
     Pubkey(#[from] solana_pubkey::PubkeyError),
+    #[error("the default tree fee schedule does not fit zkp batch size {0}")]
+    InvalidTreeFees(u64),
 }
 
 impl From<ClientError> for ProgramTestError {
@@ -111,9 +113,6 @@ pub struct ZolanaProgramTest {
     pub payer: Keypair,
     pub program_id: Pubkey,
     indexer: TestIndexer,
-    /// Counter mixed into deterministic tree seeds so repeated `create_tree`
-    /// calls produce distinct reproducible addresses.
-    tree_counter: u64,
     transaction_traces: Vec<TransactionTrace>,
 }
 
@@ -138,8 +137,8 @@ impl ZolanaProgramTest {
             .map_err(|e| ProgramTestError::Litesvm(format!("add_program: {e:?}")))?;
 
         let payer = Keypair::new();
-        // Enough for the ~1.16 MB tree account rent.
-        svm.airdrop(&payer.pubkey(), 20_000_000_000)
+        // Working capital for recoverable nullifier-PDA rent.
+        svm.airdrop(&payer.pubkey(), 1_000_000_000_000)
             .map_err(|e| ProgramTestError::Litesvm(format!("airdrop: {e:?}")))?;
 
         Ok(Self {
@@ -147,18 +146,8 @@ impl ZolanaProgramTest {
             payer,
             program_id,
             indexer: TestIndexer::new(),
-            tree_counter: 0,
             transaction_traces: Vec::new(),
         })
-    }
-
-    /// Deterministic signer for a new tree account.
-    pub(crate) fn next_tree_keypair(&mut self) -> Keypair {
-        let mut seed = [0u8; 32];
-        seed[..16].copy_from_slice(b"zolana_pool_tree");
-        seed[24..].copy_from_slice(&self.tree_counter.to_le_bytes());
-        self.tree_counter += 1;
-        Keypair::new_from_array(seed)
     }
 
     pub fn indexer(&self) -> &TestIndexer {

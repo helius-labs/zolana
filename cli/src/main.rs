@@ -18,8 +18,8 @@ use crate::{
     localnet::run_test_validator,
     prover::run_start_prover,
     wallet_cli::{
-        run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_split, run_sync,
-        run_test_mint, run_transfer, run_utxos, run_wallet, run_withdraw,
+        run_balance, run_create_tree, run_deposit, run_merge, run_set_merging, run_set_tree_fees,
+        run_split, run_sync, run_test_mint, run_transfer, run_utxos, run_wallet, run_withdraw,
     },
 };
 
@@ -61,6 +61,7 @@ fn run_dev(command: DevCommand) -> Result<()> {
         } => run_start_prover(opts),
         DevCommand::Pool { command } => match command {
             DevPoolCommand::CreateTree(opts) => run_create_tree(opts),
+            DevPoolCommand::SetTreeFees(opts) => run_set_tree_fees(opts),
             DevPoolCommand::TestMint(opts) => run_test_mint(opts),
         },
     }

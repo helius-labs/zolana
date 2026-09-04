@@ -595,7 +595,7 @@ fn head_roots(account: Option<Account>, tree: Address) -> Result<TransactRoots, 
     let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
     let state_index = tree_account.utxo_tree().current_root_index();
     let state = tree_account.get_utxo_tree_root(state_index)?;
-    let nullifier_index = tree_account.nullifer_tree().get_root_index() as u16;
+    let nullifier_index = tree_account.nullifier_tree().get_root_index() as u16;
     let nullifier = tree_account.get_nullifier_tree_root(nullifier_index)?;
     Ok(TransactRoots {
         state,
@@ -679,7 +679,7 @@ mod tests {
         GetMerkleProofsResponse, GetNonInclusionProofsResponse, IndexerRpcConfig, MerkleContext,
         ShieldedTransaction,
     };
-    use zolana_interface::state::address_tree_params;
+    use zolana_interface::state::{default_tree_fees, nullifier_tree_params};
     use zolana_keypair::ShieldedKeypair;
     use zolana_ring_policy::ListSet;
 
@@ -1010,12 +1010,15 @@ mod tests {
 
     fn tree_account() -> Account {
         let mut data = vec![0u8; TreeAccount::account_size()];
+        let params = nullifier_tree_params();
         TreeAccount::init(
             &mut data,
             TREE_ACCOUNT_DISCRIMINATOR,
             32,
             tree().to_bytes(),
-            address_tree_params(),
+            0,
+            params,
+            default_tree_fees(params.input_queue_zkp_batch_size).expect("default tree fees"),
         )
         .expect("tree account");
         Account {

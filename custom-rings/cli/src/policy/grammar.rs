@@ -6,7 +6,7 @@ use custom_ring_sdk::CustomRing;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use solana_address::Address;
 use thiserror::Error;
-use zolana_interface::DEFAULT_TREE_ADDRESS;
+use zolana_interface::pda;
 use zolana_ring_policy::{
     Guard, ListId, ListSet, Member, MemberError, Mode, Rule, RuleSource, RuleTable, RuleTableError,
     Subject, Writer, MAX_INLINE_ASSETS, MAX_RULES,
@@ -449,7 +449,7 @@ impl PolicySpec {
     pub fn entries_tree(&self) -> Address {
         self.entries_tree
             .map(|tree| tree.0)
-            .unwrap_or_else(|| Address::from_str_const(DEFAULT_TREE_ADDRESS))
+            .unwrap_or_else(|| pda::tree(0))
     }
 
     /// The rows and the inline assets the builder gets, in row order.
@@ -672,10 +672,7 @@ above = 1000000
     fn an_empty_table_is_a_legal_policy_with_the_default_tree() {
         let policy = compiled("").expect("empty table");
         assert!(policy.rules.is_empty());
-        assert_eq!(
-            policy.entries_tree,
-            Address::from_str_const(DEFAULT_TREE_ADDRESS)
-        );
+        assert_eq!(policy.entries_tree, pda::tree(0));
         assert!(policy.shared_sources.is_empty());
     }
 

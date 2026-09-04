@@ -43,7 +43,7 @@ bash scripts/generate_keys_custom_ring.sh "$keys_dir"
 
 # The batched nullifier-tree (address-append) circuits build on circuits/gadget
 # just like transfer/merge, so a gadget change rotates them too. Their vkeys are
-# committed in the batched-merkle-tree crate.
+# committed in the tree crate.
 echo "==> generating batch address-append proving keys"
 for spec in "10" "250"; do
     ./light-prover setup \
@@ -57,8 +57,8 @@ done
 echo "==> regenerating interface verifying keys"
 bash scripts/regenerate_all_vkeys.sh "$keys_dir"
 
-echo "==> regenerating batched-merkle-tree verifying keys (address-append)"
-bmt_vk_dir="$repo_root/program-libs/batched-merkle-tree/src/verify/verifying_keys"
+echo "==> regenerating nullifier-tree verifying keys (address-append)"
+bmt_vk_dir="$repo_root/program-libs/tree/src/nullifier_tree/verify/verifying_keys"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "$tmp_dir"' EXIT
 for spec in "10" "250"; do
@@ -67,7 +67,7 @@ for spec in "10" "250"; do
     ./light-prover export-vk --keys-file "$keys_dir/${stem}.key" --output "$tmp_dir/${stem}.vkbin" >/dev/null
     (cd "$repo_root" && cargo run -q -p xtask -- bsb22-vk \
         "$tmp_dir/${stem}.vkbin" \
-        "program-libs/batched-merkle-tree/src/verify/verifying_keys" \
+        "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
         "${module}.rs")
 done
 echo "    wrote vkeys into $bmt_vk_dir"
@@ -95,7 +95,7 @@ Still MANUAL (one reviewed PR, so pk <-> vk <-> lock all move together):
   1. paste the refreshed fingerprints into
      prover/server/prover/fingerprint/fingerprint_test.go
   2. commit the regenerated verifying_keys/*.rs in the interface and
-     batched-merkle-tree crates
+     tree crates
   3. commit the regenerated
      prover/server/prover/provingkeys/proving-keys.lock
      (its hash drives the CI cache key automatically -- no tag bump)

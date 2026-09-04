@@ -19,7 +19,7 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::instruction_data::transact::TransactProof,
-    state::{discriminator::RING_CONFIG, RingConfig},
+    state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
@@ -532,12 +532,15 @@ pub fn entries_tree_account() -> Account {
 /// verification.
 pub fn initialized_entries_tree_account() -> Account {
     let mut data = vec![0u8; TreeAccount::account_size()];
+    let params = nullifier_tree_params();
     TreeAccount::init(
         &mut data,
         zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
         zolana_tree::UTXO_TREE_HEIGHT as u8,
         entries_tree().to_bytes(),
-        zolana_batched_merkle_tree::initialize_address_tree::InitAddressTreeAccountsInstructionData::default(),
+        0,
+        params,
+        default_tree_fees(params.input_queue_zkp_batch_size).expect("default tree fees"),
     )
     .expect("initialize entries tree");
     Account {
@@ -557,11 +560,14 @@ fn entries_tree_view(account: &mut Account) -> TreeAccount<'_> {
 pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
     let mut account = initialized_entries_tree_account();
     let mut tree = entries_tree_view(&mut account);
-    let mut nullifier = tree.nullifer_tree();
+    let nullifier = tree.nullifier_tree();
     for rotation in 1..=rotations {
         let mut root = [0u8; 32];
         root[..2].copy_from_slice(&rotation.to_le_bytes());
-        nullifier.push_root(root);
+        let cursor = nullifier.root_history.current_index as usize;
+        nullifier.root_history.roots[cursor] = root;
+        nullifier.root_history.current_index =
+            ((cursor + 1) % nullifier.root_history.roots.len()) as u64;
     }
     drop(tree);
     account
@@ -576,7 +582,7 @@ pub fn paused_entries_tree_account() -> Account {
 pub fn nullifier_root_cursor(account: &Account) -> u16 {
     let mut account = account.clone();
     let cursor = entries_tree_view(&mut account)
-        .nullifer_tree()
+        .nullifier_tree()
         .get_root_index();
     u16::try_from(cursor).expect("root cursor")
 }

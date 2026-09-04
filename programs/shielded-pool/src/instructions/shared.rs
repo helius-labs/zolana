@@ -1,3 +1,5 @@
+use core::{fmt::Debug, panic::Location};
+
 use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
     account::{Ref, RefMut},
@@ -7,11 +9,9 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 use pinocchio_system::instructions::Transfer;
-use zolana_interface::{
-    error::ShieldedPoolError,
-    state::{forester_fee_per_queue_element, FORESTER_REIMBURSEMENT_LAMPORTS},
-};
-use zolana_tree::TreeError;
+use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
+use zolana_interface::error::ShieldedPoolError;
+use zolana_tree::{nullifier_tree::error::NullifierTreeError, TreeError};
 
 pub(crate) fn bool_field(value: bool) -> [u8; 32] {
     let mut field = [0u8; 32];
@@ -24,8 +24,97 @@ pub fn tree_error(error: TreeError) -> ProgramError {
         TreeError::Paused => ShieldedPoolError::TreePaused.into(),
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
         TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
-        _ => ShieldedPoolError::InvalidTreeAccounts.into(),
+        TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee.into(),
+        _ => {
+            print_collapsed(ShieldedPoolError::InvalidTreeAccounts, &error);
+            ShieldedPoolError::InvalidTreeAccounts.into()
+        }
     }
+}
+
+pub fn nullifier_tree_error(error: NullifierTreeError) -> ProgramError {
+    match error {
+        NullifierTreeError::NonCanonicalFieldElement => ShieldedPoolError::NonCanonicalRoot.into(),
+        _ => {
+            print_collapsed(ShieldedPoolError::NullifierTreeUpdateFailed, &error);
+            ShieldedPoolError::NullifierTreeUpdateFailed.into()
+        }
+    }
+}
+
+#[track_caller]
+pub(crate) fn caused_by<E: Debug>(
+    error: impl Into<ProgramError> + Debug,
+) -> impl FnOnce(E) -> ProgramError {
+    let location = Location::caller();
+    move |cause| {
+        print_cause(&error, &cause, location);
+        error.into()
+    }
+}
+
+#[track_caller]
+pub(crate) fn check_field_element(
+    value: &[u8; 32],
+    field: &str,
+    index: Option<usize>,
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    if is_canonical_bn254_scalar_be(value) {
+        return Ok(());
+    }
+    print_non_canonical(field, index, Location::caller());
+    Err(error.into())
+}
+
+#[track_caller]
+pub(crate) fn check_field_elements<'a>(
+    values: impl IntoIterator<Item = &'a [u8; 32]>,
+    field: &str,
+    error: ShieldedPoolError,
+) -> ProgramResult {
+    for (index, value) in values.into_iter().enumerate() {
+        check_field_element(value, field, Some(index), error)?;
+    }
+    Ok(())
+}
+
+#[cold]
+fn print_non_canonical(field: &str, index: Option<usize>, location: &Location<'_>) {
+    match index {
+        Some(index) => solana_msg::msg!(
+            "ERROR: {} at index {} is not a canonical BN254 field element {}:{}:{}",
+            field,
+            index,
+            location.file(),
+            location.line(),
+            location.column()
+        ),
+        None => solana_msg::msg!(
+            "ERROR: {} is not a canonical BN254 field element {}:{}:{}",
+            field,
+            location.file(),
+            location.line(),
+            location.column()
+        ),
+    }
+}
+
+#[cold]
+fn print_cause(error: &dyn Debug, cause: &dyn Debug, location: &Location<'_>) {
+    solana_msg::msg!(
+        "ERROR: {:?} caused by {:?} {}:{}:{}",
+        error,
+        cause,
+        location.file(),
+        location.line(),
+        location.column()
+    );
+}
+
+#[cold]
+fn print_collapsed(error: ShieldedPoolError, cause: &dyn Debug) {
+    solana_msg::msg!("ERROR: {:?} caused by {:?}", error, cause);
 }
 
 #[inline(always)]
@@ -34,7 +123,7 @@ fn validate_config<T: Pod>(
     invalid_error: ShieldedPoolError,
     has_valid_discriminator: impl FnOnce(&T) -> bool,
 ) -> ProgramResult {
-    let config = bytemuck::try_from_bytes::<T>(data).map_err(|_| invalid_error)?;
+    let config = bytemuck::try_from_bytes::<T>(data).map_err(caused_by(invalid_error))?;
     has_valid_discriminator(config)
         .then_some(())
         .ok_or_else(|| invalid_error.into())
@@ -49,7 +138,7 @@ pub(crate) fn load_config<T: Pod>(
     if !account.owned_by(&crate::ID) {
         return Err(invalid_error.into());
     }
-    let data = account.try_borrow().map_err(|_| invalid_error)?;
+    let data = account.try_borrow().map_err(caused_by(invalid_error))?;
     validate_config(&data, invalid_error, has_valid_discriminator)?;
     Ok(Ref::map(data, |data| from_bytes::<T>(data)))
 }
@@ -63,27 +152,22 @@ pub(crate) fn load_config_mut<T: Pod>(
     if !account.is_writable() || !account.owned_by(&crate::ID) {
         return Err(invalid_error.into());
     }
-    let data = account.try_borrow_mut().map_err(|_| invalid_error)?;
+    let data = account.try_borrow_mut().map_err(caused_by(invalid_error))?;
     validate_config(&data, invalid_error, has_valid_discriminator)?;
     Ok(RefMut::map(data, |data| from_bytes_mut::<T>(data)))
 }
 
-/// Collect one tree's per-element forester fee with one System Program CPI.
+/// Collect one tree's forester fee with one System Program CPI. The amount was
+/// computed and credited to the tree's fee balance inside the tree data borrow.
 ///
 /// Every current insertion instruction has one tree. If an instruction gains
 /// multiple trees, aggregate their amounts into the first tree and redistribute
 /// from that program-owned tree, following Light's multi-transfer pattern.
 #[inline(never)]
-pub fn collect_forester_fee(
-    payer: &AccountView,
-    tree: &AccountView,
-    inserted_elements: u64,
-    zkp_batch_size: u64,
-) -> ProgramResult {
+pub fn collect_forester_fee(payer: &AccountView, tree: &AccountView, amount: u64) -> ProgramResult {
     if !tree.is_writable() || !tree.owned_by(&crate::ID) {
         return Err(ShieldedPoolError::InvalidTreeAccounts.into());
     }
-    let amount = forester_fee_amount(inserted_elements, zkp_batch_size)?;
     if amount == 0 {
         return Ok(());
     }
@@ -96,49 +180,39 @@ pub fn collect_forester_fee(
     .invoke()
 }
 
-pub fn forester_fee_amount(
-    inserted_elements: u64,
-    zkp_batch_size: u64,
-) -> Result<u64, ProgramError> {
-    forester_fee_per_queue_element(zkp_batch_size)
-        .and_then(|fee| fee.checked_mul(inserted_elements))
-        .ok_or_else(|| ShieldedPoolError::InvalidForesterFee.into())
+pub fn check_reimbursement_recipient(recipient: &AccountView) -> ProgramResult {
+    if recipient.owned_by(&crate::ID) {
+        return Err(ShieldedPoolError::InvalidReimbursementRecipient.into());
+    }
+    Ok(())
 }
 
-/// Reimburse the caller that paid for successfully applied forester batches.
-/// The tree is program-owned, so this transfer requires no CPI.
-pub fn reimburse_forester(
+pub fn pay_reimbursement(
     tree: &mut AccountView,
     recipient: &mut AccountView,
-    applied_batches: u32,
+    paid: u64,
 ) -> ProgramResult {
-    if applied_batches == 0 {
+    if paid == 0 {
         return Ok(());
     }
-    if tree.address() == recipient.address() {
-        return Err(ShieldedPoolError::InvalidTreeAccounts.into());
-    }
-    let amount = u64::from(applied_batches)
-        .checked_mul(FORESTER_REIMBURSEMENT_LAMPORTS)
-        .ok_or(ShieldedPoolError::InvalidForesterFee)?;
     let rent_minimum = Rent::get()?.try_minimum_balance(tree.data_len())?;
-    reimburse_forester_with_rent_minimum(tree, recipient, amount, rent_minimum)
+    pay_reimbursement_with_rent_minimum(tree, recipient, paid, rent_minimum)
 }
 
-pub fn reimburse_forester_with_rent_minimum(
+pub fn pay_reimbursement_with_rent_minimum(
     tree: &mut AccountView,
     recipient: &mut AccountView,
-    amount: u64,
+    paid: u64,
     rent_minimum: u64,
 ) -> ProgramResult {
     let remaining = tree
         .lamports()
-        .checked_sub(amount)
+        .checked_sub(paid)
         .filter(|remaining| *remaining >= rent_minimum)
         .ok_or(ShieldedPoolError::InsufficientForesterFeeBalance)?;
     let recipient_balance = recipient
         .lamports()
-        .checked_add(amount)
+        .checked_add(paid)
         .ok_or(ShieldedPoolError::InvalidForesterFee)?;
     tree.set_lamports(remaining);
     recipient.set_lamports(recipient_balance);

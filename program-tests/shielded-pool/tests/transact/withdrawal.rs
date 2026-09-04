@@ -58,7 +58,7 @@ const CHANGE_AMOUNT: u64 = AMOUNT - TRANSFER_AMOUNT;
 fn shield_then_withdraw_spl_with_a_real_proof() {
     const SPL_AMOUNT: u64 = 1_000;
     let mut env = proof_env();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
 
     let withdrawal =
@@ -127,7 +127,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
 fn shield_before_authority_rotation_then_withdraw_sol() {
     let mut env = proof_env();
 
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
@@ -354,14 +354,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     );
     assert_eq!(vault_after, vault_before - AMOUNT, "vault debited");
 
-    // The successful spend inserted both input nullifiers. Replaying the exact
-    // instruction must fail at the nullifier queue before any tree, vault, or
-    // recipient mutation is committed.
+    // The successful spend queued both input nullifiers and created their
+    // nullifier PDAs. Replaying the exact instruction must fail on the existing
+    // nullifier PDAs before any tree, vault, or recipient mutation is committed.
     let replay = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("reusing a spent nullifier must fail");
-    Rejection::pool(ShieldedPoolError::NullifierTreeUpdateFailed).assert_litesvm(replay);
+    Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued).assert_litesvm(replay);
     env.rpc
         .last_transaction_trace()
         .expect("replayed transaction trace")
@@ -378,7 +378,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 fn transact_sol_deposit_settles_exact_lamport_deltas() {
     let mut env = proof_env();
 
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
@@ -574,7 +574,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 fn transact_spl_deposit_settles_exact_token_deltas() {
     const SPL_AMOUNT: u64 = 1_000;
     let mut env = proof_env();
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
@@ -734,7 +734,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
 fn shield_transfer_then_withdraw_sol() {
     let mut env = proof_env();
 
-    let tree = env.tree.pubkey();
+    let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
     let recipient_owner = Keypair::new();
     env.rpc

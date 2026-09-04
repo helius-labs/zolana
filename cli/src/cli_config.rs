@@ -13,8 +13,11 @@ use zolana_transaction::{Address, AssetRegistry};
 pub(crate) const DEFAULT_RPC_URL: &str = "http://127.0.0.1:8899";
 pub(crate) const DEFAULT_INDEXER_URL: &str = "http://127.0.0.1:8784";
 pub(crate) const DEFAULT_PROVER_URL: &str = "http://127.0.0.1:3001";
-pub(crate) const DEFAULT_TREE: &str = zolana_interface::DEFAULT_TREE_ADDRESS;
 const CONFIG_VERSION: u8 = 1;
+
+pub(crate) fn default_tree() -> Pubkey {
+    zolana_interface::pda::tree(0)
+}
 
 #[cfg(test)]
 pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -185,13 +188,17 @@ pub(crate) fn resolve_prover_url(cli_override: Option<&str>, config: &CliConfigF
         .to_string()
 }
 
-pub(crate) fn resolve_tree<'a>(
-    cli_override: Option<&'a str>,
-    config: &'a CliConfigFile,
-) -> &'a str {
+pub(crate) fn parse_pubkey(value: &str) -> Result<Pubkey> {
+    value
+        .parse::<Pubkey>()
+        .with_context(|| format!("invalid pubkey `{value}`"))
+}
+
+pub(crate) fn resolve_tree(cli_override: Option<&str>, config: &CliConfigFile) -> Result<Pubkey> {
     cli_override
         .or(config.tree.as_deref())
-        .unwrap_or(DEFAULT_TREE)
+        .map(parse_pubkey)
+        .unwrap_or_else(|| Ok(default_tree()))
 }
 
 #[cfg(test)]
@@ -250,8 +257,9 @@ mod tests {
             "http://127.0.0.1:9999"
         );
         assert_eq!(
-            resolve_tree(Some("So11111111111111111111111111111111111111112"), &config),
-            "So11111111111111111111111111111111111111112"
+            resolve_tree(Some("So11111111111111111111111111111111111111112"), &config)
+                .expect("resolve tree"),
+            Pubkey::from_str_const("So11111111111111111111111111111111111111112")
         );
     }
 }

@@ -111,6 +111,12 @@ pub(crate) enum DevPoolCommand {
     CreateTree(CreateTreeOptions),
 
     #[command(
+        name = "set-tree-fees",
+        about = "Set the forester fee schedule of a pool tree on the configured RPC"
+    )]
+    SetTreeFees(SetTreeFeesOptions),
+
+    #[command(
         name = "test-mint",
         about = "Create a local SPL test mint, fund the wallet, and store its asset mapping"
     )]
@@ -514,15 +520,42 @@ pub(crate) struct CreateTreeOptions {
     #[command(flatten)]
     pub(crate) sync: SyncOptions,
 
-    #[arg(long, help = "Tree keypair path to create or reuse")]
-    pub(crate) tree_keypair: String,
-
     #[arg(
         long = "airdrop-lamports",
-        default_value_t = 20_000_000_000,
+        default_value_t = 100_000_000_000,
         help = "Localnet airdrop amount for the wallet funding key"
     )]
     pub(crate) airdrop_lamports: u64,
+}
+
+#[derive(Args, Debug, Clone, PartialEq)]
+pub(crate) struct SetTreeFeesOptions {
+    #[command(flatten)]
+    pub(crate) sync: SyncOptions,
+
+    #[arg(
+        long,
+        help = "Shielded-pool tree account (default: configured tree from `zolana config`)"
+    )]
+    pub(crate) tree: Option<String>,
+
+    #[arg(
+        long = "fee-per-nullifier",
+        help = "Lamports charged per queued nullifier on transact and merge"
+    )]
+    pub(crate) fee_per_nullifier: u64,
+
+    #[arg(
+        long = "append-reimbursement",
+        help = "Lamports paid to the forester per applied ZKP batch"
+    )]
+    pub(crate) append_reimbursement: u64,
+
+    #[arg(
+        long = "close-reimbursement",
+        help = "Lamports paid to the closer per closed nullifier PDA"
+    )]
+    pub(crate) close_reimbursement: u64,
 }
 
 #[derive(Args, Debug, Clone, PartialEq)]
@@ -843,6 +876,7 @@ mod tests {
             ["zolana", "dev", "prover", "start", "--help"].as_slice(),
             ["zolana", "dev", "pool", "--help"].as_slice(),
             ["zolana", "dev", "pool", "create-tree", "--help"].as_slice(),
+            ["zolana", "dev", "pool", "set-tree-fees", "--help"].as_slice(),
             ["zolana", "dev", "pool", "test-mint", "--help"].as_slice(),
             ["zolana", "test-env", "--help"].as_slice(),
             ["zolana", "config", "--help"].as_slice(),
@@ -1105,8 +1139,6 @@ mod tests {
             "create-tree",
             "--keypair",
             "/tmp/alice.pid.json",
-            "--tree-keypair",
-            "/tmp/tree.json",
             "--rpc-url",
             "http://127.0.0.1:8900",
             "--indexer-url",
@@ -1124,8 +1156,42 @@ mod tests {
                 rpc_url: Some("http://127.0.0.1:8900".to_string()),
                 indexer_url: Some("http://127.0.0.1:8785".to_string()),
             },
-            tree_keypair: "/tmp/tree.json".to_string(),
             airdrop_lamports: 1_000_000_000,
+        };
+        assert_eq!(opts, expected);
+    }
+
+    #[test]
+    fn parses_dev_pool_set_tree_fees_options() {
+        let DevPoolCommand::SetTreeFees(opts) = parse_dev_pool(&[
+            "set-tree-fees",
+            "--keypair",
+            "/tmp/alice.pid.json",
+            "--rpc-url",
+            "http://127.0.0.1:8900",
+            "--tree",
+            "Tree11111111111111111111111111111111111111111",
+            "--fee-per-nullifier",
+            "190",
+            "--append-reimbursement",
+            "5000",
+            "--close-reimbursement",
+            "170",
+        ]) else {
+            panic!("expected dev pool set-tree-fees command");
+        };
+        let expected = SetTreeFeesOptions {
+            sync: SyncOptions {
+                keypair: WalletKeypairOptions {
+                    keypair: Some("/tmp/alice.pid.json".to_string()),
+                },
+                rpc_url: Some("http://127.0.0.1:8900".to_string()),
+                indexer_url: None,
+            },
+            tree: Some("Tree11111111111111111111111111111111111111111".to_string()),
+            fee_per_nullifier: 190,
+            append_reimbursement: 5_000,
+            close_reimbursement: 170,
         };
         assert_eq!(opts, expected);
     }

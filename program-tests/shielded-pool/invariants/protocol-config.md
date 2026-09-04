@@ -64,7 +64,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-CREATE-PC-05: payload must be exactly the struct size**
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_creation_rejects_a_payload_of_the_wrong_size`
   - Kind: precondition
-  - Statement: every payload whose length differs from exactly `size_of::<CreateProtocolConfigData>()` (131 bytes) makes the instruction return Err.
+  - Statement: every payload whose length differs from exactly `size_of::<CreateProtocolConfigData>()` (163 bytes: five 32-byte authorities including `fee_authority`, plus three flag bytes) makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:12-13` (`fn process_create_protocol_config`)
   - Error: `ShieldedPoolError::InvalidInstructionData = 7000`
   - Severity: Medium
@@ -75,7 +75,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-CREATE-PC-06: every config field is initialized from instruction data**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: postcondition
-  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the seven remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `ring_creation_authority`, `ring_creation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field.
+  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the eight remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `ring_creation_authority`, `fee_authority`, `ring_creation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field, and `next_tree_id` is 0. `fee_authority` gates `set_tree_fees` (tree.md INV-SET-FEES-02) and is stored at byte offset 129, after `ring_creation_authority`.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:46-55` (`fn process_create_protocol_config`), `protocol_config/init.rs:20-39` (`fn ProtocolConfigInitParams::init`)
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
@@ -83,7 +83,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-CREATE-PC-07: the created account size is exactly ProtocolConfig::SIZE**
   - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `protocol_config_creation_initializes_complete_state` (extended with the owner-is-program assertion)
   - Kind: postcondition
-  - Statement: after a successful `create_protocol_config`, the config account's `data_len` is exactly `ProtocolConfig::SIZE` (132) and its owner is the shielded-pool program.
+  - Statement: after a successful `create_protocol_config`, the config account's `data_len` is exactly `ProtocolConfig::SIZE` (166: discriminator, five authorities, three flags at 161/162/163, `next_tree_id` at 164) and its owner is the shielded-pool program. The size grew from 134 to 166 with `fee_authority`; a config created by the previous layout does not load (INV-UPDATE-PC-03) and must be re-initialized after the upgrade, there is no migration instruction.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:35-44` (`fn process_create_protocol_config`), `program-libs/interface/src/state/protocol_config.rs:77` (SIZE assert)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit
@@ -134,7 +134,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-UPDATE-PC-03: config account must be writable, program-owned, sized, and stamped**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `update_rejects_a_wrong_size_config_account`, `update_rejects_a_cosplay_config_account`
   - Kind: precondition
-  - Statement: `update_protocol_config` returns Err whenever the config account is not writable, not owned by the program, has `data_len` different from exactly 132, or has a first byte different from exactly 3.
+  - Statement: `update_protocol_config` returns Err whenever the config account is not writable, not owned by the program, has `data_len` different from exactly 166 (`ProtocolConfig::SIZE`), or has a first byte different from exactly 3.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/loader.rs:26-34` (`fn load_protocol_config_mut`), `shared.rs:58-69` (`fn load_config_mut`)
   - Error: `ShieldedPoolError::InvalidProtocolConfig = 7012`
   - Severity: High
@@ -156,10 +156,10 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-UPDATE-PC-05: exactly the addressed field takes the supplied value**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: postcondition
-  - Statement: after a successful `update_protocol_config` with variant V carrying value v, the config field addressed by V is exactly v (booleans stored as exactly 0 or 1).
+  - Statement: after a successful `update_protocol_config` with variant V carrying value v, the config field addressed by V is exactly v (booleans stored as exactly 0 or 1). The variants are `ProtocolAuthority`, `TreeCreationAuthority`, `ForesterAuthority`, `RingCreationAuthority`, `TreeCreationPermissionless`, `RingCreationPermissionless`, `SplInterfaceCreationPermissionless`, and `FeeAuthority(Address)` (borsh tag 7), which rewrites `fee_authority`.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs:23-37` (`fn process_update_protocol_config`)
   - Severity: High
-  - Suggested test: positive per variant (all 7); harness: mollusk unit
+  - Suggested test: positive per variant (all 8); harness: mollusk unit
 
 ### Frame Conditions
 
@@ -180,3 +180,11 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs:15-24`
   - Severity: High
   - Suggested test: positive (rotate, then negative with old key); harness: mollusk unit
+
+- [x] **INV-UPDATE-PC-08: a fee-authority rotation takes effect on `set_tree_fees` alone**
+  - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config` (the `FeeAuthority` variant rewrites exactly `fee_authority`, full struct compare); `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_is_gated_by_the_fee_authority_alone` (after `FeeAuthority(new)` the protocol authority is rejected by `set_tree_fees` with exact 7003 and rolled back, `new` sets the schedule)
+  - Kind: reachability
+  - Statement: for every initialized protocol config, an `update_protocol_config(FeeAuthority(new))` signed by the protocol authority succeeds without a co-signature from `new` (only the `ProtocolAuthority` rotation needs one), and afterward `set_tree_fees` accepts exactly `new` and rejects every other signer, including the protocol authority and the forester authority; no other instruction reads `fee_authority`.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs` (`FeeAuthority` arm), `protocol_config/loader.rs` (`fn load_and_validate_fee_authority`)
+  - Severity: High (fee-schedule control)
+  - Suggested test: positive (rotate, then set fees with old and new key); harness: litesvm

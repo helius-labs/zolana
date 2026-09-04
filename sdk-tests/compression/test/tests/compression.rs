@@ -153,6 +153,14 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
 }
 
 #[test]
+fn default_tree_is_tree_pda_zero() {
+    assert_eq!(
+        compression_example_program::instructions::shared::DEFAULT_TREE,
+        zolana_interface::pda::tree(0)
+    );
+}
+
+#[test]
 fn create_and_update_plaintext_compressed_account() -> Result<()> {
     let mut env = setup()?;
     let pda = account_pda(&env.authority.pubkey());

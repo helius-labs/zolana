@@ -42,6 +42,11 @@ pub fn litesvm_assert_protocol_config(
         "ring creation authority"
     );
     assert_eq!(
+        cfg.fee_authority.to_bytes(),
+        authority.to_bytes(),
+        "fee authority"
+    );
+    assert_eq!(
         cfg.tree_creation_is_permissionless, 0,
         "tree creation permissionless"
     );

@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use solana_pubkey::Pubkey;
 
-use super::util::parse_pubkey;
 use crate::{
     args::{NetworkWalletOptions, SyncOptions},
     cli_config::{
@@ -53,7 +52,7 @@ pub(crate) fn get_network_with_config(
     config: &CliConfigFile,
 ) -> Result<ResolvedNetworkOptions> {
     let sync = resolve_sync_with_config(&opts.sync, config)?;
-    let tree = parse_pubkey(resolve_tree(opts.tree.as_deref(), config))?;
+    let tree = resolve_tree(opts.tree.as_deref(), config)?;
     Ok(ResolvedNetworkOptions {
         sync,
         tree,
@@ -109,10 +108,7 @@ mod tests {
             airdrop_lamports: None,
         })
         .expect("resolve network");
-        assert_eq!(
-            resolved.tree.to_string(),
-            zolana_interface::DEFAULT_TREE_ADDRESS
-        );
+        assert_eq!(resolved.tree, zolana_interface::pda::tree(0));
     }
 
     #[test]

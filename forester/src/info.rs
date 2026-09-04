@@ -15,7 +15,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 
 use crate::config::ForesterConfig;
-use zolana_batched_merkle_tree::batch::BatchState;
+use zolana_tree::nullifier_tree::batch::BatchState;
 use zolana_tree::TreeAccount;
 
 const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
@@ -30,6 +30,7 @@ struct BatchInfo {
     inserted_zkps: u64,
     zkp_batch_index: u64,
     num_zkp_batches: u64,
+    reclaimable: bool,
 }
 
 /// Print the current state of `tree`, its nullifier queue, and the forester
@@ -65,14 +66,14 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         ready_total,
         pending_batch_index,
         currently_processing_batch_index,
+        close_before_index,
         nullifier_root,
     ) = {
-        let nullifier_tree = account.nullifer_tree();
-        let metadata = *nullifier_tree.get_metadata();
-        let batches = &metadata.queue_batches;
-        let mut infos = Vec::with_capacity(batches.batches.len());
+        let nullifier_tree = account.nullifier_tree();
+        let close_before_index = nullifier_tree.close_before_index;
+        let mut infos = Vec::with_capacity(nullifier_tree.batches.len());
         let mut ready_total = 0u64;
-        for (index, batch) in batches.batches.iter().enumerate() {
+        for (index, batch) in nullifier_tree.batches.iter().enumerate() {
             let ready = batch.get_num_ready_zkp_updates();
             ready_total += ready;
             infos.push(BatchInfo {
@@ -83,21 +84,25 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                 inserted_zkps: batch.get_num_inserted_zkps(),
                 zkp_batch_index: batch.get_current_zkp_batch_index(),
                 num_zkp_batches: batch.get_num_zkp_batches(),
+                reclaimable: batch.is_reclaimable(close_before_index),
             });
         }
         (
-            batches.zkp_batch_size,
-            batches.batch_size,
-            batches.num_batches,
+            nullifier_tree.zkp_batch_size,
+            nullifier_tree.batch_size,
+            nullifier_tree.batches.len() as u64,
             infos,
             ready_total,
-            batches.pending_batch_index,
-            batches.currently_processing_batch_index,
+            nullifier_tree.pending_batch_index,
+            nullifier_tree.currently_processing_batch_index,
+            close_before_index,
             nullifier_tree.get_root(),
         )
     };
     // Approximate: each ready zkp-batch holds a full zkp_batch_size of nullifiers.
     let ready_nullifiers = ready_total.saturating_mul(zkp_batch_size);
+    let fees = account.fees();
+    let fee_balance = account.fee_balance();
 
     // --- forester balance (fee capacity); None when PAYER is unset ---
     let forester = read_forester(config, &rpc)?;
@@ -125,13 +130,21 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
                         "inserted_zkps": batch.inserted_zkps,
                         "zkp_batch_index": batch.zkp_batch_index,
                         "num_zkp_batches": batch.num_zkp_batches,
+                        "reclaimable": batch.reclaimable,
                     }))
                     .collect::<Vec<_>>(),
                 "ready_to_forest_zkp_batches": ready_total,
                 "ready_to_forest_nullifiers_approx": ready_nullifiers,
                 "pending_batch_index": pending_batch_index,
                 "currently_processing_batch_index": currently_processing_batch_index,
+                "close_before_index": close_before_index,
                 "root": nullifier_root.map(hex::encode),
+            },
+            "fees": {
+                "fee_per_nullifier": fees.fee_per_nullifier,
+                "append_reimbursement": fees.append_reimbursement,
+                "close_reimbursement": fees.close_reimbursement,
+                "fee_balance": fee_balance,
             },
             "forester": forester.as_ref().map(|(pubkey, lamports)| json!({
                 "pubkey": pubkey.to_string(),
@@ -151,7 +164,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
     for batch in &batch_infos {
         println!(
             "  batch {}: state={:<8} queued={}  ready_zkps={}  inserted_zkps={}  \
-             zkp_batch_index={}  num_zkp_batches={}",
+             zkp_batch_index={}  num_zkp_batches={}  reclaimable={}",
             batch.index,
             batch.state,
             batch.queued,
@@ -159,6 +172,7 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             batch.inserted_zkps,
             batch.zkp_batch_index,
             batch.num_zkp_batches,
+            batch.reclaimable,
         );
     }
     println!("  => READY TO FOREST: {ready_total} zkp-batches (~{ready_nullifiers} nullifiers)");
@@ -166,10 +180,16 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
         "  pending_batch_index={pending_batch_index}  \
          currently_processing_batch_index={currently_processing_batch_index}"
     );
+    println!("  close_before_index={close_before_index}");
     match nullifier_root {
         Some(root) => println!("  nullifier root: {}", hex::encode(root)),
         None => println!("  nullifier root: <none>"),
     }
+    println!(
+        "fees: fee_per_nullifier={}  append_reimbursement={}  close_reimbursement={}  \
+         fee_balance={}",
+        fees.fee_per_nullifier, fees.append_reimbursement, fees.close_reimbursement, fee_balance
+    );
     match &forester {
         Some((pubkey, lamports)) => println!(
             "forester {pubkey}: {} SOL   (fee capacity)",

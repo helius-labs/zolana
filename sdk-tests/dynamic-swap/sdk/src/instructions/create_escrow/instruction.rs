@@ -2,7 +2,8 @@ use anyhow::Result;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactIxData, SHIELDED_POOL_PROGRAM_ID,
+    instruction::{instruction_data::transact::TransactIxData, nullifier_pda_accounts},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
 use crate::{err, escrow_authority_pda, tag, CreateEscrowIxData, EscrowOpenProof};
@@ -37,6 +38,10 @@ impl CreateEscrow {
             transact,
         } = self;
 
+        let nullifier_pdas = nullifier_pda_accounts(
+            &tree,
+            transact.inputs.iter().map(|input| &input.nullifier_hash),
+        );
         let ix_data = CreateEscrowIxData {
             proof,
             created_at,
@@ -47,22 +52,27 @@ impl CreateEscrow {
         let mut instruction_data = vec![tag::CREATE_ESCROW];
         instruction_data.extend_from_slice(&serialized);
 
-        let accounts = vec![
+        let mut accounts = vec![
             AccountMeta::new(authority, true),
             AccountMeta::new_readonly(owner, true),
             AccountMeta::new_readonly(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new_readonly(solana_system_interface::program::ID, false),
             // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // SPP, System Program, the source owner, then escrow authority.
+            // SPP, System Program, one nullifier PDA per input, the source
+            // owner, then escrow authority.
             AccountMeta::new(authority, true),
             AccountMeta::new(tree, false),
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(owner, true),
-            AccountMeta::new_readonly(escrow_authority_pda(&pair), false),
         ];
+        accounts.extend(nullifier_pdas);
+        accounts.push(AccountMeta::new_readonly(owner, true));
+        accounts.push(AccountMeta::new_readonly(
+            escrow_authority_pda(&pair),
+            false,
+        ));
 
         Ok(Instruction {
             program_id: dynamic_swap_program::ID,

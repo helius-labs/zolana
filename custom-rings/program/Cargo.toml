@@ -33,12 +33,10 @@ thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
-zolana-batched-merkle-tree = { workspace = true }
 zolana-ring-policy = { workspace = true }
 zolana-tree = { workspace = true }
 
 [dev-dependencies]
-zolana-batched-merkle-tree = { workspace = true, features = ["test-only"] }
 zolana-tree = { workspace = true }
 curve25519-dalek = "4.1"
 zolana-ring-policy = { workspace = true }

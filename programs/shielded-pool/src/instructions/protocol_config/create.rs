@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use zolana_account_checks::AccountIterator;
@@ -21,7 +22,7 @@ fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {
 
 pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = *bytemuck::try_from_bytes::<CreateProtocolConfigData>(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let fee_payer = iter.next_signer("fee_payer")?;
     let protocol_config = iter.next_mut("protocol_config")?;
@@ -52,7 +53,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         bump,
     }
     .execute()
-    .map_err(|_| ShieldedPoolError::InvalidProtocolConfig)?;
+    .map_err(caused_by(ShieldedPoolError::InvalidProtocolConfig))?;
 
     ProtocolConfigInitParams {
         protocol_authority: data.protocol_authority,
@@ -62,6 +63,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         ring_creation_authority: data.ring_creation_authority,
         ring_creation_is_permissionless: data.ring_creation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
+        fee_authority: data.fee_authority,
     }
     .init(protocol_config)
 }

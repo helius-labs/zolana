@@ -2,7 +2,12 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::Rpc;
-use zolana_interface::{instruction::CreateTree, pda, state::state_root_offset};
+use zolana_interface::{
+    instruction::CreateTree,
+    pda,
+    state::{state_root_offset, ProtocolConfig},
+};
+use zolana_tree::{NullifierTreeInitParams, TreeFeeSchedule};
 
 use crate::ProgramTestError;
 
@@ -29,30 +34,41 @@ pub fn system_create_account_ix(
     }
 }
 
+pub fn next_tree_id<R: Rpc>(rpc: &R) -> Result<u16, ProgramTestError> {
+    let config = pda::protocol_config();
+    let data = rpc
+        .get_account(Address::new_from_array(config.to_bytes()))
+        .map_err(ProgramTestError::from)?
+        .ok_or_else(|| ProgramTestError::Rpc(format!("protocol config not found: {config}")))?
+        .data;
+    let config = ProtocolConfig::from_account_bytes(&data)
+        .map_err(|error| ProgramTestError::Rpc(format!("invalid protocol config: {error:?}")))?;
+    Ok(config.next_tree_id)
+}
+
+pub struct TreeCreation {
+    pub tree: Pubkey,
+    pub instructions: Vec<Instruction>,
+}
+
 pub fn create_tree_instructions<R: Rpc>(
     rpc: &R,
     payer: &Pubkey,
     authority: &Pubkey,
-    tree: &Pubkey,
-    account_size: u64,
-) -> Result<Vec<Instruction>, ProgramTestError> {
-    let rent = rpc
-        .get_minimum_balance_for_rent_exemption(account_size as usize)
-        .map_err(ProgramTestError::from)?;
-    Ok(vec![
-        system_create_account_ix(
-            payer,
-            tree,
-            rent,
-            account_size,
-            &pda::shielded_pool_program_id(),
-        ),
-        CreateTree {
-            authority: *authority,
-            tree: *tree,
-        }
-        .instruction(),
-    ])
+    nullifier_params: NullifierTreeInitParams,
+    fees: TreeFeeSchedule,
+) -> Result<TreeCreation, ProgramTestError> {
+    let create = CreateTree {
+        payer: *payer,
+        authority: *authority,
+        tree_id: next_tree_id(rpc)?,
+        nullifier_params,
+        fees,
+    };
+    Ok(TreeCreation {
+        tree: create.tree(),
+        instructions: create.instructions(),
+    })
 }
 
 pub fn rpc_state_root<R: Rpc>(rpc: &R, tree: &Pubkey) -> Result<[u8; 32], ProgramTestError> {

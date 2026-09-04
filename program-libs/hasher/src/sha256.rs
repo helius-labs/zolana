@@ -14,7 +14,7 @@ impl Hasher for Sha256 {
     }
 
     fn hashv(_vals: &[&[u8]]) -> Result<Hash, HasherError> {
-        #[cfg(all(not(target_os = "solana"), feature = "sha256"))]
+        #[cfg(not(target_os = "solana"))]
         {
             use sha2::{Digest, Sha256};
 
@@ -23,10 +23,6 @@ impl Hasher for Sha256 {
                 hasher.update(val);
             }
             Ok(hasher.finalize().into())
-        }
-        #[cfg(all(not(target_os = "solana"), not(feature = "sha256")))]
-        {
-            Err(HasherError::Sha256FeatureNotEnabled)
         }
         // Call via a system call to perform the calculation
         #[cfg(target_os = "solana")]

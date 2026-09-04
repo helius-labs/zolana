@@ -18,8 +18,8 @@ use solana_packet::PACKET_DATA_SIZE;
 use zolana_interface::{
     instruction::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
-        InterfaceTransfer, MessageData, RingAssetDeposit, RingDepositEntry, RingDepositIxData,
-        TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        InputUtxo, InterfaceTransfer, MessageData, RingAssetDeposit, RingDepositEntry,
+        RingDepositIxData, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
         TransactSolTransferAccounts,
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
@@ -712,6 +712,56 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         .expect("ring_config meta");
     assert_eq!(ring_config.pubkey, ring().ring_auth_pda());
     assert!(!ring_config.is_signer);
+}
+
+/// SPP creates one nullifier PDA per spent input, derived from the input
+/// tree and the input's nullifier. The interface builder places them right after
+/// `ring_config` and before the owner signers; the wrapper must forward them.
+#[test]
+fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
+    let mut transact = transact_data(Vec::new());
+    transact.inputs = vec![
+        InputUtxo {
+            nullifier_hash: [71; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+        },
+        InputUtxo {
+            nullifier_hash: [72; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+        },
+    ];
+
+    let instruction = CustomRingTransact {
+        ring: ring(),
+        payer: payer(),
+        input_tree: input_tree(),
+        output_tree: output_tree(),
+        entries_tree: None,
+        owner_signers: vec![owner_signer()],
+        interface_transfer_accounts: Vec::new(),
+        proof: sample_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
+        transact,
+    }
+    .instruction()
+    .expect("serialize the custom-ring transact payload");
+
+    assert_eq!(
+        instruction
+            .accounts
+            .get(7..)
+            .expect("ring_config, nullifier PDA and owner signer metas")
+            .to_vec(),
+        vec![
+            AccountMeta::new_readonly(ring().ring_auth_pda(), false),
+            AccountMeta::new(pda::nullifier_pda(&input_tree(), &[71; 32]).0, false),
+            AccountMeta::new(pda::nullifier_pda(&input_tree(), &[72; 32]).0, false),
+            AccountMeta::new_readonly(owner_signer(), true),
+        ]
+    );
 }
 
 /// Settlement accounts come from the same interface builder, so a withdrawal's

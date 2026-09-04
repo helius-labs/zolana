@@ -13,20 +13,25 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+  nullifierTreeParams,
 } from "../program.js";
-import type { AddressTreeParams } from "../program.js";
+import type { NullifierTreeParams } from "../program.js";
+import { TREE_CREATION_STEP_COUNT, defaultTreeFees } from "../state.js";
 import {
   type Address,
   type AssetDeposit,
   type DepositAsset,
+  type InputUtxo,
   type MergeTransactInstructionData,
   type DepositSplAccounts,
   type RingAssetDeposit,
   type TransactInstructionData,
   type TransactWithdrawal,
+  type TreeFeeSchedule,
 } from "../types.js";
 import { Writer, addressBytes, checkedAddress, fail } from "../internal.js";
 import {
+  nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
   solInterfaceAddress,
@@ -34,13 +39,15 @@ import {
   splAssetRegistryAddress,
   splAssetVaultAddress,
   splInterfaceWithBump,
+  treeAddress,
 } from "../pda/index.js";
 import {
-  encodeAddressTreeParams,
+  encodeCreateTreeData,
   encodeDepositInstructionData,
   encodeRingDepositInstructionData,
   encodeMergeTransactInstructionData,
   encodeTransactInstructionData,
+  encodeTreeFeeSchedule,
 } from "../codecs/index.js";
 
 export const SYSTEM_PROGRAM = address("11111111111111111111111111111111");
@@ -148,22 +155,39 @@ export async function createSplInterfaceInstruction(
   ]);
 }
 
-export async function createTreeInstruction(
+/**
+ * Mirrors Rust `CreateTree::instructions`. The tree PDA is allocated in
+ * `TREE_ALLOCATION_STEP` chunks, so creation is `TREE_CREATION_STEP_COUNT`
+ * identical instructions that must land in one transaction. `treeId` has to be
+ * the protocol config's `nextTreeId`. `fees` defaults to the at-cost schedule
+ * for the chosen ZKP batch size.
+ */
+export async function createTreeInstructions(
   input: Readonly<{
+    payer: SignerAccount;
     authority: SignerAccount;
-    tree: Address;
-    nullifierTreeParams?: AddressTreeParams;
+    treeId: number;
+    nullifierTreeParams?: NullifierTreeParams;
+    fees?: TreeFeeSchedule;
   }>,
-): Promise<Instruction> {
-  const payload =
-    input.nullifierTreeParams === undefined
-      ? undefined
-      : encodeAddressTreeParams(input.nullifierTreeParams);
-  return instruction(tagged(InstructionTag.createTree, payload), [
+): Promise<Instruction[]> {
+  const nullifierParams = input.nullifierTreeParams ?? nullifierTreeParams();
+  const data = tagged(
+    InstructionTag.createTree,
+    encodeCreateTreeData({
+      treeId: input.treeId,
+      nullifierParams,
+      fees: input.fees ?? defaultTreeFees(nullifierParams.inputQueueZkpBatchSize),
+    }),
+  );
+  const accounts = [
+    meta(input.payer, true, true),
     meta(input.authority, true, false),
-    meta(await protocolConfigAddress(), false, false),
-    meta(input.tree, false, true),
-  ]);
+    meta(await protocolConfigAddress(), false, true),
+    meta(treeAddress(input.treeId), false, true),
+    meta(SYSTEM_PROGRAM, false, false),
+  ];
+  return Array.from({ length: TREE_CREATION_STEP_COUNT }, () => instruction(data, accounts));
 }
 
 interface DepositLayout {
@@ -336,24 +360,42 @@ function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {
   ];
 }
 
-function transactAccounts(
+/**
+ * One writable nullifier PDA per nullifier, preserving input order.
+ */
+export async function nullifierPdaAccounts(
+  inputTree: Address,
+  nullifiers: readonly Uint8Array[],
+): Promise<Meta[]> {
+  const nullifierPdas = await Promise.all(
+    nullifiers.map((nullifier) => nullifierPdaAddress(inputTree, nullifier)),
+  );
+  return nullifierPdas.map((pda) => meta(pda, false, true));
+}
+
+async function transactAccounts(
   payer: SignerAccount,
   inputTree: Address,
   outputTree: Address,
+  inputs: readonly InputUtxo[],
   withdrawal?: TransactWithdrawal,
-): Meta[] {
+): Promise<Meta[]> {
   const accounts = [
     meta(payer, true, true),
     meta(inputTree, false, true),
     meta(outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
+    ...(await nullifierPdaAccounts(
+      inputTree,
+      inputs.map((input) => input.nullifierHash),
+    )),
   ];
   accounts.push(...settlementAccounts(withdrawal));
   return accounts;
 }
 
-export function transactInstruction(
+export async function transactInstruction(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
@@ -361,24 +403,35 @@ export function transactInstruction(
     withdrawal?: TransactWithdrawal;
     data: TransactInstructionData;
   }>,
-): Instruction {
+): Promise<Instruction> {
   return instruction(
     tagged(InstructionTag.transact, encodeTransactInstructionData(input.data)),
-    transactAccounts(input.payer, input.inputTree, input.outputTree, input.withdrawal),
+    await transactAccounts(
+      input.payer,
+      input.inputTree,
+      input.outputTree,
+      input.data.inputs,
+      input.withdrawal,
+    ),
   );
 }
 
-/** Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring program signs it inside its CPI. */
-export function ringTransactAccounts(
+/**
+ * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
+ * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
+ * nullifier PDAs follow `ringAuth`.
+ */
+export async function ringTransactAccounts(
   input: Readonly<{
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
     ringAuth: Address;
+    inputs: readonly InputUtxo[];
     ownerSigners?: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
   }>,
-): readonly Meta[] {
+): Promise<readonly Meta[]> {
   return [
     meta(input.payer, true, true),
     meta(input.inputTree, false, true),
@@ -386,6 +439,10 @@ export function ringTransactAccounts(
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
+    ...(await nullifierPdaAccounts(
+      input.inputTree,
+      input.inputs.map((spentInput) => spentInput.nullifierHash),
+    )),
     ...(input.ownerSigners ?? []).map((signer) => meta(signer, true, false)),
     ...settlementAccounts(input.withdrawal),
   ];
@@ -401,6 +458,7 @@ export async function createProtocolConfigInstruction(
     ringCreationAuthority: Address;
     ringCreationIsPermissionless: boolean;
     splInterfaceCreationIsPermissionless: boolean;
+    feeAuthority: Address;
   }>,
 ): Promise<Instruction> {
   const payload = new Writer()
@@ -411,6 +469,7 @@ export async function createProtocolConfigInstruction(
     .bytes(addressBytes(input.ringCreationAuthority, "ringCreationAuthority"))
     .bool(input.ringCreationIsPermissionless, "ringCreationIsPermissionless")
     .bool(input.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless")
+    .bytes(addressBytes(input.feeAuthority, "feeAuthority"))
     .finish();
   return instruction(tagged(InstructionTag.createProtocolConfig, payload), [
     meta(input.authority, true, true),
@@ -426,7 +485,8 @@ export type ProtocolConfigUpdate =
   | Readonly<{ field: "ringCreationAuthority"; value: Address }>
   | Readonly<{ field: "treeCreationPermissionless"; value: boolean }>
   | Readonly<{ field: "ringCreationPermissionless"; value: boolean }>
-  | Readonly<{ field: "splInterfaceCreationPermissionless"; value: boolean }>;
+  | Readonly<{ field: "splInterfaceCreationPermissionless"; value: boolean }>
+  | Readonly<{ field: "feeAuthority"; value: Address }>;
 
 export async function updateProtocolConfigInstruction(
   input: Readonly<{ authority: SignerAccount; update: ProtocolConfigUpdate }>,
@@ -456,6 +516,9 @@ export async function updateProtocolConfigInstruction(
     case "splInterfaceCreationPermissionless":
       writer.u8(6, "update.field").bool(input.update.value, "update.value");
       break;
+    case "feeAuthority":
+      writer.u8(7, "update.field").bytes(addressBytes(input.update.value));
+      break;
     default:
       fail("INTERFACE_CODEC", { name: "update.field" });
   }
@@ -480,7 +543,19 @@ export async function pauseTreeInstruction(
   );
 }
 
-export function mergeTransactInstruction(
+/** Mirrors Rust `SetTreeFees::instruction`. The authority must be the config's fee authority. */
+export async function setTreeFeesInstruction(
+  input: Readonly<{ authority: SignerAccount; tree: Address; fees: TreeFeeSchedule }>,
+): Promise<Instruction> {
+  return instruction(tagged(InstructionTag.setTreeFees, encodeTreeFeeSchedule(input.fees)), [
+    meta(input.authority, true, false),
+    meta(await protocolConfigAddress(), false, false),
+    meta(input.tree, false, true),
+  ]);
+}
+
+/** Mirrors Rust `MergeTransact::instruction`: the eight nullifier PDAs follow the pool program. */
+export async function mergeTransactInstruction(
   input: Readonly<{
     inputTree: Address;
     outputTree: Address;
@@ -488,7 +563,7 @@ export function mergeTransactInstruction(
     userRecord: Address;
     data: MergeTransactInstructionData;
   }>,
-): Instruction {
+): Promise<Instruction> {
   return instruction(
     tagged(InstructionTag.mergeTransact, encodeMergeTransactInstructionData(input.data)),
     [
@@ -498,6 +573,7 @@ export function mergeTransactInstruction(
       meta(input.userRecord, false, false),
       meta(SYSTEM_PROGRAM, false, false),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      ...(await nullifierPdaAccounts(input.inputTree, input.data.nullifiers)),
     ],
   );
 }

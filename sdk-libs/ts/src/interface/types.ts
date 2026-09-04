@@ -223,6 +223,19 @@ export interface ProtocolConfigAccount {
   readonly ringCreationAuthority: Address;
   readonly ringCreationIsPermissionless: boolean;
   readonly splInterfaceCreationIsPermissionless: boolean;
+  readonly feeAuthority: Address;
+  readonly nextTreeId: number;
+}
+
+export interface TreeFeeSchedule {
+  readonly feePerNullifier: bigint;
+  readonly appendReimbursement: bigint;
+  readonly closeReimbursement: bigint;
+}
+
+export interface TreeFees {
+  readonly fees: TreeFeeSchedule;
+  readonly feeBalance: bigint;
 }
 
 export interface SplAssetCounterAccount {

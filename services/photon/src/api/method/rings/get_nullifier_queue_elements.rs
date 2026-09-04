@@ -15,7 +15,8 @@ use zolana_indexer_api::{
 ///
 /// The nullifier tree forester replays these into its reference indexed Merkle
 /// tree to build batch address-append proofs; the on-chain queue keeps only
-/// bloom filters and hash chains, so the raw values must come from the indexer.
+/// hash chains (plus one nullifier PDA per nullifier keyed by its address), so the
+/// raw values must come from the indexer.
 pub async fn get_nullifier_queue_elements(
     conn: &DatabaseConnection,
     request: GetNullifierQueueElementsRequest,

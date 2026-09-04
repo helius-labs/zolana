@@ -1,10 +1,14 @@
 use anyhow::Result;
+use solana_address_lookup_table_interface::instruction::{
+    create_lookup_table, extend_lookup_table,
+};
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::Message;
+use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
-use solana_transaction::Transaction;
+use solana_signer::Signer;
+use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use std::{
     collections::BTreeSet,
     fs,
@@ -44,6 +48,91 @@ pub fn send_transaction(
     let message = Message::new(ixs, Some(payer));
     let transaction = Transaction::new(signers, message, blockhash);
     rpc.send_transaction(&transaction)
+}
+
+const SLOT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+const PACKET_DATA_SIZE: usize = 1232;
+
+pub fn legacy_transaction_len(ixs: &[Instruction], payer: &Pubkey) -> usize {
+    let message = Message::new(ixs, Some(payer));
+    1 + 64 * usize::from(message.header.num_required_signatures) + message.serialize().len()
+}
+
+pub fn send_transaction_fitting(
+    rpc: &mut SolanaRpc,
+    ixs: &[Instruction],
+    payer: &Keypair,
+    signers: &[&Keypair],
+) -> std::result::Result<Signature, ClientError> {
+    if legacy_transaction_len(ixs, &payer.pubkey()) <= PACKET_DATA_SIZE {
+        let mut all_signers: Vec<&Keypair> = vec![payer];
+        all_signers.extend(signers.iter().copied());
+        return send_transaction(rpc, ixs, &payer.pubkey(), &all_signers);
+    }
+    send_transaction_with_lookup_table(rpc, ixs, payer, signers)
+}
+
+pub fn lookup_table_addresses(ixs: &[Instruction]) -> Vec<Pubkey> {
+    let mut addresses = Vec::new();
+    for address in ixs.iter().flat_map(|ix| {
+        ix.accounts
+            .iter()
+            .filter(|meta| !meta.is_signer)
+            .map(|meta| meta.pubkey)
+            .chain(std::iter::once(ix.program_id))
+    }) {
+        if !addresses.contains(&address) {
+            addresses.push(address);
+        }
+    }
+    addresses
+}
+
+pub fn send_transaction_with_lookup_table(
+    rpc: &mut SolanaRpc,
+    ixs: &[Instruction],
+    payer: &Keypair,
+    signers: &[&Keypair],
+) -> std::result::Result<Signature, ClientError> {
+    let addresses = lookup_table_addresses(ixs);
+    let recent_slot = rpc.get_slot()?;
+    wait_past_slot(rpc, recent_slot)?;
+    let (create, table_address) = create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
+    let extend = extend_lookup_table(
+        table_address,
+        payer.pubkey(),
+        Some(payer.pubkey()),
+        addresses.clone(),
+    );
+    send_transaction(rpc, &[create, extend], &payer.pubkey(), &[payer])?;
+    let extended_slot = rpc.get_slot()?;
+    wait_past_slot(rpc, extended_slot)?;
+    let table = AddressLookupTableAccount {
+        key: table_address,
+        addresses,
+    };
+    let (blockhash, _) = rpc.get_latest_blockhash()?;
+    let message = v0::Message::try_compile(
+        &payer.pubkey(),
+        ixs,
+        std::slice::from_ref(&table),
+        blockhash,
+    )
+    .map_err(|error| ClientError::Rpc(error.to_string()))?;
+    let mut all_signers: Vec<&dyn Signer> = vec![payer];
+    all_signers.extend(signers.iter().map(|signer| *signer as &dyn Signer));
+    let transaction = VersionedTransaction::try_new(VersionedMessage::V0(message), &all_signers)
+        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
+    rpc.process_versioned_transaction(transaction)
+}
+
+fn wait_past_slot(rpc: &SolanaRpc, slot: u64) -> std::result::Result<(), ClientError> {
+    loop {
+        if rpc.get_slot()? > slot {
+            return Ok(());
+        }
+        std::thread::sleep(SLOT_POLL_INTERVAL);
+    }
 }
 
 /// Normalized paths to build products and test data rooted at the workspace.

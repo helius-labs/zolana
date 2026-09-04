@@ -390,7 +390,7 @@ Rotate keys with (needs the aws CLI + bucket write access):
 prover/server/scripts/rotate_proving_keys.sh   # regen keys + vkeys + lock; upload new version folder
 ```
 
-It regenerates the proving keys, the interface + batched-merkle-tree verifying
+It regenerates the proving keys, the interface + nullifier-tree verifying
 keys, the circuit fingerprints, and `proving-keys.lock`, then uploads the full set
 to the new `proving-keys/<version-hash>/` folder. Commit the regenerated lockfile
 together with the vkeys in ONE PR.

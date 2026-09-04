@@ -81,6 +81,7 @@ fn create_ix_for(authority: &Keypair) -> Instruction {
         ring_creation_authority: authority.pubkey().to_bytes().into(),
         ring_creation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
+        fee_authority: authority.pubkey().to_bytes().into(),
     }
     .instruction()
 }

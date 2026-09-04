@@ -62,7 +62,7 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
         &rpc.airdrop(&recipient_owner.pubkey(), 1_000_000)?,
     );
 
-    let tree_pubkey = tree.pubkey();
+    let tree_pubkey = tree;
     let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
     Ok(CycleEnv {
         rpc_url,

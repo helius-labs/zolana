@@ -15,7 +15,7 @@ impl Hasher for Keccak {
     }
 
     fn hashv(_vals: &[&[u8]]) -> Result<Hash, HasherError> {
-        #[cfg(all(not(target_os = "solana"), feature = "keccak"))]
+        #[cfg(not(target_os = "solana"))]
         {
             use sha3::{Digest, Keccak256};
 
@@ -24,10 +24,6 @@ impl Hasher for Keccak {
                 hasher.update(val);
             }
             Ok(hasher.finalize().into())
-        }
-        #[cfg(all(not(target_os = "solana"), not(feature = "keccak")))]
-        {
-            Err(HasherError::KeccakFeatureNotEnabled)
         }
         // Call via a system call to perform the calculation
         #[cfg(target_os = "solana")]

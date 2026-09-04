@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{
     cpi::{invoke_signed, Seed, Signer},
@@ -105,8 +106,8 @@ pub fn settle_spl_withdrawal(settlement: &SplWithdrawalAccounts<'_>, amount: u64
 fn token_account_amount(account: &AccountView) -> Result<u64, ProgramError> {
     let data = account
         .try_borrow()
-        .map_err(|_| ShieldedPoolError::PublicSettlementFailed)?;
+        .map_err(caused_by(ShieldedPoolError::PublicSettlementFailed))?;
     let state = PodStateWithExtensions::<PodAccount>::unpack(&data)
-        .map_err(|_| ShieldedPoolError::PublicSettlementFailed)?;
+        .map_err(caused_by(ShieldedPoolError::PublicSettlementFailed))?;
     Ok(u64::from(state.base.amount))
 }

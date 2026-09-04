@@ -355,14 +355,14 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Critical
   - Suggested test: positive both directions; harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-TRANSACT-42: forester fee is collected from the payer per queued input**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (exact on-chain deltas: tree gains 40, payer loses 5_000+40); overflow legs `program-tests/shielded-pool/tests/tree/contract.rs` `forester_fee_overflow_is_invalid_forester_fee`, `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026)
+- [x] **INV-TRANSACT-42: the tree's insertion fee is collected from the payer per queued input and credited to the fee balance**
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (exact on-chain deltas: the input tree gains `inputs.len() * fees.fee_per_nullifier`, the payer loses the signature fee plus that amount, the header's `fee_balance` grows by the same amount); `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (the credited balance is what PDA funding must stay above, INV-TRANSACT-49); overflow legs `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026), `program-libs/tree/tests/fees.rs` `credit_insertion_fee_overflow_is_reported`, `zero_schedule_charges_and_pays_nothing`
   - Kind: postcondition
-  - Statement: after proof verification, the payer transfers exactly `forester_fee_per_queue_element(zkp_batch_size) * inputs.len()` lamports to the input tree via one System-Program CPI; a fee-computation overflow returns 7026; a zero fee skips the CPI; the tree must be writable and program-owned else 7001.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:121-126` (`fn process_transact_ix`), `shared.rs:77-103` (`fn collect_forester_fee`)
-  - Error: `ShieldedPoolError::InvalidForesterFee = 7026`
+  - Statement: while queueing the inputs, the input tree's `fee_balance` increases by exactly `fee = tree.fees.fee_per_nullifier * inputs.len()` (the schedule stored in the tree header, INV-SET-FEES-07; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI, before any PDA is funded from the tree; a fee-computation or balance overflow returns 7026; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001. The payer never pays into a tree other than the input tree.
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs` (`fn apply_input_tree`, `credit_insertion_fee`), `transact/processor.rs` (`collect_forester_fee` before `create_nullifier_pdas`), `shared.rs` (`fn collect_forester_fee`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
+  - Error: `ShieldedPoolError::InvalidForesterFee = 7026` / `InvalidTreeAccounts = 7001`
   - Severity: High (fund movement)
-  - Suggested test: none remaining (exact deltas and both reachable 7026 overflow legs are pinned; the applied-batches multiplication cannot overflow from a u32 — type-bound pinned in `applied_batches_cannot_overflow_by_type_bound`)
+  - Suggested test: none remaining (exact deltas and the reachable 7026 overflow legs are pinned; the applied-batches multiplication cannot overflow from a u32 — type-bound pinned in `applied_batches_cannot_overflow_by_type_bound`)
 
 - [x] **INV-TRANSACT-44: SPL deposit settles only if the vault gains exactly the nominal amount**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount`
@@ -378,15 +378,15 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-29: pure shielded transfer moves no lamports and no tokens**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (frame assertions: every lamport balance unchanged except the payer's signature fee and the forester fee to the input tree)
   - Kind: frame
-  - Statement: after a successful `transact` with an empty `interface_transfers` list, every account's token balance is unchanged, and the only lamport movements are the payer's transaction fee and the forester fee (`forester_fee_per_queue_element(zkp_batch_size)` × input count) from the payer to the input tree (only the tree accounts' data changes).
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:119-126` (`fn process_transact_ix`), `shared.rs:77-103` (`fn collect_forester_fee`)
+  - Statement: after a successful `transact` with an empty `interface_transfers` list, every account's token balance is unchanged, and the only lamport movements are the payer's transaction fee and the insertion fee (`input_tree.fees.fee_per_nullifier` × input count, credited to the tree's `fee_balance`) from the payer to the input tree (only the tree accounts' data changes).
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn process_transact_ix`), `shared.rs` (`fn collect_forester_fee`)
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-30: transact modifies no account other than trees, payer fee and settlement accounts**
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (journaled snapshot compare: the trees are the only accounts whose data changed)
   - Kind: frame
-  - Statement: after a successful `transact`, every account other than the two tree accounts (`input_tree`, `output_tree`), the payer (forester fee), and (when `interface_transfers` legs are present) the settlement balance accounts has unchanged data and unchanged lamports.
+  - Statement: after a successful `transact`, every account other than the two tree accounts (`input_tree`, `output_tree`), the payer (insertion fee at the input tree's `fee_per_nullifier`), and (when `interface_transfers` legs are present) the settlement balance accounts has unchanged data and unchanged lamports.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:38-135` (`fn process_transact_ix`)
   - Severity: High
   - Suggested test: positive; harness: mollusk unit (full account snapshot compare)

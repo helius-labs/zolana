@@ -1,10 +1,10 @@
 use borsh::BorshDeserialize;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
-use zolana_batched_merkle_tree::merkle_tree::{
-    BatchedMerkleTreeAccount, InstructionDataAddressAppendInputs,
+use zolana_tree::nullifier_tree::{
+    layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
 };
-use zolana_tree::{InitAddressTreeAccountsInstructionData, TreeAccount, UTXO_TREE_HEIGHT};
+use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
 #[cfg(not(feature = "no-entrypoint"))]
 mod entrypoint {
@@ -14,20 +14,25 @@ mod entrypoint {
 const HEIGHT: u8 = UTXO_TREE_HEIGHT as u8;
 const DISCRIMINATOR: u8 = 7;
 
-const ADDRESS_RH: usize = 120;
-const ADDRESS_NUM_ITERS: usize = 10;
-const ADDRESS_BLOOM: usize = 575384;
 const ADDRESS_ZKP: usize = 120;
 
-type AddressTree<'a> =
-    BatchedMerkleTreeAccount<'a, ADDRESS_RH, ADDRESS_NUM_ITERS, ADDRESS_BLOOM, ADDRESS_ZKP>;
+type AddressTree = NullifierTreeLayout<ADDRESS_ZKP>;
+
+fn load_address_tree(account_data: &mut [u8]) -> Result<&mut AddressTree, ProgramError> {
+    let layout: &mut AddressTree =
+        wincode::deserialize_mut(account_data).map_err(|_| ProgramError::InvalidAccountData)?;
+    layout
+        .validate()
+        .map_err(|_| ProgramError::InvalidAccountData)?;
+    Ok(layout)
+}
 
 const OP_INIT: u8 = 0;
 const OP_DESERIALIZE: u8 = 1;
 const OP_APPEND: u8 = 2;
 const OP_NULLIFIER_INSERT: u8 = 3;
 const OP_APPEND_BATCH: u8 = 4;
-const OP_BATCH_ADDRESS_UPDATE: u8 = 5;
+const OP_BATCH_UPDATE_NULLIFIER_TREE: u8 = 5;
 
 pub fn process_instruction(
     _program_id: &Address,
@@ -72,15 +77,13 @@ pub fn process_instruction(
                 .map_err(|_| ProgramError::InvalidAccountData)?;
             bench_append_batch(&mut tree, &values)
         }
-        OP_BATCH_ADDRESS_UPDATE => {
-            let ix = InstructionDataAddressAppendInputs::try_from_slice(
+        OP_BATCH_UPDATE_NULLIFIER_TREE => {
+            let ix = InstructionDataBatchNullifyInputs::try_from_slice(
                 data.get(1..).ok_or(ProgramError::InvalidInstructionData)?,
             )
             .map_err(|_| ProgramError::InvalidInstructionData)?;
-            let address = solana_address::Address::from(pubkey);
-            let mut tree = AddressTree::address_from_bytes(&mut store, &address)
-                .map_err(|_| ProgramError::InvalidAccountData)?;
-            bench_batch_address_update(&mut tree, ix)
+            let tree = load_address_tree(&mut store)?;
+            bench_batch_update_nullifier_tree(tree, pubkey, ix)
         }
         _ => Err(ProgramError::InvalidInstructionData),
     }
@@ -88,8 +91,13 @@ pub fn process_instruction(
 
 #[profile]
 fn bench_init(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
-    let params = InitAddressTreeAccountsInstructionData::default();
-    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, params)
+    let params = NullifierTreeInitParams::default();
+    let fees = TreeFeeSchedule {
+        fee_per_nullifier: 190,
+        append_reimbursement: 5_000,
+        close_reimbursement: 170,
+    };
+    TreeAccount::init(bytes, DISCRIMINATOR, HEIGHT, pubkey, 0, params, fees)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
@@ -121,18 +129,19 @@ fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> Progra
 }
 
 #[profile]
-fn bench_batch_address_update(
-    tree: &mut AddressTree<'_>,
-    ix: InstructionDataAddressAppendInputs,
+fn bench_batch_update_nullifier_tree(
+    tree: &mut AddressTree,
+    pubkey: [u8; 32],
+    ix: InstructionDataBatchNullifyInputs,
 ) -> ProgramResult {
-    tree.update_tree_from_address_queue(ix)
+    tree.update_tree_from_queue(pubkey, ix)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }
 
 #[profile]
 fn bench_nullifier_insert(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
-    let mut nullifier = tree.nullifer_tree();
+    let nullifier = tree.nullifier_tree();
     for value in values.iter() {
         nullifier
             .insert_nullifier_into_queue(value)

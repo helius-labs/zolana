@@ -5,7 +5,7 @@ use std::str::FromStr;
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::SolanaRpc;
-use zolana_interface::DEFAULT_TREE_ADDRESS;
+use zolana_interface::pda;
 
 use crate::{
     catalogue::{discover, Catalogue},
@@ -261,7 +261,7 @@ impl Wizard<'_> {
         ui::heading(Icon::Tree, "entries tree");
         let tree = self.text(
             "entries tree",
-            Some(DEFAULT_TREE_ADDRESS.to_owned()),
+            Some(pda::tree(0).to_string()),
             false,
             &check_address,
         )?;
@@ -542,7 +542,7 @@ pub(crate) mod tests {
                 [Curator {
                     program: Base58Address(CURATOR),
                     lists: vec!["block".parse().expect("list")],
-                    entries_tree: Base58Address(Address::from_str_const(DEFAULT_TREE_ADDRESS)),
+                    entries_tree: Base58Address(pda::tree(0)),
                 }],
             );
             catalogue
@@ -618,10 +618,7 @@ pub(crate) mod tests {
                 .rule(Rule::forbid(Subject::OutputOwner, ListId::Block))
                 .build()
         );
-        assert_eq!(
-            compiled.entries_tree,
-            Address::from_str_const(DEFAULT_TREE_ADDRESS)
-        );
+        assert_eq!(compiled.entries_tree, pda::tree(0));
     }
 
     #[test]

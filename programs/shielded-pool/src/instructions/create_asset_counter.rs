@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{account::RefMut, error::ProgramError, AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{error::ShieldedPoolError, state::SplAssetCounter};
@@ -46,7 +47,7 @@ pub fn process_create_asset_counter(accounts: &mut [AccountView], data: &[u8]) -
         bump,
     }
     .execute()
-    .map_err(|_| ShieldedPoolError::InvalidSplAssetRegistry)?;
+    .map_err(caused_by(ShieldedPoolError::InvalidSplAssetRegistry))?;
 
     load_spl_asset_counter_mut(asset_counter)?
         .init()

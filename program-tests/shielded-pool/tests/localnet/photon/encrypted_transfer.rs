@@ -33,7 +33,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         authority: _authority,
         tree,
     } = initialize_pool(&mut rpc)?;
-    let tree_pubkey = tree.pubkey();
+    let tree_pubkey = tree;
     let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
     let zero = [0u8; 32];
 

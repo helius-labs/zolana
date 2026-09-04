@@ -1,7 +1,7 @@
 use pinocchio::{AccountView, Address};
-use zolana_batched_merkle_tree::constants::DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN;
 use zolana_interface::{
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
+    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_tree::TreeAccount;
 
@@ -53,7 +53,7 @@ pub fn load_roots(
     let nullifier = tree
         .get_nullifier_tree_root(nullifier_root_index)
         .map_err(|_| CustomRingError::StalePolicyRoot)?;
-    let cursor = tree.nullifer_tree().get_root_index();
+    let cursor = tree.nullifier_tree().get_root_index();
     if !within_window(u32::from(nullifier_root_index), cursor) {
         return Err(CustomRingError::StalePolicyRoot);
     }
@@ -61,7 +61,7 @@ pub fn load_roots(
 }
 
 fn within_window(index: u32, cursor: u32) -> bool {
-    let capacity = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN;
+    let capacity = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
     if index >= capacity || cursor >= capacity {
         return false;
     }
@@ -72,7 +72,7 @@ fn within_window(index: u32, cursor: u32) -> bool {
 mod tests {
     use super::*;
 
-    const CAPACITY: u32 = DEFAULT_ADDRESS_BATCH_ROOT_HISTORY_LEN;
+    const CAPACITY: u32 = NULLIFIER_TREE_ROOT_HISTORY_CAPACITY;
 
     #[test]
     fn the_window_admits_the_cursor_and_the_last_entries() {

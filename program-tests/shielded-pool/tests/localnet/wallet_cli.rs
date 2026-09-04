@@ -342,7 +342,7 @@ impl TransferOutput {
 }
 
 /// Shared state for the `wallet_cli_sol_and_spl_cycle` story: the CLI endpoints,
-/// the wallet/tree keypair paths, and the config file every `zolana` invocation
+/// the wallet keypair paths, and the config file every `zolana` invocation
 /// reads.
 struct CycleEnv {
     rpc_url: String,
@@ -350,7 +350,6 @@ struct CycleEnv {
     prover_url: String,
     alice_keypair: PathBuf,
     bob_keypair: PathBuf,
-    tree_keypair: PathBuf,
     config_path: String,
 }
 
@@ -385,7 +384,6 @@ fn phase_setup_environment() -> Result<CycleEnv> {
     let root = temp_wallet_dir()?;
     let alice_keypair = root.join("alice.pid.json");
     let bob_keypair = root.join("bob.pid.json");
-    let tree_keypair = root.join("tree.json");
     let config_path = root.join("config.json").to_string_lossy().into_owned();
     let cli_env = [("ZOLANA_CONFIG", config_path.as_str())];
 
@@ -424,7 +422,6 @@ fn phase_setup_environment() -> Result<CycleEnv> {
         prover_url,
         alice_keypair,
         bob_keypair,
-        tree_keypair,
         config_path,
     })
 }
@@ -438,10 +435,8 @@ fn phase_create_tree_and_spl_mint(env: &CycleEnv, rpc: &mut SolanaRpc) -> Result
             "dev",
             "pool",
             "create-tree",
-            "--tree-keypair",
-            &env.tree_keypair.display().to_string(),
             "--airdrop-lamports",
-            "20000000000",
+            "100000000000",
         ],
         &cli_env,
     )?;

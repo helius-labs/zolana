@@ -1,3 +1,4 @@
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
@@ -10,7 +11,7 @@ use crate::instructions::protocol_config::loader::load_protocol_config;
 
 pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = CreateRingConfigData::try_from_slice(data)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer("payer")?;
     let protocol_config = iter.next_account("protocol_config")?;
@@ -57,7 +58,7 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
         payer,
         None,
     )
-    .map_err(|_| ShieldedPoolError::InvalidRingConfig)?;
+    .map_err(caused_by(ShieldedPoolError::InvalidRingConfig))?;
 
     RingConfigInitParams {
         authority: data.authority,
