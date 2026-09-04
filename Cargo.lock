@@ -2094,7 +2094,6 @@ dependencies = [
  "pinocchio 0.11.2",
  "pinocchio-system",
  "solana-account 4.3.1",
- "solana-address 2.6.1",
  "solana-curve25519 4.0.1",
  "solana-instruction",
  "solana-loader-v3-interface 8.0.1",
@@ -2158,7 +2157,6 @@ name = "custom-ring-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "bincode 2.0.1",
  "custom-ring-cli",
  "custom-ring-interface",
@@ -2170,7 +2168,6 @@ dependencies = [
  "solana-instruction",
  "solana-keypair",
  "solana-packet 3.0.0",
- "solana-rent 4.3.0",
  "solana-signature",
  "solana-signer",
  "solana-system-interface 3.2.0",

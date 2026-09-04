@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
 use zolana_client::{ProverClient, Rpc};
-use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
 
 use crate::{
@@ -262,6 +262,7 @@ impl ProvenEntry {
                 AccountMeta::new(entries_tree, false),
                 AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
                 AccountMeta::new_readonly(Address::default(), false),
+                AccountMeta::new(pda::nullifier_pda(&entries_tree, &proof.nullifier).0, false),
                 AccountMeta::new_readonly(ring.namespace_pda(), false),
             ],
             data,
@@ -297,5 +298,44 @@ mod tests {
             refused,
             Err(EntryError::InvalidContent(ListId::Allow))
         ));
+    }
+
+    #[test]
+    fn a_mutation_places_its_writable_nullifier_pda_before_the_namespace_signer() {
+        let ring = CustomRing::new(Address::new_from_array([42u8; 32]));
+        let entries_tree = Address::new_from_array([2u8; 32]);
+        let nullifier = [9u8; 32];
+        let instruction = ProvenEntry {
+            ring,
+            payer: Address::new_from_array([1u8; 32]),
+            entries_tree,
+            entry: ListEntry {
+                list_id: ListId::Allow,
+                member: Member::owner_tag(&[3u8; 32]).expect("member"),
+                state: EntryState::Active,
+                version: 0,
+                content_hash: [0u8; 32],
+            },
+            spent: None,
+            proof: EntryProof {
+                proof: zolana_interface::instruction::TransactProof::zeroed(),
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+                nullifier,
+            },
+        }
+        .instruction()
+        .expect("entry instruction");
+
+        let nullifier_meta = instruction.accounts.get(7).expect("nullifier PDA");
+        assert_eq!(
+            nullifier_meta.pubkey,
+            pda::nullifier_pda(&entries_tree, &nullifier).0
+        );
+        assert!(nullifier_meta.is_writable);
+        assert_eq!(
+            instruction.accounts.get(8).expect("namespace").pubkey,
+            ring.namespace_pda()
+        );
     }
 }
