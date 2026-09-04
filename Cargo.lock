@@ -2087,6 +2087,7 @@ dependencies = [
  "zolana-ring-policy",
  "zolana-ring-rpc",
  "zolana-transaction",
+ "zolana-wallet",
 ]
 
 [[package]]

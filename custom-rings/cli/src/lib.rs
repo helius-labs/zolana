@@ -11,6 +11,7 @@ pub mod init;
 pub mod keys;
 pub mod list;
 pub mod localnet;
+pub mod merge;
 pub mod new;
 pub mod pipeline;
 pub mod policy;
@@ -96,6 +97,8 @@ pub enum Command {
     Transact(TransactArgs),
     /// Deposit an amount and send all of it to a shielded address inside the ring.
     Transfer(TransferArgs),
+    /// Consolidate existing notes of one asset into one note.
+    Merge(MergeArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds the ring's auditor key.
     RpcCheck,
     /// Transfer or renounce the program's upgrade authority.
@@ -278,6 +281,26 @@ pub struct TransferArgs {
     /// Lamports the recipient receives, deposited by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+}
+
+#[derive(Debug, Args)]
+pub struct MergeArgs {
+    /// Mint to merge; SOL when omitted.
+    #[arg(long)]
+    pub mint: Option<Address>,
+    /// Maximum number of notes to merge, from 2 through 8.
+    #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
+    pub count: usize,
+}
+
+fn parse_merge_count(value: &str) -> Result<usize, String> {
+    let count = value
+        .parse::<usize>()
+        .map_err(|_| "count must be an integer from 2 through 8".to_owned())?;
+    (2..=8)
+        .contains(&count)
+        .then_some(count)
+        .ok_or_else(|| "count must be from 2 through 8".to_owned())
 }
 
 // The pipeline runs each step with the answers its command defaults to.
@@ -523,6 +546,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
         Command::Transact(args) => transact::run(&mut ctx, args)?,
         Command::Transfer(args) => transact::run_transfer(&mut ctx, args)?,
+        Command::Merge(args) => merge::run(&mut ctx, args)?,
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
@@ -568,6 +592,27 @@ mod tests {
     #[test]
     fn the_command_tree_is_well_formed() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn merge_takes_an_optional_mint_and_a_bounded_count() {
+        let mint = Address::new_from_array([7; 32]);
+        let Command::Merge(args) = Cli::try_parse_from([
+            "zolana-ring",
+            "merge",
+            "--mint",
+            &mint.to_string(),
+            "--count",
+            "4",
+        ])
+        .expect("merge parses")
+        .command
+        else {
+            panic!("merge");
+        };
+        assert_eq!(args.mint, Some(mint));
+        assert_eq!(args.count, 4);
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "9"]).is_err());
     }
 
     #[test]

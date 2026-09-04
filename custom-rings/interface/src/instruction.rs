@@ -12,6 +12,8 @@ pub mod tag {
     /// one: the client builds the SPP-shaped instruction and only re-targets the
     /// program id.
     pub const DEPOSIT: u8 = zolana_interface::instruction::tag::RING_DEPOSIT;
+    /// SPP ring merge wire tag.
+    pub const MERGE: u8 = zolana_interface::instruction::tag::RING_MERGE_TRANSACT;
     pub const GRANT_READ_ACCESS: u8 = 4;
     pub const REVOKE_READ_ACCESS: u8 = 5;
     pub const SET_AUTHORITY: u8 = 6;

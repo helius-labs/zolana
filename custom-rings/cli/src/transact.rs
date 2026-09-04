@@ -9,7 +9,6 @@ use custom_ring_sdk::{
     RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
 };
 use solana_address::Address;
-use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
@@ -518,13 +517,7 @@ fn policy_rules(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<RuleTable>, 
 /// Kept between runs, earlier change stays spendable with it.
 fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, TransactError> {
     let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
-    let keypair = if path.is_file() {
-        file::read_keypair(&path)?
-    } else {
-        let keypair = Keypair::new();
-        file::write_keypair(&keypair, &path)?;
-        keypair
-    };
+    let keypair = file::read_or_create_keypair(&path)?;
     Ok(ShieldedKeypair::from_keypair(&keypair)?)
 }
 
