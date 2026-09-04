@@ -1,8 +1,8 @@
-import type { Address, Bytes16, Bytes32, Bytes33 } from "../../interface/types.js";
-import type { NullifierKey } from "../../keypair/nullifier-key.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
+import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
+import type { Address, Bytes16, Bytes32, Bytes33, RequestContext } from "../../interface/types.js";
 import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.js";
-import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
+import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { initializePoseidon } from "../../hasher/index.js";
 import { TransactionError } from "../error.js";
@@ -19,18 +19,24 @@ import {
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  decryptAnonymous,
-  decryptConfidential,
+  decodeConfidential,
   decryptConfidentialAsSender,
   prooflessUtxo,
   plaintextTransferUtxos,
   readOutputData,
   splitBundleUtxos,
+  splitEmbeddedKey,
   type ProoflessOutput,
 } from "../serialization/codecs.js";
-import { decodeRingDepositOutput, decryptRingDepositUtxo } from "../serialization/ring-deposit.js";
+import { decodeRingDepositOutput, ringDepositUtxo } from "../serialization/ring-deposit.js";
 import { Utxo } from "../utxo.js";
-import type { SyncWalletAuthority, WalletSyncMaterial } from "./authority.js";
+import { KeyMemo } from "./key-memo.js";
+import {
+  LocalShieldedKeys,
+  checkKeysIdentity,
+  checkViewingPublicKeys,
+  type ShieldedKeys,
+} from "./keys.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import {
   SENDER_HISTORY_ROW_BASE,
@@ -60,27 +66,16 @@ export interface PrivateBalances {
   balances(skipUtxos?: boolean): readonly AssetBalance[];
 }
 
-function validateMaterial(wallet: Wallet, material: WalletSyncMaterial): void {
-  if (
-    !equal(
-      material.identity.signingPublicKey.toBytes(),
-      wallet.identity.signingPublicKey.toBytes(),
-    ) ||
-    !equal(material.identity.nullifierPublicKey, wallet.identity.nullifierPublicKey) ||
-    !equal(material.identity.viewingPublicKey.toBytes(), wallet.identity.viewingPublicKey.toBytes())
-  ) {
-    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
-  }
-  if (
-    !material.viewingKeys.some((key) =>
-      equal(key.publicKey().toBytes(), wallet.identity.viewingPublicKey.toBytes()),
-    )
-  ) {
-    throw new TransactionError("TRANSACTION_MISSING_CURRENT_VIEWING_KEY");
-  }
-  if (!equal(material.nullifierKey.publicKey(), material.identity.nullifierPublicKey)) {
-    throw new TransactionError("TRANSACTION_WALLET_AUTHORITY_MISMATCH");
-  }
+/**
+ * Rounds a decode pass can need: one for the ciphertexts, one for the
+ * nullifiers over their plaintexts, two per merge site (its derivations, then
+ * the nullifier of its output, which the next merge in the chain spends), and
+ * the final pass with every answer in hand. A resolved round answers every
+ * request or throws, so a pass past this bound is a memo that is not caching,
+ * not a deeper wallet.
+ */
+function maxKeyRounds(mergeSites: number): number {
+  return 3 + 2 * mergeSites;
 }
 
 /** One output slot of one fetched transaction, by position in both lists. */
@@ -154,18 +149,18 @@ function compareAssets(left: Address, right: Address): number {
   return leftBytes < rightBytes ? -1 : leftBytes > rightBytes ? 1 : 0;
 }
 
-/** Retain every viewing key the authority can still use after rotation. */
+/** Retain every viewing key the wallet has held. */
 function ensureViewingKeyEntries(
   history: readonly ViewingKeyEntry[],
-  viewingKeys: readonly ViewingKeyLike[],
+  viewingPublicKeys: readonly P256PublicKey[],
 ): readonly ViewingKeyEntry[] {
   const known = new Set(history.map((entry) => hex(entry.viewingPublicKey.toBytes())));
   const entries = [...history];
-  for (const key of viewingKeys) {
-    const id = hex(key.publicKey().toBytes());
+  for (const key of viewingPublicKeys) {
+    const id = hex(key.toBytes());
     if (known.has(id)) continue;
     known.add(id);
-    entries.push(newViewingKeyEntry(key.publicKey(), 0n));
+    entries.push(newViewingKeyEntry(key, 0n));
   }
   return entries;
 }
@@ -196,23 +191,20 @@ function historyId(tx: IndexedShieldedTransaction, index: bigint): PrivateTransa
   return { signature: tx.txSignature, slot: tx.slot, index };
 }
 
+/**
+ * A row's identity is its transaction and index: a received or merged output
+ * by leaf index, a sender-side aggregate by its asset row. Recording the same
+ * identity again replaces the row, so a transaction seen with a fuller view of
+ * the wallet (its change now known, its spend now netted) does not leave the
+ * earlier row beside the corrected one.
+ */
 function rowKey(row: PrivateTransaction): string {
-  return [
-    row.id.signature,
-    row.id.slot,
-    row.id.index,
-    row.kind,
-    row.asset,
-    row.amount,
-    row.counterpartyViewingPublicKey === undefined
-      ? ""
-      : hex(row.counterpartyViewingPublicKey.toBytes()),
-  ].join("|");
+  return `${row.id.signature}|${row.id.slot}|${row.id.index}`;
 }
 
 /**
  * The UTXOs and history rows one sync produces, accumulated across every
- * viewing key the authority supplied. This is the counterpart of Rust
+ * viewing key the wallet's keys hold. This is the counterpart of Rust
  * `SyncCtx`: it owns the staged wallet contents so a rejection leaves the
  * wallet untouched, and it carries the report counters each decode step
  * advances.
@@ -220,7 +212,9 @@ function rowKey(row: PrivateTransaction): string {
 class SyncPass {
   readonly #owner: ShieldedPublicKey;
   readonly #nullifierPublicKey: Bytes32;
-  readonly #nullifierKey: NullifierKey;
+  /** The keys the wallet holds, current first; the pass opens under each. */
+  readonly #viewingPublicKeys: readonly P256PublicKey[];
+  readonly #keys: KeyMemo;
   /**
    * Every viewing key this wallet has held, current and rotated-out, as hex
    * ids. A transfer addressed to a retired key is still addressed to this
@@ -244,7 +238,9 @@ class SyncPass {
 
   constructor(
     input: Readonly<{
-      material: WalletSyncMaterial;
+      identity: ShieldedAddress;
+      viewingPublicKeys: readonly P256PublicKey[];
+      keys: KeyMemo;
       assets: AssetRegistry;
       transactions: readonly IndexedShieldedTransaction[];
       utxos: readonly WalletUtxo[];
@@ -252,9 +248,10 @@ class SyncPass {
       selfViewingPublicKeys: readonly P256PublicKey[];
     }>,
   ) {
-    this.#owner = input.material.identity.signingPublicKey;
-    this.#nullifierPublicKey = input.material.identity.nullifierPublicKey;
-    this.#nullifierKey = input.material.nullifierKey;
+    this.#owner = input.identity.signingPublicKey;
+    this.#nullifierPublicKey = input.identity.nullifierPublicKey;
+    this.#viewingPublicKeys = input.viewingPublicKeys;
+    this.#keys = input.keys;
     this.#selfViewingPublicKeys = new Set(
       input.selfViewingPublicKeys.map((key) => hex(key.toBytes())),
     );
@@ -297,15 +294,27 @@ class SyncPass {
       });
   }
 
+  /**
+   * `pending` means the nullifier is not derived yet; the memo has recorded
+   * the request and the next round stores the UTXO. Nothing is counted for a
+   * pending slot, so the final round's report is the one a single pass over
+   * in-process keys would produce.
+   */
   #store(
     utxo: Utxo,
     outputContext: OutputContext,
     dataHash: Bytes32 | undefined,
     ringDataHash: Bytes32 | undefined,
-  ): void {
-    if (!equal(utxo.owner.toBytes(), this.#owner.toBytes())) return;
+  ): "stored" | "skipped" | "pending" {
+    if (!equal(utxo.owner.toBytes(), this.#owner.toBytes())) return "skipped";
     const outputId = hex(outputContext.hash);
-    if (this.#outputHashes.has(outputId)) return;
+    if (this.#outputHashes.has(outputId)) return "skipped";
+    const nullifier = this.#keys.derive({
+      kind: "nullifier",
+      utxoHash: outputContext.hash,
+      blinding: utxo.blinding,
+    });
+    if (nullifier === undefined) return "pending";
     this.#utxos.push(
       Object.freeze({
         utxo,
@@ -314,7 +323,7 @@ class SyncPass {
           tree: outputContext.tree,
           leafIndex: outputContext.leafIndex,
         }),
-        nullifier: utxo.nullifier(outputContext.hash, this.#nullifierKey),
+        nullifier,
         ...(dataHash === undefined ? {} : { dataHash }),
         ...(ringDataHash === undefined ? {} : { ringDataHash }),
         spent: false,
@@ -322,6 +331,7 @@ class SyncPass {
     );
     this.#outputHashes.add(outputId);
     this.storedUtxos++;
+    return "stored";
   }
 
   /**
@@ -353,8 +363,7 @@ class SyncPass {
         this.undecryptableCandidates++;
         continue;
       }
-      this.#store(utxo, outputContext, dataHash, ringDataHash);
-      stored = true;
+      if (this.#store(utxo, outputContext, dataHash, ringDataHash) !== "pending") stored = true;
     }
     return stored;
   }
@@ -539,44 +548,38 @@ class SyncPass {
   }
 
   /**
-   * Whether `key` is the viewing key that authored `tx`: the transaction
+   * Whether `viewingPublicKey` is the key that authored `tx`: the transaction
    * viewing key derived from the first nullifier reproduces the published one
    * only for the spending wallet.
    */
-  #authored(tx: IndexedShieldedTransaction, key: ViewingKeyLike): boolean {
+  #authored(tx: IndexedShieldedTransaction, viewingPublicKey: P256PublicKey): boolean {
+    const published = tx.txViewingPublicKey;
     const firstNullifier = tx.nullifiers[0];
-    if (tx.txViewingPublicKey === undefined || firstNullifier === undefined) return false;
-    const txKey = key.transactionViewingKey(firstNullifier);
-    try {
-      return equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes());
-    } finally {
-      txKey.destroy();
-    }
+    if (published === undefined || firstNullifier === undefined) return false;
+    const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
+    return txKey !== undefined && equal(txKey.publicKey().toBytes(), published.toBytes());
   }
 
   /** The embedded viewing key and committed UTXO identify change. */
-  recordConfidentialSend(tx: IndexedShieldedTransaction, index: number, key: ViewingKeyLike): void {
+  recordConfidentialSend(
+    tx: IndexedShieldedTransaction,
+    index: number,
+    viewingPublicKey: P256PublicKey,
+  ): void {
     const firstNullifier = tx.nullifiers[0];
     const salt = tx.salt;
     if (tx.txViewingPublicKey === undefined || firstNullifier === undefined || salt === undefined) {
       return;
     }
-    const txKey = key.transactionViewingKey(firstNullifier);
-    try {
-      if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
-      if (this.#processedOutbound.has(index)) return;
-      this.#processedOutbound.add(index);
-      this.#decodeOutboundSlots(tx, txKey, salt);
-    } finally {
-      txKey.destroy();
-    }
+    const txKey = this.#keys.transactionKey({ viewingPublicKey, firstNullifier });
+    if (txKey === undefined) return;
+    if (!equal(txKey.publicKey().toBytes(), tx.txViewingPublicKey.toBytes())) return;
+    if (this.#processedOutbound.has(index)) return;
+    this.#processedOutbound.add(index);
+    this.#decodeOutboundSlots(tx, txKey, salt);
   }
 
-  #decodeOutboundSlots(
-    tx: IndexedShieldedTransaction,
-    txKey: ReturnType<ViewingKeyLike["transactionViewingKey"]>,
-    salt: Bytes16,
-  ): void {
+  #decodeOutboundSlots(tx: IndexedShieldedTransaction, txKey: ViewingKey, salt: Bytes16): void {
     const change: Utxo[] = [];
     const recipients: Array<Readonly<{ key: P256PublicKey; utxo: Utxo }>> = [];
     tx.outputSlots.forEach((slot, position) => {
@@ -663,7 +666,7 @@ class SyncPass {
    * committed leaf; the anonymous and split sender bundles, passed as slot 0,
    * store their change against the whole transaction.
    */
-  decodeSlot(key: ViewingKeyLike, site: Site): void {
+  decodeSlot(viewingPublicKey: P256PublicKey, site: Site): void {
     const siteKey = `${String(site.transaction)}:${String(site.slot)}`;
     if (this.#processedSlots.has(siteKey)) return;
     const tx = this.#transactions[site.transaction];
@@ -719,8 +722,10 @@ class SyncPass {
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousRecipient) {
       let sender: P256PublicKey;
       let utxo: Utxo;
+      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
+      if (decrypted === undefined) return;
       try {
-        const plaintext = decodeAnonymousRecipient(this.#decryptFor(key, tx, body, site.slot));
+        const plaintext = decodeAnonymousRecipient(decrypted);
         sender = plaintext.senderPublicKey;
         utxo = anonymousRecipientUtxo(plaintext, this.#assets);
       } catch (error) {
@@ -745,13 +750,17 @@ class SyncPass {
         frame.scheme === EncryptedScheme.ringConfidential)
     ) {
       let utxo: Utxo;
+      let ciphertext: Uint8Array;
       try {
-        const { txViewingPublicKey, salt } = this.#envelope(tx);
-        utxo = confidentialUtxo(
-          decryptConfidential(key, txViewingPublicKey, body, salt, site.slot),
-          this.#owner,
-          this.#assets,
-        );
+        ciphertext = splitEmbeddedKey(body).rest;
+      } catch (error) {
+        this.#recordUndecryptable(error, siteKey);
+        return;
+      }
+      const decrypted = this.#decryptSlot(viewingPublicKey, tx, ciphertext, site.slot, siteKey);
+      if (decrypted === undefined) return;
+      try {
+        utxo = confidentialUtxo(decodeConfidential(decrypted), this.#owner, this.#assets);
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -763,7 +772,9 @@ class SyncPass {
         // output; its outbound history is recorded once per transaction by
         // `recordConfidentialSend`, so it must not also be logged here as an
         // inbound receipt.
-        if (!this.#authored(tx, key)) this.#recordReceived(tx, site.slot, undefined, utxo);
+        if (!this.#authored(tx, viewingPublicKey)) {
+          this.#recordReceived(tx, site.slot, undefined, utxo);
+        }
       }
       return;
     }
@@ -772,9 +783,26 @@ class SyncPass {
       let utxo: Utxo;
       let dataHash: Bytes32 | undefined;
       let ringDataHash: Bytes32 | undefined;
+      let output: ReturnType<typeof decodeRingDepositOutput>;
+      let txViewingPublicKey: P256PublicKey;
       try {
-        const output = decodeRingDepositOutput(body);
-        utxo = decryptRingDepositUtxo(output, key, this.#owner);
+        output = decodeRingDepositOutput(body);
+        txViewingPublicKey = P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey);
+      } catch (error) {
+        this.#recordUndecryptable(error, siteKey);
+        return;
+      }
+      const decrypted = this.#keys.decrypt({
+        ciphertext: output.encrypted.ciphertext,
+        viewingPublicKey,
+        txViewingPublicKey,
+        salt: output.encrypted.salt,
+        slotIndex: 0,
+        label: "ringDeposit",
+      });
+      if (decrypted === undefined) return;
+      try {
+        utxo = ringDepositUtxo(output, decrypted, this.#owner);
         dataHash = output.dataHash;
         // A zero ring data hash is absent in the commitment.
         ringDataHash = output.ringDataHash.some((byte) => byte !== 0)
@@ -795,8 +823,10 @@ class SyncPass {
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.anonymousSender) {
       let recipients: readonly P256PublicKey[];
       let change: readonly Utxo[];
+      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
+      if (decrypted === undefined) return;
       try {
-        const plaintext = decodeAnonymousSender(this.#decryptFor(key, tx, body, site.slot));
+        const plaintext = decodeAnonymousSender(decrypted);
         recipients = plaintext.recipientViewingPublicKeys;
         change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT);
       } catch (error) {
@@ -823,12 +853,10 @@ class SyncPass {
 
     if (frame.encoding === "encrypted" && frame.scheme === EncryptedScheme.split) {
       let utxos: readonly Utxo[];
+      const decrypted = this.#decryptSlot(viewingPublicKey, tx, body, site.slot, siteKey);
+      if (decrypted === undefined) return;
       try {
-        const { txViewingPublicKey, salt } = this.#envelope(tx);
-        utxos = splitBundleUtxos(
-          decodeSplitBundle(key.decryptUtxo(body, txViewingPublicKey, salt, site.slot)),
-          this.#assets,
-        );
+        utxos = splitBundleUtxos(decodeSplitBundle(decrypted), this.#assets);
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -880,10 +908,26 @@ class SyncPass {
       return false;
     }
 
+    // A merge spends a fixed number of slots; anything wider is not one.
+    if (tx.nullifiers.length > MERGE_INPUT_COUNT) {
+      this.undecryptableCandidates++;
+      return true;
+    }
+    // Requested together so one round answers both, and read before any
+    // matching: a pending derivation means "not yet", never "not a merge".
+    const dummyNullifiers = tx.nullifiers.map((_, index) =>
+      this.#keys.derive({ kind: "mergeDummyNullifier", firstNullifier, slotIndex: index }),
+    );
+    const outputBlinding = this.#keys.derive({ kind: "mergeOutputBlinding", firstNullifier });
+    if (outputBlinding === undefined || dummyNullifiers.some((value) => value === undefined)) {
+      return false;
+    }
+
     try {
       const matched: WalletUtxo[] = [];
       for (const [index, nullifier] of tx.nullifiers.entries()) {
-        if (equal(nullifier, mergeDummyNullifier(this.#nullifierKey, firstNullifier, index))) {
+        const dummy = dummyNullifiers[index];
+        if (dummy !== undefined && equal(nullifier, dummy)) {
           continue;
         }
         const entry = this.#utxos.find((candidate) => equal(candidate.nullifier, nullifier));
@@ -921,7 +965,7 @@ class SyncPass {
         owner: this.#owner,
         asset: first.utxo.asset,
         amount,
-        blinding: mergeOutputBlinding(this.#nullifierKey, firstNullifier),
+        blinding: outputBlinding,
         ...(ringProgramId === undefined ? {} : { ringProgramId }),
       });
       if (this.#storeRecipientUtxos([utxo], slot.outputContext, undefined, ringDataHash)) {
@@ -945,81 +989,119 @@ class SyncPass {
     return { txViewingPublicKey: tx.txViewingPublicKey, salt: tx.salt };
   }
 
-  #decryptFor(
-    key: ViewingKeyLike,
+  /**
+   * The transfer cipher over one slot with this wallet's viewing key, or
+   * `undefined` while the memo has no answer yet. A transaction without an
+   * envelope is undecryptable, not pending.
+   */
+  #decryptSlot(
+    viewingPublicKey: P256PublicKey,
     tx: IndexedShieldedTransaction,
-    body: Uint8Array,
+    ciphertext: Uint8Array,
     slotIndex: number,
-  ): Uint8Array {
-    const { txViewingPublicKey, salt } = this.#envelope(tx);
-    return decryptAnonymous(key, txViewingPublicKey, body, salt, slotIndex);
+    siteKey: string,
+  ): Uint8Array | undefined {
+    let envelope: Readonly<{ txViewingPublicKey: P256PublicKey; salt: Bytes16 }>;
+    try {
+      envelope = this.#envelope(tx);
+    } catch (error) {
+      this.#recordUndecryptable(error, siteKey);
+      return undefined;
+    }
+    return this.#keys.decrypt({
+      ciphertext,
+      viewingPublicKey,
+      txViewingPublicKey: envelope.txViewingPublicKey,
+      salt: envelope.salt,
+      slotIndex,
+      label: "transfer",
+    });
   }
 
   /**
    * Open only the two stable discovery families: this viewing key's bootstrap
    * tag and the shielded identity's signing tag.
    */
-  processStableTags(
-    key: ViewingKeyLike,
-    input: Readonly<{ identityTag: Bytes32; index: TagIndex }>,
-  ): void {
+  processStableTags(input: Readonly<{ identityTag: Bytes32; index: TagIndex }>): void {
     const { index } = input;
     const recipientSites = (tag: string): readonly Site[] => index.recipientSites.get(tag) ?? [];
-
-    for (const site of recipientSites(hex(key.recipientBootstrapViewTag()))) {
-      this.decodeSlot(key, site);
-    }
     const identityTag = hex(input.identityTag);
-    for (const site of recipientSites(identityTag)) this.decodeSlot(key, site);
-    for (const transaction of index.senderSites.get(identityTag) ?? []) {
-      this.decodeSlot(key, { transaction, slot: 0 });
-    }
 
-    this.#transactions.forEach((tx, position) => {
-      this.recordConfidentialSend(tx, position, key);
-    });
+    for (const viewingPublicKey of this.#viewingPublicKeys) {
+      for (const site of recipientSites(hex(viewingPublicKey.x()))) {
+        this.decodeSlot(viewingPublicKey, site);
+      }
+      for (const site of recipientSites(identityTag)) this.decodeSlot(viewingPublicKey, site);
+      for (const transaction of index.senderSites.get(identityTag) ?? []) {
+        this.decodeSlot(viewingPublicKey, { transaction, slot: 0 });
+      }
+      this.#transactions.forEach((tx, position) => {
+        this.recordConfidentialSend(tx, position, viewingPublicKey);
+      });
+    }
   }
 }
 
 export async function decryptTransactions(
   input: Readonly<{
     wallet: Wallet;
-    authority: SyncWalletAuthority;
+    keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     config?: DecryptTransactionsConfig;
+    /** Forwarded to every batch the key holder answers. */
+    context?: RequestContext | undefined;
   }>,
 ): Promise<SyncReport> {
   await initializePoseidon();
-  const material = await input.authority.syncMaterial();
-  validateMaterial(input.wallet, material);
+  checkKeysIdentity(input.keys, input.wallet.identity);
+  const identity = input.keys.address();
+  const viewingPublicKeys = checkViewingPublicKeys(input.keys, identity);
   const current = input.wallet._state();
   const index = buildTagIndex(input.transactions);
   // Before the pass, which needs the full key set: seeded with the identity's
-  // key and extended with this material's, so it holds every key this wallet
-  // has ever been given -- including keys this scan's material omits.
-  const viewingKeyHistory = ensureViewingKeyEntries(
-    current.viewingKeyHistory,
-    material.viewingKeys,
-  );
-  const pass = new SyncPass({
-    material,
-    assets: input.wallet.registry,
-    transactions: input.transactions,
-    utxos: current.utxos,
-    rows: current.transactions,
-    selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
-  });
-  const identityTag = material.identity.signingPublicKey.confidentialViewTag();
-
-  for (const entry of viewingKeyHistory) {
-    const id = hex(entry.viewingPublicKey.toBytes());
-    const key = material.viewingKeys.find(
-      (candidate) => hex(candidate.publicKey().toBytes()) === id,
-    );
-    if (key !== undefined) pass.processStableTags(key, { identityTag, index });
+  // key and extended with every key held, so it holds every key this wallet
+  // has ever been given -- including keys a later sync no longer holds.
+  const viewingKeyHistory = ensureViewingKeyEntries(current.viewingKeyHistory, viewingPublicKeys);
+  const identityTag = identity.signingPublicKey.confidentialViewTag();
+  const mergeSites = index.mergeSites.get(hex(identityTag)) ?? [];
+  const memo = new KeyMemo(input.keys);
+  try {
+    for (let round = 0; round < maxKeyRounds(mergeSites.length); round++) {
+      const pass = new SyncPass({
+        identity,
+        viewingPublicKeys,
+        keys: memo,
+        assets: input.wallet.registry,
+        transactions: input.transactions,
+        utxos: current.utxos,
+        rows: current.transactions,
+        selfViewingPublicKeys: viewingKeyHistory.map((entry) => entry.viewingPublicKey),
+      });
+      pass.processStableTags({ identityTag, index });
+      pass.resolveMergeSites(mergeSites);
+      if (memo.pending()) {
+        await memo.resolve(input.context);
+        continue;
+      }
+      return commitPass(input, pass, index, viewingKeyHistory);
+    }
+    throw new TransactionError("TRANSACTION_KEYS_UNRESOLVED");
+  } finally {
+    memo.destroy();
   }
-  pass.resolveMergeSites(index.mergeSites.get(hex(identityTag)) ?? []);
+}
 
+function commitPass(
+  input: Readonly<{
+    wallet: Wallet;
+    transactions: readonly IndexedShieldedTransaction[];
+    config?: DecryptTransactionsConfig;
+  }>,
+  pass: SyncPass,
+  index: TagIndex,
+  viewingKeyHistory: readonly ViewingKeyEntry[],
+): SyncReport {
+  const current = input.wallet._state();
   const nullifiers = new Set(current.nullifiers);
   for (const tx of input.transactions) {
     for (const nullifier of tx.nullifiers) nullifiers.add(hex(nullifier));
@@ -1071,19 +1153,11 @@ export async function decryptToBalances(
   await initializePoseidon();
   const identity = input.keypair.shieldedAddress();
   const wallet = new Wallet({ identity, registry: input.registry });
-  const viewingKey = input.keypair.viewingKey();
-  let nullifierKey: NullifierKey | undefined;
+  const keys = LocalShieldedKeys.fromKeypair(input.keypair);
   try {
-    nullifierKey = input.keypair.nullifierKey();
-    const material = { identity, viewingKeys: [viewingKey], nullifierKey };
-    await decryptTransactions({
-      wallet,
-      authority: { syncMaterial: () => Promise.resolve(material) },
-      transactions: input.transactions,
-    });
+    await decryptTransactions({ wallet, keys, transactions: input.transactions });
   } finally {
-    viewingKey.destroy();
-    nullifierKey?.destroy();
+    keys.destroy();
   }
   return Object.freeze({
     balance: (mint: Address, filter?: Filter) => wallet.balance(mint, filter),

@@ -17,7 +17,7 @@ import {
 } from "@solana/kit";
 
 import {
-  KeypairWalletAuthority,
+  LocalKeys,
   ShieldedKeypair,
   SigningKey,
   Wallet,
@@ -33,7 +33,8 @@ export interface Actor {
   readonly signer: KeyPairSigner;
   readonly keypair: ShieldedKeypair;
   readonly wallet: Wallet;
-  readonly authority: KeypairWalletAuthority;
+  /** In-process keys proving through `client`. */
+  readonly keys: LocalKeys;
 }
 
 export interface LiveHarness {
@@ -56,6 +57,7 @@ function requiredEnv(name: string): string {
 }
 
 export async function actor(
+  client: ZolanaClient,
   seedByte: number,
   rail: "ed25519" | "p256" = "ed25519",
 ): Promise<Actor> {
@@ -70,10 +72,7 @@ export async function actor(
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new KeypairWalletAuthority({
-      solanaPublicKey: signer.address,
-      keypair,
-    }),
+    keys: LocalKeys.fromKeypair(keypair, client.proofService),
   };
 }
 
@@ -183,7 +182,7 @@ export async function sync(
   await syncWallet({
     client,
     wallet: owner.wallet,
-    authority: owner.authority,
+    keys: owner.keys,
     config: { requireSlot: await currentSlot(client), ...config },
   });
 }

@@ -41,7 +41,10 @@ import {
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
-import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
+import { encryptCustomRingTransfer } from "../src/transaction/wallet/encrypt-rails.js";
+import { LocalShieldedKeys } from "../src/transaction/wallet/keys.js";
+import { withTransactionKey } from "../src/wallet/private-transaction.js";
+import { LocalKeys } from "../src/client/keys.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 
@@ -53,14 +56,19 @@ function scalar(value: number): Bytes32 {
 
 function actor(seed: number) {
   const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(scalar(seed)));
-  const solanaPublicKey = getAddressDecoder().decode(
-    keypair.signingPublicKey().toBytes().subarray(1),
-  );
   return {
     keypair,
-    authority: new KeypairWalletAuthority({ solanaPublicKey, keypair }),
+    keys: LocalShieldedKeys.fromKeypair(keypair),
     address: keypair.shieldedAddress(),
   };
+}
+
+function ownedInput(
+  owner: ReturnType<typeof actor>,
+  utxo: ConstructorParameters<typeof Utxo>[0],
+  hashes?: Parameters<typeof ProofInputUtxo.fromNullifierKey>[2],
+): ProofInputUtxo {
+  return ProofInputUtxo.fromKeypair(new Utxo(utxo), owner.keypair, hashes);
 }
 
 /** A 10 SOL ring UTXO of `sender` sending `amount` to `recipient` and `others`. */
@@ -78,15 +86,12 @@ function preparedTransfer(
 }> {
   const sender = actor(3);
   const recipient = actor(4);
-  const input = new ProofInputUtxo({
-    utxo: new Utxo({
-      owner: sender.keypair.signingPublicKey(),
-      asset,
-      amount: 10n,
-      blinding: scalar(6),
-      ...(inputRing === null ? {} : { ringProgramId: inputRing }),
-    }),
-    nullifierKey: sender.keypair.nullifierKey(),
+  const input = ownedInput(sender, {
+    owner: sender.keypair.signingPublicKey(),
+    asset,
+    amount: 10n,
+    blinding: scalar(6),
+    ...(inputRing === null ? {} : { ringProgramId: inputRing }),
   });
   const transfer = new ConfidentialTransfer(
     sender.address,
@@ -116,9 +121,8 @@ async function auditedProofInputs(
     sender,
     recipient,
   } = preparedTransfer(amount, others, exits, inputRing, asset, payer);
-  const encrypted = await sender.authority.withSpendSession((session) =>
-    session.encryptCustomRingTransfer({
-      firstNullifier: ring.firstNullifier,
+  const encrypted = await withTransactionKey(sender.keys, ring.firstNullifier, (tx) =>
+    encryptCustomRingTransfer(tx, {
       outputs: ring.outputs,
       assets,
       auditorPublicKey: auditor.publicKey(),
@@ -173,15 +177,12 @@ describe("withCompactChange", () => {
   it("keeps both slots under the padded default like Rust `padded_change_keeps_both_slots`", () => {
     const sender = actor(3);
     const recipient = actor(4);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-        ringProgramId: RING,
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      ringProgramId: RING,
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -202,14 +203,11 @@ describe("withCompactChange", () => {
 
   it("moves an exact amount into a ring and keeps default change", () => {
     const sender = actor(3);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -229,15 +227,12 @@ describe("withCompactChange", () => {
 
   it("keeps a default-ring recipient out of the ring and refuses a foreign one", () => {
     const sender = actor(3);
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: sender.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 10n,
-        blinding: scalar(6),
-        ringProgramId: RING,
-      }),
-      nullifierKey: sender.keypair.nullifierKey(),
+    const input = ownedInput(sender, {
+      owner: sender.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 10n,
+      blinding: scalar(6),
+      ringProgramId: RING,
     });
     const transfer = new ConfidentialTransfer(
       sender.address,
@@ -258,6 +253,7 @@ describe("withCompactChange", () => {
 
   it("refuses ring data on a default UTXO like Rust `RingMembership`", () => {
     const sender = actor(3);
+    // No nullifier derives from a commitment the hash refuses, so it is carried in.
     const tainted = new ProofInputUtxo({
       utxo: new Utxo({
         owner: sender.keypair.signingPublicKey(),
@@ -265,19 +261,13 @@ describe("withCompactChange", () => {
         amount: 10n,
         blinding: scalar(6),
       }),
-      nullifierKey: sender.keypair.nullifierKey(),
+      nullifierPublicKey: sender.keypair.nullifierPublicKey(),
+      nullifier: scalar(7),
       ringDataHash: scalar(9),
     });
-    const transfer = new ConfidentialTransfer(
-      sender.address,
-      [tainted],
-      sender.address.solanaAddress(),
-    )
-      .withCompactChange()
-      .withRingProgramId(RING);
-    transfer.send(actor(4).address, SOL_MINT, 4n);
-    // The builder refuses before membership runs.
-    expect(() => transfer.prepare()).toThrow("TRANSACTION_MISSING_RING_PROGRAM_ID");
+    // The commitment refuses it wherever the input is hashed, and the ring
+    // membership rule refuses it before the proof is assembled.
+    expect(() => tainted.hash()).toThrow("TRANSACTION_MISSING_RING_PROGRAM_ID");
 
     const { prepared } = preparedTransfer(4n);
     expect(() => checkRingMembership({ ...prepared, inputs: [tainted] }, RING)).toThrow(
@@ -420,47 +410,44 @@ describe("ring witness", () => {
         client,
         ringProgramId: RING,
         prepared: {} as PreparedTransfer,
-        session: {
-          encryptCustomRingTransfer: (request) =>
-            actor(3).authority.withSpendSession((session) =>
-              session.encryptCustomRingTransfer(request),
-            ),
-        },
+        keys: LocalKeys.fromKeypair(actor(3).keypair, {
+          prove: () => Promise.reject(new Error("prove must not be called")),
+          proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+        }),
         assets: new AssetRegistry(),
         tree: actor(8).address.solanaAddress(),
       }),
     ).rejects.toThrow("RING_TREE_MISMATCH");
   });
 
-  it("destroys only its own clone of the nullifier key", () => {
+  it("derives from a caller-held nullifier key without taking it", () => {
     const owner = actor(3);
     const nullifierKey = owner.keypair.nullifierKey();
-    const input = new ProofInputUtxo({
-      utxo: new Utxo({
-        owner: owner.keypair.signingPublicKey(),
-        asset: SOL_MINT,
-        amount: 5n,
-        blinding: scalar(1),
-      }),
-      nullifierKey,
+    const utxo = new Utxo({
+      owner: owner.keypair.signingPublicKey(),
+      asset: SOL_MINT,
+      amount: 5n,
+      blinding: scalar(1),
     });
-    input.destroy();
-    expect(() => input.nullifierKey.publicKey()).toThrow("KEYPAIR_INVALID_SECRET_KEY");
-    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierKey().publicKey());
+    const input = ProofInputUtxo.fromNullifierKey(utxo, nullifierKey);
+    expect(input.nullifierPublicKey).toEqual(nullifierKey.publicKey());
+    expect(input.nullifier()).toEqual(
+      nullifierKey.nullifier(utxo.hash(nullifierKey.publicKey()), utxo.blinding),
+    );
+    expect(Object.keys(input)).not.toContain("nullifierKey");
+    // The key stays the caller's and keeps working.
+    expect(nullifierKey.publicKey()).toEqual(owner.keypair.nullifierPublicKey());
   });
 
   it("derives non-payer owner signers like Rust `owner_signer_pubkeys`", () => {
     const owner = actor(3);
     const payer = actor(8).address.solanaAddress();
     const input = (blinding: number) =>
-      new ProofInputUtxo({
-        utxo: new Utxo({
-          owner: owner.keypair.signingPublicKey(),
-          asset: SOL_MINT,
-          amount: 5n,
-          blinding: scalar(blinding),
-        }),
-        nullifierKey: owner.keypair.nullifierKey(),
+      ownedInput(owner, {
+        owner: owner.keypair.signingPublicKey(),
+        asset: SOL_MINT,
+        amount: 5n,
+        blinding: scalar(blinding),
       });
     const ownerAddress = owner.address.solanaAddress();
     expect(ownerSignerAddresses([input(1), input(2)], payer)).toEqual([ownerAddress]);

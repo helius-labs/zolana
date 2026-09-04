@@ -20,9 +20,6 @@ import {
   decodePlaintextTransfer,
   decodeProofless,
   decodeSplitBundle,
-  decryptAnonymous,
-  decryptConfidential,
-  decryptSplit,
   encodeAnonymousRecipient,
   encodeAnonymousSender,
   encodeConfidential,
@@ -38,6 +35,7 @@ import {
 import {
   decodeSplitEncrypted,
   encodeSplitEncrypted,
+  splitEmbeddedKey,
 } from "../../src/transaction/serialization/codecs.js";
 import { fixtureArray, fixtureObject, fixtureString, hexBytes, readFixture } from "./fixture.js";
 
@@ -115,7 +113,14 @@ describe("manifest-verified transaction serialization", () => {
       ),
     ).toMatchObject({ scheme: EncryptedScheme.confidential, encoding: "encrypted" });
     expect(
-      decryptConfidential(recipientViewing, tx.publicKey(), confidentialBody, salt, 0),
+      decodeConfidential(
+        recipientViewing.decryptUtxo(
+          splitEmbeddedKey(confidentialBody).rest,
+          tx.publicKey(),
+          salt,
+          0,
+        ),
+      ),
     ).toEqual(confidential);
 
     const anonymousRecipient = {
@@ -136,7 +141,7 @@ describe("manifest-verified transaction serialization", () => {
     );
     expect(
       decodeAnonymousRecipient(
-        decryptAnonymous(recipientViewing, tx.publicKey(), recipientBody, salt, 1),
+        recipientViewing.decryptUtxo(recipientBody, tx.publicKey(), salt, 1),
       ),
     ).toEqual(anonymousRecipient);
     expect(decodeAnonymousRecipient(recipientBytes)).toMatchObject({
@@ -177,9 +182,7 @@ describe("manifest-verified transaction serialization", () => {
     const senderBytes = encodeAnonymousSender(anonymousSender);
     const senderBody = encryptAnonymous(tx, keypair.viewingPublicKey(), senderBytes, salt, 2);
     expect(
-      decodeAnonymousSender(
-        decryptAnonymous(keypair.viewingKey(), tx.publicKey(), senderBody, salt, 2),
-      ),
+      decodeAnonymousSender(keypair.viewingKey().decryptUtxo(senderBody, tx.publicKey(), salt, 2)),
     ).toEqual(anonymousSender);
     expect(decodeAnonymousSender(senderBytes)).toMatchObject({
       splAmount: 0n,
@@ -197,7 +200,7 @@ describe("manifest-verified transaction serialization", () => {
     const splitBytes = encodeSplitBundle(split);
     const splitBody = encryptSplit(tx, keypair.viewingPublicKey(), splitBytes, salt, 3);
     expect(
-      decodeSplitBundle(decryptSplit(keypair.viewingKey(), tx.publicKey(), splitBody, salt, 3)),
+      decodeSplitBundle(keypair.viewingKey().decryptUtxo(splitBody, tx.publicKey(), salt, 3)),
     ).toEqual(split);
     expect(decodeSplitBundle(encodeSplitBundle(split))).toMatchObject({
       numOutputs: 3,
@@ -364,21 +367,18 @@ describe("manifest-verified transaction serialization", () => {
   it("reports a cipher failure in Rust's category on every rail", () => {
     const fixture = load();
     const inputs = section(fixture, "inputs");
-    const { recipient, tx } = keys(inputs);
+    const { recipient } = keys(inputs);
     const salt = hexBytes(fixtureString(inputs, "saltBytes")) as Bytes16;
     const seed = hexBytes(fixtureString(inputs, "blindingSeedBytes")) as Bytes32;
     const spent = ViewingKey.fromBytes(
       hexBytes(fixtureString(inputs, "viewingSecretBytes")) as Bytes32,
     );
     const recipientPublicKey = recipient.viewingPublicKey();
-    const txPublicKey = tx.publicKey();
     spent.destroy();
 
     const calls = [
       () => encryptAnonymous(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
       () => encryptSplit(spent, recipientPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
-      () => decryptAnonymous(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
-      () => decryptSplit(spent, txPublicKey, Uint8Array.of(1, 2, 3), salt, 0),
       () =>
         encryptConfidential(
           spent,
@@ -402,7 +402,7 @@ describe("manifest-verified transaction serialization", () => {
   it("rejects every malformed fixture family", () => {
     const fixture = load();
     const inputs = section(fixture, "inputs");
-    const { keypair, recipientViewing, tx } = keys(inputs);
+    const { keypair } = keys(inputs);
     const expected = section(fixture, "expected");
     const schemes = fixtureArray(expected, "schemes").map((entry) => {
       const value = fixtureObject(entry, "scheme");
@@ -444,14 +444,8 @@ describe("manifest-verified transaction serialization", () => {
       amount: 33n,
     });
     expect(() => decodeProofless(proofless.slice(0, -1))).toThrow();
-    expect(() =>
-      decryptConfidential(
-        recipientViewing,
-        tx.publicKey(),
-        new Uint8Array(49),
-        new Uint8Array(16) as Bytes16,
-        0,
-      ),
-    ).toThrow();
+    expect(() => splitEmbeddedKey(new Uint8Array(20))).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INVALID_LENGTH" }),
+    );
   });
 });

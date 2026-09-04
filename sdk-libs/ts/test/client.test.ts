@@ -9,13 +9,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ClientError,
+  LocalKeys,
   ZolanaClient,
+  proverRequestBody,
   type GetMerkleProofsResponse,
   type GetNonInclusionProofsResponse,
   type SpendProof,
   type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
+import { assemble } from "../src/client/prover/assembly.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
@@ -44,17 +47,21 @@ function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
-function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: SpendProof }> {
+function proofFixture(): Readonly<{
+  proofInputs: SppProofInputs;
+  spendProof: SpendProof;
+  keypair: ShieldedKeypair;
+}> {
   const keypair = ShieldedKeypair.generate();
-  const input = new ProofInputUtxo({
-    utxo: new Utxo({
+  const input = ProofInputUtxo.fromKeypair(
+    new Utxo({
       owner: keypair.signingPublicKey(),
       asset: SOL_MINT,
       amount: 7n,
       blinding: bytes(1),
     }),
-    nullifierKey: keypair.nullifierKey(),
-  });
+    keypair,
+  );
   const output = createProofOutput({
     ownerAddress: keypair.shieldedAddress(),
     asset: SOL_MINT,
@@ -98,7 +105,7 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
       rootIndex: 7,
     },
   };
-  return { proofInputs, spendProof };
+  return { proofInputs, spendProof, keypair };
 }
 
 type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
@@ -142,7 +149,10 @@ async function serviceRequestUrls(
   await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
   const fixture = proofFixture();
   vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
-  await instance.proveTransact(fixture.proofInputs);
+  await instance.proveTransact(
+    fixture.proofInputs,
+    LocalKeys.fromKeypair(fixture.keypair, instance.proofService),
+  );
   return urls;
 }
 
@@ -537,5 +547,55 @@ describe("ZolanaClient", () => {
     });
 
     await expect(pending).resolves.toHaveLength(1);
+  });
+
+  it("writes an open nullifier secret slot as null for a remote key holder", async () => {
+    const fixture = proofFixture();
+    const assembled = assemble(fixture.proofInputs, [fixture.spendProof]);
+    const body = proverRequestBody(assembled.proverInputs);
+    const inputs = body["inputs"];
+    if (!Array.isArray(inputs)) throw new Error("inputs must be an array");
+    const slots = inputs.map((input: unknown) =>
+      typeof input === "object" && input !== null && "nullifierSecret" in input
+        ? input.nullifierSecret
+        : "missing",
+    );
+    // The wallet's own real input waits for its holder; padding carries zero.
+    expect(slots[0]).toBeNull();
+    expect(slots.slice(1).every((slot) => slot === "0x0")).toBe(true);
+    // The same body, complete, is what the prover client posts.
+    const posted = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body)) as { inputs: { nullifierSecret: unknown }[] };
+      expect(sent.inputs[0]?.nullifierSecret).toMatch(/^0x[0-9a-f]+$/u);
+      expect(sent.inputs[0]?.nullifierSecret).not.toBe("0x0");
+      return new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const instance = client(posted);
+    await LocalKeys.fromKeypair(fixture.keypair, instance.proofService).prove(
+      assembled.proverInputs,
+    );
+    expect(posted).toHaveBeenCalledOnce();
+  });
+
+  it("refuses to prove an own input whose keys left the nullifier secret out", async () => {
+    // A `ProofAuthority` that forwards the inputs untouched is a holder that
+    // did not run; the prover request fails before any network call.
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new Error("network reached");
+    });
+    const instance = client(fetch);
+    const fixture = proofFixture();
+    vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
+    const forwarding = {
+      prove: instance.proofService.prove.bind(instance.proofService),
+      proveMerge: instance.proofService.proveMerge.bind(instance.proofService),
+    };
+
+    await expect(instance.proveTransact(fixture.proofInputs, forwarding)).rejects.toMatchObject({
+      code: "CLIENT_MISSING_NULLIFIER_SECRET",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

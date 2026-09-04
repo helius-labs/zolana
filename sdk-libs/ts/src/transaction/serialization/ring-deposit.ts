@@ -98,13 +98,24 @@ export function decryptRingDepositUtxo(
   key: ViewingKeyLike,
   owner: ShieldedPublicKey,
 ): Utxo {
-  const plaintext = decodeRingDepositPlaintext(
+  return ringDepositUtxo(
+    output,
     key.decryptRingDeposit(
       output.encrypted.ciphertext,
       P256PublicKey.fromBytes(output.encrypted.txViewingPublicKey),
       output.encrypted.salt,
     ),
+    owner,
   );
+}
+
+/** The UTXO a ring deposit describes, from its envelope already opened with the viewing key. */
+export function ringDepositUtxo(
+  output: RingDepositOutput,
+  decrypted: Uint8Array,
+  owner: ShieldedPublicKey,
+): Utxo {
+  const plaintext = decodeRingDepositPlaintext(decrypted);
   const records: DataRecord[] = [{ kind: "ringData", bytes: plaintext.ringData }];
   if (plaintext.utxoData) records.push({ kind: "utxoData", bytes: plaintext.utxoData });
   if (plaintext.memo) records.push({ kind: "memo", bytes: plaintext.memo });

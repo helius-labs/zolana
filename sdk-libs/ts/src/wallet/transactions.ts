@@ -1,8 +1,4 @@
-import {
-  authorizedPrivateTransactionMaterial,
-  type ChainReader,
-  type TransactionAssembler,
-} from "../client/ports.js";
+import type { ChainReader, TransactionAssembler, WalletKeys } from "../client/ports.js";
 import type {
   Address,
   Bytes32,
@@ -10,7 +6,7 @@ import type {
   RequestContext,
   Transaction,
 } from "../interface/types.js";
-import type { WalletAuthority } from "../transaction/wallet/authority.js";
+import type { ApprovalHandler } from "../transaction/wallet/intent.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import type { Wallet } from "../transaction/wallet/state.js";
 
@@ -29,8 +25,12 @@ export type PrivateTransactionClient = TransactionAssembler & Pick<ChainReader, 
 export interface PrivateTransactionParams {
   readonly client: PrivateTransactionClient;
   readonly wallet: Wallet;
-  readonly authority: WalletAuthority;
+  /** The wallet's privacy roles, in-process (`LocalKeys`) or behind a remote holder. */
+  readonly keys: WalletKeys;
+  /** The fee payer is also the shielded owner, so its signature authorizes the spend. */
   readonly feePayer: Address;
+  /** Approves the intent before proving; unattended when absent. */
+  readonly approve?: ApprovalHandler;
 }
 
 export interface TransferTransactionParams extends PrivateTransactionParams {
@@ -128,23 +128,15 @@ async function buildAuthorizedTransaction(
     const authorized = await authorizePrivateTransaction(
       transaction,
       input.wallet,
-      input.authority,
+      input.keys,
       setupInstructions,
+      input.approve,
+      context,
     );
-    try {
-      return await input.client.assembleAuthorizedPrivateTransaction(
-        {
-          authorized,
-          feePayer: input.feePayer,
-        },
-        context,
-      );
-    } finally {
-      const material = authorizedPrivateTransactionMaterial(authorized);
-      if (material !== undefined) {
-        for (const proofInput of material.proofInputs.inputUtxos) proofInput.destroy();
-      }
-    }
+    return await input.client.assembleAuthorizedPrivateTransaction(
+      { authorized, feePayer: input.feePayer, keys: input.keys },
+      context,
+    );
   } catch (cause) {
     const reservationId = transaction._reservationId();
     if (reservationId !== undefined) input.wallet._releaseReservation(reservationId);

@@ -1,11 +1,11 @@
-import { address, type Signature } from "@solana/kit";
+import { address, getAddressDecoder, type Signature } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   Data,
-  KeypairWalletAuthority,
+  LocalShieldedKeys,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -13,15 +13,16 @@ import {
   serializeWallet,
 } from "../src/transaction/index.js";
 import {
+  keyedWalletSnapshotCipher,
   loadPersistedWallet,
   syncPersistedWallet,
   walletSnapshotCipher,
+  walletSnapshotKey,
   type WalletStateStore,
 } from "../src/wallet/index.js";
 import { syncWallet } from "../src/wallet/sync.js";
 import { syncReads, plainCipher } from "./helpers/clients.js";
 
-const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const SIGNATURE = "1".repeat(64) as Signature;
 
@@ -81,8 +82,8 @@ function memoryStore(initial?: string): WalletStateStore & {
 function newWallet() {
   const keypair = ShieldedKeypair.generate();
   const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-  const authority = new KeypairWalletAuthority({ solanaPublicKey: OWNER, keypair });
-  return { keypair, wallet, authority };
+  const keys = LocalShieldedKeys.fromKeypair(keypair);
+  return { keypair, wallet, keys };
 }
 
 /** One unspent UTXO gives the nullifier stream something to scan. */
@@ -119,13 +120,13 @@ function seedUtxo(wallet: Wallet, keypair: ShieldedKeypair): void {
 
 describe("persisted wallet sync", () => {
   it("saves one snapshot after the sync commits", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const client = syncReads(cursorPages());
     const store = memoryStore();
 
     const { report, snapshot } = await syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client,
       store,
       cipher: plainCipher,
@@ -140,12 +141,12 @@ describe("persisted wallet sync", () => {
   });
 
   it("resumes every cursor stream from the saved snapshot", async () => {
-    const { keypair, wallet, authority } = newWallet();
+    const { keypair, wallet, keys } = newWallet();
     seedUtxo(wallet, keypair);
     const store = memoryStore();
     await syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(cursorPages()),
       store,
       cipher: plainCipher,
@@ -153,7 +154,7 @@ describe("persisted wallet sync", () => {
 
     const restored = deserializeWallet(store.saved ?? "");
     const reads = cursorPages();
-    await syncWallet({ wallet: restored, authority, client: syncReads(reads) });
+    await syncWallet({ wallet: restored, keys, client: syncReads(reads) });
 
     expect(firstCursor(reads.getShieldedTransactionsByTags)).toEqual(TAG_CURSOR);
     expect(firstCursor(reads.getEncryptedUtxosByTags)).toEqual(PROOFLESS_CURSOR);
@@ -161,7 +162,7 @@ describe("persisted wallet sync", () => {
   });
 
   it("saves nothing when the indexer fails", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const reads = cursorPages();
     reads.getShieldedTransactionsByTags.mockRejectedValue(new Error("indexer down"));
     const store = memoryStore();
@@ -169,7 +170,7 @@ describe("persisted wallet sync", () => {
     await expect(
       syncPersistedWallet({
         wallet,
-        authority,
+        keys,
         client: syncReads(reads),
         store,
         cipher: plainCipher,
@@ -180,7 +181,7 @@ describe("persisted wallet sync", () => {
   });
 
   it("saves nothing when the sync fails after cursors advanced", async () => {
-    const { keypair, wallet, authority } = newWallet();
+    const { keypair, wallet, keys } = newWallet();
     seedUtxo(wallet, keypair);
     const reads = cursorPages();
     // The nullifier scan runs after both tag streams staged their cursors.
@@ -190,7 +191,7 @@ describe("persisted wallet sync", () => {
     await expect(
       syncPersistedWallet({
         wallet,
-        authority,
+        keys,
         client: syncReads(reads),
         store,
         cipher: plainCipher,
@@ -201,7 +202,7 @@ describe("persisted wallet sync", () => {
     reads.getShieldedTransactionsByTags.mockClear();
     await syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(reads),
       store,
       cipher: plainCipher,
@@ -215,7 +216,7 @@ describe("persisted wallet sync", () => {
   });
 
   it("orders overlapping persisted syncs, an older save cannot land last", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const pending: Array<() => void> = [];
     const store = {
       saved: undefined as string | undefined,
@@ -239,14 +240,14 @@ describe("persisted wallet sync", () => {
 
     const first = syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(readsA),
       store,
       cipher: plainCipher,
     });
     const second = syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(readsB),
       store,
       cipher: plainCipher,
@@ -268,7 +269,7 @@ describe("persisted wallet sync", () => {
   });
 
   it("reports a failed save and keeps the previous snapshot", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const previous = serializeWallet(wallet);
     const store = memoryStore(previous);
     store.save.mockRejectedValueOnce(new Error("disk full"));
@@ -276,7 +277,7 @@ describe("persisted wallet sync", () => {
     await expect(
       syncPersistedWallet({
         wallet,
-        authority,
+        keys,
         client: syncReads(cursorPages()),
         store,
         cipher: plainCipher,
@@ -288,14 +289,14 @@ describe("persisted wallet sync", () => {
   });
 
   it("persists the advanced wallet when retried after a failed save", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const store = memoryStore();
     store.save.mockRejectedValueOnce(new Error("disk full"));
     const firstReads = cursorPages();
     await expect(
       syncPersistedWallet({
         wallet,
-        authority,
+        keys,
         client: syncReads(firstReads),
         store,
         cipher: plainCipher,
@@ -305,7 +306,7 @@ describe("persisted wallet sync", () => {
     const retryReads = cursorPages();
     const { snapshot } = await syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(retryReads),
       store,
       cipher: plainCipher,
@@ -318,7 +319,7 @@ describe("persisted wallet sync", () => {
   });
 
   it("upgrades a version 2 snapshot on its first persisted sync", async () => {
-    const { wallet, authority } = newWallet();
+    const { wallet, keys } = newWallet();
     const v2 = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
     v2["version"] = 2;
     delete v2["syncCursors"];
@@ -327,7 +328,7 @@ describe("persisted wallet sync", () => {
 
     await syncPersistedWallet({
       wallet: restored,
-      authority,
+      keys,
       client: syncReads(cursorPages()),
       store,
       cipher: plainCipher,
@@ -351,12 +352,12 @@ describe("sealed wallet snapshots", () => {
       snapshot: string;
     }>
   > {
-    const { keypair, wallet, authority } = newWallet();
+    const { keypair, wallet, keys } = newWallet();
     const cipher = walletSnapshotCipher(keypair);
     const store = memoryStore();
     const { snapshot } = await syncPersistedWallet({
       wallet,
-      authority,
+      keys,
       client: syncReads(cursorPages()),
       store,
       cipher,
@@ -371,6 +372,22 @@ describe("sealed wallet snapshots", () => {
     const restored = await loadPersistedWallet({ store, cipher });
     expect(restored).toBeDefined();
     expect(serializeWallet(restored!)).toBe(snapshot);
+  });
+
+  it("seals and opens a snapshot of several megabytes", async () => {
+    // A browser's base64 must not spread the whole ciphertext into one call.
+    const { keypair, wallet } = newWallet();
+    const decodeAddress = getAddressDecoder();
+    for (let index = 1; index <= 40_000; index += 1) {
+      const mint = new Uint8Array(32);
+      new DataView(mint.buffer).setUint32(0, index);
+      wallet.registerAsset(1_000n + BigInt(index), decodeAddress.decode(mint));
+    }
+    const snapshot = serializeWallet(wallet);
+    expect(snapshot.length).toBeGreaterThan(2_000_000);
+    const cipher = walletSnapshotCipher(keypair);
+    const sealed = await cipher.seal(snapshot);
+    expect(await cipher.open(sealed)).toBe(snapshot);
   });
 
   it("refuses a tampered snapshot", async () => {
@@ -399,6 +416,69 @@ describe("sealed wallet snapshots", () => {
     await expect(cipher.seal(serializeWallet(other))).rejects.toMatchObject({
       code: "WALLET_SNAPSHOT",
     });
+  });
+
+  it("opens under a caller-derived key exactly when it is the keypair's key", async () => {
+    const { keypair, store, snapshot } = await sealedStore();
+    const viewing = keypair.viewingKey();
+    const secret = viewing.secretBytes();
+    const key = await walletSnapshotKey(new Uint8Array(secret));
+    viewing.destroy();
+    const keyed = keyedWalletSnapshotCipher(keypair.shieldedAddress(), key);
+    const restored = await loadPersistedWallet({ store, cipher: keyed });
+    expect(serializeWallet(restored!)).toBe(snapshot);
+    // Resealed under the caller's key, the keypair cipher still opens it.
+    store.saved = await keyed.seal(snapshot);
+    expect(
+      serializeWallet(
+        (await loadPersistedWallet({ store, cipher: walletSnapshotCipher(keypair) }))!,
+      ),
+    ).toBe(snapshot);
+
+    const otherKey = await walletSnapshotKey(new Uint8Array(32).fill(7));
+    await expect(
+      loadPersistedWallet({
+        store,
+        cipher: keyedWalletSnapshotCipher(keypair.shieldedAddress(), otherKey),
+      }),
+    ).rejects.toMatchObject({ code: "WALLET_SNAPSHOT" });
+  });
+
+  it("wipes the key material it imports and refuses the wrong length", async () => {
+    const secret = new Uint8Array(32).fill(9);
+    await walletSnapshotKey(secret);
+    expect(secret).toEqual(new Uint8Array(32));
+    const short = new Uint8Array(16).fill(9);
+    await expect(walletSnapshotKey(short)).rejects.toMatchObject({ code: "WALLET_SNAPSHOT" });
+    expect(short).toEqual(new Uint8Array(16));
+  });
+
+  it("refuses a key that is not an AES-256-GCM cipher key", async () => {
+    const identity = ShieldedKeypair.generate().shieldedAddress();
+    const wrongAlgorithm = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-CBC", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, wrongAlgorithm)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
+    const wrongLength = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 128 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, wrongLength)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
+    const encryptOnly = await globalThis.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"],
+    );
+    expect(() => keyedWalletSnapshotCipher(identity, encryptOnly)).toThrowError(
+      expect.objectContaining({ code: "WALLET_SNAPSHOT" }),
+    );
   });
 
   it("maps store load failures into the wallet taxonomy", async () => {
