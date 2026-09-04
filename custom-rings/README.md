@@ -102,15 +102,18 @@ ring-localnet` needs this repository's localnet prerequisites instead.
 ## The pipeline and what each step locks in
 
 `zolana-ring new` is a wizard. It asks for the ring name, the service URLs of
-both clusters, the target and the tier, a policy ring then names its entries
-tree, picks the lists its rules read, picks a source per list and adds rules
-one at a time, each compiled as it is added. It prints the `ring.toml` it
-will write and asks before writing. It writes the ring directory, `ring.toml`
-with the answers and `keys/program-keypair.json`, and fixes the program id,
-the address of that keypair. `--silent` takes every default, an audit-only
-ring. `--policy-from <file>` takes the `[policy]` table of a `ring.toml`, an
-example's included, checks it on both clusters and skips the tier and policy
-questions. It creates the authority keypair when the answer keeps the default
+both clusters and the target, then offers common policy options and an
+advanced rule builder. Picking an option selects the policy tier; finishing
+without one selects audit-only. A policy uses the SPP default entries tree,
+writes it explicitly to `ring.toml`, and asks for a source only for each list
+its finished rules read. Each option compiles as one unit when added. The
+wizard prints the `ring.toml` it will write and asks before writing. It writes
+the ring directory, `ring.toml` with the answers and
+`keys/program-keypair.json`, and fixes the program id, the address of that
+keypair. `--silent` takes every default, an audit-only ring. `--policy-from
+<file>` takes the `[policy]` table of a `ring.toml`, an example's included,
+checks it on both clusters and skips the policy option questions. It creates
+the authority keypair when the answer keeps the default
 `~/.config/solana/id.json` and no file is there; any other path is the
 operator's and a missing one is only reported. A curated list is picked from
 the catalogue, the bundled `cli/catalogue.toml` per cluster merged with every

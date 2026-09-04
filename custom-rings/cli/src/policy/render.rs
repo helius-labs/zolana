@@ -15,14 +15,12 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     } else {
         "\n# Every rule below must hold, `zolana-ring policy set` replaces them on a live ring.\n"
     });
-    if let Some(tree) = spec.entries_tree {
-        policy.insert("entries_tree", value(tree.0.to_string()));
-        comment(
-            &mut policy,
-            "entries_tree",
-            "every entry the rules read lives in the named tree",
-        );
-    }
+    policy.insert("entries_tree", value(spec.entries_tree().to_string()));
+    comment(
+        &mut policy,
+        "entries_tree",
+        "every entry the rules read lives in the named tree",
+    );
     let mut sources = Table::new();
     sources.set_implicit(true);
     for target in Target::ALL {
@@ -200,7 +198,7 @@ above = 1000000
         let text = document(&PolicySpec::default());
         assert!(
             text.contains(
-                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n"
+                "# No rule is pinned yet, `zolana-ring policy set` adds rules on a live ring.\n[policy]\n# every entry the rules read lives in the named tree\nentries_tree = "
             ),
             "{text}"
         );

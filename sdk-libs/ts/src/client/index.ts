@@ -48,6 +48,7 @@ export type {
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingSourceOwner,
   Proof,
   RingTransactRoots,
 } from "./prover/types.js";

@@ -433,10 +433,16 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(policy.rules.is_empty());
         assert!(policy.sources.is_empty());
         let rendered = config.render().expect("render");
-        assert!(rendered.ends_with("[policy]\n"), "{rendered}");
+        assert!(rendered.contains(&format!(
+            "[policy]\n# every entry the rules read lives in the named tree\nentries_tree = \"{}\"",
+            zolana_interface::pda::tree(0)
+        )));
+        let mut normalized = config;
+        normalized.policy.as_mut().expect("policy").entries_tree =
+            Some(Base58Address(zolana_interface::pda::tree(0)));
         assert_eq!(
             toml::from_str::<RingConfig>(&rendered).expect("reparse"),
-            config
+            normalized
         );
     }
 

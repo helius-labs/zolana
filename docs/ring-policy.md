@@ -279,15 +279,16 @@ are reused unchanged.
 ## The cli
 
 `zolana-ring new` asks, in order, for the ring name, the service URLs of both
-clusters, the target and the tier. A policy ring then names its entries tree,
-picks the lists its rules read, picks a source per list and adds rules one
-at a time. Each rule compiles as soon as it is added, a refused row is
-dropped with its reason. `finish` compiles the table with its sources, a
-source no rule reads is offered for removal. The wizard prints the
-`ring.toml` it will write and asks before writing. `--silent` takes every
-default. `--policy-from <file>` takes the `[policy]` table of a `ring.toml`
-or of a file holding only that table, checks it on both clusters, and skips
-the tier and policy questions.
+clusters and the target. It then offers common policy options and an advanced
+rule builder. Finishing without an option creates an audit-only ring; any
+option creates a policy ring, and `configure policy later` creates one with an
+empty table. A policy uses the SPP default entries tree without asking and
+writes that address explicitly to `ring.toml`. Each option compiles as one
+unit when added. After `finish`, the wizard derives the lists the rules read
+and asks for those sources only. The wizard prints the `ring.toml` it will
+write and asks before writing. `--silent` takes every default. `--policy-from
+<file>` takes the `[policy]` table of a `ring.toml` or of a file holding only
+that table, checks it on both clusters, and skips the policy option questions.
 
 The source question offers `own entries`, the curators of the catalogue
 serving the list from their own entries in the ring's tree, and `another
@@ -411,7 +412,8 @@ the cli loads and re-renders.
   A padded change slot pushes the transact past the packet limit, `prove`
   refuses it with `PaddedChange`.
 - The entries tree is pinned at `create_policy` for the life of the ring, like
-  the tier. `ring.toml` without `entries_tree` pins the SPP default tree.
+  the tier. The grammar accepts a missing `entries_tree` as the SPP default;
+  the cli writes the effective address explicitly.
   `set_policy_rules` keeps the stored tree. A full entries tree ends list
   changes, transfers in other trees still prove against its roots. Another
   tree means a new ring.
