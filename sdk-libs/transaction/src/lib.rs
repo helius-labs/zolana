@@ -22,7 +22,7 @@ pub use data::{Data, DataRecord};
 pub use error::TransactionError;
 pub use instructions::transact::{
     EncryptedTransaction, ExternalData, InputUtxo, OutputContext, OutputSlot, ShieldedTransaction,
-    SppProofOutputUtxo,
+    SppProofOutputUtxo, TransactTrees,
 };
 pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,

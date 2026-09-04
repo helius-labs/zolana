@@ -56,11 +56,13 @@ type transactMessageData struct {
 
 // externalDataHashInput is the flat instruction prefix followed by the client
 // context needed to resolve account-backed values. The encoder below writes
-// exactly the first eight fields of Rust TransactIxData; account addresses are
-// deliberately excluded from that prefix and appended separately by
-// externalDataHash.
+// exactly the first eight fields of Rust TransactIxData; the tree and account
+// addresses are deliberately excluded from that prefix and appended separately
+// by externalDataHash.
 type externalDataHashInput struct {
 	instructionDiscriminator uint8
+	inputTree                [32]byte
+	outputTree               [32]byte
 	expiryUnixTs             uint64
 	txViewingPk              [33]byte
 	salt                     [16]byte
@@ -146,8 +148,18 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 	if err != nil {
 		return externalValues{}, err
 	}
+	inputTree, err := fixedHex32(tx.InputTree)
+	if err != nil {
+		return externalValues{}, fmt.Errorf("input_tree: %w", err)
+	}
+	outputTree, err := fixedHex32(tx.OutputTree)
+	if err != nil {
+		return externalValues{}, fmt.Errorf("output_tree: %w", err)
+	}
 	externalDataHashBytes, err := externalDataHash(externalDataHashInput{
 		instructionDiscriminator: tx.InstructionDiscriminator,
+		inputTree:                inputTree,
+		outputTree:               outputTree,
 		expiryUnixTs:             tx.ExpiryUnixTs,
 		txViewingPk:              txViewingPk,
 		salt:                     salt,
@@ -171,6 +183,18 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 		dataHash:      dataHash,
 		ringDataHash:  ringDataHash,
 	}, nil
+}
+
+// fixedHex32 reads an optional 32-byte hex value; like the viewing key and
+// salt, an absent value is all zeros so bare harness requests stay valid.
+func fixedHex32(value string) ([32]byte, error) {
+	decoded, err := fixedHexBytes(value, 32)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	var out [32]byte
+	copy(out[:], decoded)
+	return out, nil
 }
 
 func fixedHexBytes(value string, size int) ([]byte, error) {
@@ -260,13 +284,15 @@ func externalDataHash(data externalDataHashInput) ([32]byte, error) {
 		return [32]byte{}, err
 	}
 
-	// Append settlement and account-backed owner addresses directly after the
-	// prefix, in protocol order. Deriving that order from the same
-	// transfer/output values that produced the prefix prevents an independent
-	// address list from drifting out of sync.
-	preimage := make([]byte, 0, 1+len(prefix))
+	// Append the tree addresses, then the settlement and account-backed owner
+	// addresses, directly after the prefix in protocol order. Deriving that
+	// order from the same transfer/output values that produced the prefix
+	// prevents an independent address list from drifting out of sync.
+	preimage := make([]byte, 0, 1+len(prefix)+64)
 	preimage = append(preimage, data.instructionDiscriminator)
 	preimage = append(preimage, prefix...)
+	preimage = append(preimage, data.inputTree[:]...)
+	preimage = append(preimage, data.outputTree[:]...)
 	for _, transfer := range data.interfaceTransfers {
 		preimage = append(preimage, transfer.userAccount[:]...)
 		if transfer.kind == interfaceTransferSplDeposit || transfer.kind == interfaceTransferSplWithdrawal {

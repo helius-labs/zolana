@@ -64,7 +64,7 @@ pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> Progra
 #[inline(never)]
 pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeTransactIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidMergeShape))?;
     validate_field_elements(&ix)?;
 
     let clock = Clock::get()?;

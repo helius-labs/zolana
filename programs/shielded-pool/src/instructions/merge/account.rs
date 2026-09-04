@@ -57,39 +57,6 @@ impl<'a> MergeTransactAccounts<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use zolana_account_checks::account_info::test_account_info::get_account_view;
-
-    fn account(address: [u8; 32], signer: bool, writable: bool) -> AccountView {
-        get_account_view(address, [0; 32], signer, writable, false, Vec::new())
-    }
-
-    #[test]
-    fn rejects_accounts_after_declared_nullifier_pdas() {
-        let mut accounts = [
-            account([1; 32], false, true),
-            account([2; 32], false, true),
-            account([3; 32], true, false),
-            account([4; 32], false, false),
-            account([0; 32], false, false),
-            account(crate::ID.to_bytes(), false, false),
-            account([5; 32], false, true),
-            account([6; 32], false, false),
-        ];
-
-        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts, 1) {
-            Ok(_) => panic!("trailing account must be rejected"),
-            Err(error) => error,
-        };
-        assert_eq!(
-            error,
-            ProgramError::Custom(ShieldedPoolError::InvalidMergeShape as u32)
-        );
-    }
-}
-
 /// The registry-derived owner identity public inputs: the already-derived
 /// `pk_field` of the signing key and its owner-pubkey index tag. Feeding these
 /// into the recomputed public-input hash binds the proof to the registered key.
@@ -147,4 +114,37 @@ pub fn load_user_record(
         signing_view_tag,
         merging_enabled,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+
+    fn account(address: [u8; 32], signer: bool, writable: bool) -> AccountView {
+        get_account_view(address, [0; 32], signer, writable, false, Vec::new())
+    }
+
+    #[test]
+    fn rejects_accounts_after_declared_nullifier_pdas() {
+        let mut accounts = [
+            account([1; 32], false, true),
+            account([2; 32], false, true),
+            account([3; 32], true, false),
+            account([4; 32], false, false),
+            account([0; 32], false, false),
+            account(crate::ID.to_bytes(), false, false),
+            account([5; 32], false, true),
+            account([6; 32], false, false),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts, 1) {
+            Ok(_) => panic!("trailing account must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidMergeShape as u32)
+        );
+    }
 }

@@ -42,7 +42,7 @@ use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     instructions::transact::PrivateTxHash,
     instructions::types::SppProofInputUtxo,
-    Data, SppProofOutputUtxo, Utxo,
+    Data, SppProofOutputUtxo, TransactTrees, Utxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -232,9 +232,18 @@ pub fn new_transact_ix_data(
 ///
 /// `addresses` must yield each interface transfer's settlement accounts in leg
 /// order, then the resolved owner of every account-tagged output.
+/// Trees for a transact that spends from and appends to the same tree.
+pub fn same_tree(tree: Address) -> TransactTrees {
+    TransactTrees {
+        input_tree: tree,
+        output_tree: tree,
+    }
+}
+
 pub fn external_data_hash_with_addresses(
     transact_ix_data: &TransactIxData,
     discriminator: u8,
+    trees: TransactTrees,
     addresses: &[[u8; 32]],
 ) -> Result<[u8; 32]> {
     let instruction_data = transact_ix_data
@@ -245,6 +254,8 @@ pub fn external_data_hash_with_addresses(
     Ok(interface_hash_external_data(
         discriminator,
         external_data,
+        trees.input_tree.as_array(),
+        trees.output_tree.as_array(),
         addresses.iter(),
     )?)
 }
@@ -256,10 +267,11 @@ pub fn external_data_hash_with_addresses(
 pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
     interface_transfers: &[ResolvedInterfaceTransfer],
+    trees: TransactTrees,
 ) -> Result<[u8; 32]> {
     let mut addresses = committed_leg_addresses(interface_transfers);
     addresses.extend(account_tagged_owner_addresses(transact_ix_data)?);
-    external_data_hash_with_addresses(transact_ix_data, tag::TRANSACT, &addresses)
+    external_data_hash_with_addresses(transact_ix_data, tag::TRANSACT, trees, &addresses)
 }
 
 /// Addresses each resolved settlement leg contributes, in leg order.
@@ -310,10 +322,11 @@ pub fn external_data_hash_spl(
     transact_ix_data: &TransactIxData,
     user_spl_token_account: &[u8; 32],
     spl_token_interface: &[u8; 32],
+    trees: TransactTrees,
 ) -> Result<[u8; 32]> {
     let mut addresses = vec![*user_spl_token_account, *spl_token_interface];
     addresses.extend(account_tagged_owner_addresses(transact_ix_data)?);
-    external_data_hash_with_addresses(transact_ix_data, tag::TRANSACT, &addresses)
+    external_data_hash_with_addresses(transact_ix_data, tag::TRANSACT, trees, &addresses)
 }
 
 /// A dummy output (`owner_hash = 0`) over a chosen `blinding`, assembled exactly as
@@ -715,8 +728,13 @@ pub fn build_spl_withdrawal(
     );
     let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
+    let external_hash = external_data_hash_spl(
+        &data,
+        &user_token.to_bytes(),
+        &vault.to_bytes(),
+        same_tree(*tree),
+    )
+    .expect("external data hash");
     let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
         .hash()
         .expect("private transaction hash");

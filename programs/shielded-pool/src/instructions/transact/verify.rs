@@ -18,12 +18,12 @@ use zolana_interface::{
     },
     output_data::is_confidential_encrypted_output,
     verifying_keys::OutputOwnerMode,
-    N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
 
-pub const MAX_INPUTS: usize = 36;
+pub const MAX_INPUTS: usize = MAX_TRANSACT_INPUTS;
 
 /// Fixed width of the circuit's signer fold: the payer plus one slot per
 /// input. Sizes the zero-suffix table, not the program's signer array.
@@ -210,22 +210,20 @@ impl TransactProofInputs {
         Ok(())
     }
 
-    pub fn assign_public_amounts_and_assets<E>(
+    pub fn assign_public_amounts_and_assets<'a>(
         &mut self,
-        interface_transfers: impl ExactSizeIterator<Item = Result<InterfaceTransfer, E>>,
-        settlements: &[Settlement<'_>],
+        settlements: impl Iterator<Item = Result<(InterfaceTransfer, Settlement<'a>), ProgramError>>,
         num_public_asset_slots: usize,
     ) -> Result<(), ProgramError> {
-        if interface_transfers.len() != settlements.len() || num_public_asset_slots > N_PUBLIC_SLOTS
-        {
+        if num_public_asset_slots > N_PUBLIC_SLOTS {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
 
         let mut used_slots = 0usize;
-        for (transfer, settlement) in interface_transfers.zip(settlements.iter()) {
-            let transfer = transfer.map_err(|_| ProgramError::InvalidInstructionData)?;
+        for settlement in settlements {
+            let (transfer, settlement) = settlement?;
             let amount = signed_amount(transfer);
-            if amount == 0 || transfer.is_deposit() != settlement.is_deposit() {
+            if amount == 0 {
                 return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
             }
 

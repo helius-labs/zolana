@@ -302,6 +302,10 @@ export interface ExternalDataHashInput extends Pick<
   | "messages"
 > {
   readonly instructionDiscriminator: number;
+  /** The tree holding the spent UTXOs; the first `transact` tree account. */
+  readonly inputTree: Address | Bytes32;
+  /** The tree receiving the new UTXOs; the second `transact` tree account. */
+  readonly outputTree: Address | Bytes32;
   /**
    * Addresses the proof commits, in protocol order: each interface transfer's
    * settlement accounts in leg order (the user account for a SOL leg, the user
@@ -314,26 +318,31 @@ export interface ExternalDataHashInput extends Pick<
 
 /**
  * `external_data_hash` public input: SHA-256 over the instruction
- * discriminator, the contiguous external-data prefix of the instruction, and
- * the committed account addresses in protocol order. The client may assemble
- * this preimage in memory; the program hashes the same bytes as borrowed slices
- * without copying them.
+ * discriminator, the contiguous external-data prefix of the instruction, the
+ * input and output tree addresses, and the committed account addresses in
+ * protocol order. The client may assemble this preimage in memory; the program
+ * hashes the same bytes as borrowed slices without copying them.
  *
  * The final result's first byte is zeroed for BN254 field compatibility,
  * matching `Sha256BE` on the Rust side.
  */
 export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
-  const addresses = input.committedAddresses.map((address, index) => {
-    const label = `committedAddresses[${String(index)}]`;
-    return typeof address === "string"
-      ? addressBytes(address, label)
-      : copyBytes(address, 32, label);
-  });
+  const committedAddress = (address: Address | Bytes32, label: string): Uint8Array =>
+    typeof address === "string" ? addressBytes(address, label) : copyBytes(address, 32, label);
+  const trees = [
+    committedAddress(input.inputTree, "inputTree"),
+    committedAddress(input.outputTree, "outputTree"),
+  ];
+  const addresses = input.committedAddresses.map((address, index) =>
+    committedAddress(address, `committedAddresses[${String(index)}]`),
+  );
 
   const discriminator = Uint8Array.of(
     unsigned(input.instructionDiscriminator, 0xff, "instructionDiscriminator"),
   );
-  return sha256BE(concatBytes([discriminator, encodeExternalDataPrefix(input), ...addresses]));
+  return sha256BE(
+    concatBytes([discriminator, encodeExternalDataPrefix(input), ...trees, ...addresses]),
+  );
 }
 
 function sha256BE(bytes: Uint8Array): Bytes32 {

@@ -88,6 +88,9 @@ pub enum TransactionError {
     #[error("ring hashes already set")]
     RingHashesAlreadySet,
 
+    #[error("external data has no input and output tree set")]
+    MissingTransactTrees,
+
     #[error("multiple public spl assets in one transaction")]
     MultiplePublicSplAssets,
 

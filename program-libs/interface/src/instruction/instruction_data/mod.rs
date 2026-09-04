@@ -12,7 +12,7 @@ pub mod ring_config;
 pub mod set_tree_fees;
 pub mod transact;
 
-pub use borrowed::{BorrowedList, BorrowedListIter};
+pub use borrowed::{BorrowedList, BorrowedListIter, DecodeError};
 
 #[cfg(feature = "tree")]
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};

@@ -68,7 +68,7 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
 #[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = DepositIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidInstructionData))?;
     let assets = collect_assets(data.assets)?;
     process_deposit_internal::<false, _>(
         accounts,
@@ -81,7 +81,7 @@ pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
 
 pub fn process_ring_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = RingDepositIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidInstructionData))?;
     let assets = collect_assets(data.assets)?;
     process_deposit_internal::<true, _>(
         accounts,

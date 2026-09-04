@@ -61,8 +61,9 @@ use zolana_test_utils::{
         dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
         external_data_hash_with_addresses, fe, inline_outputs, new_transact_ix_data,
         nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-        public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-        transfer_output, ResolvedInterfaceTransfer, SpendInputArgs, TransferProverInputsArgs,
+        public_sol_field, real_output, same_tree, set_output_owner_tags, sol_public_slots,
+        spend_input, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
+        TransferProverInputsArgs,
     },
 };
 
@@ -582,7 +583,7 @@ fn bench_transfer_shape(
     nullifier_pks.extend(std::iter::repeat_n(zero, n_outputs - 1));
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &[]).expect("external data hash");
+        external_data_hash(&transact_ix_data, &[], same_tree(tree)).expect("external data hash");
     let mut private_outputs = vec![real_hash];
     private_outputs.extend(std::iter::repeat_n(zero, n_outputs - 1));
     let private_tx =
@@ -832,9 +833,13 @@ fn bench_ring_transfer_shape(
 
     let addresses =
         account_tagged_owner_addresses(&transact_ix_data).expect("account-tagged owners");
-    let external_data_hash =
-        external_data_hash_with_addresses(&transact_ix_data, tag::RING_TRANSACT, &addresses)
-            .expect("ring external data hash");
+    let external_data_hash = external_data_hash_with_addresses(
+        &transact_ix_data,
+        tag::RING_TRANSACT,
+        same_tree(tree),
+        &addresses,
+    )
+    .expect("ring external data hash");
     // The real input contributes its utxo hash; every dummy input and every
     // dummy output contributes zero.
     let mut private_inputs = vec![utxo_hash];
@@ -1132,7 +1137,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         recipient: recipient.to_bytes(),
     }];
     let external_data_hash =
-        external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
+        external_data_hash(&transact_ix_data, &resolved_transfers, same_tree(tree))
+            .expect("external data hash");
     let private_tx =
         PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
             .hash()

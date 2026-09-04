@@ -2,7 +2,8 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 pub use crate::output_data::{EncryptedRingDepositData, EncryptedRingDepositDataRef};
 
-use super::borrowed::{finish, BorrowedList};
+use super::borrowed::{finish, BorrowedList, DecodeError, RefConfig};
+use crate::error::ShieldedPoolError;
 
 /// Application data committed into the deposited UTXO's `data_hash`. The deposit
 /// is authorized by the payer (non-ring) or the `RingConfig` account (ring); the
@@ -173,13 +174,26 @@ pub struct DepositIxDataRef<'a> {
 }
 
 impl<'a> DepositIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, DecodeError> {
         let mut cursor = data;
-        let assets = BorrowedList::read::<DepositAssetKind>(&mut cursor, usize::from(u8::MAX))?;
-        let deposits = BorrowedList::read::<DepositEntryRef<'a>>(&mut cursor, u8::MAX.into())?;
+        let assets = read_list::<DepositAssetKind>(&mut cursor)?;
+        let deposits = read_list::<DepositEntryRef<'a>>(&mut cursor)?;
         finish(cursor)?;
         Ok(Self { assets, deposits })
     }
+}
+
+/// Deposit lists are bounded by their `u8` count alone; the program applies the
+/// named asset bound after decoding.
+fn read_list<'a, S>(cursor: &mut &'a [u8]) -> Result<BorrowedList<'a, S::Dst>, DecodeError>
+where
+    S: SchemaRead<'a, RefConfig>,
+{
+    BorrowedList::read::<S>(
+        cursor,
+        u8::MAX.into(),
+        ShieldedPoolError::InvalidInstructionData,
+    )
 }
 
 /// Allocation-free borrowed view of [`RingDepositIxData`]. Entry payloads
@@ -191,10 +205,10 @@ pub struct RingDepositIxDataRef<'a> {
 }
 
 impl<'a> RingDepositIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, DecodeError> {
         let mut cursor = data;
-        let assets = BorrowedList::read::<DepositAssetKind>(&mut cursor, usize::from(u8::MAX))?;
-        let deposits = BorrowedList::read::<RingDepositEntryRef<'a>>(&mut cursor, u8::MAX.into())?;
+        let assets = read_list::<DepositAssetKind>(&mut cursor)?;
+        let deposits = read_list::<RingDepositEntryRef<'a>>(&mut cursor)?;
         finish(cursor)?;
         Ok(Self { assets, deposits })
     }

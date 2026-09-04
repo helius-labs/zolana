@@ -70,6 +70,30 @@ impl Shape {
     }
 }
 
+/// Largest input count in `shapes`; sizes the program's fixed input buffers.
+pub const fn max_inputs(mut shapes: &[Shape]) -> usize {
+    let mut max = 0;
+    while let Some((shape, rest)) = shapes.split_first() {
+        if shape.n_inputs > max {
+            max = shape.n_inputs;
+        }
+        shapes = rest;
+    }
+    max
+}
+
+/// Largest output count in `shapes`; sizes the program's fixed output buffers.
+pub const fn max_outputs(mut shapes: &[Shape]) -> usize {
+    let mut max = 0;
+    while let Some((shape, rest)) = shapes.split_first() {
+        if shape.n_outputs > max {
+            max = shape.n_outputs;
+        }
+        shapes = rest;
+    }
+    max
+}
+
 /// Shapes the SPP prover has keys for. Slot-signed transactions declare their
 /// exact shape (they do not pad), so they validate against this full set rather
 /// than the fixed padded-transfer shape ([`Shape::IN2_OUT3`]).

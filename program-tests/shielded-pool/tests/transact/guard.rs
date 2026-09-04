@@ -471,15 +471,6 @@ fn transact_rejects_a_malformed_wincode_payload() {
         .get_mut(circuit_tag_offset + 1)
         .expect("circuit tag byte") = 0xFF;
     malformed.push(bad_tag);
-    // An overlong length prefix: the external-data prefix's first count, after
-    // the tag byte plus `expiry_unix_ts`, `tx_viewing_pk` and `salt`. 255 claims
-    // elements past the buffer end.
-    const INTERFACE_TRANSFER_COUNT_OFFSET: usize = 1 + 8 + 33 + 16;
-    let mut overlong = template.data.clone();
-    *overlong
-        .get_mut(INTERFACE_TRANSFER_COUNT_OFFSET)
-        .expect("interface transfer length byte") = 255;
-    malformed.push(overlong);
 
     for data in malformed {
         let mut ix = template.clone();
@@ -490,6 +481,21 @@ fn transact_rejects_a_malformed_wincode_payload() {
             .expect_err("malformed payload must be rejected");
         Rejection::new(InstructionError::InvalidInstructionData).assert_litesvm(error);
     }
+
+    // A well-formed count above the protocol bound: the external-data prefix's
+    // first count, after the tag byte plus `expiry_unix_ts`, `tx_viewing_pk` and
+    // `salt`. The parser names the exceeded limit instead of a bare decode error.
+    const INTERFACE_TRANSFER_COUNT_OFFSET: usize = 1 + 8 + 33 + 16;
+    let mut overlong = template.clone();
+    *overlong
+        .data
+        .get_mut(INTERFACE_TRANSFER_COUNT_OFFSET)
+        .expect("interface transfer length byte") = 255;
+    let error = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[overlong], &[])
+        .expect_err("overlong transfer list must be rejected");
+    Rejection::pool(ShieldedPoolError::TooManyInterfaceTransfers).assert_litesvm(error);
 }
 
 #[test]

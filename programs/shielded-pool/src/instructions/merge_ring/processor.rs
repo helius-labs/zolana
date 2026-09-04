@@ -28,7 +28,7 @@ use crate::instructions::{
 #[inline(never)]
 pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let ix = MergeRingIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidMergeShape))?;
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidMergeShape))?;
     let merge = &ix.merge;
     validate_field_elements(merge)?;
     check_field_element(

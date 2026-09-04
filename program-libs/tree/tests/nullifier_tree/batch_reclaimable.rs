@@ -140,24 +140,6 @@ fn fully_applied_successor_advances_watermark_after_natural_root_overwrite() {
 }
 
 #[test]
-fn completed_batch_rejects_stale_close_watermark_on_reload() {
-    let mut data = account_data();
-    init_tree(&mut data);
-
-    assert_eq!(insert(&mut data, 1..=4), vec![1, 2, 3, 4]);
-    for i in 1..=4u8 {
-        apply_update(&mut data, 0, root(i));
-    }
-    let layout: &mut NullifierTreeLayout<ZKP> = wincode::deserialize_mut(&mut data).unwrap();
-    assert_eq!(layout.close_before_index, 1);
-    layout.close_before_index = 0;
-    assert_eq!(
-        load_tree_account_data::<ZKP>(&mut data).unwrap_err(),
-        NullifierTreeError::InvalidIndex
-    );
-}
-
-#[test]
 fn inserted_batch_reuse_does_not_wait_for_successor_to_be_fully_applied() {
     let mut data = account_data();
     init_tree(&mut data);

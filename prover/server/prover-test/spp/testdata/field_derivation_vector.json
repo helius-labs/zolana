@@ -1,6 +1,8 @@
 {
   "external_data_hash": {
     "instruction_discriminator": 12,
+    "input_tree": "0x0202020202020202020202020202020202020202020202020202020202020202",
+    "output_tree": "0x0303030303030303030303030303030303030303030303030303030303030303",
     "sender_view_tag": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     "tx_viewing_pk": "0x909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0",
     "salt": "0xf0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
@@ -29,7 +31,7 @@
       "0x02"
     ],
     "encrypted_utxos": "0x80818283848586878889aabbccddeeff",
-    "hash": "0x00de27e71eef1cc98a0519ee6ef871b6bc94d40dfbfde7e0821bbe6f9cb521e1"
+    "hash": "0x00f7a52a58c938dbaff20c9cb6e4e4875c112ee15c4efb034c76351d8ab895ee"
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",

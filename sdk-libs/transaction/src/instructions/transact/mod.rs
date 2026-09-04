@@ -15,7 +15,7 @@ pub mod spp_proof_inputs;
 pub mod transfer;
 pub mod types;
 
-pub use external_data::{ExternalData, SettlementTransfer};
+pub use external_data::{ExternalData, SettlementTransfer, TransactTrees};
 pub use shape::{canonical_shape, resolve_shape, Shape, SPP_SUPPORTED_SHAPES};
 pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTransactionData};
 pub use split::{ConfidentialSplit, PreparedSplit};

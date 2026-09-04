@@ -1,6 +1,7 @@
 use crate::instructions::{
     event::emit_transact_event,
     nullifier_pda::create_nullifier_pdas,
+    settlement::Settlement,
     shared::{caused_by, check_field_element, check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
@@ -12,19 +13,20 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_event::TransactEvent;
-use zolana_hasher::{primitives::hash_bytes, sha256::Sha256BE, Hasher};
+use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::{
             transact::{
-                CircuitId, InterfaceTransfer, OwnerTagRef, TransactIxDataRef, TransactOutputRef,
+                CircuitId, ExternalDataPreimage, InterfaceTransfer, OwnerTagRef, TransactIxDataRef,
+                TransactOutputRef,
             },
             BorrowedList,
         },
         tag::InstructionTag,
     },
-    MAX_EXTERNAL_DATA_HASH_SLICES, MAX_INTERFACE_TRANSFERS, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
+    MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS,
 };
 
 use super::{
@@ -33,72 +35,56 @@ use super::{
     tree::{apply_input_tree, apply_output_tree},
 };
 
+const INPUT_TREE_ACCOUNT_INDEX: usize = 1;
+const OUTPUT_TREE_ACCOUNT_INDEX: usize = 2;
+
 /// Hash the serialized external-data prefix and the account addresses it names
 /// before mutable account parsing. Both inputs are borrowed directly from the
 /// runtime; this does not allocate or copy either instruction data or account
 /// addresses.
 #[inline(never)]
-fn hash_external_data_from_accounts(
+fn hash_external_data_from_accounts<'a>(
     instruction: InstructionTag,
-    external_data_prefix: &[u8],
-    accounts: &[AccountView],
+    external_data_prefix: &'a [u8],
+    accounts: &'a [AccountView],
     interface_transfers: BorrowedList<'_, InterfaceTransfer>,
     outputs: BorrowedList<'_, TransactOutputRef<'_>>,
 ) -> Result<[u8; 32], ProgramError> {
     let mut settlement_account_count = 0usize;
     for transfer in interface_transfers.try_iter() {
-        let transfer = decode_item(transfer)?;
         settlement_account_count = settlement_account_count
-            .checked_add(match &transfer {
-                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => 2,
-                InterfaceTransfer::SplDeposit { .. } | InterfaceTransfer::SplWithdrawal { .. } => 5,
-            })
+            .checked_add(decode_item(transfer)?.settlement_account_count())
             .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
     }
-
-    // Settlement groups are the final accounts. Their shapes are fixed by the
-    // corresponding transfer variants; the full parser below subsequently
-    // validates every selected account and rejects missing/extra accounts.
+    // Settlement groups are the final accounts; the account parser later
+    // validates every selected account and rejects missing or extra accounts.
     let mut settlement_offset = accounts
         .len()
         .checked_sub(settlement_account_count)
         .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+
+    let input_tree = tree_address(accounts, INPUT_TREE_ACCOUNT_INDEX)?;
+    let output_tree = tree_address(accounts, OUTPUT_TREE_ACCOUNT_INDEX)?;
     let discriminator = [instruction as u8];
-    let mut preimage: ArrayVec<&[u8], MAX_EXTERNAL_DATA_HASH_SLICES> = ArrayVec::new();
-    preimage
-        .try_push(&discriminator)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
-    preimage
-        .try_push(external_data_prefix)
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
+    let mut preimage = ExternalDataPreimage::new(
+        &discriminator,
+        external_data_prefix,
+        input_tree,
+        output_tree,
+    );
     for transfer in interface_transfers.try_iter() {
         let transfer = decode_item(transfer)?;
-        let (first_offset, second_offset, group_len) = match &transfer {
-            // [sol_interface, user_account]
-            InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => {
-                (1usize, None, 2usize)
-            }
-            // [mint, spl_interface, token_authority, user_token, token_program]
-            InterfaceTransfer::SplDeposit { .. } => (3, Some(1), 5),
-            // [cpi_authority, mint, spl_interface, user_token, token_program]
-            InterfaceTransfer::SplWithdrawal { .. } => (3, Some(2), 5),
-        };
-        push_account_address(
-            &mut preimage,
-            accounts,
-            settlement_offset.checked_add(first_offset),
-            ShieldedPoolError::InvalidSettlementAccounts,
-        )?;
-        if let Some(second_offset) = second_offset {
-            push_account_address(
-                &mut preimage,
-                accounts,
-                settlement_offset.checked_add(second_offset),
-                ShieldedPoolError::InvalidSettlementAccounts,
-            )?;
+        let group = accounts
+            .get(settlement_offset..)
+            .and_then(|rest| rest.get(..transfer.settlement_account_count()))
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        let settlement = Settlement::from_group(transfer, group, 0)?;
+        push_account_address(&mut preimage, settlement.user_account())?;
+        if let Some(spl_interface) = settlement.spl_interface_account() {
+            push_account_address(&mut preimage, spl_interface)?;
         }
         settlement_offset = settlement_offset
-            .checked_add(group_len)
+            .checked_add(group.len())
             .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
     }
 
@@ -107,18 +93,33 @@ fn hash_external_data_from_accounts(
     for output in outputs.try_iter() {
         let output = decode_item(output)?;
         if let OwnerTagRef::Account(index) = output.owner_tag {
-            push_account_address(
-                &mut preimage,
-                accounts,
-                Some(usize::from(index)),
-                ShieldedPoolError::OwnerTagAccountMissing,
-            )?;
+            let owner = accounts
+                .get(usize::from(index))
+                .ok_or(ShieldedPoolError::OwnerTagAccountMissing)?;
+            push_account_address(&mut preimage, owner)?;
         }
     }
 
-    Sha256BE::hashv(&preimage).map_err(caused_by(
+    preimage.finish().map_err(caused_by(
         ShieldedPoolError::TransactProofVerificationFailed,
     ))
+}
+
+fn tree_address(accounts: &[AccountView], index: usize) -> Result<&[u8; 32], ProgramError> {
+    accounts
+        .get(index)
+        .map(|account| account.address().as_array())
+        .ok_or(ShieldedPoolError::InvalidTreeAccounts.into())
+}
+
+#[inline]
+fn push_account_address<'a>(
+    preimage: &mut ExternalDataPreimage<'a>,
+    account: &'a AccountView,
+) -> ProgramResult {
+    preimage
+        .push_address(account.address().as_array())
+        .map_err(|_| ShieldedPoolError::InvalidInstructionData.into())
 }
 
 #[inline]
@@ -127,28 +128,11 @@ fn decode_item<T, E>(item: Result<T, E>) -> Result<T, ProgramError> {
 }
 
 fn validate_transfers(ix: &TransactIxDataRef<'_>) -> ProgramResult {
-    if ix.interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
-        return Err(ShieldedPoolError::TooManyInterfaceTransfers.into());
-    }
     for transfer in ix.interface_transfers.try_iter() {
         if decode_item(transfer)?.amount() == 0 {
             return Err(ShieldedPoolError::ZeroInterfaceTransferAmount.into());
         }
     }
-    Ok(())
-}
-
-#[inline]
-fn push_account_address<'a>(
-    preimage: &mut ArrayVec<&'a [u8], MAX_EXTERNAL_DATA_HASH_SLICES>,
-    accounts: &'a [AccountView],
-    index: Option<usize>,
-    error: ShieldedPoolError,
-) -> ProgramResult {
-    let account = index.and_then(|index| accounts.get(index)).ok_or(error)?;
-    preimage
-        .try_push(account.address().as_array())
-        .map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
     Ok(())
 }
 
@@ -178,11 +162,9 @@ pub fn process_transact_ix(
             )
         },
     )
-    .map_err(caused_by(ProgramError::InvalidInstructionData))?;
+    .map_err(|error| error.or_encoding(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type.
     validate_circuit_type(&ix, instruction)?;
-    // Reject zero-valued or overlong transfer lists before any per-address
-    // hashing. Account parsing consumes the same already-validated list below.
     validate_transfers(&ix)?;
 
     // 3. Check proof is not expired.
@@ -223,8 +205,7 @@ pub fn process_transact_ix(
 
     // 8. Process SOL and SPL transfers.
     proof_inputs.assign_public_amounts_and_assets(
-        ix.interface_transfers.try_iter().map(decode_item),
-        &transact_accounts.settlements,
+        transact_accounts.settlements(ix.interface_transfers),
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
     let mut nullifiers: ArrayVec<&[u8; 32], MAX_TRANSACT_INPUTS> = ArrayVec::new();
@@ -258,10 +239,7 @@ pub fn process_transact_ix(
 
     TransactProof::new(&ix, &proof_inputs).verify()?;
 
-    settle_interface_transfers(
-        ix.interface_transfers.try_iter().map(decode_item),
-        &transact_accounts.settlements,
-    )?;
+    settle_interface_transfers(transact_accounts.settlements(ix.interface_transfers))?;
 
     // Only the execution-assigned positions: an indexer rebuilds nullifiers,
     // outputs, messages and trees from this instruction and its account list.
@@ -332,6 +310,7 @@ pub fn validate_circuit_type(
 mod tests {
     use super::*;
     use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use zolana_hasher::{sha256::Sha256BE, Hasher};
     use zolana_interface::instruction::{OwnerTag, TransactIxData, TransactOutput, TransactProof};
 
     fn account(address: u8) -> AccountView {
@@ -348,7 +327,7 @@ mod tests {
                 InterfaceTransfer::SolDeposit { amount: 1 },
                 InterfaceTransfer::SplWithdrawal {
                     amount: 2,
-                    spl_interface_bump: zolana_interface::pda::spl_interface_bump(&[21; 32]),
+                    spl_interface_bump: 255,
                 },
             ],
             data_hash: Some([24; 32]),
@@ -383,9 +362,10 @@ mod tests {
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
 
         // This is the same complete fixture used by the Rust client, Go prover,
-        // and TypeScript SDK. Account 7 is the account-backed output owner;
-        // settlement groups are the suffix in wire order. Arbitrary
-        // non-committed slots make an adjacent-index mistake visible.
+        // and TypeScript SDK. Accounts 1 and 2 are the input and output tree,
+        // account 7 is the account-backed output owner; settlement groups are
+        // the suffix in wire order. Arbitrary non-committed slots make an
+        // adjacent-index mistake visible.
         let accounts = vec![
             account(1),
             account(2),
@@ -417,7 +397,7 @@ mod tests {
 
         let mut expected_preimage = vec![InstructionTag::RingTransact as u8];
         expected_preimage.extend_from_slice(external_data_prefix);
-        for byte in [20u8, 22, 23, 33] {
+        for byte in [2u8, 3, 20, 22, 23, 33] {
             expected_preimage.extend_from_slice(&[byte; 32]);
         }
         let expected = Sha256BE::hash(&expected_preimage).unwrap();
@@ -426,8 +406,8 @@ mod tests {
         assert_eq!(
             actual,
             [
-                0, 222, 47, 97, 173, 68, 253, 98, 205, 189, 27, 97, 10, 140, 198, 237, 212, 34,
-                217, 98, 116, 208, 46, 158, 75, 101, 153, 36, 240, 42, 194, 155,
+                0, 136, 175, 175, 95, 241, 142, 109, 78, 140, 29, 136, 32, 94, 140, 36, 228, 140,
+                241, 79, 128, 248, 18, 59, 248, 160, 28, 213, 99, 139, 161, 8,
             ],
             "Rust program, Rust client, Go, and TypeScript must share this protocol vector",
         );
@@ -444,7 +424,7 @@ mod tests {
             ring_data_hash: None,
             outputs: vec![TransactOutput {
                 utxo_hash: [8; 32],
-                owner_tag: OwnerTag::Account(1),
+                owner_tag: OwnerTag::Account(3),
                 data: None,
             }],
             messages: Vec::new(),
@@ -461,12 +441,24 @@ mod tests {
             hash_external_data_from_accounts(
                 InstructionTag::Transact,
                 external_data_prefix,
-                &[],
+                &[account(1), account(2), account(3)],
                 ix.interface_transfers,
                 ix.outputs,
             ),
             Err(ProgramError::Custom(
                 ShieldedPoolError::OwnerTagAccountMissing as u32
+            ))
+        );
+        assert_eq!(
+            hash_external_data_from_accounts(
+                InstructionTag::Transact,
+                external_data_prefix,
+                &[account(1)],
+                ix.interface_transfers,
+                ix.outputs,
+            ),
+            Err(ProgramError::Custom(
+                ShieldedPoolError::InvalidTreeAccounts as u32
             ))
         );
     }

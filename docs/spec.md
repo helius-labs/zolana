@@ -988,17 +988,21 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 **external_data_hash**
 
-Hash over the external-data prefix of the invoking SPP instruction and the Solana accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the external-data prefix of the invoking SPP instruction, the tree accounts it spends from and appends to, and the Solana accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another instruction or another tree pair even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
     u8(spp_instruction_discriminator)
     || external_data_prefix
+    || input_tree
+    || output_tree
     || committed_addresses[0]
     || ...
     || committed_addresses[n]
 )
 ```
+
+`input_tree` and `output_tree` are the addresses of the `input_tree` and `output_tree` accounts of the invoking instruction.
 
 The entire ordered byte sequence is hashed once. The resulting
 `external_data_hash` is reduced to the protocol's canonical field form by

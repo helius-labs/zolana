@@ -18,8 +18,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
 use zolana_transaction::{
-    instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo, Utxo,
-    SOL_MINT,
+    instructions::transact::shape::Shape as TxShape, Data, ExternalData, SppProofOutputUtxo,
+    TransactTrees, Utxo, SOL_MINT,
 };
 
 use crate::{
@@ -288,6 +288,10 @@ fn dummy_input() -> TransferSpendInput {
 fn ring_external_data(n_out: usize) -> ExternalData {
     ExternalData {
         instruction_discriminator: RING_AUTHORITY_TRANSACT,
+        trees: Some(TransactTrees {
+            input_tree: Address::new_from_array([11u8; 32]),
+            output_tree: Address::new_from_array([12u8; 32]),
+        }),
         expiry_unix_ts: 0,
         interface_transfers: Vec::new(),
         data_hash: None,

@@ -1,9 +1,8 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaWrite};
-use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::instruction::MessageData;
 use zolana_interface::instruction::{
-    instruction_data::transact::{InterfaceTransfer, OwnerTag, TransactOutput},
+    instruction_data::transact::{hash_external_data, InterfaceTransfer, OwnerTag, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
@@ -84,22 +83,30 @@ impl SettlementTransfer {
     }
 }
 
+/// The tree accounts a `transact` spends from and appends to. Bound into
+/// `external_data_hash`, so a proof cannot be replayed against another pair.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransactTrees {
+    pub input_tree: Address,
+    pub output_tree: Address,
+}
+
 /// Transaction-level public data the proofs commit to via `external_data_hash`.
 ///
 /// This client implementation may allocate: it serializes the committed prefix
-/// and collects the committed account addresses before hashing them. The
-/// on-chain program has a deliberately separate implementation that borrows
-/// both directly from instruction and account data. Agreement is pinned by
-/// wire-layout and digest vectors below.
+/// and collects the committed account addresses, then hashes them through the
+/// same interface preimage the on-chain program uses. Agreement is pinned by
+/// layout and digest vectors below.
 ///
-/// Each output carries its commitment, wire `owner_tag`, and optional
+/// Each output carries its commitment, encoded `owner_tag`, and optional
 /// ciphertext; the resolved 32-byte owner tags are paired at construction so
-/// [`Self::hash`] needs no account context and cannot drift from the wire tags.
-/// The hash also binds `tx_viewing_pk` and `salt`, which are required to decrypt
-/// those ciphertexts.
+/// [`Self::hash`] needs no account context and cannot drift from the encoded
+/// tags. The hash also binds `tx_viewing_pk` and `salt`, which are required to
+/// decrypt those ciphertexts, and the trees set with [`Self::with_trees`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub instruction_discriminator: u8,
+    pub trees: Option<TransactTrees>,
     pub expiry_unix_ts: u64,
     pub interface_transfers: Vec<SettlementTransfer>,
     /// Optional transaction-level UTXO- and ring-specific external data
@@ -154,6 +161,7 @@ impl ExternalData {
     ) -> Self {
         Self {
             instruction_discriminator: tag::TRANSACT,
+            trees: None,
             expiry_unix_ts: u64::MAX, // default no expiry, not necessary for confidential transfers
             interface_transfers: Vec::new(),
             data_hash: None,
@@ -195,6 +203,11 @@ impl ExternalData {
         validate_settlement_transfers(&interface_transfers)?;
         self.interface_transfers = interface_transfers;
         Ok(self)
+    }
+
+    pub fn with_trees(mut self, trees: TransactTrees) -> Self {
+        self.trees = Some(trees);
+        self
     }
 
     pub fn with_ring_hashes(
@@ -266,32 +279,17 @@ impl ExternalData {
                 "resolved owner tags do not pair 1:1 with outputs".to_string(),
             ));
         }
+        let trees = self.trees.ok_or(TransactionError::MissingTransactTrees)?;
         let external_data_prefix = self.serialize_instruction_prefix()?;
-        hash_external_data_client(
+        hash_external_data(
             self.instruction_discriminator,
             &external_data_prefix,
+            trees.input_tree.as_array(),
+            trees.output_tree.as_array(),
             self.committed_addresses().iter(),
         )
+        .map_err(|error| TransactionError::Hash(format!("{error:?}")))
     }
-}
-
-/// Client-side external-data hashing.
-///
-/// Keep this independent from the program implementation: the SDK is allowed
-/// to allocate and copy, while the program hashes borrowed data under a strict
-/// stack/compute budget. Both hash the same ordered byte sequence once.
-fn hash_external_data_client<'a>(
-    instruction_discriminator: u8,
-    external_data_prefix: &[u8],
-    addresses: impl Iterator<Item = &'a [u8; 32]>,
-) -> Result<[u8; 32], TransactionError> {
-    let mut preimage = Vec::with_capacity(1 + external_data_prefix.len());
-    preimage.push(instruction_discriminator);
-    preimage.extend_from_slice(external_data_prefix);
-    for address in addresses {
-        preimage.extend_from_slice(address);
-    }
-    Sha256BE::hash(&preimage).map_err(|error| TransactionError::Hash(format!("{error:?}")))
 }
 
 fn validate_settlement_transfers(transfers: &[SettlementTransfer]) -> Result<(), TransactionError> {
@@ -329,6 +327,10 @@ mod tests {
     fn client_prefix_encoding_matches_program_parser_boundary() {
         let external = ExternalData {
             instruction_discriminator: tag::RING_TRANSACT,
+            trees: Some(TransactTrees {
+                input_tree: Address::new_from_array([2; 32]),
+                output_tree: Address::new_from_array([3; 32]),
+            }),
             expiry_unix_ts: 42,
             interface_transfers: vec![
                 SettlementTransfer::Sol {
@@ -403,10 +405,10 @@ mod tests {
         assert_eq!(
             external.hash().unwrap(),
             [
-                0, 222, 47, 97, 173, 68, 253, 98, 205, 189, 27, 97, 10, 140, 198, 237, 212, 34,
-                217, 98, 116, 208, 46, 158, 75, 101, 153, 36, 240, 42, 194, 155,
+                0, 136, 175, 175, 95, 241, 142, 109, 78, 140, 29, 136, 32, 94, 140, 36, 228, 140,
+                241, 79, 128, 248, 18, 59, 248, 160, 28, 213, 99, 139, 161, 8,
             ],
-            "update this protocol-vector literal only for an intentional wire/hash change",
+            "update this protocol-vector literal only for an intentional layout or hash change",
         );
     }
 }

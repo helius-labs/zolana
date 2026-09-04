@@ -108,7 +108,14 @@ fn transact_ref_decode_and_hash_do_not_copy_payloads() {
     let addresses = [[8u8; 32], [9u8; 32]];
     ALLOCATIONS.store(0, Ordering::Relaxed);
     COUNTING.store(true, Ordering::Relaxed);
-    let digest = hash_external_data(0, external_data_prefix, addresses.iter()).unwrap();
+    let digest = hash_external_data(
+        0,
+        external_data_prefix,
+        &[2u8; 32],
+        &[3u8; 32],
+        addresses.iter(),
+    )
+    .unwrap();
     COUNTING.store(false, Ordering::Relaxed);
     black_box(digest);
     assert_eq!(

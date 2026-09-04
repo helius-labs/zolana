@@ -1,7 +1,7 @@
 use wincode::{SchemaRead, SchemaWrite};
 
 use super::{
-    borrowed::{finish, read},
+    borrowed::{finish, read, DecodeError},
     merge_transact::{MergeTransactIxData, MergeTransactIxDataRef},
 };
 
@@ -35,7 +35,7 @@ pub struct MergeRingIxDataRef<'a> {
 }
 
 impl<'a> MergeRingIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, DecodeError> {
         // Exact: trailing bytes after a merge payload are unbound by any proof
         // input, so they must be rejected rather than ignored.
         let mut cursor = data;

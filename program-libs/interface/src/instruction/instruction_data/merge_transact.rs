@@ -1,7 +1,8 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-use super::borrowed::{finish, read, BorrowedList};
+use super::borrowed::{finish, read, BorrowedList, DecodeError};
+use crate::error::ShieldedPoolError;
 
 /// Input counts the merge circuits have verifying keys for, smallest first.
 /// Dummy slots publish deterministic nullifiers derived from the owner's
@@ -107,7 +108,7 @@ pub struct MergeTransactIxDataRef<'a> {
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, DecodeError> {
         // Exact: trailing bytes after a merge payload are unbound by any proof
         // input, so they must be rejected rather than ignored.
         let mut cursor = data;
@@ -117,16 +118,17 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
-    pub(crate) fn read_from(cursor: &mut &'a [u8]) -> Result<Self, wincode::ReadError> {
+    pub(crate) fn read_from(cursor: &mut &'a [u8]) -> Result<Self, DecodeError> {
+        let shape = ShieldedPoolError::InvalidMergeShape;
         Ok(Self {
             expiry_unix_ts: read::<u64>(cursor)?,
             proof: read::<MergeProofRef<'a>>(cursor)?,
             output_utxo_hash: read::<&[u8; 32]>(cursor)?,
             eddsa_owner: read::<bool>(cursor)?,
             private_tx_hash: read::<&[u8; 32]>(cursor)?,
-            nullifiers: BorrowedList::read::<&[u8; 32]>(cursor, MAX_MERGE_INPUTS)?,
-            utxo_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS)?,
-            nullifier_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS)?,
+            nullifiers: BorrowedList::read::<&[u8; 32]>(cursor, MAX_MERGE_INPUTS, shape)?,
+            utxo_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS, shape)?,
+            nullifier_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS, shape)?,
         })
     }
 
@@ -137,13 +139,13 @@ impl<'a> MergeTransactIxDataRef<'a> {
     /// a count the circuits have a key for. Requiring agreement first is what
     /// makes the decode fail-closed: a shape is the instruction's own declared
     /// input count, not a constant the program assumes.
-    pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
+    pub(crate) fn validate_shape(&self) -> Result<(), DecodeError> {
         let input_count = self.nullifiers.len();
         if self.utxo_tree_root_index.len() != input_count
             || self.nullifier_tree_root_index.len() != input_count
             || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count)
         {
-            return Err(wincode::ReadError::Custom("invalid merge shape"));
+            return Err(DecodeError::Limit(ShieldedPoolError::InvalidMergeShape));
         }
         Ok(())
     }

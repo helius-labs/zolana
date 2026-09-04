@@ -9,7 +9,9 @@ use zolana_client::{
 use zolana_hasher::primitives::{hash_bytes, right_align};
 use zolana_interface::ADDRESS_DOMAIN;
 use zolana_keypair::{hash::owner_hash, PublicKey};
-use zolana_transaction::{instructions::transact::PrivateTxHash, ProofInputUtxo, Utxo};
+use zolana_transaction::{
+    instructions::transact::PrivateTxHash, ProofInputUtxo, TransactTrees, Utxo,
+};
 
 use crate::{
     account_pda,
@@ -35,6 +37,7 @@ pub fn address_input(pda: &Address) -> Result<(ProofInputUtxo, [u8; 32], [u8; 32
 
 pub struct CreateProofInputParams {
     pub authority: Address,
+    pub tree: Address,
     pub new_value: u64,
     pub non_inclusion: NonInclusionProof,
     pub utxo_root: [u8; 32],
@@ -92,7 +95,10 @@ impl CreateProofInputParams {
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_pk: be(&zero_nullifier_key().pubkey()?),
         };
-        let external = external_data(output_hash, &pda, payload);
+        let external = external_data(output_hash, &pda, payload).with_trees(TransactTrees {
+            input_tree: self.tree,
+            output_tree: self.tree,
+        });
         let external_hash = external.hash()?;
         let private_tx = PrivateTxHash {
             input_hashes: &[zero],

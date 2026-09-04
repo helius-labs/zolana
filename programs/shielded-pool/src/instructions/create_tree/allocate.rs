@@ -1,9 +1,11 @@
+use crate::instructions::shared::caused_by;
 use pinocchio::{
     cpi::{Seed, Signer},
-    AccountView, ProgramResult,
+    AccountView, ProgramResult, Resize,
 };
 use pinocchio_system::instructions::{Allocate, Assign, CreateAccount, Transfer};
 use zolana_interface::{error::ShieldedPoolError, state::TREE_ALLOCATION_STEP, TREE_PDA_SEED};
+use zolana_tree::UNINITIALIZED;
 
 pub(super) fn is_unallocated(tree: &AccountView) -> bool {
     pinocchio_system::check_id(tree.owner()) && tree.data_len() == 0
@@ -76,21 +78,14 @@ pub(super) fn grow_tree(tree: &mut AccountView, full_size: usize) -> ProgramResu
     if current >= full_size {
         return Ok(());
     }
-    let target = current.saturating_add(TREE_ALLOCATION_STEP).min(full_size);
-    tree.check_borrow_mut()?;
-
-    // SAFETY: `tree` came directly from the program entrypoint, has no active
-    // data borrow, is writable and program-owned, and `target - current` is at
-    // most Solana's 10 KiB per-instruction permitted data increase. Publish the
-    // new length before touching the direct-mapped extension, then explicitly
-    // zero every newly exposed byte as required by `TreeAccount::init`.
-    unsafe {
-        (*tree.account_mut_ptr()).data_len = target as u64;
-        core::ptr::write_bytes(
-            tree.data_mut_ptr().add(current),
-            0,
-            target.saturating_sub(current),
-        );
+    {
+        let data = tree
+            .try_borrow()
+            .map_err(caused_by(ShieldedPoolError::InvalidTreeAccounts))?;
+        if data.get(1).copied() != Some(UNINITIALIZED) {
+            return Err(ShieldedPoolError::InvalidTreeAccounts.into());
+        }
     }
-    Ok(())
+    let target = current.saturating_add(TREE_ALLOCATION_STEP).min(full_size);
+    tree.resize(target)
 }

@@ -3,23 +3,28 @@ use pinocchio::{address::address_eq, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
+    instruction::instruction_data::{
+        transact::{InterfaceTransfer, TransactIxDataRef},
+        BorrowedList,
+    },
     MAX_INTERFACE_TRANSFERS,
 };
 
 use crate::instructions::ring_config::loader::load_active_ring_config;
-use crate::instructions::settlement::{
-    validate_sol_settlement, validate_spl_deposit_settlement, validate_spl_withdrawal_settlement,
-    Settlement, SettlementAccountsSol, SplDepositAccounts, SplWithdrawalAccounts,
-};
+use crate::instructions::settlement::Settlement;
 
+/// Validated transact accounts. Settlement groups are kept as the shared
+/// account slice plus one validated byte per transfer, and rebuilt on demand
+/// by [`Self::settlements`], so the struct stays small enough to return by
+/// value inside the SBF stack frame.
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub nullifier_pdas: &'a mut [AccountView],
     pub owner_signers: &'a [AccountView],
-    pub settlements: ArrayVec<Settlement<'a>, MAX_INTERFACE_TRANSFERS>,
+    pub settlement_accounts: &'a [AccountView],
+    pub settlement_aux: ArrayVec<u8, MAX_INTERFACE_TRANSFERS>,
 }
 
 impl<'a> TransactAccounts<'a> {
@@ -34,7 +39,7 @@ impl<'a> TransactAccounts<'a> {
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
-    ) -> Result<Box<Self>, ProgramError> {
+    ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
 
         let payer: &AccountView = iter.next_signer("payer")?;
@@ -52,13 +57,10 @@ impl<'a> TransactAccounts<'a> {
         input_tree: &'a mut AccountView,
         output_tree: &'a mut AccountView,
         allow_owner_signers: bool,
-    ) -> Result<Box<Self>, ProgramError> {
-        // One contiguous slice rather than a count-sized buffer; the helper
-        // applies the same writability check per account that `next_mut` did.
+    ) -> Result<Self, ProgramError> {
         let nullifier_pdas = iter.next_slice_mut(ix.inputs.len(), "nullifier_pda")?;
 
-        let remaining = iter.remaining_unchecked_mut()?;
-        // 2. Search first account that is not signer.
+        let remaining = iter.remaining_unchecked()?;
         let signer_count = remaining
             .iter()
             .position(|account| !account.is_signer())
@@ -68,100 +70,55 @@ impl<'a> TransactAccounts<'a> {
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
-        let (owner_signers, settlement_accounts) = remaining.split_at_mut(signer_count);
-        // 3. Check transfer settlement accounts.
-        let mut iter = AccountIterator::new(settlement_accounts);
-        let mut settlements = ArrayVec::new();
+        let (owner_signers, settlement_accounts) = remaining.split_at(signer_count);
+
+        let mut settlement_aux = ArrayVec::new();
+        let mut rest = settlement_accounts;
         for transfer in ix.interface_transfers.try_iter() {
             let transfer = transfer.map_err(|_| ProgramError::InvalidInstructionData)?;
-            let settlement = match transfer {
-                InterfaceTransfer::SplDeposit {
-                    spl_interface_bump, ..
-                } => {
-                    let mint_account = iter.next_account("mint")?;
-                    let spl_interface_account = iter.next_account("spl_interface")?;
-                    let token_authority = iter.next_account("token_authority")?;
-                    let user_token_account = iter.next_account("user_token_account")?;
-                    let token_program = iter.next_account("token_program")?;
-                    let mint_state = validate_spl_deposit_settlement(
-                        mint_account,
-                        spl_interface_account,
-                        user_token_account,
-                        token_program,
-                        spl_interface_bump,
-                        token_authority,
-                    )?;
-                    Settlement::SplDeposit(SplDepositAccounts {
-                        mint_account,
-                        decimals: mint_state.decimals,
-                        spl_interface_account,
-                        token_authority_account: token_authority,
-                        user_token_account,
-                        token_program_account: token_program,
-                    })
-                }
-                InterfaceTransfer::SplWithdrawal {
-                    spl_interface_bump, ..
-                } => {
-                    let cpi_authority = iter.next_non_mut("cpi_authority")?;
-                    let mint_account = iter.next_account("mint")?;
-                    let spl_interface_account = iter.next_account("spl_interface")?;
-                    let user_token_account = iter.next_account("user_token_account")?;
-                    let token_program = iter.next_account("token_program")?;
-                    let mint_state = validate_spl_withdrawal_settlement(
-                        cpi_authority,
-                        mint_account,
-                        spl_interface_account,
-                        user_token_account,
-                        token_program,
-                        spl_interface_bump,
-                    )?;
-                    Settlement::SplWithdrawal(SplWithdrawalAccounts {
-                        cpi_authority_account: cpi_authority,
-                        mint_account,
-                        decimals: mint_state.decimals,
-                        spl_interface_account,
-                        user_token_account,
-                        token_program_account: token_program,
-                    })
-                }
-                InterfaceTransfer::SolDeposit { .. } => {
-                    let sol_interface = iter.next_account("sol_interface")?;
-                    let user_account = iter.next_account("user_account")?;
-                    let sol_interface_bump = validate_sol_settlement(sol_interface, user_account)?;
-                    Settlement::SolDeposit(SettlementAccountsSol {
-                        sol_interface_account: sol_interface,
-                        sol_interface_bump,
-                        user_account,
-                    })
-                }
-                InterfaceTransfer::SolWithdrawal { .. } => {
-                    let sol_interface = iter.next_account("sol_interface")?;
-                    let user_account = iter.next_account("user_account")?;
-                    let sol_interface_bump = validate_sol_settlement(sol_interface, user_account)?;
-                    Settlement::SolWithdrawal(SettlementAccountsSol {
-                        sol_interface_account: sol_interface,
-                        sol_interface_bump,
-                        user_account,
-                    })
-                }
-            };
-            settlements
-                .try_push(settlement)
+            let (group, tail) = rest
+                .split_at_checked(transfer.settlement_account_count())
+                .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+            rest = tail;
+            let aux = Settlement::from_group(transfer, group, 0)?.validate(transfer)?;
+            settlement_aux
+                .try_push(aux)
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
-        if !iter.iterator_is_empty() {
+        if !rest.is_empty() {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
 
-        Ok(Box::new(Self {
+        Ok(Self {
             payer,
             input_tree,
             output_tree,
             nullifier_pdas,
             owner_signers,
-            settlements,
-        }))
+            settlement_accounts,
+            settlement_aux,
+        })
+    }
+
+    /// Rebuilds each transfer's validated settlement from the stored account
+    /// slice, yielding it together with the transfer it settles.
+    pub(crate) fn settlements<'s, 't>(
+        &'s self,
+        transfers: BorrowedList<'t, InterfaceTransfer>,
+    ) -> impl ExactSizeIterator<Item = Result<(InterfaceTransfer, Settlement<'a>), ProgramError>>
+           + use<'a, 's, 't> {
+        let mut rest = self.settlement_accounts;
+        transfers
+            .try_iter()
+            .zip(self.settlement_aux.iter().copied())
+            .map(move |(transfer, aux)| {
+                let transfer = transfer.map_err(|_| ProgramError::InvalidInstructionData)?;
+                let (group, tail) = rest
+                    .split_at_checked(transfer.settlement_account_count())
+                    .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+                rest = tail;
+                Ok((transfer, Settlement::from_group(transfer, group, aux)?))
+            })
     }
 }
 
@@ -180,7 +137,7 @@ impl RingTransactAccounts {
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
         require_ring_authority_enabled: bool,
-    ) -> Result<(Box<TransactAccounts<'a>>, [u8; 32]), ProgramError> {
+    ) -> Result<(TransactAccounts<'a>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
         let input_tree = iter.next_mut("input_tree")?;

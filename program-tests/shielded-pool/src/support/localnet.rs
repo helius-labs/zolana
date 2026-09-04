@@ -25,7 +25,8 @@ use zolana_program_test::{
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
     inline_outputs, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
-    set_output_owner_tags, sol_public_slots, ResolvedInterfaceTransfer, TransferProverInputsArgs,
+    same_tree, set_output_owner_tags, sol_public_slots, ResolvedInterfaceTransfer,
+    TransferProverInputsArgs,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -248,6 +249,8 @@ fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
 /// per-slot nullifiers and (UTXO, nullifier) roots the proof binds are read
 /// back off `spend_inputs`, so callers pass no parallel vectors for them.
 pub struct SolTransferWitnessArgs {
+    /// Tree the transact spends from and appends to.
+    pub tree: Pubkey,
     /// Witness inputs in slot order (real spend input first, then dummies).
     pub spend_inputs: Vec<TransferInput>,
     /// UTXO-tree root index the eddsa input slots bind to.
@@ -311,7 +314,8 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         &owner_pk_hashes,
         &args.output_nullifier_pks,
     );
-    let external_hash = external_data_hash(&ix_data, &args.resolved_transfers)?;
+    let external_hash =
+        external_data_hash(&ix_data, &args.resolved_transfers, same_tree(args.tree))?;
     let private_tx = PrivateTxHash::new(
         &args.private_tx_inputs,
         &args.private_tx_outputs,

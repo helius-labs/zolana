@@ -20,6 +20,8 @@ type fieldDerivationVector struct {
 
 type externalDataHashVector struct {
 	InstructionDiscriminator uint8                     `json:"instruction_discriminator"`
+	InputTree                string                    `json:"input_tree"`
+	OutputTree               string                    `json:"output_tree"`
 	SenderViewTag            string                    `json:"sender_view_tag"`
 	TxViewingPk              string                    `json:"tx_viewing_pk"`
 	Salt                     string                    `json:"salt"`
@@ -75,6 +77,8 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	}
 	gotExternalBytes, err := externalDataHash(externalDataHashInput{
 		instructionDiscriminator: external.InstructionDiscriminator,
+		inputTree:                mustHex32(t, external.InputTree),
+		outputTree:               mustHex32(t, external.OutputTree),
 		expiryUnixTs:             external.ExpiryUnixTs,
 		interfaceTransfers:       interfaceTransfers,
 		txViewingPk:              mustHex33(t, external.TxViewingPk),

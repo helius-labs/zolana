@@ -37,4 +37,5 @@ export type {
   PrivateTxHashInput,
   PublicAmounts,
   Shape,
+  TransactTrees,
 } from "./transact.js";

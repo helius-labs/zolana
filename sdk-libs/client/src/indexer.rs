@@ -14,7 +14,7 @@ use zolana_api::{
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
-use zolana_transaction::instructions::transact::SppProofInputs;
+use zolana_transaction::instructions::transact::{SppProofInputs, TransactTrees};
 
 use crate::{
     error::ClientError,
@@ -134,6 +134,10 @@ impl ZolanaIndexer {
         tree: Address,
         proof_inputs: SppProofInputs,
     ) -> Result<TransactIxData, ClientError> {
+        let proof_inputs = proof_inputs.with_trees(TransactTrees {
+            input_tree: tree,
+            output_tree: tree,
+        });
         let (spend_proofs, dummy_nullifier_proofs) = self.spend_proofs(tree, &proof_inputs)?;
         ProverClient::local().prove_transact(proof_inputs, &spend_proofs, &dummy_nullifier_proofs)
     }

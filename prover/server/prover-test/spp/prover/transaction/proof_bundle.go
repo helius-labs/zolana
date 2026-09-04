@@ -23,6 +23,8 @@ type ProofTransactionRequest struct {
 	SenderViewTag            string                     `json:"sender_view_tag"`
 	TxViewingPk              string                     `json:"tx_viewing_pk"`
 	Salt                     string                     `json:"salt"`
+	InputTree                string                     `json:"input_tree"`
+	OutputTree               string                     `json:"output_tree"`
 	InterfaceTransfers       []InterfaceTransferRequest `json:"interface_transfers"`
 	EncryptedUtxos           string                     `json:"encrypted_utxos"`
 	StateEntries             []ProofStateEntry          `json:"state_entries"`

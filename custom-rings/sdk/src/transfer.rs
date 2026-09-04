@@ -28,8 +28,8 @@ use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
     },
-    owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
-    Utxo,
+    owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactTrees,
+    TransactionError, Utxo,
 };
 use zolana_tree::{TreeAccount, TreeError};
 
@@ -335,6 +335,10 @@ impl<'a> CustomRingTransfer<'a> {
         // RING_TRANSACT is folded into external_data_hash and from there into
         // private_tx_hash, so it must be bound before anything hashes external data.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
+        proof_inputs = proof_inputs.with_trees(TransactTrees {
+            input_tree: tree,
+            output_tree: tree,
+        });
 
         Ok(StagedTransfer {
             tx_viewing_key,

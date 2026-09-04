@@ -2,6 +2,7 @@
 //! (`transact/interface_transfer.rs`): order-independent intermediate zero
 //! nets and the final zero-net rejection (error 7045).
 
+use pinocchio::error::ProgramError;
 use shielded_pool_program::testing::{Settlement, SettlementAccountsSol, TransactProofInputs};
 use zolana_account_checks::account_info::test_account_info::get_account_view;
 use zolana_interface::{
@@ -39,7 +40,13 @@ fn intermediate_zero_net_is_order_independent() {
     let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
 
     proof_inputs
-        .assign_public_amounts_and_assets(transfers.into_iter().map(Ok::<_, ()>), &settlements, 1)
+        .assign_public_amounts_and_assets(
+            transfers
+                .into_iter()
+                .zip(settlements)
+                .map(Ok::<_, ProgramError>),
+            1,
+        )
         .unwrap();
 
     assert_eq!(proof_inputs.public_slot_assets[0], SOL_ASSET_FIELD);
@@ -61,8 +68,10 @@ fn final_zero_net_is_rejected() {
 
     assert_eq!(
         proof_inputs.assign_public_amounts_and_assets(
-            transfers.into_iter().map(Ok::<_, ()>),
-            &settlements,
+            transfers
+                .into_iter()
+                .zip(settlements)
+                .map(Ok::<_, ProgramError>),
             1,
         ),
         Err(ShieldedPoolError::ZeroNetInterfaceTransferAmount.into())

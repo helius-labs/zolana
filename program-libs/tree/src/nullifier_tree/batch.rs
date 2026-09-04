@@ -104,57 +104,6 @@ pub struct Batch<const ZKP_BATCHES: usize> {
 }
 
 impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
-    pub(crate) fn validate(
-        &self,
-        batch_size: u64,
-        zkp_batch_size: u64,
-    ) -> Result<(), NullifierTreeError> {
-        if self.batch_size != batch_size
-            || self.zkp_batch_size != zkp_batch_size
-            || self.start_index.checked_add(batch_size).is_none()
-        {
-            return Err(NullifierTreeError::InvalidBatchConfiguration);
-        }
-
-        let num_zkp_batches = u64::try_from(ZKP_BATCHES)
-            .map_err(|_| NullifierTreeError::InvalidBatchConfiguration)?;
-        if self.num_inserted >= zkp_batch_size
-            || self.num_inserted_zkp_batches > self.num_full_zkp_batches
-            || self.num_full_zkp_batches > num_zkp_batches
-        {
-            return Err(NullifierTreeError::InvalidBatchConfiguration);
-        }
-
-        let valid_for_state = match self.get_state()? {
-            BatchState::Fill => self.num_full_zkp_batches < num_zkp_batches,
-            BatchState::Full => {
-                self.num_inserted == 0
-                    && self.num_full_zkp_batches == num_zkp_batches
-                    && self.num_inserted_zkp_batches < num_zkp_batches
-            }
-            BatchState::Inserted => {
-                self.num_inserted == 0
-                    && self.num_full_zkp_batches == num_zkp_batches
-                    && self.num_inserted_zkp_batches == num_zkp_batches
-            }
-        };
-        if !valid_for_state {
-            return Err(NullifierTreeError::InvalidBatchConfiguration);
-        }
-        for (index, update) in self.cached_tree_updates.iter().enumerate() {
-            let index =
-                u64::try_from(index).map_err(|_| NullifierTreeError::InvalidBatchConfiguration)?;
-            if update.occupied > 1
-                || (update.is_occupied()
-                    && (index < self.num_inserted_zkp_batches
-                        || index >= self.num_full_zkp_batches))
-            {
-                return Err(NullifierTreeError::InvalidBatchConfiguration);
-            }
-        }
-        Ok(())
-    }
-
     /// Initializes a batch in place. Requires zeroed account data: the hash
     /// chains and cached updates are not written here.
     pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {

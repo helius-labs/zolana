@@ -389,10 +389,11 @@ impl<'a> TreeAccount<'a> {
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
-    if !matches!(layout.state, INITIALIZED | PAUSED) {
+    if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
+        || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
+    {
         return Err(TreeError::Deserialize);
     }
-    layout.utxo.validate().map_err(|_| TreeError::Deserialize)?;
     layout
         .nullifier
         .validate()

@@ -5,9 +5,12 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 pub use crate::output_data::MessageData;
 
 pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
-use crate::{error::ShieldedPoolError, MAX_EXTERNAL_DATA_HASH_SLICES, MAX_INTERFACE_TRANSFERS};
+use crate::{
+    error::ShieldedPoolError, MAX_EXTERNAL_DATA_HASH_SLICES, MAX_INTERFACE_TRANSFERS,
+    MAX_TRANSACT_INPUTS, MAX_TRANSACT_OUTPUTS,
+};
 
-use super::borrowed::{finish, read, BorrowedList};
+use super::borrowed::{finish, read, BorrowedList, DecodeError};
 
 /// The compressed Groth16 proof carried by a `transact` instruction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -90,6 +93,15 @@ impl InterfaceTransfer {
 
     pub const fn is_deposit(self) -> bool {
         matches!(self, Self::SolDeposit { .. } | Self::SplDeposit { .. })
+    }
+
+    /// Accounts in this transfer's settlement group: `[sol_interface, user]`
+    /// for SOL legs, `[mint | cpi_authority, .., token_program]` for SPL legs.
+    pub const fn settlement_account_count(self) -> usize {
+        match self {
+            Self::SolDeposit { .. } | Self::SolWithdrawal { .. } => 2,
+            Self::SplDeposit { .. } | Self::SplWithdrawal { .. } => 5,
+        }
     }
 }
 
@@ -235,18 +247,28 @@ impl<'a> TransactIxDataRef<'a> {
             BorrowedList<'a, InterfaceTransfer>,
             BorrowedList<'a, TransactOutputRef<'a>>,
         ) -> R,
-    ) -> Result<(Self, R), wincode::ReadError> {
+    ) -> Result<(Self, R), DecodeError> {
         let mut cursor = data;
         let expiry_unix_ts = read::<u64>(&mut cursor)?;
         let tx_viewing_pk = read::<&[u8; 33]>(&mut cursor)?;
         let salt = read::<&[u8; 16]>(&mut cursor)?;
-        let interface_transfers =
-            BorrowedList::read::<InterfaceTransfer>(&mut cursor, usize::from(u8::MAX))?;
+        let interface_transfers = BorrowedList::read::<InterfaceTransfer>(
+            &mut cursor,
+            MAX_INTERFACE_TRANSFERS,
+            ShieldedPoolError::TooManyInterfaceTransfers,
+        )?;
         let data_hash = read::<Option<&[u8; 32]>>(&mut cursor)?;
         let ring_data_hash = read::<Option<&[u8; 32]>>(&mut cursor)?;
-        let outputs =
-            BorrowedList::read::<TransactOutputRef<'a>>(&mut cursor, usize::from(u8::MAX))?;
-        let messages = BorrowedList::read::<MessageDataRef<'a>>(&mut cursor, u8::MAX.into())?;
+        let outputs = BorrowedList::read::<TransactOutputRef<'a>>(
+            &mut cursor,
+            MAX_TRANSACT_OUTPUTS,
+            ShieldedPoolError::InvalidTransactShape,
+        )?;
+        let messages = BorrowedList::read::<MessageDataRef<'a>>(
+            &mut cursor,
+            u8::MAX.into(),
+            ShieldedPoolError::InvalidInstructionData,
+        )?;
 
         let external_data_len =
             data.len()
@@ -264,7 +286,11 @@ impl<'a> TransactIxDataRef<'a> {
         let private_tx_hash = read::<&[u8; 32]>(&mut cursor)?;
         let circuit = read::<CircuitId>(&mut cursor)?;
         let proof = read::<TransactProofRef<'a>>(&mut cursor)?;
-        let inputs = BorrowedList::read::<InputUtxoRef<'a>>(&mut cursor, usize::from(u8::MAX))?;
+        let inputs = BorrowedList::read::<InputUtxoRef<'a>>(
+            &mut cursor,
+            MAX_TRANSACT_INPUTS,
+            ShieldedPoolError::InvalidTransactShape,
+        )?;
         finish(cursor)?;
 
         let parsed = Self {
@@ -287,11 +313,11 @@ impl<'a> TransactIxDataRef<'a> {
     /// Parse the flat instruction and return the borrowed external-data prefix.
     pub fn parse_with_external_data_prefix(
         data: &'a [u8],
-    ) -> Result<(Self, &'a [u8]), wincode::ReadError> {
+    ) -> Result<(Self, &'a [u8]), DecodeError> {
         Self::parse_with_external_data(data, |prefix, _, _| prefix)
     }
 
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self, DecodeError> {
         Self::parse_with_external_data_prefix(data).map(|(parsed, _)| parsed)
     }
 }
@@ -311,40 +337,72 @@ pub fn fetch_tag(
     }
 }
 
-/// `external_data_hash` public input: SHA-256 over the instruction
-/// discriminator, the contiguous external-data prefix of the raw instruction
-/// data, and the account addresses the proof must commit to.
+const _: () = assert!(MAX_EXTERNAL_DATA_HASH_SLICES >= 4);
+
+/// Preimage of the `external_data_hash` public input (spec: `transact`
+/// external_data_hash): the instruction discriminator, the contiguous
+/// external-data prefix of the raw instruction data, the input and output tree
+/// addresses, then the account addresses the proof commits to, hashed once.
 ///
-/// No preimage bytes are copied: a fixed-capacity stack array holds only the
-/// borrowed slice descriptors passed to the single SHA-256 call.
-///
-/// The preimage framing is unambiguous. The prefix encoding is self-delimiting,
-/// and the number of appended addresses is a function of the prefix alone (one
-/// per SOL leg, two per SPL leg, one per output whose owner tag names an account).
-///
-/// `addresses` must yield, in order: each interface transfer's settlement
-/// accounts in leg order, then the resolved owner of every `OwnerTag::Account`
-/// output in output order.
+/// Holds only borrowed slice descriptors, so neither the program nor a client
+/// copies preimage bytes. The framing is unambiguous: the prefix encoding is
+/// self-delimiting, the tree addresses are fixed width, and the number of
+/// appended addresses is a function of the prefix alone (one per SOL leg, two
+/// per SPL leg, one per output whose owner tag names an account).
+pub struct ExternalDataPreimage<'a> {
+    slices: ArrayVec<&'a [u8], MAX_EXTERNAL_DATA_HASH_SLICES>,
+}
+
+impl<'a> ExternalDataPreimage<'a> {
+    pub fn new(
+        spp_instruction_discriminator: &'a [u8; 1],
+        external_data_prefix: &'a [u8],
+        input_tree: &'a [u8; 32],
+        output_tree: &'a [u8; 32],
+    ) -> Self {
+        let mut slices = ArrayVec::new();
+        slices.push(spp_instruction_discriminator.as_slice());
+        slices.push(external_data_prefix);
+        slices.push(input_tree.as_slice());
+        slices.push(output_tree.as_slice());
+        Self { slices }
+    }
+
+    /// Appends the next committed address: each interface transfer's settlement
+    /// accounts in leg order, then the resolved owner of every
+    /// `OwnerTag::Account` output in output order.
+    pub fn push_address(&mut self, address: &'a [u8; 32]) -> Result<(), HasherError> {
+        let provided = self.slices.len() + 1;
+        self.slices
+            .try_push(address.as_slice())
+            .map_err(|_| HasherError::InvalidInputLength(MAX_EXTERNAL_DATA_HASH_SLICES, provided))
+    }
+
+    pub fn finish(&self) -> Result<[u8; 32], HasherError> {
+        Sha256BE::hashv(&self.slices)
+    }
+}
+
+/// `external_data_hash` over a complete, already resolved address list; see
+/// [`ExternalDataPreimage`] for the framing.
 pub fn hash_external_data<'a>(
     spp_instruction_discriminator: u8,
     external_data_prefix: &[u8],
+    input_tree: &[u8; 32],
+    output_tree: &[u8; 32],
     addresses: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {
     let discriminator = [spp_instruction_discriminator];
-    let mut preimage: ArrayVec<&[u8], MAX_EXTERNAL_DATA_HASH_SLICES> = ArrayVec::new();
-    preimage
-        .try_push(&discriminator)
-        .map_err(|_| HasherError::InvalidInputLength(MAX_EXTERNAL_DATA_HASH_SLICES, 1))?;
-    preimage
-        .try_push(external_data_prefix)
-        .map_err(|_| HasherError::InvalidInputLength(MAX_EXTERNAL_DATA_HASH_SLICES, 2))?;
+    let mut preimage = ExternalDataPreimage::new(
+        &discriminator,
+        external_data_prefix,
+        input_tree,
+        output_tree,
+    );
     for address in addresses {
-        let provided = preimage.len() + 1;
-        preimage.try_push(address).map_err(|_| {
-            HasherError::InvalidInputLength(MAX_EXTERNAL_DATA_HASH_SLICES, provided)
-        })?;
+        preimage.push_address(address)?;
     }
-    Sha256BE::hashv(&preimage)
+    preimage.finish()
 }
 
 #[cfg(test)]
@@ -708,6 +766,9 @@ mod tests {
         }
     }
 
+    const INPUT_TREE: [u8; 32] = [2u8; 32];
+    const OUTPUT_TREE: [u8; 32] = [3u8; 32];
+
     fn hash_ix_external_data(data: &TransactIxData, addresses: &[[u8; 32]]) -> [u8; 32] {
         let bytes = data.serialize().expect("serialize instruction");
         let (_, external_data) =
@@ -715,6 +776,8 @@ mod tests {
         hash_external_data(
             crate::instruction::tag::TRANSACT,
             external_data,
+            &INPUT_TREE,
+            &OUTPUT_TREE,
             addresses.iter(),
         )
         .expect("external data hash")
@@ -857,19 +920,23 @@ mod tests {
         let bytes = base.serialize().expect("serialize instruction");
         let (_, external_data) =
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).expect("parse instruction");
-        let addresses = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 2];
+        let addresses = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 4];
         hash_external_data(
             crate::instruction::tag::TRANSACT,
             external_data,
+            &INPUT_TREE,
+            &OUTPUT_TREE,
             addresses.iter(),
         )
         .expect("protocol maximum fits the fixed-capacity preimage");
 
-        let too_many = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 1];
+        let too_many = [[1u8; 32]; MAX_EXTERNAL_DATA_HASH_SLICES - 3];
         assert_eq!(
             hash_external_data(
                 crate::instruction::tag::TRANSACT,
                 external_data,
+                &INPUT_TREE,
+                &OUTPUT_TREE,
                 too_many.iter(),
             ),
             Err(HasherError::InvalidInputLength(
@@ -888,15 +955,29 @@ mod tests {
         let bytes = base.serialize().expect("serialize instruction");
         let (_, external_data) =
             TransactIxDataRef::parse_with_external_data_prefix(&bytes).expect("parse instruction");
-        assert_ne!(
-            hash_external_data(crate::instruction::tag::TRANSACT, external_data, [].iter())
-                .unwrap(),
+        let hash = |discriminator, input_tree, output_tree| {
             hash_external_data(
-                crate::instruction::tag::RING_TRANSACT,
+                discriminator,
                 external_data,
-                [].iter()
+                input_tree,
+                output_tree,
+                [].iter(),
             )
-            .unwrap(),
+            .unwrap()
+        };
+        let baseline = hash(crate::instruction::tag::TRANSACT, &INPUT_TREE, &OUTPUT_TREE);
+        assert_ne!(
+            baseline,
+            hash(
+                crate::instruction::tag::RING_TRANSACT,
+                &INPUT_TREE,
+                &OUTPUT_TREE
+            )
+        );
+        assert_ne!(
+            baseline,
+            hash(crate::instruction::tag::TRANSACT, &OUTPUT_TREE, &INPUT_TREE),
+            "swapping the tree keys must change the digest"
         );
     }
 }

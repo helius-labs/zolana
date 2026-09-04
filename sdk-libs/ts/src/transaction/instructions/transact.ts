@@ -197,8 +197,17 @@ export interface InputUtxoContext {
   readonly nullifier: Bytes32;
 }
 
+/** The tree pair a `transact` names, the counterpart of Rust `TransactTrees`. */
+export interface TransactTrees {
+  readonly inputTree: Address;
+  readonly outputTree: Address;
+}
+
 export interface ExternalData {
   readonly instructionDiscriminator: number;
+  /** Bound with `withTrees`; `hash()` refuses to run until both are set. */
+  readonly inputTree?: Address;
+  readonly outputTree?: Address;
   readonly expiryUnixTs: bigint;
   readonly interfaceTransfers: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
@@ -211,15 +220,20 @@ export interface ExternalData {
   hash(): Bytes32;
   withInterfaceTransfer(transfer: SettlementTransfer): ExternalData;
   withInterfaceTransfers(transfers: readonly SettlementTransfer[]): ExternalData;
+  withTrees(trees: TransactTrees): ExternalData;
 }
 
 /**
  * What a caller must supply, the counterpart of Rust `ExternalData::new`. The
  * interface transfers, optional hashes, and expiry carry Rust's defaults, so a
- * confidential transfer names only the fields it actually has.
+ * confidential transfer names only the fields it actually has. The trees are
+ * known only where the transaction is proved, so they are bound there with
+ * `withTrees`.
  */
 export interface ExternalDataInit {
   readonly instructionDiscriminator?: number;
+  readonly inputTree?: Address;
+  readonly outputTree?: Address;
   readonly expiryUnixTs?: bigint;
   readonly interfaceTransfers?: readonly SettlementTransfer[];
   readonly dataHash?: Bytes32;
@@ -240,6 +254,9 @@ const MAX_MESSAGES = 0xff;
 function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
+  }
+  if (data.inputTree === undefined || data.outputTree === undefined) {
+    throw new TransactionError("TRANSACTION_MISSING_TRANSACT_TREES");
   }
   if (data.outputs.length > MAX_OUTPUTS) {
     throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS", {
@@ -314,6 +331,8 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
 
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
+    inputTree: data.inputTree,
+    outputTree: data.outputTree,
     expiryUnixTs: data.expiryUnixTs,
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
@@ -339,13 +358,15 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
 
 type ExternalDataFields = Omit<
   ExternalData,
-  "hash" | "withInterfaceTransfer" | "withInterfaceTransfers"
+  "hash" | "withInterfaceTransfer" | "withInterfaceTransfers" | "withTrees"
 >;
 
 function snapshotExternalData(input: ExternalDataInit): ExternalDataFields {
   return {
     ...input,
     instructionDiscriminator: input.instructionDiscriminator ?? InstructionTag.transact,
+    ...(input.inputTree === undefined ? {} : { inputTree: checkedAddress(input.inputTree) }),
+    ...(input.outputTree === undefined ? {} : { outputTree: checkedAddress(input.outputTree) }),
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
     interfaceTransfers: Object.freeze(
       (input.interfaceTransfers ?? []).map((transfer) => Object.freeze({ ...transfer })),
@@ -389,6 +410,11 @@ function snapshotExternalData(input: ExternalDataInit): ExternalDataFields {
   };
 }
 
+function checkedAddress(value: Address): Address {
+  decodeAddress(value);
+  return value;
+}
+
 export function createExternalData(input: ExternalDataInit): ExternalData {
   return Object.freeze(new ExternalDataSnapshot(snapshotExternalData(input)));
 }
@@ -401,6 +427,8 @@ export function createExternalData(input: ExternalDataInit): ExternalData {
 class ExternalDataSnapshot implements ExternalData {
   readonly #fields: ExternalDataFields;
   declare readonly instructionDiscriminator: number;
+  declare readonly inputTree?: Address;
+  declare readonly outputTree?: Address;
   declare readonly expiryUnixTs: bigint;
   declare readonly interfaceTransfers: readonly SettlementTransfer[];
   declare readonly dataHash?: Bytes32;
@@ -415,11 +443,17 @@ class ExternalDataSnapshot implements ExternalData {
     this.#fields = fields;
     const dataHash = fields.dataHash;
     const ringDataHash = fields.ringDataHash;
+    const inputTree = fields.inputTree;
+    const outputTree = fields.outputTree;
     Object.defineProperties(this, {
       instructionDiscriminator: {
         enumerable: true,
         get: () => fields.instructionDiscriminator,
       },
+      ...(inputTree === undefined ? {} : { inputTree: { enumerable: true, get: () => inputTree } }),
+      ...(outputTree === undefined
+        ? {}
+        : { outputTree: { enumerable: true, get: () => outputTree } }),
       expiryUnixTs: { enumerable: true, get: () => fields.expiryUnixTs },
       interfaceTransfers: {
         enumerable: true,
@@ -487,6 +521,14 @@ class ExternalDataSnapshot implements ExternalData {
 
   withInterfaceTransfers(transfers: readonly SettlementTransfer[]): ExternalData {
     return createExternalData({ ...this.#fields, interfaceTransfers: transfers });
+  }
+
+  withTrees(trees: TransactTrees): ExternalData {
+    return createExternalData({
+      ...this.#fields,
+      inputTree: trees.inputTree,
+      outputTree: trees.outputTree,
+    });
   }
 }
 
@@ -620,6 +662,16 @@ export class SppProofInputs {
 
   checkShape(): Shape {
     return exactShape(this.inputUtxos.length, this.outputs.length);
+  }
+
+  /** The same transaction bound to the trees its `transact` instruction names. */
+  withTrees(trees: TransactTrees): SppProofInputs {
+    return new SppProofInputs({
+      payer: this.payer,
+      inputUtxos: this.inputUtxos,
+      outputs: this.outputs,
+      externalData: this.externalData.withTrees(trees),
+    });
   }
 
   inputUtxoHashes(): readonly Bytes32[] {

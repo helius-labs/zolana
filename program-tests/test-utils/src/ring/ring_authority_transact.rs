@@ -22,7 +22,7 @@ use zolana_keypair::{random_blinding, random_salt, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
-    Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
+    Data, ExternalData, OwnerCx, SppProofOutputUtxo, TransactTrees, Utxo, UtxoSerialization,
 };
 
 use super::RingHarness;
@@ -249,6 +249,10 @@ impl RingHarness {
 
         let external_data = ExternalData {
             instruction_discriminator: RING_AUTHORITY_TRANSACT,
+            trees: Some(TransactTrees {
+                input_tree: self.tree,
+                output_tree: self.tree,
+            }),
             expiry_unix_ts: u64::MAX,
             interface_transfers: Vec::new(),
             data_hash: None,

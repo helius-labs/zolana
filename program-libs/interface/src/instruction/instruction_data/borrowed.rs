@@ -1,5 +1,6 @@
 use core::{fmt, marker::PhantomData};
 
+use solana_program_error::ProgramError;
 use wincode::{
     config::{Configuration, DEFAULT_PREALLOCATION_SIZE_LIMIT},
     io::Reader,
@@ -7,9 +8,36 @@ use wincode::{
     ReadError, SchemaRead,
 };
 
+use crate::error::ShieldedPoolError;
+
 /// Configuration shared by the borrowed instruction-data readers. Record
 /// lists carry explicit `u8` lengths; byte slices inside records carry `u16`.
 pub(crate) type RefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
+
+/// Why a borrowed instruction view could not be built: the bytes do not decode,
+/// or a well-formed list is longer than the protocol allows.
+#[derive(Debug)]
+pub enum DecodeError {
+    Encoding(ReadError),
+    Limit(ShieldedPoolError),
+}
+
+impl From<ReadError> for DecodeError {
+    fn from(error: ReadError) -> Self {
+        Self::Encoding(error)
+    }
+}
+
+impl DecodeError {
+    /// The program error to return: the named limit variant for an overlong
+    /// list, `encoding` for bytes that do not decode.
+    pub fn or_encoding(self, encoding: impl Into<ProgramError>) -> ProgramError {
+        match self {
+            Self::Encoding(_) => encoding.into(),
+            Self::Limit(error) => error.into(),
+        }
+    }
+}
 
 type Decoder<'a, T> = fn(&mut &'a [u8]) -> Result<T, ReadError>;
 
@@ -82,17 +110,19 @@ impl<'a, T> BorrowedList<'a, T> {
         item.map(Some)
     }
 
-    pub(crate) fn read<S>(cursor: &mut &'a [u8], maximum_len: usize) -> Result<Self, ReadError>
+    pub(crate) fn read<S>(
+        cursor: &mut &'a [u8],
+        maximum_len: usize,
+        overflow: ShieldedPoolError,
+    ) -> Result<Self, DecodeError>
     where
         S: SchemaRead<'a, RefConfig, Dst = T>,
     {
         let (&count, after_count) = cursor
             .split_first()
-            .ok_or(wincode::io::ReadError::ReadSizeLimit(1))?;
+            .ok_or(ReadError::Custom("instruction list is missing its count"))?;
         if usize::from(count) > maximum_len {
-            return Err(ReadError::Custom(
-                "instruction list exceeds its maximum length",
-            ));
+            return Err(DecodeError::Limit(overflow));
         }
         *cursor = after_count;
 
