@@ -1,8 +1,8 @@
 {
   "accounts": {
     "asset": "accounts-v0.1.0-alpha.6.tar.gz",
-    "sha256": "ace068d066414e6bad1c42e358e26c63e343a3dd5cefa22299273b18b8bb5a5f",
-    "size": 1888
+    "sha256": "d11e33fcaae247c4cc9c8593571741b8179f13ba27af89161c1dbfea701e48eb",
+    "size": 1887
   },
   "binaries": [
     {
