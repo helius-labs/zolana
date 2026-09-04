@@ -224,22 +224,60 @@ func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer identity uses the same owner-tag encoding and is always an
-// authorized transaction signer.
-func TestDefaultRingEddsaOnlyAcceptsDummyOutputPayerHashTag(t *testing.T) {
+// The payer signs but is not a nameable dummy identity: a fee sponsor must not
+// be shown as a recipient by a transaction it only paid for.
+func TestDefaultRingEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := dummyOutputAssignment(t, shape)
 
-	assignment.Outputs[1].OwnerPkHash = assignment.TransactionSignerPkHashes()[0]
-	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
-	refreshDummyOutputHashes(t, assignment)
+	tagDummyOutput(t, assignment, assignment.TransactionSignerPkHashes()[0])
+	refreshDefaultRingPublicInputHash(t, assignment)
+
+	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
+	assert.SolvingFailed(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
+// A self-paying owner reappears through its own change output: once a real
+// output publishes the payer identity, a dummy may repeat it.
+func TestDefaultRingEddsaOnlyAcceptsDummyOutputPayerTagPublishedByChange(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	assignment := dummyOutputAssignment(t, shape)
+
+	payer := testPayerPkHash()
+	retagRealOutput(t, assignment, payer)
+	tagDummyOutput(t, assignment, payer)
+	refreshDefaultRingPublicInputHash(t, assignment)
 
 	circuit := MustNewDefaultRingEddsaOnlyCircuit(Shape(shape))
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {
+// tagDummyOutput sets the dummy slot's public tag of a dummyOutputAssignment
+// and recomputes the private-tx hash. Callers refresh the rail's public-input
+// hash afterwards.
+func tagDummyOutput(t testing.TB, assignment *testAssignment, tag frontend.Variable) {
+	t.Helper()
+	assignment.Outputs[1].OwnerPkHash = tag
+	assignment.Outputs[1].NullifierPk = spptest.Fe(55)
+	refreshDummyOutputPrivateTxHash(t, assignment)
+}
+
+// retagRealOutput gives the real output of a dummyOutputAssignment the
+// recipient pkField and recomputes the output hashes.
+func retagRealOutput(t testing.TB, assignment *testAssignment, pkField *big.Int) {
+	t.Helper()
+	owner, err := protocol.OwnerHash(pkField, spptest.AsBigInt(assignment.Outputs[0].NullifierPk))
+	if err != nil {
+		t.Fatalf("owner hash: %v", err)
+	}
+	assignment.Outputs[0].Utxo.Owner = owner
+	assignment.Outputs[0].OwnerPkHash = pkField
+	refreshDerivedOutputBlindings(t, assignment)
+}
+
+func dummyOutputAssignment(t testing.TB, shape protocol.Shape) *testAssignment {
 	t.Helper()
 	solAsset := protocol.SolAsset()
 	assignment := buildCircuitAssignmentFromUtxos(
@@ -259,8 +297,16 @@ func dummyOutputAssignment(t *testing.T, shape protocol.Shape) *testAssignment {
 }
 
 // refreshDummyOutputHashes recomputes the private-tx hash (the dummy
-// contributes 0) and the public-input hash after output tag edits.
-func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
+// contributes 0) and the default-ring public-input hash after output tag edits.
+func refreshDummyOutputHashes(t testing.TB, assignment *testAssignment) {
+	t.Helper()
+	refreshDummyOutputPrivateTxHash(t, assignment)
+	refreshDefaultRingPublicInputHash(t, assignment)
+}
+
+// refreshDummyOutputPrivateTxHash recomputes the private-tx hash of a
+// dummyOutputAssignment: the real output's hash enters, the dummy contributes 0.
+func refreshDummyOutputPrivateTxHash(t testing.TB, assignment *testAssignment) {
 	t.Helper()
 	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
 	realOutputHash := spptest.AsBigInt(assignment.Outputs[0].Hash)
@@ -273,5 +319,4 @@ func refreshDummyOutputHashes(t *testing.T, assignment *testAssignment) {
 		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
-	refreshDefaultRingPublicInputHash(t, assignment)
 }

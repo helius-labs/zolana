@@ -143,7 +143,7 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	}
 
 	authorizedEddsa := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners, _ := shared.P256Signers(
+	inputOwners := shared.P256Signers(
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,
@@ -155,6 +155,7 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 		api,
 		tx.Inputs,
 		c.Private.InputOwnerPkHashes,
+		c.Public.PublishedOutputOwnerPkHashes,
 		p256PkHash,
 		c.Public.DefaultP256OwnerPkHash,
 	)
@@ -169,12 +170,15 @@ func (c *CustomRingP256Circuit) Define(api frontend.API) error {
 	); err != nil {
 		return err
 	}
+	// A dummy may repeat the shared P256 identity only while a default-ring
+	// P256 input already publishes it; a ring spend keeps it out of the set.
+	dummyIdentities := append(shared.Signers(nil), authorizedEddsa.WithoutPayer()...)
+	dummyIdentities = append(dummyIdentities, c.Public.DefaultP256OwnerPkHash)
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
-		c.Private.OutputOwnerPkHashes,
 		c.Public.PublishedOutputOwnerPkHashes,
-		authorized,
+		dummyIdentities,
 	); err != nil {
 		return err
 	}

@@ -79,15 +79,7 @@ func rewriteInputAsP256(
 		t,
 		spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret),
 	)
-	compressed := elliptic.MarshalCompressed(
-		elliptic.P256(),
-		ownerPrivateKey.PublicKey.X,
-		ownerPrivateKey.PublicKey.Y,
-	)
-	ownerPkHash, err := protocol.OwnerPkField(compressed)
-	if err != nil {
-		t.Fatalf("P256 owner pk hash: %v", err)
-	}
+	ownerPkHash := p256OwnerPkHash(t, ownerPrivateKey)
 	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
 	if err != nil {
 		t.Fatalf("P256 owner hash: %v", err)
@@ -283,6 +275,221 @@ func TestCustomRingP256AcceptsMixedOwners(t *testing.T) {
 	authorization := authorizeP256(t, assignment, owner, owner)
 
 	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// rewriteOutputAsP256 makes output slot outputIndex owned by the shared P256
+// key. A default-ring output then publishes the P256 identity through the
+// published owner vector; a ring output keeps it private.
+func rewriteOutputAsP256(
+	t testing.TB,
+	assignment *testAssignment,
+	outputIndex int,
+	ownerPrivateKey *ecdsa.PrivateKey,
+) {
+	t.Helper()
+	ownerPkHash := p256OwnerPkHash(t, ownerPrivateKey)
+	nullifierPk := spptest.AsBigInt(assignment.Outputs[outputIndex].NullifierPk)
+	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
+	if err != nil {
+		t.Fatalf("P256 owner hash: %v", err)
+	}
+	assignment.Outputs[outputIndex].Utxo.Owner = owner
+	assignment.Outputs[outputIndex].OwnerPkHash = ownerPkHash
+	rebuildAfterOwnerChange(t, assignment)
+}
+
+// A ring P256 input is an anonymous spend. Spending a default-ring P256 UTXO
+// in the same proof would publish the shared key next to the ring nullifier.
+func TestCustomRingP256RejectsRingSpendWithDefaultP256Input(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	rewriteInputAsP256(t, assignment, 1, owner)
+	assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+	rebuildAfterOwnerChange(t, assignment)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingFailed(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// Two default-ring P256 inputs publish the owner once, which is the sanctioned
+// confidential default-ring spend.
+func TestCustomRingP256AcceptsTwoDefaultP256Inputs(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	rewriteInputAsP256(t, assignment, 1, owner)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// A default-ring output owned by the shared key publishes the identity, so it
+// cannot sit next to a ring P256 spend.
+func TestCustomRingP256RejectsRingSpendPublishingP256Output(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+	rewriteOutputAsP256(t, assignment, 0, owner)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingFailed(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// A ring P256 spend may pay the shared key inside the ring: the output owner
+// stays private, so nothing links the spend to the identity.
+func TestCustomRingP256AcceptsRingSpendToRingP256Output(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+	assignment.Outputs[0].Utxo.RingProgramID = assignment.RingProgramID
+	rewriteOutputAsP256(t, assignment, 0, owner)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// Moving a default-ring P256 UTXO into the ring publishes the depositor, not a
+// ring spender, so the mixed transaction stays allowed.
+func TestCustomRingP256AcceptsDefaultP256DepositIntoRing(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	assignment.Outputs[0].Utxo.RingProgramID = assignment.RingProgramID
+	rewriteOutputAsP256(t, assignment, 0, owner)
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+func p256OwnerPkHash(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey) *big.Int {
+	t.Helper()
+	compressed := elliptic.MarshalCompressed(
+		elliptic.P256(),
+		ownerPrivateKey.PublicKey.X,
+		ownerPrivateKey.PublicKey.Y,
+	)
+	ownerPkHash, err := protocol.OwnerPkField(compressed)
+	if err != nil {
+		t.Fatalf("P256 owner pk hash: %v", err)
+	}
+	return ownerPkHash
+}
+
+// p256DummyOutputAssignment pads a P256 transaction with a dummy output whose
+// published tag is tag. The single input is owned by owner; inRing places the
+// spend in the policy ring, which keeps the shared identity private.
+func p256DummyOutputAssignment(
+	t testing.TB,
+	shape protocol.Shape,
+	owner *ecdsa.PrivateKey,
+	inRing bool,
+	tag frontend.Variable,
+) (*testAssignment, p256Authorization) {
+	t.Helper()
+	assignment := dummyOutputAssignment(t, shape)
+	rewriteInputAsP256(t, assignment, 0, owner)
+	if inRing {
+		assignment.Inputs[0].Utxo.RingProgramID = assignment.RingProgramID
+		rebuildAfterOwnerChange(t, assignment)
+	}
+	tagDummyOutput(t, assignment, tag)
+	authorization := authorizeP256(t, assignment, owner, owner)
+	return assignment, authorization
+}
+
+// A ring P256 spend keeps the shared identity private, so a dummy output may
+// not publish it: the copy would deanonymize the spender. Both the dummy-tag
+// rule and AssertDefaultP256Owner reject this; the unit test in
+// owner_tags_test.go isolates the dummy-tag rule.
+func TestCustomRingP256RejectsDummyOutputNamingRingSpender(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	owner := spptest.FixedP256Key(t, 11)
+
+	// Control: the same ring spend solves with an anonymous dummy.
+	assignment, authorization := p256DummyOutputAssignment(t, shape, owner, true, 0)
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+
+	assignment, authorization = p256DummyOutputAssignment(t, shape, owner, true, p256OwnerPkHash(t, owner))
+	assert.SolvingFailed(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// A default-ring P256 input already publishes the shared identity, so a dummy
+// may repeat it.
+func TestCustomRingP256AcceptsDummyOutputNamingPublishedP256Owner(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	owner := spptest.FixedP256Key(t, 11)
+	assignment, authorization := p256DummyOutputAssignment(t, shape, owner, false, p256OwnerPkHash(t, owner))
+
+	assert.SolvingSucceeded(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+// The payer is excluded from dummy markers on this rail as well.
+func TestCustomRingP256RejectsDummyOutputPayerTag(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	owner := spptest.FixedP256Key(t, 11)
+	assignment, authorization := p256DummyOutputAssignment(t, shape, owner, false, testPayerPkHash())
+
+	assert.SolvingFailed(
 		circuit,
 		asCustomRingP256(assignment, authorization),
 		test.WithCurves(ecc.BN254),

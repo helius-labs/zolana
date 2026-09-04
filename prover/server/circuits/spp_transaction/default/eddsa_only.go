@@ -141,14 +141,15 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	)
 	// An output containing program data must be owned by an authorized signer.
 	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
-	// Every dummy tag must name a real input signer or real output owner.
+	// Every dummy tag must name an owner signer other than the payer or a real
+	// output owner.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
 		tx.Outputs,
 		nil,
 		c.Public.OutputOwnerPkHashes,
-		authorized,
+		authorized.WithoutPayer(),
 	); err != nil {
 		return err
 	}
