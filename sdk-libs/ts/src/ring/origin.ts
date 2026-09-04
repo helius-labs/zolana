@@ -276,10 +276,9 @@ function interfaceTransfersOf(
 }
 
 /**
- * Reads the fixed head of the proof-bound region, then the transfers, and
- * leaves the rest. The bound region leads `TransactIxData`, so the transfers sit
- * close to the front: only `expiry_unix_ts`, `tx_viewing_pk` and `salt` precede
- * them, and the circuit selector and proof are in the tail behind them.
+ * Reads the fixed start of flat `TransactIxData`, then the transfers, and
+ * leaves the rest. Only `expiry_unix_ts`, `tx_viewing_pk`, and `salt` precede
+ * them.
  */
 function readInterfaceTransfers(reader: Reader): readonly InterfaceTransfer[] {
   reader.u64("expiryUnixTs");

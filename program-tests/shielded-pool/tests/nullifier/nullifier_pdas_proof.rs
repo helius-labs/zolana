@@ -105,7 +105,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
 
     let external_hash = external_data_hash(&transact_ix_data, &[]).expect("external data hash");
@@ -143,10 +143,10 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash,
     });
-    transact_ix_data.tail.proof =
+    transact_ix_data.proof =
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "transact")
             .expect("prove transact");
-    transact_ix_data.tail.private_tx_hash = private_tx;
+    transact_ix_data.private_tx_hash = private_tx;
     transact_ix_data
 }
 
@@ -160,11 +160,11 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction:
         data,
     }
     .instruction()
+    .expect("valid transact builder input")
 }
 
 fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
-    data.tail
-        .inputs
+    data.inputs
         .iter()
         .map(|input| input.nullifier_hash)
         .collect()

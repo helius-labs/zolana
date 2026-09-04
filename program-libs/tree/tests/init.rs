@@ -1,9 +1,13 @@
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_tree::{
     error::TreeError,
+    nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES,
     smt::{UtxoTreeLayout, ROOT_HISTORY_CAPACITY},
-    NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, INITIALIZED,
+    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeFeeSchedule, INITIALIZED,
+    UTXO_TREE_HEIGHT,
 };
+
+type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 
 // Must equal the pool's `UTXO_TREE_HEIGHT` (lib.rs) — `TreeAccount::init`
 // rejects any other height with `HeightTooLarge`.
@@ -20,6 +24,32 @@ fn leaf(i: u8) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     bytes[31] = i;
     bytes
+}
+
+fn initialized_tree_bytes() -> Vec<u8> {
+    let mut bytes = vec![0u8; TreeAccount::account_size()];
+    TreeAccount::init(
+        &mut bytes,
+        DISCRIMINATOR,
+        HEIGHT,
+        [2u8; 32],
+        TREE_ID,
+        NullifierTreeInitParams::default(),
+        FEES,
+    )
+    .unwrap();
+    bytes
+}
+
+fn assert_corrupt_layout_rejected(corrupt: impl FnOnce(&mut Layout)) {
+    let mut bytes = initialized_tree_bytes();
+    corrupt(wincode::deserialize_mut(&mut bytes).unwrap());
+    assert_eq!(
+        TreeAccount::from_bytes(&mut bytes, [2u8; 32])
+            .err()
+            .unwrap(),
+        TreeError::Deserialize
+    );
 }
 
 #[test]
@@ -126,6 +156,24 @@ fn reload_rejects_inconsistent_nullifier_batch_metadata() {
 }
 
 #[test]
+fn reload_rejects_invalid_account_state() {
+    assert_corrupt_layout_rejected(|layout| layout.state = 3);
+}
+
+#[test]
+fn reload_rejects_corrupt_utxo_metadata() {
+    assert_corrupt_layout_rejected(|layout| {
+        layout.utxo.next_index = (layout.utxo.capacity() + 1).to_le_bytes();
+    });
+    assert_corrupt_layout_rejected(|layout| {
+        layout.utxo.root_history_cursor = (ROOT_HISTORY_CAPACITY as u16).to_le_bytes();
+    });
+    assert_corrupt_layout_rejected(|layout| {
+        layout.utxo.root_history_len = 0u16.to_le_bytes();
+    });
+}
+
+#[test]
 fn append_batch_matches_sequential() {
     let params = NullifierTreeInitParams::default();
     let pubkey = [2u8; 32];
@@ -213,7 +261,8 @@ fn init_rejects_invalid_nullifier_params() {
         },
     ];
     for params in invalid {
-        let mut bytes = vec![0u8; TreeAccount::account_size()];
+        let mut bytes = vec![0xA5; TreeAccount::account_size()];
+        let before = bytes.clone();
         let err = TreeAccount::init(
             &mut bytes,
             DISCRIMINATOR,
@@ -228,6 +277,10 @@ fn init_rejects_invalid_nullifier_params() {
         assert!(
             matches!(err, TreeError::NullifierInit),
             "params {params:?} failed with {err:?}, expected NullifierInit"
+        );
+        assert_eq!(
+            bytes, before,
+            "invalid params {params:?} must be rejected before mutating the buffer"
         );
     }
 }

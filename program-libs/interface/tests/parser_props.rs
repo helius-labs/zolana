@@ -10,7 +10,6 @@
 //!    round-trip).
 
 use proptest::{prelude::*, test_runner::TestCaseError};
-use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
@@ -21,10 +20,11 @@ use zolana_interface::instruction::instruction_data::{
         MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
     },
     transact::{
-        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxBound, TransactIxData,
-        TransactIxDataRef, TransactIxTail, TransactOutput, TransactProof,
+        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, OwnerTagRef, TransactIxData,
+        TransactIxDataRef, TransactOutput, TransactProof,
     },
 };
+use zolana_interface::output_data::MessageData;
 
 mod strategies {
     use super::*;
@@ -126,22 +126,18 @@ mod strategies {
                     (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
                 )| TransactIxData {
-                    bound: TransactIxBound {
-                        expiry_unix_ts,
-                        tx_viewing_pk,
-                        salt,
-                        interface_transfers,
-                        outputs,
-                        messages,
-                    },
-                    tail: TransactIxTail {
-                        private_tx_hash,
-                        circuit,
-                        proof,
-                        inputs,
-                        data_hash,
-                        ring_data_hash,
-                    },
+                    expiry_unix_ts,
+                    tx_viewing_pk,
+                    salt,
+                    interface_transfers,
+                    outputs,
+                    messages,
+                    data_hash,
+                    ring_data_hash,
+                    circuit,
+                    proof,
+                    private_tx_hash,
+                    inputs,
                 },
             )
     }
@@ -188,27 +184,51 @@ fn assert_ref_matches_owned(
     view: &TransactIxDataRef,
     owned: &TransactIxData,
 ) -> Result<(), TestCaseError> {
-    prop_assert_eq!(view.bound.expiry_unix_ts, owned.bound.expiry_unix_ts);
-    prop_assert_eq!(view.tail.private_tx_hash, &owned.tail.private_tx_hash);
-    prop_assert_eq!(view.tail.circuit, owned.tail.circuit);
-    prop_assert_eq!(view.bound.tx_viewing_pk, &owned.bound.tx_viewing_pk);
-    prop_assert_eq!(view.bound.salt, &owned.bound.salt);
-    prop_assert_eq!(view.tail.proof, owned.tail.proof);
-    prop_assert_eq!(&view.tail.inputs, &owned.tail.inputs);
+    prop_assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
+    prop_assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
+    prop_assert_eq!(view.circuit, owned.circuit);
+    prop_assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
+    prop_assert_eq!(view.salt, &owned.salt);
+    prop_assert_eq!(view.proof.a, &owned.proof.a);
+    prop_assert_eq!(view.proof.b, &owned.proof.b);
+    prop_assert_eq!(view.proof.c, &owned.proof.c);
+    prop_assert_eq!(view.inputs.len(), owned.inputs.len());
+    for (got, want) in view.inputs.try_iter().zip(&owned.inputs) {
+        let got = got.unwrap();
+        prop_assert_eq!(got.nullifier_hash, &want.nullifier_hash);
+        prop_assert_eq!(
+            got.nullifier_tree_root_index,
+            want.nullifier_tree_root_index
+        );
+        prop_assert_eq!(got.utxo_tree_root_index, want.utxo_tree_root_index);
+    }
     prop_assert_eq!(
-        &view.bound.interface_transfers,
-        &owned.bound.interface_transfers
+        view.interface_transfers.len(),
+        owned.interface_transfers.len()
     );
-    prop_assert_eq!(view.tail.data_hash, owned.tail.data_hash);
-    prop_assert_eq!(view.tail.ring_data_hash, owned.tail.ring_data_hash);
-    prop_assert_eq!(view.bound.outputs.len(), owned.bound.outputs.len());
-    for (got, want) in view.bound.outputs.iter().zip(owned.bound.outputs.iter()) {
+    for (got, want) in view
+        .interface_transfers
+        .try_iter()
+        .zip(&owned.interface_transfers)
+    {
+        prop_assert_eq!(got.unwrap(), *want);
+    }
+    prop_assert_eq!(view.data_hash, owned.data_hash.as_ref());
+    prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash.as_ref());
+    prop_assert_eq!(view.outputs.len(), owned.outputs.len());
+    for (got, want) in view.outputs.try_iter().zip(&owned.outputs) {
+        let got = got.unwrap();
         prop_assert_eq!(got.utxo_hash, &want.utxo_hash);
-        prop_assert_eq!(got.owner_tag, want.owner_tag);
+        match (got.owner_tag, want.owner_tag) {
+            (OwnerTagRef::Inline(got), OwnerTag::Inline(want)) => prop_assert_eq!(got, &want),
+            (OwnerTagRef::Account(got), OwnerTag::Account(want)) => prop_assert_eq!(got, want),
+            _ => prop_assert!(false, "owner-tag variants differ"),
+        }
         prop_assert_eq!(got.data, want.data.as_deref());
     }
-    prop_assert_eq!(view.bound.messages.len(), owned.bound.messages.len());
-    for (got, want) in view.bound.messages.iter().zip(owned.bound.messages.iter()) {
+    prop_assert_eq!(view.messages.len(), owned.messages.len());
+    for (got, want) in view.messages.try_iter().zip(&owned.messages) {
+        let got = got.unwrap();
         prop_assert_eq!(got.view_tag, &want.view_tag);
         prop_assert_eq!(got.data, want.data.as_slice());
     }

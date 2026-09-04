@@ -57,8 +57,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_transact_event,
-    encode_verifiably_encrypted, EventKind, GeneralEvent, Input, OutputUtxo, ProoflessOutput,
+    encode_deposit_event, encode_transact_event, EventKind, GeneralEvent, Input, OutputUtxo,
     SplTransfer, TransactEvent,
 };
 use zolana_indexer_api::{
@@ -68,9 +67,10 @@ use zolana_indexer_api::{
 use zolana_interface::{
     instruction::{
         encode_instruction, instruction_data::transact::CircuitId, tag,
-        BatchUpdateNullifierTreeData, CompressedProof, InputUtxo, OwnerTag, TransactIxBound,
-        TransactIxData, TransactIxTail, TransactOutput, TransactProof,
+        BatchUpdateNullifierTreeData, CompressedProof, InputUtxo, InterfaceTransfer, OwnerTag,
+        TransactIxData, TransactOutput, TransactProof,
     },
+    output_data::{encode_output_data, encode_verifiably_encrypted, ProoflessOutput},
     pda,
     state::{
         default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
@@ -1878,25 +1878,32 @@ fn rings_transaction_info(
     let program_id = pda::shielded_pool_program_id();
     let tree = Pubkey::new_from_array(TEST_TREE);
     // Fixed prefix the reconstruction indexes: payer, input tree, output tree.
-    let accounts = vec![Pubkey::new_from_array([0xaa; 32]), tree, tree];
+    let mut accounts = vec![Pubkey::new_from_array([0xaa; 32]), tree, tree];
 
     let (parent_data, event_data) = match event_kind {
-        EventKind::Transact => (
-            transact_parent_data(source_instruction_tag, &event),
-            encode_transact_event(&TransactEvent {
-                first_input_queue_seq: event
-                    .inputs
-                    .first()
-                    .map(|input| input.input_queue_seq)
-                    .unwrap_or_default(),
-                first_output_leaf_index: event.first_output_leaf_index,
-            })
-            .to_vec(),
-        ),
-        _ => (
-            vec![source_instruction_tag],
-            encode_event_instruction(event_kind, event),
-        ),
+        EventKind::Transact => {
+            let (parent_data, settlement_accounts) =
+                transact_parent_data(source_instruction_tag, &event);
+            // Complete the real transact layout: self program, System Program,
+            // then one nullifier PDA per input before the settlement tail.
+            accounts.extend([program_id, Pubkey::new_unique()]);
+            accounts.extend(event.inputs.iter().map(|_| Pubkey::new_unique()));
+            accounts.extend(settlement_accounts);
+            (
+                parent_data,
+                encode_transact_event(&TransactEvent {
+                    first_input_queue_seq: event
+                        .inputs
+                        .first()
+                        .map(|input| input.input_queue_seq)
+                        .unwrap_or_default(),
+                    first_output_leaf_index: event.first_output_leaf_index,
+                })
+                .to_vec(),
+            )
+        }
+        EventKind::Deposit => (vec![source_instruction_tag], encode_deposit_event(&event)),
+        other => panic!("unsupported event kind in fixture: {other:?}"),
     };
 
     TransactionInfo {
@@ -1921,53 +1928,98 @@ fn rings_transaction_info(
 
 /// `TransactIxData` whose inputs, outputs and messages reproduce `event`. Owner
 /// tags are inline, so every output's view tag resolves to itself without an
-/// account lookup.
-fn transact_parent_data(source_instruction_tag: u8, event: &GeneralEvent) -> Vec<u8> {
+/// account lookup. The returned account tail mirrors every settlement group so
+/// reconstruction also reproduces `spl_transfers`.
+fn transact_parent_data(
+    source_instruction_tag: u8,
+    event: &GeneralEvent,
+) -> (Vec<u8>, Vec<Pubkey>) {
+    let mut settlement_accounts = Vec::new();
+    let interface_transfers = event
+        .spl_transfers
+        .iter()
+        .map(|transfer| match (transfer.is_deposit, transfer.asset) {
+            (true, None) => {
+                settlement_accounts.extend([Pubkey::new_unique(), Pubkey::new_unique()]);
+                InterfaceTransfer::SolDeposit {
+                    amount: transfer.amount,
+                }
+            }
+            (false, None) => {
+                settlement_accounts.extend([Pubkey::new_unique(), Pubkey::new_unique()]);
+                InterfaceTransfer::SolWithdrawal {
+                    amount: transfer.amount,
+                }
+            }
+            (true, Some(mint)) => {
+                settlement_accounts.extend([
+                    Pubkey::new_from_array(mint),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                ]);
+                InterfaceTransfer::SplDeposit {
+                    amount: transfer.amount,
+                    spl_interface_bump: 0,
+                }
+            }
+            (false, Some(mint)) => {
+                settlement_accounts.extend([
+                    Pubkey::new_unique(),
+                    Pubkey::new_from_array(mint),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                ]);
+                InterfaceTransfer::SplWithdrawal {
+                    amount: transfer.amount,
+                    spl_interface_bump: 0,
+                }
+            }
+        })
+        .collect();
     let data = TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            tx_viewing_pk: event.tx_viewing_pk,
-            salt: event.salt,
-            interface_transfers: Vec::new(),
-            outputs: event
-                .outputs
-                .iter()
-                .map(|output| TransactOutput {
-                    utxo_hash: output.utxo_hash,
-                    owner_tag: OwnerTag::Inline(output.view_tag),
-                    data: (!output.data.is_empty()).then(|| output.data.clone()),
-                })
-                .collect(),
-            messages: event.messages.clone(),
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: event.tx_viewing_pk,
+        salt: event.salt,
+        interface_transfers,
+        outputs: event
+            .outputs
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: output.utxo_hash,
+                owner_tag: OwnerTag::Inline(output.view_tag),
+                data: (!output.data.is_empty()).then(|| output.data.clone()),
+            })
+            .collect(),
+        messages: event.messages.clone(),
+        circuit: CircuitId::ConfidentialEddsa(
+            event.inputs.len() as u8,
+            event.outputs.len() as u8,
+            3,
+        ),
+        proof: TransactProof {
+            a: [0; 32],
+            b: [0; 64],
+            c: [0; 32],
         },
-        tail: TransactIxTail {
-            circuit: CircuitId::ConfidentialEddsa(
-                event.inputs.len() as u8,
-                event.outputs.len() as u8,
-                3,
-            ),
-            proof: TransactProof {
-                a: [0; 32],
-                b: [0; 64],
-                c: [0; 32],
-            },
-            private_tx_hash: [0; 32],
-            inputs: event
-                .inputs
-                .iter()
-                .map(|input| InputUtxo {
-                    nullifier_hash: input.nullifier,
-                    nullifier_tree_root_index: 0,
-                    utxo_tree_root_index: 0,
-                })
-                .collect(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        private_tx_hash: [0; 32],
+        inputs: event
+            .inputs
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: input.nullifier,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+        data_hash: None,
+        ring_data_hash: None,
     };
     let mut bytes = vec![source_instruction_tag];
     bytes.extend_from_slice(&data.serialize().expect("serialize transact ix data"));
-    bytes
+    (bytes, settlement_accounts)
 }
 
 fn test_input(input_queue_seq: u64, nullifier_byte: u8) -> Input {

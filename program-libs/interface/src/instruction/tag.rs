@@ -17,8 +17,8 @@ pub const UPDATE_RING_CONFIG_OWNER: u8 = 9;
 /// shielded pool with `EMIT_EVENT` and forged payload bytes. Consumers MUST
 /// only trust an `EMIT_EVENT` inner instruction whose direct parent
 /// (reconstructed via `stack_height`) is a shielded-pool instruction with a
-/// state-transitioning tag (never `EMIT_EVENT` itself) -- see photon's
-/// `rings_event_parser::is_event_source` for the reference filter.
+/// state-transitioning tag (never `EMIT_EVENT` itself). Event-site discovery
+/// enforces this before calling `zolana_event` reconstruction.
 pub const EMIT_EVENT: u8 = 10;
 
 // Default-ring instructions.

@@ -151,7 +151,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         user_record: user_record_pda(&owner).0,
         data,
     }
-    .instruction();
+    .instruction()?;
     let instructions = [
         ComputeBudgetInstruction::set_compute_unit_limit(MERGE_CU_LIMIT),
         merge_ix,

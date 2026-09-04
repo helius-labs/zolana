@@ -1,8 +1,7 @@
 pub mod error;
-pub mod event_reconstruction;
-pub use zolana_event as event;
 pub mod instruction;
 pub mod merge_utils;
+pub mod output_data;
 pub mod pda;
 pub mod shape;
 pub mod state;
@@ -40,6 +39,18 @@ pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
 /// The wire format retains its `FixIntLen<u8>` prefix, but builders and the
 /// on-chain parser reject values above this bound.
 pub const MAX_INTERFACE_TRANSFERS: usize = 32;
+
+/// Largest output count among the currently supported transact circuits.
+pub const MAX_TRANSACT_OUTPUTS: usize = shape::Shape::IN1_OUT8.n_outputs();
+
+/// Largest input count among the currently supported transact circuits.
+pub const MAX_TRANSACT_INPUTS: usize = shape::Shape::IN36_OUT2.n_inputs();
+
+/// Maximum borrowed slices in the one-shot external-data SHA-256 preimage:
+/// discriminator, instruction prefix, two account addresses per interface
+/// transfer, and one account address per output.
+pub const MAX_EXTERNAL_DATA_HASH_SLICES: usize =
+    2 + 2 * MAX_INTERFACE_TRANSFERS + MAX_TRANSACT_OUTPUTS;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

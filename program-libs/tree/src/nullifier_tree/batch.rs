@@ -16,13 +16,15 @@ pub enum BatchState {
     Full,
 }
 
-impl From<u64> for BatchState {
-    fn from(value: u64) -> Self {
+impl TryFrom<u64> for BatchState {
+    type Error = NullifierTreeError;
+
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
         match value {
-            0 => BatchState::Fill,
-            1 => BatchState::Inserted,
-            2 => BatchState::Full,
-            _ => panic!("Invalid BatchState value"),
+            0 => Ok(BatchState::Fill),
+            1 => Ok(BatchState::Inserted),
+            2 => Ok(BatchState::Full),
+            _ => Err(NullifierTreeError::InvalidBatchState),
         }
     }
 }
@@ -102,6 +104,57 @@ pub struct Batch<const ZKP_BATCHES: usize> {
 }
 
 impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
+    pub(crate) fn validate(
+        &self,
+        batch_size: u64,
+        zkp_batch_size: u64,
+    ) -> Result<(), NullifierTreeError> {
+        if self.batch_size != batch_size
+            || self.zkp_batch_size != zkp_batch_size
+            || self.start_index.checked_add(batch_size).is_none()
+        {
+            return Err(NullifierTreeError::InvalidBatchConfiguration);
+        }
+
+        let num_zkp_batches = u64::try_from(ZKP_BATCHES)
+            .map_err(|_| NullifierTreeError::InvalidBatchConfiguration)?;
+        if self.num_inserted >= zkp_batch_size
+            || self.num_inserted_zkp_batches > self.num_full_zkp_batches
+            || self.num_full_zkp_batches > num_zkp_batches
+        {
+            return Err(NullifierTreeError::InvalidBatchConfiguration);
+        }
+
+        let valid_for_state = match self.get_state()? {
+            BatchState::Fill => self.num_full_zkp_batches < num_zkp_batches,
+            BatchState::Full => {
+                self.num_inserted == 0
+                    && self.num_full_zkp_batches == num_zkp_batches
+                    && self.num_inserted_zkp_batches < num_zkp_batches
+            }
+            BatchState::Inserted => {
+                self.num_inserted == 0
+                    && self.num_full_zkp_batches == num_zkp_batches
+                    && self.num_inserted_zkp_batches == num_zkp_batches
+            }
+        };
+        if !valid_for_state {
+            return Err(NullifierTreeError::InvalidBatchConfiguration);
+        }
+        for (index, update) in self.cached_tree_updates.iter().enumerate() {
+            let index =
+                u64::try_from(index).map_err(|_| NullifierTreeError::InvalidBatchConfiguration)?;
+            if update.occupied > 1
+                || (update.is_occupied()
+                    && (index < self.num_inserted_zkp_batches
+                        || index >= self.num_full_zkp_batches))
+            {
+                return Err(NullifierTreeError::InvalidBatchConfiguration);
+            }
+        }
+        Ok(())
+    }
+
     /// Initializes a batch in place. Requires zeroed account data: the hash
     /// chains and cached updates are not written here.
     pub(crate) fn init(&mut self, batch_size: u64, zkp_batch_size: u64, start_index: u64) {
@@ -181,28 +234,8 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.cache_tree_update(zkp_batch_index, CachedTreeUpdate::default())
     }
 
-    pub fn get_state(&self) -> BatchState {
-        self.state.into()
-    }
-
-    /// Non-panicking counterpart to [`get_state`](Self::get_state): returns
-    /// `None` for an out-of-range raw state (e.g. a corrupt account whose layout
-    /// still parses) instead of panicking in `From<u64>`.
-    pub fn try_get_state(&self) -> Option<BatchState> {
-        match self.state {
-            0 => Some(BatchState::Fill),
-            1 => Some(BatchState::Inserted),
-            2 => Some(BatchState::Full),
-            _ => None,
-        }
-    }
-
-    /// State read for account-data paths: an out-of-range raw state is an
-    /// error instead of a panic. `get_state`, which panics on corrupt data, is
-    /// for tests that construct the batch in memory.
-    pub(crate) fn checked_state(&self) -> Result<BatchState, NullifierTreeError> {
-        self.try_get_state()
-            .ok_or(NullifierTreeError::InvalidBatchState)
+    pub fn get_state(&self) -> Result<BatchState, NullifierTreeError> {
+        self.state.try_into()
     }
 
     /// Exclusive leaf index just past the batch's last element.
@@ -221,7 +254,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
 
     /// `start_index` is the leaf index of the reused batch's first element.
     pub fn advance_state_to_fill(&mut self, start_index: u64) -> Result<(), NullifierTreeError> {
-        if self.checked_state()? != BatchState::Inserted {
+        if self.get_state()? != BatchState::Inserted {
             #[cfg(feature = "log")]
             solana_msg::msg!(
                 "Batch is in incorrect state {} expected BatchState::Inserted 1",
@@ -237,12 +270,15 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         &mut self,
         batch_size: u64,
     ) -> Result<(), NullifierTreeError> {
-        match self.checked_state()? {
+        match self.get_state()? {
             BatchState::Fill => Ok(()),
             BatchState::Inserted => {
+                let rotation = batch_size
+                    .checked_mul(NUM_BATCHES as u64)
+                    .ok_or(NullifierTreeError::ArithmeticOverflow)?;
                 let start_index = self
                     .start_index
-                    .checked_add(batch_size * NUM_BATCHES as u64)
+                    .checked_add(rotation)
                     .ok_or(NullifierTreeError::ArithmeticOverflow)?;
                 self.advance_state_to_fill(start_index)
             }
@@ -255,7 +291,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     }
 
     pub fn advance_state_to_inserted(&mut self) -> Result<(), NullifierTreeError> {
-        if self.checked_state()? == BatchState::Full {
+        if self.get_state()? == BatchState::Full {
             self.state = BatchState::Inserted.into();
         } else {
             #[cfg(feature = "log")]
@@ -269,7 +305,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     }
 
     pub fn advance_state_to_full(&mut self) -> Result<(), NullifierTreeError> {
-        if self.checked_state()? == BatchState::Fill {
+        if self.get_state()? == BatchState::Fill {
             self.state = BatchState::Full.into();
         } else {
             #[cfg(feature = "log")]
@@ -283,7 +319,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     }
 
     pub fn get_first_ready_zkp_batch(&self) -> Result<u64, NullifierTreeError> {
-        if self.checked_state()? == BatchState::Inserted {
+        if self.get_state()? == BatchState::Inserted {
             Err(NullifierTreeError::BatchAlreadyInserted)
         } else if self.batch_is_ready_to_insert() {
             Ok(self.num_inserted_zkp_batches)
@@ -310,12 +346,15 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.num_inserted_zkp_batches
     }
 
-    pub fn get_num_inserted_elements(&self) -> u64 {
-        self.num_full_zkp_batches * self.zkp_batch_size + self.num_inserted
+    pub fn get_num_inserted_elements(&self) -> Result<u64, NullifierTreeError> {
+        self.num_full_zkp_batches
+            .checked_mul(self.zkp_batch_size)
+            .and_then(|inserted| inserted.checked_add(self.num_inserted))
+            .ok_or(NullifierTreeError::ArithmeticOverflow)
     }
 
-    pub fn get_num_zkp_batches(&self) -> u64 {
-        self.batch_size / self.zkp_batch_size
+    pub const fn get_num_zkp_batches(&self) -> u64 {
+        ZKP_BATCHES as u64
     }
 
     /// Add a value to the current hash chain, and advance batch state.
@@ -328,8 +367,11 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// 5. If all zkp batches are full, set batch state to full.
     pub fn add_to_hash_chain(&mut self, value: &[u8; 32]) -> Result<(), NullifierTreeError> {
         // 1. Check that the batch is ready.
-        if self.checked_state()? != BatchState::Fill {
+        if self.get_state()? != BatchState::Fill {
             return Err(NullifierTreeError::BatchNotReady);
+        }
+        if self.zkp_batch_size == 0 || self.num_inserted >= self.zkp_batch_size {
+            return Err(NullifierTreeError::InvalidBatchConfiguration);
         }
         let hash_chain_index = self.num_full_zkp_batches as usize;
         let start_new_hash_chain = self.num_inserted == 0;
@@ -349,12 +391,18 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             .get_mut(hash_chain_index)
             .ok_or(NullifierTreeError::HashChainFull)?;
         *current_hash_chain = hash_chain;
-        self.num_inserted += 1;
+        self.num_inserted = self
+            .num_inserted
+            .checked_add(1)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // 4. If the zkp batch is full, increment the zkp batch index.
         let zkp_batch_is_full = self.num_inserted == self.zkp_batch_size;
         if zkp_batch_is_full {
-            self.num_full_zkp_batches += 1;
+            self.num_full_zkp_batches = self
+                .num_full_zkp_batches
+                .checked_add(1)
+                .ok_or(NullifierTreeError::ArithmeticOverflow)?;
             // To start a new hash chain in the next insertion
             // set num inserted to zero.
             self.num_inserted = 0;
@@ -382,14 +430,17 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         let num_zkp_batches = self.get_num_zkp_batches();
 
         // 2. increments the number of inserted zkps.
-        self.num_inserted_zkp_batches += 1;
+        self.num_inserted_zkp_batches = self
+            .num_inserted_zkp_batches
+            .checked_add(1)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
         // 3. If all zkp batches are inserted, sets the state to inserted.
         let batch_is_completely_inserted = self.num_inserted_zkp_batches == num_zkp_batches;
         if batch_is_completely_inserted {
             self.advance_state_to_inserted()?;
         }
 
-        self.checked_state()
+        self.get_state()
     }
 }
 

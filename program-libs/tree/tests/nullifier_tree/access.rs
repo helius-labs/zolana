@@ -1,10 +1,26 @@
-use crate::common::init_tree_account_data;
+use crate::common::{init_tree_account_data, load_tree_account_data};
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size,
     batch::{Batch, CachedTreeUpdate},
     constants::NUM_BATCHES,
     error::NullifierTreeError,
+    layout::NullifierTreeLayout,
 };
+
+const ZKP_BATCHES: usize = 5;
+
+fn assert_corrupt_layout_rejected(
+    corrupt: impl FnOnce(&mut NullifierTreeLayout<ZKP_BATCHES>),
+    expected: NullifierTreeError,
+) {
+    let mut account_data = vec![0u8; get_merkle_tree_account_size::<ZKP_BATCHES>()];
+    init_tree_account_data::<ZKP_BATCHES>(&mut account_data, 5, 1, 4).unwrap();
+    corrupt(wincode::deserialize_mut(&mut account_data).unwrap());
+    assert_eq!(
+        load_tree_account_data::<ZKP_BATCHES>(&mut account_data).unwrap_err(),
+        expected
+    );
+}
 
 #[test]
 fn test_init_invalid_account_size() {
@@ -74,4 +90,56 @@ fn test_tree_is_full() {
     assert!(tree.tree_is_full(1));
     tree.next_index = u64::MAX;
     assert!(tree.tree_is_full(1));
+}
+
+#[test]
+fn corrupt_batch_state_and_counters_are_rejected_on_load() {
+    assert_corrupt_layout_rejected(
+        |layout| layout.batches[0].set_raw_state(3),
+        NullifierTreeError::InvalidBatchState,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.batches[0].set_num_full_zkp_batches(6),
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.batches[0].set_num_inserted(1),
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| {
+            layout.batches[0].set_cached_tree_update(
+                0,
+                CachedTreeUpdate {
+                    occupied: 2,
+                    ..CachedTreeUpdate::default()
+                },
+            );
+        },
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
+}
+
+#[test]
+fn corrupt_tree_and_queue_progress_are_rejected_on_load() {
+    assert_corrupt_layout_rejected(
+        |layout| layout.sequence_number = 1,
+        NullifierTreeError::InvalidIndex,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.close_before_index = 1,
+        NullifierTreeError::InvalidIndex,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.queue_next_index += 1,
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.currently_processing_batch_index = 1,
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
+    assert_corrupt_layout_rejected(
+        |layout| layout.batches[1].start_index += 1,
+        NullifierTreeError::InvalidBatchConfiguration,
+    );
 }

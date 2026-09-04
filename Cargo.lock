@@ -5793,7 +5793,6 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-status-client-types",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -6558,10 +6557,10 @@ dependencies = [
  "pinocchio-system",
  "serde_json",
  "solana-loader-v3-interface 8.0.1",
- "solana-msg",
  "spl-token-2022-interface 2.1.0",
  "tinyvec",
  "zolana-account-checks",
+ "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-tree",
@@ -11178,7 +11177,8 @@ version = "0.1.0"
 dependencies = [
  "borsh",
  "solana-pubkey 4.2.0",
- "wincode",
+ "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11229,6 +11229,7 @@ dependencies = [
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "borsh",
  "bytemuck",
  "groth16-solana",
@@ -11242,7 +11243,6 @@ dependencies = [
  "solana-rent 4.3.0",
  "thiserror 2.0.20",
  "wincode",
- "zolana-event",
  "zolana-hasher",
  "zolana-tree",
 ]
@@ -11461,7 +11461,6 @@ dependencies = [
  "solana-signature",
  "thiserror 2.0.20",
  "wincode",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11487,7 +11486,6 @@ dependencies = [
  "wincode",
  "zerocopy",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-indexed-array",
  "zolana-merkle-tree",
@@ -11538,7 +11536,6 @@ dependencies = [
  "solana-transaction",
  "tokio",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",

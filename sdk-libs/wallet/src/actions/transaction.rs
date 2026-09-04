@@ -1040,7 +1040,9 @@ fn withdrawal_target(
             SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                user_account: recipient,
+            }),
         ));
     }
 
@@ -1456,7 +1458,7 @@ mod tests {
             } if pubkey == recipient
                 && settlement_transfers == vec![
                     TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                        recipient
+                        user_account: recipient
                     })
                 ]
         ));
@@ -1678,10 +1680,10 @@ mod tests {
             created.settlement_transfers,
             vec![
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: user
+                    user_account: user
                 }),
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: relayer
+                    user_account: relayer
                 }),
             ]
         );

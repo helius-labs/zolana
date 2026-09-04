@@ -1,5 +1,6 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
+use thiserror::Error;
 
 use crate::{
     instruction::{tag, InterfaceTransfer, TransactIxData},
@@ -9,7 +10,8 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSolTransferAccounts {
-    pub recipient: Pubkey,
+    /// User-side SOL account: funds a deposit or receives a withdrawal.
+    pub user_account: Pubkey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,6 +36,25 @@ pub enum TransactInterfaceTransferAccounts {
     Sol(TransactSolTransferAccounts),
     SplDeposit(TransactSplDepositAccounts),
     SplWithdrawal(TransactSplWithdrawalAccounts),
+}
+
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+pub enum TransactBuildError {
+    #[error("transact has {count} interface transfers; at most {max} are supported")]
+    TooManyInterfaceTransfers { count: usize, max: usize },
+    #[error("interface transfer {index} has a zero amount")]
+    ZeroInterfaceTransferAmount { index: usize },
+    #[error(
+        "transact has {transfer_count} interface transfers but {account_group_count} settlement account groups"
+    )]
+    TransferAccountCountMismatch {
+        transfer_count: usize,
+        account_group_count: usize,
+    },
+    #[error("interface transfer {index} does not match its settlement account group")]
+    TransferAccountTypeMismatch { index: usize },
+    #[error("transact instruction data could not be serialized")]
+    Serialization,
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
@@ -70,29 +91,39 @@ pub(super) fn append_interface_transfer_accounts(
     accounts: &mut Vec<AccountMeta>,
     interface_transfers: &[InterfaceTransfer],
     transfer_accounts: &[TransactInterfaceTransferAccounts],
-) {
-    assert!(
-        interface_transfers.len() <= MAX_INTERFACE_TRANSFERS,
-        "interface transfer count exceeds the protocol maximum"
-    );
-    assert_eq!(
-        interface_transfers.len(),
-        transfer_accounts.len(),
-        "interface transfers and settlement account groups must have equal lengths"
-    );
+) -> Result<(), TransactBuildError> {
+    if interface_transfers.len() > MAX_INTERFACE_TRANSFERS {
+        return Err(TransactBuildError::TooManyInterfaceTransfers {
+            count: interface_transfers.len(),
+            max: MAX_INTERFACE_TRANSFERS,
+        });
+    }
+    if interface_transfers.len() != transfer_accounts.len() {
+        return Err(TransactBuildError::TransferAccountCountMismatch {
+            transfer_count: interface_transfers.len(),
+            account_group_count: transfer_accounts.len(),
+        });
+    }
 
-    for (transfer, transfer_accounts) in interface_transfers.iter().zip(transfer_accounts) {
+    for (index, (transfer, transfer_accounts)) in interface_transfers
+        .iter()
+        .zip(transfer_accounts)
+        .enumerate()
+    {
+        if transfer.amount() == 0 {
+            return Err(TransactBuildError::ZeroInterfaceTransferAmount { index });
+        }
         match (transfer, transfer_accounts) {
             (InterfaceTransfer::SolDeposit { .. }, TransactInterfaceTransferAccounts::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.recipient, true));
+                accounts.push(AccountMeta::new(sol.user_account, true));
             }
             (
                 InterfaceTransfer::SolWithdrawal { .. },
                 TransactInterfaceTransferAccounts::Sol(sol),
             ) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.recipient, false));
+                accounts.push(AccountMeta::new(sol.user_account, false));
             }
             (
                 InterfaceTransfer::SplDeposit { .. },
@@ -117,11 +148,10 @@ pub(super) fn append_interface_transfer_accounts(
                 accounts.push(AccountMeta::new(spl.user_token_account, false));
                 accounts.push(AccountMeta::new_readonly(spl.token_program, false));
             }
-            _ => {
-                panic!("interface transfer type must match its settlement account group");
-            }
+            _ => return Err(TransactBuildError::TransferAccountTypeMismatch { index }),
         }
     }
+    Ok(())
 }
 
 /// One writable nullifier-PDA account per nullifier, preserving input order.
@@ -136,15 +166,7 @@ pub fn nullifier_pda_accounts<'a>(
 }
 
 impl Transact {
-    pub fn instruction(&self) -> Instruction {
-        let mut instruction_data = vec![tag::TRANSACT];
-        instruction_data.extend_from_slice(
-            &self
-                .data
-                .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
-        );
-
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.input_tree, false),
@@ -154,11 +176,7 @@ impl Transact {
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
-            self.data
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
+            self.data.inputs.iter().map(|input| &input.nullifier_hash),
         ));
         accounts.extend(
             self.owner_signers
@@ -168,14 +186,23 @@ impl Transact {
         );
         append_interface_transfer_accounts(
             &mut accounts,
-            &self.data.bound.interface_transfers,
+            &self.data.interface_transfers,
             &self.interface_transfer_accounts,
+        )?;
+
+        let mut instruction_data = vec![tag::TRANSACT];
+        instruction_data.extend_from_slice(
+            &self
+                .data
+                .serialize()
+                .map_err(|_| TransactBuildError::Serialization)?,
         );
-        Instruction {
+
+        Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }
 
@@ -183,26 +210,21 @@ impl Transact {
 mod tests {
     use super::*;
     use crate::instruction::instruction_data::transact::{CircuitId, InputUtxo, TransactProof};
-    use crate::instruction::{TransactIxBound, TransactIxTail};
 
     fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
-            bound: TransactIxBound {
-                expiry_unix_ts: u64::MAX,
-                tx_viewing_pk: [0u8; 33],
-                salt: [0u8; 16],
-                interface_transfers,
-                outputs: Vec::new(),
-                messages: Vec::new(),
-            },
-            tail: TransactIxTail {
-                proof: TransactProof::zeroed(),
-                private_tx_hash: [0u8; 32],
-                circuit: CircuitId::ConfidentialEddsa(0, 0, 3),
-                inputs: Vec::new(),
-                data_hash: None,
-                ring_data_hash: None,
-            },
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers,
+            outputs: Vec::new(),
+            messages: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            proof: TransactProof::zeroed(),
+            private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa(0, 0, 3),
+            inputs: Vec::new(),
         }
     }
 
@@ -216,12 +238,14 @@ mod tests {
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
+                TransactSolTransferAccounts {
+                    user_account: recipient,
+                },
             )],
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid transact");
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -262,7 +286,7 @@ mod tests {
             }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid transact");
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -298,11 +322,11 @@ mod tests {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: sol_depositor,
+                    user_account: sol_depositor,
                 }),
                 TransactInterfaceTransferAccounts::SplWithdrawal(spl),
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: sol_recipient,
+                    user_account: sol_recipient,
                 }),
             ],
             data: empty_data(vec![
@@ -315,7 +339,7 @@ mod tests {
             ]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid transact");
         let keys: Vec<_> = ix.accounts.iter().map(|account| account.pubkey).collect();
         assert_eq!(
             keys,
@@ -362,7 +386,7 @@ mod tests {
             }]),
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid transact");
         assert_eq!(ix.accounts[5].pubkey, spl.mint);
         assert_eq!(ix.accounts[6].pubkey, spl.spl_interface);
         assert_eq!(ix.accounts[7].pubkey, spl.token_authority);
@@ -376,7 +400,7 @@ mod tests {
         let input_tree = Pubkey::new_unique();
         let nullifiers = [[11u8; 32], [22u8; 32]];
         let mut data = empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]);
-        data.tail.inputs = nullifiers
+        data.inputs = nullifiers
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
@@ -390,12 +414,14 @@ mod tests {
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
+                TransactSolTransferAccounts {
+                    user_account: recipient,
+                },
             )],
             data,
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid transact");
         let nullifier_pda = |nullifier: &[u8; 32]| pda::nullifier_pda(&input_tree, nullifier).0;
         assert_eq!(
             ix.accounts,
@@ -416,9 +442,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "equal lengths")]
     fn rejects_transfer_account_count_mismatch() {
-        Transact {
+        let result = Transact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
@@ -427,19 +452,25 @@ mod tests {
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
         }
         .instruction();
+        assert_eq!(
+            result,
+            Err(TransactBuildError::TransferAccountCountMismatch {
+                transfer_count: 1,
+                account_group_count: 0,
+            })
+        );
     }
 
     #[test]
-    #[should_panic(expected = "interface transfer type")]
     fn rejects_transfer_account_tag_mismatch() {
-        Transact {
+        let result = Transact {
             payer: Pubkey::new_unique(),
             input_tree: Pubkey::new_unique(),
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    recipient: Pubkey::new_unique(),
+                    user_account: Pubkey::new_unique(),
                 },
             )],
             data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
@@ -448,5 +479,53 @@ mod tests {
             }]),
         }
         .instruction();
+        assert_eq!(
+            result,
+            Err(TransactBuildError::TransferAccountTypeMismatch { index: 0 })
+        );
+    }
+
+    #[test]
+    fn rejects_zero_amount_without_panicking() {
+        let result = Transact {
+            payer: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
+                TransactSolTransferAccounts {
+                    user_account: Pubkey::new_unique(),
+                },
+            )],
+            data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 0 }]),
+        }
+        .instruction();
+
+        assert_eq!(
+            result,
+            Err(TransactBuildError::ZeroInterfaceTransferAmount { index: 0 })
+        );
+    }
+
+    #[test]
+    fn rejects_too_many_transfers_without_panicking() {
+        let count = MAX_INTERFACE_TRANSFERS + 1;
+        let result = Transact {
+            payer: Pubkey::new_unique(),
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data: empty_data(vec![InterfaceTransfer::SolDeposit { amount: 1 }; count]),
+        }
+        .instruction();
+
+        assert_eq!(
+            result,
+            Err(TransactBuildError::TooManyInterfaceTransfers {
+                count,
+                max: MAX_INTERFACE_TRANSFERS,
+            })
+        );
     }
 }

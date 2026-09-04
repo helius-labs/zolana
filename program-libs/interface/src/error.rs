@@ -334,7 +334,7 @@ mod tests {
                 "error code drifted: {variant:?}"
             );
         }
-        // The live wire surface is exactly 58 variants on this branch.
+        // The live wire surface is exactly 59 variants on this branch.
         assert_eq!(variants.len(), 59, "variant count drifted");
     }
 }

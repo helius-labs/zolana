@@ -613,7 +613,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         //    fixed. The program recomputes the public input from the message it is
         //    handed, so the custom-ring proof no longer verifies and the SPP CPI is never
         //    reached -- nothing is nullified and no leaf is appended.
-        .bound
         .messages
         .last_mut()
         .ok_or_else(|| anyhow!("transact carries no auditor message"))?
@@ -1584,11 +1583,11 @@ impl AsyncHopParity<'_> {
             "async and blocking derive the same transaction viewing key"
         );
         assert_eq!(
-            proven.data.bound.tx_viewing_pk, blocking.data.bound.tx_viewing_pk,
+            proven.data.tx_viewing_pk, blocking.data.tx_viewing_pk,
             "async and blocking publish the same tx_viewing_pk"
         );
         assert_eq!(
-            proven.data.tail.circuit, blocking.data.tail.circuit,
+            proven.data.circuit, blocking.data.circuit,
             "async and blocking select the same circuit"
         );
         assert_eq!(
@@ -1601,11 +1600,11 @@ impl AsyncHopParity<'_> {
             "async and blocking require the same owner signatures"
         );
         assert_eq!(
-            proven.data.bound.expiry_unix_ts, blocking.data.bound.expiry_unix_ts,
+            proven.data.expiry_unix_ts, blocking.data.expiry_unix_ts,
             "async and blocking carry the same expiry"
         );
         assert_ne!(
-            proven.data.tail.private_tx_hash, blocking.data.tail.private_tx_hash,
+            proven.data.private_tx_hash, blocking.data.private_tx_hash,
             "each proof draws its own blindings, salt and auditor ciphertext"
         );
 
@@ -1623,7 +1622,6 @@ impl AsyncHopParity<'_> {
 fn nullifier_hashes(proven: &ProvenTransfer) -> Vec<[u8; 32]> {
     proven
         .data
-        .tail
         .inputs
         .iter()
         .map(|input| input.nullifier_hash)

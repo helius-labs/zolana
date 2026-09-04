@@ -32,6 +32,28 @@ pub fn match_circuit_size(size: u64) -> bool {
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
+    /// Validates every fallible parameter-derived value before initialization
+    /// mutates the zeroed account layout.
+    pub fn validate_init_params(
+        input_queue_batch_size: u64,
+        input_queue_zkp_batch_size: u64,
+        height: u32,
+    ) -> Result<(), NullifierTreeError> {
+        Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
+        1u64.checked_shl(height)
+            .ok_or(NullifierTreeError::InvalidHeight)?;
+        1u64.checked_add(input_queue_batch_size)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
+
+        // NULLIFIER_TREE_INIT_ROOT_40 is the root for height 40. The
+        // `test-only` feature drops this check so tests can build small trees.
+        #[cfg(not(feature = "test-only"))]
+        if height != 40 {
+            return Err(NullifierTreeError::InvalidHeight);
+        }
+        Ok(())
+    }
+
     /// Initializes a zeroed layout in place, seeded with the BN254 `p-1`
     /// sentinel root (`NULLIFIER_TREE_INIT_ROOT_40`).
     pub fn init(
@@ -40,16 +62,13 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         input_queue_zkp_batch_size: u64,
         height: u32,
     ) -> Result<(), NullifierTreeError> {
-        Self::validate_configuration(input_queue_batch_size, input_queue_zkp_batch_size)?;
+        Self::validate_init_params(input_queue_batch_size, input_queue_zkp_batch_size, height)?;
         let capacity = 1u64
             .checked_shl(height)
             .ok_or(NullifierTreeError::InvalidHeight)?;
-        // NULLIFIER_TREE_INIT_ROOT_40 is the root for height 40. The
-        // `test-only` feature drops this check so tests can build small trees.
-        #[cfg(not(feature = "test-only"))]
-        if height != 40 {
-            return Err(NullifierTreeError::InvalidHeight);
-        }
+        let second_batch_start_index = 1u64
+            .checked_add(input_queue_batch_size)
+            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         // Written field by field: the layout carries both batches with their
         // hash chains and cached updates, which are too large to move through a
@@ -59,11 +78,6 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         self.height = height;
         self.capacity = capacity;
         self.close_before_index = 0;
-
-        let second_batch_start_index = self
-            .next_index
-            .checked_add(input_queue_batch_size)
-            .ok_or(NullifierTreeError::ArithmeticOverflow)?;
 
         self.batch_size = input_queue_batch_size;
         self.zkp_batch_size = input_queue_zkp_batch_size;

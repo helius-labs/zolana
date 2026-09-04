@@ -7,19 +7,25 @@ Selection and approval text use UTXO terminology without changing version 3 snap
 
 Changed
 
-- **Breaking:** `transact` instruction data is reordered into a contiguous
-  proof-bound region followed by a tail. The region runs `expiryUnixTs`,
-  `txViewingPk`, `salt`, `interfaceTransfers`, `outputs`, `messages`; the tail
-  holds `circuit`, `proof`, `privateTxHash`, `inputs`, `dataHash`,
-  `ringDataHash`. `encodeTransactInstructionData` emits the new order, so
+- **Breaking:** `transact` instruction data uses one flat order:
+  `expiryUnixTs`, `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`,
+  `ringDataHash`, `outputs`, `messages`, `privateTxHash`, `circuit`, `proof`,
+  `inputs`. `encodeTransactInstructionData` emits the new order, so
   instruction bytes built by an older SDK are not accepted.
-- **Breaking:** `externalDataHash` now takes `{ instructionDiscriminator, bound,
-boundAddresses }` and hashes the serialized bound region plus a digest of the
-  bound account addresses, instead of assembling its own preimage. Digests
-  differ from previous releases. The hash also covers the owner-tag _encoding_,
-  so an output tagged inline and one tagged by account no longer collide.
-- `dataHash` and `ringDataHash` are no longer covered by `externalDataHash`.
-  They remain in instruction data but no public input binds them.
+- **Breaking:** `externalDataHash` now takes one flat input containing
+  `instructionDiscriminator`, `expiryUnixTs`, `txViewingPk`, `salt`,
+  `interfaceTransfers`, `dataHash`, `ringDataHash`, `outputs`, `messages`, and
+  `committedAddresses`. It hashes the exact flat instruction prefix through
+  `messages` followed by the raw committed account addresses in protocol order,
+  in one SHA-256 call. Digests differ from previous releases. The hash also
+  covers the owner-tag _encoding_, so an output tagged inline and one tagged by
+  account no longer collide.
+- `dataHash` and `ringDataHash` are covered by `externalDataHash` as part of the
+  flat instruction prefix.
+- External data rejects more than 32 interface transfers or more than 255
+  outputs or messages, matching the protocol limit and `u8` wire counts.
+- **Breaking:** the unused `ResolvedInterfaceTransfer` and `ResolvedOutput`
+  types are removed.
 - **Breaking:** `MERGE_INPUT_COUNT` and `MERGE_INPUTS` are gone, because merge
   now has two shapes rather than one fixed arity → import
   `MERGE_DEFAULT_INPUT_COUNT` or `MERGE_DEFAULT_INPUTS`, both still 8, or read
@@ -48,8 +54,8 @@ boundAddresses }` and hashes the serialized bound region plus a digest of the
 
 Added
 
-- `encodeTransactBoundRegion` and the `TransactBoundFields` type: the serialized
-  proof-bound region on its own, for computing `externalDataHash`.
+- `TRANSACTION_TOO_MANY_MESSAGES`: the external-data builder rejects a message
+  count that cannot fit the instruction's `u8` length prefix.
 - `MERGE_SUPPORTED_INPUT_COUNTS`, `MAX_MERGE_INPUTS`,
   `isSupportedMergeInputCount`, and `mergePaddedInputCount`: which merge shapes
   the program has verifying keys for, and which one a given real input count is
@@ -76,6 +82,9 @@ Changed
 
 Fixed
 
+- `createExternalData` keeps a private deep copy for hashing and derived
+  builders, so mutating typed arrays through either the caller's input or the
+  returned view cannot change the committed transaction.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
 

@@ -13,9 +13,7 @@ use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         CreateProtocolConfig,
     },
     state::{default_tree_fees, nullifier_tree_params},
@@ -27,7 +25,7 @@ use zolana_program_test::{
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
     inline_outputs, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
-    set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
+    set_output_owner_tags, sol_public_slots, ResolvedInterfaceTransfer, TransferProverInputsArgs,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -306,7 +304,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         args.interface_transfers,
         inline_outputs(&args.output_hashes, &args.view_tags),
     );
-    let owner_pk_hashes = output_owner_pk_hashes(&ix_data.bound.outputs)
+    let owner_pk_hashes = output_owner_pk_hashes(&ix_data.outputs)
         .map_err(|err| anyhow!("{} output owner pk hashes: {err}", args.label))?;
     set_output_owner_tags(
         &mut args.outputs,
@@ -349,8 +347,8 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_input,
     });
-    ix_data.tail.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;
-    ix_data.tail.private_tx_hash = private_tx;
+    ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;
+    ix_data.private_tx_hash = private_tx;
     Ok(ix_data)
 }
 

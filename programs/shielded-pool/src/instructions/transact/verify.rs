@@ -6,7 +6,7 @@ use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain, create_hash_chain_from_slice, HashChain},
+    hash_chain::{create_hash_chain_from_slice, HashChain},
     primitives::hash_bytes,
     sha256::Sha256,
     Hasher, Poseidon,
@@ -14,28 +14,20 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
-        is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
-        TransactIxDataRef,
+        CircuitId, InterfaceTransfer, OwnerTagRef, TransactIxDataRef,
     },
+    output_data::is_confidential_encrypted_output,
     verifying_keys::OutputOwnerMode,
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
 
-pub const MAX_INPUTS: usize = 60;
+pub const MAX_INPUTS: usize = 36;
 
 /// Fixed width of the circuit's signer fold: the payer plus one slot per
 /// input. Sizes the zero-suffix table, not the program's signer array.
 pub const MAX_SIGNERS: usize = MAX_INPUTS + 1;
-
-/// Distinct owner-signer identities the program will hash, payer included.
-/// Deliberately independent of the input count: the fold width is what the
-/// circuit fixes, while the number of *distinct* signers a real transaction
-/// carries is small. Transaction v1 caps signatures at 12, so this is not the
-/// binding limit today, and `account.rs` separately rejects a signer run longer
-/// than the input count.
-pub const MAX_UNIQUE_SIGNERS: usize = 8;
 
 /// Owner-hash memo capacity. Deliberately small and independent of the shape
 /// constants: `ArrayMap` is a linear scan, so a large cache is quadratic over
@@ -67,7 +59,7 @@ pub struct TransactProofInputs {
     pub utxo_root_chain: [u8; 32],
     pub nullifier_tree_root_chain: [u8; 32],
     pub input_count: u8,
-    pub signer_pk_hashes: [[u8; 32]; MAX_UNIQUE_SIGNERS],
+    pub signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
     /// Left-folded chain over the per-output owner hashes, in `ix.outputs`
     /// order. In `ConfidentialMarked` mode an unmarked output folds an explicit
     /// zero, reproducing the zero-filled slot of the array this replaced.
@@ -98,7 +90,7 @@ impl TransactProofInputs {
             utxo_root_chain: [0u8; 32],
             nullifier_tree_root_chain: [0u8; 32],
             input_count: 0,
-            signer_pk_hashes: [[0u8; 32]; MAX_UNIQUE_SIGNERS],
+            signer_pk_hashes: [[0u8; 32]; MAX_SIGNERS],
             output_owner_chain: [0u8; 32],
             output_owner_count: 0,
             external_data_hash: [0u8; 32],
@@ -157,7 +149,10 @@ impl TransactProofInputs {
         let payer_address = payer.address().to_bytes();
         self.signer_pk_hashes[0] = cached_owner_hash(owner_hashes, &payer_address)?;
 
-        let mut seen: ArrayMap<[u8; 32], (), MAX_UNIQUE_SIGNERS> = ArrayMap::new();
+        // The account parser caps the owner-signer run at the circuit input
+        // count. Including the payer therefore fits the circuit-derived
+        // `MAX_SIGNERS = MAX_INPUTS + 1` capacity exactly.
+        let mut seen: ArrayMap<[u8; 32], (), MAX_SIGNERS> = ArrayMap::new();
         seen.insert(payer_address, (), ShieldedPoolError::InvalidTransactShape)?;
         let mut unique_count = 1usize;
         for signer in owner_signers {
@@ -183,40 +178,41 @@ impl TransactProofInputs {
     pub fn fill_output_owner_chain(
         &mut self,
         mode: OutputOwnerMode,
-        resolved_outputs: &[ResolvedOutput],
+        ix: &TransactIxDataRef<'_>,
+        accounts: &[AccountView],
         owner_hashes: &mut OwnerHashCache,
     ) -> Result<(), ProgramError> {
         let mut chain = HashChain::new();
-        match mode {
-            OutputOwnerMode::None => {}
-            OutputOwnerMode::All => {
-                for output in resolved_outputs.iter() {
-                    chain.push(&cached_owner_hash(owner_hashes, &output.owner_tag)?)?;
-                }
-            }
-            OutputOwnerMode::ConfidentialMarked => {
-                for output in resolved_outputs.iter() {
-                    let element = if output.data.is_some_and(is_confidential_encrypted_output) {
-                        cached_owner_hash(owner_hashes, &output.owner_tag)?
-                    } else {
-                        [0u8; 32]
-                    };
-                    chain.push(&element)?;
-                }
-            }
-        }
         if mode != OutputOwnerMode::None {
+            for output in ix.outputs.try_iter() {
+                let output = output.map_err(|_| ProgramError::InvalidInstructionData)?;
+                let owner_tag = match output.owner_tag {
+                    OwnerTagRef::Inline(owner_tag) => owner_tag,
+                    OwnerTagRef::Account(index) => accounts
+                        .get(usize::from(index))
+                        .map(|account| account.address().as_array())
+                        .ok_or(ShieldedPoolError::OwnerTagAccountMissing)?,
+                };
+                let element = if mode == OutputOwnerMode::All
+                    || output.data.is_some_and(is_confidential_encrypted_output)
+                {
+                    cached_owner_hash(owner_hashes, owner_tag)?
+                } else {
+                    [0u8; 32]
+                };
+                chain.push(&element)?;
+            }
             self.output_owner_chain = chain.finish();
-            self.output_owner_count = u8::try_from(resolved_outputs.len())
+            self.output_owner_count = u8::try_from(ix.outputs.len())
                 .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
         }
         self.assignments |= ASSIGNED_OUTPUT_OWNERS;
         Ok(())
     }
 
-    pub fn assign_public_amounts_and_assets(
+    pub fn assign_public_amounts_and_assets<E>(
         &mut self,
-        interface_transfers: &[InterfaceTransfer],
+        interface_transfers: impl ExactSizeIterator<Item = Result<InterfaceTransfer, E>>,
         settlements: &[Settlement<'_>],
         num_public_asset_slots: usize,
     ) -> Result<(), ProgramError> {
@@ -226,8 +222,9 @@ impl TransactProofInputs {
         }
 
         let mut used_slots = 0usize;
-        for (transfer, settlement) in interface_transfers.iter().zip(settlements.iter()) {
-            let amount = signed_amount(*transfer);
+        for (transfer, settlement) in interface_transfers.zip(settlements.iter()) {
+            let transfer = transfer.map_err(|_| ProgramError::InvalidInstructionData)?;
+            let amount = signed_amount(transfer);
             if amount == 0 || transfer.is_deposit() != settlement.is_deposit() {
                 return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
             }
@@ -324,23 +321,21 @@ impl<'a> TransactProof<'a> {
         let public_input_hash = self.public_input_hash()?;
         let verifying_key = self
             .ix
-            .tail
             .circuit
             .verifying_key()
             .ok_or(ShieldedPoolError::InvalidTransactShape)?;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
         let verify_err = ShieldedPoolError::TransactProofVerificationFailed;
-        let proof_data = &self.ix.tail.proof;
+        let proof_data = &self.ix.proof;
         let commitment = self
             .ix
-            .tail
             .circuit
             .bsb22_commitment()
             .map(|value| (&value.commitment, &value.commitment_pok));
         let proof = verifier::CompressedGroth16Proof {
-            a: &proof_data.a,
-            b: &proof_data.b,
-            c: &proof_data.c,
+            a: proof_data.a,
+            b: proof_data.b,
+            c: proof_data.c,
             commitment,
         };
         verifier::verify_groth16(
@@ -353,15 +348,15 @@ impl<'a> TransactProof<'a> {
     }
 
     fn n_inputs(&self) -> usize {
-        usize::from(self.ix.tail.circuit.num_inputs())
+        usize::from(self.ix.circuit.num_inputs())
     }
 
     fn n_outputs(&self) -> usize {
-        usize::from(self.ix.tail.circuit.num_outputs())
+        usize::from(self.ix.circuit.num_outputs())
     }
 
     fn n_public_asset_slots(&self) -> usize {
-        usize::from(self.ix.tail.circuit.num_public_asset_slots())
+        usize::from(self.ix.circuit.num_public_asset_slots())
     }
 
     #[inline(never)]
@@ -376,17 +371,15 @@ impl<'a> TransactProof<'a> {
         if usize::from(self.derived.input_count) != n_in {
             return Err(shape.into());
         }
-        let signer_width = if self.ix.tail.circuit.requires_input_signatures() {
+        let signer_width = if self.ix.circuit.requires_input_signatures() {
             n_in.checked_add(1).ok_or(shape)?
         } else {
             1
         };
         // `signer_width` is the circuit's fixed fold width, `n_in + 1`, which
-        // reaches 61 at the largest shape. It is NOT a bound on this array:
-        // `signer_pk_hashes` holds only the accepted unique signers, at most
-        // `MAX_UNIQUE_SIGNERS`, and `fixed_signer_hash_chain` covers the zero
-        // tail from the suffix table. Slicing the array by the fold width
-        // rejects every shape with more than `MAX_UNIQUE_SIGNERS - 1` inputs.
+        // reaches `MAX_SIGNERS` at the largest shape. The array holds only the
+        // accepted unique prefix; `fixed_signer_hash_chain` supplies its zero
+        // suffix without allocating a full per-transaction padded vector.
         let unique_signer_pk_hashes = self
             .derived
             .signer_pk_hashes
@@ -407,29 +400,38 @@ impl<'a> TransactProof<'a> {
         // already pinned both counts to the circuit's shape, so the scratch
         // buffers these replaced could never overflow, and folding keeps the
         // frame independent of the input and output counts.
-        let nullifier_chain = create_hash_chain(
-            self.ix
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
-        )?;
-        let output_chain =
-            create_hash_chain(self.ix.bound.outputs.iter().map(|output| output.utxo_hash))?;
+        let mut nullifier_chain = HashChain::new();
+        for input in self.ix.inputs.try_iter() {
+            nullifier_chain.push(
+                input
+                    .map_err(|_| ProgramError::InvalidInstructionData)?
+                    .nullifier_hash,
+            )?;
+        }
+        let nullifier_chain = nullifier_chain.finish();
+        let mut output_chain = HashChain::new();
+        for output in self.ix.outputs.try_iter() {
+            output_chain.push(
+                output
+                    .map_err(|_| ProgramError::InvalidInstructionData)?
+                    .utxo_hash,
+            )?;
+        }
+        let output_chain = output_chain.finish();
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         fields.extend_from_slice(&[
             nullifier_chain,
             output_chain,
             self.derived.utxo_root_chain,
             self.derived.nullifier_tree_root_chain,
-            *self.ix.tail.private_tx_hash,
+            *self.ix.private_tx_hash,
         ]);
-        if self.ix.tail.circuit.is_p256() {
-            let message_digest = Sha256::hash(self.ix.tail.private_tx_hash).map_err(caused_by(
+        if self.ix.circuit.is_p256() {
+            let message_digest = Sha256::hash(self.ix.private_tx_hash).map_err(caused_by(
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);
-            fields.push(match self.ix.tail.circuit.default_p256_owner_tag() {
+            fields.push(match self.ix.circuit.default_p256_owner_tag() {
                 Some(owner_tag) => hash_bytes(owner_tag)?,
                 None => [0u8; 32],
             });
@@ -444,7 +446,7 @@ impl<'a> TransactProof<'a> {
             fixed_signer_hash_chain(unique_signer_pk_hashes, signer_width)?,
             self.derived.allow_dummy_inputs,
         ]);
-        if self.ix.tail.circuit.output_owner_mode() != OutputOwnerMode::None {
+        if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
             // Same bounds role as the input-count check above: the chain must
             // cover exactly the circuit's output count.
             if usize::from(self.derived.output_owner_count) != n_out {
@@ -462,7 +464,7 @@ impl<'a> TransactProof<'a> {
 //
 // `static`, not `const`: a `const` is materialized at every use site, so the
 // whole table would be copied into the reading function's stack frame before
-// being indexed. At MAX_SIGNERS = 61 that is 1952 bytes of frame against the
+// being indexed. At MAX_SIGNERS = 37 that is 1184 bytes of frame against the
 // 4096-byte SBF limit.
 pub static SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
     [
@@ -649,126 +651,6 @@ pub static SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
         0x1b, 0xf7, 0x69, 0xa2, 0x94, 0x42, 0x4a, 0xf6, 0xe3, 0xad, 0x49, 0x4a, 0x82, 0xba, 0xe6,
         0x41, 0x17, 0x87, 0xcc, 0x99, 0x88, 0x88, 0x12, 0xd6, 0x16, 0x37, 0x1f, 0xd8, 0x1c, 0x8d,
         0x9a, 0xfc,
-    ],
-    [
-        0x29, 0x5f, 0x95, 0xcc, 0xdf, 0x61, 0xba, 0x56, 0xf8, 0xee, 0xc3, 0xa9, 0x19, 0x5b, 0x27,
-        0x0b, 0xb3, 0x0b, 0x79, 0xa6, 0xb7, 0x42, 0x21, 0x6b, 0xf7, 0xdc, 0x48, 0x2d, 0x20, 0x8c,
-        0x04, 0x19,
-    ],
-    [
-        0x0d, 0xd6, 0x57, 0x75, 0x7b, 0x7d, 0x86, 0x53, 0xe7, 0xc8, 0x0c, 0x27, 0x30, 0xa2, 0x14,
-        0x71, 0xaa, 0xe1, 0x54, 0xc5, 0x71, 0x9f, 0x64, 0x55, 0xe4, 0x1d, 0xd1, 0x98, 0x5e, 0x8c,
-        0x87, 0xa3,
-    ],
-    [
-        0x30, 0x62, 0xeb, 0x1a, 0xf3, 0xaf, 0x71, 0xb2, 0x6b, 0x72, 0x6b, 0x5c, 0xa2, 0xc7, 0x5a,
-        0xdf, 0x50, 0x72, 0x51, 0x2f, 0xe5, 0xec, 0x09, 0xd2, 0x55, 0x1e, 0xec, 0x80, 0x01, 0x6d,
-        0x3c, 0x36,
-    ],
-    [
-        0x22, 0x8c, 0x2e, 0x41, 0x39, 0xf6, 0xd1, 0xd5, 0x44, 0x9e, 0x94, 0x3d, 0x09, 0x0f, 0x46,
-        0xde, 0xc6, 0xe5, 0x7d, 0x89, 0xfe, 0xbd, 0x29, 0x25, 0x06, 0x5f, 0xe6, 0x99, 0x50, 0x6c,
-        0x47, 0xe9,
-    ],
-    [
-        0x0f, 0x0e, 0x9b, 0xa7, 0xcb, 0x12, 0x1c, 0x84, 0x3d, 0x09, 0x2a, 0x2e, 0x00, 0x1a, 0x9d,
-        0x1d, 0x6a, 0x3e, 0xc8, 0xe0, 0xe1, 0x5d, 0xb4, 0x10, 0x4a, 0xc3, 0xf0, 0x02, 0xd6, 0xa8,
-        0x7f, 0xc9,
-    ],
-    [
-        0x30, 0x10, 0x6e, 0x52, 0x7e, 0xe6, 0x98, 0xe6, 0xc4, 0xfe, 0xae, 0xb8, 0x31, 0x97, 0x63,
-        0x90, 0xca, 0xf7, 0xfb, 0xa4, 0x19, 0x61, 0xdf, 0xdb, 0x68, 0x9c, 0xcc, 0x8e, 0xf6, 0x24,
-        0x93, 0x89,
-    ],
-    [
-        0x2a, 0x98, 0x35, 0xba, 0x01, 0x54, 0xae, 0xe5, 0x13, 0x76, 0x0c, 0x84, 0x07, 0x8b, 0x95,
-        0x5d, 0x3b, 0x65, 0x59, 0x76, 0xf0, 0x68, 0x69, 0xa3, 0x4e, 0x7c, 0x30, 0x45, 0x75, 0xe8,
-        0x38, 0x6c,
-    ],
-    [
-        0x05, 0xdf, 0x7b, 0xb5, 0x01, 0x52, 0x1a, 0x85, 0x2e, 0xa5, 0x6c, 0x85, 0xd8, 0x3f, 0x2f,
-        0xb8, 0x52, 0x5c, 0x87, 0x13, 0xd9, 0xe1, 0x8e, 0xd5, 0x72, 0x09, 0x46, 0x40, 0xf2, 0x2f,
-        0x6d, 0xed,
-    ],
-    [
-        0x1d, 0xa3, 0x00, 0x14, 0xdb, 0x99, 0xa1, 0x83, 0x6a, 0x61, 0xeb, 0xad, 0xac, 0xe2, 0x0e,
-        0x52, 0x69, 0xea, 0x5c, 0xc5, 0x0a, 0xe5, 0xf7, 0x65, 0x40, 0xc6, 0xc3, 0x70, 0x89, 0x18,
-        0x37, 0xa7,
-    ],
-    [
-        0x00, 0xe1, 0x14, 0xc8, 0x37, 0x55, 0x11, 0xee, 0x33, 0x32, 0x89, 0xb3, 0xbe, 0x44, 0xee,
-        0x4e, 0x32, 0x76, 0x44, 0x7b, 0x9e, 0x37, 0xe3, 0x74, 0xa5, 0x48, 0x21, 0x94, 0xb8, 0x01,
-        0x58, 0xbb,
-    ],
-    [
-        0x21, 0x59, 0x25, 0x65, 0x94, 0x04, 0x48, 0xd7, 0xcf, 0xee, 0xee, 0x6a, 0x19, 0x56, 0xf4,
-        0x47, 0x63, 0x5d, 0x8c, 0xe7, 0x0c, 0x4e, 0xe3, 0x97, 0xc9, 0x30, 0x25, 0x4d, 0x5d, 0x69,
-        0xc0, 0xbc,
-    ],
-    [
-        0x2e, 0x96, 0xf0, 0xe5, 0x9d, 0xbc, 0x5c, 0xcd, 0xc6, 0xf7, 0x93, 0x0f, 0xf7, 0xda, 0x8c,
-        0xed, 0x1f, 0xea, 0xd4, 0xf7, 0x43, 0xfe, 0x4b, 0x97, 0x41, 0xe3, 0x4c, 0x5c, 0xbe, 0xe0,
-        0x4c, 0x98,
-    ],
-    [
-        0x20, 0x9e, 0xab, 0xdf, 0xd8, 0xa7, 0x21, 0xc2, 0x10, 0x54, 0x12, 0x69, 0x2c, 0x0c, 0x04,
-        0xd8, 0x30, 0x91, 0x21, 0x7a, 0x5b, 0x90, 0xff, 0xc0, 0x61, 0x2b, 0xf8, 0x24, 0x47, 0xda,
-        0x4e, 0x3e,
-    ],
-    [
-        0x1f, 0xd6, 0x5f, 0x84, 0x10, 0xb4, 0xfa, 0x63, 0xbc, 0x45, 0x1e, 0xa8, 0x7d, 0x0b, 0x71,
-        0x8b, 0x90, 0xd3, 0xa0, 0x77, 0x39, 0x34, 0x46, 0xdd, 0xc3, 0xb8, 0xcb, 0x5d, 0xf3, 0x7d,
-        0xca, 0x14,
-    ],
-    [
-        0x1e, 0x48, 0xaa, 0x54, 0x35, 0xee, 0x95, 0x49, 0x78, 0x5b, 0x21, 0x58, 0xb7, 0x9a, 0x60,
-        0xc7, 0x2b, 0xa3, 0x64, 0xe6, 0x19, 0xfb, 0x8a, 0xef, 0xe8, 0xb0, 0x43, 0x96, 0xfa, 0x93,
-        0xfb, 0x35,
-    ],
-    [
-        0x1e, 0xbe, 0xf5, 0x96, 0xa0, 0x5a, 0xb8, 0xb7, 0x79, 0xfa, 0xde, 0x9c, 0xf4, 0x30, 0xd9,
-        0x76, 0x22, 0x48, 0xf6, 0xe0, 0x27, 0x0e, 0x51, 0x16, 0xdc, 0x5b, 0x29, 0x2e, 0x60, 0x6b,
-        0xfd, 0x2b,
-    ],
-    [
-        0x03, 0x73, 0xb8, 0x36, 0xf7, 0x6f, 0xb3, 0xfd, 0x2b, 0xd4, 0x6a, 0x34, 0x79, 0x02, 0x32,
-        0xc6, 0x32, 0x34, 0x8f, 0x9f, 0x08, 0xe0, 0x2d, 0xeb, 0x57, 0x97, 0x14, 0x77, 0xac, 0xb6,
-        0xa0, 0xf5,
-    ],
-    [
-        0x2e, 0xc8, 0x69, 0xfe, 0xe4, 0xd5, 0xfd, 0x4d, 0xe0, 0x1f, 0xd5, 0x2c, 0x13, 0x79, 0x4e,
-        0x2a, 0xc7, 0x19, 0xf1, 0x3e, 0xd1, 0xfd, 0x97, 0x48, 0x07, 0x5f, 0x58, 0xad, 0x0d, 0x86,
-        0x88, 0x3c,
-    ],
-    [
-        0x23, 0xfd, 0x5f, 0xcf, 0x45, 0x8c, 0x43, 0x79, 0x0a, 0xaa, 0xa2, 0xec, 0x6b, 0x14, 0x13,
-        0xd2, 0x17, 0x6d, 0x75, 0x06, 0x4d, 0x5d, 0xa6, 0xc8, 0x63, 0xc5, 0x62, 0xe6, 0xb3, 0x53,
-        0x31, 0xc6,
-    ],
-    [
-        0x10, 0xda, 0x4c, 0x5f, 0x1a, 0xb9, 0x85, 0x06, 0x0f, 0xef, 0xfd, 0x10, 0xcb, 0x4d, 0x40,
-        0x85, 0xce, 0x39, 0xf0, 0x82, 0x8a, 0xc5, 0xea, 0x8e, 0xbc, 0x3e, 0x30, 0x25, 0xfd, 0x0a,
-        0x29, 0x93,
-    ],
-    [
-        0x2e, 0xdc, 0x2e, 0x03, 0xe0, 0x5f, 0x5b, 0x7b, 0xe7, 0x8e, 0xea, 0x5a, 0xed, 0x2f, 0x33,
-        0x20, 0xa3, 0x4e, 0x0a, 0xd9, 0xf1, 0x70, 0x09, 0x4b, 0xd6, 0x51, 0x23, 0x72, 0x43, 0x6d,
-        0x15, 0x09,
-    ],
-    [
-        0x2b, 0xc6, 0x7a, 0x09, 0x1c, 0x6c, 0x3f, 0xa2, 0x9b, 0xd8, 0x4a, 0xcb, 0x89, 0x98, 0x1f,
-        0x99, 0xba, 0xdd, 0xca, 0x2b, 0xae, 0xe3, 0x00, 0x95, 0x44, 0x3f, 0x9b, 0x91, 0x5e, 0xfa,
-        0xc3, 0x23,
-    ],
-    [
-        0x0e, 0x86, 0xb7, 0x80, 0x0d, 0xd6, 0x77, 0x00, 0x3c, 0x6c, 0xf9, 0xa1, 0xcb, 0xb6, 0x5e,
-        0x42, 0xec, 0x5f, 0xe6, 0xbb, 0xde, 0x33, 0xa7, 0x33, 0x2e, 0x75, 0x6a, 0x56, 0x06, 0x53,
-        0xa6, 0xbf,
-    ],
-    [
-        0x25, 0x74, 0xc5, 0xac, 0x8c, 0x0f, 0xdc, 0x95, 0x99, 0x37, 0xdb, 0xac, 0x77, 0x1e, 0xd5,
-        0x0f, 0xcb, 0xbb, 0x60, 0xca, 0xfd, 0x35, 0x7a, 0x2a, 0x49, 0x8b, 0xd4, 0x99, 0xcc, 0x57,
-        0xb8, 0xe4,
     ],
 ];
 

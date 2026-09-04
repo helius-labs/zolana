@@ -3,12 +3,10 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_interface::instruction::tag;
 use zolana_interface::{
-    instruction::{
-        CircuitId, InterfaceTransfer, TransactIxBound, TransactIxData, TransactIxTail,
-        TransactProof,
-    },
+    instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
 };
 use zolana_ring_client::{
@@ -175,22 +173,18 @@ fn withdrawals_of_a_ring_that_did_not_sign_are_not_reported() {
 
 fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
     let data = TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            interface_transfers,
-            outputs: Vec::new(),
-            messages: Vec::new(),
-        },
-        tail: TransactIxTail {
-            private_tx_hash: [0u8; 32],
-            circuit: CircuitId::RingEddsa(0, 0, 3),
-            proof: TransactProof::zeroed(),
-            inputs: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        interface_transfers,
+        outputs: Vec::new(),
+        messages: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::RingEddsa(0, 0, 3),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        inputs: Vec::new(),
     };
     let mut encoded = vec![tag::RING_TRANSACT];
     encoded.extend_from_slice(&data.serialize().expect("serialize"));

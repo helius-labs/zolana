@@ -70,10 +70,9 @@ pub fn process_take_verifiable_encryption_ix(
         wincode::deserialize_exact(data).map_err(|_| SwapError::InvalidInstructionData)?;
 
     let clock = Clock::get()?;
-    check_within_window(clock.unix_timestamp, transact.bound.expiry_unix_ts)?;
+    check_within_window(clock.unix_timestamp, transact.expiry_unix_ts)?;
 
     let destination_ciphertext = transact
-        .bound
         .outputs
         .last()
         .and_then(|output| output.data.as_deref())
@@ -87,8 +86,8 @@ pub fn process_take_verifiable_encryption_ix(
             commitment: Some((&proof.commitment, &proof.commitment_pok)),
         },
         TakeVerifiableEncryptionPublicInput {
-            private_tx_hash: &transact.tail.private_tx_hash,
-            expiry: transact.bound.expiry_unix_ts,
+            private_tx_hash: &transact.private_tx_hash,
+            expiry: transact.expiry_unix_ts,
             destination_ciphertext,
         }
         .hash()?,

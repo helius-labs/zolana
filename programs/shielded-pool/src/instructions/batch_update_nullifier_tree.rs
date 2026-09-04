@@ -9,7 +9,7 @@ use zolana_interface::{
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_nullifier_append_event,
+    event::emit_nullifier_tree_update_event,
     protocol_config::loader::validate_forester_authority,
     shared::{check_reimbursement_recipient, nullifier_tree_error, pay_reimbursement},
 };
@@ -55,7 +55,7 @@ pub fn process_batch_update_nullifier_tree(
     // one. Keep every fallible step (including `pay_reimbursement`) above it.
     if let Some((event, paid)) = applied {
         pay_reimbursement(tree, reimbursement_recipient, paid)?;
-        emit_batch_nullifier_append_event(&event)?;
+        emit_nullifier_tree_update_event(&event)?;
     }
     Ok(())
 }

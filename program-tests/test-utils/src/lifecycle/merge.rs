@@ -210,7 +210,7 @@ impl LifecycleHarness {
             user_record,
             data,
         }
-        .instruction();
+        .instruction()?;
         let sync_ix = execute_sync_ix(
             &self.merge_settings,
             0,

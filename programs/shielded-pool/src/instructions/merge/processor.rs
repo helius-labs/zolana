@@ -1,15 +1,18 @@
 use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, ProgramResult,
 };
+use zolana_event::MergeEvent;
 use zolana_hasher::hash_chain::HashChain;
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::MergeEvent,
     instruction::{
-        instruction_data::merge_transact::{MergeExternalDataHash, MergeTransactIxDataRef},
+        instruction_data::merge_transact::{
+            MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
+        },
         tag::MERGE_TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
@@ -18,15 +21,13 @@ use zolana_tree::TreeAccount;
 
 use super::{
     account::{load_user_record, MergeTransactAccounts},
-    event::MergeTreeWrite,
     verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
 use crate::instructions::{
     event::emit_merge_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{
-        bool_field, check_field_element, check_field_elements, check_not_expired,
-        collect_forester_fee, tree_error,
+        bool_field, check_field_element, check_not_expired, collect_forester_fee, tree_error,
     },
 };
 
@@ -38,11 +39,14 @@ pub(crate) struct MergeCoreAccounts<'a> {
 }
 
 pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> ProgramResult {
-    check_field_elements(
-        ix.nullifiers.iter(),
-        "input nullifier",
-        ShieldedPoolError::NonCanonicalInputNullifier,
-    )?;
+    for (index, nullifier) in ix.nullifiers.try_iter().enumerate() {
+        check_field_element(
+            nullifier.map_err(|_| ProgramError::InvalidInstructionData)?,
+            "input nullifier",
+            Some(index),
+            ShieldedPoolError::NonCanonicalInputNullifier,
+        )?;
+    }
     check_field_element(
         ix.output_utxo_hash,
         "output utxo hash",
@@ -104,16 +108,13 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         external_data_hash,
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
-        Vec::new(),
     )
 }
 
-/// Shared tail for `merge_transact` and `merge_ring`: read roots, nullify the
-/// inputs, append the output, verify the proof, and emit the event. The
+/// Shared execution path for `merge_transact` and `merge_ring`: read roots,
+/// nullify the inputs, append the output, verify the proof, and emit the event. The
 /// tree-derived dummy-input policy is
 /// captured before any queue insertion or state append.
-/// `output_data` is the event's output payload: empty for `merge_transact`, the
-/// output `ring_data_hash` for `merge_ring`.
 #[inline(never)]
 pub(crate) fn process_merge_core(
     accounts: MergeCoreAccounts<'_>,
@@ -121,10 +122,14 @@ pub(crate) fn process_merge_core(
     external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
-    _output_data: Vec<u8>,
 ) -> ProgramResult {
+    let mut nullifiers: ArrayVec<&[u8; 32], MAX_MERGE_INPUTS> = ArrayVec::new();
+    for nullifier in ix.nullifiers.try_iter() {
+        nullifiers
+            .try_push(nullifier.map_err(|_| ProgramError::InvalidInstructionData)?)
+            .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+    }
     let (input_tree_result, derived) = {
-        let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.input_tree,
             &crate::ID,
@@ -140,14 +145,13 @@ pub(crate) fn process_merge_core(
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
         };
-        let first_input_queue_seq = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
+        let first_input_queue_seq = apply_input_tree(&mut tree, ix, &mut derived)?;
         let forester_fee = tree
             .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;
         (
             InputTreeResult {
                 first_input_queue_seq,
-                input_count: ix.nullifiers.len(),
                 forester_fee,
                 fee_balance: tree.fee_balance(),
                 tree_id: tree.tree_id(),
@@ -166,13 +170,12 @@ pub(crate) fn process_merge_core(
         input_tree_result.forester_fee,
     )?;
     create_nullifier_pdas(
-        accounts.payer,
         accounts.input_tree,
         accounts.nullifier_pdas.iter_mut(),
-        ix.nullifiers.iter(),
+        nullifiers.iter().copied(),
         &input_tree_result,
     )?;
-    let tree_write = {
+    let output_leaf_index = {
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.output_tree,
             &crate::ID,
@@ -188,7 +191,7 @@ pub(crate) fn process_merge_core(
     // instruction data and so an indexer cannot recover.
     emit_merge_event(&MergeEvent {
         first_input_queue_seq: input_tree_result.first_input_queue_seq,
-        first_output_leaf_index: tree_write.output_leaf_index,
+        first_output_leaf_index: output_leaf_index,
         output_view_tag,
     })
 }
@@ -197,19 +200,23 @@ pub(crate) fn process_merge_core(
 fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
-    _input_tree: [u8; 32],
     derived: &mut MergeProofInputs,
 ) -> Result<u64, ProgramError> {
-    let shape = ShieldedPoolError::InvalidMergeShape;
     let input_count = ix.nullifiers.len();
     let mut first_input_queue_seq: Option<u64> = None;
     // Folded in place, so neither buffer scales with the merge input count.
     let mut utxo_root_chain = HashChain::new();
     let mut nullifier_tree_root_chain = HashChain::new();
-    for i in 0..input_count {
-        let nullifier = ix.nullifiers.get(i).ok_or(shape)?;
-        let utxo_root_index = *ix.utxo_tree_root_index.get(i).ok_or(shape)?;
-        let nullifier_root_index = *ix.nullifier_tree_root_index.get(i).ok_or(shape)?;
+    let inputs = ix
+        .nullifiers
+        .try_iter()
+        .zip(ix.utxo_tree_root_index.try_iter())
+        .zip(ix.nullifier_tree_root_index.try_iter());
+    for ((nullifier, utxo_root_index), nullifier_root_index) in inputs {
+        let nullifier = nullifier.map_err(|_| ProgramError::InvalidInstructionData)?;
+        let utxo_root_index = utxo_root_index.map_err(|_| ProgramError::InvalidInstructionData)?;
+        let nullifier_root_index =
+            nullifier_root_index.map_err(|_| ProgramError::InvalidInstructionData)?;
 
         utxo_root_chain.push(
             &tree
@@ -243,10 +250,10 @@ fn apply_input_tree(
 fn apply_output_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
-) -> Result<MergeTreeWrite, ProgramError> {
+) -> Result<u64, ProgramError> {
     let output_leaf_index = tree.utxo_tree().next_index();
     tree.utxo_tree()
         .append(*ix.output_utxo_hash)
         .map_err(tree_error)?;
-    Ok(MergeTreeWrite { output_leaf_index })
+    Ok(output_leaf_index)
 }

@@ -61,7 +61,7 @@ pub fn assert_ring_transact<R: Rpc, I: Rpc>(
 
     let root_before = state_root_from(tree_before);
     let tree_after =
-        assert_tree_lamports_after_spend(rpc, tree, tree_before, data.tail.inputs.len() as u64)?;
+        assert_tree_lamports_after_spend(rpc, tree, tree_before, data.inputs.len() as u64)?;
     let root_after = state_root_from(&tree_after);
     assert_ne!(root_after, root_before, "outputs must be appended");
 
@@ -69,7 +69,6 @@ pub fn assert_ring_transact<R: Rpc, I: Rpc>(
     assert_eq!(indexed.tx_signature, signature, "indexed signature");
 
     let expected_nullifiers: Vec<[u8; 32]> = data
-        .tail
         .inputs
         .iter()
         .map(|input| input.nullifier_hash)
@@ -85,18 +84,14 @@ pub fn assert_ring_transact<R: Rpc, I: Rpc>(
         .iter()
         .map(|slot| slot.output_context.hash)
         .collect();
-    let expected_output_hashes: Vec<[u8; 32]> = data
-        .bound
-        .outputs
-        .iter()
-        .map(|output| output.utxo_hash)
-        .collect();
+    let expected_output_hashes: Vec<[u8; 32]> =
+        data.outputs.iter().map(|output| output.utxo_hash).collect();
     assert_eq!(
         indexed_output_hashes, expected_output_hashes,
         "indexed output hashes must match the instruction output commitments"
     );
 
-    for output in &data.bound.outputs {
+    for output in &data.outputs {
         let proof = wait_for_merkle_proof(indexer, to_address(tree), output.utxo_hash);
         assert_eq!(
             proof.root, root_after,

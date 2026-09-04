@@ -41,6 +41,24 @@ unsafe impl<'de, C: ConfigCore, const HEIGHT: usize> SchemaRead<'de, C> for Utxo
 }
 
 impl<const HEIGHT: usize> UtxoTreeLayout<HEIGHT> {
+    pub(crate) fn validate(&self) -> Result<(), TreeError> {
+        let history_capacity = self.root_history.len();
+        let history_cursor = usize::from(self.current_root_index());
+        let history_len = usize::from(u16::from_le_bytes(self.root_history_len));
+        if self.subtrees_len as usize != HEIGHT
+            || self.root_history_capacity as usize != history_capacity
+            || self.next_index() > self.capacity()
+            || history_len == 0
+            || history_len > history_capacity
+            || history_cursor >= history_capacity
+            || (history_len < history_capacity && history_cursor + 1 != history_len)
+            || self.root_history.get(history_cursor) != Some(&self.root)
+        {
+            return Err(TreeError::InvalidCapacity);
+        }
+        Ok(())
+    }
+
     pub fn init(&mut self, height: usize) -> Result<(), TreeError> {
         if height != HEIGHT {
             return Err(TreeError::HeightTooLarge);

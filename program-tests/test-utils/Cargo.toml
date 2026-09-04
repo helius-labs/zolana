@@ -35,7 +35,7 @@ solana-transaction-error = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
 zolana-interface = { workspace = true }
 zolana-smart-account-client = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true, features = ["offchain"] }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-merkle-tree = { workspace = true }

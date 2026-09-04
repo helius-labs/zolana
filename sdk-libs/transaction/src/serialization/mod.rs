@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_event::{MessageData, OutputDataEncoding};
+use zolana_interface::{instruction::MessageData, output_data::OutputDataEncoding};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, PublicKey, ViewingKey};
 
 use crate::{

@@ -1,5 +1,7 @@
 use shielded_pool_tests::support::{
-    fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
+    fixtures::Pool,
+    merge::write_user_record,
+    transact::{advance_nullifier_queue_past_dummy_threshold, write_ring_config_account},
 };
 
 use solana_account::Account;
@@ -10,16 +12,16 @@ use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
+        instruction_data::merge_ring::MergeRingIxData,
         instruction_data::merge_transact::{
             MergeProof, MergeTransactIxData, MERGE_DEFAULT_INPUT_COUNT,
         },
-        MergeRing, MergeTransact,
+        tag, MergeRing, MergeTransact,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
-use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
@@ -58,6 +60,25 @@ fn merge_instruction(
         data,
     }
     .instruction()
+    .expect("valid merge instruction")
+}
+
+/// Build a deliberately invalid merge payload while retaining the canonical
+/// account layout from the checked builder. Only parser-rejection tests should
+/// bypass the client-side shape validation this way.
+fn merge_instruction_with_unchecked_data(
+    rpc: &ZolanaProgramTest,
+    tree: &Pubkey,
+    user_record: Pubkey,
+    data: MergeTransactIxData,
+) -> solana_instruction::Instruction {
+    let mut instruction =
+        merge_instruction(rpc, tree, user_record, merge_ix_data(data.eddsa_owner));
+    instruction.data = vec![tag::MERGE_TRANSACT];
+    instruction
+        .data
+        .extend(data.serialize().expect("test payload must serialize"));
+    instruction
 }
 
 #[test]
@@ -131,7 +152,7 @@ fn merge_rejects_a_wrong_input_count_shape() {
     // count, so the decode rejects them before any account is touched.
     let mut data = merge_ix_data(true);
     data.nullifiers.pop();
-    let ix = merge_instruction(&rpc, &tree, record, data);
+    let ix = merge_instruction_with_unchecked_data(&rpc, &tree, record, data);
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a 7-input merge must be rejected");
@@ -141,7 +162,7 @@ fn merge_rejects_a_wrong_input_count_shape() {
     // nullifier count itself is supported.
     let mut data = merge_ix_data(true);
     data.utxo_tree_root_index.pop();
-    let ix = merge_instruction(&rpc, &tree, record, data);
+    let ix = merge_instruction_with_unchecked_data(&rpc, &tree, record, data);
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("disagreeing vector lengths must be rejected");
@@ -258,7 +279,8 @@ fn merge_rejects_an_unsigned_payer() {
         user_record: record,
         data: merge_ix_data(true),
     }
-    .instruction();
+    .instruction()
+    .expect("valid merge instruction");
     ix.accounts.get_mut(2).expect("payer meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -280,7 +302,8 @@ fn merge_ring_rejects_an_unsigned_ring_config() {
         data: merge_ix_data(true),
         output_ring_data_hash: fe(99),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid merge ring instruction");
     // The `ring_config` signature IS the ring authorization; without the ring
     // program's `invoke_signed` the flag must be rejected before the config is
     // even loaded (so the account does not need to exist).
@@ -304,38 +327,19 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let payer = rpc.payer.pubkey();
     let record = write_user_record(&mut rpc, payer, None, true);
 
-    // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
-    // tree has strictly fewer free nullifier leaves than state leaves, flipping
-    // `allow_dummy_inputs` to false. The roots are unchanged, so every parse
-    // and tree step still succeeds; the explicit 7044 capacity gate in
-    // `merge/processor.rs` fires before proof verification -- the same zeroed
-    // proof that reaches verification (7008) on a fresh tree must not get
-    // there here.
+    // INV-TRANSACT-33, merge side: advance the nullifier progress metadata to
+    // a valid near-capacity state with strictly fewer free nullifier leaves
+    // than state leaves. The roots stay unchanged, so only the flipped
+    // `allow_dummy_inputs` public input breaks proof verification.
     let mut account = rpc.svm.get_account(&tree).expect("tree account");
     {
-        let mut on_chain =
-            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+        let mut on_chain = zolana_tree::TreeAccount::from_bytes(&mut account.data, tree.to_bytes())
+            .expect("load tree");
         assert!(
             on_chain.allow_dummy_inputs().expect("dummy-input policy"),
             "fresh tree must allow dummy inputs"
         );
-        let state_remaining = {
-            let utxo = on_chain.utxo_tree();
-            utxo.capacity() - utxo.next_index()
-        };
-        {
-            let nullifier = on_chain.nullifier_tree();
-            let next_leaf = nullifier
-                .capacity
-                .checked_sub(state_remaining)
-                .expect("nullifier capacity exceeds state capacity")
-                + 1;
-            nullifier
-                .get_current_batch_mut()
-                .expect("current nullifier batch")
-                .start_index = next_leaf;
-            nullifier.queue_next_index = next_leaf;
-        }
+        advance_nullifier_queue_past_dummy_threshold(&mut on_chain);
         assert!(
             !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
             "fixture must cross the dummy-input threshold"
@@ -455,6 +459,33 @@ fn merge_ring_cpi_instruction(
         output_ring_data_hash,
     }
     .cpi_instruction()
+    .expect("valid merge ring instruction")
+}
+
+/// Ring equivalent of [`merge_instruction_with_unchecked_data`], used only to
+/// exercise the on-chain parser with a malformed merge shape.
+fn merge_ring_cpi_instruction_with_unchecked_data(
+    rpc: &ZolanaProgramTest,
+    tree: &Pubkey,
+    data: MergeTransactIxData,
+    output_ring_data_hash: [u8; 32],
+) -> solana_instruction::Instruction {
+    let mut instruction = merge_ring_cpi_instruction(
+        rpc,
+        tree,
+        merge_ix_data(data.eddsa_owner),
+        output_ring_data_hash,
+    );
+    instruction.data = vec![tag::RING_MERGE_TRANSACT];
+    instruction.data.extend(
+        MergeRingIxData {
+            output_ring_data_hash,
+            merge: data,
+        }
+        .serialize()
+        .expect("test payload must serialize"),
+    );
+    instruction
 }
 
 /// A valid-shaped `RingConfig` account written at a keypair address, so the
@@ -537,7 +568,8 @@ fn merge_ring_rejects_an_unsigned_payer() {
         data: merge_ix_data(true),
         output_ring_data_hash: fe(92),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid merge ring instruction");
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config_signer.pubkey();
     ix.accounts.get_mut(3).expect("payer meta").is_signer = false;
     let error = rpc
@@ -576,7 +608,7 @@ fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     // runs before any account (or the ring_config signature) is checked.
     let mut data = merge_ix_data(true);
     data.nullifiers.pop();
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
+    let mut ix = merge_ring_cpi_instruction_with_unchecked_data(&rpc, &tree, data, fe(93));
     ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -610,7 +642,8 @@ fn merge_ring_rejects_a_paused_tree() {
         data: merge_ix_data(true),
         output_ring_data_hash: fe(95),
     }
-    .instruction();
+    .instruction()
+    .expect("valid merge ring instruction");
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("a ring merge against a paused tree must be rejected");

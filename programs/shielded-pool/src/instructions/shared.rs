@@ -1,5 +1,3 @@
-use core::{fmt::Debug, panic::Location};
-
 use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
     account::{Ref, RefMut},
@@ -25,96 +23,31 @@ pub fn tree_error(error: TreeError) -> ProgramError {
         TreeError::InvalidRootIndex => ShieldedPoolError::StaleNullifierRoot.into(),
         TreeError::TreeIsFull => ShieldedPoolError::StateAppendFailed.into(),
         TreeError::FeeOverflow => ShieldedPoolError::InvalidForesterFee.into(),
-        _ => {
-            print_collapsed(ShieldedPoolError::InvalidTreeAccounts, &error);
-            ShieldedPoolError::InvalidTreeAccounts.into()
-        }
+        _ => ShieldedPoolError::InvalidTreeAccounts.into(),
     }
 }
 
 pub fn nullifier_tree_error(error: NullifierTreeError) -> ProgramError {
     match error {
         NullifierTreeError::NonCanonicalFieldElement => ShieldedPoolError::NonCanonicalRoot.into(),
-        _ => {
-            print_collapsed(ShieldedPoolError::NullifierTreeUpdateFailed, &error);
-            ShieldedPoolError::NullifierTreeUpdateFailed.into()
-        }
+        _ => ShieldedPoolError::NullifierTreeUpdateFailed.into(),
     }
 }
 
-#[track_caller]
-pub(crate) fn caused_by<E: Debug>(
-    error: impl Into<ProgramError> + Debug,
-) -> impl FnOnce(E) -> ProgramError {
-    let location = Location::caller();
-    move |cause| {
-        print_cause(&error, &cause, location);
-        error.into()
-    }
+pub(crate) fn caused_by<E>(error: impl Into<ProgramError>) -> impl FnOnce(E) -> ProgramError {
+    move |_| error.into()
 }
 
-#[track_caller]
 pub(crate) fn check_field_element(
     value: &[u8; 32],
-    field: &str,
-    index: Option<usize>,
+    _field: &str,
+    _index: Option<usize>,
     error: ShieldedPoolError,
 ) -> ProgramResult {
     if is_canonical_bn254_scalar_be(value) {
         return Ok(());
     }
-    print_non_canonical(field, index, Location::caller());
     Err(error.into())
-}
-
-#[track_caller]
-pub(crate) fn check_field_elements<'a>(
-    values: impl IntoIterator<Item = &'a [u8; 32]>,
-    field: &str,
-    error: ShieldedPoolError,
-) -> ProgramResult {
-    for (index, value) in values.into_iter().enumerate() {
-        check_field_element(value, field, Some(index), error)?;
-    }
-    Ok(())
-}
-
-#[cold]
-fn print_non_canonical(field: &str, index: Option<usize>, location: &Location<'_>) {
-    match index {
-        Some(index) => solana_msg::msg!(
-            "ERROR: {} at index {} is not a canonical BN254 field element {}:{}:{}",
-            field,
-            index,
-            location.file(),
-            location.line(),
-            location.column()
-        ),
-        None => solana_msg::msg!(
-            "ERROR: {} is not a canonical BN254 field element {}:{}:{}",
-            field,
-            location.file(),
-            location.line(),
-            location.column()
-        ),
-    }
-}
-
-#[cold]
-fn print_cause(error: &dyn Debug, cause: &dyn Debug, location: &Location<'_>) {
-    solana_msg::msg!(
-        "ERROR: {:?} caused by {:?} {}:{}:{}",
-        error,
-        cause,
-        location.file(),
-        location.line(),
-        location.column()
-    );
-}
-
-#[cold]
-fn print_collapsed(error: ShieldedPoolError, cause: &dyn Debug) {
-    solana_msg::msg!("ERROR: {:?} caused by {:?}", error, cause);
 }
 
 #[inline(always)]

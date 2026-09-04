@@ -14,9 +14,7 @@ use zolana_event::SplTransfer;
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
@@ -29,7 +27,8 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
     output_owner_pk_hashes, prove_and_verify_transfer, real_output, set_output_owner_tags,
-    spend_input, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    spend_input, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
@@ -284,7 +283,7 @@ fn prove_spend(
         inline_outputs(&output_hashes, &view_tags),
     );
     let output_owner_pk_hashes =
-        output_owner_pk_hashes(&ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&ix_data.outputs).expect("output owner pk hashes");
     let nullifier_pks: Vec<[u8; 32]> = witness_outputs
         .iter()
         .map(|output| output.nullifier_pk)
@@ -340,10 +339,9 @@ fn prove_spend(
         signer_pk_hashes: signer_hashes.to_vec(),
         public_input_hash: public_hash,
     });
-    ix_data.tail.proof =
-        prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
-            .expect("prove multi-leg transact");
-    ix_data.tail.private_tx_hash = private_tx;
+    ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "multi-leg transact")
+        .expect("prove multi-leg transact");
+    ix_data.private_tx_hash = private_tx;
     ix_data
 }
 
@@ -399,14 +397,17 @@ fn sol_split_case(reorder_recipients: bool) {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: relayer,
+                user_account: user,
+            }),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                user_account: relayer,
             }),
         ],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     if reorder_recipients {
         let user_position = ix
@@ -451,7 +452,7 @@ fn sol_split_case(reorder_recipients: bool) {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
+    let event = zolana_event::general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![
@@ -550,7 +551,8 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let outcome = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -563,7 +565,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
+    let event = zolana_event::general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![
@@ -710,13 +712,14 @@ fn three_distinct_assets_support_opposite_public_directions() {
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: payer.pubkey(),
+                user_account: payer.pubkey(),
             }),
             spl_deposit(deposit_vault, deposit_token),
         ],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let outcome = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
@@ -736,7 +739,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     );
     let event = outcome.events.first().expect("transact event");
     assert_eq!(outcome.events.len(), 1);
-    let event = zolana_program_test::events::general_event(event).expect("decode transact event");
+    let event = zolana_event::general_event_from_indexed(event).expect("decode transact event");
     assert_eq!(
         event.spl_transfers,
         vec![

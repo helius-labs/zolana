@@ -24,14 +24,13 @@ use solana_signer::Signer;
 use zolana_client::{
     PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
+use zolana_interface::output_data::{OutputDataEncoding, ProoflessOutput};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
 };
@@ -47,7 +46,8 @@ use zolana_test_utils::transact::{
     eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
     public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-    spl_public_slots, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    spl_public_slots, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -83,7 +83,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     // other_mint's own canonical vault bump, otherwise the program's
     // derive-and-compare rejects the address as `InvalidSettlementAccounts`
     // (which of the two bumps a random mint pair shares is nondeterministic).
-    substituted_data.bound.interface_transfers[0] = InterfaceTransfer::SplWithdrawal {
+    substituted_data.interface_transfers[0] = InterfaceTransfer::SplWithdrawal {
         amount: SPL_AMOUNT,
         spl_interface_bump: other_vault_bump,
     };
@@ -102,7 +102,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         )],
         data: substituted_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[substituted], &[])
@@ -248,13 +249,13 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let boundary_clock = env.rpc.svm.get_sysvar::<Clock>();
     let expiry = u64::try_from(boundary_clock.unix_timestamp)
         .expect("LiteSVM clock timestamp must be non-negative");
-    transact_ix_data.bound.expiry_unix_ts = expiry;
+    transact_ix_data.expiry_unix_ts = expiry;
 
     // All three outputs are dummies; stamp their confidential owner tags from the
     // program's `hash_bytes(resolved_owner_tag)` mapping (nullifier_pk 0 =
     // unconstrained).
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
@@ -302,10 +303,10 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
-    transact_ix_data.tail.proof =
+    transact_ix_data.proof =
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "withdraw")
             .expect("prove withdraw");
-    transact_ix_data.tail.private_tx_hash = private_tx;
+    transact_ix_data.private_tx_hash = private_tx;
 
     // SOL withdrawal account layout: payer (signer/owner), tree, sol_interface
     // (the SOL-custody PDA), recipient, then the system program (settle_sol
@@ -316,11 +317,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     // The proof is bound to this exact expiry. Submit it one second late first
     // and verify complete rollback, then restore the boundary clock and submit
@@ -449,7 +453,6 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         .serialize(&mut plaintext_blob)
         .expect("serialize proofless payload");
     transact_ix_data
-        .bound
         .outputs
         .get_mut(0)
         .expect("deposit output slot")
@@ -459,7 +462,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     );
 
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut outputs = vec![
         transfer_output(&shielded_output).expect("real transfer output"),
         dummy_output_a,
@@ -512,10 +515,10 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash,
     });
-    transact_ix_data.tail.proof =
+    transact_ix_data.proof =
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "sol deposit")
             .expect("prove sol deposit");
-    transact_ix_data.tail.private_tx_hash = private_tx;
+    transact_ix_data.private_tx_hash = private_tx;
 
     let vault = pda::sol_interface();
     let vault_before = env.rpc.svm.get_balance(&vault).unwrap_or(0);
@@ -532,12 +535,13 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                recipient: depositor.pubkey(),
+                user_account: depositor.pubkey(),
             },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // A deposit transfers FROM the settlement account; the builder already
     // marks the depositor meta as a signer.
 
@@ -646,10 +650,9 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     proofless
         .serialize(&mut plaintext)
         .expect("serialize output");
-    data.bound.outputs[0].data =
+    data.outputs[0].data =
         Some(borsh::to_vec(&OutputDataEncoding::Plaintext(plaintext)).expect("encode output data"));
-    let output_owner_hashes =
-        output_owner_pk_hashes(&data.bound.outputs).expect("output owner hashes");
+    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     let mut outputs = vec![
         transfer_output(&shielded_output).expect("real output"),
         dummy_a,
@@ -699,9 +702,9 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         signer_pk_hashes: vec![payer_hash],
         public_input_hash: public_hash,
     });
-    data.tail.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL deposit")
+    data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL deposit")
         .expect("prove SPL deposit");
-    data.tail.private_tx_hash = private_tx;
+    data.private_tx_hash = private_tx;
     let ix = Transact {
         payer: payer.pubkey(),
         input_tree: tree,
@@ -718,7 +721,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     env.rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect("real-proof SPL deposit");
@@ -946,8 +950,8 @@ fn phase_transfer_to_recipient(
             &transfer_view_tags,
         ),
     );
-    let transfer_owner_pk_hashes = output_owner_pk_hashes(&transfer_ix_data.bound.outputs)
-        .expect("transfer output owner pk hashes");
+    let transfer_owner_pk_hashes =
+        output_owner_pk_hashes(&transfer_ix_data.outputs).expect("transfer output owner pk hashes");
     let mut transfer_outputs = vec![
         transfer_output(&change_output).expect("change transfer output"),
         transfer_output(&recipient_output).expect("recipient transfer output"),
@@ -999,13 +1003,13 @@ fn phase_transfer_to_recipient(
         signer_pk_hashes: vec![payer_pubkey_hash],
         public_input_hash: transfer_public_input_hash,
     });
-    transfer_ix_data.tail.proof = prove_and_verify_transfer(
+    transfer_ix_data.proof = prove_and_verify_transfer(
         &transfer_prover_inputs,
         transfer_public_input_hash,
         "transfer",
     )
     .expect("prove transfer");
-    transfer_ix_data.tail.private_tx_hash = transfer_private_tx;
+    transfer_ix_data.private_tx_hash = transfer_private_tx;
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
@@ -1015,7 +1019,8 @@ fn phase_transfer_to_recipient(
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[transfer_ix], &[]);
@@ -1154,8 +1159,8 @@ fn phase_withdraw_recipient_utxo(
         }],
         inline_outputs(&withdraw_output_hashes, &withdraw_view_tags),
     );
-    let withdraw_owner_pk_hashes = output_owner_pk_hashes(&withdraw_ix_data.bound.outputs)
-        .expect("withdraw output owner pk hashes");
+    let withdraw_owner_pk_hashes =
+        output_owner_pk_hashes(&withdraw_ix_data.outputs).expect("withdraw output owner pk hashes");
     set_output_owner_tags(
         &mut withdraw_outputs,
         &withdraw_owner_pk_hashes,
@@ -1206,13 +1211,13 @@ fn phase_withdraw_recipient_utxo(
         signer_pk_hashes: vec![recipient_pubkey_hash],
         public_input_hash: withdraw_public_input_hash,
     });
-    withdraw_ix_data.tail.proof = prove_and_verify_transfer(
+    withdraw_ix_data.proof = prove_and_verify_transfer(
         &withdraw_prover_inputs,
         withdraw_public_input_hash,
         "withdraw",
     )
     .expect("prove withdraw");
-    withdraw_ix_data.tail.private_tx_hash = withdraw_private_tx;
+    withdraw_ix_data.private_tx_hash = withdraw_private_tx;
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
@@ -1221,12 +1226,13 @@ fn phase_withdraw_recipient_utxo(
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                recipient: public_recipient,
+                user_account: public_recipient,
             },
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[withdraw_ix], &[recipient_owner]);

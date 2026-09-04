@@ -7,7 +7,7 @@ use pinocchio::{
     sysvars::{rent::Rent, Sysvar},
     AccountView, ProgramResult,
 };
-use pinocchio_system::instructions::{Allocate, Assign, CreateAccount};
+use pinocchio_system::instructions::CreateAccountAllowPrefund;
 use zolana_interface::{
     error::ShieldedPoolError, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
 };
@@ -38,7 +38,6 @@ pub(crate) struct InputTreeResult {
     /// `queue_next_index` is a single monotone counter and the insert loop walks
     /// one tree in instruction order.
     pub first_input_queue_seq: u64,
-    pub input_count: usize,
     pub forester_fee: u64,
     pub fee_balance: u64,
     pub tree_id: u16,
@@ -47,20 +46,18 @@ pub(crate) struct InputTreeResult {
 #[inline(never)]
 #[profile]
 /// `nullifier_pdas` is an iterator rather than a slice because the two callers
-/// hold different element types: transact owns a `&mut [AccountView]` slice,
-/// while merge keeps a fixed-count `ArrayVec<&mut AccountView, _>`.
+/// reach their mutable account slices through different parsed account structs.
 ///
 /// `nullifiers` are the instruction's own nullifiers, in order. Each PDA records
 /// the queue index its nullifier took, derived as `first_input_queue_seq + i`
 /// rather than carried in a vector.
 pub(crate) fn create_nullifier_pdas<'a, 'n>(
-    payer: &AccountView,
     tree: &mut AccountView,
     nullifier_pdas: impl ExactSizeIterator<Item = &'a mut AccountView>,
-    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
+    nullifiers: impl ExactSizeIterator<Item = &'n [u8; 32]>,
     input_tree: &InputTreeResult,
 ) -> ProgramResult {
-    if nullifier_pdas.len() != input_tree.input_count {
+    if nullifier_pdas.len() != nullifiers.len() {
         return Err(ShieldedPoolError::InvalidNullifierPda.into());
     }
     let mut nullifier_pdas = nullifier_pdas;
@@ -79,7 +76,6 @@ pub(crate) fn create_nullifier_pdas<'a, 'n>(
             .checked_add(index as u64)
             .ok_or(ProgramError::ArithmeticOverflow)?;
         create_nullifier_pda(
-            payer,
             nullifier_pda,
             &tree_address,
             input_tree.tree_id,
@@ -103,7 +99,6 @@ pub(crate) fn create_nullifier_pdas<'a, 'n>(
 
 #[inline(never)]
 fn create_nullifier_pda(
-    payer: &AccountView,
     nullifier_pda: &mut AccountView,
     tree_address: &[u8; 32],
     tree_id: u16,
@@ -118,27 +113,17 @@ fn create_nullifier_pda(
         Seed::from(nullifier.as_ref()),
         Seed::from(bump_seed.as_ref()),
     ];
-    if nullifier_pda.lamports() == 0 {
-        CreateAccount {
-            from: payer,
-            to: nullifier_pda,
-            lamports: 0,
-            space: NULLIFIER_PDA_SIZE as u64,
-            owner: &crate::ID,
-        }
-        .invoke_signed(&[Signer::from(&seeds)])?;
-    } else {
-        Allocate {
-            account: nullifier_pda,
-            space: NULLIFIER_PDA_SIZE as u64,
-        }
-        .invoke_signed(&[Signer::from(&seeds)])?;
-        Assign {
-            account: nullifier_pda,
-            owner: &crate::ID,
-        }
-        .invoke_signed(&[Signer::from(&seeds)])?;
+    // One System Program CPI for both empty and prefunded addresses. Using
+    // Allocate + Assign for the prefunded case would consume two trace entries
+    // per input and make the supported 36-input shape exceed Solana's 64-entry
+    // instruction-trace limit.
+    CreateAccountAllowPrefund {
+        to: nullifier_pda,
+        space: NULLIFIER_PDA_SIZE as u64,
+        owner: &crate::ID,
+        funding: None,
     }
+    .invoke_signed(&[Signer::from(&seeds)])?;
 
     let mut data = nullifier_pda
         .try_borrow_mut()

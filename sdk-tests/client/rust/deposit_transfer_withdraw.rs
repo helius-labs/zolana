@@ -138,7 +138,7 @@ fn main() -> Result<()> {
             interface_transfer_accounts: Vec::new(),
             data: transfer_data,
         }
-        .instruction();
+        .instruction()?;
 
         // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
         let signature =
@@ -216,7 +216,7 @@ fn main() -> Result<()> {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    recipient: sender.pubkey(),
+                    user_account: sender.pubkey(),
                 },
             )],
             // SPL: interface_transfer_accounts: vec![
@@ -231,7 +231,7 @@ fn main() -> Result<()> {
             // SPL: ],
             data: withdrawal_data,
         }
-        .instruction();
+        .instruction()?;
 
         // 6. Send and confirm like any Solana transaction.
         let signature =

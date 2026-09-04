@@ -3,10 +3,7 @@ use pinocchio::{address::address_eq, error::ProgramError, AccountView};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{
-        instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
-        validate_interface_transfers,
-    },
+    instruction::instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
     MAX_INTERFACE_TRANSFERS,
 };
 
@@ -31,8 +28,9 @@ impl<'a> TransactAccounts<'a> {
     /// 3. output tree - mut
     /// 4. self program - program id match
     /// 5. system program - program id match
-    /// 6. N signers - signer
-    ///    6 + N: transfer settlement accounts -
+    /// 6. one writable nullifier PDA per input
+    /// 7. zero or more owner signers (a contiguous signer run)
+    /// 8. one account group per interface transfer
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -47,7 +45,6 @@ impl<'a> TransactAccounts<'a> {
         Self::from_iter(iter, ix, payer, input_tree, output_tree, true)
     }
 
-    /// 1. Validate spl interface transfers.
     pub(crate) fn from_iter(
         mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
@@ -56,12 +53,9 @@ impl<'a> TransactAccounts<'a> {
         output_tree: &'a mut AccountView,
         allow_owner_signers: bool,
     ) -> Result<Box<Self>, ProgramError> {
-        // Check non-zero amounts and the protocol transfer bound.
-        validate_interface_transfers(&ix.bound.interface_transfers)?;
-
         // One contiguous slice rather than a count-sized buffer; the helper
         // applies the same writability check per account that `next_mut` did.
-        let nullifier_pdas = iter.next_slice_mut(ix.tail.inputs.len(), "nullifier_pda")?;
+        let nullifier_pdas = iter.next_slice_mut(ix.inputs.len(), "nullifier_pda")?;
 
         let remaining = iter.remaining_unchecked_mut()?;
         // 2. Search first account that is not signer.
@@ -69,7 +63,7 @@ impl<'a> TransactAccounts<'a> {
             .iter()
             .position(|account| !account.is_signer())
             .unwrap_or(remaining.len());
-        if signer_count > usize::from(ix.tail.circuit.num_inputs())
+        if signer_count > usize::from(ix.circuit.num_inputs())
             || (!allow_owner_signers && signer_count != 0)
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
@@ -78,7 +72,8 @@ impl<'a> TransactAccounts<'a> {
         // 3. Check transfer settlement accounts.
         let mut iter = AccountIterator::new(settlement_accounts);
         let mut settlements = ArrayVec::new();
-        for transfer in &ix.bound.interface_transfers {
+        for transfer in ix.interface_transfers.try_iter() {
+            let transfer = transfer.map_err(|_| ProgramError::InvalidInstructionData)?;
             let settlement = match transfer {
                 InterfaceTransfer::SplDeposit {
                     spl_interface_bump, ..
@@ -93,7 +88,7 @@ impl<'a> TransactAccounts<'a> {
                         spl_interface_account,
                         user_token_account,
                         token_program,
-                        *spl_interface_bump,
+                        spl_interface_bump,
                         token_authority,
                     )?;
                     Settlement::SplDeposit(SplDepositAccounts {
@@ -119,7 +114,7 @@ impl<'a> TransactAccounts<'a> {
                         spl_interface_account,
                         user_token_account,
                         token_program,
-                        *spl_interface_bump,
+                        spl_interface_bump,
                     )?;
                     Settlement::SplWithdrawal(SplWithdrawalAccounts {
                         cpi_authority_account: cpi_authority,
@@ -132,22 +127,22 @@ impl<'a> TransactAccounts<'a> {
                 }
                 InterfaceTransfer::SolDeposit { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
-                    let recipient = iter.next_account("recipient")?;
-                    let sol_interface_bump = validate_sol_settlement(sol_interface, recipient)?;
+                    let user_account = iter.next_account("user_account")?;
+                    let sol_interface_bump = validate_sol_settlement(sol_interface, user_account)?;
                     Settlement::SolDeposit(SettlementAccountsSol {
                         sol_interface_account: sol_interface,
                         sol_interface_bump,
-                        recipient_account: recipient,
+                        user_account,
                     })
                 }
                 InterfaceTransfer::SolWithdrawal { .. } => {
                     let sol_interface = iter.next_account("sol_interface")?;
-                    let recipient = iter.next_account("recipient")?;
-                    let sol_interface_bump = validate_sol_settlement(sol_interface, recipient)?;
+                    let user_account = iter.next_account("user_account")?;
+                    let sol_interface_bump = validate_sol_settlement(sol_interface, user_account)?;
                     Settlement::SolWithdrawal(SettlementAccountsSol {
                         sol_interface_account: sol_interface,
                         sol_interface_bump,
-                        recipient_account: recipient,
+                        user_account,
                     })
                 }
             };
@@ -175,8 +170,8 @@ pub struct RingTransactAccounts;
 impl RingTransactAccounts {
     /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
     /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), then owner signers and settlement
-    /// accounts. Returns the parsed transact accounts and the ring's
+    /// account (the ring's `ring_auth` PDA), one nullifier PDA per input, then
+    /// owner signers and settlement accounts. Returns the parsed transact accounts and the ring's
     /// `program_id`, read from the validated, unpaused `RingConfig` (never
     /// re-derived; the create-time `ring_auth` derivation already bound it).
     /// `require_enabled` additionally requires

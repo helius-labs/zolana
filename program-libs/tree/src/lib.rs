@@ -79,6 +79,7 @@ use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
 pub use fees::TreeFeeSchedule;
+pub use nullifier_tree::event::NullifierTreeUpdateEvent;
 pub use nullifier_tree::init::NullifierTreeInitParams;
 use nullifier_tree::{
     constants::{DEFAULT_NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES},
@@ -169,15 +170,13 @@ impl<'a> TreeAccount<'a> {
         core::mem::offset_of!(SppTreeLayout, utxo) + smt::ROOT_OFFSET
     }
 
-    pub fn init(
-        bytes: &'a mut [u8],
-        discriminator: u8,
+    /// Validates all untrusted tree-construction parameters without touching
+    /// account data. Multi-instruction allocators must call this before their
+    /// first persistent mutation.
+    pub fn validate_init_params(
         utxo_tree_height: u8,
-        pubkey: [u8; 32],
-        tree_id: u16,
         nullifier_params: NullifierTreeInitParams,
-        fees: TreeFeeSchedule,
-    ) -> Result<Self, TreeError> {
+    ) -> Result<(), TreeError> {
         if utxo_tree_height as usize != UTXO_TREE_HEIGHT {
             return Err(TreeError::HeightTooLarge);
         }
@@ -188,6 +187,24 @@ impl<'a> TreeAccount<'a> {
         {
             return Err(TreeError::NullifierInit);
         }
+        NullifierTreeLayout::<NULLIFIER_TREE_ZKP_BATCHES>::validate_init_params(
+            nullifier_params.input_queue_batch_size,
+            nullifier_params.input_queue_zkp_batch_size,
+            nullifier_params.height,
+        )
+        .map_err(|_| TreeError::NullifierInit)
+    }
+
+    pub fn init(
+        bytes: &'a mut [u8],
+        discriminator: u8,
+        utxo_tree_height: u8,
+        pubkey: [u8; 32],
+        tree_id: u16,
+        nullifier_params: NullifierTreeInitParams,
+        fees: TreeFeeSchedule,
+    ) -> Result<Self, TreeError> {
+        Self::validate_init_params(utxo_tree_height, nullifier_params)?;
         if bytes.len() != size_of::<SppTreeLayout>() {
             return Err(TreeError::InvalidBufferSize);
         }
@@ -372,11 +389,10 @@ impl<'a> TreeAccount<'a> {
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
-    if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
-        || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
-    {
+    if !matches!(layout.state, INITIALIZED | PAUSED) {
         return Err(TreeError::Deserialize);
     }
+    layout.utxo.validate().map_err(|_| TreeError::Deserialize)?;
     layout
         .nullifier
         .validate()

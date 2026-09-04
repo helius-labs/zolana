@@ -55,19 +55,19 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
 
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified
-    // against the `merge_ring_8_1` key. A policy ring has no `user_record`
+    // against the `merge_ring_{8,36}_1` key selected by the input count. A policy ring has no `user_record`
     // registry, so the `Ring` binding omits owner identity entirely (see
     // `MergeProof::public_input_hash`); the binding also selects the
-    // `merge_ring_8_1` verifying key.
+    // ring-specific verifying-key family.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,
         output_ring_data_hash: *ix.output_ring_data_hash,
     };
 
-    // The merged output is indexed by the first input nullifier. The output
-    // `ring_data_hash` is published in the event so the wallet can reconstruct
-    // the ring output.
+    // The ring-specific view tag and data hash are both recoverable from the
+    // parent instruction (`nullifiers[0]` and `output_ring_data_hash`), so the
+    // compact execution event carries no duplicate ring payload.
     process_merge_core(
         MergeCoreAccounts {
             input_tree: merge_accounts.input_tree,
@@ -78,10 +78,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         merge,
         external_data_hash,
         owner_binding,
-        *merge
-            .nullifiers
-            .first()
-            .ok_or(ShieldedPoolError::InvalidMergeShape)?,
-        ix.output_ring_data_hash.to_vec(),
+        [0u8; 32],
     )
 }

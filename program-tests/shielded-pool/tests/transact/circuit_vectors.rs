@@ -10,8 +10,8 @@
 //! The vectors' `external_data_hash` entry is NOT consumed: it pins the Go
 //! prover-test's own preimage helper (with `sender_view_tag`), which has no
 //! Rust mirror. The protocol's `external_data_hash` covers a different,
-//! spec-level preimage — the serialized proof-bound region plus a digest of the
-//! bound account addresses — and carries its own injectivity tests in
+//! spec-level preimage — the serialized external-data prefix plus a digest of
+//! the committed account addresses — and carries its own injectivity tests in
 //! `zolana-interface`.
 
 use std::{fs, path::Path};
@@ -26,8 +26,8 @@ use zolana_hasher::{
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData, TransactIxDataRef,
-        TransactIxTail, TransactOutput, TransactProof as ProofData,
+        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
+        TransactProof as ProofData,
     },
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
@@ -166,37 +166,33 @@ fn small_fe(tag: u8) -> [u8; 32] {
 
 fn ix_data(circuit: CircuitId, n_in: usize, n_out: usize) -> TransactIxData {
     TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: 7,
-            tx_viewing_pk: [4u8; 33],
-            salt: [6u8; 16],
-            interface_transfers: vec![],
-            outputs: (0..n_out)
-                .map(|index| {
-                    let tag = small_fe(0x0b + index as u8);
-                    TransactOutput {
-                        utxo_hash: tag,
-                        owner_tag: OwnerTag::Inline(tag),
-                        data: None,
-                    }
-                })
-                .collect(),
-            messages: vec![],
-        },
-        tail: TransactIxTail {
-            private_tx_hash: small_fe(0x51),
-            circuit,
-            proof: ProofData::zeroed(),
-            inputs: (0..n_in)
-                .map(|index| InputUtxo {
-                    nullifier_hash: small_fe(0x01 + index as u8),
-                    nullifier_tree_root_index: 0,
-                    utxo_tree_root_index: 0,
-                })
-                .collect(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        expiry_unix_ts: 7,
+        tx_viewing_pk: [4u8; 33],
+        salt: [6u8; 16],
+        interface_transfers: vec![],
+        outputs: (0..n_out)
+            .map(|index| {
+                let tag = small_fe(0x0b + index as u8);
+                TransactOutput {
+                    utxo_hash: tag,
+                    owner_tag: OwnerTag::Inline(tag),
+                    data: None,
+                }
+            })
+            .collect(),
+        messages: vec![],
+        private_tx_hash: small_fe(0x51),
+        circuit,
+        proof: ProofData::zeroed(),
+        inputs: (0..n_in)
+            .map(|index| InputUtxo {
+                nullifier_hash: small_fe(0x01 + index as u8),
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+        data_hash: None,
+        ring_data_hash: None,
     }
 }
 
@@ -285,12 +281,9 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             1,
             false,
         ),
-        // The consolidation shape. Its fold width is `n_in + 1 = 37`, far above
-        // `MAX_UNIQUE_SIGNERS`, and the array of accepted unique signers is only
-        // `MAX_UNIQUE_SIGNERS` wide: the zero tail comes from
-        // `SIGNER_ZERO_SUFFIX_CHAINS`, not from that array. Bounding the array
-        // by the fold width instead rejected every shape with more than
-        // `MAX_UNIQUE_SIGNERS - 1` inputs, which no smaller shape can catch.
+        // The consolidation shape. Its fold width is `n_in + 1 = 37`; the zero
+        // tail comes from `SIGNER_ZERO_SUFFIX_CHAINS`, so a one-signer
+        // consolidation does not allocate or hash a temporary 37-element run.
         (CircuitId::ConfidentialEddsa(36, 2, 3), 36, 2, 37, 1, true),
     ] {
         let owned = ix_data(circuit, n_in, n_out);
@@ -300,13 +293,11 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
         let proof = TransactProof::new(&ix, &derived);
 
         let nullifiers: Vec<[u8; 32]> = owned
-            .tail
             .inputs
             .iter()
             .map(|input| input.nullifier_hash)
             .collect();
         let output_hashes: Vec<[u8; 32]> = owned
-            .bound
             .outputs
             .iter()
             .map(|output| output.utxo_hash)
@@ -331,7 +322,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             output_hashes: &output_hashes,
             utxo_roots: &clone_utxo_roots,
             nullifier_tree_roots: &clone_nullifier_tree_roots,
-            private_tx_hash: owned.tail.private_tx_hash,
+            private_tx_hash: owned.private_tx_hash,
             external_data_hash: derived.external_data_hash,
             public_slot_assets: derived
                 .public_slot_assets

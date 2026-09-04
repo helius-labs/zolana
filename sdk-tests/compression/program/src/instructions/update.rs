@@ -4,8 +4,8 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            external_data_hash, CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData,
-            TransactIxTail, TransactOutput, TransactProof,
+            hash_external_data, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
+            TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
@@ -58,11 +58,20 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let output_hash = state.utxo_hash(&owner.owner_hash)?;
     let payload = state.to_output_data()?;
 
-    // Build the proof-bound region first, then hash exactly its serialized
-    // bytes: the same range the shielded pool reads back out of the
+    let old_state = AccountState {
+        address,
+        authority: authority.to_bytes(),
+        value: old_value,
+        version,
+    };
+    let old_hash = old_state.utxo_hash(&owner.owner_hash)?;
+    let nullifier_hash = nullifier(&old_hash, &old_state.blinding())?;
+
+    // Build the transaction with a placeholder private hash, then hash exactly
+    // the external-data prefix the shielded pool reads back out of the
     // instruction. Every output here is `Inline`-tagged, so no account
     // addresses are appended.
-    let bound = TransactIxBound {
+    let mut transact = TransactIxData {
         expiry_unix_ts: u64::MAX,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
@@ -73,37 +82,26 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             data: Some(payload),
         }],
         messages: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+        proof,
+        private_tx_hash: [0u8; 32],
+        inputs: vec![InputUtxo {
+            nullifier_hash,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+        }],
     };
-    let bound_bytes =
-        wincode::serialize(&bound).map_err(|_| CompressionError::SerializationFailed)?;
-    let external_data_hash = external_data_hash(TRANSACT, &bound_bytes, core::iter::empty())
+    let placeholder_bytes = transact
+        .serialize()
+        .map_err(|_| CompressionError::SerializationFailed)?;
+    let (_, external_data) = TransactIxDataRef::parse_with_external_data_prefix(&placeholder_bytes)
+        .map_err(|_| CompressionError::SerializationFailed)?;
+    let external_data_hash = hash_external_data(TRANSACT, external_data, core::iter::empty())
         .map_err(|_| CompressionError::HashingFailed)?;
-
-    let old_state = AccountState {
-        address,
-        authority: authority.to_bytes(),
-        value: old_value,
-        version,
-    };
-    let old_hash = old_state.utxo_hash(&owner.owner_hash)?;
-    let nullifier_hash = nullifier(&old_hash, &old_state.blinding())?;
-    let private_tx = private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
-
-    let transact = TransactIxData {
-        bound,
-        tail: TransactIxTail {
-            private_tx_hash: private_tx,
-            circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-            proof,
-            inputs: vec![InputUtxo {
-                nullifier_hash,
-                nullifier_tree_root_index,
-                utxo_tree_root_index,
-            }],
-            data_hash: None,
-            ring_data_hash: None,
-        },
-    };
+    transact.private_tx_hash =
+        private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
     let transact_bytes = transact
         .serialize()
         .map_err(|_| CompressionError::SerializationFailed)?;

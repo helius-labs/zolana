@@ -120,12 +120,6 @@ export interface OutputUtxo {
   readonly data: Uint8Array;
 }
 
-export interface ResolvedOutput {
-  readonly utxoHash: Bytes32;
-  readonly ownerTag: Bytes32;
-  readonly data?: Uint8Array;
-}
-
 export interface TransactProof {
   readonly a: Bytes32;
   readonly b: Bytes64;
@@ -158,35 +152,19 @@ export type InterfaceTransfer =
   | Readonly<{ kind: "splDeposit"; amount: bigint; splInterfaceBump: number }>
   | Readonly<{ kind: "splWithdrawal"; amount: bigint; splInterfaceBump: number }>;
 
-export type ResolvedInterfaceTransfer =
-  | Readonly<{ kind: "solDeposit"; amount: bigint; recipient: Address }>
-  | Readonly<{ kind: "solWithdrawal"; amount: bigint; recipient: Address }>
-  | Readonly<{
-      kind: "splDeposit";
-      amount: bigint;
-      tokenAccount: Address;
-      splInterfacePda: Address;
-    }>
-  | Readonly<{
-      kind: "splWithdrawal";
-      amount: bigint;
-      tokenAccount: Address;
-      splInterfacePda: Address;
-    }>;
-
 export interface TransactInstructionData {
   readonly expiryUnixTs: bigint;
-  readonly privateTxHash: Bytes32;
-  readonly circuit: CircuitId;
   readonly txViewingPk: Bytes33;
   readonly salt: Bytes16;
-  readonly proof: TransactProof;
-  readonly inputs: readonly InputUtxo[];
   readonly interfaceTransfers: readonly InterfaceTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
   readonly messages: readonly MessageData[];
+  readonly privateTxHash: Bytes32;
+  readonly circuit: CircuitId;
+  readonly proof: TransactProof;
+  readonly inputs: readonly InputUtxo[];
 }
 
 export type TransactWithdrawal =

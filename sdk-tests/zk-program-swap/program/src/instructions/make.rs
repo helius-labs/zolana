@@ -53,16 +53,15 @@ pub fn process_make_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
             c: &proof.proof_c,
             commitment: None,
         },
-        transact.tail.private_tx_hash,
+        transact.private_tx_hash,
         &make::VERIFYINGKEY,
     )?;
     let order_utxo_hash = transact
-        .bound
         .outputs
         .get(ORDER_OUTPUT_INDEX)
         .ok_or(SwapError::InvalidInstructionData)?
         .utxo_hash;
-    let [marker_message] = transact.bound.messages.as_mut_slice() else {
+    let [marker_message] = transact.messages.as_mut_slice() else {
         return Err(SwapError::InvalidMarkerMessage.into());
     };
     if !marker_message.data.is_empty() {

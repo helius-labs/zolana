@@ -3,12 +3,15 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
-    event_kind_from_indexed, indexed_events_from_instruction_groups, proofless_outputs,
-    EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
+    proofless_outputs, EventKind, GeneralEvent,
 };
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
-use zolana_interface::event_reconstruction::general_event_from_site;
+use zolana_interface::instruction::tag;
+use zolana_interface::output_data::{
+    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
+    encode_output_data, EncryptedRingDepositOutput, ProoflessOutput,
+};
 use zolana_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
@@ -39,7 +42,7 @@ impl DepositOutput {
             outputs: vec![zolana_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
-                data: zolana_event::encode_output_data(self.output.clone()),
+                data: encode_output_data(self.output.clone()),
             }],
             messages: Vec::new(),
             tx_viewing_pk: [0u8; 33],
@@ -180,14 +183,14 @@ pub fn indexed_events_from_meta(
 pub fn deposit_outputs_from_event(
     event: &IndexedEvent,
 ) -> Result<Vec<DepositOutput>, ProgramTestError> {
-    let general_event = crate::events::general_event(event).map_err(|err| {
+    let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
             event.tag,
             event.payload.len()
         ))
     })?;
-    let outputs = proofless_outputs(&general_event).map_err(|err| {
+    let outputs = proofless_outputs(general_event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid proofless output tag={} payload_len={} error={err:?}",
             event.tag,
@@ -233,7 +236,7 @@ pub fn deposit_output_from_event(event: &IndexedEvent) -> Result<DepositOutput, 
 pub fn ring_deposit_outputs_from_event(
     event: &IndexedEvent,
 ) -> Result<Vec<RingDepositOutput>, ProgramTestError> {
-    let general_event = crate::events::general_event(event).map_err(|err| {
+    let general_event = general_event_from_indexed(event).map_err(|err| {
         ProgramTestError::Event(format!(
             "invalid shielded-pool event tag={} payload_len={} error={err:?}",
             event.tag,
@@ -293,26 +296,34 @@ pub fn index_events(
     for event in events {
         match event_kind_from_indexed(event) {
             Some(EventKind::Deposit) => {
-                if let Ok(deposits) = deposit_outputs_from_event(event) {
-                    for deposit in deposits {
-                        indexer.record_deposit(&deposit)?;
+                match event.source_instruction_tag {
+                    tag::DEPOSIT => {
+                        for deposit in deposit_outputs_from_event(event)? {
+                            indexer.record_deposit(&deposit)?;
+                        }
                     }
-                } else {
-                    for deposit in ring_deposit_outputs_from_event(event)? {
-                        indexer.record_ring_deposit(&deposit)?;
+                    tag::RING_DEPOSIT => {
+                        for deposit in ring_deposit_outputs_from_event(event)? {
+                            indexer.record_ring_deposit(&deposit)?;
+                        }
+                    }
+                    source => {
+                        return Err(ProgramTestError::Event(format!(
+                            "deposit event has non-deposit source instruction tag {source}"
+                        )));
                     }
                 }
-                let deposit_event = crate::events::general_event(event).map_err(|err| {
+                let deposit_event = general_event_from_indexed(event).map_err(|err| {
                     ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
                 })?;
-                indexer.record_transaction(signature, &deposit_event, true);
+                indexer.record_transaction(signature, deposit_event, true);
             }
             Some(EventKind::Transact) | Some(EventKind::Merge) => {
-                let general_event = crate::events::general_event(event).map_err(|err| {
+                let general_event = general_event_from_indexed(event).map_err(|err| {
                     ProgramTestError::Event(format!("state-change event decode failed: {err:?}"))
                 })?;
-                indexer.record_state_change(&general_event)?;
-                indexer.record_transaction(signature, &general_event, false);
+                indexer.record_state_change(general_event)?;
+                indexer.record_transaction(signature, general_event, false);
             }
             Some(EventKind::NullifierTreeUpdate) | None => {}
         }
@@ -321,7 +332,10 @@ pub fn index_events(
 }
 
 pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, ProgramTestError> {
-    let mut deposits = events.iter().map(deposit_output_from_event);
+    let mut deposits = events
+        .iter()
+        .filter(|event| event.source_instruction_tag == tag::DEPOSIT)
+        .map(deposit_output_from_event);
     let Some(deposit) = deposits.next() else {
         return Err(ProgramTestError::Event(
             "no proofless deposit event emitted by transaction".into(),
@@ -334,25 +348,4 @@ pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, Pro
         ));
     }
     Ok(deposit)
-}
-
-/// Rebuild the rich event for an indexed `EMIT_EVENT`.
-///
-/// `transact` and `merge` log only the positions execution assigns, so the rest
-/// comes from the instruction that emitted them. Lives here rather than in
-/// `zolana-event` because the reconstruction parses instruction data, and
-/// `zolana-interface` already depends on `zolana-event`.
-pub fn general_event(event: &IndexedEvent) -> Result<GeneralEvent, String> {
-    let accounts: Vec<[u8; 32]> = event
-        .parent_accounts
-        .iter()
-        .map(|account| account.to_bytes())
-        .collect();
-    general_event_from_site(
-        event.source_instruction_tag,
-        &event.parent_data,
-        &accounts,
-        &event.payload,
-    )
-    .map_err(|err| format!("{err:?}"))
 }

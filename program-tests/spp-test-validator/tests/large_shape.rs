@@ -33,8 +33,7 @@ fn the_consolidation_shape_lands_as_a_transaction_v1() -> Result<()> {
     let mut harness = LifecycleHarness::new_on(ValidatorBackend::Surfpool)?;
 
     // Every input belongs to one actor, so the signer run is a single entry and
-    // the transaction carries one signature. The binding limit here is
-    // `MAX_UNIQUE_SIGNERS` (8, payer included), not v1's `MAX_SIGNATURES` of 12.
+    // the transaction carries one signature.
     for _ in 0..shape.n_inputs() {
         harness.deposit_sol("consolidator", DEPOSIT_LAMPORTS)?;
     }

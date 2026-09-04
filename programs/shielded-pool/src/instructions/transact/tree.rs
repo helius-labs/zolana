@@ -1,14 +1,15 @@
 use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_hasher::hash_chain::HashChain;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::transact::TransactIxDataRef,
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, MAX_TRANSACT_OUTPUTS,
 };
 use zolana_tree::TreeAccount;
 
-use super::{event::TreeWrite, verify::TransactProofInputs};
+use super::verify::TransactProofInputs;
 use crate::instructions::{
     nullifier_pda::InputTreeResult,
     shared::{bool_field, tree_error},
@@ -33,7 +34,8 @@ pub(crate) fn apply_input_tree(
     let mut first_input_queue_seq: Option<u64> = None;
     let mut utxo_root_chain = HashChain::new();
     let mut nullifier_tree_root_chain = HashChain::new();
-    for input in ix.tail.inputs.iter() {
+    for input in ix.inputs.try_iter() {
+        let input = input.map_err(|_| ProgramError::InvalidInstructionData)?;
         // 1. Fold the state tree root into the proof input chain.
         utxo_root_chain.push(
             &input_tree
@@ -52,7 +54,7 @@ pub(crate) fn apply_input_tree(
         //    later index is `first + i`.
         let queue_index = input_tree
             .nullifier_tree()
-            .insert_nullifier_into_queue(&input.nullifier_hash)
+            .insert_nullifier_into_queue(input.nullifier_hash)
             .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
         if first_input_queue_seq.is_none() {
             first_input_queue_seq = Some(queue_index);
@@ -61,16 +63,15 @@ pub(crate) fn apply_input_tree(
     proof_inputs.assign_input_tree(
         utxo_root_chain.finish(),
         nullifier_tree_root_chain.finish(),
-        ix.tail.inputs.len(),
+        ix.inputs.len(),
         allow_dummy_inputs,
     )?;
     let forester_fee = input_tree
-        .credit_insertion_fee(ix.tail.inputs.len() as u64)
+        .credit_insertion_fee(ix.inputs.len() as u64)
         .map_err(tree_error)?;
 
     Ok(InputTreeResult {
         first_input_queue_seq: first_input_queue_seq.unwrap_or_default(),
-        input_count: ix.tail.inputs.len(),
         forester_fee,
         fee_balance: input_tree.fee_balance(),
         tree_id: input_tree.tree_id(),
@@ -81,7 +82,7 @@ pub(crate) fn apply_input_tree(
 pub(crate) fn apply_output_tree(
     output_tree_account: &mut AccountView,
     ix: &TransactIxDataRef<'_>,
-) -> Result<TreeWrite, ProgramError> {
+) -> Result<u64, ProgramError> {
     let mut output_tree = TreeAccount::from_account_view_mut(
         output_tree_account,
         &crate::ID,
@@ -90,11 +91,19 @@ pub(crate) fn apply_output_tree(
     .map_err(tree_error)?;
     // Leaf index the first output lands at; the rest follow sequentially.
     let first_output_leaf_index = output_tree.utxo_tree().next_index();
+    let mut output_hashes: ArrayVec<&[u8; 32], MAX_TRANSACT_OUTPUTS> = ArrayVec::new();
+    for output in ix.outputs.try_iter() {
+        output_hashes
+            .try_push(
+                output
+                    .map_err(|_| ProgramError::InvalidInstructionData)?
+                    .utxo_hash,
+            )
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+    }
     output_tree
         .utxo_tree()
-        .append_batch(ix.bound.outputs.iter().map(|o| o.utxo_hash))
+        .append_batch(output_hashes.iter().copied())
         .map_err(tree_error)?;
-    Ok(TreeWrite {
-        first_output_leaf_index,
-    })
+    Ok(first_output_leaf_index)
 }

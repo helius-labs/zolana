@@ -290,7 +290,7 @@ fn sol_deposit_rejects_extra_settlement_account() {
 fn sol_deposit_rejects_a_readonly_depositor() {
     // INV-DEPOSIT-03/04, current form: the SOL rail has no separate source
     // account -- the depositor signer IS the transfer source by construction
-    // (`deposit/account.rs` builds `SettlementAccountsSol { recipient: depositor }`),
+    // (`deposit/account.rs` builds `SettlementAccountsSol { user_account: depositor }`),
     // so a foreign funding source is unforgeable and there is nothing to swap.
     // What remains of the property is the writability requirement:
     // `validate_sol_settlement` rejects a read-only depositor.

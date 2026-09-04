@@ -16,11 +16,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ProofCompressed, ProverClient};
 use zolana_interface::{
-    event::OutputDataEncoding,
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         AssetDeposit, Deposit, DepositAsset, Transact,
     },
+    output_data::OutputDataEncoding,
 };
 use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_test_utils::test_validator_asserts::{
@@ -146,7 +146,8 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let poison_signature = send_from(env, poison_ix, &attacker, None)?;
     wait_for_indexed_utxo(&env.indexer, pda.to_bytes(), poison_signature);
     Ok(poison_signature)

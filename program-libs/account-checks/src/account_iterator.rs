@@ -196,9 +196,9 @@ impl<'info> AccountIterator<'info> {
 
     /// Peel `count` writable accounts off the front as one contiguous slice.
     ///
-    /// Equivalent to calling [`Self::next_mut`] `count` times, including the
-    /// per-account writability check and its diagnostics, but it hands back a
-    /// slice so callers do not need a fixed-capacity buffer sized by the count.
+    /// Validates the full requested slice before advancing, so an error leaves
+    /// the iterator unchanged. On success this is equivalent to calling
+    /// [`Self::next_mut`] `count` times, but returns one contiguous slice.
     #[inline(always)]
     #[track_caller]
     pub fn next_slice_mut(
@@ -212,12 +212,14 @@ impl<'info> AccountIterator<'info> {
             self.print_not_enough_accounts(account_name, Location::caller());
             return Err(AccountError::NotEnoughAccountKeys);
         }
-        let accounts = core::mem::take(&mut self.accounts);
-        let (taken, rest) = accounts.split_at_mut(count);
-        for account in taken.iter() {
+        // Validate before taking the backing slice. If validation fails, the
+        // iterator must retain both its remaining accounts and its position.
+        for account in self.accounts.iter().take(count) {
             check_mut(account)
                 .inspect_err(|e| self.print_on_error(e, account_name, Location::caller()))?;
         }
+        let accounts = core::mem::take(&mut self.accounts);
+        let (taken, rest) = accounts.split_at_mut(count);
         self.accounts = rest;
         self.position += count;
         Ok(taken)
@@ -342,5 +344,33 @@ impl<'info> AccountIterator<'info> {
         );
         #[cfg(not(all(feature = "msg", feature = "std")))]
         let _ = (error, pubkey, expected, account_name, location);
+    }
+}
+
+#[cfg(all(test, feature = "test-only"))]
+mod tests {
+    use super::*;
+    use crate::account_info::test_account_info::get_account_view;
+
+    fn account(address: u8, writable: bool) -> AccountView {
+        get_account_view([address; 32], [0; 32], false, writable, false, Vec::new())
+    }
+
+    #[test]
+    fn next_slice_mut_validation_error_leaves_iterator_unchanged() {
+        let mut accounts = [account(1, true), account(2, false), account(3, true)];
+        let mut iter = AccountIterator::new(&mut accounts);
+
+        assert_eq!(
+            iter.next_slice_mut(2, "writable").unwrap_err(),
+            AccountError::AccountNotMutable
+        );
+        assert_eq!(iter.position(), 0);
+        assert_eq!(iter.len(), 3);
+
+        let first = iter.next_account("first").unwrap();
+        assert_eq!(first.address().to_bytes(), [1; 32]);
+        assert_eq!(iter.position(), 1);
+        assert_eq!(iter.len(), 3);
     }
 }

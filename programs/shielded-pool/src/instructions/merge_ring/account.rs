@@ -44,6 +44,9 @@ impl<'a> MergeRingAccounts<'a> {
         // One contiguous slice, sized by the instruction's declared input
         // count rather than by a compile-time constant.
         let nullifier_pdas = iter.next_slice_mut(input_count, "nullifier_pda")?;
+        if !iter.iterator_is_empty() {
+            return Err(ShieldedPoolError::InvalidMergeShape.into());
+        }
         Ok(Self {
             input_tree,
             output_tree,
@@ -51,5 +54,59 @@ impl<'a> MergeRingAccounts<'a> {
             nullifier_pdas,
             ring_program_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
+
+    fn account(
+        address: [u8; 32],
+        owner: [u8; 32],
+        signer: bool,
+        writable: bool,
+        data: Vec<u8>,
+    ) -> AccountView {
+        get_account_view(address, owner, signer, writable, false, data)
+    }
+
+    #[test]
+    fn rejects_accounts_after_declared_nullifier_pdas() {
+        let ring_config = RingConfig {
+            discriminator: RING_CONFIG,
+            authority: Address::new_from_array([7; 32]),
+            program_id: Address::new_from_array([8; 32]),
+            ring_authority_transact_is_enabled: 0,
+            paused: 0,
+            bump: 0,
+        };
+        let mut accounts = [
+            account([1; 32], [0; 32], false, true, Vec::new()),
+            account([2; 32], [0; 32], false, true, Vec::new()),
+            account(
+                [3; 32],
+                crate::ID.to_bytes(),
+                true,
+                false,
+                bytemuck::bytes_of(&ring_config).to_vec(),
+            ),
+            account([4; 32], [0; 32], true, false, Vec::new()),
+            account([0; 32], [0; 32], false, false, Vec::new()),
+            account(crate::ID.to_bytes(), [0; 32], false, false, Vec::new()),
+            account([5; 32], [0; 32], false, true, Vec::new()),
+            account([6; 32], [0; 32], false, false, Vec::new()),
+        ];
+
+        let error = match MergeRingAccounts::validate_and_parse(&mut accounts, 1) {
+            Ok(_) => panic!("trailing account must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidMergeShape as u32)
+        );
     }
 }

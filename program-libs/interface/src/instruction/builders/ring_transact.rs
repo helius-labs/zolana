@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::{
     instruction::{
         builders::transact::{
-            append_interface_transfer_accounts, nullifier_pda_accounts,
+            append_interface_transfer_accounts, nullifier_pda_accounts, TransactBuildError,
             TransactInterfaceTransferAccounts,
         },
         tag, TransactIxData,
@@ -33,26 +33,22 @@ impl RingTransact {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
     /// PDA is not a transaction-level signer; the ring program signs for it in its
     /// CPI.
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(self.ring_program_id, false)
     }
 
     /// The SPP instruction a ring program constructs for its own CPI: program id
     /// is SPP and the `ring_auth` PDA is passed as a signer.
-    pub fn cpi_instruction(&self) -> Instruction {
+    pub fn cpi_instruction(&self) -> Result<Instruction, TransactBuildError> {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+    fn build_instruction(
+        &self,
+        program_id: Pubkey,
+        auth_signer: bool,
+    ) -> Result<Instruction, TransactBuildError> {
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
-
-        let mut instruction_data = vec![tag::RING_TRANSACT];
-        instruction_data.extend_from_slice(
-            &self
-                .data
-                .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
-        );
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
@@ -64,11 +60,7 @@ impl RingTransact {
         ];
         accounts.extend(nullifier_pda_accounts(
             &self.input_tree,
-            self.data
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
+            self.data.inputs.iter().map(|input| &input.nullifier_hash),
         ));
         accounts.extend(
             self.owner_signers
@@ -78,13 +70,22 @@ impl RingTransact {
         );
         append_interface_transfer_accounts(
             &mut accounts,
-            &self.data.bound.interface_transfers,
+            &self.data.interface_transfers,
             &self.interface_transfer_accounts,
+        )?;
+
+        let mut instruction_data = vec![tag::RING_TRANSACT];
+        instruction_data.extend_from_slice(
+            &self
+                .data
+                .serialize()
+                .map_err(|_| TransactBuildError::Serialization)?,
         );
-        Instruction {
+
+        Ok(Instruction {
             program_id,
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }

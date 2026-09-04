@@ -7,7 +7,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_interface::instruction::tag;
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
@@ -160,7 +161,7 @@ fn interface_transfers(
     };
     let data = TransactIxData::deserialize(payload)
         .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
-    Ok(Some(data.bound.interface_transfers))
+    Ok(Some(data.interface_transfers))
 }
 
 /// Settlement accounts appended per interface transfer, mirroring

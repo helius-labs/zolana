@@ -13,7 +13,8 @@ fn get_test_batch() -> Batch<5> {
 fn test_mark_as_inserted(mut batch: Batch<5>) {
     // Neither insertion nor reuse touches the hash chains, so every reference
     // batch below carries the ones the batch came in with.
-    let hash_chains: Vec<[u8; 32]> = (0..batch.get_num_zkp_batches() as usize)
+    let num_zkp_batches = batch.get_num_zkp_batches();
+    let hash_chains: Vec<[u8; 32]> = (0..num_zkp_batches as usize)
         .map(|index| batch.hash_chain(index).unwrap())
         .collect();
     let reference_batch = || {
@@ -24,21 +25,21 @@ fn test_mark_as_inserted(mut batch: Batch<5>) {
         reference
     };
 
-    for i in 0..batch.get_num_zkp_batches() {
+    for i in 0..num_zkp_batches {
         batch.mark_as_inserted_in_merkle_tree().unwrap();
-        if i != batch.get_num_zkp_batches() - 1 {
-            assert_eq!(batch.get_state(), BatchState::Full);
+        if i != num_zkp_batches - 1 {
+            assert_eq!(batch.get_state(), Ok(BatchState::Full));
             assert_eq!(batch.num_inserted(), 0);
             assert_eq!(batch.get_current_zkp_batch_index(), 5);
             assert_eq!(batch.get_num_inserted_zkps(), i + 1);
         } else {
-            assert_eq!(batch.get_state(), BatchState::Inserted);
+            assert_eq!(batch.get_state(), Ok(BatchState::Inserted));
             assert_eq!(batch.num_inserted(), 0);
             assert_eq!(batch.get_current_zkp_batch_index(), 5);
             assert_eq!(batch.get_num_inserted_zkps(), i + 1);
         }
     }
-    assert_eq!(batch.get_state(), BatchState::Inserted);
+    assert_eq!(batch.get_state(), Ok(BatchState::Inserted));
     assert_eq!(batch.num_inserted(), 0);
     let mut ref_batch = reference_batch();
     ref_batch.set_state(BatchState::Inserted);
@@ -123,14 +124,14 @@ fn test_add_to_hash_chain_is_error_atomic() {
 fn test_getters() {
     let mut batch = get_test_batch();
     assert_eq!(batch.get_num_zkp_batches(), 5);
-    assert_eq!(batch.get_state(), BatchState::Fill);
+    assert_eq!(batch.get_state(), Ok(BatchState::Fill));
     assert_eq!(batch.num_inserted(), 0);
     assert_eq!(batch.get_current_zkp_batch_index(), 0);
     assert_eq!(batch.get_num_inserted_zkps(), 0);
     batch.advance_state_to_full().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Full);
+    assert_eq!(batch.get_state(), Ok(BatchState::Full));
     batch.advance_state_to_inserted().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Inserted);
+    assert_eq!(batch.get_state(), Ok(BatchState::Inserted));
 }
 
 /// 1. Failing: empty batch
@@ -173,7 +174,7 @@ fn test_can_insert_batch() {
 #[test]
 fn test_get_state() {
     let mut batch = get_test_batch();
-    assert_eq!(batch.get_state(), BatchState::Fill);
+    assert_eq!(batch.get_state(), Ok(BatchState::Fill));
     {
         let result = batch.advance_state_to_inserted();
         assert_eq!(result, Err(NullifierTreeError::BatchNotReady));
@@ -181,7 +182,7 @@ fn test_get_state() {
         assert_eq!(result, Err(NullifierTreeError::BatchNotReady));
     }
     batch.advance_state_to_full().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Full);
+    assert_eq!(batch.get_state(), Ok(BatchState::Full));
     {
         let result = batch.advance_state_to_full();
         assert_eq!(result, Err(NullifierTreeError::BatchNotReady));
@@ -189,7 +190,7 @@ fn test_get_state() {
         assert_eq!(result, Err(NullifierTreeError::BatchNotReady));
     }
     batch.advance_state_to_inserted().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Inserted);
+    assert_eq!(batch.get_state(), Ok(BatchState::Inserted));
 }
 
 #[test]
@@ -200,7 +201,7 @@ fn advance_state_to_fill_resets_num_inserted() {
     batch.advance_state_to_fill(123).unwrap();
     assert_eq!(batch.start_index, 123);
     assert_eq!(batch.num_inserted(), 0);
-    assert_eq!(batch.get_num_inserted_elements(), 0);
+    assert_eq!(batch.get_num_inserted_elements(), Ok(0));
 }
 
 /// Account-data paths must return `InvalidBatchState` for a corrupt state
@@ -236,7 +237,7 @@ fn corrupt_state_errors_instead_of_panicking() {
 }
 
 #[test]
-fn try_get_state_maps_known_states_and_returns_none_for_invalid() {
+fn get_state_maps_known_states_and_rejects_invalid() {
     let mut batch = get_test_batch();
     for (raw, state) in [
         (0, BatchState::Fill),
@@ -244,11 +245,14 @@ fn try_get_state_maps_known_states_and_returns_none_for_invalid() {
         (2, BatchState::Full),
     ] {
         batch.set_raw_state(raw);
-        assert_eq!(batch.try_get_state(), Some(state));
+        assert_eq!(batch.get_state(), Ok(state));
     }
 
     batch.set_raw_state(3);
-    assert_eq!(batch.try_get_state(), None);
+    assert_eq!(
+        batch.get_state(),
+        Err(NullifierTreeError::InvalidBatchState)
+    );
 }
 
 #[test]
@@ -266,12 +270,12 @@ fn test_num_ready_zkp_updates() {
 #[test]
 fn test_get_num_inserted_elements() {
     let mut batch = get_test_batch();
-    assert_eq!(batch.get_num_inserted_elements(), 0);
+    assert_eq!(batch.get_num_inserted_elements(), Ok(0));
 
     for i in 0..batch.batch_size {
         let mut value = [0u8; 32];
         value[24..].copy_from_slice(&i.to_be_bytes());
         batch.add_to_hash_chain(&value).unwrap();
-        assert_eq!(batch.get_num_inserted_elements(), i + 1);
+        assert_eq!(batch.get_num_inserted_elements(), Ok(i + 1));
     }
 }

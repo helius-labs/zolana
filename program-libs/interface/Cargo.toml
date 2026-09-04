@@ -6,15 +6,21 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[[test]]
+name = "output_data"
+path = "tests/output_data.rs"
+required-features = ["output-codec"]
+
 [features]
 default = ["verifying-keys", "tree"]
 borsh = ["dep:borsh", "solana-address/borsh"]
+output-codec = ["borsh"]
 solana = ["dep:solana-instruction", "borsh", "tree"]
-events = []
 verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
 
 [dependencies]
+arrayvec = { workspace = true }
 borsh = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 solana-address = { workspace = true, features = ["bytemuck"] }
@@ -25,7 +31,6 @@ zolana-hasher = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
-zolana-event = { workspace = true }
 zolana-tree = { workspace = true, optional = true }
 
 [dev-dependencies]

@@ -83,7 +83,7 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             commitment: None,
         },
         CancelPublicInput {
-            private_tx_hash: &transact.tail.private_tx_hash,
+            private_tx_hash: &transact.private_tx_hash,
             expiry: order_expiry,
             maker_owner_pk_field: &maker_owner_pk_field,
         }

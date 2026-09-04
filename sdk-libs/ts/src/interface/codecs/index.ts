@@ -28,10 +28,12 @@ import {
 import {
   Reader,
   Writer,
+  addressBytes,
   copyBytes,
   encodeBase58,
   fail,
   sha256,
+  unsigned,
   unsignedBigint,
 } from "../internal.js";
 
@@ -224,27 +226,32 @@ function writeOutput(writer: Writer, value: TransactOutput): void {
 }
 
 /**
- * The subset of `TransactInstructionData` the proof binds. Named so the bound
- * region can be encoded on its own for `external_data_hash`, without the caller
- * having to hold a whole instruction.
+ * The instruction prefix covered by `external_data_hash`, in the same field
+ * order as `TransactInstructionData`.
  */
-export type TransactBoundFields = Pick<
-  TransactInstructionData,
-  "expiryUnixTs" | "txViewingPk" | "salt" | "interfaceTransfers" | "outputs" | "messages"
->;
-
-/**
- * The proof-bound region: everything `external_data_hash` covers, written as one
- * contiguous run so the digest is a hash of these bytes rather than a separately
- * assembled preimage.
- */
-function writeTransactBound(writer: Writer, value: TransactBoundFields): void {
+function writeExternalDataPrefix(
+  writer: Writer,
+  value: Pick<
+    TransactInstructionData,
+    | "expiryUnixTs"
+    | "txViewingPk"
+    | "salt"
+    | "interfaceTransfers"
+    | "dataHash"
+    | "ringDataHash"
+    | "outputs"
+    | "messages"
+  >,
+): void {
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
     .bytes(value.txViewingPk, 33, "txViewingPk")
     .bytes(value.salt, 16, "salt")
     .u8(value.interfaceTransfers.length, "interfaceTransfers.length");
   for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
+  writer
+    .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
+    .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"));
   writer.u8(value.outputs.length, "outputs.length");
   for (const output of value.outputs) writeOutput(writer, output);
   writer.u8(value.messages.length, "messages.length");
@@ -254,29 +261,96 @@ function writeTransactBound(writer: Writer, value: TransactBoundFields): void {
   }
 }
 
-/** The fields the bound region does not cover. */
-function writeTransactTail(writer: Writer, value: TransactInstructionData): void {
+function writeTransactData(writer: Writer, value: TransactInstructionData): void {
+  writeExternalDataPrefix(writer, value);
+  writer.bytes(value.privateTxHash, 32, "privateTxHash");
   writeCircuit(writer, value.circuit);
   writeProof(writer, value.proof);
-  writer.bytes(value.privateTxHash, 32, "privateTxHash").u8(value.inputs.length, "inputs.length");
+  writer.u8(value.inputs.length, "inputs.length");
   for (const input of value.inputs) writeInput(writer, input);
-  writer
-    .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
-    .option(value.ringDataHash, (output, hash) => output.bytes(hash, 32, "ringDataHash"));
-}
-
-function writeTransactData(writer: Writer, value: TransactInstructionData): void {
-  writeTransactBound(writer, value);
-  writeTransactTail(writer, value);
 }
 
 /**
- * The serialized proof-bound region on its own, for `externalDataHash`. Produced
- * by the same writer the instruction uses, so the hashed bytes and the sent
- * bytes cannot drift.
+ * The serialized external-data prefix on its own. The instruction encoder uses
+ * this same writer, so the hashed bytes and the sent bytes cannot drift.
  */
-export function encodeTransactBoundRegion(value: TransactBoundFields): Uint8Array {
-  return encoded(value, writeTransactBound);
+function encodeExternalDataPrefix(
+  value: Pick<
+    TransactInstructionData,
+    | "expiryUnixTs"
+    | "txViewingPk"
+    | "salt"
+    | "interfaceTransfers"
+    | "dataHash"
+    | "ringDataHash"
+    | "outputs"
+    | "messages"
+  >,
+): Uint8Array {
+  return encoded(value, writeExternalDataPrefix);
+}
+
+export interface ExternalDataHashInput extends Pick<
+  TransactInstructionData,
+  | "expiryUnixTs"
+  | "txViewingPk"
+  | "salt"
+  | "interfaceTransfers"
+  | "dataHash"
+  | "ringDataHash"
+  | "outputs"
+  | "messages"
+> {
+  readonly instructionDiscriminator: number;
+  /**
+   * Addresses the proof commits, in protocol order: each interface transfer's
+   * settlement accounts in leg order (the user account for a SOL leg, the user
+   * token account then the per-mint interface vault for an SPL leg), followed by
+   * the resolved owner of every output whose owner tag names an account, in
+   * output order.
+   */
+  readonly committedAddresses: readonly (Address | Bytes32)[];
+}
+
+/**
+ * `external_data_hash` public input: SHA-256 over the instruction
+ * discriminator, the contiguous external-data prefix of the instruction, and
+ * the committed account addresses in protocol order. The client may assemble
+ * this preimage in memory; the program hashes the same bytes as borrowed slices
+ * without copying them.
+ *
+ * The final result's first byte is zeroed for BN254 field compatibility,
+ * matching `Sha256BE` on the Rust side.
+ */
+export function externalDataHash(input: ExternalDataHashInput): Bytes32 {
+  const addresses = input.committedAddresses.map((address, index) => {
+    const label = `committedAddresses[${String(index)}]`;
+    return typeof address === "string"
+      ? addressBytes(address, label)
+      : copyBytes(address, 32, label);
+  });
+
+  const discriminator = Uint8Array.of(
+    unsigned(input.instructionDiscriminator, 0xff, "instructionDiscriminator"),
+  );
+  return sha256BE(concatBytes([discriminator, encodeExternalDataPrefix(input), ...addresses]));
+}
+
+function sha256BE(bytes: Uint8Array): Bytes32 {
+  const digest = copyBytes(sha256(bytes), 32, "digest");
+  digest[0] = 0;
+  return digest as Bytes32;
+}
+
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
 }
 
 export function encodeTransactInstructionData(value: TransactInstructionData): Uint8Array {

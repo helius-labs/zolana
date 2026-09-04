@@ -48,16 +48,12 @@ impl Make {
             mut spp_proof,
         } = self;
 
-        if let Some(marker) = spp_proof.bound.messages.first_mut() {
+        if let Some(marker) = spp_proof.messages.first_mut() {
             marker.data = Vec::new();
         }
         let nullifier_pdas = nullifier_pda_accounts(
             &tree,
-            spp_proof
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
         );
         let serialized_ix = wincode::serialize(&MakeIxData {
             proof: make_proof,

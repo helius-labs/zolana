@@ -28,12 +28,12 @@ use zolana_client::{
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
     SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
-use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda,
     state::{
@@ -68,7 +68,7 @@ use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
     dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_transact_proof,
-    public_sol_field, real_output, transfer_output,
+    public_sol_field, real_output, transfer_output, ResolvedInterfaceTransfer,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";

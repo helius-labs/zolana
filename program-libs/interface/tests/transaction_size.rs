@@ -16,8 +16,7 @@ use solana_pubkey::Pubkey;
 use zolana_interface::instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS;
 use zolana_interface::instruction::instruction_data::transact::CircuitId;
 use zolana_interface::instruction::{
-    tag, InputUtxo, OwnerTag, TransactIxBound, TransactIxData, TransactIxTail, TransactOutput,
-    TransactProof,
+    tag, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
 };
 use zolana_interface::shape::Shape;
 use zolana_interface::{N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID};
@@ -34,38 +33,34 @@ const CUSTOM_RING_EXTRA_DATA: usize = 256;
 
 fn ix_data(n_in: usize, n_out: usize, output_data_len: usize) -> Vec<u8> {
     let data = TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            interface_transfers: Vec::new(),
-            outputs: (0..n_out)
-                .map(|_| TransactOutput {
-                    utxo_hash: [0u8; 32],
-                    owner_tag: OwnerTag::Inline([0u8; 32]),
-                    data: (output_data_len > 0).then(|| vec![0u8; output_data_len]),
-                })
-                .collect(),
-            messages: Vec::new(),
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        interface_transfers: Vec::new(),
+        outputs: (0..n_out)
+            .map(|_| TransactOutput {
+                utxo_hash: [0u8; 32],
+                owner_tag: OwnerTag::Inline([0u8; 32]),
+                data: (output_data_len > 0).then(|| vec![0u8; output_data_len]),
+            })
+            .collect(),
+        messages: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+        proof: TransactProof {
+            a: [0u8; 32],
+            b: [0u8; 64],
+            c: [0u8; 32],
         },
-        tail: TransactIxTail {
-            circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
-            proof: TransactProof {
-                a: [0u8; 32],
-                b: [0u8; 64],
-                c: [0u8; 32],
-            },
-            private_tx_hash: [0u8; 32],
-            inputs: (0..n_in)
-                .map(|_| InputUtxo {
-                    nullifier_hash: [0u8; 32],
-                    nullifier_tree_root_index: 0,
-                    utxo_tree_root_index: 0,
-                })
-                .collect(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        private_tx_hash: [0u8; 32],
+        inputs: (0..n_in)
+            .map(|_| InputUtxo {
+                nullifier_hash: [0u8; 32],
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
     };
     let mut bytes = vec![tag::TRANSACT];
     bytes.extend_from_slice(&data.serialize().expect("serialize transact ix data"));
@@ -212,9 +207,12 @@ fn merge_v1_fit(
     signatures: usize,
 ) -> Option<(usize, usize)> {
     use zolana_interface::instruction::{
-        builders::{MergeRing, MergeTransact},
-        instruction_data::merge_transact::MergeProof,
-        MergeTransactIxData,
+        builders::{nullifier_pda_accounts, MergeBuildError, MergeRing, MergeTransact},
+        instruction_data::{
+            merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
+            MergeRingIxData,
+        },
+        tag, MergeTransactIxData,
     };
 
     let payer = Pubkey::new_unique();
@@ -229,13 +227,13 @@ fn merge_v1_fit(
         utxo_tree_root_index: vec![0; n_in],
         nullifier_tree_root_index: vec![0; n_in],
     };
-    let mut instruction = if ring {
+    let instruction = if ring {
         MergeRing {
             input_tree,
             output_tree: Pubkey::new_unique(),
             ring_program_id: Pubkey::new_unique(),
             payer,
-            data,
+            data: data.clone(),
             output_ring_data_hash: [0u8; 32],
         }
         .instruction()
@@ -245,9 +243,74 @@ fn merge_v1_fit(
             output_tree: Pubkey::new_unique(),
             payer,
             user_record: Pubkey::new_unique(),
-            data,
+            data: data.clone(),
         }
         .instruction()
+    };
+    let mut instruction = match instruction {
+        Ok(instruction) => instruction,
+        Err(MergeBuildError::UnsupportedInputCount { .. }) => {
+            // This branch deliberately models a hypothetical future shape above
+            // the protocol's supported counts. Build the fixed account layout
+            // through a valid builder, then replace only the shape-dependent
+            // nullifier accounts and wire payload used by this size probe.
+            let mut supported_data = data.clone();
+            supported_data
+                .nullifiers
+                .resize(MERGE_DEFAULT_INPUT_COUNT, [0u8; 32]);
+            supported_data
+                .utxo_tree_root_index
+                .resize(MERGE_DEFAULT_INPUT_COUNT, 0);
+            supported_data
+                .nullifier_tree_root_index
+                .resize(MERGE_DEFAULT_INPUT_COUNT, 0);
+            let mut instruction = if ring {
+                MergeRing {
+                    input_tree,
+                    output_tree: Pubkey::new_unique(),
+                    ring_program_id: Pubkey::new_unique(),
+                    payer,
+                    data: supported_data,
+                    output_ring_data_hash: [0u8; 32],
+                }
+                .instruction()
+                .expect("the default merge shape is supported")
+            } else {
+                MergeTransact {
+                    input_tree,
+                    output_tree: Pubkey::new_unique(),
+                    payer,
+                    user_record: Pubkey::new_unique(),
+                    data: supported_data,
+                }
+                .instruction()
+                .expect("the default merge shape is supported")
+            };
+            instruction.accounts.truncate(6);
+            instruction
+                .accounts
+                .extend(nullifier_pda_accounts(&input_tree, data.nullifiers.iter()));
+            instruction.data.clear();
+            if ring {
+                instruction.data.push(tag::RING_MERGE_TRANSACT);
+                instruction.data.extend(
+                    MergeRingIxData {
+                        output_ring_data_hash: [0u8; 32],
+                        merge: data,
+                    }
+                    .serialize()
+                    .expect("the hypothetical merge shape must serialize"),
+                );
+            } else {
+                instruction.data.push(tag::MERGE_TRANSACT);
+                instruction.data.extend(
+                    data.serialize()
+                        .expect("the hypothetical merge shape must serialize"),
+                );
+            }
+            instruction
+        }
+        Err(error) => panic!("merge size probe has invalid data: {error}"),
     };
     for _ in 0..extra_accounts {
         instruction

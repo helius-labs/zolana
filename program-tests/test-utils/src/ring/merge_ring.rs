@@ -299,7 +299,7 @@ impl RingHarness {
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let send_result = send_transaction(
             &mut self.rpc,
@@ -523,7 +523,7 @@ impl RingHarness {
             data: data.merge.clone(),
             output_ring_data_hash: data.output_ring_data_hash,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         match send_transaction(
             &mut self.rpc,

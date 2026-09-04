@@ -47,8 +47,7 @@ impl LifecycleHarness {
     /// legacy or v0 send: the addresses are not what overflows.
     ///
     /// Every input is owned by the single actor `from`, whose ed25519 key is the
-    /// fee payer, so the signer run is one entry long and stays far inside
-    /// `MAX_UNIQUE_SIGNERS`.
+    /// fee payer, so the signer run is one entry long.
     pub fn consolidate_at_shape(
         &mut self,
         from: &str,
@@ -99,7 +98,7 @@ impl LifecycleHarness {
                 interface_transfer_accounts: Vec::new(),
                 data: ix_data,
             }
-            .instruction(),
+            .instruction()?,
         ];
         let transaction_len = v1_transaction_len(&ixs, &fee_payer.pubkey(), 1)?;
         let signature = send_transaction_v1(&mut self.rpc, &ixs, &fee_payer, &[])?;

@@ -263,7 +263,7 @@ pub(crate) fn decode_output_blinding(
         .output_data()
         .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
+        zolana_interface::output_data::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty output blob"))?,

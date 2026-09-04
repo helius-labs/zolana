@@ -1,6 +1,6 @@
 use zolana_interface::{
     instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, TransactIxBound, TransactIxData, TransactIxTail, TransactProof,
+        CircuitId, InputUtxo, TransactIxData, TransactProof,
     },
     N_PUBLIC_SLOTS,
 };
@@ -91,7 +91,7 @@ pub struct AssembledTransfer {
 
 impl AssembledTransfer {
     pub fn with_proof(mut self, proof: TransactProof) -> TransactIxData {
-        self.ix.tail.proof = proof;
+        self.ix.proof = proof;
         self.ix
     }
 }
@@ -287,22 +287,18 @@ pub fn assemble_with_dummy_policy(
     }
 
     let ix = TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts,
-            interface_transfers,
-            tx_viewing_pk,
-            salt,
-            outputs,
-            messages,
-        },
-        tail: TransactIxTail {
-            proof: TransactProof::zeroed(),
-            private_tx_hash: private_tx,
-            circuit: circuit_id,
-            inputs,
-            data_hash,
-            ring_data_hash,
-        },
+        expiry_unix_ts,
+        interface_transfers,
+        tx_viewing_pk,
+        salt,
+        outputs,
+        messages,
+        data_hash,
+        ring_data_hash,
+        proof: TransactProof::zeroed(),
+        private_tx_hash: private_tx,
+        circuit: circuit_id,
+        inputs,
     };
 
     Ok(AssembledTransfer {

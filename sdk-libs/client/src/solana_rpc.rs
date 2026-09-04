@@ -114,7 +114,7 @@ fn transact_view_tags(
     let transact_data = TransactIxData::deserialize(payload)
         .map_err(|err| ClientError::Rpc(format!("decode transact instruction data: {err}")))?;
     let mut tags = BTreeSet::new();
-    for output in &transact_data.bound.outputs {
+    for output in &transact_data.outputs {
         let tag = fetch_tag(&output.owner_tag, |i| {
             instruction
                 .accounts

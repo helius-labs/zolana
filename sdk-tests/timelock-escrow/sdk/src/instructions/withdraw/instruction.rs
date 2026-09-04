@@ -32,11 +32,7 @@ impl Withdraw {
 
         let nullifier_pdas = nullifier_pda_accounts(
             &tree,
-            spp_proof
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
+            spp_proof.inputs.iter().map(|input| &input.nullifier_hash),
         );
         let serialized_ix = wincode::serialize(&WithdrawIxData {
             proof: withdraw_proof,

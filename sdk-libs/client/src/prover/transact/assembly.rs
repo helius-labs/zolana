@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
-use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
+use zolana_interface::output_data::is_confidential_encrypted_output;
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::transact::PublicTransfers, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
@@ -354,11 +354,13 @@ fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
-    use zolana_event::{
-        OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    use zolana_interface::{
+        instruction::{OwnerTag, TransactOutput},
+        output_data::{
+            OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+            RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        },
     };
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
 
     use super::*;
 

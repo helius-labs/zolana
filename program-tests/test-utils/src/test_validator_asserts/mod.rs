@@ -47,7 +47,7 @@ pub fn expected_deposit_view(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::ProoflessOutput {
+        output: zolana_interface::output_data::ProoflessOutput {
             owner: data.owner,
             blinding: data.blinding,
             asset: expected_asset.to_bytes(),

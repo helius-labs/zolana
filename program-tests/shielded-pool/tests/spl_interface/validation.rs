@@ -9,7 +9,7 @@ use spl_token_2022_interface::{
         transfer_fee::TransferFeeConfig, BaseStateWithExtensionsMut, ExtensionType,
         PodStateWithExtensionsMut,
     },
-    pod::{PodAccount, PodMint},
+    pod::PodMint,
 };
 use zolana_account_checks::account_info::test_account_info::get_account_view;
 use zolana_interface::{
@@ -55,12 +55,34 @@ fn token_2022_mint_with_transfer_fee() -> AccountView {
     )
 }
 
-fn token_2022_mint_with_confidential_extensions() -> AccountView {
+fn token_2022_mint_with_safe_confidential_extensions() -> AccountView {
+    let extension_types = [
+        ExtensionType::ConfidentialTransferMint,
+        ExtensionType::ConfidentialMintBurn,
+    ];
+    let mut data = token_2022_mint_data(&extension_types);
+    let mut state = PodStateWithExtensionsMut::<PodMint>::unpack_uninitialized(&mut data).unwrap();
+    state
+        .init_extension::<ConfidentialTransferMint>(false)
+        .unwrap();
+    state.init_extension::<ConfidentialMintBurn>(false).unwrap();
+    state.base.is_initialized = true.into();
+    state.init_account_type().unwrap();
+    get_account_view(
+        MINT_ADDRESS,
+        SPL_TOKEN_2022_PROGRAM_ID,
+        false,
+        false,
+        false,
+        data,
+    )
+}
+
+fn token_2022_mint_with_confidential_transfer_fee() -> AccountView {
     let extension_types = [
         ExtensionType::ConfidentialTransferMint,
         ExtensionType::TransferFeeConfig,
         ExtensionType::ConfidentialTransferFeeConfig,
-        ExtensionType::ConfidentialMintBurn,
     ];
     let mut data = token_2022_mint_data(&extension_types);
     let mut state = PodStateWithExtensionsMut::<PodMint>::unpack_uninitialized(&mut data).unwrap();
@@ -71,7 +93,6 @@ fn token_2022_mint_with_confidential_extensions() -> AccountView {
     state
         .init_extension::<ConfidentialTransferFeeConfig>(false)
         .unwrap();
-    state.init_extension::<ConfidentialMintBurn>(false).unwrap();
     state.base.is_initialized = true.into();
     state.init_account_type().unwrap();
     get_account_view(
@@ -111,30 +132,43 @@ fn accepts_safe_token_2022_mint_extensions() {
 }
 
 #[test]
-fn sizes_vault_for_transfer_fee_accounts() {
+fn rejects_transfer_fee_config() {
     let mint = token_2022_mint_with_transfer_fee();
-    let validated =
-        validate_token_mint_for_interface(&mint, &Address::from(SPL_TOKEN_2022_PROGRAM_ID))
-            .unwrap();
-    let expected_len =
-        ExtensionType::try_calculate_account_len::<PodAccount>(&[ExtensionType::TransferFeeAmount])
-            .unwrap();
+    let error =
+        match validate_token_mint_for_interface(&mint, &Address::from(SPL_TOKEN_2022_PROGRAM_ID)) {
+            Ok(_) => panic!("transfer-fee mints must be rejected"),
+            Err(error) => error,
+        };
 
-    assert_eq!(validated.token_account_len, expected_len);
+    assert_eq!(
+        error,
+        ProgramError::Custom(ShieldedPoolError::UnsupportedToken2022Extension as u32)
+    );
 }
 
 #[test]
 fn accepts_confidential_token_extensions() {
-    let mint = token_2022_mint_with_confidential_extensions();
+    let mint = token_2022_mint_with_safe_confidential_extensions();
     let validated =
         validate_token_mint_for_interface(&mint, &Address::from(SPL_TOKEN_2022_PROGRAM_ID))
             .unwrap();
-    let expected_len =
-        ExtensionType::try_calculate_account_len::<PodAccount>(&[ExtensionType::TransferFeeAmount])
-            .unwrap();
 
-    assert_eq!(validated.token_account_len, expected_len);
-    assert!(validated.token_account_len > SPL_TOKEN_ACCOUNT_LEN);
+    assert_eq!(validated.token_account_len, SPL_TOKEN_ACCOUNT_LEN);
+}
+
+#[test]
+fn rejects_confidential_transfer_fee_config() {
+    let mint = token_2022_mint_with_confidential_transfer_fee();
+    let error =
+        match validate_token_mint_for_interface(&mint, &Address::from(SPL_TOKEN_2022_PROGRAM_ID)) {
+            Ok(_) => panic!("confidential transfer-fee mints must be rejected"),
+            Err(error) => error,
+        };
+
+    assert_eq!(
+        error,
+        ProgramError::Custom(ShieldedPoolError::UnsupportedToken2022Extension as u32)
+    );
 }
 
 #[test]

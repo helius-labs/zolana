@@ -98,7 +98,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
         "exactly one EmitEvent self-CPI must be recorded"
     );
     let event =
-        zolana_program_test::events::general_event(outcome.events.first().expect("deposit event"))
+        zolana_event::general_event_from_indexed(outcome.events.first().expect("deposit event"))
             .expect("decoded GeneralEvent");
     assert_eq!(
         event.spl_transfers,
@@ -502,14 +502,14 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
             leaf_index: first_leaf_index
                 .checked_add(u64::try_from(offset).expect("small ring deposit batch"))
                 .expect("ring deposit leaf index"),
-            output: zolana_event::EncryptedRingDepositOutput {
+            output: zolana_interface::output_data::EncryptedRingDepositOutput {
                 owner_utxo_hash: data.owner_utxo_hash,
                 asset: [0u8; 32],
                 amount,
                 data_hash: data.data_hash,
                 ring_program_id: RING_TEST_PROGRAM_ID,
                 ring_data_hash,
-                encrypted: zolana_event::EncryptedRingDepositData {
+                encrypted: zolana_interface::output_data::EncryptedRingDepositData {
                     tx_viewing_pk: data.encrypted.tx_viewing_pk,
                     salt: data.encrypted.salt,
                     ciphertext: data.encrypted.ciphertext.clone(),

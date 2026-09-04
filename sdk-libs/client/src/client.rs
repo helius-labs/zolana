@@ -1036,7 +1036,7 @@ fn build_unsigned_solana_transaction(
     recent_blockhash: Hash,
 ) -> Result<SolanaTransaction, ClientError> {
     SettlementAccountValidation {
-        transfers: &transact_data.bound.interface_transfers,
+        transfers: &transact_data.interface_transfers,
         accounts: &settlement_transfers,
     }
     .validate()?;
@@ -1048,7 +1048,7 @@ fn build_unsigned_solana_transaction(
         interface_transfer_accounts: settlement_transfers,
         data: transact_data,
     }
-    .instruction();
+    .instruction()?;
     let instructions = submit_instructions(
         compute_budget.cu_limit,
         compute_budget.cu_price_micro_lamports,
@@ -1460,11 +1460,11 @@ mod tests {
         ];
         let settlement_transfers = [
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: Pubkey::new_unique(),
+                user_account: Pubkey::new_unique(),
             }),
             TransactInterfaceTransferAccounts::SplDeposit(spl),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: Pubkey::new_unique(),
+                user_account: Pubkey::new_unique(),
             }),
         ];
 
@@ -1479,7 +1479,7 @@ mod tests {
     #[test]
     fn settlement_accounts_reject_count_and_type_mismatches() {
         let sol_accounts = TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-            recipient: Pubkey::new_unique(),
+            user_account: Pubkey::new_unique(),
         });
         assert!(matches!(
             SettlementAccountValidation {
@@ -1536,7 +1536,9 @@ mod tests {
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
             settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
+                TransactSolTransferAccounts {
+                    user_account: recipient,
+                },
             )],
             input_tree: tree,
         };

@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
     nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
-    Transact, TransactIxBound, TransactIxData, TransactIxTail, TransactProof,
+    Transact, TransactIxData, TransactProof,
 };
 use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
@@ -17,29 +17,25 @@ use zolana_interface::{pda, PROGRAM_ID_PUBKEY};
 
 fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData {
     TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            interface_transfers: Vec::new(),
-            outputs: Vec::new(),
-            messages: Vec::new(),
-        },
-        tail: TransactIxTail {
-            proof: TransactProof::zeroed(),
-            private_tx_hash: [0u8; 32],
-            circuit,
-            inputs: nullifiers
-                .iter()
-                .map(|nullifier_hash| InputUtxo {
-                    nullifier_hash: *nullifier_hash,
-                    nullifier_tree_root_index: 0,
-                    utxo_tree_root_index: 0,
-                })
-                .collect(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        interface_transfers: Vec::new(),
+        outputs: Vec::new(),
+        messages: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit,
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        inputs: nullifiers
+            .iter()
+            .map(|nullifier_hash| InputUtxo {
+                nullifier_hash: *nullifier_hash,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
     }
 }
 
@@ -84,7 +80,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(2, 2, 3), &nullifiers),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact");
     let mut expected_transact = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(input_tree, false),
@@ -105,7 +102,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingEddsa(2, 2, 3), &nullifiers),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid ring transact");
     let mut expected_ring = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(input_tree, false),
@@ -126,7 +124,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingAuthority(2, 2, 3), &nullifiers),
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid ring-authority transact");
     let mut expected_ring_authority = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(input_tree, false),
@@ -147,7 +146,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         user_record,
         data: merge_data.clone(),
     }
-    .instruction();
+    .instruction()
+    .expect("valid merge transact");
     let mut expected_merge = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
@@ -167,7 +167,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         data: merge_data,
         output_ring_data_hash: [0u8; 32],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid merge ring");
     let mut expected_merge_ring = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
@@ -196,7 +197,8 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingEddsa(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid ring transact");
     assert_eq!(ring.program_id, ring_program_id);
     assert_eq!(
         ring.accounts,
@@ -218,7 +220,8 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::RingAuthority(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid ring-authority transact");
     assert_eq!(authority.program_id, ring_program_id);
     assert_eq!(authority.accounts, ring.accounts);
 }
@@ -361,7 +364,8 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         interface_transfer_accounts: Vec::new(),
         data: transact_data(CircuitId::ConfidentialEddsa(0, 0, 3), &[]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact");
 
     assert_eq!(
         instruction.accounts,

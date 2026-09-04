@@ -7,30 +7,44 @@
 //! affordable: the emitted event is a fixed 18 or 50 bytes instead of one entry
 //! per input, output and message.
 //!
-//! This lives in `zolana-interface` rather than `zolana-event` because it parses
-//! instruction data and resolves owner tags, and `zolana-interface` already
-//! depends on `zolana-event` — the other direction would not compile.
+//! Reconstruction parses instruction data and resolves owner tags, so it reads
+//! `zolana-interface`'s wire types; the event crate owns it because the result
+//! is an event, not an instruction.
 
-use zolana_event::{
-    GeneralEvent, Input, MergeEvent, MessageData, OutputUtxo, SplTransfer, TransactEvent,
+use zolana_interface::instruction::{
+    instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeTransactIxData, MERGE_SUPPORTED_INPUT_COUNTS},
+        transact::{
+            fetch_tag, validate_interface_transfers, CircuitId, InterfaceTransfer, TransactIxData,
+        },
+    },
+    tag,
 };
 
-use crate::instruction::instruction_data::merge_transact::MergeTransactIxDataRef;
-use crate::instruction::instruction_data::transact::{
-    fetch_tag, InterfaceTransfer, TransactIxDataRef,
-};
-use crate::instruction::tag;
+use crate::{EventKind, GeneralEvent, Input, MergeEvent, OutputUtxo, SplTransfer, TransactEvent};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReconstructError {
     /// The parent instruction data did not parse as the tag claims.
-    UnparsableParent,
+    InvalidParentInstruction,
+    /// The event envelope or its kind-specific body is malformed.
+    InvalidEventPayload,
     /// An `OwnerTag::Account` referenced an index the account list does not have.
     OwnerTagAccountMissing,
     /// The parent account list is shorter than the instruction's fixed prefix.
     MissingAccount,
+    /// The parent account count is not one the program accepts for this shape.
+    InvalidAccountCount,
     /// The tag is not one that emits a reconstructible event.
-    UnsupportedInstruction(u8),
+    UnsupportedSourceInstruction(u8),
+    /// The event kind is unknown or does not reconstruct to a [`GeneralEvent`].
+    UnsupportedEventKind(u8),
+    /// The event envelope does not match the instruction that emitted it.
+    MismatchedEventKind {
+        source_instruction_tag: u8,
+        event_kind: u8,
+    },
     /// A queue sequence or leaf index overflowed while deriving entry `i`.
     IndexOverflow,
 }
@@ -46,7 +60,7 @@ const MERGE_OUTPUT_TREE: usize = 1;
 /// inside that group. Mirrors the program's per-kind parsing order.
 fn settlement_group(transfer: &InterfaceTransfer) -> (usize, Option<usize>) {
     match transfer {
-        // sol_interface, recipient
+        // sol_interface, user_account
         InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => (2, None),
         // mint, spl_interface, token_authority, user_token_account, token_program
         InterfaceTransfer::SplDeposit { .. } => (5, Some(0)),
@@ -55,14 +69,70 @@ fn settlement_group(transfer: &InterfaceTransfer) -> (usize, Option<usize>) {
     }
 }
 
-/// Accounts before the nullifier PDAs: payer, input tree, output tree, the pool
-/// program, the system program, and for the ring rails the signing ring config.
-fn fixed_prefix_len(source_instruction_tag: u8) -> Result<usize, ReconstructError> {
-    match source_instruction_tag {
-        tag::TRANSACT => Ok(5),
-        tag::RING_TRANSACT | tag::RING_AUTHORITY_TRANSACT => Ok(6),
-        other => Err(ReconstructError::UnsupportedInstruction(other)),
+fn validate_transact_source_tag(source_instruction_tag: u8) -> Result<(), ReconstructError> {
+    if EventKind::for_source_instruction(source_instruction_tag) == Some(EventKind::Transact) {
+        Ok(())
+    } else {
+        Err(ReconstructError::UnsupportedSourceInstruction(
+            source_instruction_tag,
+        ))
     }
+}
+
+fn validate_transact_shape(
+    source_instruction_tag: u8,
+    ix: &TransactIxData,
+    account_count: usize,
+) -> Result<(), ReconstructError> {
+    let valid_circuit = match source_instruction_tag {
+        tag::TRANSACT => matches!(ix.circuit, CircuitId::ConfidentialEddsa(..)),
+        tag::RING_TRANSACT => {
+            matches!(
+                ix.circuit,
+                CircuitId::RingEddsa(..) | CircuitId::RingP256(..)
+            )
+        }
+        tag::RING_AUTHORITY_TRANSACT => ix.circuit.is_authority(),
+        other => return Err(ReconstructError::UnsupportedSourceInstruction(other)),
+    };
+    if !valid_circuit
+        || !ix.circuit.is_supported()
+        || usize::from(ix.circuit.num_inputs()) != ix.inputs.len()
+        || usize::from(ix.circuit.num_outputs()) != ix.outputs.len()
+        || validate_interface_transfers(&ix.interface_transfers).is_err()
+    {
+        return Err(ReconstructError::InvalidParentInstruction);
+    }
+
+    let fixed_prefix = if source_instruction_tag == tag::TRANSACT {
+        5usize
+    } else {
+        6usize
+    };
+    let settlement_count = ix
+        .interface_transfers
+        .iter()
+        .try_fold(0usize, |total, transfer| {
+            total.checked_add(settlement_group(transfer).0)
+        });
+    let base = settlement_count
+        .and_then(|settlements| {
+            fixed_prefix
+                .checked_add(ix.inputs.len())?
+                .checked_add(settlements)
+        })
+        .ok_or(ReconstructError::InvalidAccountCount)?;
+
+    let valid_count = if source_instruction_tag == tag::RING_AUTHORITY_TRANSACT {
+        account_count == base
+    } else {
+        base.checked_add(ix.inputs.len())
+            .is_some_and(|maximum| (base..=maximum).contains(&account_count))
+    };
+    if !valid_count {
+        return Err(ReconstructError::InvalidAccountCount);
+    }
+    Ok(())
 }
 
 /// Rebuild a `transact` event. `parent_data` includes the instruction tag byte.
@@ -77,17 +147,18 @@ pub fn reconstruct_transact_event(
     parent_accounts: &[[u8; 32]],
     event: &TransactEvent,
 ) -> Result<GeneralEvent, ReconstructError> {
-    let payload = parent_data
-        .get(1..)
-        .ok_or(ReconstructError::UnparsableParent)?;
-    let ix =
-        TransactIxDataRef::from_bytes(payload).map_err(|_| ReconstructError::UnparsableParent)?;
+    validate_transact_source_tag(source_instruction_tag)?;
+    let payload = parent_payload(source_instruction_tag, parent_data)?;
+    let ix = TransactIxData::deserialize(payload)
+        .map_err(|_| ReconstructError::InvalidParentInstruction)?;
+    validate_transact_shape(source_instruction_tag, &ix, parent_accounts.len())?;
 
     let input_tree = *account_at(parent_accounts, TRANSACT_INPUT_TREE)?;
     let output_tree = *account_at(parent_accounts, TRANSACT_OUTPUT_TREE)?;
+    let spl_transfers = settlement_transfers(&ix.interface_transfers, parent_accounts)?;
 
-    let mut inputs = Vec::with_capacity(ix.tail.inputs.len());
-    for (offset, input) in ix.tail.inputs.iter().enumerate() {
+    let mut inputs = Vec::with_capacity(ix.inputs.len());
+    for (offset, input) in ix.inputs.iter().enumerate() {
         inputs.push(Input {
             tree: input_tree,
             input_queue_seq: sequence_at(event.first_input_queue_seq, offset)?,
@@ -95,53 +166,39 @@ pub fn reconstruct_transact_event(
         });
     }
 
-    let mut outputs = Vec::with_capacity(ix.bound.outputs.len());
-    for output in &ix.bound.outputs {
+    let mut outputs = Vec::with_capacity(ix.outputs.len());
+    for output in ix.outputs {
         let view_tag = fetch_tag(&output.owner_tag, |index| {
             parent_accounts.get(usize::from(index)).copied()
         })
         .map_err(|_| ReconstructError::OwnerTagAccountMissing)?;
         outputs.push(OutputUtxo {
             view_tag,
-            utxo_hash: *output.utxo_hash,
-            data: output.data.map(<[u8]>::to_vec).unwrap_or_default(),
+            utxo_hash: output.utxo_hash,
+            data: output.data.unwrap_or_default(),
         });
     }
 
     Ok(GeneralEvent {
         inputs,
         outputs,
-        messages: ix
-            .bound
-            .messages
-            .iter()
-            .map(|message| MessageData {
-                view_tag: *message.view_tag,
-                data: message.data.to_vec(),
-            })
-            .collect(),
-        tx_viewing_pk: *ix.bound.tx_viewing_pk,
-        salt: *ix.bound.salt,
+        messages: ix.messages,
+        tx_viewing_pk: ix.tx_viewing_pk,
+        salt: ix.salt,
         first_output_leaf_index: event.first_output_leaf_index,
         output_tree,
-        spl_transfers: settlement_transfers(
-            source_instruction_tag,
-            &ix.bound.interface_transfers,
-            parent_accounts,
-        )?,
+        spl_transfers,
     })
 }
 
 /// Pair each interface transfer with its settlement account group.
 fn settlement_transfers(
-    source_instruction_tag: u8,
     transfers: &[InterfaceTransfer],
     parent_accounts: &[[u8; 32]],
 ) -> Result<Vec<SplTransfer>, ReconstructError> {
     if transfers.is_empty() {
         return Ok(Vec::new());
     }
-    let _ = fixed_prefix_len(source_instruction_tag)?;
     let total: usize = transfers
         .iter()
         .map(|transfer| settlement_group(transfer).0)
@@ -179,28 +236,34 @@ pub fn reconstruct_merge_event(
     parent_accounts: &[[u8; 32]],
     event: &MergeEvent,
 ) -> Result<GeneralEvent, ReconstructError> {
-    let payload = parent_data
-        .get(1..)
-        .ok_or(ReconstructError::UnparsableParent)?;
-    let (ring_data_hash, merge_payload) = match source_instruction_tag {
-        tag::MERGE_TRANSACT => (None, payload),
+    let payload = parent_payload(source_instruction_tag, parent_data)?;
+    let (ring_data_hash, ix) = match source_instruction_tag {
+        tag::MERGE_TRANSACT => (
+            None,
+            MergeTransactIxData::deserialize(payload)
+                .map_err(|_| ReconstructError::InvalidParentInstruction)?,
+        ),
         tag::RING_MERGE_TRANSACT => {
-            let hash: [u8; 32] = payload
-                .get(..32)
-                .ok_or(ReconstructError::UnparsableParent)?
-                .try_into()
-                .map_err(|_| ReconstructError::UnparsableParent)?;
-            (
-                Some(hash),
-                payload
-                    .get(32..)
-                    .ok_or(ReconstructError::UnparsableParent)?,
-            )
+            let ring = MergeRingIxData::deserialize(payload)
+                .map_err(|_| ReconstructError::InvalidParentInstruction)?;
+            (Some(ring.output_ring_data_hash), ring.merge)
         }
-        other => return Err(ReconstructError::UnsupportedInstruction(other)),
+        other => return Err(ReconstructError::UnsupportedSourceInstruction(other)),
     };
-    let ix = MergeTransactIxDataRef::from_bytes(merge_payload)
-        .map_err(|_| ReconstructError::UnparsableParent)?;
+
+    let input_count = ix.nullifiers.len();
+    if ix.utxo_tree_root_index.len() != input_count
+        || ix.nullifier_tree_root_index.len() != input_count
+        || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count)
+    {
+        return Err(ReconstructError::InvalidParentInstruction);
+    }
+    let expected_accounts = 6usize
+        .checked_add(input_count)
+        .ok_or(ReconstructError::InvalidAccountCount)?;
+    if parent_accounts.len() != expected_accounts {
+        return Err(ReconstructError::InvalidAccountCount);
+    }
 
     let input_tree = *account_at(parent_accounts, MERGE_INPUT_TREE)?;
     let output_tree = *account_at(parent_accounts, MERGE_OUTPUT_TREE)?;
@@ -223,7 +286,7 @@ pub fn reconstruct_merge_event(
         Some(hash) => (
             *ix.nullifiers
                 .first()
-                .ok_or(ReconstructError::UnparsableParent)?,
+                .ok_or(ReconstructError::InvalidParentInstruction)?,
             hash.to_vec(),
         ),
     };
@@ -232,7 +295,7 @@ pub fn reconstruct_merge_event(
         inputs,
         outputs: vec![OutputUtxo {
             view_tag,
-            utxo_hash: *ix.output_utxo_hash,
+            utxo_hash: ix.output_utxo_hash,
             data,
         }],
         messages: Vec::new(),
@@ -248,6 +311,19 @@ fn account_at(accounts: &[[u8; 32]], index: usize) -> Result<&[u8; 32], Reconstr
     accounts.get(index).ok_or(ReconstructError::MissingAccount)
 }
 
+fn parent_payload(
+    source_instruction_tag: u8,
+    parent_data: &[u8],
+) -> Result<&[u8], ReconstructError> {
+    let (&actual_tag, payload) = parent_data
+        .split_first()
+        .ok_or(ReconstructError::InvalidParentInstruction)?;
+    if actual_tag != source_instruction_tag {
+        return Err(ReconstructError::InvalidParentInstruction);
+    }
+    Ok(payload)
+}
+
 fn sequence_at(first: u64, offset: usize) -> Result<u64, ReconstructError> {
     u64::try_from(offset)
         .ok()
@@ -258,14 +334,10 @@ fn sequence_at(first: u64, offset: usize) -> Result<u64, ReconstructError> {
 /// Rebuild the rich event for any emitting instruction, dispatching on the kind
 /// byte the payload carries.
 ///
-/// Behind `borsh` because decoding the logged body needs it; the on-chain
-/// program never decodes events, only emits them.
-///
 /// `payload` is the `EMIT_EVENT` instruction data with its tag byte removed, so
 /// it is `[EventKind, borsh(body)]`. Deposits still log a whole `GeneralEvent`;
 /// `transact` and `merge` log only their assigned positions and are rebuilt from
 /// `parent_data` and `parent_accounts`.
-#[cfg(feature = "borsh")]
 pub fn general_event_from_site(
     source_instruction_tag: u8,
     parent_data: &[u8],
@@ -273,31 +345,42 @@ pub fn general_event_from_site(
     payload: &[u8],
 ) -> Result<GeneralEvent, ReconstructError> {
     use borsh::BorshDeserialize;
-    use zolana_event::EventKind;
 
+    // Validate the caller-supplied source tag against the actual parent even
+    // for deposits, whose event body does not otherwise need parent data.
+    let _ = parent_payload(source_instruction_tag, parent_data)?;
     let (&kind_byte, body) = payload
         .split_first()
-        .ok_or(ReconstructError::UnparsableParent)?;
-    let kind = EventKind::from_byte(kind_byte)
-        .ok_or(ReconstructError::UnsupportedInstruction(kind_byte))?;
+        .ok_or(ReconstructError::InvalidEventPayload)?;
+    let kind =
+        EventKind::from_byte(kind_byte).ok_or(ReconstructError::UnsupportedEventKind(kind_byte))?;
+    let expected_kind = EventKind::for_source_instruction(source_instruction_tag).ok_or(
+        ReconstructError::UnsupportedSourceInstruction(source_instruction_tag),
+    )?;
+    if kind != expected_kind {
+        return Err(ReconstructError::MismatchedEventKind {
+            source_instruction_tag,
+            event_kind: kind_byte,
+        });
+    }
 
     match kind {
         EventKind::Transact => {
             let event = TransactEvent::try_from_slice(body)
-                .map_err(|_| ReconstructError::UnparsableParent)?;
+                .map_err(|_| ReconstructError::InvalidEventPayload)?;
             reconstruct_transact_event(source_instruction_tag, parent_data, parent_accounts, &event)
         }
         EventKind::Merge => {
-            let event =
-                MergeEvent::try_from_slice(body).map_err(|_| ReconstructError::UnparsableParent)?;
+            let event = MergeEvent::try_from_slice(body)
+                .map_err(|_| ReconstructError::InvalidEventPayload)?;
             reconstruct_merge_event(source_instruction_tag, parent_data, parent_accounts, &event)
         }
         // Deposits are out of scope for the shrink: their outputs are
         // Poseidon-hashed on chain and re-encoded rather than republished, so
         // the body still carries everything.
         EventKind::Deposit => {
-            GeneralEvent::try_from_slice(body).map_err(|_| ReconstructError::UnparsableParent)
+            GeneralEvent::try_from_slice(body).map_err(|_| ReconstructError::InvalidEventPayload)
         }
-        EventKind::NullifierTreeUpdate => Err(ReconstructError::UnsupportedInstruction(kind_byte)),
+        EventKind::NullifierTreeUpdate => Err(ReconstructError::UnsupportedEventKind(kind_byte)),
     }
 }

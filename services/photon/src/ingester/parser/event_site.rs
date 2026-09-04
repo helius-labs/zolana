@@ -16,9 +16,9 @@ use crate::ingester::{
 };
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, tag::InstructionTag, InstructionGroup as RingsInstructionGroup,
-    ParsedInstruction as RingsInstruction,
+    InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
 };
+use zolana_interface::instruction::{tag, InstructionTag};
 
 pub struct EventSite {
     /// Tag of the instruction that emitted this event.

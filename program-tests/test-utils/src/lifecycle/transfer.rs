@@ -201,7 +201,7 @@ impl LifecycleHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let sig = send_transaction(
             &mut self.rpc,
@@ -429,7 +429,7 @@ pub(crate) fn decode_output_blinding(
         .output_data()
         .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
+        zolana_interface::output_data::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty output blob"))?,

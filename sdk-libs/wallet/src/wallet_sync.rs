@@ -9,7 +9,7 @@ use solana_address::Address;
 
 use zolana_client::timing;
 use zolana_interface::{
-    event::{decode_encrypted_ring_deposit_output_data, decode_output_data},
+    output_data::{decode_encrypted_ring_deposit_output_data, decode_output_data},
     state::SplAssetRegistry,
     SHIELDED_POOL_PROGRAM_ID,
 };
@@ -1021,7 +1021,8 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use solana_signature::Signature;
-    use zolana_interface::event::{encode_output_data, ProoflessOutput};
+    use zolana_interface::output_data::encode_output_data;
+    use zolana_interface::output_data::ProoflessOutput;
     use zolana_keypair::{random_salt, ShieldedKeypair, SigningKey, ViewingKey};
     use zolana_transaction::{
         instructions::{

@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::ProoflessOutput;
+use zolana_interface::output_data::ProoflessOutput;
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{

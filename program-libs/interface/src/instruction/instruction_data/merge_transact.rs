@@ -1,6 +1,8 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
+use super::borrowed::{finish, read, BorrowedList};
+
 /// Input counts the merge circuits have verifying keys for, smallest first.
 /// Dummy slots publish deterministic nullifiers derived from the owner's
 /// nullifier secret and `nullifiers[0]`, so a spender pads up to the next
@@ -90,39 +92,42 @@ impl MergeTransactIxData {
     }
 }
 
-/// Read config for the borrowed view: identical to the default config used by
-/// [`MergeTransactIxData::serialize`]; every sequence carries an explicit
-/// `FixIntLen<u8>` override, so the config choice never surfaces on the wire.
-pub(crate) type RefConfig = wincode::config::Configuration<
-    true,
-    { wincode::config::DEFAULT_PREALLOCATION_SIZE_LIMIT },
-    FixIntLen<u16>,
->;
-
-/// Zero-copy view of [`MergeTransactIxData`]. The proof points alias the
-/// instruction buffer; only the small element vectors are read owned.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+/// Allocation-free view of [`MergeTransactIxData`]. Proof points and
+/// nullifiers alias the instruction buffer; index lists are decoded lazily.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MergeTransactIxDataRef<'a> {
     pub expiry_unix_ts: u64,
     pub proof: MergeProofRef<'a>,
     pub output_utxo_hash: &'a [u8; 32],
     pub eddsa_owner: bool,
     pub private_tx_hash: &'a [u8; 32],
-    #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
-    pub nullifiers: Vec<[u8; 32]>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub utxo_tree_root_index: Vec<u16>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub nullifier_tree_root_index: Vec<u16>,
+    pub nullifiers: BorrowedList<'a, &'a [u8; 32]>,
+    pub utxo_tree_root_index: BorrowedList<'a, u16>,
+    pub nullifier_tree_root_index: BorrowedList<'a, u16>,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
         // Exact: trailing bytes after a merge payload are unbound by any proof
         // input, so they must be rejected rather than ignored.
-        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
+        let mut cursor = data;
+        let parsed = Self::read_from(&mut cursor)?;
+        finish(cursor)?;
         parsed.validate_shape()?;
         Ok(parsed)
+    }
+
+    pub(crate) fn read_from(cursor: &mut &'a [u8]) -> Result<Self, wincode::ReadError> {
+        Ok(Self {
+            expiry_unix_ts: read::<u64>(cursor)?,
+            proof: read::<MergeProofRef<'a>>(cursor)?,
+            output_utxo_hash: read::<&[u8; 32]>(cursor)?,
+            eddsa_owner: read::<bool>(cursor)?,
+            private_tx_hash: read::<&[u8; 32]>(cursor)?,
+            nullifiers: BorrowedList::read::<&[u8; 32]>(cursor, MAX_MERGE_INPUTS)?,
+            utxo_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS)?,
+            nullifier_tree_root_index: BorrowedList::read::<u16>(cursor, MAX_MERGE_INPUTS)?,
+        })
     }
 
     /// Enforce a supported merge shape. Shared with `merge_ring`, which embeds
@@ -205,10 +210,16 @@ mod tests {
         assert_eq!(view.proof.b, &owned.proof.b);
         assert_eq!(view.proof.c, &owned.proof.c);
         assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
-        assert_eq!(view.nullifiers, owned.nullifiers);
+        assert_eq!(view.nullifiers.len(), owned.nullifiers.len());
+        for (got, want) in view.nullifiers.try_iter().zip(&owned.nullifiers) {
+            assert_eq!(got.unwrap(), want);
+        }
         assert_eq!(
-            view.nullifier_tree_root_index,
-            owned.nullifier_tree_root_index
+            view.nullifier_tree_root_index
+                .try_iter()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
+            owned.nullifier_tree_root_index,
         );
         assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
         assert_eq!(view.eddsa_owner, owned.eddsa_owner);

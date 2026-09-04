@@ -13,7 +13,8 @@ pub enum Settlement<'a> {
 pub struct SettlementAccountsSol<'a> {
     pub sol_interface_account: &'a AccountView,
     pub sol_interface_bump: u8,
-    pub recipient_account: &'a AccountView,
+    /// User-side SOL account: source for deposits, destination for withdrawals.
+    pub user_account: &'a AccountView,
 }
 
 pub struct SplDepositAccounts<'a> {

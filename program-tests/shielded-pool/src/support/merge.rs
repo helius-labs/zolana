@@ -130,6 +130,7 @@ impl RealMerge {
             data: self.data.clone(),
         }
         .instruction()
+        .expect("real merge proof uses a supported shape")
     }
 }
 

@@ -5,12 +5,12 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use spl_token_2022_interface::{
     extension::{transfer_fee::instruction::initialize_transfer_fee_config, ExtensionType},
-    instruction::{initialize_account3, initialize_mint2},
-    pod::{PodAccount, PodMint},
+    instruction::initialize_mint2,
+    pod::PodMint,
 };
 use zolana_account_checks::AccountError;
 use zolana_interface::{error::ShieldedPoolError, instruction::CreateSplInterface, pda};
-use zolana_program_test::{system_create_account_ix, test_blinding, Rejection, ZolanaProgramTest};
+use zolana_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 
@@ -618,71 +618,33 @@ fn create_transfer_fee_mint(
     mint.pubkey()
 }
 
-fn create_transfer_fee_token_account(
-    rpc: &mut ZolanaProgramTest,
-    mint: &Pubkey,
-    owner: &Pubkey,
-) -> Pubkey {
-    let token_program = ZolanaProgramTest::token_2022_program_id();
-    let account = Keypair::new();
-    let account_len =
-        ExtensionType::try_calculate_account_len::<PodAccount>(&[ExtensionType::TransferFeeAmount])
-            .expect("transfer-fee token-account length");
-    let create_ix = system_create_account_ix(
-        &rpc.payer.pubkey(),
-        &account.pubkey(),
-        rpc.svm.minimum_balance_for_rent_exemption(account_len),
-        account_len as u64,
-        &token_program,
-    );
-    let init_ix = initialize_account3(&token_program, &account.pubkey(), mint, owner)
-        .expect("initialize transfer-fee token account");
-
-    rpc.create_and_send_default_payer_transaction(&[create_ix, init_ix], &[&account])
-        .expect("create transfer-fee token account");
-    account.pubkey()
-}
-
 #[test]
-fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount() {
+fn transfer_fee_mint_is_rejected_before_interface_creation() {
     let mut pool = Pool::initialized();
     pool.rpc
         .ensure_asset_counter(&pool.authority)
         .expect("asset counter");
 
-    // One percent of 400 is 4.
     let token_program = ZolanaProgramTest::token_2022_program_id();
     let mint = create_transfer_fee_mint(&mut pool.rpc, 100, u64::MAX);
-    let (_, vault) = pool
+    let counter_before = pool
         .rpc
-        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
-        .expect("create transfer-fee interface");
-    let depositor = pool.funded_signer(1_000_000_000);
-    let source = create_transfer_fee_token_account(&mut pool.rpc, &mint, &depositor.pubkey());
-    pool.rpc
-        .mint_to_with_program(&mint, &source, 1_000, token_program)
-        .expect("mint Token-2022 balance");
-
-    let data = ZolanaProgramTest::spl_shield_data_with_program(
-        400,
-        [1u8; 32],
-        test_blinding(7),
-        &mint,
-        &source,
-        token_program,
-    );
-    let tree = pool.tree;
-    let root_before = pool.rpc.state_root(&tree).expect("root");
-
+        .account_data(&pda::spl_asset_counter())
+        .expect("asset counter");
     let err = pool
         .rpc
-        .deposit(&tree, &depositor, &data)
-        .expect_err("396 credited for a nominal 400 deposit must be rejected");
-    Rejection::pool(ShieldedPoolError::PublicSettlementFailed).assert_litesvm(err);
+        .create_spl_interface_with_program(&pool.authority, &mint, token_program)
+        .expect_err("transfer-fee interface must be rejected");
+    Rejection::pool(ShieldedPoolError::UnsupportedToken2022Extension).assert_litesvm(err);
 
-    // The failed instruction rolls back both the fee-bearing transfer and the
-    // shielded-state append.
-    assert_eq!(pool.rpc.token_balance(&source), Some(1_000));
-    assert_eq!(pool.rpc.token_balance(&vault), Some(0));
-    assert_eq!(pool.rpc.state_root(&tree), Some(root_before));
+    assert!(pool
+        .rpc
+        .account_data(&pda::spl_asset_registry(&mint))
+        .is_none());
+    assert!(pool.rpc.account_data(&pda::spl_interface(&mint)).is_none());
+    assert_eq!(
+        pool.rpc.account_data(&pda::spl_asset_counter()),
+        Some(counter_before),
+        "rejected mint must not consume an asset id"
+    );
 }

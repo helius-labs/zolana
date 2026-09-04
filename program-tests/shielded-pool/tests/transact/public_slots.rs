@@ -14,7 +14,7 @@ fn sol_settlement(account: &pinocchio::AccountView, is_deposit: bool) -> Settlem
     let accounts = SettlementAccountsSol {
         sol_interface_account: account,
         sol_interface_bump: 0,
-        recipient_account: account,
+        user_account: account,
     };
     if is_deposit {
         Settlement::SolDeposit(accounts)
@@ -39,7 +39,7 @@ fn intermediate_zero_net_is_order_independent() {
     let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
 
     proof_inputs
-        .assign_public_amounts_and_assets(&transfers, &settlements, 1)
+        .assign_public_amounts_and_assets(transfers.into_iter().map(Ok::<_, ()>), &settlements, 1)
         .unwrap();
 
     assert_eq!(proof_inputs.public_slot_assets[0], SOL_ASSET_FIELD);
@@ -60,7 +60,11 @@ fn final_zero_net_is_rejected() {
     let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
 
     assert_eq!(
-        proof_inputs.assign_public_amounts_and_assets(&transfers, &settlements, 1),
+        proof_inputs.assign_public_amounts_and_assets(
+            transfers.into_iter().map(Ok::<_, ()>),
+            &settlements,
+            1,
+        ),
         Err(ShieldedPoolError::ZeroNetInterfaceTransferAmount.into())
     );
 }

@@ -216,7 +216,7 @@ Status of the audit findings against the current (post-PR164) tree:
 - F-04 Photon indexes batch updates from instruction intent not outcome
   (permissionless indexer halt): FIXED. Photon's
   `nullifier_tree_batch_update_parser` now sources updates exclusively from the
-  emitted `BatchAddressAppendEvent` (emitted only when an update actually
+  emitted `NullifierTreeUpdateEvent` (emitted only when an update actually
   applied), authenticated by stack-height parentage to a shielded-pool
   `BATCH_UPDATE_NULLIFIER_TREE` instruction -- forged tag-4 CPIs and no-op
   successes record nothing. Regression tests

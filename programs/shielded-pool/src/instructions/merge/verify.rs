@@ -1,6 +1,6 @@
 use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::{create_hash_chain_from_slice, HashChain};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
@@ -43,15 +43,15 @@ pub struct MergeProofInputs {
     pub owner_binding: MergeOwnerBinding,
 }
 
-pub struct MergeProof<'a> {
-    ix: &'a MergeTransactIxDataRef<'a>,
+pub struct MergeProof<'a, 'data> {
+    ix: &'a MergeTransactIxDataRef<'data>,
     // Borrowed rather than owned so assembling the proof does not copy the
     // derived inputs onto this frame on top of the caller's copy.
     derived: &'a MergeProofInputs,
 }
 
-impl<'a> MergeProof<'a> {
-    pub fn new(ix: &'a MergeTransactIxDataRef<'a>, derived: &'a MergeProofInputs) -> Self {
+impl<'a, 'data> MergeProof<'a, 'data> {
+    pub fn new(ix: &'a MergeTransactIxDataRef<'data>, derived: &'a MergeProofInputs) -> Self {
         Self { ix, derived }
     }
 
@@ -112,7 +112,11 @@ impl<'a> MergeProof<'a> {
     /// registry to bind it against) and appends the output `ring_data_hash` and
     /// `ring_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
-        let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
+        let mut nullifiers = HashChain::new();
+        for nullifier in self.ix.nullifiers.try_iter() {
+            nullifiers.push(nullifier.map_err(|_| ProgramError::InvalidInstructionData)?)?;
+        }
+        let nullifiers = nullifiers.finish();
         // The root chains were folded over `ix.nullifiers`; requiring the folded
         // count to match replaces the bounds the fixed-width arrays gave.
         if usize::from(self.derived.input_count) != self.ix.nullifiers.len() {

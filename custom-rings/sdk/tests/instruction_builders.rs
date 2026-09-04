@@ -11,7 +11,6 @@ use custom_ring_sdk::{
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_interface::instruction::{TransactIxBound, TransactIxTail};
 use zolana_interface::{
     instruction::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
@@ -534,25 +533,21 @@ fn sample_proof() -> CustomRingProof {
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            tx_viewing_pk: [62; 33],
-            salt: [63; 16],
-            interface_transfers,
-            outputs: Vec::new(),
-            messages: vec![MessageData {
-                view_tag: [64; 32],
-                data: vec![65; 65],
-            }],
-        },
-        tail: TransactIxTail {
-            proof: TransactProof::zeroed(),
-            private_tx_hash: [61; 32],
-            circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
-            inputs: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: [62; 33],
+        salt: [63; 16],
+        interface_transfers,
+        outputs: Vec::new(),
+        messages: vec![MessageData {
+            view_tag: [64; 32],
+            data: vec![65; 65],
+        }],
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [61; 32],
+        inputs: Vec::new(),
     }
 }
 
@@ -630,7 +625,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
 #[test]
 fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
     let mut transact = transact_data(Vec::new());
-    transact.tail.inputs = vec![
+    transact.inputs = vec![
         InputUtxo {
             nullifier_hash: [71; 32],
             nullifier_tree_root_index: 0,
@@ -684,7 +679,9 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         proof: sample_proof(),
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),

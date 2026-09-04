@@ -36,11 +36,7 @@ impl Settle {
 
         let nullifier_pdas = nullifier_pda_accounts(
             &tree,
-            transact
-                .tail
-                .inputs
-                .iter()
-                .map(|input| &input.nullifier_hash),
+            transact.inputs.iter().map(|input| &input.nullifier_hash),
         );
         let ix_data = SettleIxData { proof, transact };
         let serialized = wincode::serialize(&ix_data).map_err(err)?;

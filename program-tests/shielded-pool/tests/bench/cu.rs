@@ -22,7 +22,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::{
             merge_transact::MERGE_SUPPORTED_INPUT_COUNTS,
-            transact::{CircuitId, InterfaceTransfer, ResolvedInterfaceTransfer},
+            transact::{CircuitId, InterfaceTransfer},
         },
         tag, Deposit, RingTransact, Transact, TransactInterfaceTransferAccounts, TransactIxData,
         TransactSolTransferAccounts,
@@ -62,7 +62,7 @@ use zolana_test_utils::{
         external_data_hash_with_addresses, fe, inline_outputs, new_transact_ix_data,
         nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
         public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-        transfer_output, SpendInputArgs, TransferProverInputsArgs,
+        transfer_output, ResolvedInterfaceTransfer, SpendInputArgs, TransferProverInputsArgs,
     },
 };
 
@@ -312,7 +312,6 @@ fn transact_accounts(
         .expect("transact instruction data");
     let input_tree = ix.accounts.get(1).expect("input tree meta").pubkey;
     let nullifiers: Vec<[u8; 32]> = data
-        .tail
         .inputs
         .iter()
         .map(|input| input.nullifier_hash)
@@ -578,7 +577,7 @@ fn bench_transfer_shape(
         inline_outputs(&output_hashes, &view_tags),
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     let mut nullifier_pks = vec![nullifier_pk];
     nullifier_pks.extend(std::iter::repeat_n(zero, n_outputs - 1));
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
@@ -628,8 +627,8 @@ fn bench_transfer_shape(
     let proof = ProverClient::local()
         .prove_transfer(&prover_inputs)
         .unwrap_or_else(|error| panic!("prove transfer {n_inputs}x{n_outputs}: {error}"));
-    transact_ix_data.tail.proof = pack_transact_proof(&proof).expect("pack transfer proof");
-    transact_ix_data.tail.private_tx_hash = private_tx;
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack transfer proof");
+    transact_ix_data.private_tx_hash = private_tx;
 
     let ix = Transact {
         payer: payer.pubkey(),
@@ -639,7 +638,8 @@ fn bench_transfer_shape(
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -827,7 +827,7 @@ fn bench_ring_transfer_shape(
         inline_outputs(&output_hashes, &view_tags),
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &vec![zero; n_outputs]);
 
     let addresses =
@@ -975,9 +975,9 @@ fn bench_ring_transfer_shape(
             )
         }
     };
-    transact_ix_data.tail.proof = wire_proof;
-    transact_ix_data.tail.private_tx_hash = private_tx;
-    transact_ix_data.tail.circuit = circuit;
+    transact_ix_data.proof = wire_proof;
+    transact_ix_data.private_tx_hash = private_tx;
+    transact_ix_data.circuit = circuit;
 
     let ix = RingTransact {
         payer: payer.pubkey(),
@@ -988,7 +988,8 @@ fn bench_ring_transfer_shape(
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid ring transact builder input");
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -1124,7 +1125,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         inline_outputs(&output_hashes, &view_tags),
     );
     let owner_pk_hashes =
-        output_owner_pk_hashes(&transact_ix_data.bound.outputs).expect("output owner pk hashes");
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
     let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
         amount: AMOUNT,
@@ -1170,10 +1171,10 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         signer_pk_hashes: signer_pk_hashes.to_vec(),
         public_input_hash,
     });
-    transact_ix_data.tail.proof =
+    transact_ix_data.proof =
         prove_and_verify_transfer(&prover_inputs, public_input_hash, "withdrawal sol")
             .expect("prove withdrawal sol");
-    transact_ix_data.tail.private_tx_hash = private_tx;
+    transact_ix_data.private_tx_hash = private_tx;
 
     let ix = Transact {
         payer: payer.pubkey(),
@@ -1181,11 +1182,14 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);

@@ -3,7 +3,11 @@ use solana_pubkey::Pubkey;
 
 use crate::{
     instruction::{
-        builders::transact::nullifier_pda_accounts, tag, MergeRingIxData, MergeTransactIxData,
+        builders::{
+            merge_transact::{validate_merge_data, MergeBuildError},
+            transact::nullifier_pda_accounts,
+        },
+        tag, MergeRingIxData, MergeTransactIxData,
     },
     pda, PROGRAM_ID_PUBKEY,
 };
@@ -38,17 +42,23 @@ pub struct MergeRing {
 impl MergeRing {
     /// Instruction sent to the ring program, which CPIs into SPP. The `ring_auth`
     /// PDA is not a transaction-level signer; the ring program signs for it.
-    pub fn instruction(&self) -> Instruction {
+    pub fn instruction(&self) -> Result<Instruction, MergeBuildError> {
         self.build_instruction(self.ring_program_id, false)
     }
 
     /// The SPP instruction a ring program constructs for its own CPI: program id
     /// is SPP and the `ring_auth` PDA is passed as a signer.
-    pub fn cpi_instruction(&self) -> Instruction {
+    pub fn cpi_instruction(&self) -> Result<Instruction, MergeBuildError> {
         self.build_instruction(PROGRAM_ID_PUBKEY, true)
     }
 
-    fn build_instruction(&self, program_id: Pubkey, auth_signer: bool) -> Instruction {
+    fn build_instruction(
+        &self,
+        program_id: Pubkey,
+        auth_signer: bool,
+    ) -> Result<Instruction, MergeBuildError> {
+        validate_merge_data(&self.data)?;
+
         let ring_config = pda::ring_auth(&self.ring_program_id).0;
 
         let ix_data = MergeRingIxData {
@@ -59,7 +69,7 @@ impl MergeRing {
         instruction_data.extend_from_slice(
             &ix_data
                 .serialize()
-                .expect("shielded-pool instruction serialization is infallible"),
+                .map_err(|_| MergeBuildError::Serialization)?,
         );
 
         let mut accounts = vec![
@@ -75,11 +85,11 @@ impl MergeRing {
             self.data.nullifiers.iter(),
         ));
 
-        Instruction {
+        Ok(Instruction {
             program_id,
             accounts,
             data: instruction_data,
-        }
+        })
     }
 }
 
@@ -136,7 +146,7 @@ mod tests {
             output_ring_data_hash: [7u8; 32],
         };
 
-        let ix = builder.instruction();
+        let ix = builder.instruction().expect("valid merge ring");
         assert_eq!(ix.program_id, ring_program_id);
         assert_eq!(ix.data.first(), Some(&tag::RING_MERGE_TRANSACT));
         assert_eq!(ix.data.get(1..33), Some(&[7u8; 32][..]));
@@ -159,9 +169,32 @@ mod tests {
             output_ring_data_hash: [0u8; 32],
         };
 
-        let ix = builder.cpi_instruction();
+        let ix = builder.cpi_instruction().expect("valid merge ring");
         assert_eq!(ix.program_id, PROGRAM_ID_PUBKEY);
         assert_eq!(ix.accounts, expected_accounts(&builder, true));
         assert!(ix.accounts[2].is_signer);
+    }
+
+    #[test]
+    fn both_forms_reject_an_invalid_merge_shape() {
+        let mut invalid_data = data();
+        let input_count = invalid_data.nullifiers.len();
+        invalid_data.utxo_tree_root_index.pop();
+        let builder = MergeRing {
+            input_tree: Pubkey::new_unique(),
+            output_tree: Pubkey::new_unique(),
+            ring_program_id: Pubkey::new_unique(),
+            payer: Pubkey::new_unique(),
+            data: invalid_data,
+            output_ring_data_hash: [0u8; 32],
+        };
+        let expected = MergeBuildError::InputVectorLengthMismatch {
+            nullifier_count: input_count,
+            utxo_root_index_count: input_count - 1,
+            nullifier_root_index_count: input_count,
+        };
+
+        assert_eq!(builder.instruction(), Err(expected));
+        assert_eq!(builder.cpi_instruction(), Err(expected));
     }
 }

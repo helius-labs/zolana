@@ -44,6 +44,9 @@ impl<'a> MergeTransactAccounts<'a> {
         // One contiguous slice, sized by the instruction's declared input
         // count rather than by a compile-time constant.
         let nullifier_pdas = iter.next_slice_mut(input_count, "nullifier_pda")?;
+        if !iter.iterator_is_empty() {
+            return Err(ShieldedPoolError::InvalidMergeShape.into());
+        }
         Ok(Self {
             input_tree,
             output_tree,
@@ -51,6 +54,39 @@ impl<'a> MergeTransactAccounts<'a> {
             user_record,
             nullifier_pdas,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+
+    fn account(address: [u8; 32], signer: bool, writable: bool) -> AccountView {
+        get_account_view(address, [0; 32], signer, writable, false, Vec::new())
+    }
+
+    #[test]
+    fn rejects_accounts_after_declared_nullifier_pdas() {
+        let mut accounts = [
+            account([1; 32], false, true),
+            account([2; 32], false, true),
+            account([3; 32], true, false),
+            account([4; 32], false, false),
+            account([0; 32], false, false),
+            account(crate::ID.to_bytes(), false, false),
+            account([5; 32], false, true),
+            account([6; 32], false, false),
+        ];
+
+        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts, 1) {
+            Ok(_) => panic!("trailing account must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidMergeShape as u32)
+        );
     }
 }
 

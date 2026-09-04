@@ -5,8 +5,9 @@
 //! silently misread, so pin the agreement rather than assuming it.
 
 use zolana_event::{
-    encode_merge_event, encode_transact_event, tag, EventKind, MergeEvent, TransactEvent,
+    encode_merge_event, encode_transact_event, EventKind, MergeEvent, TransactEvent,
 };
+use zolana_interface::instruction::tag;
 
 #[test]
 fn transact_event_stack_encoding_matches_borsh() {

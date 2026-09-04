@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_interface::{instruction::MessageData, output_data::OutputDataEncoding};
 use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;

@@ -1,6 +1,9 @@
 use wincode::{SchemaRead, SchemaWrite};
 
-use super::merge_transact::{MergeTransactIxData, MergeTransactIxDataRef, RefConfig};
+use super::{
+    borrowed::{finish, read},
+    merge_transact::{MergeTransactIxData, MergeTransactIxDataRef},
+};
 
 /// `merge_ring` instruction data (spec: SPP `merge_ring`): the
 /// [`MergeTransactIxData`] body plus the output `ring_data_hash` the calling
@@ -25,7 +28,7 @@ impl MergeRingIxData {
 
 /// Zero-copy view of [`MergeRingIxData`]; the embedded [`MergeTransactIxDataRef`]
 /// aliases the instruction buffer exactly as in `merge_transact`.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MergeRingIxDataRef<'a> {
     pub output_ring_data_hash: &'a [u8; 32],
     pub merge: MergeTransactIxDataRef<'a>,
@@ -35,7 +38,12 @@ impl<'a> MergeRingIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, wincode::ReadError> {
         // Exact: trailing bytes after a merge payload are unbound by any proof
         // input, so they must be rejected rather than ignored.
-        let parsed: Self = wincode::config::deserialize_exact(data, RefConfig::new())?;
+        let mut cursor = data;
+        let parsed = Self {
+            output_ring_data_hash: read::<&[u8; 32]>(&mut cursor)?,
+            merge: MergeTransactIxDataRef::read_from(&mut cursor)?,
+        };
+        finish(cursor)?;
         parsed.merge.validate_shape()?;
         Ok(parsed)
     }
@@ -79,7 +87,15 @@ mod tests {
         let view = MergeRingIxDataRef::from_bytes(&bytes).unwrap();
         assert_eq!(view.output_ring_data_hash, &owned.output_ring_data_hash);
         assert_eq!(view.merge.proof.a, &owned.merge.proof.a);
-        assert_eq!(view.merge.nullifiers, owned.merge.nullifiers);
+        assert_eq!(view.merge.nullifiers.len(), owned.merge.nullifiers.len());
+        for (got, want) in view
+            .merge
+            .nullifiers
+            .try_iter()
+            .zip(&owned.merge.nullifiers)
+        {
+            assert_eq!(got.unwrap(), want);
+        }
     }
 
     #[test]

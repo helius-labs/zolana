@@ -1,5 +1,6 @@
 #[cfg(feature = "tree")]
 pub mod batch_update_nullifier_tree;
+mod borrowed;
 #[cfg(feature = "tree")]
 pub mod create_tree;
 pub mod deposit;
@@ -10,6 +11,8 @@ pub mod ring_config;
 #[cfg(feature = "tree")]
 pub mod set_tree_fees;
 pub mod transact;
+
+pub use borrowed::{BorrowedList, BorrowedListIter};
 
 #[cfg(feature = "tree")]
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
@@ -30,8 +33,7 @@ pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput,
-    TransactIxBound, TransactIxBoundRef, TransactIxData, TransactIxDataRef, TransactIxTail,
-    TransactIxTailRef, TransactOutput, TransactOutputRef, TransactProof,
+    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InputUtxoRef, InterfaceTransfer,
+    MessageDataRef, OwnerTag, OwnerTagRef, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, TransactProofRef,
 };

@@ -419,8 +419,8 @@ fn tx_size(args: Vec<String>) {
     use zolana_interface::instruction::instruction_data::MERGE_DEFAULT_INPUT_COUNT;
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxBound,
-            TransactIxData, TransactIxTail, TransactOutput, TransactProof,
+            tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
+            TransactProof,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -509,25 +509,21 @@ fn tx_size(args: Vec<String>) {
                 data: data_len.map(|len| vec![0u8; len]),
             })
             .collect();
-        // Captured before `outputs` moves into the bound half.
+        // Captured before `outputs` moves into the external-data fields.
         let n_outputs = outputs.len() as u8;
         TransactIxData {
-            bound: TransactIxBound {
-                expiry_unix_ts: 0,
-                interface_transfers,
-                tx_viewing_pk: [0u8; 33],
-                salt: [0u8; 16],
-                outputs,
-                messages: vec![],
-            },
-            tail: TransactIxTail {
-                proof,
-                private_tx_hash: [0u8; 32],
-                circuit: CircuitId::ConfidentialEddsa(n as u8, n_outputs, N_PUBLIC_SLOTS as u8),
-                inputs,
-                data_hash: None,
-                ring_data_hash: None,
-            },
+            expiry_unix_ts: 0,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers,
+            outputs,
+            messages: vec![],
+            data_hash: None,
+            ring_data_hash: None,
+            circuit: CircuitId::ConfidentialEddsa(n as u8, n_outputs, N_PUBLIC_SLOTS as u8),
+            proof,
+            private_tx_hash: [0u8; 32],
+            inputs,
         }
     };
 
@@ -886,7 +882,7 @@ fn tx_size(args: Vec<String>) {
             OPT_RECIPIENT_DATA_LEN,
         );
         let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
-        for (index, input) in data.tail.inputs.iter_mut().enumerate() {
+        for (index, input) in data.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
         let ix = zolana_interface::instruction::Transact {
@@ -897,7 +893,8 @@ fn tx_size(args: Vec<String>) {
             interface_transfer_accounts: Vec::new(),
             data,
         }
-        .instruction();
+        .instruction()
+        .expect("valid transact builder input");
         println!(
             "| {:<34} | {:>8} | {:>11} | {:>12} |",
             format!("transact {n} in 3 out, transfer"),
@@ -932,7 +929,8 @@ fn tx_size(args: Vec<String>) {
             user_record: Pubkey::new_unique(),
             data,
         }
-        .instruction();
+        .instruction()
+        .expect("the default merge shape is supported");
         let merge_ix_accounts = merge_ix.accounts.len();
         let merge_ix_data_len = merge_ix.data.len();
         let direct_len = bincode::serialize(&Transaction::new_unsigned(Message::new(
@@ -1015,8 +1013,7 @@ fn max_shape(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use zolana_interface::{
         instruction::{
-            tag, CircuitId, InputUtxo, OwnerTag, TransactIxBound, TransactIxData, TransactIxTail,
-            TransactOutput, TransactProof,
+            tag, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -1030,42 +1027,34 @@ fn max_shape(args: Vec<String>) {
 
     let ix_data = |n_in: usize, n_out: usize| -> Vec<u8> {
         let data = TransactIxData {
-            bound: TransactIxBound {
-                expiry_unix_ts: u64::MAX,
-                tx_viewing_pk: [0u8; 33],
-                salt: [0u8; 16],
-                interface_transfers: Vec::new(),
-                outputs: (0..n_out)
-                    .map(|_| TransactOutput {
-                        utxo_hash: [0u8; 32],
-                        owner_tag: OwnerTag::Inline([0u8; 32]),
-                        data: (output_data_len > 0).then(|| vec![0u8; output_data_len]),
-                    })
-                    .collect(),
-                messages: Vec::new(),
+            expiry_unix_ts: u64::MAX,
+            tx_viewing_pk: [0u8; 33],
+            salt: [0u8; 16],
+            interface_transfers: Vec::new(),
+            outputs: (0..n_out)
+                .map(|_| TransactOutput {
+                    utxo_hash: [0u8; 32],
+                    owner_tag: OwnerTag::Inline([0u8; 32]),
+                    data: (output_data_len > 0).then(|| vec![0u8; output_data_len]),
+                })
+                .collect(),
+            messages: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+            proof: TransactProof {
+                a: [0u8; 32],
+                b: [0u8; 64],
+                c: [0u8; 32],
             },
-            tail: TransactIxTail {
-                circuit: CircuitId::ConfidentialEddsa(
-                    n_in as u8,
-                    n_out as u8,
-                    N_PUBLIC_SLOTS as u8,
-                ),
-                proof: TransactProof {
-                    a: [0u8; 32],
-                    b: [0u8; 64],
-                    c: [0u8; 32],
-                },
-                private_tx_hash: [0u8; 32],
-                inputs: (0..n_in)
-                    .map(|_| InputUtxo {
-                        nullifier_hash: [0u8; 32],
-                        nullifier_tree_root_index: 0,
-                        utxo_tree_root_index: 0,
-                    })
-                    .collect(),
-                data_hash: None,
-                ring_data_hash: None,
-            },
+            private_tx_hash: [0u8; 32],
+            inputs: (0..n_in)
+                .map(|_| InputUtxo {
+                    nullifier_hash: [0u8; 32],
+                    nullifier_tree_root_index: 0,
+                    utxo_tree_root_index: 0,
+                })
+                .collect(),
         };
         let mut bytes = vec![tag::TRANSACT];
         bytes.extend_from_slice(&data.serialize().expect("serialize transact ix data"));
@@ -1163,19 +1152,24 @@ fn max_shape(args: Vec<String>) {
 /// Largest merge input count that fits a transaction v1 message, per rail.
 ///
 /// Merge has no output count to vary: it always produces one UTXO. The rails
-/// widen the same way `max-shape` does for transact, and the `merge_ring` rows
-/// use the real `MergeRing` builder so the extra `ring_config` account, the ring
-/// program's own address, and the 32-byte `output_ring_data_hash` are counted
-/// from the instruction rather than modelled.
+/// widen the same way `max-shape` does for transact. The `merge_ring` rows use
+/// the production account layout, so the extra `ring_config` account, the ring
+/// program's own address, and the 32-byte `output_ring_data_hash` are counted.
+/// This command intentionally serializes hypothetical unsupported counts so it
+/// can identify a future circuit ceiling; production builders reject those
+/// counts before constructing an instruction.
 fn max_merge_shape() {
     use solana_hash::Hash;
     use solana_instruction::{AccountMeta, Instruction};
     use solana_message::v1;
     use solana_pubkey::Pubkey;
-    use zolana_interface::instruction::{
-        builders::{MergeRing, MergeTransact},
-        instruction_data::merge_transact::MergeProof,
-        MergeTransactIxData,
+    use zolana_interface::{
+        instruction::{
+            builders::nullifier_pda_accounts,
+            instruction_data::{merge_transact::MergeProof, MergeRingIxData},
+            tag, MergeTransactIxData,
+        },
+        pda, PROGRAM_ID_PUBKEY,
     };
 
     let ix_data = |n_in: usize| MergeTransactIxData {
@@ -1201,24 +1195,50 @@ fn max_merge_shape() {
      -> Option<(usize, usize)> {
         let payer = Pubkey::new_unique();
         let input_tree = Pubkey::new_unique();
-        let mut instruction = match rail {
-            Rail::Plain => MergeTransact {
-                input_tree,
-                output_tree: Pubkey::new_unique(),
-                payer,
-                user_record: Pubkey::new_unique(),
-                data: ix_data(n_in),
+        let output_tree = Pubkey::new_unique();
+        let merge_data = ix_data(n_in);
+        let nullifiers = merge_data.nullifiers.clone();
+        let (program_id, mut accounts, data) = match rail {
+            Rail::Plain => {
+                let accounts = vec![
+                    AccountMeta::new(input_tree, false),
+                    AccountMeta::new(output_tree, false),
+                    AccountMeta::new(payer, true),
+                    AccountMeta::new_readonly(Pubkey::new_unique(), false),
+                    AccountMeta::new_readonly(Pubkey::default(), false),
+                    AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+                ];
+                let mut data = vec![tag::MERGE_TRANSACT];
+                data.extend(merge_data.serialize().ok()?);
+                (PROGRAM_ID_PUBKEY, accounts, data)
             }
-            .instruction(),
-            Rail::Ring => MergeRing {
-                input_tree,
-                output_tree: Pubkey::new_unique(),
-                ring_program_id: Pubkey::new_unique(),
-                payer,
-                data: ix_data(n_in),
-                output_ring_data_hash: [0u8; 32],
+            Rail::Ring => {
+                let ring_program_id = Pubkey::new_unique();
+                let accounts = vec![
+                    AccountMeta::new(input_tree, false),
+                    AccountMeta::new(output_tree, false),
+                    AccountMeta::new_readonly(pda::ring_auth(&ring_program_id).0, false),
+                    AccountMeta::new(payer, true),
+                    AccountMeta::new_readonly(Pubkey::default(), false),
+                    AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+                ];
+                let mut data = vec![tag::RING_MERGE_TRANSACT];
+                data.extend(
+                    MergeRingIxData {
+                        output_ring_data_hash: [0u8; 32],
+                        merge: merge_data,
+                    }
+                    .serialize()
+                    .ok()?,
+                );
+                (ring_program_id, accounts, data)
             }
-            .instruction(),
+        };
+        accounts.extend(nullifier_pda_accounts(&input_tree, nullifiers.iter()));
+        let mut instruction = Instruction {
+            program_id,
+            accounts,
+            data,
         };
         for _ in 0..extra_accounts {
             instruction

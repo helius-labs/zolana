@@ -47,14 +47,14 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
         utxo_hash: event.utxo_hash,
         output_tree: event.output_tree,
         leaf_index: event.leaf_index,
-        output: zolana_event::EncryptedRingDepositOutput {
+        output: zolana_interface::output_data::EncryptedRingDepositOutput {
             owner_utxo_hash: data.owner_utxo_hash,
             asset: expected_asset,
             amount: expected_amount,
             data_hash: data.data_hash,
             ring_program_id: expected_ring_program_id,
             ring_data_hash: data.ring_data_hash,
-            encrypted: zolana_event::EncryptedRingDepositData {
+            encrypted: zolana_interface::output_data::EncryptedRingDepositData {
                 tx_viewing_pk: data.encrypted.tx_viewing_pk,
                 salt: data.encrypted.salt,
                 ciphertext: data.encrypted.ciphertext.clone(),

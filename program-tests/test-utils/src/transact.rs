@@ -22,9 +22,9 @@ use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            external_data_hash as interface_external_data_hash, CircuitId, InputUtxo,
-            InterfaceTransfer, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput,
-            TransactIxBound, TransactIxData, TransactIxTail, TransactOutput, TransactProof,
+            hash_external_data as interface_hash_external_data, CircuitId, InputUtxo,
+            InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
+            TransactProof,
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
@@ -75,6 +75,30 @@ pub fn pack_transact_proof(proof: &Proof) -> Result<TransactProof> {
 
 pub type PublicSlots = ([[u8; 32]; N_PUBLIC_SLOTS], [[u8; 32]; N_PUBLIC_SLOTS]);
 
+/// Test fixture pairing a wire transfer with the settlement addresses committed
+/// by `external_data_hash`. This is not protocol instruction data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResolvedInterfaceTransfer {
+    SolDeposit {
+        amount: u64,
+        recipient: [u8; 32],
+    },
+    SolWithdrawal {
+        amount: u64,
+        recipient: [u8; 32],
+    },
+    SplDeposit {
+        amount: u64,
+        user_token_account: [u8; 32],
+        spl_interface: [u8; 32],
+    },
+    SplWithdrawal {
+        amount: u64,
+        user_token_account: [u8; 32],
+        spl_interface: [u8; 32],
+    },
+}
+
 pub fn sol_public_slots(amount: [u8; 32]) -> PublicSlots {
     let zero = [0u8; 32];
     let mut assets = [zero; N_PUBLIC_SLOTS];
@@ -99,17 +123,22 @@ pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots
 }
 
 /// Per-output owner `pk_field` the program reconstructs as
-/// `hash_bytes(resolved_owner_tag)`, one per output position. Mirrors the
-/// program's `resolve_outputs`: each output carries its own inline or
-/// account-based owner tag.
+/// `hash_bytes(resolved_owner_tag)`, one per output position. These test
+/// fixtures use inline tags; account-backed tags require an account list and
+/// are rejected here instead of being guessed.
 pub fn output_owner_pk_hashes(outputs: &[TransactOutput]) -> Result<Vec<[u8; 32]>> {
     outputs
         .iter()
         .map(|output| {
-            let resolved = output
-                .into_resolved(|_| None)
-                .map_err(|e| anyhow!("resolve owner tag: {e:?}"))?;
-            hash_bytes(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+            let owner_tag = match output.owner_tag {
+                OwnerTag::Inline(owner_tag) => owner_tag,
+                OwnerTag::Account(index) => {
+                    return Err(anyhow!(
+                        "test fixture cannot resolve owner account index {index} without accounts"
+                    ));
+                }
+            };
+            hash_bytes(&owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
         })
         .collect()
 }
@@ -137,22 +166,6 @@ pub fn inline_output(utxo_hash: [u8; 32], view_tag: [u8; 32]) -> TransactOutput 
         owner_tag: OwnerTag::Inline(view_tag),
         data: None,
     }
-}
-
-/// Resolve every output's owner tag against the transaction context (`Inline`
-/// tags resolve to themselves), producing the `ResolvedOutput` slice
-/// `external_data_hash` binds. Mirrors the program's per-output resolution so
-/// the client and program agree on the hash preimage.
-pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
-    ix.bound
-        .outputs
-        .iter()
-        .map(|output| {
-            output
-                .into_resolved(|_| None)
-                .map_err(|e| anyhow!("resolve owner tag: {e:?}"))
-        })
-        .collect()
 }
 
 /// Stamp the confidential owner tag onto each witness output. `owner_pk_hashes[i]`
@@ -200,26 +213,22 @@ pub fn new_transact_ix_data(
         N_PUBLIC_SLOTS as u8,
     );
     TransactIxData {
-        bound: TransactIxBound {
-            expiry_unix_ts: u64::MAX,
-            interface_transfers,
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            outputs,
-            messages: Vec::new(),
-        },
-        tail: TransactIxTail {
-            proof: TransactProof::zeroed(),
-            private_tx_hash: [0u8; 32],
-            circuit,
-            inputs,
-            data_hash: None,
-            ring_data_hash: None,
-        },
+        expiry_unix_ts: u64::MAX,
+        interface_transfers,
+        tx_viewing_pk: [0u8; 33],
+        salt: [0u8; 16],
+        outputs,
+        messages: Vec::new(),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        circuit,
+        inputs,
+        data_hash: None,
+        ring_data_hash: None,
     }
 }
-/// `external_data_hash` over the serialized bound region plus the addresses the
-/// proof binds, exactly as the program computes it from the instruction buffer.
+/// `external_data_hash` over the borrowed instruction prefix plus the addresses
+/// the proof binds, exactly as the program computes it.
 ///
 /// `addresses` must yield each interface transfer's settlement accounts in leg
 /// order, then the resolved owner of every account-tagged output.
@@ -228,11 +237,14 @@ pub fn external_data_hash_with_addresses(
     discriminator: u8,
     addresses: &[[u8; 32]],
 ) -> Result<[u8; 32]> {
-    let bound = wincode::serialize(&transact_ix_data.bound)
-        .map_err(|e| anyhow!("serialize bound region: {e:?}"))?;
-    Ok(interface_external_data_hash(
+    let instruction_data = transact_ix_data
+        .serialize()
+        .map_err(|e| anyhow!("serialize instruction data: {e:?}"))?;
+    let (_, external_data) = TransactIxDataRef::parse_with_external_data_prefix(&instruction_data)
+        .map_err(|e| anyhow!("measure external-data prefix: {e:?}"))?;
+    Ok(interface_hash_external_data(
         discriminator,
-        &bound,
+        external_data,
         addresses.iter(),
     )?)
 }
@@ -245,13 +257,13 @@ pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
     interface_transfers: &[ResolvedInterfaceTransfer],
 ) -> Result<[u8; 32]> {
-    let mut addresses = bound_leg_addresses(interface_transfers);
+    let mut addresses = committed_leg_addresses(interface_transfers);
     addresses.extend(account_tagged_owner_addresses(transact_ix_data)?);
     external_data_hash_with_addresses(transact_ix_data, tag::TRANSACT, &addresses)
 }
 
 /// Addresses each resolved settlement leg contributes, in leg order.
-pub fn bound_leg_addresses(transfers: &[ResolvedInterfaceTransfer]) -> Vec<[u8; 32]> {
+pub fn committed_leg_addresses(transfers: &[ResolvedInterfaceTransfer]) -> Vec<[u8; 32]> {
     let mut addresses = Vec::new();
     for transfer in transfers {
         match transfer {
@@ -277,19 +289,18 @@ pub fn bound_leg_addresses(transfers: &[ResolvedInterfaceTransfer]) -> Vec<[u8; 
     addresses
 }
 
-/// Resolved owner tags of the outputs whose `OwnerTag` names an account, in
-/// output order. Inline tags need no address: they are already in the bound
-/// bytes.
+/// Reject account-backed test outputs unless the caller supplied their resolved
+/// addresses explicitly. Inline tags need no suffix entry because their bytes
+/// are already in the serialized prefix.
 pub fn account_tagged_owner_addresses(ix: &TransactIxData) -> Result<Vec<[u8; 32]>> {
-    let resolved = resolve_outputs(ix)?;
-    Ok(ix
-        .bound
-        .outputs
-        .iter()
-        .zip(resolved.iter())
-        .filter(|(wire, _)| matches!(wire.owner_tag, OwnerTag::Account(_)))
-        .map(|(_, resolved)| resolved.owner_tag)
-        .collect())
+    for output in &ix.outputs {
+        if let OwnerTag::Account(index) = output.owner_tag {
+            return Err(anyhow!(
+                "test fixture cannot resolve owner account index {index} without accounts"
+            ));
+        }
+    }
+    Ok(Vec::new())
 }
 
 /// `external_data_hash` for an SPL settlement: binds the user's SPL token
@@ -702,8 +713,7 @@ pub fn build_spl_withdrawal(
         }],
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
-    let output_owner_hashes =
-        output_owner_pk_hashes(&data.bound.outputs).expect("output owner hashes");
+    let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
     set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
     let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
         .expect("external data hash");
@@ -744,9 +754,9 @@ pub fn build_spl_withdrawal(
         signer_pk_hashes: vec![payer_hash],
         public_input_hash: public_hash,
     });
-    data.tail.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
+    data.proof = prove_and_verify_transfer(&prover_inputs, public_hash, "SPL withdrawal")
         .expect("prove SPL withdrawal");
-    data.tail.private_tx_hash = private_tx;
+    data.private_tx_hash = private_tx;
 
     let instruction = Transact {
         payer: payer.pubkey(),
@@ -763,7 +773,7 @@ pub fn build_spl_withdrawal(
         )],
         data: data.clone(),
     }
-    .instruction();
+    .instruction()?;
 
     Ok(SplWithdrawal {
         mint,

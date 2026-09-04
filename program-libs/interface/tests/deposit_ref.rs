@@ -35,9 +35,16 @@ fn deposit_ref_borrows_variable_payloads() {
     let bytes = owned.serialize().unwrap();
     let borrowed = DepositIxDataRef::from_bytes(&bytes).unwrap();
 
-    assert_eq!(borrowed.assets, owned.assets);
+    assert_eq!(
+        borrowed
+            .assets
+            .try_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
+        owned.assets,
+    );
     assert_eq!(borrowed.deposits.len(), 1);
-    let actual = borrowed.deposits[0];
+    let actual = borrowed.deposits.first().unwrap().unwrap();
     let expected = &owned.deposits[0];
     assert_eq!(actual.asset_index, expected.asset_index);
     assert_eq!(actual.view_tag, &expected.view_tag);
@@ -78,9 +85,16 @@ fn ring_deposit_ref_borrows_ring_payload() {
     let bytes = owned.serialize().unwrap();
     let borrowed = RingDepositIxDataRef::from_bytes(&bytes).unwrap();
 
-    assert_eq!(borrowed.assets, owned.assets);
+    assert_eq!(
+        borrowed
+            .assets
+            .try_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap(),
+        owned.assets,
+    );
     assert_eq!(borrowed.deposits.len(), 1);
-    let actual = borrowed.deposits[0];
+    let actual = borrowed.deposits.first().unwrap().unwrap();
     assert_eq!(actual.owner_utxo_hash, &owned.deposits[0].owner_utxo_hash);
     assert_eq!(actual.ring_data_hash, &owned.deposits[0].ring_data_hash);
     assert_eq!(

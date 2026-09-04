@@ -19,18 +19,17 @@
         "is_deposit": true,
         "asset": "0x101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f",
         "amount": 987654321,
+        "spl_interface_bump": 42,
         "user_account": "0x404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
         "pool_account": "0x606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f"
       }
     ],
-    "data_hash": "0x00",
-    "ring_data_hash": "0x00",
     "output_hashes": [
       "0x01",
       "0x02"
     ],
     "encrypted_utxos": "0x80818283848586878889aabbccddeeff",
-    "hash": "0x00918dfed17bdc997e7d1536e958402ad33e099693709dfe6e6f3c55739c5a87"
+    "hash": "0x00de27e71eef1cc98a0519ee6ef871b6bc94d40dfbfde7e0821bbe6f9cb521e1"
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",

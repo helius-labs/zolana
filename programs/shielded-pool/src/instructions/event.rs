@@ -1,9 +1,9 @@
-use borsh::BorshSerialize;
 use pinocchio::{cpi::invoke, instruction::InstructionView, AccountView, ProgramResult};
-use zolana_interface::event::{
-    encode_event_instruction, encode_event_instruction_with, encode_merge_event,
-    encode_transact_event, EventKind, GeneralEvent, MergeEvent, TransactEvent,
+use zolana_event::{
+    encode_deposit_event, encode_merge_event, encode_nullifier_tree_update_event,
+    encode_transact_event, GeneralEvent, MergeEvent, TransactEvent,
 };
+use zolana_tree::NullifierTreeUpdateEvent;
 
 /// Emit an encoded event by self-CPI: the program re-invokes itself with the
 /// encoded event as instruction data and no accounts, so the event is recorded
@@ -19,10 +19,10 @@ fn emit_encoded_event(data: &[u8]) -> ProgramResult {
     invoke(&instruction, &accounts)
 }
 
-/// Emit a [`GeneralEvent`] (deposit/transact/merge).
+/// Emit a proofless-deposit [`GeneralEvent`].
 #[inline(never)]
-pub fn emit_general_event(kind: EventKind, event: GeneralEvent) -> ProgramResult {
-    emit_encoded_event(&encode_event_instruction(kind, event))
+pub fn emit_deposit_event(event: &GeneralEvent) -> ProgramResult {
+    emit_encoded_event(&encode_deposit_event(event))
 }
 
 /// Emit the fixed-size `transact` event. No allocation: the whole instruction is
@@ -42,9 +42,6 @@ pub fn emit_merge_event(event: &MergeEvent) -> ProgramResult {
 /// Emit a nullifier-tree batch-update event. The payload is the
 /// `NullifierTreeUpdateEvent` produced by the nullifier-tree update.
 #[inline(never)]
-pub fn emit_batch_nullifier_append_event<T: BorshSerialize>(event: &T) -> ProgramResult {
-    emit_encoded_event(&encode_event_instruction_with(
-        EventKind::NullifierTreeUpdate,
-        event,
-    ))
+pub fn emit_nullifier_tree_update_event(event: &NullifierTreeUpdateEvent) -> ProgramResult {
+    emit_encoded_event(&encode_nullifier_tree_update_event(event))
 }
