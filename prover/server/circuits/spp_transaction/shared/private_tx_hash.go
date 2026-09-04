@@ -36,7 +36,6 @@ func PrivateTxHashCircuit(
 	externalDataHash frontend.Variable,
 	blinding frontend.Variable,
 ) frontend.Variable {
-	api.AssertIsDifferent(blinding, 0)
 	return abstractor.Call(api, privateTxHashGadget{
 		InputUtxoHashes:   inputUtxoHashes,
 		OutputUtxoHashes:  outputUtxoHashes,

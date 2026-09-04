@@ -257,7 +257,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		OutputHashes,
 		noAddressHashes(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.PrivateTxBlinding),
+		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshPublicInputHash(t, assignment)

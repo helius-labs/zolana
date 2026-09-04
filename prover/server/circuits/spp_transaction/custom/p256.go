@@ -49,8 +49,7 @@ type CustomRingP256Private struct {
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
-	OutputBlindingSeed  frontend.Variable
-	PrivateTxBlinding   frontend.Variable
+	TxSecret            frontend.Variable
 	P256Pub             P256PublicKey
 	P256Sig             P256Signature
 }
@@ -97,9 +96,8 @@ func (c *CustomRingP256Circuit) transaction(
 		NullifierTreeRoots: c.Public.NullifierTreeRoots,
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
-		OutputBlindingSeed: c.Private.OutputBlindingSeed,
+		TxSecret:           c.Private.TxSecret,
 		PrivateTxHash:      c.Public.PrivateTxHash,
-		PrivateTxBlinding:  c.Private.PrivateTxBlinding,
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,

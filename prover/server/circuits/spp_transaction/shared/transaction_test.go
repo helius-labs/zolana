@@ -47,19 +47,18 @@ type testOutput struct {
 // testAssignment carries every value any variant needs; the as<Variant>
 // materializers project it onto the variant Public/Private structs.
 type testAssignment struct {
-	Shape              Shape
-	Inputs             []testInput
-	Outputs            []testOutput
-	OutputBlindingSeed frontend.Variable
+	Shape    Shape
+	Inputs   []testInput
+	Outputs  []testOutput
+	TxSecret frontend.Variable
 
-	ExternalDataHash  frontend.Variable
-	PrivateTxHash     frontend.Variable
-	PrivateTxBlinding frontend.Variable
-	PublicAssets      [NPublicSlots]frontend.Variable
-	PublicAmounts     [NPublicSlots]frontend.Variable
-	RingProgramID     frontend.Variable
-	AllowDummyInputs  frontend.Variable
-	SignerPkHashes    []frontend.Variable
+	ExternalDataHash frontend.Variable
+	PrivateTxHash    frontend.Variable
+	PublicAssets     [NPublicSlots]frontend.Variable
+	PublicAmounts    [NPublicSlots]frontend.Variable
+	RingProgramID    frontend.Variable
+	AllowDummyInputs frontend.Variable
+	SignerPkHashes   []frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
@@ -189,8 +188,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			Outputs:             a.outputUtxos(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			OutputNullifierPks:  a.outputNullifierPks(),
-			OutputBlindingSeed:  a.OutputBlindingSeed,
-			PrivateTxBlinding:   a.PrivateTxBlinding,
+			TxSecret:            a.TxSecret,
 		},
 	}
 }
@@ -215,8 +213,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			Inputs:             a.coreInputs(),
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
-			OutputBlindingSeed: a.OutputBlindingSeed,
-			PrivateTxBlinding:  a.PrivateTxBlinding,
+			TxSecret:           a.TxSecret,
 		},
 	}
 }
@@ -242,8 +239,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			InputOwnerPkHashes: a.InputOwnerPkHashes(),
 			Outputs:            a.outputUtxos(),
 			OutputNullifierPks: a.outputNullifierPks(),
-			OutputBlindingSeed: a.OutputBlindingSeed,
-			PrivateTxBlinding:  a.PrivateTxBlinding,
+			TxSecret:           a.TxSecret,
 		},
 	}
 }
@@ -359,8 +355,10 @@ func buildCircuitAssignmentExact(
 	}
 	utxoTreeRoots := spptest.RepeatBigInt(stateRoot, shape.NInputs)
 	nullifierTreeRoots := spptest.RepeatBigInt(nullifierTree.Root(), shape.NInputs)
-	outputBlindingSeed := spptest.Fe(4242)
+	txSecret := spptest.Fe(4242)
 	firstNullifier := spptest.AsBigInt(nullifiers[0])
+	outputBlindingSeed, seedErr := protocol.OutputBlindingSeed(firstNullifier, txSecret)
+	outputBlindingSeed = spptest.MustHash(t, outputBlindingSeed, seedErr)
 	for i := range outputUtxos {
 		blinding, err := protocol.OutputBlinding(firstNullifier, outputBlindingSeed, i)
 		outputUtxos[i].Blinding = spptest.MustHash(t, blinding, err)
@@ -382,7 +380,8 @@ func buildCircuitAssignmentExact(
 	}
 
 	externalDataHash := spptest.Fe(300)
-	privateTxBlinding := spptest.Fe(0xB11D)
+	privateTxBlinding, blindingErr := protocol.PrivateTxBlinding(firstNullifier, txSecret)
+	privateTxBlinding = spptest.MustHash(t, privateTxBlinding, blindingErr)
 	privateTxHash := spptest.MustPrivateTxHash(
 		t,
 		inputHashes,
@@ -477,17 +476,16 @@ func buildCircuitAssignmentExact(
 	}
 
 	circuit := &testAssignment{
-		Shape:              Shape(shape),
-		Inputs:             inputs,
-		Outputs:            outputs,
-		OutputBlindingSeed: outputBlindingSeed,
-		PrivateTxBlinding:  privateTxBlinding,
-		ExternalDataHash:   externalDataHash,
-		PrivateTxHash:      privateTxHash,
-		RingProgramID:      publicInputs.RingProgramID,
-		AllowDummyInputs:   publicInputs.AllowDummyInputs,
-		SignerPkHashes:     asFrontendVariables(publicInputs.SignerPkHashes),
-		PublicInputHash:    publicInputHash,
+		Shape:            Shape(shape),
+		Inputs:           inputs,
+		Outputs:          outputs,
+		TxSecret:         txSecret,
+		ExternalDataHash: externalDataHash,
+		PrivateTxHash:    privateTxHash,
+		RingProgramID:    publicInputs.RingProgramID,
+		AllowDummyInputs: publicInputs.AllowDummyInputs,
+		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
+		PublicInputHash:  publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
@@ -681,16 +679,37 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		OutputHashes,
 		noAddressHashes(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.PrivateTxBlinding),
+		assignment.privateTxBlinding(t),
 	)
 	assignment.PrivateTxHash = privateTxHash
 	refreshPublicInputHash(t, assignment)
 }
 
+// outputBlindingSeed and privateTxBlinding are the two children the circuit
+// derives from TxSecret and the first nullifier. The assignment does not store
+// them, so they track input edits.
+func (a *testAssignment) outputBlindingSeed(t testing.TB) *big.Int {
+	t.Helper()
+	seed, err := protocol.OutputBlindingSeed(
+		spptest.AsBigInt(a.Inputs[0].Nullifier),
+		spptest.AsBigInt(a.TxSecret),
+	)
+	return spptest.MustHash(t, seed, err)
+}
+
+func (a *testAssignment) privateTxBlinding(t testing.TB) *big.Int {
+	t.Helper()
+	blinding, err := protocol.PrivateTxBlinding(
+		spptest.AsBigInt(a.Inputs[0].Nullifier),
+		spptest.AsBigInt(a.TxSecret),
+	)
+	return spptest.MustHash(t, blinding, err)
+}
+
 func refreshDerivedOutputBlindings(t testing.TB, assignment *testAssignment) {
 	t.Helper()
 	firstNullifier := spptest.AsBigInt(assignment.Inputs[0].Nullifier)
-	seed := spptest.AsBigInt(assignment.OutputBlindingSeed)
+	seed := assignment.outputBlindingSeed(t)
 	for i := range assignment.Outputs {
 		blinding, err := protocol.OutputBlinding(firstNullifier, seed, i)
 		assignment.Outputs[i].Utxo.Blinding = spptest.MustHash(t, blinding, err)

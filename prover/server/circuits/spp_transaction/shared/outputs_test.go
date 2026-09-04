@@ -49,7 +49,7 @@ func refreshOutputAttackHashes(t testing.TB, assignment *testAssignment) {
 		privateOutputHashes,
 		noAddressHashes(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.PrivateTxBlinding),
+		assignment.privateTxBlinding(t),
 	)
 	refreshDefaultRingPublicInputHash(t, assignment)
 }
@@ -105,10 +105,14 @@ func TestCircuitRejectsDuplicateOutputCommitmentWithRefreshedPublicInputs(t *tes
 	)
 }
 
-func TestCircuitRejectsWrongOutputBlindingSeed(t *testing.T) {
+// TestCircuitRejectsStaleOutputBlindings changes TxSecret and republishes a
+// consistent private_tx_hash, so only the output blindings, still derived from
+// the old secret, disagree with the circuit.
+func TestCircuitRejectsStaleOutputBlindings(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	assignment := buildDefaultRingEddsaOnlyAssignment(t, shape)
-	assignment.OutputBlindingSeed = spptest.Fe(4243)
+	assignment.TxSecret = spptest.Fe(4243)
+	refreshOutputAttackHashes(t, assignment)
 
 	test.NewAssert(t).SolvingFailed(
 		MustNewDefaultRingEddsaOnlyCircuit(Shape(shape)),

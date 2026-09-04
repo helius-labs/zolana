@@ -52,8 +52,7 @@ type CustomRingEddsaOnlyPrivate struct {
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
-	OutputBlindingSeed  frontend.Variable
-	PrivateTxBlinding   frontend.Variable
+	TxSecret            frontend.Variable
 }
 
 type CustomRingEddsaOnlyCircuit struct {
@@ -95,9 +94,8 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		NullifierTreeRoots: c.Public.NullifierTreeRoots,
 		Inputs:             c.Private.Inputs,
 		Outputs:            c.Private.Outputs,
-		OutputBlindingSeed: c.Private.OutputBlindingSeed,
+		TxSecret:           c.Private.TxSecret,
 		PrivateTxHash:      c.Public.PrivateTxHash,
-		PrivateTxBlinding:  c.Private.PrivateTxBlinding,
 		ExternalDataHash:   c.Public.ExternalDataHash,
 		PublicAssets:       c.Public.PublicAssets,
 		PublicAmounts:      c.Public.PublicAmounts,

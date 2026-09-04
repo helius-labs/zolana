@@ -69,9 +69,6 @@ type Transaction struct {
 	OwnerPkHash         frontend.Variable
 	UserNullifierPk     frontend.Variable
 	UserNullifierSecret frontend.Variable
-	// PrivateTxBlinding is private transaction material: the final
-	// private_tx_hash preimage element, never a public signal.
-	PrivateTxBlinding frontend.Variable
 
 	Public        CommonPublicInputs
 	RingProgramID frontend.Variable
@@ -243,7 +240,7 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		[]frontend.Variable{outputHash},
 		addressHashes,
 		t.Public.ExternalDataHash,
-		t.PrivateTxBlinding,
+		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 

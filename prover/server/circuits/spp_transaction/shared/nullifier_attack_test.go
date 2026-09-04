@@ -96,7 +96,7 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 		spptest.ToBigInts(assignment.OutputHashes()),
 		noAddressHashes(2),
 		spptest.AsBigInt(assignment.ExternalDataHash),
-		spptest.AsBigInt(assignment.PrivateTxBlinding),
+		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)
 

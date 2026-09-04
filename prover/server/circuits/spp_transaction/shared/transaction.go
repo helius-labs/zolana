@@ -49,15 +49,12 @@ type Transaction struct {
 
 	Inputs  []Input
 	Outputs []UtxoCircuitFields
-	// OutputBlindingSeed is private transaction material. Every physical output
-	// blinding is derived from it, the first nullifier, and the output index.
-	OutputBlindingSeed frontend.Variable
+	// TxSecret is the transaction's single private random value. The output
+	// blinding seed, each output blinding, and the private tx blinding derive
+	// from it and the first nullifier (derivation.go).
+	TxSecret frontend.Variable
 
-	PrivateTxHash frontend.Variable
-	// PrivateTxBlinding is private transaction material. It is the final
-	// private_tx_hash preimage element and never reaches a public signal, so
-	// candidate input UTXO hashes cannot reproduce the published hash.
-	PrivateTxBlinding frontend.Variable
+	PrivateTxHash     frontend.Variable
 	ExternalDataHash  frontend.Variable
 	PublicAssets      [NPublicSlots]frontend.Variable
 	PublicAmounts     [NPublicSlots]frontend.Variable
@@ -140,11 +137,12 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	AssertDistinctNullifiers(api, t.Nullifiers)
 
 	// 2. check outputs
+	outputBlindingSeed := DeriveOutputBlindingSeed(api, t.Nullifiers[0], t.TxSecret)
 	outputHashes := make([]frontend.Variable, t.Shape.NOutputs)
 	for i, utxo := range t.Outputs {
 		api.AssertIsEqual(
 			utxo.Blinding,
-			DeriveOutputBlinding(api, t.Nullifiers[0], t.OutputBlindingSeed, i),
+			DeriveOutputBlinding(api, t.Nullifiers[0], outputBlindingSeed, i),
 		)
 		outputHashes[i] = ConstrainOutput(api, utxo, t.OutputHashes[i], outputSigned[i])
 	}
@@ -165,7 +163,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		outputHashes,
 		addressHashes,
 		t.ExternalDataHash,
-		t.PrivateTxBlinding,
+		DerivePrivateTxBlinding(api, t.Nullifiers[0], t.TxSecret),
 	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 
