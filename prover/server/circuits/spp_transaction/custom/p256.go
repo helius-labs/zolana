@@ -14,6 +14,8 @@ import (
 // 1. Public: EdDSA input owners, default-ring input and output owners, and public asset transfers.
 // 2. Private: custom-ring P256 input owners, custom-ring output owners, UTXO amounts, and UTXO assets.
 // 3. The circuit verifies the shared P256 signature; the Solana runtime verifies EdDSA co-signers.
+//    The shared P256 owner identity is the algorithm-tagged hash_bytes_33 over the
+//    x-coordinate (gadget.P256OwnerIdentity), so it cannot equal any Solana signer identity.
 // 4. Dummy slots are indistinguishable from real UTXO and address slots.
 // 5. Input nullifiers are distinct and balances are preserved.
 
@@ -207,7 +209,7 @@ func (c *CustomRingP256Circuit) p256Authorization(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	p256PkHash := hashBytes32Bits(api, fp.ToBitsCanonical(&point.X))
+	p256PkHash := gadget.P256OwnerIdentity(api, bytes32FromBits(api, fp.ToBitsCanonical(&point.X)))
 
 	fr, err := emulated.NewField[emulated.P256Fr](api)
 	if err != nil {
@@ -218,7 +220,9 @@ func (c *CustomRingP256Circuit) p256Authorization(
 		api.ToBinary(c.Public.P256MessageHashHigh, p256MessageLimbBits)...,
 	)
 	message := fr.FromBits(messageBits...)
-	p256MessageHash := hashBytes32Bits(api, messageBits)
+	// The message digest is not an identity, so it stays an untagged hash_bytes_32.
+	messageBytes := bytes32FromBits(api, messageBits)
+	p256MessageHash := gadget.HashBytes(api, messageBytes[:])
 	p256SignatureValid := c.Private.P256Pub.IsValid(
 		api,
 		sw_emulated.GetCurveParams[emulated.P256Fp](),
@@ -228,12 +232,12 @@ func (c *CustomRingP256Circuit) p256Authorization(
 	return p256PkHash, p256MessageHash, p256SignatureValid, nil
 }
 
-// hashBytes32Bits adapts a little-endian bit decomposition to the existing
-// byte-oriented HashBytes circuit helpers.
-func hashBytes32Bits(api frontend.API, bits []frontend.Variable) frontend.Variable {
-	bytes := make([]frontend.Variable, 32)
+// bytes32FromBits adapts a 256-bit little-endian bit decomposition to the
+// big-endian byte order the byte-oriented hash gadgets expect.
+func bytes32FromBits(api frontend.API, bits []frontend.Variable) [32]frontend.Variable {
+	var bytes [32]frontend.Variable
 	for i := range bytes {
 		bytes[len(bytes)-1-i] = api.FromBinary(bits[i*8 : (i+1)*8]...)
 	}
-	return gadget.HashBytes(api, bytes)
+	return bytes
 }

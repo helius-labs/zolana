@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"zolana/prover/circuits/gadget"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -12,17 +13,20 @@ import (
 	"github.com/consensys/gnark/test"
 )
 
-type hashBytes32BitsCircuit struct {
+// bytes32FromBitsCircuit hashes the reassembled bytes untagged, the way the
+// P256 message digest enters the public input hash.
+type bytes32FromBitsCircuit struct {
 	Bits     [256]frontend.Variable
 	Expected frontend.Variable
 }
 
-func (c *hashBytes32BitsCircuit) Define(api frontend.API) error {
-	api.AssertIsEqual(hashBytes32Bits(api, c.Bits[:]), c.Expected)
+func (c *bytes32FromBitsCircuit) Define(api frontend.API) error {
+	bytes := bytes32FromBits(api, c.Bits[:])
+	api.AssertIsEqual(gadget.HashBytes(api, bytes[:]), c.Expected)
 	return nil
 }
 
-func TestHashBytes32BitsMatchesProtocolByteOrder(t *testing.T) {
+func TestBytes32FromBitsMatchesProtocolByteOrder(t *testing.T) {
 	digest := [32]byte{
 		0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
 		0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
@@ -44,17 +48,18 @@ func TestHashBytes32BitsMatchesProtocolByteOrder(t *testing.T) {
 		t.Fatal("test vector does not distinguish big-endian from reversed byte order")
 	}
 
+	// fp.ToBitsCanonical yields little-endian bits; the helper must restore
+	// big-endian bytes from them.
 	value := new(big.Int).SetBytes(digest[:])
-	assignment := hashBytes32BitsCircuit{Expected: expected}
+	assignment := bytes32FromBitsCircuit{Expected: expected}
 	for i := range assignment.Bits {
 		assignment.Bits[i] = value.Bit(i)
 	}
-
 	if err := test.IsSolved(
-		&hashBytes32BitsCircuit{},
+		&bytes32FromBitsCircuit{},
 		&assignment,
 		ecc.BN254.ScalarField(),
 	); err != nil {
-		t.Fatalf("solve hashBytes32Bits circuit: %v", err)
+		t.Fatalf("solve bytes32FromBits circuit: %v", err)
 	}
 }

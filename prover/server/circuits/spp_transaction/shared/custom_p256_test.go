@@ -2,12 +2,12 @@ package shared_test
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"math/big"
 	"testing"
 
+	"zolana/prover/circuits/gadget"
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	. "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
@@ -77,11 +77,23 @@ func rewriteInputAsP256(
 	ownerPrivateKey *ecdsa.PrivateKey,
 ) {
 	t.Helper()
+	rewriteInputAsP256WithIdentity(t, assignment, inputIndex, p256OwnerPkHash(t, ownerPrivateKey))
+}
+
+// rewriteInputAsP256WithIdentity marks the input as P256-owned (zero owner
+// tag) and derives its UTXO owner from an explicit identity, so a test can
+// supply a wrongly derived identity the in-circuit owner must not reproduce.
+func rewriteInputAsP256WithIdentity(
+	t testing.TB,
+	assignment *testAssignment,
+	inputIndex int,
+	ownerPkHash *big.Int,
+) {
+	t.Helper()
 	nullifierPk := spptest.MustNullifierPk(
 		t,
 		spptest.AsBigInt(assignment.Inputs[inputIndex].NullifierSecret),
 	)
-	ownerPkHash := p256OwnerPkHash(t, ownerPrivateKey)
 	owner, err := protocol.OwnerHash(ownerPkHash, nullifierPk)
 	if err != nil {
 		t.Fatalf("P256 owner hash: %v", err)
@@ -107,15 +119,7 @@ func authorizeP256(
 	if err != nil {
 		t.Fatalf("sign P256 transaction: %v", err)
 	}
-	compressed := elliptic.MarshalCompressed(
-		elliptic.P256(),
-		publicKeyPrivate.PublicKey.X,
-		publicKeyPrivate.PublicKey.Y,
-	)
-	ownerPkHash, err := protocol.OwnerPkField(compressed)
-	if err != nil {
-		t.Fatalf("P256 owner pk hash: %v", err)
-	}
+	ownerPkHash := p256OwnerPkHash(t, publicKeyPrivate)
 	authorization := p256Authorization{
 		pub: spptest.P256PubkeyAssignment(publicKeyPrivate),
 		sig: customring.P256Signature{
@@ -428,18 +432,62 @@ func TestCustomRingP256AcceptsDefaultP256DepositIntoRing(t *testing.T) {
 	)
 }
 
+// p256OwnerPkHash is the tagged P256 owner identity,
+// hash_bytes_33(P256OwnerTag || x). It is a temporary local mirror of the
+// gadget: delete it once prover-test/spp/protocol.OwnerPkField adopts the
+// tagged derivation and call that instead.
 func p256OwnerPkHash(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey) *big.Int {
 	t.Helper()
-	compressed := elliptic.MarshalCompressed(
-		elliptic.P256(),
-		ownerPrivateKey.PublicKey.X,
-		ownerPrivateKey.PublicKey.Y,
-	)
-	ownerPkHash, err := protocol.OwnerPkField(compressed)
+	return hashP256X(t, ownerPrivateKey, gadget.P256OwnerTag)
+}
+
+// solanaOwnerTag is the program-side tag of an SVM signer identity. A P256
+// x-coordinate hashed under it must not pass as the P256 owner.
+const solanaOwnerTag = 0x53
+
+// hashP256X hashes the owner's 32-byte big-endian x-coordinate behind the
+// given tag bytes; no tag yields the pre-fix untagged hash_bytes_32(x).
+func hashP256X(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey, tag ...byte) *big.Int {
+	t.Helper()
+	var x [32]byte
+	ownerPrivateKey.PublicKey.X.FillBytes(x[:])
+	identity, err := protocol.HashBytes(append(tag, x[:]...))
 	if err != nil {
-		t.Fatalf("P256 owner pk hash: %v", err)
+		t.Fatalf("P256 x hash: %v", err)
 	}
-	return ownerPkHash
+	return identity
+}
+
+func TestCustomRingP256RejectsUntaggedOwnerIdentity(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256WithIdentity(t, assignment, 0, hashP256X(t, owner))
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingFailed(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
+}
+
+func TestCustomRingP256RejectsSolanaTaggedOwnerIdentity(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingP256Circuit(Shape(shape))
+	assignment := buildCircuitAssignment(t, shape)
+	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256WithIdentity(t, assignment, 0, hashP256X(t, owner, solanaOwnerTag))
+	authorization := authorizeP256(t, assignment, owner, owner)
+
+	assert.SolvingFailed(
+		circuit,
+		asCustomRingP256(assignment, authorization),
+		test.WithCurves(ecc.BN254),
+	)
 }
 
 // p256DummyOutputAssignment pads a P256 transaction with a dummy output whose
