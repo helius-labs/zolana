@@ -55,13 +55,13 @@ func testUtxoHash(t testing.TB, u protocol.Utxo, treeID frontend.Variable) *big.
 }
 
 // testPublicInputHash mirrors Transaction.publicInputHash: protocol's preimage
-// with the tree slots, the nullifier root, and the output tree id after the
+// with the tree slots, the nullifier root chain, and the output tree id after the
 // output hash chain. The root fields of `inputs` are ignored.
 func testPublicInputHash(
 	t testing.TB,
 	inputs protocol.PublicInputs,
-	treeIDs, utxoTreeRoots []frontend.Variable,
-	nullifierTreeRoot, outputTreeID frontend.Variable,
+	treeIDs, utxoTreeRoots, nullifierTreeRoots []frontend.Variable,
+	outputTreeID frontend.Variable,
 ) *big.Int {
 	t.Helper()
 	fields := []*big.Int{
@@ -69,7 +69,7 @@ func testPublicInputHash(
 		spptest.MustHashChain(t, inputs.OutputUtxoHashes),
 		spptest.MustHashChain(t, spptest.ToBigInts(treeIDs)),
 		spptest.MustHashChain(t, spptest.ToBigInts(utxoTreeRoots)),
-		spptest.AsBigInt(nullifierTreeRoot),
+		spptest.MustHashChain(t, spptest.ToBigInts(nullifierTreeRoots)),
 		spptest.AsBigInt(outputTreeID),
 		inputs.PrivateTxHash,
 		inputs.ExternalDataHash,

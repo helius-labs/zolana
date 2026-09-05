@@ -237,7 +237,10 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	if err != nil {
 		t.Fatal(err)
 	}
-	nfRoot := nfTree.Root()
+	slotNullifierRoots := make([]*big.Int, mergeshared.InputTrees)
+	for k := range slotNullifierRoots {
+		slotNullifierRoots[k] = nfTree.Root()
+	}
 	nullifiers := make([]*big.Int, numReal)
 	nfWitnesses := make([]protocol.NonInclusionWitness, numReal)
 	for i := 0; i < numReal; i++ {
@@ -251,7 +254,18 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			t.Fatal(err)
 		}
 		nullifiers[i] = nf
-		w, err := nfTree.NonInclusionWitness(nf)
+		inputNullifierTree := nfTree
+		if inputSlots[i] != 0 {
+			inputNullifierTree, err = protocol.NewNullifierTree()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := inputNullifierTree.Insert(big.NewInt(int64(inputSlots[i]))); err != nil {
+				t.Fatal(err)
+			}
+			slotNullifierRoots[inputSlots[i]] = inputNullifierTree.Root()
+		}
+		w, err := inputNullifierTree.NonInclusionWitness(nf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -358,7 +372,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		outHash,
 		hashChain(t, treeIDs),
 		hashChain(t, slotRoots),
-		nfRoot,
+		hashChain(t, slotNullifierRoots),
 		outputTreeID,
 		privateTxHash,
 		externalDataHash,
@@ -387,11 +401,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	public.PrivateTxHash = privateTxHash
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
-	public.NullifierTreeRoot = nfRoot
 	public.OutputTreeID = outputTreeID
 	for k := range treeIDs {
 		public.TreeIDs[k] = treeIDs[k]
 		public.UtxoTreeRoots[k] = slotRoots[k]
+		public.NullifierTreeRoots[k] = slotNullifierRoots[k]
 	}
 
 	for i := 0; i < merge.MergeInputs; i++ {

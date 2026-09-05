@@ -42,7 +42,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 		f.public.OutputHash.(*big.Int),
 		hashChain(t, asBigInts(f.public.TreeIDs)),
 		hashChain(t, asBigInts(f.public.UtxoTreeRoots)),
-		f.public.NullifierTreeRoot.(*big.Int),
+		hashChain(t, asBigInts(f.public.NullifierTreeRoots)),
 		f.public.OutputTreeID.(*big.Int),
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),

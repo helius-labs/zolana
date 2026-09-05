@@ -1,6 +1,7 @@
 package shared_test
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 	"zolana/prover/circuits/gadget"
@@ -50,7 +51,7 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 // moveInputToSlot moves input idx into tree slot `slot`: its UTXO is rehashed
 // under that slot's tree id and becomes the sole leaf of a fresh state tree
 // published as that slot's root. The nullifier follows the new hash and stays
-// absent from the shared nullifier tree; derived outputs and both hashes are
+// absent from a separate nullifier tree in that slot; outputs and both hashes are
 // refreshed. Call it with idx > 0 so the first nullifier keeps seeding the
 // output blindings.
 func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
@@ -79,6 +80,10 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 		spptest.AsBigInt(in.NullifierSecret),
 	)
 	nullifierTree := spptest.MustNewNullifierTree(t)
+	if err := nullifierTree.Insert(spptest.Fe(int64(slot + 1))); err != nil {
+		t.Fatal(err)
+	}
+	assignment.NullifierTreeRoots[slot] = nullifierTree.Root()
 	nfWitness := spptest.MustNonInclusion(t, nullifierTree, spptest.AsBigInt(in.Nullifier))
 	in.NullifierLowValue = nfWitness.LowValue
 	in.NullifierNextValue = nfWitness.NextValue
@@ -101,20 +106,27 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 	refreshPublicInputHash(t, assignment)
 }
 
-// Tree slots let one transaction spend inputs from different trees. This proves
-// two inputs against two slots with distinct tree ids and state roots.
-func TestCircuitAcceptsInputsFromDifferentSlots(t *testing.T) {
-	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
-	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
-	assignment := buildCircuitAssignment(t, shape)
-	moveInputToSlot(t, assignment, 1, 1)
+// Each tree slot couples its id and both roots. Use distinct nullifier roots
+// so selecting the UTXO slot while reusing slot 0's nullifier root cannot pass.
+func TestCircuitBindsBothRootsToTreeSlot(t *testing.T) {
+	for slot := 1; slot < InputTrees; slot++ {
+		t.Run(fmt.Sprintf("slot_%d", slot), func(t *testing.T) {
+			assert := test.NewAssert(t)
+			shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+			circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+			assignment := buildCircuitAssignment(t, shape)
+			moveInputToSlot(t, assignment, 1, slot)
+			if spptest.AsBigInt(assignment.UtxoTreeRoots[slot]).Cmp(spptest.AsBigInt(assignment.UtxoTreeRoots[0])) == 0 ||
+				spptest.AsBigInt(assignment.NullifierTreeRoots[slot]).Cmp(spptest.AsBigInt(assignment.NullifierTreeRoots[0])) == 0 {
+				t.Fatal("expected distinct UTXO and nullifier roots across slots")
+			}
+			assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 
-	if spptest.AsBigInt(assignment.UtxoTreeRoots[1]).Cmp(spptest.AsBigInt(assignment.UtxoTreeRoots[0])) == 0 {
-		t.Fatal("expected distinct state roots across slots")
+			assignment.NullifierTreeRoots[slot] = assignment.NullifierTreeRoots[0]
+			refreshPublicInputHash(t, assignment)
+			assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+		})
 	}
-
-	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
 // An input proving inclusion in its slot's tree cannot be published under
@@ -133,7 +145,7 @@ func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// Every non-inclusion witness is checked against the one nullifier root:
+// Each non-inclusion witness is checked against its tree slot's nullifier root:
 // claiming a different root fails the non-inclusion check. The public input
 // hash is refreshed to the wrong root so that check is the sole failure.
 func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
@@ -147,7 +159,7 @@ func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	if err := nullifierTree.Insert(spptest.Fe(3)); err != nil {
 		t.Fatalf("perturb nullifier tree: %v", err)
 	}
-	assignment.NullifierTreeRoot = nullifierTree.Root()
+	assignment.NullifierTreeRoots[0] = nullifierTree.Root()
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -317,7 +329,7 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
 	assignment.UtxoTreeRoots[0] = spptest.Fe(8)
-	assignment.NullifierTreeRoot = spptest.Fe(9)
+	assignment.NullifierTreeRoots[0] = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

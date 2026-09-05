@@ -979,8 +979,10 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 | --- | --- |
 | nullifiers | derived by the proof from spent input UTXOs |
 | output_utxo_hashes | instruction data (`outputs[i].utxo_hash`) |
-| utxo_tree_roots (one per input UTXO) | resolved from `utxo_tree_root_index[i]` against the root cache of the input's UTXO tree |
-| nullifier_tree_roots (one per input UTXO) | resolved from `nullifier_tree_root_index[i]` against the root cache of the input's nullifier tree |
+| tree_ids (`INPUT_TREES = 5` slots) | raw `u16` ids of the tree accounts inputs may be spent from, in account order; unused slots are `0` |
+| utxo_tree_roots (one per slot) | resolved from `utxo_tree_root_index[k]` against slot `k`'s root cache; `0` for an unused slot. Inputs pick their slot privately |
+| nullifier_tree_roots (one per tree slot) | the nullifier root of the same tree account as `tree_ids[k]` and `utxo_tree_roots[k]`; `0` for an unused slot |
+| output_tree_id | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | private_tx_hash | instruction data |
 | external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different encrypted outputs, settlement accounts, or public-leg amounts). |
 | public_assets (`N_PUBLIC_SLOTS = 3`) | Public proof slots are uniform `(asset, amount)` pairs, entering the public-input hash interleaved as `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. The SDK derives and SPP recomputes the slots: resolve every settlement leg's asset, add deposits and subtract withdrawals in `i128`, drop zero-net groups, and emit the remaining distinct assets in first-appearance order. SOL uses `hash_bytes_32(Address::default())`; SPL uses `hash_bytes_32(mint)` derived from the validated vault. Unused slots are `(0, 0)`. |
@@ -990,6 +992,12 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 | signer_pk_hashes | Payer first, then first-occurrence-deduplicated Ed25519 owner signers, then zero padding to `N_inputs + 1`; folded as a fixed-width right hash chain. |
 | P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is `hash_bytes_32(p256_x)` iff a spent P256 UTXO has `ring_program_id = 0`, otherwise `0`. Address slots never force it: an address always has `ring_program_id = 0`, and counting it would publish the identity of a ring P256 spender who creates an address in the same proof. A proof whose only P256 slots are addresses publishes `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
 | published output owner hash chain (owner-signed variants) | Fixed-width per-output vector folded into a final hash-chain field. `ConfidentialEddsa` publishes every resolved owner tag. `RingEddsa` and `RingP256` publish `hash_bytes_32(fetch_tag)` only where the output ciphertext is structurally `OutputDataEncoding::Encrypted` with confidential scheme byte `3`; other slots contribute `0`. `RingAuthority` omits this field. |
+
+The five entries of `tree_ids`, `utxo_tree_roots`, and `nullifier_tree_roots`
+are aligned: slot `k` contains one tree account's ID and both roots. Each array
+enters the public-input hash as its own hash chain. An input's private `tree_slot`
+selects all three together for its UTXO hash, inclusion, and nullifier
+non-inclusion checks.
 
 The rows are in preimage order: every variant shares the rows through
 `payer_pubkey_hash`, and the ones a variant does not publish are omitted from the
@@ -1004,7 +1012,8 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 | owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A spent default-ring P256 UTXO additionally forces the conditional public owner hash described above; an address slot does not. |
 | `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
 | `blinding`, `asset`, `amount`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
-| `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the input's UTXO tree at the corresponding `utxo_tree_root` |
+| `tree_slot` | the tree slot the input is spent from; selects the aligned `tree_ids[tree_slot]`, `utxo_tree_roots[tree_slot]`, and `nullifier_tree_roots[tree_slot]` for hashing, inclusion, and non-inclusion, and must be in range |
+| `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]` |
 
 **Private Inputs (per output UTXO)**
 
@@ -1077,10 +1086,10 @@ intermediary cannot replace either value while reusing the proof.
 | --- | --- |
 | Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
 | UTXO Ownership | Each spent input UTXO binds to an Ed25519 owner-key hash from the signer run. SPP folds the payer-first, first-occurrence-deduplicated owner-signer accounts into a fixed-width public-input chain, and the circuit binds each input owner to a chain element. See [UTXO Ownership Check](#utxo-ownership-check). |
-| Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at its corresponding `utxo_tree_roots[i]`. |
+| Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]`, hashed under `tree_ids[tree_slot]`. |
 | Nullifier secret binding (per input) | The input's `nullifier_pk` (see [Nullifier Key](#nullifier-key)) is recomputed from its `nullifier_secret` witness and enters the input's recomputed [owner hash](#shielded-address). |
 | Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
-| Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at its corresponding `nullifier_tree_roots[i]` before the transaction. |
+| Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at `nullifier_tree_roots[tree_slot]` before the transaction. |
 | Output UTXOs | Output UTXO hashes must be well formed and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
 | Output owner tag | `ConfidentialEddsa` binds every output tag. Owner-signed ring circuits use the ciphertext scheme as a public marker: confidential-encrypted slots contribute the resolved tag hash, all other encodings contribute zero. The circuit requires every real default-ring output to be marked and bound to its actual owner, and every real policy-ring output to be unmarked. Dummy outputs may use zero; a non-zero dummy marker must identify a real signer or real output owner. `RingAuthority` publishes no output-owner chain. |
 | Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals. Public proof slots are the checked, non-zero net amounts aggregated from settlement legs by resolved asset. An idle slot has amount and asset pinned to `0`; the circuit retains its pairwise-distinct-asset constraint over active slots. |
@@ -1161,14 +1170,16 @@ The proof is a 128-byte vanilla Groth16 `a || b || c` over a single public signa
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, a Poseidon hash chain over a shared 7-element prefix plus a variant tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, a Poseidon hash chain over a shared 9-element prefix plus a variant tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
 | `HashChain(nullifiers)` | per-slot nullifiers, derived by the proof (real slots) and by `merge_dummy_nullifier` (padding slots); published in instruction data |
 | `output_utxo_hash` | instruction data |
-| `HashChain(utxo_tree_roots)` | one per input slot, resolved by SPP from `utxo_tree_root_index[i]` against the input tree's root cache |
-| `HashChain(nullifier_tree_roots)` | one per input slot, resolved by SPP from `nullifier_tree_root_index[i]` |
+| `HashChain(tree_ids)` | `INPUT_TREES = 5` tree slots: raw `u16` ids of the tree accounts inputs may be spent from; unused slots are `0` |
+| `HashChain(utxo_tree_roots)` | one per tree slot, resolved by SPP from `utxo_tree_root_index[k]` against slot `k`'s root cache; `0` for an unused slot |
+| `HashChain(nullifier_tree_roots)` | one per tree slot, from the same tree account as `tree_ids[k]` and `utxo_tree_roots[k]`; `0` for an unused slot |
+| `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
 | `private_tx_hash` | instruction data; covers every input hash, the output hash, and the external-data hash |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | one boolean for the whole proof, derived by SPP from the tree (`nullifier_leaves_remaining >= state_leaves_remaining`); when false every slot must be real |
@@ -1181,8 +1192,9 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 | --- | --- |
 | slot `domain` | `UtxoDomain` (real) or `DummyDomain` (padding); slot 0 must be real |
 | `amount`, `blinding`, `ring_data_hash` | UTXO body fields; feeds `utxo_hash` and the nullifier formula |
-| `utxo_merkle_path`, `state_path_index` | inclusion proof of the input UTXO hash at `utxo_tree_roots[i]` (checked for real slots) |
-| `nullifier_low_value`, `nullifier_next_value`, `nullifier_low_path`, `nullifier_low_path_index` | non-inclusion proof bracketing the slot's nullifier at `nullifier_tree_roots[i]` (checked for every slot) |
+| `tree_slot` | the tree slot the input is spent from; selects the aligned `tree_ids[tree_slot]`, `utxo_tree_roots[tree_slot]`, and `nullifier_tree_roots[tree_slot]` for hashing, inclusion, and non-inclusion, and must be in range |
+| `utxo_merkle_path`, `state_path_index` | inclusion proof of the input UTXO hash at `utxo_tree_roots[tree_slot]` (checked for real slots) |
+| `nullifier_low_value`, `nullifier_next_value`, `nullifier_low_path`, `nullifier_low_path_index` | non-inclusion proof bracketing the slot's nullifier at `nullifier_tree_roots[tree_slot]` (checked for every input slot) |
 
 **Private Inputs (shared across inputs)**
 
@@ -1203,9 +1215,9 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 | Ownership uniformity | every real input's `owner` equals `userOwnerHash = Poseidon(owner_pk_hash, user_nullifier_pk)`. |
 | Asset uniformity | every real input's `asset` equals the output's `asset`. |
 | Value conservation | `sum(inputs.amount) == output.amount`. |
-| Inclusion | each real input UTXO hash is a leaf of the UTXO tree at its `utxo_tree_roots[i]`. |
+| Inclusion | each real input UTXO hash, hashed under `tree_ids[tree_slot]`, is a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]`. |
 | Nullifiers | each real slot's public nullifier equals `Poseidon(utxo_hash, blinding, nullifier_secret)`; each padding slot's equals `merge_dummy_nullifier(nullifier_secret, first_nullifier, slot)`. |
-| Nullifier non-inclusion | every slot's nullifier is strictly bracketed by its low leaf at `nullifier_tree_roots[i]`. |
+| Nullifier non-inclusion | every slot's nullifier is strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`. |
 | Nullifier distinctness | all slot nullifiers differ, real and dummy alike. |
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |

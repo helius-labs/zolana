@@ -74,12 +74,13 @@ func assertPublicInputHashBindsEveryField(
 				name: fmt.Sprintf("utxo_tree_roots/%d", slot),
 				run:  func() { refreshWithChangedField(&assignment.UtxoTreeRoots[slot]) },
 			},
+			publicInputHashMutation{
+				name: fmt.Sprintf("nullifier_tree_roots/%d", slot),
+				run:  func() { refreshWithChangedField(&assignment.NullifierTreeRoots[slot]) },
+			},
 		)
 	}
 	mutations = append(mutations,
-		publicInputHashMutation{name: "nullifier_tree_root", run: func() {
-			refreshWithChangedField(&assignment.NullifierTreeRoot)
-		}},
 		publicInputHashMutation{name: "output_tree_id", run: func() {
 			refreshWithChangedField(&assignment.OutputTreeID)
 		}},

@@ -56,11 +56,10 @@ type CommonPublicInputs struct {
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
-	// Input tree slots: raw u16 tree ids and utxo roots.
-	TreeIDs       []frontend.Variable
-	UtxoTreeRoots []frontend.Variable
-	// One nullifier root for every input.
-	NullifierTreeRoot frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots.
+	TreeIDs            []frontend.Variable
+	UtxoTreeRoots      []frontend.Variable
+	NullifierTreeRoots []frontend.Variable
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
 }
@@ -101,9 +100,10 @@ func NewInputs() []Input {
 // NewCommonPublicInputs allocates the per-input public signal slices.
 func NewCommonPublicInputs() CommonPublicInputs {
 	return CommonPublicInputs{
-		Nullifiers:    make([]frontend.Variable, MergeInputs),
-		TreeIDs:       make([]frontend.Variable, transaction.InputTrees),
-		UtxoTreeRoots: make([]frontend.Variable, transaction.InputTrees),
+		Nullifiers:         make([]frontend.Variable, MergeInputs),
+		TreeIDs:            make([]frontend.Variable, transaction.InputTrees),
+		UtxoTreeRoots:      make([]frontend.Variable, transaction.InputTrees),
+		NullifierTreeRoots: make([]frontend.Variable, transaction.InputTrees),
 	}
 }
 
@@ -114,7 +114,7 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 		p.OutputHash,
 		gadget.HashChain(api, p.TreeIDs),
 		gadget.HashChain(api, p.UtxoTreeRoots),
-		p.NullifierTreeRoot,
+		gadget.HashChain(api, p.NullifierTreeRoots),
 		p.OutputTreeID,
 		p.PrivateTxHash,
 		p.ExternalDataHash,
@@ -139,6 +139,7 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 		{"nullifier", len(t.Public.Nullifiers), numInputs},
 		{"tree id", len(t.Public.TreeIDs), transaction.InputTrees},
 		{"utxo tree root", len(t.Public.UtxoTreeRoots), transaction.InputTrees},
+		{"nullifier tree root", len(t.Public.NullifierTreeRoots), transaction.InputTrees},
 	}
 	for _, check := range checks {
 		if check.got != check.want {
@@ -197,20 +198,21 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
 	ctx := mergeInputContext{
-		OwnerHash:         userOwnerHash,
-		NullifierSecret:   t.UserNullifierSecret,
-		Asset:             t.Asset,
-		NullifierTreeRoot: t.Public.NullifierTreeRoot,
-		RingProgramID:     t.RingProgramID,
-		FirstNullifier:    frontend.Variable(0),
+		OwnerHash:       userOwnerHash,
+		NullifierSecret: t.UserNullifierSecret,
+		Asset:           t.Asset,
+		RingProgramID:   t.RingProgramID,
+		FirstNullifier:  frontend.Variable(0),
 	}
 	for i := range t.Inputs {
-		treeID, utxoTreeRoot := transaction.SelectTreeSlot(
+		treeID, utxoTreeRoot, nullifierTreeRoot := transaction.SelectTreeSlot(
 			api,
 			t.Inputs[i].TreeSlot,
 			t.Public.TreeIDs,
 			t.Public.UtxoTreeRoots,
+			t.Public.NullifierTreeRoots,
 		)
+		ctx.NullifierTreeRoot = nullifierTreeRoot
 		inputHashes[i], nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, treeID, utxoTreeRoot, i)
 		ctx.FirstNullifier = nullifiers[0]
 	}
