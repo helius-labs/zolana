@@ -2,6 +2,8 @@ package transfereddsaonly
 
 import (
 	"math/big"
+
+	"zolana/prover/prover/common"
 )
 
 // UtxoParams mirrors txcircuit.UtxoCircuitFields as already-computed field
@@ -30,9 +32,12 @@ type InputParams struct {
 	NullifierLowPathElements []*big.Int // len NullifierTreeHeight
 	NullifierLowPathIndex    *big.Int
 
-	UtxoTreeRoot      *big.Int
-	NullifierTreeRoot *big.Int
-	Nullifier         *big.Int
+	// TreeSlot is the private index into TransferParameters.TreeSlots of the
+	// tree this input is spent from. It selects the slot's id and both roots as
+	// a unit, so a UTXO cannot be hashed under one tree and proven against
+	// another tree's roots.
+	TreeSlot  *big.Int
+	Nullifier *big.Int
 
 	OwnerPkHash     *big.Int
 	NullifierSecret *big.Int
@@ -57,13 +62,23 @@ type TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 
-	Inputs             []InputParams
-	Outputs            []OutputParams
-	OutputBlindingSeed *big.Int
+	Inputs  []InputParams
+	Outputs []OutputParams
+	// TreeSlots are the shared.InputTrees public tree slots inputs may be spent
+	// from; unused slots are all zero. Each input names its own slot privately.
+	TreeSlots []common.TreeSlotParams
+	// OutputTreeID is the raw u16 id of the tree every output is appended to.
+	OutputTreeID *big.Int
 
 	ExternalDataHash *big.Int
 
 	PrivateTxHash *big.Int
+	// TxSecret is the transaction's single private random value. The circuit
+	// derives the output blinding seed, every output blinding, and the private
+	// tx blinding from it and the first nullifier, so none of those are sent.
+	// A caller-supplied output blinding must equal the derived one or the proof
+	// fails.
+	TxSecret *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
 	PublicAssets                 []*big.Int

@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"testing"
 
-	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
 
 	"github.com/consensys/gnark-crypto/ecc"
@@ -35,21 +34,20 @@ func (u fixtureUtxo) variable() Utxo {
 	}
 }
 
-// hash mirrors utxoHashGadget; protocol.UtxoHash still hashes the six-field
-// preimage without the tree id.
+// hash commits to the utxo under the tree that holds it, matching
+// utxoHashGadget.
 func (u fixtureUtxo) hash(t *testing.T) *big.Int {
 	t.Helper()
-	ownerUtxoHash, err := poseidon.Hash([]*big.Int{u.ownerHash, u.blinding})
-	if err != nil {
-		t.Fatal(err)
-	}
-	ringHash, err := poseidon.Hash([]*big.Int{u.ringDataHash, u.ringProgramID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := poseidon.Hash([]*big.Int{
-		big.NewInt(protocol.UtxoDomain), u.treeID, u.asset, u.amount, u.dataHash, ringHash, ownerUtxoHash,
-	})
+	h, err := protocol.UtxoHash(protocol.Utxo{
+		Domain:        big.NewInt(protocol.UtxoDomain),
+		Owner:         u.ownerHash,
+		Asset:         u.asset,
+		Amount:        u.amount,
+		Blinding:      u.blinding,
+		DataHash:      u.dataHash,
+		RingDataHash:  u.ringDataHash,
+		RingProgramID: u.ringProgramID,
+	}, u.treeID)
 	if err != nil {
 		t.Fatal(err)
 	}

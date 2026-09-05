@@ -2,12 +2,12 @@ package shared_test
 
 import (
 	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"math/big"
 	"testing"
 
-	"zolana/prover/circuits/gadget"
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	. "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/protocol"
@@ -161,37 +161,28 @@ func refreshCustomRingP256PublicInputHashWithOwner(
 	if err != nil {
 		t.Fatalf("P256 message hash: %v", err)
 	}
-	signerChain, err := protocol.RightHashChain(
-		spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
-	)
-	if err != nil {
-		t.Fatalf("P256 signer chain: %v", err)
-	}
-	fields := []*big.Int{
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputNullifiers())),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.OutputHashes())),
-		spptest.MustTreeSlotsHashChain(t, treeSlotsToProtocol(assignment.TreeSlots)),
-		spptest.AsBigInt(assignment.OutputTreeID),
-		spptest.AsBigInt(assignment.PrivateTxHash),
-		messageHash,
-		publishedP256Owner,
-		spptest.AsBigInt(assignment.ExternalDataHash),
+	// The P256 rail inserts the signed message hash and the published default
+	// owner right after private_tx_hash; every other element is the shared
+	// preimage.
+	inputs := protocol.PublicInputs{
+		Nullifiers:                 spptest.ToBigInts(assignment.InputNullifiers()),
+		OutputUtxoHashes:           spptest.ToBigInts(assignment.OutputHashes()),
+		PrivateTxHash:              spptest.AsBigInt(assignment.PrivateTxHash),
+		PreimageAfterPrivateTxHash: []*big.Int{messageHash, publishedP256Owner},
+		ExternalDataHash:           spptest.AsBigInt(assignment.ExternalDataHash),
+		RingProgramID:              spptest.AsBigInt(assignment.RingProgramID),
+		SignerPkHashes:             spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
+		AllowDummyInputs:           spptest.AsBigInt(assignment.AllowDummyInputs),
+		BindOutputOwnerTags:        true,
+		OutputOwnerPkHashes:        spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes()),
 	}
 	for i := 0; i < NPublicSlots; i++ {
-		fields = append(
-			fields,
-			spptest.AsBigInt(assignment.PublicAssets[i]),
-			spptest.AsBigInt(assignment.PublicAmounts[i]),
-		)
+		inputs.PublicAssets[i] = spptest.AsBigInt(assignment.PublicAssets[i])
+		inputs.PublicAmounts[i] = spptest.AsBigInt(assignment.PublicAmounts[i])
 	}
-	fields = append(
-		fields,
-		spptest.AsBigInt(assignment.RingProgramID),
-		signerChain,
-		spptest.AsBigInt(assignment.AllowDummyInputs),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())),
+	assignment.PublicInputHash = testPublicInputHash(
+		t, inputs, assignment.TreeSlots, assignment.OutputTreeID,
 	)
-	assignment.PublicInputHash = spptest.MustHashChain(t, fields)
 }
 
 // defaultP256OwnerPkHash mirrors the public field the circuit binds: the P256
@@ -428,21 +419,23 @@ func TestCustomRingP256AcceptsDefaultP256DepositIntoRing(t *testing.T) {
 	)
 }
 
-// p256OwnerPkHash is the tagged P256 owner identity,
-// hash_bytes_33(P256OwnerTag || x). It is a temporary local mirror of the
-// gadget: delete it once prover-test/spp/protocol.OwnerPkField adopts the
-// tagged derivation and call that instead.
+// p256OwnerPkHash is the tagged P256 owner identity the host publishes,
+// hash_bytes_33(P256OwnerTag || x).
 func p256OwnerPkHash(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey) *big.Int {
 	t.Helper()
-	return hashP256X(t, ownerPrivateKey, gadget.P256OwnerTag)
+	compressed := elliptic.MarshalCompressed(
+		elliptic.P256(),
+		ownerPrivateKey.PublicKey.X,
+		ownerPrivateKey.PublicKey.Y,
+	)
+	identity, err := protocol.OwnerPkField(compressed)
+	return spptest.MustHash(t, identity, err)
 }
 
-// solanaOwnerTag is the program-side tag of an SVM signer identity. A P256
-// x-coordinate hashed under it must not pass as the P256 owner.
-const solanaOwnerTag = 0x53
-
 // hashP256X hashes the owner's 32-byte big-endian x-coordinate behind the
-// given tag bytes; no tag yields the pre-fix untagged hash_bytes_32(x).
+// given tag bytes. It builds the identities the circuit must refuse: no tag is
+// the untagged hash_bytes_32(x), and protocol.SolanaOwnerTag is an SVM signer
+// identity over the same bytes.
 func hashP256X(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey, tag ...byte) *big.Int {
 	t.Helper()
 	var x [32]byte
@@ -476,7 +469,7 @@ func TestCustomRingP256RejectsSolanaTaggedOwnerIdentity(t *testing.T) {
 	circuit := MustNewCustomRingP256Circuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	owner := spptest.FixedP256Key(t, 11)
-	rewriteInputAsP256WithIdentity(t, assignment, 0, hashP256X(t, owner, solanaOwnerTag))
+	rewriteInputAsP256WithIdentity(t, assignment, 0, hashP256X(t, owner, protocol.SolanaOwnerTag))
 	authorization := authorizeP256(t, assignment, owner, owner)
 
 	assert.SolvingFailed(

@@ -26,7 +26,25 @@ type parsedUtxo struct {
 	isP256           bool
 }
 
-func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (outputWitnesses, error) {
+// buildOutputWitnesses fills every physical output slot, real slots first and
+// padding dummies after.
+//
+// A slot's blinding is not the caller's to choose: the circuit recomputes it
+// from the first nullifier, the transaction's output-blinding seed, and the
+// slot's final physical index, then asserts equality. A caller-supplied
+// blinding therefore could never prove, so any value in the request is
+// replaced and the response reports the derived one the recipient needs in
+// order to spend.
+//
+// Every slot is hashed under outputTreeID, the raw id of the tree the outputs
+// are appended to, so an output hash is only spendable from that tree.
+func buildOutputWitnesses(
+	shape protocol.Shape,
+	requests []ProofUtxoRequest,
+	firstNullifier *big.Int,
+	outputBlindingSeed *big.Int,
+	outputTreeID *big.Int,
+) (outputWitnesses, error) {
 	outputs := outputWitnesses{
 		outputs:             make([]txcircuit.UtxoCircuitFields, shape.NOutputs),
 		hashes:              make([]*big.Int, shape.NOutputs),
@@ -44,7 +62,13 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 			(parsed.ownerKeyHash == nil || parsed.ownerKeyHash.Sign() == 0) {
 			return outputWitnesses{}, fmt.Errorf("output %d: owner public key and nullifier key are required", i)
 		}
-		outputHash, err := protocol.UtxoHash(parsed.utxo)
+		blinding, err := protocol.OutputBlinding(firstNullifier, outputBlindingSeed, i)
+		if err != nil {
+			return outputWitnesses{}, fmt.Errorf("output %d blinding: %w", i, err)
+		}
+		parsed.utxo.Blinding = blinding
+		parsed.normalized.Blinding = parse.FieldHex(blinding)
+		outputHash, err := protocol.UtxoHash(parsed.utxo, outputTreeID)
 		if err != nil {
 			return outputWitnesses{}, err
 		}
@@ -60,18 +84,21 @@ func buildOutputWitnesses(shape protocol.Shape, requests []ProofUtxoRequest) (ou
 	}
 
 	for i := len(requests); i < shape.NOutputs; i++ {
-		blinding, err := randomBlinding()
+		blinding, err := protocol.OutputBlinding(firstNullifier, outputBlindingSeed, i)
 		if err != nil {
 			return outputWitnesses{}, fmt.Errorf("dummy output %d blinding: %w", i, err)
 		}
 		utxo := dummyUtxo(blinding)
-		hash, err := protocol.UtxoHash(utxo)
+		hash, err := protocol.UtxoHash(utxo, outputTreeID)
 		if err != nil {
 			return outputWitnesses{}, fmt.Errorf("dummy output %d hash: %w", i, err)
 		}
 		outputs.outputs[i] = dummyUtxoFields(blinding)
 		outputs.hashes[i] = hash
 		outputs.privateTxHashes[i] = big.NewInt(0)
+		// A padding slot publishes no owner, and every witness field must be
+		// assigned: gnark rejects a nil value rather than treating it as zero.
+		outputs.outputOwnerPkHashes[i] = big.NewInt(0)
 		outputs.outputNullifierPks[i] = big.NewInt(0)
 	}
 	return outputs, nil

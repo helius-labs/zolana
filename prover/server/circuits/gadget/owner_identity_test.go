@@ -22,9 +22,13 @@ func (c *p256OwnerIdentityCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// solanaOwnerTag mirrors the program-side tag; no circuit defines it because
-// Solana identities never get hashed in-circuit.
-const solanaOwnerTag = 0x53
+// TestP256OwnerTagMirrorsHost pins the circuit tag to the host constant; the
+// circuits package cannot import the host, so the two are kept equal by test.
+func TestP256OwnerTagMirrorsHost(t *testing.T) {
+	if P256OwnerTag != protocol.P256OwnerTag {
+		t.Fatalf("gadget.P256OwnerTag = 0x%02x, protocol.P256OwnerTag = 0x%02x", P256OwnerTag, protocol.P256OwnerTag)
+	}
+}
 
 func TestP256OwnerIdentityMatchesTaggedHashBytes(t *testing.T) {
 	x := [32]byte{
@@ -39,7 +43,7 @@ func TestP256OwnerIdentityMatchesTaggedHashBytes(t *testing.T) {
 	if expected.Cmp(untagged) == 0 {
 		t.Fatal("P256 identity equals the untagged hash_bytes_32 of x")
 	}
-	solanaTagged := hostHashBytes(t, append([]byte{solanaOwnerTag}, x[:]...))
+	solanaTagged := hostHashBytes(t, append([]byte{protocol.SolanaOwnerTag}, x[:]...))
 	if expected.Cmp(solanaTagged) == 0 {
 		t.Fatal("P256 identity equals the Solana-tagged identity of the same bytes")
 	}

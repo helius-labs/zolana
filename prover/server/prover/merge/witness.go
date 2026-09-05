@@ -1,7 +1,10 @@
 package merge
 
 import (
+	"fmt"
+
 	mergecircuit "zolana/prover/circuits/spp_merge"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
@@ -15,12 +18,12 @@ import (
 // circuit.
 func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 	if p.CircuitType == common.MergeRingCircuitType {
-		return p.createRingWitness(), nil
+		return p.createRingWitness()
 	}
-	return p.createDefaultWitness(), nil
+	return p.createDefaultWitness()
 }
 
-func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
+func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) {
 	circuit := mergecircuit.NewMergeCircuit()
 
 	circuit.OwnerPkHash = p.OwnerPkHash
@@ -31,24 +34,26 @@ func (p *MergeParameters) createDefaultWitness() *mergecircuit.Circuit {
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
+	circuit.OutputTreeID = p.OutputTreeID
 	circuit.UserSigningPkHash = p.OwnerPkHash
 	circuit.PublicInputHash = p.PublicInputHash
 
+	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {
+		return nil, err
+	}
 	for i := range p.Inputs {
 		circuit.Inputs[i] = p.inputAt(i)
 		circuit.Nullifiers[i] = p.Inputs[i].Nullifier
-		circuit.UtxoTreeRoots[i] = p.Inputs[i].UtxoTreeRoot
-		circuit.NullifierTreeRoots[i] = p.Inputs[i].NullifierTreeRoot
 	}
 
 	circuit.Output = mergecircuit.Output{
 		RingDataHash: p.Output.RingDataHash,
 	}
 
-	return circuit
+	return circuit, nil
 }
 
-func (p *MergeParameters) createRingWitness() *mergecircuit.RingCircuit {
+func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error) {
 	circuit := mergecircuit.NewMergeRingCircuit()
 
 	circuit.OwnerPkHash = p.OwnerPkHash
@@ -59,22 +64,41 @@ func (p *MergeParameters) createRingWitness() *mergecircuit.RingCircuit {
 	circuit.PrivateTxHash = p.PrivateTxHash
 	circuit.OutputHash = p.Output.Hash
 	circuit.AllowDummyInputs = p.AllowDummyInputs
+	circuit.OutputTreeID = p.OutputTreeID
 	circuit.OutputRingDataHash = p.OutputRingDataHash
 	circuit.RingProgramID = p.RingProgramID
 	circuit.PublicInputHash = p.PublicInputHash
 
+	if err := p.assignTreeSlots(circuit.TreeSlots); err != nil {
+		return nil, err
+	}
 	for i := range p.Inputs {
 		circuit.Inputs[i] = p.inputAt(i)
 		circuit.Nullifiers[i] = p.Inputs[i].Nullifier
-		circuit.UtxoTreeRoots[i] = p.Inputs[i].UtxoTreeRoot
-		circuit.NullifierTreeRoots[i] = p.Inputs[i].NullifierTreeRoot
 	}
 
 	circuit.Output = mergecircuit.Output{
 		RingDataHash: p.Output.RingDataHash,
 	}
 
-	return circuit
+	return circuit, nil
+}
+
+// assignTreeSlots fills the circuit's pre-allocated slots. The count is fixed
+// by the compiled skeleton, so a request with any other count is rejected here
+// as well as in ValidateShape: CreateWitness is reachable without it.
+func (p *MergeParameters) assignTreeSlots(slots []transaction.TreeSlot) error {
+	if len(p.TreeSlots) != len(slots) {
+		return fmt.Errorf("merge: tree slot count mismatch: got %d want %d", len(p.TreeSlots), len(slots))
+	}
+	for k, slot := range p.TreeSlots {
+		slots[k] = transaction.TreeSlot{
+			ID:            slot.ID,
+			UtxoRoot:      slot.UtxoRoot,
+			NullifierRoot: slot.NullifierRoot,
+		}
+	}
+	return nil
 }
 
 func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
@@ -94,6 +118,7 @@ func (p *MergeParameters) inputAt(i int) mergecircuit.Input {
 		RingDataHash:             in.RingDataHash,
 		StatePathElements:        statePath,
 		StatePathIndex:           in.StatePathIndex,
+		TreeSlot:                 in.TreeSlot,
 		NullifierLowValue:        in.NullifierLowValue,
 		NullifierNextValue:       in.NullifierNextValue,
 		NullifierLowPathElements: nullifierPath,

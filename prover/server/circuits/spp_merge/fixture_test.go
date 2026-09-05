@@ -12,6 +12,7 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 )
 
 func buildValidWitness(t *testing.T) *merge.Circuit {
@@ -88,34 +89,10 @@ func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
 	return out
 }
 
-func treeSlotsHashChain(t *testing.T, slots []protocol.TreeSlot) *big.Int {
-	t.Helper()
-	h, err := protocol.TreeSlotsHashChain(slots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
-}
-
-// mergeUtxoHash mirrors the circuit's seven-field utxo hash; protocol.UtxoHash
-// still hashes six fields.
+// mergeUtxoHash hashes u under the raw id of the tree that holds it.
 func mergeUtxoHash(t *testing.T, u protocol.Utxo, treeID int64) *big.Int {
 	t.Helper()
-	ownerUtxoHash, err := protocol.OwnerUtxoHash(u.Owner, u.Blinding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ringHash, err := poseidon.Hash([]*big.Int{u.RingDataHash, u.RingProgramID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h, err := poseidon.Hash([]*big.Int{
-		u.Domain, big.NewInt(treeID), u.Asset, u.Amount, u.DataHash, ringHash, ownerUtxoHash,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return h
+	return spptest.MustUtxoHash(t, u, big.NewInt(treeID))
 }
 
 type mergeWitnessFixture struct {
@@ -403,7 +380,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
-		treeSlotsHashChain(t, treeSlots),
+		spptest.MustTreeSlotsHashChain(t, treeSlots),
 		outputTreeID,
 		privateTxHash,
 		externalDataHash,

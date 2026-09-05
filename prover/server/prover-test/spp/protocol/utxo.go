@@ -8,13 +8,13 @@ import (
 )
 
 // solAssetValue is the UTXO asset field for native SOL: the default (all-zero)
-// address encoded like any fixed 32-byte Address in a UTXO commitment:
-// HashBytes([0; 32]) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
-// asset uses the same SolanaPkField encoding (on-chain public_spl_asset).
+// address encoded like any mint, AssetField([0; 32]) == HashBytes([0; 32]).
+// Spec: SOL is Address::default(), and an SPL asset uses the same untagged
+// encoding (on-chain public_spl_asset).
 var solAssetValue = mustSolAsset()
 
 func mustSolAsset() *big.Int {
-	asset, err := SolanaPkField([32]byte{})
+	asset, err := AssetField([32]byte{})
 	if err != nil {
 		panic(err)
 	}
@@ -121,7 +121,17 @@ func OwnerUtxoHash(owner, blinding *big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-func UtxoHash(u Utxo) (*big.Int, error) {
+// UtxoHash commits to a utxo under the raw u16 id of the tree that holds it:
+// the selected input tree slot's id for an input, the output tree id for an
+// output. Mirrors the circuit's utxoHashGadget,
+// Poseidon(domain, treeID, asset, amount, dataHash, ringHash, ownerUtxoHash),
+// so equal utxos in different trees have distinct hashes, nullifiers, and
+// addresses. The tree id is not a utxo field: the same utxo body is hashed
+// under whichever tree it lives in.
+func UtxoHash(u Utxo, treeID *big.Int) (*big.Int, error) {
+	if treeID == nil {
+		return nil, fmt.Errorf("spp: utxo hash: tree id is required")
+	}
 	ownerUtxoHash, err := OwnerUtxoHash(u.Owner, u.Blinding)
 	if err != nil {
 		return nil, err
@@ -132,6 +142,7 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	}
 	h, err := poseidon.Hash([]*big.Int{
 		u.Domain,
+		treeID,
 		u.Asset,
 		u.Amount,
 		u.DataHash,
@@ -152,8 +163,10 @@ func Nullifier(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-func NullifierFromSecret(utxo Utxo, nullifierSecret *big.Int) (*big.Int, error) {
-	utxoHash, err := UtxoHash(utxo)
+// NullifierFromSecret derives the nullifier of utxo, which lives in the tree
+// with the raw id treeID.
+func NullifierFromSecret(utxo Utxo, treeID, nullifierSecret *big.Int) (*big.Int, error) {
+	utxoHash, err := UtxoHash(utxo, treeID)
 	if err != nil {
 		return nil, err
 	}

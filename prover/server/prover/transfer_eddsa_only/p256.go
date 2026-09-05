@@ -22,12 +22,20 @@ type P256TransferParameters struct {
 	NInputs  uint32
 	NOutputs uint32
 
-	Inputs             []InputParams
-	Outputs            []OutputParams
-	OutputBlindingSeed *big.Int
+	Inputs  []InputParams
+	Outputs []OutputParams
+	// TreeSlots are the shared.InputTrees public tree slots inputs may be spent
+	// from; unused slots are all zero. Each input names its own slot privately.
+	TreeSlots []common.TreeSlotParams
+	// OutputTreeID is the raw u16 id of the tree every output is appended to.
+	OutputTreeID *big.Int
 
 	ExternalDataHash *big.Int
 	PrivateTxHash    *big.Int
+	// TxSecret is the transaction's single private random value; the circuit
+	// derives the output blinding seed, every output blinding, and the private
+	// tx blinding from it and the first nullifier.
+	TxSecret *big.Int
 
 	P256PubX               *big.Int
 	P256PubY               *big.Int
@@ -47,28 +55,30 @@ type P256TransferParameters struct {
 }
 
 type P256TransferParametersJSON struct {
-	CircuitType                  common.CircuitType `json:"circuitType"`
-	NInputs                      uint32             `json:"nInputs"`
-	NOutputs                     uint32             `json:"nOutputs"`
-	Inputs                       []InputParamsJSON  `json:"inputs"`
-	Outputs                      []OutputParamsJSON `json:"outputs"`
-	OutputBlindingSeed           string             `json:"outputBlindingSeed"`
-	ExternalDataHash             string             `json:"externalDataHash"`
-	PrivateTxHash                string             `json:"privateTxHash"`
-	P256PubX                     string             `json:"p256PubX"`
-	P256PubY                     string             `json:"p256PubY"`
-	P256SigR                     string             `json:"p256SigR"`
-	P256SigS                     string             `json:"p256SigS"`
-	P256MessageHashLow           string             `json:"p256MessageHashLow"`
-	P256MessageHashHigh          string             `json:"p256MessageHashHigh"`
-	DefaultP256OwnerPkHash       string             `json:"defaultP256OwnerPkHash"`
-	PublicAssets                 []string           `json:"publicAssets"`
-	PublicAmounts                []string           `json:"publicAmounts"`
-	RingProgramID                string             `json:"ringProgramId"`
-	SignerPkHashes               []string           `json:"signerPkHashes"`
-	AllowDummyInputs             string             `json:"allowDummyInputs"`
-	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
-	PublicInputHash              string             `json:"publicInputHash"`
+	CircuitType                  common.CircuitType          `json:"circuitType"`
+	NInputs                      uint32                      `json:"nInputs"`
+	NOutputs                     uint32                      `json:"nOutputs"`
+	Inputs                       []InputParamsJSON           `json:"inputs"`
+	Outputs                      []OutputParamsJSON          `json:"outputs"`
+	TreeSlots                    []common.TreeSlotParamsJSON `json:"treeSlots"`
+	OutputTreeID                 string                      `json:"outputTreeId"`
+	ExternalDataHash             string                      `json:"externalDataHash"`
+	PrivateTxHash                string                      `json:"privateTxHash"`
+	TxSecret                     string                      `json:"txSecret"`
+	P256PubX                     string                      `json:"p256PubX"`
+	P256PubY                     string                      `json:"p256PubY"`
+	P256SigR                     string                      `json:"p256SigR"`
+	P256SigS                     string                      `json:"p256SigS"`
+	P256MessageHashLow           string                      `json:"p256MessageHashLow"`
+	P256MessageHashHigh          string                      `json:"p256MessageHashHigh"`
+	DefaultP256OwnerPkHash       string                      `json:"defaultP256OwnerPkHash"`
+	PublicAssets                 []string                    `json:"publicAssets"`
+	PublicAmounts                []string                    `json:"publicAmounts"`
+	RingProgramID                string                      `json:"ringProgramId"`
+	SignerPkHashes               []string                    `json:"signerPkHashes"`
+	AllowDummyInputs             string                      `json:"allowDummyInputs"`
+	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
+	PublicInputHash              string                      `json:"publicInputHash"`
 }
 
 func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
@@ -77,9 +87,11 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		NOutputs:                     p.NOutputs,
 		Inputs:                       p.Inputs,
 		Outputs:                      p.Outputs,
-		OutputBlindingSeed:           p.OutputBlindingSeed,
+		TreeSlots:                    p.TreeSlots,
+		OutputTreeID:                 p.OutputTreeID,
 		ExternalDataHash:             p.ExternalDataHash,
 		PrivateTxHash:                p.PrivateTxHash,
+		TxSecret:                     p.TxSecret,
 		PublicAssets:                 p.PublicAssets,
 		PublicAmounts:                p.PublicAmounts,
 		RingProgramID:                p.RingProgramID,
@@ -95,16 +107,18 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		NOutputs:                     base.NOutputs,
 		Inputs:                       base.Inputs,
 		Outputs:                      base.Outputs,
-		OutputBlindingSeed:           base.OutputBlindingSeed,
+		TreeSlots:                    base.TreeSlots,
+		OutputTreeID:                 base.OutputTreeID,
 		ExternalDataHash:             base.ExternalDataHash,
 		PrivateTxHash:                base.PrivateTxHash,
-		P256PubX:                     feHex(p.P256PubX),
-		P256PubY:                     feHex(p.P256PubY),
-		P256SigR:                     feHex(p.P256SigR),
-		P256SigS:                     feHex(p.P256SigS),
-		P256MessageHashLow:           feHex(p.P256MessageHashLow),
-		P256MessageHashHigh:          feHex(p.P256MessageHashHigh),
-		DefaultP256OwnerPkHash:       feHex(p.DefaultP256OwnerPkHash),
+		TxSecret:                     base.TxSecret,
+		P256PubX:                     common.FeHex(p.P256PubX),
+		P256PubY:                     common.FeHex(p.P256PubY),
+		P256SigR:                     common.FeHex(p.P256SigR),
+		P256SigS:                     common.FeHex(p.P256SigS),
+		P256MessageHashLow:           common.FeHex(p.P256MessageHashLow),
+		P256MessageHashHigh:          common.FeHex(p.P256MessageHashHigh),
+		DefaultP256OwnerPkHash:       common.FeHex(p.DefaultP256OwnerPkHash),
 		PublicAssets:                 base.PublicAssets,
 		PublicAmounts:                base.PublicAmounts,
 		RingProgramID:                base.RingProgramID,
@@ -130,9 +144,11 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		NOutputs:                     params.NOutputs,
 		Inputs:                       params.Inputs,
 		Outputs:                      params.Outputs,
-		OutputBlindingSeed:           params.OutputBlindingSeed,
+		TreeSlots:                    params.TreeSlots,
+		OutputTreeID:                 params.OutputTreeID,
 		ExternalDataHash:             params.ExternalDataHash,
 		PrivateTxHash:                params.PrivateTxHash,
+		TxSecret:                     params.TxSecret,
 		PublicAssets:                 params.PublicAssets,
 		PublicAmounts:                params.PublicAmounts,
 		RingProgramID:                params.RingProgramID,
@@ -147,9 +163,11 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.NOutputs = base.NOutputs
 	p.Inputs = base.Inputs
 	p.Outputs = base.Outputs
-	p.OutputBlindingSeed = base.OutputBlindingSeed
+	p.TreeSlots = base.TreeSlots
+	p.OutputTreeID = base.OutputTreeID
 	p.ExternalDataHash = base.ExternalDataHash
 	p.PrivateTxHash = base.PrivateTxHash
+	p.TxSecret = base.TxSecret
 	p.PublicAssets = base.PublicAssets
 	p.PublicAmounts = base.PublicAmounts
 	p.RingProgramID = base.RingProgramID
@@ -168,7 +186,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		&p.P256MessageHashHigh:    params.P256MessageHashHigh,
 		&p.DefaultP256OwnerPkHash: params.DefaultP256OwnerPkHash,
 	} {
-		if *target, err = feFromHex(encoded); err != nil {
+		if *target, err = common.FeFromHex(encoded); err != nil {
 			return err
 		}
 	}
@@ -177,15 +195,17 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 
 func (p *P256TransferParameters) ValidateShape() error {
 	return (&TransferParameters{
-		NInputs:  p.NInputs,
-		NOutputs: p.NOutputs,
-		Inputs:   p.Inputs,
-		Outputs:  p.Outputs,
+		NInputs:      p.NInputs,
+		NOutputs:     p.NOutputs,
+		Inputs:       p.Inputs,
+		Outputs:      p.Outputs,
+		TreeSlots:    p.TreeSlots,
+		OutputTreeID: p.OutputTreeID,
 	}).ValidateShape()
 }
 
 func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
-	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.PublicAssets, p.PublicAmounts)
+	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.TreeSlots, p.PublicAssets, p.PublicAmounts)
 	if err != nil {
 		return nil, err
 	}
@@ -222,8 +242,8 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		Public: customring.CustomRingP256Public{
 			Nullifiers:                   core.nullifiers,
 			OutputHashes:                 core.outputHashes,
-			UtxoTreeRoots:                core.utxoTreeRoots,
-			NullifierTreeRoots:           core.nullifierTreeRoots,
+			TreeSlots:                    core.treeSlots,
+			OutputTreeID:                 p.OutputTreeID,
 			PrivateTxHash:                p.PrivateTxHash,
 			P256MessageHashLow:           p.P256MessageHashLow,
 			P256MessageHashHigh:          p.P256MessageHashHigh,
@@ -243,7 +263,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			Outputs:             core.outputs,
 			OutputOwnerPkHashes: outputOwnerPkHashes,
 			OutputNullifierPks:  outputNullifierPks,
-			OutputBlindingSeed:  p.OutputBlindingSeed,
+			TxSecret:            p.TxSecret,
 			P256Pub: customring.P256PublicKey{
 				X: emulated.ValueOf[emulated.P256Fp](p.P256PubX),
 				Y: emulated.ValueOf[emulated.P256Fp](p.P256PubY),

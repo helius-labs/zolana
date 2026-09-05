@@ -2,6 +2,7 @@ package merge
 
 import (
 	"fmt"
+	"math/big"
 
 	mergecircuit "zolana/prover/circuits/spp_merge"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
@@ -13,11 +14,13 @@ import (
 )
 
 // ValidateShape checks the parameter arity matches the fixed 8-in/1-out merge
-// shape and the Merkle path heights before witness assignment.
+// shape, the Merkle path heights, and the tree slot layout before witness
+// assignment.
 func (p *MergeParameters) ValidateShape() error {
 	if len(p.Inputs) != mergecircuit.MergeInputs {
 		return fmt.Errorf("merge: wrong number of inputs: got %d, expected %d", len(p.Inputs), mergecircuit.MergeInputs)
 	}
+	inputSlots := make([]*big.Int, len(p.Inputs))
 	for i := range p.Inputs {
 		if got := len(p.Inputs[i].StatePathElements); got != transaction.StateTreeHeight {
 			return fmt.Errorf("merge: input %d state path length: got %d, expected %d", i, got, transaction.StateTreeHeight)
@@ -25,6 +28,15 @@ func (p *MergeParameters) ValidateShape() error {
 		if got := len(p.Inputs[i].NullifierLowPathElements); got != transaction.NullifierTreeHeight {
 			return fmt.Errorf("merge: input %d nullifier path length: got %d, expected %d", i, got, transaction.NullifierTreeHeight)
 		}
+		inputSlots[i] = p.Inputs[i].TreeSlot
+	}
+	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, transaction.InputTrees); err != nil {
+		return err
+	}
+	// The output UTXO hash commits to its tree id, so an absent signal would be
+	// an unassigned witness rather than a defaultable zero.
+	if p.OutputTreeID == nil {
+		return fmt.Errorf("merge: outputTreeId is required")
 	}
 	return nil
 }

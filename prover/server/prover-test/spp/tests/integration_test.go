@@ -55,7 +55,9 @@ func p256ProofRequest(t *testing.T) txprover.ProofBundleRequest {
 		RingDataHash:  big.NewInt(0),
 		RingProgramID: big.NewInt(0),
 	}
-	utxoHash, err := protocol.UtxoHash(utxo)
+	// The request leaves input_tree_id at its default, so the state leaf is
+	// hashed under tree 0.
+	utxoHash, err := protocol.UtxoHash(utxo, big.NewInt(0))
 	if err != nil {
 		t.Fatal(err)
 	}

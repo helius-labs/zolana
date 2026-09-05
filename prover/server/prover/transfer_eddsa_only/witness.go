@@ -7,6 +7,7 @@ import (
 	customring "zolana/prover/circuits/spp_transaction/custom"
 	defaultring "zolana/prover/circuits/spp_transaction/default"
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
+	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -38,6 +39,7 @@ func inputWitness(in InputParams) txcircuit.Input {
 		Utxo:                     utxoFields(in.Utxo),
 		StatePathElements:        statePath,
 		StatePathIndex:           in.StatePathIndex,
+		TreeSlot:                 in.TreeSlot,
 		NullifierLowValue:        in.NullifierLowValue,
 		NullifierNextValue:       in.NullifierNextValue,
 		NullifierLowPathElements: nullifierPath,
@@ -51,8 +53,7 @@ func inputWitness(in InputParams) txcircuit.Input {
 type witnessCore struct {
 	inputs             []txcircuit.Input
 	nullifiers         []frontend.Variable
-	utxoTreeRoots      []frontend.Variable
-	nullifierTreeRoots []frontend.Variable
+	treeSlots          []txcircuit.TreeSlot
 	inputOwnerPkHashes []frontend.Variable
 	outputs            []txcircuit.UtxoCircuitFields
 	outputHashes       []frontend.Variable
@@ -60,18 +61,47 @@ type witnessCore struct {
 	publicAmounts      [txcircuit.NPublicSlots]frontend.Variable
 }
 
-func buildWitnessCore(inputs []InputParams, outputs []OutputParams, publicAssets, publicAmounts []*big.Int) (witnessCore, error) {
+// treeSlotsWitness assigns the public tree slots. The count is fixed by the
+// compiled skeleton, and an unused slot is all zero, so a nil value assigns as
+// zero rather than leaving the signal unset.
+func treeSlotsWitness(slots []common.TreeSlotParams) ([]txcircuit.TreeSlot, error) {
+	if len(slots) != txcircuit.InputTrees {
+		return nil, fmt.Errorf(
+			"spp: tree slot count mismatch: got %d want %d",
+			len(slots), txcircuit.InputTrees,
+		)
+	}
+	out := make([]txcircuit.TreeSlot, len(slots))
+	for k, slot := range slots {
+		out[k] = txcircuit.TreeSlot{
+			ID:            orZero(slot.ID),
+			UtxoRoot:      orZero(slot.UtxoRoot),
+			NullifierRoot: orZero(slot.NullifierRoot),
+		}
+	}
+	return out, nil
+}
+
+func buildWitnessCore(
+	inputs []InputParams,
+	outputs []OutputParams,
+	treeSlots []common.TreeSlotParams,
+	publicAssets, publicAmounts []*big.Int,
+) (witnessCore, error) {
 	if len(publicAssets) != txcircuit.NPublicSlots || len(publicAmounts) != txcircuit.NPublicSlots {
 		return witnessCore{}, fmt.Errorf(
 			"spp: public slot count mismatch: got %d assets and %d amounts, want %d",
 			len(publicAssets), len(publicAmounts), txcircuit.NPublicSlots,
 		)
 	}
+	slots, err := treeSlotsWitness(treeSlots)
+	if err != nil {
+		return witnessCore{}, err
+	}
 	core := witnessCore{
 		inputs:             make([]txcircuit.Input, len(inputs)),
 		nullifiers:         make([]frontend.Variable, len(inputs)),
-		utxoTreeRoots:      make([]frontend.Variable, len(inputs)),
-		nullifierTreeRoots: make([]frontend.Variable, len(inputs)),
+		treeSlots:          slots,
 		inputOwnerPkHashes: make([]frontend.Variable, len(inputs)),
 		outputs:            make([]txcircuit.UtxoCircuitFields, len(outputs)),
 		outputHashes:       make([]frontend.Variable, len(outputs)),
@@ -79,8 +109,6 @@ func buildWitnessCore(inputs []InputParams, outputs []OutputParams, publicAssets
 	for i, in := range inputs {
 		core.inputs[i] = inputWitness(in)
 		core.nullifiers[i] = in.Nullifier
-		core.utxoTreeRoots[i] = in.UtxoTreeRoot
-		core.nullifierTreeRoots[i] = in.NullifierTreeRoot
 		core.inputOwnerPkHashes[i] = in.OwnerPkHash
 	}
 	for i, out := range outputs {
@@ -98,7 +126,7 @@ func buildWitnessCore(inputs []InputParams, outputs []OutputParams, publicAssets
 // spp_transaction circuit variant selected by Variant. This rail has no P256
 // witness at all. No hashing.
 func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
-	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.PublicAssets, p.PublicAmounts)
+	core, err := buildWitnessCore(p.Inputs, p.Outputs, p.TreeSlots, p.PublicAssets, p.PublicAmounts)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +173,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			Public: defaultring.DefaultRingEddsaOnlyPublic{
 				Nullifiers:          core.nullifiers,
 				OutputHashes:        core.outputHashes,
-				UtxoTreeRoots:       core.utxoTreeRoots,
-				NullifierTreeRoots:  core.nullifierTreeRoots,
+				TreeSlots:           core.treeSlots,
+				OutputTreeID:        p.OutputTreeID,
 				PrivateTxHash:       p.PrivateTxHash,
 				ExternalDataHash:    p.ExternalDataHash,
 				PublicAssets:        core.publicAssets,
@@ -161,31 +189,31 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
 				OutputNullifierPks: outputNullifierPks,
-				OutputBlindingSeed: p.OutputBlindingSeed,
+				TxSecret:           p.TxSecret,
 			},
 		}, nil
 	case RingAuthorityVariant:
 		return &customring.CustomRingAuthorityCircuit{
 			Shape: shape,
 			Public: customring.CustomRingAuthorityPublic{
-				Nullifiers:         core.nullifiers,
-				OutputHashes:       core.outputHashes,
-				UtxoTreeRoots:      core.utxoTreeRoots,
-				NullifierTreeRoots: core.nullifierTreeRoots,
-				PrivateTxHash:      p.PrivateTxHash,
-				ExternalDataHash:   p.ExternalDataHash,
-				PublicAssets:       core.publicAssets,
-				PublicAmounts:      core.publicAmounts,
-				RingProgramID:      p.RingProgramID,
-				SignerPkHashes:     signerPkHashes,
-				AllowDummyInputs:   p.AllowDummyInputs,
-				PublicInputHash:    p.PublicInputHash,
+				Nullifiers:       core.nullifiers,
+				OutputHashes:     core.outputHashes,
+				TreeSlots:        core.treeSlots,
+				OutputTreeID:     p.OutputTreeID,
+				PrivateTxHash:    p.PrivateTxHash,
+				ExternalDataHash: p.ExternalDataHash,
+				PublicAssets:     core.publicAssets,
+				PublicAmounts:    core.publicAmounts,
+				RingProgramID:    p.RingProgramID,
+				SignerPkHashes:   signerPkHashes,
+				AllowDummyInputs: p.AllowDummyInputs,
+				PublicInputHash:  p.PublicInputHash,
 			},
 			Private: customring.CustomRingAuthorityPrivate{
 				Inputs:             core.inputs,
 				InputOwnerPkHashes: core.inputOwnerPkHashes,
 				Outputs:            core.outputs,
-				OutputBlindingSeed: p.OutputBlindingSeed,
+				TxSecret:           p.TxSecret,
 			},
 		}, nil
 	default:
@@ -200,8 +228,8 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			Public: customring.CustomRingEddsaOnlyPublic{
 				Nullifiers:                   core.nullifiers,
 				OutputHashes:                 core.outputHashes,
-				UtxoTreeRoots:                core.utxoTreeRoots,
-				NullifierTreeRoots:           core.nullifierTreeRoots,
+				TreeSlots:                    core.treeSlots,
+				OutputTreeID:                 p.OutputTreeID,
 				PrivateTxHash:                p.PrivateTxHash,
 				ExternalDataHash:             p.ExternalDataHash,
 				PublicAssets:                 core.publicAssets,
@@ -218,7 +246,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				Outputs:             core.outputs,
 				OutputOwnerPkHashes: outputOwnerPkHashes,
 				OutputNullifierPks:  outputNullifierPks,
-				OutputBlindingSeed:  p.OutputBlindingSeed,
+				TxSecret:            p.TxSecret,
 			},
 		}, nil
 	}

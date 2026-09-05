@@ -41,9 +41,10 @@ func MustPoseidon(t testing.TB, width int, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
-func MustUtxoHash(t testing.TB, utxo protocol.Utxo) *big.Int {
+// MustUtxoHash hashes utxo under the raw id of the tree that holds it.
+func MustUtxoHash(t testing.TB, utxo protocol.Utxo, treeID *big.Int) *big.Int {
 	t.Helper()
-	value, err := protocol.UtxoHash(utxo)
+	value, err := protocol.UtxoHash(utxo, treeID)
 	return MustHash(t, value, err)
 }
 
