@@ -10,7 +10,7 @@
 //! derivation is verified.
 
 use borsh::BorshDeserialize;
-use zolana_event::tag;
+use zolana_interface::instruction::tag;
 use zolana_interface::{instruction::CreateRingConfigData, pda};
 
 use super::state_update::{RingConfigUpdate, StateUpdate};

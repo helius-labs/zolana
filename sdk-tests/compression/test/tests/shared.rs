@@ -10,7 +10,7 @@ use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
+    localnet::{isolated_temp_path, LocalnetValidator, ValidatorBackend, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
 };
 use zolana_tree::TreeAccount;
@@ -56,6 +56,7 @@ pub fn setup() -> Result<Environment> {
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".into());
     LocalnetValidator {
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: artifacts.root(),
         rpc_port: rpc_port.clone(),
         photon_port: photon_port.clone(),

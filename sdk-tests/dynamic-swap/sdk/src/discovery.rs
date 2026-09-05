@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use zolana_client::Rpc;
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_keypair::{ShieldedPda, ViewingKey};
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialOutputPlaintext},

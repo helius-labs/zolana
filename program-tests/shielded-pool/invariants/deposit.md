@@ -36,7 +36,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `sol_deposit_rejects_a_readonly_depositor`
   - Kind: precondition
   - Statement: on the SOL rail the lamports can only leave the depositor signer: the depositor account is the transfer source by construction, and it must be writable (`validate_sol_settlement`).
-  - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:94-98` (`SettlementAccountsSol { recipient: depositor }` in `fn validate_and_parse`), `settlement/validate.rs:60-74` (`fn validate_sol_settlement`)
+  - Location: `programs/shielded-pool/src/instructions/deposit/account.rs` (`SettlementAccountsSol { user_account: depositor }` in `fn validate_and_parse`), `settlement/validate.rs` (`fn validate_sol_settlement`)
   - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009`
   - Severity: Critical (theft of third-party lamports)
   - Suggested test: negative; harness: mollusk unit

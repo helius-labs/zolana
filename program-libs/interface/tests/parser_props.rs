@@ -10,19 +10,21 @@
 //!    round-trip).
 
 use proptest::{prelude::*, test_runner::TestCaseError};
-use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         UtxoData,
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    merge_transact::{
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+    },
     transact::{
-        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof,
+        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, OwnerTagRef, TransactIxData,
+        TransactIxDataRef, TransactOutput, TransactProof,
     },
 };
+use zolana_interface::output_data::MessageData;
 
 mod strategies {
     use super::*;
@@ -125,17 +127,17 @@ mod strategies {
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
                 )| TransactIxData {
                     expiry_unix_ts,
-                    private_tx_hash,
-                    circuit,
                     tx_viewing_pk,
                     salt,
-                    proof,
-                    inputs,
                     interface_transfers,
-                    data_hash,
-                    ring_data_hash,
                     outputs,
                     messages,
+                    data_hash,
+                    ring_data_hash,
+                    circuit,
+                    proof,
+                    private_tx_hash,
+                    inputs,
                 },
             )
     }
@@ -145,9 +147,9 @@ mod strategies {
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
+            prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -187,19 +189,46 @@ fn assert_ref_matches_owned(
     prop_assert_eq!(view.circuit, owned.circuit);
     prop_assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
     prop_assert_eq!(view.salt, &owned.salt);
-    prop_assert_eq!(view.proof, owned.proof);
-    prop_assert_eq!(&view.inputs, &owned.inputs);
-    prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
-    prop_assert_eq!(view.data_hash, owned.data_hash);
-    prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
+    prop_assert_eq!(view.proof.a, &owned.proof.a);
+    prop_assert_eq!(view.proof.b, &owned.proof.b);
+    prop_assert_eq!(view.proof.c, &owned.proof.c);
+    prop_assert_eq!(view.inputs.len(), owned.inputs.len());
+    for (got, want) in view.inputs.try_iter().zip(&owned.inputs) {
+        let got = got.unwrap();
+        prop_assert_eq!(got.nullifier_hash, &want.nullifier_hash);
+        prop_assert_eq!(
+            got.nullifier_tree_root_index,
+            want.nullifier_tree_root_index
+        );
+        prop_assert_eq!(got.utxo_tree_root_index, want.utxo_tree_root_index);
+    }
+    prop_assert_eq!(
+        view.interface_transfers.len(),
+        owned.interface_transfers.len()
+    );
+    for (got, want) in view
+        .interface_transfers
+        .try_iter()
+        .zip(&owned.interface_transfers)
+    {
+        prop_assert_eq!(got.unwrap(), *want);
+    }
+    prop_assert_eq!(view.data_hash, owned.data_hash.as_ref());
+    prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash.as_ref());
     prop_assert_eq!(view.outputs.len(), owned.outputs.len());
-    for (got, want) in view.outputs.iter().zip(owned.outputs.iter()) {
+    for (got, want) in view.outputs.try_iter().zip(&owned.outputs) {
+        let got = got.unwrap();
         prop_assert_eq!(got.utxo_hash, &want.utxo_hash);
-        prop_assert_eq!(got.owner_tag, want.owner_tag);
+        match (got.owner_tag, want.owner_tag) {
+            (OwnerTagRef::Inline(got), OwnerTag::Inline(want)) => prop_assert_eq!(got, &want),
+            (OwnerTagRef::Account(got), OwnerTag::Account(want)) => prop_assert_eq!(got, want),
+            _ => prop_assert!(false, "owner-tag variants differ"),
+        }
         prop_assert_eq!(got.data, want.data.as_deref());
     }
     prop_assert_eq!(view.messages.len(), owned.messages.len());
-    for (got, want) in view.messages.iter().zip(owned.messages.iter()) {
+    for (got, want) in view.messages.try_iter().zip(&owned.messages) {
+        let got = got.unwrap();
         prop_assert_eq!(got.view_tag, &want.view_tag);
         prop_assert_eq!(got.data, want.data.as_slice());
     }
@@ -296,7 +325,7 @@ proptest! {
         let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_INPUT_COUNT
+            nullifier_count == MERGE_DEFAULT_INPUT_COUNT
         );
 
         let mut wrong_roots = owned.clone();
@@ -304,7 +333,7 @@ proptest! {
         let bytes = wrong_roots.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_INPUT_COUNT
+            root_count == MERGE_DEFAULT_INPUT_COUNT
         );
     }
 

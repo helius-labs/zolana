@@ -533,21 +533,21 @@ fn sample_proof() -> CustomRingProof {
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [61; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [62; 33],
         salt: [63; 16],
-        inputs: Vec::new(),
         interface_transfers,
-        data_hash: None,
-        ring_data_hash: None,
         outputs: Vec::new(),
         messages: vec![MessageData {
             view_tag: [64; 32],
             data: vec![65; 65],
         }],
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [61; 32],
+        inputs: Vec::new(),
     }
 }
 
@@ -679,7 +679,9 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         proof: sample_proof(),
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),

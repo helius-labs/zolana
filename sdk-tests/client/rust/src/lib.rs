@@ -11,7 +11,7 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, ValidatorBackend},
     smart_account::{self, StandardSigners},
 };
 
@@ -40,6 +40,7 @@ pub fn setup() -> Result<SetupContext> {
 
     LocalnetValidator {
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: root.to_string(),
         rpc_port,
         photon_port,

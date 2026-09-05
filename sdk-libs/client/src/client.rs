@@ -88,10 +88,30 @@ pub struct SignedPrivateTransaction {
     pub input_tree: Address,
 }
 
-/// Compute-unit ceiling a private transaction is submitted with unless the
-/// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
-/// which does not fit inside the default per-instruction budget.
-pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 300_000;
+/// Compute-unit limit a private transaction is submitted with unless the caller
+/// overrides it. A shielded `Transact` verifies a Groth16 proof on-chain, which
+/// does not fit inside the default per-instruction budget.
+///
+/// It covers every supported shape on every rail. Two effects drive the
+/// ceiling, and the binding one is not the obvious one:
+///
+/// - Input count. Each input adds a nullifier queue insertion and a nullifier
+///   PDA creation, so a 36x2 consolidation on the eddsa rail measures about
+///   452,000 CU end to end (validator, 2026-09).
+/// - Rail. The P256 rail's BSB22 commitment adds a Pedersen proof-of-knowledge
+///   pairing, which costs 224,654 CU to verify against the eddsa and ring
+///   rails' 93,356 (mollusk, `CU_BENCHMARK.md`). A 36x2 P256 ring transact
+///   therefore reaches about 585,000 CU in the instruction alone.
+///
+/// The limit sits above that worst case with room for transaction overhead and
+/// for the per-run variance in the nullifier PDAs' canonical bump search, which
+/// spans roughly 9,000 CU across runs at 36 inputs.
+///
+/// Requested compute units, not consumed ones, set the prioritization fee, so a
+/// caller submitting only small shapes can lower this and pay less. Unused
+/// units are not charged as base fee, but they do inflate the priority
+/// component.
+pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 800_000;
 
 /// Unified client for private transaction proving and submission helpers.
 ///
@@ -1028,7 +1048,7 @@ fn build_unsigned_solana_transaction(
         interface_transfer_accounts: settlement_transfers,
         data: transact_data,
     }
-    .instruction();
+    .instruction()?;
     let instructions = submit_instructions(
         compute_budget.cu_limit,
         compute_budget.cu_price_micro_lamports,
@@ -1440,11 +1460,11 @@ mod tests {
         ];
         let settlement_transfers = [
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: Pubkey::new_unique(),
+                user_account: Pubkey::new_unique(),
             }),
             TransactInterfaceTransferAccounts::SplDeposit(spl),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                recipient: Pubkey::new_unique(),
+                user_account: Pubkey::new_unique(),
             }),
         ];
 
@@ -1459,7 +1479,7 @@ mod tests {
     #[test]
     fn settlement_accounts_reject_count_and_type_mismatches() {
         let sol_accounts = TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-            recipient: Pubkey::new_unique(),
+            user_account: Pubkey::new_unique(),
         });
         assert!(matches!(
             SettlementAccountValidation {
@@ -1516,7 +1536,9 @@ mod tests {
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
             settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
+                TransactSolTransferAccounts {
+                    user_account: recipient,
+                },
             )],
             input_tree: tree,
         };

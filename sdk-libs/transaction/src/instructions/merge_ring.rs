@@ -1,7 +1,7 @@
 //! High-level policy-ring merge build: [`MergeRing`] names which UTXOs to
 //! consolidate, the derived single output, and the ring program every input is
 //! owned by; [`PreparedMergeRing`] pads to
-//! [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) and yields the
+//! a supported merge shape and yields the
 //! input commitments to fetch Merkle proofs for. Like the default merge, the merge-ring
 //! proof proves ownership in-circuit from the nullifier secret, so there is no
 //! signing step. Every input and the output share a `ring_program_id`; policy-data
@@ -89,9 +89,8 @@ impl MergeRing {
         self
     }
 
-    /// Pad to [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) with
-    /// dummy inputs (real inputs first), producing the proofless
-    /// [`PreparedMergeRing`].
+    /// Pad to the smallest supported shape that fits with dummy inputs (real
+    /// inputs first), producing the proofless [`PreparedMergeRing`].
     pub fn prepare(self) -> PreparedMergeRing {
         let MergeRing {
             mut inputs,
@@ -111,9 +110,8 @@ impl MergeRing {
     }
 }
 
-/// A policy-ring merge padded to
-/// [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) (real inputs
-/// first, dummies at the tail), still proofless. Carries the shared
+/// A policy-ring merge padded to a supported shape (real inputs first, dummies
+/// at the tail), still proofless. Carries the shared
 /// `ring_program_id` the proof commits. [`Self::input_utxo_hashes`] yields what
 /// to fetch Merkle proofs for.
 pub struct PreparedMergeRing {
@@ -146,7 +144,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, Data, DataRecord};
+    use crate::{instructions::merge::MERGE_DEFAULT_INPUTS, utxo::Utxo, Data, DataRecord};
 
     const RING: [u8; 32] = [3u8; 32];
 
@@ -172,7 +170,7 @@ mod tests {
             .expect("merge-ring plan")
             .prepare();
 
-        assert_eq!(prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(prepared.inputs.len(), MERGE_DEFAULT_INPUTS);
         assert_eq!(prepared.output.amount, 30);
         assert_eq!(prepared.ring_program_id, ring);
     }

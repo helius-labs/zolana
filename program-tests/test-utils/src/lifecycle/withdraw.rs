@@ -126,12 +126,12 @@ impl LifecycleHarness {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    recipient: recipient.pubkey(),
+                    user_account: recipient.pubkey(),
                 },
             )],
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let sig = send_transaction(
             &mut self.rpc,

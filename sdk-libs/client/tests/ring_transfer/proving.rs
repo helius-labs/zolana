@@ -13,8 +13,8 @@ use zolana_interface::{
     },
     verifying_keys::{
         transfer_ring_1_1, transfer_ring_1_2, transfer_ring_1_8, transfer_ring_2_2,
-        transfer_ring_2_3, transfer_ring_3_3, transfer_ring_4_3, transfer_ring_4_4,
-        transfer_ring_5_3, transfer_ring_5_4,
+        transfer_ring_2_3, transfer_ring_36_2, transfer_ring_3_3, transfer_ring_4_3,
+        transfer_ring_4_4, transfer_ring_5_3, transfer_ring_5_4,
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
@@ -295,6 +295,7 @@ fn eddsa_ring_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'sta
         (5, 3) => &transfer_ring_5_3::VERIFYINGKEY,
         (5, 4) => &transfer_ring_5_4::VERIFYINGKEY,
         (1, 8) => &transfer_ring_1_8::VERIFYINGKEY,
+        (36, 2) => &transfer_ring_36_2::VERIFYINGKEY,
         _ => panic!("unsupported ring-transfer shape {n_in}x{n_out}"),
     }
 }

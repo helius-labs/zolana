@@ -1,6 +1,28 @@
-use borsh::{BorshDeserialize, BorshSerialize};
+//! Output UTXO Serialization (spec: Output UTXO Serialization) plus the
+//! message slots that ride alongside it.
+//!
+//! `TransactOutput::data` and `OutputUtxo::data` carry an [`OutputDataEncoding`]
+//! envelope the program does not parse: a scheme byte followed by a
+//! scheme-specific body. The predicates here inspect that envelope without
+//! decoding it, which is what the on-chain transact path needs; the encoders
+//! build it and need Borsh.
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[cfg(feature = "borsh")]
+use borsh::{BorshDeserialize, BorshSerialize};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+
+/// One published data slot not bound to an output position, carried by
+/// `TransactIxData::messages` and republished in `GeneralEvent::messages`.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
+pub struct MessageData {
+    pub view_tag: [u8; 32],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 pub struct ProoflessOutput {
     pub owner: [u8; 32],
     pub blinding: [u8; 32],
@@ -21,7 +43,8 @@ pub struct ProoflessOutput {
 /// This has the same Borsh representation as the owned type while allowing an
 /// on-chain processor to write instruction-backed payloads directly into the
 /// final encoded output.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize))]
 pub struct ProoflessOutputRef<'a> {
     pub owner: &'a [u8; 32],
     pub blinding: &'a [u8; 32],
@@ -36,14 +59,17 @@ pub struct ProoflessOutputRef<'a> {
 }
 
 /// Self-contained encryption envelope for one owner-hidden ring deposit.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 pub struct EncryptedRingDepositData {
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub ciphertext: Vec<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize))]
 pub struct EncryptedRingDepositDataRef<'a> {
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
@@ -52,7 +78,8 @@ pub struct EncryptedRingDepositDataRef<'a> {
 
 /// Output body for an owner-hidden policy-ring deposit. Settlement and
 /// commitment fields remain visible; private preimages live in `encrypted`.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 pub struct EncryptedRingDepositOutput {
     pub owner_utxo_hash: [u8; 32],
     pub asset: [u8; 32],
@@ -64,7 +91,8 @@ pub struct EncryptedRingDepositOutput {
 }
 
 /// Borrowed serialization view of [`EncryptedRingDepositOutput`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "borsh", derive(BorshSerialize))]
 pub struct EncryptedRingDepositOutputRef<'a> {
     pub owner_utxo_hash: &'a [u8; 32],
     pub asset: &'a [u8; 32],
@@ -75,12 +103,17 @@ pub struct EncryptedRingDepositOutputRef<'a> {
     pub encrypted: EncryptedRingDepositDataRef<'a>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "borsh", derive(BorshDeserialize, BorshSerialize))]
 pub enum OutputDataEncoding {
     Plaintext(Vec<u8>),
     Encrypted(Vec<u8>),
     VerifiablyEncrypted(Vec<u8>),
 }
+
+#[cfg(feature = "output-codec")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OutputDataDecodeError;
 
 /// Scheme byte inside [`OutputDataEncoding::Encrypted`] for owner-hidden
 /// policy-ring deposits.
@@ -138,22 +171,7 @@ fn encrypted_output_body(data: &[u8], scheme: u8) -> Option<&[u8]> {
 /// where `blob` is the scheme byte followed by `borsh(ProoflessOutput)`, but
 /// writes the body once into one buffer instead of serializing it into a `Vec`
 /// and copying that `Vec` into the enum's length-prefixed payload.
-pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
-    encode_output_data_ref(ProoflessOutputRef {
-        owner: &data.owner,
-        blinding: &data.blinding,
-        asset: &data.asset,
-        amount: data.amount,
-        data_hash: data.data_hash.as_ref(),
-        utxo_data: data.utxo_data.as_deref(),
-        ring_program_id: data.ring_program_id.as_ref(),
-        ring_data_hash: data.ring_data_hash.as_ref(),
-        ring_data: data.ring_data.as_deref(),
-        memo: data.memo.as_deref(),
-    })
-}
-
-/// Borrowed counterpart of [`encode_output_data`].
+#[cfg(feature = "borsh")]
 pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
     let variable_len = data.utxo_data.map_or(0, <[u8]>::len)
         + data.ring_data.map_or(0, <[u8]>::len)
@@ -175,12 +193,38 @@ pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
     out
 }
 
-pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
-    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
-        .expect("shielded-pool output data serialization is infallible")
+/// Owned counterpart of [`encode_output_data_ref`].
+#[cfg(feature = "output-codec")]
+pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
+    encode_output_data_ref(ProoflessOutputRef {
+        owner: &data.owner,
+        blinding: &data.blinding,
+        asset: &data.asset,
+        amount: data.amount,
+        data_hash: data.data_hash.as_ref(),
+        utxo_data: data.utxo_data.as_deref(),
+        ring_program_id: data.ring_program_id.as_ref(),
+        ring_data_hash: data.ring_data_hash.as_ref(),
+        ring_data: data.ring_data.as_deref(),
+        memo: data.memo.as_deref(),
+    })
 }
 
 /// Encodes the mixed public/encrypted payload used by `ring_deposit`.
+#[cfg(feature = "borsh")]
+pub fn encode_encrypted_ring_deposit_output_ref(
+    data: EncryptedRingDepositOutputRef<'_>,
+) -> Vec<u8> {
+    let mut blob = Vec::new();
+    blob.push(ENCRYPTED_RING_DEPOSIT_SCHEME);
+    data.serialize(&mut blob)
+        .expect("shielded-pool output data serialization is infallible");
+    borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+        .expect("shielded-pool output data serialization is infallible")
+}
+
+/// Owned counterpart of [`encode_encrypted_ring_deposit_output_ref`].
+#[cfg(feature = "output-codec")]
 pub fn encode_encrypted_ring_deposit_output(data: EncryptedRingDepositOutput) -> Vec<u8> {
     encode_encrypted_ring_deposit_output_ref(EncryptedRingDepositOutputRef {
         owner_utxo_hash: &data.owner_utxo_hash,
@@ -197,13 +241,38 @@ pub fn encode_encrypted_ring_deposit_output(data: EncryptedRingDepositOutput) ->
     })
 }
 
-pub fn encode_encrypted_ring_deposit_output_ref(
-    data: EncryptedRingDepositOutputRef<'_>,
-) -> Vec<u8> {
-    let mut blob = Vec::new();
-    blob.push(ENCRYPTED_RING_DEPOSIT_SCHEME);
-    data.serialize(&mut blob)
-        .expect("shielded-pool output data serialization is infallible");
-    borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
+#[cfg(feature = "output-codec")]
+pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
+    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
         .expect("shielded-pool output data serialization is infallible")
+}
+
+#[cfg(feature = "output-codec")]
+pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, OutputDataDecodeError> {
+    let OutputDataEncoding::Plaintext(blob) =
+        OutputDataEncoding::try_from_slice(data).map_err(|_| OutputDataDecodeError)?
+    else {
+        return Err(OutputDataDecodeError);
+    };
+    let (&scheme, body) = blob.split_first().ok_or(OutputDataDecodeError)?;
+    if scheme != 0 {
+        return Err(OutputDataDecodeError);
+    }
+    ProoflessOutput::try_from_slice(body).map_err(|_| OutputDataDecodeError)
+}
+
+#[cfg(feature = "output-codec")]
+pub fn decode_encrypted_ring_deposit_output_data(
+    data: &[u8],
+) -> Result<EncryptedRingDepositOutput, OutputDataDecodeError> {
+    let OutputDataEncoding::Encrypted(blob) =
+        OutputDataEncoding::try_from_slice(data).map_err(|_| OutputDataDecodeError)?
+    else {
+        return Err(OutputDataDecodeError);
+    };
+    let (&scheme, body) = blob.split_first().ok_or(OutputDataDecodeError)?;
+    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
+        return Err(OutputDataDecodeError);
+    }
+    EncryptedRingDepositOutput::try_from_slice(body).map_err(|_| OutputDataDecodeError)
 }

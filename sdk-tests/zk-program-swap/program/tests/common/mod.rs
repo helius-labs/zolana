@@ -70,15 +70,9 @@ pub fn account(lamports: u64) -> Account {
 pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [1; 32],
-        circuit: CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [2; 33],
         salt: [3; 16],
-        proof: TransactProof::zeroed(),
-        inputs: Vec::new(),
         interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
         outputs: vec![
             TransactOutput {
                 utxo_hash: [4; 32],
@@ -92,6 +86,12 @@ pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
             },
         ],
         messages,
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::ConfidentialEddsa(1, 2, N_PUBLIC_SLOTS as u8),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [1; 32],
+        inputs: Vec::new(),
     }
 }
 

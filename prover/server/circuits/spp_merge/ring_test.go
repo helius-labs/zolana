@@ -14,7 +14,7 @@ import (
 )
 
 func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {
-	circuit := merge.NewMergeRingCircuit()
+	circuit := merge.NewMergeRingCircuit(defaultFixtureInputs)
 	circuit.Nullifiers = circuit.Nullifiers[:len(circuit.Nullifiers)-1]
 
 	_, err := frontend.Compile(
@@ -33,7 +33,7 @@ func TestMergeRingCircuitValidatesPublicSignalLayout(t *testing.T) {
 
 func TestMergeRingCircuitProves(t *testing.T) {
 	assignment := buildRingWitness(t, big.NewInt(0x5A0E))
-	if err := test.IsSolved(merge.NewMergeRingCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("ring merge witness not solved: %v", err)
 	}
 }
@@ -41,7 +41,7 @@ func TestMergeRingCircuitProves(t *testing.T) {
 func TestMergeRingCircuitRejectsWrongRingProgram(t *testing.T) {
 	a := buildRingWitness(t, big.NewInt(0x5A0E))
 	a.RingProgramID = big.NewInt(0)
-	if err := test.IsSolved(merge.NewMergeRingCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected ring-binding failure for wrong ring program, got solved")
 	}
 }
@@ -51,7 +51,7 @@ func TestMergeRingCircuitRejectsWrongRingProgram(t *testing.T) {
 // explicit nonzero-ring invariant.
 func TestMergeRingCircuitRejectsZeroRingProgram(t *testing.T) {
 	a := buildRingWitness(t, big.NewInt(0))
-	if err := test.IsSolved(merge.NewMergeRingCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected zero-ring-program failure, got solved")
 	}
 }
@@ -61,7 +61,7 @@ func TestMergeRingCircuitRejectsZeroRingProgram(t *testing.T) {
 func TestMergeRingCircuitRejectsWrongOutputRingDataHash(t *testing.T) {
 	a := buildRingWitness(t, big.NewInt(0x5A0E))
 	a.OutputRingDataHash = big.NewInt(0xBAD)
-	if err := test.IsSolved(merge.NewMergeRingCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeRingCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected output ring-data-hash binding to fail, got solved")
 	}
 }

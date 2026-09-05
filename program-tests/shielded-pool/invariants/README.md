@@ -100,7 +100,7 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
   after an audit found the first resolution had not actually landed):
   1. Deposit/RingDeposit instruction data is a batch: `assets: Vec<DepositAssetKind>` declared in the instruction data plus `deposits: Vec<DepositEntry>`; each entry carries `amount`, `view_tag`, `UtxoData`, `memo`.
   2. Transact public amounts signed `Option<i64>`; exactly the absolute value settles (fee folded prover-side) (INV-XC-18).
-  3. Merge fixed 8-in/1-out shape and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
+  3. Merge supported input counts (8 or 36) with one output, and a 128-byte vanilla Groth16 `a||b||c` proof (no BSB22 commitments); the merge is ciphertext-free.
   4. UTXO tree height 32.
   5. Duplicate `ring_deposit` row removed from the instruction table.
   6. `create_asset_counter` (tag 5) and `batch_update_nullifier_tree` (tag 4) added to the instruction table.
@@ -135,11 +135,11 @@ Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
 `close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
 `reimbursement_recipient` (7055), `claim_tree_lamports` (tag 20) lets the fee
 authority sweep surplus lamports, and the constant 20-lamport insertion fee is
-gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-01..10,
-INV-TRANSACT-46..50, INV-CREATE-TREE-10, INV-UPDATE-PC-08 (33, all covered);
-INV-BATCH-NULL-08, INV-TRANSACT-29/-30/-42, INV-MERGE-15/-19,
+gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-09/-10,
+INV-CREATE-TREE-10, INV-UPDATE-PC-08 (20, all covered); INV-BATCH-NULL-08,
+INV-CLOSE-PDA-02/-05/-08, INV-TRANSACT-29/-30/-42/-49, INV-MERGE-15/-19,
 INV-CREATE-PC-05..07, INV-UPDATE-PC-03/-05, INV-XC-03/-28/-29/-31 restated.
-The counts below are updated for the 33 additions.
+The counts below are updated for the 20 additions.
 
 Post-PR172 sync (2026-07-31):
 
@@ -155,9 +155,9 @@ Post-PR172 sync (2026-07-31):
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
+transact 56/3/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
 protocol-config 17/0/1/0, ring-config 18/2/0/0, spl 21/0/1/0, event 4/0/0/0,
-cross-cutting 27/6/0/0.
+cross-cutting 28/5/0/0.
 
 All added tests pass. Suites run green this pass:
 `shielded-pool-tests` (216 hermetic) and `--features proofs` (incl. the new
@@ -216,7 +216,7 @@ Status of the audit findings against the current (post-PR164) tree:
 - F-04 Photon indexes batch updates from instruction intent not outcome
   (permissionless indexer halt): FIXED. Photon's
   `nullifier_tree_batch_update_parser` now sources updates exclusively from the
-  emitted `BatchAddressAppendEvent` (emitted only when an update actually
+  emitted `NullifierTreeUpdateEvent` (emitted only when an update actually
   applied), authenticated by stack-height parentage to a shielded-pool
   `BATCH_UPDATE_NULLIFIER_TREE` instruction -- forged tag-4 CPIs and no-op
   successes record nothing. Regression tests

@@ -1,5 +1,5 @@
 use solana_address::Address;
-use zolana_event::MessageData;
+use zolana_interface::instruction::MessageData;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
     shape::Shape,
@@ -259,7 +259,7 @@ impl PreparedSplit {
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;
-    use zolana_event::OutputDataEncoding;
+    use zolana_interface::output_data::OutputDataEncoding;
     use zolana_keypair::{ShieldedKeypair, SigningKey};
 
     use super::*;

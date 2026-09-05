@@ -28,12 +28,12 @@ use zolana_client::{
     NonInclusionProof as IndexedNonInclusionProof, ProofInputUtxo, ProverClient, ProverInputs, Rpc,
     SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
-use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda,
     state::{
@@ -52,7 +52,7 @@ use zolana_program_test::{rpc_state_root, ZolanaProgramTest};
 use zolana_test_utils::smart_account;
 use zolana_test_utils::{
     harness::{BootstrapConfig, LocalnetHarness},
-    localnet::start_shielded_pool_localnet,
+    localnet::{start_shielded_pool_localnet, ValidatorBackend},
     prover::spawn_workspace_prover,
     test_validator_asserts::{
         assert_transaction_compute_units, wait_for_indexed_transaction, wait_for_indexed_utxo,
@@ -68,7 +68,7 @@ use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
     dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_transact_proof,
-    public_sol_field, real_output, transfer_output,
+    public_sol_field, real_output, transfer_output, ResolvedInterfaceTransfer,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -232,5 +232,5 @@ fn shielded_ed25519_from_solana(signer: &Keypair) -> TestResult<ShieldedKeypair>
 /// a validator; combined with `#[serial]` this gives every test an isolated
 /// localnet.
 fn restart_localnet() {
-    start_shielded_pool_localnet("zolana-photon", &[]);
+    start_shielded_pool_localnet("zolana-photon", ValidatorBackend::default(), &[]);
 }

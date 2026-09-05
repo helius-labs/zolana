@@ -6,20 +6,20 @@
 //! UTXOs or merkle proofs, but they carry distinct non-zero nullifiers plus the
 //! real on-chain tree roots and the payer's owner hash. The proof is therefore
 //! bound to exactly what the program reconstructs on-chain: the `external_data`
-//! hash (via the shared [`ExternalDataHash`] from the interface crate), the
+//! hash (via the shared `external_data_hash` from the interface crate), the
 //! payer pubkey hash, the per-input owner hashes, the tree roots, and the
 //! nullifier/output hash chains.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
 use shielded_pool_tests::support::transact::{
-    proof_env, tree_progress, tree_roots, write_ring_config_account, Pool,
+    advance_nullifier_queue_past_dummy_threshold, proof_env, tree_progress, tree_roots,
+    write_ring_config_account, Pool,
 };
 
 use num_bigint::BigUint;
 
 use groth16_solana::groth16::Groth16Verifier;
-use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::AccountMeta;
@@ -38,9 +38,7 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, ExternalDataHash, InterfaceTransfer, OwnerTag, TransactIxData,
-        },
+        instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
@@ -53,10 +51,11 @@ use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, prove_and_verify_transfer, resolve_outputs, set_output_owner_tags,
-    sol_public_slots, spend_input, SpendInputArgs, TransferProverInputsArgs,
+    account_tagged_owner_addresses, build_transfer_prover_inputs, dummy_input,
+    dummy_transfer_output, eddsa_input_utxo, external_data_hash_with_addresses, fe, inline_outputs,
+    new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_transact_proof,
+    prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, spend_input,
+    SpendInputArgs, TransferProverInputsArgs,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -236,27 +235,17 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
     ring_config
 }
 
-/// The ring-rail `ExternalDataHash` for a pure shielded transfer: identical to
+/// The ring-rail `external_data_hash` for a pure shielded transfer: identical to
 /// the confidential one except for the instruction discriminator, which the
 /// program folds from the tag it dispatched on.
 fn external_data_hash_for_discriminator(
     transact_ix_data: &TransactIxData,
     discriminator: u8,
 ) -> [u8; 32] {
-    let resolved = resolve_outputs(transact_ix_data).expect("resolve outputs");
-    ExternalDataHash {
-        spp_instruction_discriminator: discriminator,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-        salt: &transact_ix_data.salt,
-        outputs: &resolved,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()
-    .expect("ring external data hash")
+    let addresses =
+        account_tagged_owner_addresses(transact_ix_data).expect("account-tagged owners");
+    external_data_hash_with_addresses(transact_ix_data, discriminator, &addresses)
+        .expect("ring external data hash")
 }
 
 /// Build valid ring-rail instruction data with a real proof bound to the ring
@@ -526,7 +515,8 @@ fn transact_sends_valid_proof() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let indexed = env
         .rpc
@@ -555,7 +545,9 @@ fn transact_sends_valid_proof() {
     // Event: one Transact event carrying exactly the instruction's nullifiers
     // and output hashes, anchored at the pre-transaction leaf index.
     let event = match indexed.events.as_slice() {
-        [event] => event.decoded.as_ref().expect("decode transact event"),
+        // Reconstructed from the emitting instruction: the logged body is only
+        // the first queue sequence and the first output leaf index.
+        [event] => zolana_event::general_event_from_indexed(event).expect("decode transact event"),
         events => panic!("expected exactly one transact event, got {events:?}"),
     };
     let event_nullifiers: Vec<[u8; 32]> =
@@ -695,7 +687,8 @@ fn transact_rejects_tampered_output_owner_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -735,11 +728,14 @@ fn transact_rejects_tampered_public_amount() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -779,7 +775,8 @@ fn transact_rejects_tampered_private_transaction_hash() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -793,13 +790,16 @@ fn transact_rejects_tampered_private_transaction_hash() {
 }
 
 /// Changing proof-bound external data must fail atomically.
+///
+/// `salt` sits in the external-data prefix, so tampering it moves
+/// `external_data_hash` and the proof no longer verifies.
 #[test]
 fn transact_rejects_tampered_external_data() {
     let mut env = proof_env();
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
     let mut data = build_valid_transact_ix(&mut env);
-    data.data_hash = Some([0x5A; 32]);
+    data.salt = [0x5A; 16];
     let ix = Transact {
         payer,
         input_tree: tree,
@@ -808,7 +808,8 @@ fn transact_rejects_tampered_external_data() {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -846,7 +847,8 @@ fn transact_rejects_out_of_field_output_hash() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -891,7 +893,8 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     ix.accounts
         .get_mut(owner_signer_index)
         .expect("input owner account meta")
@@ -936,7 +939,8 @@ fn transact_rejects_a_substituted_input_signer() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -983,7 +987,8 @@ fn transact_rejects_a_substituted_payer() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc
@@ -1024,7 +1029,8 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     // A structurally valid RingConfig at a keypair address: `load_ring_config`
@@ -1068,7 +1074,8 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
@@ -1116,7 +1123,8 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
 
     let config_b = write_signed_ring_config(&mut env, ring_b, true);
@@ -1177,7 +1185,8 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     *base_ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
 
     // The authority variant requires `ring_authority_transact_is_enabled`.
@@ -1231,7 +1240,8 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     *ix.data.first_mut().expect("instruction tag byte") = tag::RING_AUTHORITY_TRANSACT;
 
     let ring_config = write_signed_ring_config(&mut env, ring, true);
@@ -1249,15 +1259,17 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     );
 }
 
+/// The owner-signer run may not be longer than the input count: the circuit
+/// binds one owner per input, so a longer run has signers no input answers for.
+/// The payer plus that run fits the circuit-derived `MAX_SIGNERS` storage bound.
 #[test]
-fn transact_rejects_an_overrunning_owner_signer_run() {
+fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
-    // The signer run is payer-first and deduplicated into a fixed-width
-    // MAX_SIGNERS array; one more unique signer than fits must be rejected.
-    let extra_signers: Vec<Keypair> = (0..MAX_SIGNERS).map(|_| Keypair::new()).collect();
+    let inputs = transact_ix_data.inputs.len();
+    let extra_signers: Vec<Keypair> = (0..=inputs).map(|_| Keypair::new()).collect();
     for signer in &extra_signers {
         env.rpc
             .airdrop(&signer.pubkey(), 1_000_000)
@@ -1271,7 +1283,8 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let signer_refs: Vec<&dyn Signer> = extra_signers
         .iter()
@@ -1280,7 +1293,7 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &signer_refs)
-        .expect_err("an owner-signer run wider than MAX_SIGNERS must be rejected");
+        .expect_err("an owner-signer run longer than the input count must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
@@ -1301,10 +1314,10 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let tree = env.tree;
     let transact_ix_data = build_valid_transact_ix(&mut env);
 
-    // Move only the nullifier queue cursor so it has one fewer free leaf than
-    // the state tree. The roots are unchanged, so the proof (built with the
-    // normal `allow_dummy_inputs = true`) still reaches the program's
-    // public-input verification -- only the flipped flag breaks it.
+    // Advance every nullifier progress field to a valid near-capacity state.
+    // The roots are unchanged, so the proof (built with the normal
+    // `allow_dummy_inputs = true`) still reaches public-input verification --
+    // only the flipped flag breaks it.
     let mut account = env.rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
@@ -1313,23 +1326,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
             on_chain.allow_dummy_inputs().expect("dummy-input policy"),
             "fresh tree must allow dummy inputs"
         );
-        let state_remaining = {
-            let utxo = on_chain.utxo_tree();
-            utxo.capacity() - utxo.next_index()
-        };
-        {
-            let nullifier = on_chain.nullifier_tree();
-            let next_leaf = nullifier
-                .capacity
-                .checked_sub(state_remaining)
-                .expect("nullifier capacity exceeds state capacity")
-                + 1;
-            nullifier
-                .get_current_batch_mut()
-                .expect("current nullifier batch")
-                .start_index = next_leaf;
-            nullifier.queue_next_index = next_leaf;
-        }
+        advance_nullifier_queue_past_dummy_threshold(&mut on_chain);
         assert!(
             !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
             "fixture must cross the dummy-input threshold"
@@ -1348,7 +1345,8 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let error = env
         .rpc

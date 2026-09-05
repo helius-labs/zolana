@@ -1,6 +1,7 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use thiserror::Error;
+use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 
 use crate::{
     instruction::{
@@ -42,6 +43,7 @@ pub struct AssetDeposit {
     pub asset: DepositAsset,
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
+    /// Zero is valid: it appends the output but performs no settlement transfer.
     pub amount: u64,
     pub utxo_data: Option<UtxoData>,
     pub memo: Option<Vec<u8>>,
@@ -80,8 +82,43 @@ pub enum DepositBuildError {
         first_token_program: Pubkey,
         conflicting_token_program: Pubkey,
     },
+    #[error(
+        "deposit entry {entry_index} field {field} is not a canonical BN254 scalar field element"
+    )]
+    NonCanonicalField {
+        entry_index: usize,
+        field: &'static str,
+    },
+    #[error("deposit amount total for asset {asset} overflows u64")]
+    AmountOverflow { asset: Pubkey },
     #[error("deposit instruction data could not be serialized")]
     Serialization,
+}
+
+pub(super) fn validate_canonical_field(
+    value: &[u8; 32],
+    entry_index: usize,
+    field: &'static str,
+) -> Result<(), DepositBuildError> {
+    if !is_canonical_bn254_scalar_be(value) {
+        return Err(DepositBuildError::NonCanonicalField { entry_index, field });
+    }
+    Ok(())
+}
+
+pub(super) fn add_deposit_amount(
+    totals: &mut [u64; MAX_DEPOSIT_ASSETS],
+    asset_index: u8,
+    asset: Pubkey,
+    amount: u64,
+) -> Result<(), DepositBuildError> {
+    let total = totals
+        .get_mut(usize::from(asset_index))
+        .ok_or(DepositBuildError::Serialization)?;
+    *total = total
+        .checked_add(amount)
+        .ok_or(DepositBuildError::AmountOverflow { asset })?;
+    Ok(())
 }
 
 pub(super) struct DepositLayout {
@@ -208,6 +245,14 @@ impl DepositLayout {
 }
 
 impl AssetDeposit {
+    fn validate_fields(&self, entry_index: usize) -> Result<(), DepositBuildError> {
+        validate_canonical_field(&self.owner, entry_index, "owner")?;
+        if let Some(utxo_data) = &self.utxo_data {
+            validate_canonical_field(&utxo_data.data_hash, entry_index, "data_hash")?;
+        }
+        Ok(())
+    }
+
     pub(super) fn into_entry(self, asset_index: u8) -> DepositEntry {
         DepositEntry {
             asset_index,
@@ -226,11 +271,20 @@ impl Deposit {
             self.deposits.len(),
             self.deposits.iter().map(|deposit| deposit.asset),
         )?;
+        let mut totals = [0u64; MAX_DEPOSIT_ASSETS];
         let deposits = self
             .deposits
             .into_iter()
-            .map(|deposit| {
+            .enumerate()
+            .map(|(entry_index, deposit)| {
+                deposit.validate_fields(entry_index)?;
                 let asset_index = layout.asset_index(deposit.asset)?;
+                add_deposit_amount(
+                    &mut totals,
+                    asset_index,
+                    deposit.asset.mint(),
+                    deposit.amount,
+                )?;
                 Ok(deposit.into_entry(asset_index))
             })
             .collect::<Result<Vec<_>, DepositBuildError>>()?;
@@ -263,6 +317,7 @@ impl Deposit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
     fn entry(asset: DepositAsset, seed: u8) -> AssetDeposit {
         AssetDeposit {
@@ -420,6 +475,83 @@ mod tests {
                 count: usize::from(u8::MAX) + 1,
                 max: usize::from(u8::MAX),
             })
+        );
+    }
+
+    #[test]
+    fn rejects_every_non_canonical_deposit_field() {
+        let mut owner = entry(DepositAsset::Sol, 1);
+        owner.owner = BN254_SCALAR_MODULUS_BE;
+        assert_eq!(
+            deposit(vec![entry(DepositAsset::Sol, 2), owner]).instruction(),
+            Err(DepositBuildError::NonCanonicalField {
+                entry_index: 1,
+                field: "owner",
+            })
+        );
+
+        let mut data_hash = entry(DepositAsset::Sol, 1);
+        data_hash.utxo_data = Some(UtxoData {
+            data_hash: BN254_SCALAR_MODULUS_BE,
+            data: vec![7],
+        });
+        assert_eq!(
+            deposit(vec![data_hash]).instruction(),
+            Err(DepositBuildError::NonCanonicalField {
+                entry_index: 0,
+                field: "data_hash",
+            })
+        );
+    }
+
+    #[test]
+    fn validates_amount_totals_per_asset_and_preserves_zero_amounts() {
+        let mut maximum_sol = entry(DepositAsset::Sol, 1);
+        maximum_sol.amount = u64::MAX;
+        let mut one_more_sol = entry(DepositAsset::Sol, 2);
+        one_more_sol.amount = 1;
+        assert_eq!(
+            deposit(vec![maximum_sol.clone(), one_more_sol]).instruction(),
+            Err(DepositBuildError::AmountOverflow {
+                asset: Pubkey::default(),
+            })
+        );
+
+        let mint = Pubkey::new_unique();
+        let user_token = Pubkey::new_unique();
+        let mut maximum_spl = spl(mint, user_token, 3);
+        maximum_spl.amount = u64::MAX;
+        let mut one_more_spl = spl(mint, user_token, 4);
+        one_more_spl.amount = 1;
+        assert_eq!(
+            deposit(vec![maximum_spl.clone(), one_more_spl]).instruction(),
+            Err(DepositBuildError::AmountOverflow { asset: mint })
+        );
+
+        let ix = deposit(vec![maximum_sol, maximum_spl])
+            .instruction()
+            .expect("independent asset totals may each reach u64::MAX");
+        assert_eq!(
+            decode(&ix)
+                .deposits
+                .iter()
+                .map(|entry| entry.amount)
+                .collect::<Vec<_>>(),
+            vec![u64::MAX, u64::MAX]
+        );
+
+        let mut zero = entry(DepositAsset::Sol, 5);
+        zero.amount = 0;
+        let ix = deposit(vec![zero])
+            .instruction()
+            .expect("zero-value outputs remain valid");
+        assert_eq!(
+            decode(&ix)
+                .deposits
+                .iter()
+                .map(|entry| entry.amount)
+                .collect::<Vec<_>>(),
+            vec![0]
         );
     }
 }

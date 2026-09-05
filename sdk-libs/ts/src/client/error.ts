@@ -149,7 +149,7 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_PROOF_TREE_MISMATCH: IndexDetails;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
   readonly CLIENT_INVALID_MERGE_MATERIAL: NoDetails;
-  readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
+  readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ supported: readonly number[]; actual: number }>;
   readonly CLIENT_PROVER_INPUT: NoDetails;
   readonly CLIENT_PROVER_REQUEST: Readonly<{ method: string; attempts: number }>;
   readonly CLIENT_PROVER_HTTP: Readonly<{

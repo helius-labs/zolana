@@ -1,11 +1,12 @@
 use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
 use light_array_map::ArrayMap;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use zolana_event::SplTransfer;
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::SplTransfer,
     instruction::{
         deposit_blinding, DepositAssetKind, DepositEntryRef, DepositIxDataRef, RingDepositEntryRef,
         RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
@@ -66,28 +67,46 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
 #[profile]
 pub fn process_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = DepositIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
-    process_deposit_internal::<false>(
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidInstructionData))?;
+    let assets = collect_assets(data.assets)?;
+    process_deposit_internal::<false, _>(
         accounts,
-        &data.assets,
-        data.deposits.into_iter().map(ProcessingEntry::Default),
+        &assets,
+        data.deposits
+            .try_iter()
+            .map(|entry| entry.map(ProcessingEntry::Default)),
     )
 }
 
 pub fn process_ring_deposit(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = RingDepositIxDataRef::from_bytes(data)
-        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
-    process_deposit_internal::<true>(
+        .map_err(|error| error.or_encoding(ShieldedPoolError::InvalidInstructionData))?;
+    let assets = collect_assets(data.assets)?;
+    process_deposit_internal::<true, _>(
         accounts,
-        &data.assets,
-        data.deposits.into_iter().map(ProcessingEntry::Ring),
+        &assets,
+        data.deposits
+            .try_iter()
+            .map(|entry| entry.map(ProcessingEntry::Ring)),
     )
 }
 
-fn process_deposit_internal<'a, const HAS_RING: bool>(
+fn collect_assets(
+    assets: zolana_interface::instruction::instruction_data::BorrowedList<'_, DepositAssetKind>,
+) -> Result<ArrayVec<DepositAssetKind, MAX_DEPOSIT_ASSETS>, ProgramError> {
+    let mut parsed = ArrayVec::new();
+    for asset in assets.try_iter() {
+        parsed
+            .try_push(asset.map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?)
+            .map_err(|_| ShieldedPoolError::TooManyDepositAssets)?;
+    }
+    Ok(parsed)
+}
+
+fn process_deposit_internal<'a, const HAS_RING: bool, E>(
     accounts: &mut [AccountView],
     assets: &[DepositAssetKind],
-    entries: impl ExactSizeIterator<Item = ProcessingEntry<'a>>,
+    entries: impl ExactSizeIterator<Item = Result<ProcessingEntry<'a>, E>>,
 ) -> ProgramResult {
     let entry_count = entries.len();
     if entry_count == 0 {
@@ -117,6 +136,8 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut utxo_hashes = Vec::with_capacity(entry_count);
 
     for (entry_index, processing_entry) in entries.enumerate() {
+        let processing_entry =
+            processing_entry.map_err(|_| ShieldedPoolError::InvalidInstructionData)?;
         check_entry_field_elements(entry_index, &processing_entry)?;
         let (asset_index, amount) = match processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
@@ -219,9 +240,6 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             .get(usize::from(*asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
-        if !group.settlement.is_deposit() {
-            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-        }
         if *total > 0 {
             group.settlement.settle(*total)?;
         }

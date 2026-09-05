@@ -32,7 +32,8 @@ pub use crate::{
         transact::{
             to_instruction_proof, CustomRingPrivateTxHash, CustomRingProofError,
             CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest,
-            CustomRingPublicInputHash, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
+            CustomRingPublicInputHash, CustomRingTransact, CustomRingTransactBuildError,
+            EncryptedAudit, PendingCustomRingProof,
         },
     },
     shared::{AccountReadError, CustomRing, CustomRingConfig, ReaderKey, ReaderKeyError},

@@ -6,7 +6,12 @@ import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
-import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
+import {
+  MAX_MERGE_INPUTS,
+  MERGE_DEFAULT_INPUT_COUNT,
+  isSupportedMergeInputCount,
+  mergePaddedInputCount,
+} from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
 import { checked, equal } from "../internal.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
@@ -19,8 +24,12 @@ import {
 import { type AssetRegistry } from "../asset.js";
 import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
 
-/** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
-export const MERGE_INPUTS = MERGE_INPUT_COUNT;
+/**
+ * Smallest supported merge shape, the counterpart of Rust
+ * `MERGE_DEFAULT_INPUTS`. A prepared merge is padded to the smallest supported
+ * shape that fits its real inputs, which is this one for anything up to 8.
+ */
+export const MERGE_DEFAULT_INPUTS = MERGE_DEFAULT_INPUT_COUNT;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 function checkedU64(value: bigint, field: string): bigint {
@@ -47,9 +56,9 @@ export class PreparedMerge {
       signingPublicKey: ShieldedPublicKey;
     }>,
   ) {
-    if (input.inputs.length !== MERGE_INPUTS) {
+    if (!isSupportedMergeInputCount(input.inputs.length)) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
-        expected: MERGE_INPUTS,
+        expected: MERGE_DEFAULT_INPUTS,
         actual: input.inputs.length,
       });
     }
@@ -119,10 +128,10 @@ export class Merge {
     inputs: readonly ProofInputUtxo[],
   ) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (inputs.length > MERGE_INPUTS) {
+    if (inputs.length > MAX_MERGE_INPUTS) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
         got: inputs.length,
-        max: MERGE_INPUTS,
+        max: MAX_MERGE_INPUTS,
       });
     }
     const address =
@@ -162,7 +171,9 @@ export class Merge {
         }
       });
       const padded = [...inputs];
-      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
+      // The count check above guarantees a shape exists.
+      const target = mergePaddedInputCount(inputs.length) ?? MAX_MERGE_INPUTS;
+      while (padded.length < target) padded.push(ProofInputUtxo.dummy());
       this.#prepared = new PreparedMerge({
         inputs: padded,
         output: createProofOutput({

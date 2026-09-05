@@ -27,7 +27,7 @@ use zolana_keypair::{
 };
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, ValidatorBackend},
     smart_account::{self, StandardSigners},
     test_validator_asserts::wait_for_indexed_utxo,
 };
@@ -96,6 +96,7 @@ pub fn setup() -> Result<TestEnv> {
     let account_dir = "/tmp/zolana-timelock-escrow-smart-account-accounts".to_string();
     LocalnetValidator {
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: root.to_string(),
         rpc_port,
         photon_port,

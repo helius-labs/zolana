@@ -24,14 +24,13 @@ use solana_signer::Signer;
 use zolana_client::{
     PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
+use zolana_interface::output_data::{OutputDataEncoding, ProoflessOutput};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
 };
@@ -47,7 +46,8 @@ use zolana_test_utils::transact::{
     eddsa_input_utxo, external_data_hash, external_data_hash_spl, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
     public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-    spl_public_slots, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    spl_public_slots, transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
+    TransferProverInputsArgs,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -101,7 +101,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
         )],
         data: substituted_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[substituted], &[])
@@ -313,11 +314,14 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     // The proof is bound to this exact expiry. Submit it one second late first
     // and verify complete rollback, then restore the boundary clock and submit
@@ -528,12 +532,13 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                recipient: depositor.pubkey(),
+                user_account: depositor.pubkey(),
             },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // A deposit transfers FROM the settlement account; the builder already
     // marks the depositor meta as a signer.
 
@@ -713,7 +718,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     env.rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect("real-proof SPL deposit");
@@ -1007,7 +1013,8 @@ fn phase_transfer_to_recipient(
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[transfer_ix], &[]);
@@ -1213,12 +1220,13 @@ fn phase_withdraw_recipient_utxo(
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                recipient: public_recipient,
+                user_account: public_recipient,
             },
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let result = env
         .rpc
         .create_and_send_default_payer_transaction(&[withdraw_ix], &[recipient_owner]);

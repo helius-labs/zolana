@@ -19,21 +19,9 @@ fn validate(
 ) -> ProgramResult {
     let ix = TransactIxData {
         expiry_unix_ts: 0,
-        private_tx_hash: [0u8; 32],
-        circuit,
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        proof: TransactProof::zeroed(),
-        inputs: (0..actual_inputs)
-            .map(|_| InputUtxo {
-                nullifier_hash: [0u8; 32],
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
-            })
-            .collect(),
         interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
         outputs: (0..actual_outputs)
             .map(|_| TransactOutput {
                 utxo_hash: [0u8; 32],
@@ -42,6 +30,18 @@ fn validate(
             })
             .collect(),
         messages: Vec::new(),
+        private_tx_hash: [0u8; 32],
+        circuit,
+        proof: TransactProof::zeroed(),
+        inputs: (0..actual_inputs)
+            .map(|_| InputUtxo {
+                nullifier_hash: [0u8; 32],
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+        data_hash: None,
+        ring_data_hash: None,
     };
     let bytes = ix.serialize().unwrap();
     let borrowed = TransactIxDataRef::from_bytes(&bytes).unwrap();

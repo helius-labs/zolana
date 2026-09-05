@@ -1,3 +1,4 @@
+use solana_program_error::ProgramError;
 use thiserror::Error;
 use zolana_hasher::HasherError;
 
@@ -47,4 +48,43 @@ pub enum NullifierTreeError {
     InvalidBatchSize,
     #[error("Hasher error: {0}")]
     Hasher(#[from] HasherError),
+}
+
+impl From<NullifierTreeError> for u32 {
+    fn from(e: NullifierTreeError) -> u32 {
+        match e {
+            NullifierTreeError::BatchNotReady => 14001,
+            NullifierTreeError::BatchAlreadyInserted => 14002,
+            NullifierTreeError::BatchSizeNotDivisibleByZkpBatchSize => 14003,
+            NullifierTreeError::InvalidBatchIndex => 14004,
+            NullifierTreeError::InvalidIndex => 14005,
+            NullifierTreeError::InvalidBatchState => 14006,
+            NullifierTreeError::InvalidBatchConfiguration => 14007,
+            NullifierTreeError::TreeIsFull => 14008,
+            // 14009 was QueueIndexMismatch, removed with the redundant queue
+            // counter cross-check; do not reuse the code.
+            NullifierTreeError::NonCanonicalFieldElement => 14010,
+            NullifierTreeError::ArithmeticOverflow => 14011,
+            NullifierTreeError::ZkpBatchIndexOutOfRange => 14012,
+            NullifierTreeError::HashChainNotReady => 14013,
+            NullifierTreeError::HashChainFull => 14014,
+            // 14015 was InvalidTreeType, removed with the tree_type layout
+            // word; do not reuse the code.
+            NullifierTreeError::InvalidHeight => 14016,
+            NullifierTreeError::InvalidRootHistoryCapacity => 14017,
+            NullifierTreeError::InvalidAccountSize => 14018,
+            NullifierTreeError::DecompressG1Failed => 14020,
+            NullifierTreeError::DecompressG2Failed => 14021,
+            NullifierTreeError::CreateGroth16VerifierFailed => 14023,
+            NullifierTreeError::ProofVerificationFailed => 14024,
+            NullifierTreeError::InvalidBatchSize => 14025,
+            NullifierTreeError::Hasher(e) => e.into(),
+        }
+    }
+}
+
+impl From<NullifierTreeError> for ProgramError {
+    fn from(e: NullifierTreeError) -> Self {
+        ProgramError::Custom(e.into())
+    }
 }

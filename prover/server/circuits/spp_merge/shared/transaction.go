@@ -11,12 +11,30 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// MergeInputs is the fixed merge shape. Fewer real inputs use dummy slots.
 const (
-	MergeInputs = 8
 	UtxoDomain  = transaction.UtxoDomain
 	DummyDomain = transaction.DummyDomain
 )
+
+// SupportedInputCounts are the merge input counts the circuits are compiled and
+// keyed for, smallest first. A spender pads up to the next supported count with
+// dummy slots, so the set does not need an entry per real input count.
+//
+// Mirror MERGE_SUPPORTED_INPUT_COUNTS in
+// program-libs/interface/src/instruction/instruction_data/merge_transact.rs;
+// merge instruction data carries no circuit selector, so both sides derive the
+// shape from the declared nullifier count and must agree on which counts exist.
+var SupportedInputCounts = []int{8, 36}
+
+// IsSupportedInputCount reports whether a merge circuit exists for n inputs.
+func IsSupportedInputCount(n int) bool {
+	for _, supported := range SupportedInputCounts {
+		if supported == n {
+			return true
+		}
+	}
+	return false
+}
 
 // Input contains the free per-slot merge witness. The circuit supplies the
 // shared owner, asset, data hash, and ring program when reconstructing its UTXO.
@@ -80,9 +98,9 @@ type Derived struct {
 	OwnerPkHash frontend.Variable
 }
 
-// NewInputs allocates the fixed merge input slots and their Merkle paths.
-func NewInputs() []Input {
-	inputs := make([]Input, MergeInputs)
+// NewInputs allocates n merge input slots and their Merkle paths.
+func NewInputs(n int) []Input {
+	inputs := make([]Input, n)
 	for i := range inputs {
 		inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
 		inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
@@ -90,12 +108,13 @@ func NewInputs() []Input {
 	return inputs
 }
 
-// NewCommonPublicInputs allocates the per-input public signal slices.
-func NewCommonPublicInputs() CommonPublicInputs {
+// NewCommonPublicInputs allocates the per-input public signal slices for n
+// inputs.
+func NewCommonPublicInputs(n int) CommonPublicInputs {
 	return CommonPublicInputs{
-		Nullifiers:         make([]frontend.Variable, MergeInputs),
-		UtxoTreeRoots:      make([]frontend.Variable, MergeInputs),
-		NullifierTreeRoots: make([]frontend.Variable, MergeInputs),
+		Nullifiers:         make([]frontend.Variable, n),
+		UtxoTreeRoots:      make([]frontend.Variable, n),
+		NullifierTreeRoots: make([]frontend.Variable, n),
 	}
 }
 
@@ -112,11 +131,14 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	}
 }
 
-// ValidateLayout checks every slice indexed by the fixed merge skeleton before
-// Constrain emits any constraints.
+// ValidateLayout checks every slice indexed by the merge skeleton before
+// Constrain emits any constraints. The declared input count must be one the
+// circuits are keyed for: the public-input-hash prefix folds three chains whose
+// length is the input count, so a count with no key would produce a proof the
+// program can never verify.
 func (t Transaction) ValidateLayout(numInputs int) error {
-	if numInputs != MergeInputs {
-		return fmt.Errorf("merge: NumInputs must be %d, got %d", MergeInputs, numInputs)
+	if !IsSupportedInputCount(numInputs) {
+		return fmt.Errorf("merge: unsupported input count %d, want one of %v", numInputs, SupportedInputCounts)
 	}
 	if got := len(t.Inputs); got != numInputs {
 		return fmt.Errorf("merge: input count mismatch: got %d want %d", got, numInputs)

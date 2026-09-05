@@ -43,17 +43,46 @@ pub fn create_right_hash_chain_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32
     Ok(hash_chain)
 }
 
-fn create_hash_chain<'a>(
-    mut inputs: impl Iterator<Item = &'a [u8; 32]>,
-) -> Result<[u8; 32], HasherError> {
-    let Some(first) = inputs.next() else {
-        return Ok([0u8; 32]);
-    };
-    let mut hash_chain = *first;
-    for input in inputs {
-        hash_chain = Poseidon::hashv(&[&hash_chain, input])?;
+/// Incremental left-fold Poseidon chain, for callers that produce elements one
+/// at a time inside a loop and cannot hand over an iterator.
+///
+/// The first element is stored verbatim; only the second and later elements
+/// hash. Seeding with `[0u8; 32]` instead would change every chain in the
+/// protocol, because `Poseidon(0, x)` is not `x`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HashChain {
+    chain: Option<[u8; 32]>,
+}
+
+impl HashChain {
+    pub const fn new() -> Self {
+        Self { chain: None }
     }
-    Ok(hash_chain)
+
+    pub fn push(&mut self, value: &[u8; 32]) -> Result<(), HasherError> {
+        self.chain = Some(match self.chain {
+            None => *value,
+            Some(chain) => Poseidon::hashv(&[&chain, value])?,
+        });
+        Ok(())
+    }
+
+    /// An empty chain folds to zero, matching [`create_hash_chain`].
+    pub fn finish(self) -> [u8; 32] {
+        self.chain.unwrap_or([0u8; 32])
+    }
+}
+
+/// Folds Poseidon left to right over an iterator. Every slice entry point
+/// delegates here, so the fold has one implementation.
+pub fn create_hash_chain<'a>(
+    inputs: impl Iterator<Item = &'a [u8; 32]>,
+) -> Result<[u8; 32], HasherError> {
+    let mut chain = HashChain::new();
+    for input in inputs {
+        chain.push(input)?;
+    }
+    Ok(chain.finish())
 }
 
 /// Creates a two inputs hash chain from two slices of [u8;32] arrays.

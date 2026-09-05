@@ -32,7 +32,7 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, ValidatorBackend},
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
     test_validator_asserts::wait_for_indexed_utxo,
@@ -110,6 +110,7 @@ pub fn setup() -> Result<TestEnv> {
         .unwrap_or_else(|_| "/tmp/zolana-dynamic-swap-inline-test-ledger".to_string());
     LocalnetValidator {
         cli_bin: cli,
+        backend: ValidatorBackend::default(),
         working_dir: root.to_string(),
         rpc_port,
         photon_port,

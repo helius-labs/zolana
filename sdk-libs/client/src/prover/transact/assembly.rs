@@ -1,6 +1,6 @@
 use num_bigint::BigUint;
-use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice};
+use zolana_interface::output_data::is_confidential_encrypted_output;
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
     instructions::transact::PublicTransfers, ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
@@ -299,6 +299,17 @@ impl PublicInputs<'_> {
         self.hash_with_after_private_tx(&[])
     }
 
+    /// The P256 rail's layout: the shared authorization's message hash and the
+    /// default-ring P256 owner-tag hash sit directly after `private_tx`, ahead
+    /// of `external_data_hash` (see the program's `public_input_hash`).
+    pub fn hash_with_p256_authorization(
+        &self,
+        message_proof_input_hash: &[u8; 32],
+        default_p256_owner_pk_hash: &[u8; 32],
+    ) -> Result<[u8; 32], ClientError> {
+        self.hash_with_after_private_tx(&[*message_proof_input_hash, *default_p256_owner_pk_hash])
+    }
+
     pub(crate) fn hash_with_after_private_tx(
         &self,
         after_private_tx: &[[u8; 32]],
@@ -343,11 +354,13 @@ fn check_path_length(got: usize, expected: usize) -> Result<(), ClientError> {
 #[cfg(test)]
 mod tests {
     use borsh::to_vec;
-    use zolana_event::{
-        OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-        RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    use zolana_interface::{
+        instruction::{OwnerTag, TransactOutput},
+        output_data::{
+            OutputDataEncoding, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+            RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+        },
     };
-    use zolana_interface::instruction::{OwnerTag, TransactOutput};
 
     use super::*;
 

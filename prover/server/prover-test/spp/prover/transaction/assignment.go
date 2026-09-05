@@ -207,10 +207,13 @@ func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error 
 	if len(tx.Outputs) > shape.NOutputs {
 		return fmt.Errorf("shape %s allows at most %d outputs, got %d", shape, shape.NOutputs, len(tx.Outputs))
 	}
-	// SPP derives the verifying key and public-input padding from the real
-	// counts with the smallest-fit rule, so a locally valid proof built with any
-	// other (merely large-enough) shape would be rejected on-chain.
-	canonical, err := protocol.CanonicalShape(len(tx.Inputs), len(tx.Outputs))
+	// The assignment pads real inputs and outputs up to the shape with dummy
+	// slots, and SPP then sees the padded counts. So the shape must be the
+	// smallest one that holds the real counts: a merely large-enough shape would
+	// pad to a different width than SPP verifies with. Searches every shape a
+	// key exists for, not the client-facing automatic subset -- a caller that
+	// declares a large shape is using it deliberately.
+	canonical, err := protocol.SmallestSupportedShape(len(tx.Inputs), len(tx.Outputs))
 	if err != nil {
 		return err
 	}

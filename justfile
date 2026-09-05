@@ -999,6 +999,27 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p spp-test-validator --test lifecycle --test proof_cu
 
+# Transaction v1 acceptance for the 36x2 consolidation shape, on surfpool.
+# Deliberately no `--no-use-surfpool`: solana-test-validator caps every packet
+# at 1232 bytes, so it can never accept this transaction. Needs the pinned
+# surfpool build, hence `install-surfpool` rather than whatever is on PATH.
+test-spp-validator-large-shape: build-programs build-prover-server build-cli ensure-photon install-surfpool
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(tools/ci/xtask.sh program-ids)"
+    cleanup() {
+      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
+      pkill -f surfpool 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    export SHIELDED_POOL_PROGRAM_ID
+    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
+    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
+    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
+      tools/ci/nextest-suite.sh -p spp-test-validator --test large_shape --no-capture
+
 # Run only real-validator CU ceilings for P256 transact and maximal 8x1 merge.
 test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash

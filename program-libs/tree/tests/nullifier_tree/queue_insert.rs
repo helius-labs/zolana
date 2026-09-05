@@ -45,7 +45,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
     }
     let batch = tree.batches.get_mut(0).unwrap();
     batch.mark_as_inserted_in_merkle_tree().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Inserted);
+    assert_eq!(batch.get_state(), Ok(BatchState::Inserted));
     assert_eq!(batch.end_index().unwrap(), init_start_index + batch_size);
 
     // Fill batch 1, which returns the cursor to batch 0.
@@ -59,7 +59,7 @@ fn test_reused_batch_start_index_advances_by_one_rotation() {
     tree.insert_nullifier_into_queue(&random_nullifier(rng))
         .unwrap();
     let batch = tree.batches.first().unwrap();
-    assert_eq!(batch.get_state(), BatchState::Fill);
+    assert_eq!(batch.get_state(), Ok(BatchState::Fill));
     assert_eq!(
         batch.start_index,
         init_start_index + NUM_BATCHES as u64 * batch_size

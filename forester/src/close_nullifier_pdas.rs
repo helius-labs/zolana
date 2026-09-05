@@ -18,6 +18,15 @@ use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
 
+/// The forester deliberately stays on legacy transactions.
+///
+/// Its close batches are its own transactions, independent of any transact
+/// shape, so it gains nothing from transaction v1's 4 KB limit except a larger
+/// batch. Large transact shapes do produce more nullifier PDAs to close, so
+/// raising this would cut the number of close transactions roughly threefold --
+/// a throughput question, not a correctness one. Revisit it against the tree fee
+/// schedule in `xtask/src/tree_fees.rs`, which derives the per-close
+/// reimbursement from exactly this batch size; the two must move together.
 pub const LEGACY_TRANSACTION_SIZE_LIMIT: usize = 1232;
 pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 

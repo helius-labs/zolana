@@ -30,7 +30,7 @@ thiserror = { workspace = true }
 zeroize = { workspace = true }
 borsh = { workspace = true }
 zolana-client = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true, features = ["offchain"] }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

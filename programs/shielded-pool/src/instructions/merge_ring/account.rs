@@ -1,9 +1,6 @@
-use arrayvec::ArrayVec;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
-};
+use zolana_interface::error::ShieldedPoolError;
 
 use crate::instructions::ring_config::loader::load_active_ring_config;
 
@@ -19,14 +16,17 @@ pub struct MergeRingAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: &'a mut [AccountView],
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
 }
 
 impl<'a> MergeRingAccounts<'a> {
-    pub fn validate_and_parse(accounts: &'a mut [AccountView]) -> Result<Self, ProgramError> {
+    pub fn validate_and_parse(
+        accounts: &'a mut [AccountView],
+        input_count: usize,
+    ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
@@ -41,11 +41,11 @@ impl<'a> MergeRingAccounts<'a> {
         if !address_eq(shielded_pool_program.address(), &crate::ID) {
             return Err(ProgramError::IncorrectProgramId);
         }
-        let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..MERGE_INPUT_COUNT {
-            nullifier_pdas
-                .try_push(iter.next_mut("nullifier_pda")?)
-                .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
+        // One contiguous slice, sized by the instruction's declared input
+        // count rather than by a compile-time constant.
+        let nullifier_pdas = iter.next_slice_mut(input_count, "nullifier_pda")?;
+        if !iter.iterator_is_empty() {
+            return Err(ShieldedPoolError::InvalidMergeShape.into());
         }
         Ok(Self {
             input_tree,
@@ -54,5 +54,59 @@ impl<'a> MergeRingAccounts<'a> {
             nullifier_pdas,
             ring_program_id,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use zolana_interface::state::{discriminator::RING_CONFIG, RingConfig};
+
+    fn account(
+        address: [u8; 32],
+        owner: [u8; 32],
+        signer: bool,
+        writable: bool,
+        data: Vec<u8>,
+    ) -> AccountView {
+        get_account_view(address, owner, signer, writable, false, data)
+    }
+
+    #[test]
+    fn rejects_accounts_after_declared_nullifier_pdas() {
+        let ring_config = RingConfig {
+            discriminator: RING_CONFIG,
+            authority: Address::new_from_array([7; 32]),
+            program_id: Address::new_from_array([8; 32]),
+            ring_authority_transact_is_enabled: 0,
+            paused: 0,
+            bump: 0,
+        };
+        let mut accounts = [
+            account([1; 32], [0; 32], false, true, Vec::new()),
+            account([2; 32], [0; 32], false, true, Vec::new()),
+            account(
+                [3; 32],
+                crate::ID.to_bytes(),
+                true,
+                false,
+                bytemuck::bytes_of(&ring_config).to_vec(),
+            ),
+            account([4; 32], [0; 32], true, false, Vec::new()),
+            account([0; 32], [0; 32], false, false, Vec::new()),
+            account(crate::ID.to_bytes(), [0; 32], false, false, Vec::new()),
+            account([5; 32], [0; 32], false, true, Vec::new()),
+            account([6; 32], [0; 32], false, false, Vec::new()),
+        ];
+
+        let error = match MergeRingAccounts::validate_and_parse(&mut accounts, 1) {
+            Ok(_) => panic!("trailing account must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            ProgramError::Custom(ShieldedPoolError::InvalidMergeShape as u32)
+        );
     }
 }

@@ -188,9 +188,7 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
         .rpc
         .create_tree_with_nullifier_params(&pool.authority, wrong_zkp_ratio)
         .expect_err("non-canonical nullifier params must fail");
-    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(2)
-        .assert_litesvm(err);
+    Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
 }
 
 #[test]

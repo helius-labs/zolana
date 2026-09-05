@@ -4,8 +4,9 @@ use crate::ingester::parser::state_update::{NullifierTreeBatchUpdate, StateUpdat
 use crate::ingester::typedefs::block_info::TransactionInfo;
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{EventKind, NullifierTreeUpdateEvent};
+use zolana_event::EventKind;
 use zolana_interface::{instruction::tag, pda};
+use zolana_tree::NullifierTreeUpdateEvent;
 
 /// Read the nullifier-tree batch updates a transaction actually performed.
 ///
@@ -33,18 +34,16 @@ pub fn parse_nullifier_tree_batch_updates(
     let mut state_update = StateUpdate::new();
 
     for event_site in &event_sites {
-        let Some(event) = decode_batch_address_append(&event_site.payload, tx)? else {
-            continue;
-        };
+        let event = decode_nullifier_tree_update(&event_site.payload, tx)?;
 
         // `start_sequence_number` is the sequence number after the cascade's
         // first applied batch, and each further batch advances it by one.
         let sequence_number = event
             .start_sequence_number
-            .checked_add(u64::from(event.num_update.saturating_sub(1)))
+            .checked_add(u64::from(event.num_update - 1))
             .ok_or_else(|| {
                 IngesterError::ParserError(format!(
-                    "Batch append sequence number overflow in {}",
+                    "Nullifier-tree update sequence number overflow in {}",
                     tx.signature
                 ))
             })?;
@@ -67,26 +66,42 @@ pub fn parse_nullifier_tree_batch_updates(
     Ok(Some(state_update))
 }
 
-/// Decode an event payload (`[kind, borsh(body)]`) as a batch append, or return
-/// `None` for any other kind emitted under this instruction.
-fn decode_batch_address_append(
+/// Decode the payload (`[kind, borsh(body)]`) of an authenticated
+/// `BATCH_UPDATE_NULLIFIER_TREE` event site. Once a site has that parent, an
+/// empty, mismatched or malformed envelope is a protocol error, not "no event".
+fn decode_nullifier_tree_update(
     payload: &[u8],
     tx: &TransactionInfo,
-) -> Result<Option<NullifierTreeUpdateEvent>, IngesterError> {
-    let Some((kind, body)) = payload.split_first() else {
-        return Ok(None);
-    };
+) -> Result<NullifierTreeUpdateEvent, IngesterError> {
+    let (kind, body) = payload.split_first().ok_or_else(|| {
+        IngesterError::ParserError(format!(
+            "NullifierTreeUpdateEvent in {} is missing its event kind",
+            tx.signature
+        ))
+    })?;
     if EventKind::from_byte(*kind) != Some(EventKind::NullifierTreeUpdate) {
-        return Ok(None);
+        return Err(IngesterError::ParserError(format!(
+            "NullifierTreeUpdateEvent in {} has unexpected event kind {}",
+            tx.signature, kind
+        )));
     }
 
     NullifierTreeUpdateEvent::try_from_slice(body)
-        .map(Some)
         .map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode NullifierTreeUpdateEvent in {}: {}",
                 tx.signature, err
             ))
+        })
+        .and_then(|event| {
+            if event.num_update == 0 {
+                Err(IngesterError::ParserError(format!(
+                    "NullifierTreeUpdateEvent in {} has zero applied updates",
+                    tx.signature
+                )))
+            } else {
+                Ok(event)
+            }
         })
 }
 
@@ -109,9 +124,9 @@ pub fn has_nullifier_tree_batch_update(tx: &TransactionInfo) -> bool {
 mod tests {
     use super::*;
     use crate::ingester::typedefs::block_info::{Instruction, InstructionGroup};
-    use borsh::BorshSerialize;
     use solana_signature::Signature;
-    use zolana_event::{encode_event_instruction_with, tag as event_tag};
+    use zolana_event::encode_nullifier_tree_update_event;
+    use zolana_interface::instruction::tag as event_tag;
 
     fn tree() -> Pubkey {
         Pubkey::new_from_array([7; 32])
@@ -139,7 +154,7 @@ mod tests {
         }
     }
 
-    fn tx_emitting(event: &impl BorshSerialize) -> TransactionInfo {
+    fn tx_emitting(event: &NullifierTreeUpdateEvent) -> TransactionInfo {
         let outer = instruction(
             pda::shielded_pool_program_id(),
             vec![tag::BATCH_UPDATE_NULLIFIER_TREE, 1, 2, 3],
@@ -147,7 +162,7 @@ mod tests {
         );
         let emit = instruction(
             pda::shielded_pool_program_id(),
-            encode_event_instruction_with(EventKind::NullifierTreeUpdate, event),
+            encode_nullifier_tree_update_event(event),
             2,
         );
         TransactionInfo {
@@ -272,5 +287,20 @@ mod tests {
         group.outer_instruction.program_id = Pubkey::new_from_array([9; 32]);
 
         assert!(parse_nullifier_tree_batch_updates(&tx).unwrap().is_none());
+    }
+
+    #[test]
+    fn rejects_an_authenticated_event_with_a_missing_or_wrong_kind() {
+        let tx = tx_emitting(&event(1));
+
+        assert!(decode_nullifier_tree_update(&[], &tx).is_err());
+        assert!(decode_nullifier_tree_update(&[EventKind::Transact as u8], &tx).is_err());
+    }
+
+    #[test]
+    fn rejects_an_event_that_claims_zero_applied_updates() {
+        let tx = tx_emitting(&event(0));
+
+        assert!(parse_nullifier_tree_batch_updates(&tx).is_err());
     }
 }

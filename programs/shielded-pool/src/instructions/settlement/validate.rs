@@ -56,17 +56,17 @@ fn read_token_mint(mint: &AccountView) -> Result<TokenMintState, ProgramError> {
 }
 
 /// 1. sol interface address is correct pda, owned by system program and writable
-/// 2. recipient is writable
+/// 2. user account is writable
 #[inline(always)]
 pub(crate) fn validate_sol_settlement(
     sol_interface: &AccountView,
-    recipient: &AccountView,
+    user_account: &AccountView,
 ) -> Result<u8, ProgramError> {
     if !address_eq(
         sol_interface.address(),
         &Address::new_from_array(SOL_INTERFACE),
     ) || !sol_interface.is_writable()
-        || !recipient.is_writable()
+        || !user_account.is_writable()
         || !sol_interface.owned_by(&SYSTEM_PROGRAM_ID)
     {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
@@ -77,7 +77,7 @@ pub(crate) fn validate_sol_settlement(
 #[inline(always)]
 fn validate_cpi_authority(account: &AccountView) -> Result<(), ProgramError> {
     let expected = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
-    if !address_eq(account.address(), &expected) {
+    if !address_eq(account.address(), &expected) || account.is_writable() {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(())

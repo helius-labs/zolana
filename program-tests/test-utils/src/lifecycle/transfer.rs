@@ -6,7 +6,8 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    assemble, ConfidentialTransfer, ProverClient, ProverInputs, SpendProof, SppProofInputUtxo,
+    assemble, ConfidentialTransfer, NonInclusionProof, ProverClient, ProverInputs, Rpc, SpendProof,
+    SppProofInputUtxo, SppProofInputs,
 };
 use zolana_interface::instruction::Transact;
 use zolana_keypair::PublicKey;
@@ -20,9 +21,7 @@ use crate::{
     localnet::{
         send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
     },
-    test_validator_asserts::{
-        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-    },
+    test_validator_asserts::wait_for_indexed_transaction,
     transact::pack_transact_proof,
 };
 
@@ -185,27 +184,7 @@ impl LifecycleHarness {
         }
         let proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
 
-        let commitments = proof_inputs.input_utxo_hashes()?;
-        let mut spend_proofs = Vec::new();
-        for commitment in &commitments {
-            let state =
-                wait_for_merkle_proof(&self.indexer, self.tree_address, commitment.utxo_hash);
-            let nullifier = wait_for_non_inclusion_proof(
-                &self.indexer,
-                self.tree_address,
-                commitment.nullifier,
-            );
-            spend_proofs.push(SpendProof { state, nullifier });
-        }
-        // The circuit checks non-inclusion for every slot, so each padding dummy
-        // needs a real low-element witness for its own nullifier.
-        let dummy_proofs: Vec<_> = proof_inputs
-            .dummy_nullifiers()?
-            .into_iter()
-            .map(|nullifier| {
-                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier)
-            })
-            .collect();
+        let (spend_proofs, dummy_proofs) = self.spend_proofs(&proof_inputs)?;
 
         // All actors are eddsa-owned since the P256 rail was removed: the owner
         // authorizes the spend by signing the transaction.
@@ -222,7 +201,7 @@ impl LifecycleHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let sig = send_transaction(
             &mut self.rpc,
@@ -310,6 +289,87 @@ impl LifecycleHarness {
         Ok(sig)
     }
 
+    /// The inclusion and non-inclusion proofs the circuit needs: one pair per
+    /// real input, plus a non-inclusion proof for every padding dummy, since the
+    /// circuit checks non-inclusion for every slot and a dummy still needs a
+    /// real low element for its own nullifier.
+    ///
+    /// Two batched indexer calls, not two per input. `get_merkle_proofs` already
+    /// polls until it holds a proof for every requested leaf, so the caller does
+    /// no waiting of its own; nullifiers of unspent UTXOs are never in the
+    /// nullifier tree, so their non-inclusion proofs need no wait at all.
+    pub(crate) fn spend_proofs(
+        &self,
+        proof_inputs: &SppProofInputs,
+    ) -> Result<(Vec<SpendProof>, Vec<NonInclusionProof>)> {
+        let inputs = proof_inputs.input_utxo_hashes()?;
+        let dummies = proof_inputs.dummy_nullifiers()?;
+
+        let states = self
+            .indexer
+            .get_merkle_proofs(
+                self.tree_address,
+                inputs.iter().map(|input| input.utxo_hash).collect(),
+                None,
+            )?
+            .proofs;
+        let nullifiers = self
+            .indexer
+            .get_non_inclusion_proofs(
+                self.tree_address,
+                inputs
+                    .iter()
+                    .map(|input| input.nullifier)
+                    .chain(dummies.iter().copied())
+                    .collect(),
+                None,
+            )?
+            .proofs;
+
+        if states.len() != inputs.len() || nullifiers.len() != inputs.len() + dummies.len() {
+            return Err(anyhow!(
+                "indexer returned {} state and {} nullifier proofs for {} inputs and {} dummies",
+                states.len(),
+                nullifiers.len(),
+                inputs.len(),
+                dummies.len()
+            ));
+        }
+        // The indexer answers in request order; the per-slot leaf checks below
+        // fail loudly rather than silently proving the wrong UTXO if it ever
+        // stops doing so.
+        let mut nullifiers = nullifiers.into_iter();
+        let spend_proofs = inputs
+            .iter()
+            .zip(states)
+            .zip(nullifiers.by_ref())
+            .map(|((input, state), nullifier)| {
+                if state.leaf != input.utxo_hash {
+                    return Err(anyhow!("state proof leaf does not match the input UTXO"));
+                }
+                if nullifier.leaf != input.nullifier {
+                    return Err(anyhow!(
+                        "non-inclusion proof leaf does not match the input nullifier"
+                    ));
+                }
+                Ok(SpendProof { state, nullifier })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let dummy_proofs = dummies
+            .into_iter()
+            .zip(nullifiers)
+            .map(|(dummy, proof)| {
+                if proof.leaf != dummy {
+                    return Err(anyhow!(
+                        "non-inclusion proof leaf does not match the dummy nullifier"
+                    ));
+                }
+                Ok(proof)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok((spend_proofs, dummy_proofs))
+    }
+
     pub fn build_expected(
         &self,
         name: &str,
@@ -369,7 +429,7 @@ pub(crate) fn decode_output_blinding(
         .output_data()
         .ok_or_else(|| anyhow!("output slot {slot_index} undecodable"))?;
     let body = match &output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob) => blob
+        zolana_interface::output_data::OutputDataEncoding::Encrypted(blob) => blob
             .split_first()
             .map(|(_, body)| body)
             .ok_or_else(|| anyhow!("empty output blob"))?,

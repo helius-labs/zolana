@@ -41,24 +41,24 @@ use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 /// validation, before proof verification.
 fn sol_withdrawal_ix_data() -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: vec![eddsa_input_utxo(fe(201), 0), eddsa_input_utxo(fe(202), 0)],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: 1_000_000_000,
         }],
-        data_hash: None,
-        ring_data_hash: None,
         outputs: vec![
             inline_output([4u8; 32], [4u8; 32]),
             inline_output([5u8; 32], [5u8; 32]),
             inline_output([6u8; 32], [6u8; 32]),
         ],
         messages: Vec::new(),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        inputs: vec![eddsa_input_utxo(fe(201), 0), eddsa_input_utxo(fe(202), 0)],
+        data_hash: None,
+        ring_data_hash: None,
     }
 }
 
@@ -95,11 +95,14 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
         output_tree: tree,
         owner_signers: vec![fee_payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     ix.accounts.get_mut(0).expect("payer meta").is_signer = false;
 
     let error = rpc
@@ -131,11 +134,14 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // Swap the canonical SOL-custody PDA (first group account, right after the
     // nullifier PDAs) for an attacker account.
     ix.accounts
@@ -243,7 +249,8 @@ impl SplWithdrawalEnv {
             )],
             data: ix_data,
         }
-        .instruction();
+        .instruction()
+        .expect("valid transact builder input");
 
         let ata_before = self.rpc.token_balance(&self.attacker_ata).unwrap_or(0);
         let vault_before = self.rpc.token_balance(&self.vault).unwrap_or(0);
@@ -304,7 +311,8 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
         )],
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // The withdrawal group's cpi_authority is the first group account, right
     // after the nullifier PDAs.
     ix.accounts

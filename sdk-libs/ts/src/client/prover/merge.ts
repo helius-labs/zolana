@@ -7,7 +7,11 @@ import type {
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
 import { NullifierKey } from "../../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../../keypair/public-key.js";
-import { MERGE_INPUTS, PreparedMerge } from "../../transaction/instructions/builders.js";
+import { PreparedMerge } from "../../transaction/instructions/builders.js";
+import {
+  MERGE_SUPPORTED_INPUT_COUNTS,
+  isSupportedMergeInputCount,
+} from "../../interface/constants.js";
 
 import type { ProofReader } from "../ports.js";
 import { ClientError, fromClientCause } from "../error.js";
@@ -204,7 +208,9 @@ function assembleMergeUnchecked(
     poseidon([
       hashChain(inputHashes),
       bytesToBigInt(outputHash),
-      hashChain(Array.from({ length: MERGE_INPUTS }, () => 0n)),
+      // The address-hash chain is one zero per input slot, so its length is the
+      // padded shape, not a constant.
+      hashChain(Array.from({ length: prepared.inputs.length }, () => 0n)),
       bytesToBigInt(externalDataHash),
     ]),
   ) as Bytes32;
@@ -287,9 +293,9 @@ function validateMergeMaterial(prepared: PreparedMerge, material: MergeMaterialI
   ) {
     throw new ClientError("CLIENT_INVALID_MERGE_MATERIAL");
   }
-  if (prepared.inputs.length !== MERGE_INPUTS) {
+  if (!isSupportedMergeInputCount(prepared.inputs.length)) {
     throw new ClientError("CLIENT_INVALID_MERGE_SHAPE", {
-      details: { expected: MERGE_INPUTS, actual: prepared.inputs.length },
+      details: { supported: MERGE_SUPPORTED_INPUT_COUNTS, actual: prepared.inputs.length },
     });
   }
   if (!equal(prepared.signingPublicKey.toBytes(), material.signingPublicKey.toBytes())) {
