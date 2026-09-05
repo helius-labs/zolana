@@ -390,11 +390,9 @@ fn sol_split_case(reorder_recipients: bool) {
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: user }),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: user,
-            }),
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: relayer,
+                recipient: relayer,
             }),
         ],
         data,
@@ -705,7 +703,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
         interface_transfer_accounts: vec![
             spl_withdrawal(withdraw_vault, withdraw_token),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: payer.pubkey(),
+                recipient: payer.pubkey(),
             }),
             spl_deposit(deposit_vault, deposit_token),
         ],

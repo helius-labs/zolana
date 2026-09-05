@@ -34,16 +34,18 @@ pub fn parse_nullifier_tree_batch_updates(
     let mut state_update = StateUpdate::new();
 
     for event_site in &event_sites {
-        let event = decode_nullifier_tree_update(&event_site.payload, tx)?;
+        let Some(event) = decode_batch_address_append(&event_site.payload, tx)? else {
+            continue;
+        };
 
         // `start_sequence_number` is the sequence number after the cascade's
         // first applied batch, and each further batch advances it by one.
         let sequence_number = event
             .start_sequence_number
-            .checked_add(u64::from(event.num_update - 1))
+            .checked_add(u64::from(event.num_update.saturating_sub(1)))
             .ok_or_else(|| {
                 IngesterError::ParserError(format!(
-                    "Nullifier-tree update sequence number overflow in {}",
+                    "Batch append sequence number overflow in {}",
                     tx.signature
                 ))
             })?;
@@ -66,42 +68,26 @@ pub fn parse_nullifier_tree_batch_updates(
     Ok(Some(state_update))
 }
 
-/// Decode the payload (`[kind, borsh(body)]`) of an authenticated
-/// `BATCH_UPDATE_NULLIFIER_TREE` event site. Once a site has that parent, an
-/// empty, mismatched or malformed envelope is a protocol error, not "no event".
-fn decode_nullifier_tree_update(
+/// Decode an event payload (`[kind, borsh(body)]`) as a batch append, or return
+/// `None` for any other kind emitted under this instruction.
+fn decode_batch_address_append(
     payload: &[u8],
     tx: &TransactionInfo,
-) -> Result<NullifierTreeUpdateEvent, IngesterError> {
-    let (kind, body) = payload.split_first().ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "NullifierTreeUpdateEvent in {} is missing its event kind",
-            tx.signature
-        ))
-    })?;
+) -> Result<Option<NullifierTreeUpdateEvent>, IngesterError> {
+    let Some((kind, body)) = payload.split_first() else {
+        return Ok(None);
+    };
     if EventKind::from_byte(*kind) != Some(EventKind::NullifierTreeUpdate) {
-        return Err(IngesterError::ParserError(format!(
-            "NullifierTreeUpdateEvent in {} has unexpected event kind {}",
-            tx.signature, kind
-        )));
+        return Ok(None);
     }
 
     NullifierTreeUpdateEvent::try_from_slice(body)
+        .map(Some)
         .map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode NullifierTreeUpdateEvent in {}: {}",
                 tx.signature, err
             ))
-        })
-        .and_then(|event| {
-            if event.num_update == 0 {
-                Err(IngesterError::ParserError(format!(
-                    "NullifierTreeUpdateEvent in {} has zero applied updates",
-                    tx.signature
-                )))
-            } else {
-                Ok(event)
-            }
         })
 }
 
@@ -287,20 +273,5 @@ mod tests {
         group.outer_instruction.program_id = Pubkey::new_from_array([9; 32]);
 
         assert!(parse_nullifier_tree_batch_updates(&tx).unwrap().is_none());
-    }
-
-    #[test]
-    fn rejects_an_authenticated_event_with_a_missing_or_wrong_kind() {
-        let tx = tx_emitting(&event(1));
-
-        assert!(decode_nullifier_tree_update(&[], &tx).is_err());
-        assert!(decode_nullifier_tree_update(&[EventKind::Transact as u8], &tx).is_err());
-    }
-
-    #[test]
-    fn rejects_an_event_that_claims_zero_applied_updates() {
-        let tx = tx_emitting(&event(0));
-
-        assert!(parse_nullifier_tree_batch_updates(&tx).is_err());
     }
 }

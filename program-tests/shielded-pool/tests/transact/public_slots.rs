@@ -15,7 +15,7 @@ fn sol_settlement(account: &pinocchio::AccountView, is_deposit: bool) -> Settlem
     let accounts = SettlementAccountsSol {
         sol_interface_account: account,
         sol_interface_bump: 0,
-        user_account: account,
+        recipient_account: account,
     };
     if is_deposit {
         Settlement::SolDeposit(accounts)

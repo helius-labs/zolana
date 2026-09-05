@@ -1001,9 +1001,7 @@ mod tests {
         validate_transfer_accounts(
             &prepared,
             &[TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    user_account: recipient,
-                },
+                TransactSolTransferAccounts { recipient },
             )],
         )
         .expect("withdrawal accounts");

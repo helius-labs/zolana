@@ -314,9 +314,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         data: transact_ix_data,
     }
@@ -532,7 +530,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                user_account: depositor.pubkey(),
+                recipient: depositor.pubkey(),
             },
         )],
         data: transact_ix_data,
@@ -1220,7 +1218,7 @@ fn phase_withdraw_recipient_utxo(
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                user_account: public_recipient,
+                recipient: public_recipient,
             },
         )],
         data: withdraw_ix_data,

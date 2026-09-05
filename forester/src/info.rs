@@ -78,10 +78,8 @@ pub fn run(config: &ForesterConfig, tree: Pubkey, json_output: bool) -> Result<(
             ready_total += ready;
             infos.push(BatchInfo {
                 index,
-                state: batch.get_state().map(state_name).unwrap_or("unknown"),
-                queued: batch
-                    .get_num_inserted_elements()
-                    .map_err(|err| anyhow!("invalid queue batch {index}: {err}"))?,
+                state: batch.try_get_state().map(state_name).unwrap_or("unknown"),
+                queued: batch.get_num_inserted_elements(),
                 ready_zkps: ready,
                 inserted_zkps: batch.get_num_inserted_zkps(),
                 zkp_batch_index: batch.get_current_zkp_batch_index(),

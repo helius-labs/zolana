@@ -154,8 +154,6 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         merkle_tree_pubkey: [u8; 32],
     ) -> Result<Option<NullifierTreeUpdateEvent>, NullifierTreeError> {
         let zkp_batch_size = self.zkp_batch_size;
-        let event_zkp_batch_size =
-            u16::try_from(zkp_batch_size).map_err(|_| NullifierTreeError::ArithmeticOverflow)?;
         // One event covers the whole cascade: shared fields once, one root per
         // applied zkp batch. See `NullifierTreeUpdateEvent` for how the per-batch
         // values are derived from each root's position.
@@ -165,8 +163,6 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             //    empty.
             let pending_batch = self.get_pending_batch()?;
             let zkp_batch_index = pending_batch.get_num_inserted_zkps() as usize;
-            let event_zkp_batch_index = u32::try_from(zkp_batch_index)
-                .map_err(|_| NullifierTreeError::ArithmeticOverflow)?;
 
             let Some(cached_update) = pending_batch.cached_tree_update(zkp_batch_index) else {
                 break Ok(event);
@@ -200,23 +196,12 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             self.check_tree_is_full(zkp_batch_size)?;
 
             let old_next_index = self.next_index;
-            let next_index = self
-                .next_index
-                .checked_add(zkp_batch_size)
-                .ok_or(NullifierTreeError::ArithmeticOverflow)?;
-            let sequence_number = self
-                .sequence_number
-                .checked_add(1)
-                .ok_or(NullifierTreeError::ArithmeticOverflow)?;
-            let next_num_update = event
-                .as_ref()
-                .map_or(Some(1), |event| event.num_update.checked_add(1))
-                .ok_or(NullifierTreeError::ArithmeticOverflow)?;
-            self.next_index = next_index;
-            self.sequence_number = sequence_number;
+            self.increment_merkle_tree_next_index(zkp_batch_size);
+            self.sequence_number += 1;
             self.append_root(cached_update.new_root)?;
             let root_index = self.get_root_index();
 
+            let sequence_number = self.sequence_number;
             let pending_batch = self.get_pending_batch_mut()?;
             let pending_batch_state = pending_batch.mark_as_inserted_in_merkle_tree()?;
             // 4. Clear the applied cache slot and its consumed hash chain.
@@ -230,15 +215,15 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             //    root_history).
             let event = event.get_or_insert(NullifierTreeUpdateEvent {
                 merkle_tree_pubkey,
-                zkp_batch_size: event_zkp_batch_size,
+                zkp_batch_size: zkp_batch_size as u16,
                 old_next_index,
                 start_sequence_number: sequence_number,
                 first_root_index: root_index,
                 num_update: 0,
-                first_zkp_batch_index: event_zkp_batch_index,
+                first_zkp_batch_index: zkp_batch_index as u32,
                 new_root: cached_update.new_root,
             });
-            event.num_update = next_num_update;
+            event.num_update += 1;
             event.new_root = cached_update.new_root;
         }
     }
@@ -285,5 +270,9 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             return Err(NullifierTreeError::TreeIsFull);
         }
         Ok(())
+    }
+
+    fn increment_merkle_tree_next_index(&mut self, count: u64) {
+        self.next_index += count;
     }
 }

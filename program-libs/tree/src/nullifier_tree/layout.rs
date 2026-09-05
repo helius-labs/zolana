@@ -53,6 +53,10 @@ pub struct NullifierTreeLayout<const ZKP_BATCHES: usize> {
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
+    pub fn get_num_zkp_batches(&self) -> u64 {
+        self.batch_size / self.zkp_batch_size
+    }
+
     pub fn get_current_batch(&self) -> Result<&Batch<ZKP_BATCHES>, NullifierTreeError> {
         self.batches
             .get(self.currently_processing_batch_index as usize)
@@ -103,7 +107,7 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     pub fn increment_currently_processing_batch_index_if_full(
         &mut self,
     ) -> Result<(), NullifierTreeError> {
-        let state = self.get_current_batch()?.get_state()?;
+        let state = self.get_current_batch()?.checked_state()?;
         if state == BatchState::Full {
             self.currently_processing_batch_index =
                 (self.currently_processing_batch_index + 1) % NUM_BATCHES as u32;

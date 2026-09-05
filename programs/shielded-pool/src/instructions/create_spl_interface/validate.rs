@@ -64,6 +64,8 @@ fn is_allowed_mint_extension(extension: &ExtensionType) -> bool {
             | ExtensionType::TokenGroupMember
             | ExtensionType::ScaledUiAmount
             | ExtensionType::ConfidentialTransferMint
+            | ExtensionType::ConfidentialTransferFeeConfig
             | ExtensionType::ConfidentialMintBurn
+            | ExtensionType::TransferFeeConfig
     )
 }

@@ -513,7 +513,7 @@ fn phase_unshield(
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                user_account: public_recipient,
+                recipient: public_recipient,
             },
         )],
         data: withdraw_ix_data,

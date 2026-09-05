@@ -67,22 +67,23 @@ impl HashChain {
         Ok(())
     }
 
-    /// An empty chain folds to zero, matching [`create_hash_chain`].
+    /// An empty chain folds to zero, matching [`create_hash_chain_from_slice`].
     pub fn finish(self) -> [u8; 32] {
         self.chain.unwrap_or([0u8; 32])
     }
 }
 
-/// Folds Poseidon left to right over an iterator. Every slice entry point
-/// delegates here, so the fold has one implementation.
-pub fn create_hash_chain<'a>(
-    inputs: impl Iterator<Item = &'a [u8; 32]>,
+fn create_hash_chain<'a>(
+    mut inputs: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {
-    let mut chain = HashChain::new();
+    let Some(first) = inputs.next() else {
+        return Ok([0u8; 32]);
+    };
+    let mut hash_chain = *first;
     for input in inputs {
-        chain.push(input)?;
+        hash_chain = Poseidon::hashv(&[&hash_chain, input])?;
     }
-    Ok(chain.finish())
+    Ok(hash_chain)
 }
 
 /// Creates a two inputs hash chain from two slices of [u8;32] arrays.

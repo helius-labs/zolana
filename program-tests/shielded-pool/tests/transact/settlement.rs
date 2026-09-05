@@ -95,9 +95,7 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
         output_tree: tree,
         owner_signers: vec![fee_payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         data: ix_data,
     }
@@ -134,9 +132,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         data,
     }

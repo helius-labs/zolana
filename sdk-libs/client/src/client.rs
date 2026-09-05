@@ -1460,11 +1460,11 @@ mod tests {
         ];
         let settlement_transfers = [
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: Pubkey::new_unique(),
+                recipient: Pubkey::new_unique(),
             }),
             TransactInterfaceTransferAccounts::SplDeposit(spl),
             TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: Pubkey::new_unique(),
+                recipient: Pubkey::new_unique(),
             }),
         ];
 
@@ -1479,7 +1479,7 @@ mod tests {
     #[test]
     fn settlement_accounts_reject_count_and_type_mismatches() {
         let sol_accounts = TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-            user_account: Pubkey::new_unique(),
+            recipient: Pubkey::new_unique(),
         });
         assert!(matches!(
             SettlementAccountValidation {
@@ -1536,9 +1536,7 @@ mod tests {
         let shielded = SignedPrivateTransaction {
             transaction: proof_inputs,
             settlement_transfers: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    user_account: recipient,
-                },
+                TransactSolTransferAccounts { recipient },
             )],
             input_tree: tree,
         };

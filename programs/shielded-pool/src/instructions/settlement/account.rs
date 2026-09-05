@@ -16,8 +16,7 @@ pub enum Settlement<'a> {
 pub struct SettlementAccountsSol<'a> {
     pub sol_interface_account: &'a AccountView,
     pub sol_interface_bump: u8,
-    /// User-side SOL account: source for deposits, destination for withdrawals.
-    pub user_account: &'a AccountView,
+    pub recipient_account: &'a AccountView,
 }
 
 pub struct SplDepositAccounts<'a> {
@@ -49,20 +48,21 @@ impl<'a> Settlement<'a> {
         aux: u8,
     ) -> Result<Self, ProgramError> {
         let settlement = match (transfer, group) {
-            (InterfaceTransfer::SolDeposit { .. }, [sol_interface_account, user_account]) => {
+            (InterfaceTransfer::SolDeposit { .. }, [sol_interface_account, recipient_account]) => {
                 Self::SolDeposit(SettlementAccountsSol {
                     sol_interface_account,
                     sol_interface_bump: aux,
-                    user_account,
+                    recipient_account,
                 })
             }
-            (InterfaceTransfer::SolWithdrawal { .. }, [sol_interface_account, user_account]) => {
-                Self::SolWithdrawal(SettlementAccountsSol {
-                    sol_interface_account,
-                    sol_interface_bump: aux,
-                    user_account,
-                })
-            }
+            (
+                InterfaceTransfer::SolWithdrawal { .. },
+                [sol_interface_account, recipient_account],
+            ) => Self::SolWithdrawal(SettlementAccountsSol {
+                sol_interface_account,
+                sol_interface_bump: aux,
+                recipient_account,
+            }),
             (
                 InterfaceTransfer::SplDeposit { .. },
                 [mint_account, spl_interface_account, token_authority_account, user_token_account, token_program_account],

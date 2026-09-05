@@ -60,7 +60,7 @@ const MERGE_OUTPUT_TREE: usize = 1;
 /// inside that group. Mirrors the program's per-kind parsing order.
 fn settlement_group(transfer: &InterfaceTransfer) -> (usize, Option<usize>) {
     match transfer {
-        // sol_interface, user_account
+        // sol_interface, recipient
         InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => (2, None),
         // mint, spl_interface, token_authority, user_token_account, token_program
         InterfaceTransfer::SplDeposit { .. } => (5, Some(0)),

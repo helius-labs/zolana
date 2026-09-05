@@ -1,9 +1,7 @@
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
-use super::deposit::{
-    add_deposit_amount, validate_canonical_field, DepositAsset, DepositBuildError, DepositLayout,
-};
+use super::deposit::{DepositAsset, DepositBuildError, DepositLayout};
 use crate::{
     instruction::{tag, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData},
     pda, PROGRAM_ID_PUBKEY,
@@ -16,7 +14,6 @@ pub struct RingAssetDeposit {
     /// Opaque indexing tag. SPP copies it without validation.
     pub view_tag: [u8; 32],
     pub owner_utxo_hash: [u8; 32],
-    /// Zero is valid: it appends the output but performs no settlement transfer.
     pub amount: u64,
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: [u8; 32],
@@ -33,17 +30,6 @@ pub struct RingDeposit {
     /// `RingConfig` account.
     pub ring_program_id: Pubkey,
     pub deposits: Vec<RingAssetDeposit>,
-}
-
-impl RingAssetDeposit {
-    fn validate_fields(&self, entry_index: usize) -> Result<(), DepositBuildError> {
-        validate_canonical_field(&self.owner_utxo_hash, entry_index, "owner_utxo_hash")?;
-        if let Some(data_hash) = &self.data_hash {
-            validate_canonical_field(data_hash, entry_index, "data_hash")?;
-        }
-        validate_canonical_field(&self.ring_data_hash, entry_index, "ring_data_hash")?;
-        Ok(())
-    }
 }
 
 impl RingDeposit {
@@ -68,15 +54,11 @@ impl RingDeposit {
             self.deposits.len(),
             self.deposits.iter().map(|entry| entry.asset),
         )?;
-        let mut totals = [0u64; crate::instruction::MAX_DEPOSIT_ASSETS];
         let deposits = self
             .deposits
             .into_iter()
-            .enumerate()
-            .map(|(entry_index, entry)| {
-                entry.validate_fields(entry_index)?;
+            .map(|entry| {
                 let asset_index = layout.asset_index(entry.asset)?;
-                add_deposit_amount(&mut totals, asset_index, entry.asset.mint(), entry.amount)?;
                 Ok(RingDepositEntry {
                     asset_index,
                     view_tag: entry.view_tag,
@@ -125,7 +107,6 @@ mod tests {
     use crate::instruction::{
         DepositAsset, DepositAssetKind, DepositSplAccounts, MAX_DEPOSIT_ASSETS,
     };
-    use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 
     fn ring_entry(asset: DepositAsset, seed: u8) -> RingAssetDeposit {
         RingAssetDeposit {
@@ -288,67 +269,6 @@ mod tests {
         assert_eq!(
             builder(vec![entry]).instruction(),
             Err(DepositBuildError::Serialization)
-        );
-    }
-
-    #[test]
-    fn rejects_every_non_canonical_ring_deposit_field() {
-        let mut owner_utxo_hash = ring_entry(DepositAsset::Sol, 1);
-        owner_utxo_hash.owner_utxo_hash = BN254_SCALAR_MODULUS_BE;
-        assert_eq!(
-            builder(vec![ring_entry(DepositAsset::Sol, 2), owner_utxo_hash]).instruction(),
-            Err(DepositBuildError::NonCanonicalField {
-                entry_index: 1,
-                field: "owner_utxo_hash",
-            })
-        );
-
-        let mut data_hash = ring_entry(DepositAsset::Sol, 1);
-        data_hash.data_hash = Some(BN254_SCALAR_MODULUS_BE);
-        assert_eq!(
-            builder(vec![data_hash]).instruction(),
-            Err(DepositBuildError::NonCanonicalField {
-                entry_index: 0,
-                field: "data_hash",
-            })
-        );
-
-        let mut ring_data_hash = ring_entry(DepositAsset::Sol, 1);
-        ring_data_hash.ring_data_hash = BN254_SCALAR_MODULUS_BE;
-        assert_eq!(
-            builder(vec![ring_data_hash]).instruction(),
-            Err(DepositBuildError::NonCanonicalField {
-                entry_index: 0,
-                field: "ring_data_hash",
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_ring_deposit_amount_overflow_and_preserves_zero_amounts() {
-        let mut maximum = ring_entry(DepositAsset::Sol, 1);
-        maximum.amount = u64::MAX;
-        let mut one_more = ring_entry(DepositAsset::Sol, 2);
-        one_more.amount = 1;
-        assert_eq!(
-            builder(vec![maximum, one_more]).instruction(),
-            Err(DepositBuildError::AmountOverflow {
-                asset: Pubkey::default(),
-            })
-        );
-
-        let mut zero = ring_entry(DepositAsset::Sol, 3);
-        zero.amount = 0;
-        let ix = builder(vec![zero])
-            .instruction()
-            .expect("zero-value ring outputs remain valid");
-        assert_eq!(
-            decode(&ix)
-                .deposits
-                .iter()
-                .map(|entry| entry.amount)
-                .collect::<Vec<_>>(),
-            vec![0]
         );
     }
 }

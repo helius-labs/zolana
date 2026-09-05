@@ -10,18 +10,18 @@ publish = false
 # Decode and indexer-reconstruction helpers (used by indexers and wallet deposit
 # discovery, never by the on-chain program). Off by default so the program build
 # stays lean.
-offchain = ["dep:solana-pubkey", "zolana-interface/output-codec"]
+program-test = ["dep:solana-pubkey", "zolana-interface/output-codec"]
 nullifier-tree = ["dep:zolana-tree"]
 
 [[test]]
 name = "indexed_events"
 path = "tests/indexed_events.rs"
-required-features = ["offchain"]
+required-features = ["program-test"]
 
 [[test]]
 name = "reconstruction"
 path = "tests/reconstruction.rs"
-required-features = ["offchain"]
+required-features = ["program-test"]
 
 [dependencies]
 borsh = { workspace = true }

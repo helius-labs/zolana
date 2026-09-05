@@ -1,5 +1,5 @@
 pub mod output_utxo;
-#[cfg(feature = "offchain")]
+#[cfg(feature = "program-test")]
 pub mod reconstruction;
 
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -181,8 +181,8 @@ pub fn encode_merge_event(event: &MergeEvent) -> [u8; 2 + MergeEvent::LEN] {
 // Decode and indexer-reconstruction helpers used by indexers (the in-repo
 // program-test harness and Photon) and by wallet deposit discovery, but never
 // by the on-chain program, which only emits events.
-#[cfg(feature = "offchain")]
+#[cfg(feature = "program-test")]
 mod program_test;
 
-#[cfg(feature = "offchain")]
+#[cfg(feature = "program-test")]
 pub use program_test::*;

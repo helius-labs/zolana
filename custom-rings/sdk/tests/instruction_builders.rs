@@ -679,9 +679,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         output_tree: output_tree(),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         proof: sample_proof(),
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),

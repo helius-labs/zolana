@@ -728,9 +728,7 @@ fn transact_rejects_tampered_public_amount() {
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         data: transact_ix_data,
     }

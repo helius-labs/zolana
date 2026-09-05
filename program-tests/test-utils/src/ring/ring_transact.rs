@@ -123,7 +123,7 @@ impl RingWithdrawal {
         match self {
             Self::Sol { recipient } => {
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    user_account: *recipient,
+                    recipient: *recipient,
                 })
             }
             Self::Spl {

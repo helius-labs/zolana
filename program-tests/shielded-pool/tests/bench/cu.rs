@@ -1171,9 +1171,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts {
-                user_account: recipient,
-            },
+            TransactSolTransferAccounts { recipient },
         )],
         data: transact_ix_data,
     }

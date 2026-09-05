@@ -23,7 +23,7 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
-zolana-event = { workspace = true, features = ["offchain"], optional = true }
+zolana-event = { workspace = true, features = ["program-test"], optional = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

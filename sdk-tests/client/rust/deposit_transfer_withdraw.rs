@@ -214,7 +214,7 @@ fn main() -> Result<()> {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    user_account: sender.pubkey(),
+                    recipient: sender.pubkey(),
                 },
             )],
             // SPL: interface_transfer_accounts: vec![

@@ -1324,7 +1324,7 @@ spent inputs in first-occurrence order, each read-only and signing (the payer
 already occupies signer slot 0, so an owner equal to the payer does not
 repeat). Public
 settlement groups come last, in `interface_transfers` order. A SOL group is
-`(sol_interface, user_account)`. An SPL deposit group is `(mint, spl_interface,
+`(sol_interface, recipient)`. An SPL deposit group is `(mint, spl_interface,
 token_authority, user_token_account, token_program)`, where `token_authority`
 MUST sign; an SPL withdrawal group is `(cpi_authority, mint, spl_interface,
 user_token_account, token_program)` and does not require the recipient

@@ -32,7 +32,7 @@ impl<'a> Settlement<'a> {
     pub(crate) fn validate(&self, transfer: InterfaceTransfer) -> Result<u8, ProgramError> {
         match (self, transfer) {
             (Self::SolDeposit(accounts) | Self::SolWithdrawal(accounts), _) => {
-                validate_sol_settlement(accounts.sol_interface_account, accounts.user_account)
+                validate_sol_settlement(accounts.sol_interface_account, accounts.recipient_account)
             }
             (
                 Self::SplDeposit(accounts),
@@ -69,7 +69,9 @@ impl<'a> Settlement<'a> {
     /// The user-side account `external_data_hash` commits to for this leg.
     pub(crate) fn user_account(&self) -> &'a AccountView {
         match self {
-            Self::SolDeposit(accounts) | Self::SolWithdrawal(accounts) => accounts.user_account,
+            Self::SolDeposit(accounts) | Self::SolWithdrawal(accounts) => {
+                accounts.recipient_account
+            }
             Self::SplDeposit(accounts) => accounts.user_token_account,
             Self::SplWithdrawal(accounts) => accounts.user_token_account,
         }

@@ -10,8 +10,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransactSolTransferAccounts {
-    /// User-side SOL account: funds a deposit or receives a withdrawal.
-    pub user_account: Pubkey,
+    pub recipient: Pubkey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -116,14 +115,14 @@ pub(super) fn append_interface_transfer_accounts(
         match (transfer, transfer_accounts) {
             (InterfaceTransfer::SolDeposit { .. }, TransactInterfaceTransferAccounts::Sol(sol)) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.user_account, true));
+                accounts.push(AccountMeta::new(sol.recipient, true));
             }
             (
                 InterfaceTransfer::SolWithdrawal { .. },
                 TransactInterfaceTransferAccounts::Sol(sol),
             ) => {
                 accounts.push(AccountMeta::new(SOL_INTERFACE_PUBKEY, false));
-                accounts.push(AccountMeta::new(sol.user_account, false));
+                accounts.push(AccountMeta::new(sol.recipient, false));
             }
             (
                 InterfaceTransfer::SplDeposit { .. },
@@ -238,9 +237,7 @@ mod tests {
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    user_account: recipient,
-                },
+                TransactSolTransferAccounts { recipient },
             )],
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 7 }]),
         };
@@ -322,11 +319,11 @@ mod tests {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    user_account: sol_depositor,
+                    recipient: sol_depositor,
                 }),
                 TransactInterfaceTransferAccounts::SplWithdrawal(spl),
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    user_account: sol_recipient,
+                    recipient: sol_recipient,
                 }),
             ],
             data: empty_data(vec![
@@ -414,9 +411,7 @@ mod tests {
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    user_account: recipient,
-                },
+                TransactSolTransferAccounts { recipient },
             )],
             data,
         };
@@ -470,7 +465,7 @@ mod tests {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    user_account: Pubkey::new_unique(),
+                    recipient: Pubkey::new_unique(),
                 },
             )],
             data: empty_data(vec![InterfaceTransfer::SplWithdrawal {
@@ -494,7 +489,7 @@ mod tests {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    user_account: Pubkey::new_unique(),
+                    recipient: Pubkey::new_unique(),
                 },
             )],
             data: empty_data(vec![InterfaceTransfer::SolWithdrawal { amount: 0 }]),

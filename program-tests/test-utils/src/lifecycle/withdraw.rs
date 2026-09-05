@@ -126,7 +126,7 @@ impl LifecycleHarness {
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
                 TransactSolTransferAccounts {
-                    user_account: recipient.pubkey(),
+                    recipient: recipient.pubkey(),
                 },
             )],
             data: ix_data,

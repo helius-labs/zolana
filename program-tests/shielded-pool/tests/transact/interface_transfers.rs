@@ -70,9 +70,7 @@ fn assert_rejected_without_sol_movement(
     let interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts> = interface_transfers
         .iter()
         .map(|_| {
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                user_account: payer,
-            })
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: payer })
         })
         .collect();
     // The `Transact` builder's validating serializer rejects invalid legs
@@ -127,9 +125,7 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts {
-                    user_account: payer,
-                }
+                TransactSolTransferAccounts { recipient: payer }
             );
             interface_transfers.len()
         ],

@@ -100,7 +100,7 @@ impl<'a> DepositAccounts<'a> {
                         settlement: Settlement::SolDeposit(SettlementAccountsSol {
                             sol_interface_account: sol_interface,
                             sol_interface_bump: bump,
-                            user_account: depositor,
+                            recipient_account: depositor,
                         }),
                     }
                 }

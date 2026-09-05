@@ -42,6 +42,6 @@ pub fn emit_merge_event(event: &MergeEvent) -> ProgramResult {
 /// Emit a nullifier-tree batch-update event. The payload is the
 /// `NullifierTreeUpdateEvent` produced by the nullifier-tree update.
 #[inline(never)]
-pub fn emit_nullifier_tree_update_event(event: &NullifierTreeUpdateEvent) -> ProgramResult {
+pub fn emit_batch_nullifier_append_event(event: &NullifierTreeUpdateEvent) -> ProgramResult {
     emit_encoded_event(&encode_nullifier_tree_update_event(event))
 }

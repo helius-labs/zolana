@@ -319,9 +319,7 @@ fn read_snapshot(rpc_url: &str, tree: Pubkey) -> Result<TreeSnapshot> {
         .ok_or_else(|| anyhow!("pending_batch_index {pending} out of range"))?;
     let already_applied = batch.get_num_inserted_zkps();
     let ready = batch.get_num_ready_zkp_updates();
-    let pending_queued = batch
-        .get_num_inserted_elements()
-        .map_err(|err| anyhow!("invalid pending queue batch metadata: {err}"))?;
+    let pending_queued = batch.get_num_inserted_elements();
 
     let mut hash_chains = Vec::with_capacity(ready as usize);
     for i in 0..ready {
