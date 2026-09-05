@@ -65,6 +65,9 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/helius-labs/zolana"
 
+[workspace.metadata.solana]
+tools-version = "v1.54"
+
 [workspace.dependencies]
 # Solana platform-tools Cargo 1.84 cannot build edition2024 crates pulled by
 # newer time-core releases.

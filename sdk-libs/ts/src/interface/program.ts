@@ -62,6 +62,7 @@ export const InstructionTag = Object.freeze({
   closeNullifierPdas: 18,
   setTreeFees: 19,
   claimTreeLamports: 20,
+  setRingActivation: 21,
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 

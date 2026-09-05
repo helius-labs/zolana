@@ -37,7 +37,7 @@ The account header also holds the fee schedule and the fee balance:
 | 32 | `fee_balance: u64` | collected fees not yet paid out |
 | 40 | reserved | 32 bytes |
 | 72 | UTXO tree | `UtxoTreeLayout` |
-| 7544 | nullifier tree | `NullifierTreeLayout` |
+| 17152 | nullifier tree | `NullifierTreeLayout` |
 
 The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
 overwrites it; neither checks the values. `set_tree_fees` also accepts a

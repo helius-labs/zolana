@@ -220,7 +220,7 @@ export interface ProtocolConfigAccount {
   readonly treeCreationIsPermissionless: boolean;
   readonly foresterAuthority: Address;
   readonly ringCreationAuthority: Address;
-  readonly ringCreationIsPermissionless: boolean;
+  readonly ringActivationIsPermissionless: boolean;
   readonly splInterfaceCreationIsPermissionless: boolean;
   readonly feeAuthority: Address;
   readonly nextTreeId: number;
@@ -249,9 +249,19 @@ export interface SplAssetRegistryAccount {
 export interface RingConfigAccount {
   readonly authority: Address;
   readonly programId: Address;
+  /**
+   * Governance-owned. Only `setRingActivation` writes it, because the rail it
+   * opens moves utxos without owner signatures.
+   */
   readonly ringAuthorityTransactIsEnabled: boolean;
-  /** Every operational ring instruction is refused while this is set. */
+  /** Ring-owned. Every operational ring instruction is refused while this is set. */
   readonly paused: boolean;
+  /**
+   * Governance-owned. A ring registers itself inert and authorizes nothing
+   * until governance admits it, so an unactivated config refuses every
+   * operational ring instruction.
+   */
+  readonly activated: boolean;
   readonly bump: number;
 }
 

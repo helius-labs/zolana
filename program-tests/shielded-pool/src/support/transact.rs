@@ -25,6 +25,19 @@ pub fn tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey, utxo_index: u16) -> ([
     )
 }
 
+/// Read the latest on-chain UTXO root, its current dense history index, and the
+/// current nullifier root used by a `transact` input.
+pub fn current_tree_roots(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u16, [u8; 32], [u8; 32]) {
+    let mut data = rpc.account_data(tree).expect("tree account");
+    let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
+    let utxo_index = account.utxo_tree().current_root_index();
+    (
+        utxo_index,
+        account.get_utxo_tree_root(utxo_index).expect("utxo root"),
+        account.get_nullifier_tree_root(0).expect("nullifier root"),
+    )
+}
+
 /// Read the two counters advanced by a successful `transact`.
 pub fn tree_progress(rpc: &ZolanaProgramTest, tree: &Pubkey) -> (u64, u64) {
     let mut data = rpc.account_data(tree).expect("tree account");

@@ -12,7 +12,7 @@ use zolana_interface::{
         CreateTree, UpdateProtocolConfigData,
     },
     pda,
-    state::{default_tree_fees, nullifier_tree_params, RingConfig},
+    state::{default_tree_fees, nullifier_tree_params, ProtocolConfig, RingConfig},
 };
 use zolana_program_test::{next_tree_id, Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::mollusk::{
@@ -41,30 +41,35 @@ fn duplicate_protocol_config_creation_is_rejected() {
 }
 
 #[test]
-fn protocol_config_rejects_a_signer_that_names_other_authorities() {
+fn protocol_config_accepts_distinct_initializer_and_configured_authorities() {
     let mut rpc = program_test();
     let signer = Keypair::new();
     rpc.airdrop(&signer.pubkey(), 1_000_000_000)
         .expect("fund signer");
+    rpc.set_upgrade_authority(Some(&signer.pubkey()))
+        .expect("install upgradeable program metadata");
     let named = Keypair::new().pubkey().to_bytes();
     let ix = CreateProtocolConfig {
-        authority: signer.pubkey(),
+        fee_payer: signer.pubkey(),
+        initialization_authority: signer.pubkey(),
         protocol_authority: named.into(),
         tree_creation_authority: named.into(),
         tree_creation_is_permissionless: false,
         forester_authority: named.into(),
         ring_creation_authority: named.into(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
         fee_authority: named.into(),
     }
     .instruction();
 
-    let err = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[&signer])
-        .expect_err("mismatched authority must fail");
-    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
-    assert!(rpc.account_data(&pda::protocol_config()).is_none());
+    rpc.create_and_send_default_payer_transaction(&[ix], &[&signer])
+        .expect("upgrade authority may name the final protocol authorities");
+    let data = rpc
+        .account_data(&pda::protocol_config())
+        .expect("protocol config");
+    let config = ProtocolConfig::from_account_bytes(&data).expect("valid protocol config");
+    assert_eq!(config.protocol_authority.to_bytes(), named);
 }
 
 #[test]
@@ -142,7 +147,7 @@ fn partially_allocated_tree_is_not_usable() {
     let steps = create.instructions();
     pool.rpc
         .create_and_send_default_payer_transaction(
-            steps.get(..2).expect("allocation steps"),
+            steps.get(..3).expect("allocation steps"),
             &[&pool.authority],
         )
         .expect("allocation steps");
@@ -189,7 +194,7 @@ fn tree_creation_rejects_non_canonical_nullifier_params() {
         .create_tree_with_nullifier_params(&pool.authority, wrong_zkp_ratio)
         .expect_err("non-canonical nullifier params must fail");
     Rejection::pool(ShieldedPoolError::InvalidTreeAccounts)
-        .at(2)
+        .at(3)
         .assert_litesvm(err);
 }
 
@@ -237,16 +242,16 @@ fn ring_config_owner_rotation_revokes_old_authority() {
         .expect("fund payer");
     let authority = Keypair::new();
     let ring_config = rpc
-        .create_ring_config(&payer, &authority.pubkey(), true)
+        .create_ring_config(&payer, &authority.pubkey())
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false, false)
-        .expect("disable ring authority transact");
+    rpc.update_ring_config(&authority, &ring_config, false)
+        .expect("ring unpauses itself");
     let next = Keypair::new();
     rpc.update_ring_config_owner(&authority, &ring_config, &next)
         .expect("rotate ring config owner");
 
     let err = rpc
-        .update_ring_config(&authority, &ring_config, true, false)
+        .update_ring_config(&authority, &ring_config, false)
         .expect_err("old ring authority must be revoked");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
 }
@@ -261,7 +266,6 @@ fn ring_config_rejects_a_noncanonical_ring_authority_account() {
         payer: payer.pubkey(),
         program_id: RING_TEST_PROGRAM_ID.into(),
         authority: payer.pubkey().to_bytes().into(),
-        ring_authority_transact_is_enabled: true,
     }
     .instruction()
     .expect("derive ring config PDA");
@@ -276,16 +280,15 @@ fn ring_config_rejects_a_noncanonical_ring_authority_account() {
 #[test]
 fn mollusk_protocol_config_rejects_every_account_privilege_downgrade() {
     let (mollusk, valid, accounts) = protocol_config_fixture();
-    // Metas: [0] authority (signer, fee payer), [1] config PDA, [2] system
-    // program. Signer and mutability cells have stable named errors. The
-    // Remove cells shift the account shape and Readonly{0} demotes the fee
-    // payer (its failure point depends on the runtime's fee handling), so
-    // those cells pin deterministic rejection rather than a named variant.
+    // Metas: [0] fee payer, [1] initialization authority, [2] config PDA,
+    // [3] system program, [4] program, [5] ProgramData. Signer and config
+    // mutability cells have stable named errors. Removing an account shifts
+    // the account shape, so those cells pin deterministic rejection.
     sweep_account_matrix(&mollusk, &valid, &accounts, |mutation| match mutation {
-        AccountMutation::Unsign { index: 0 } => {
+        AccountMutation::Unsign { index: 0 | 1 } => {
             Expected::Err(ProgramError::Custom(u32::from(AccountError::InvalidSigner)))
         }
-        AccountMutation::Readonly { index: 1 } => Expected::Err(ProgramError::Custom(u32::from(
+        AccountMutation::Readonly { index: 2 } => Expected::Err(ProgramError::Custom(u32::from(
             AccountError::AccountNotMutable,
         ))),
         _ => Expected::Rejected,
@@ -299,12 +302,12 @@ fn protocol_config_requires_system_program_exactly() {
     let mut wrong_system_ix = valid;
     wrong_system_ix
         .accounts
-        .get_mut(2)
+        .get_mut(3)
         .expect("system program meta")
         .pubkey = mollusk_pubkey(&wrong_system);
     let mut wrong_system_accounts = accounts;
     *wrong_system_accounts
-        .get_mut(2)
+        .get_mut(3)
         .expect("system program account") = (
         mollusk_pubkey(&wrong_system),
         MolluskAccount {
@@ -408,11 +411,11 @@ fn protocol_config_creation_rejects_a_non_canonical_pda() {
     let mut noncanonical_ix = valid;
     noncanonical_ix
         .accounts
-        .get_mut(1)
+        .get_mut(2)
         .expect("config meta")
         .pubkey = mollusk_pubkey(&noncanonical);
     let mut noncanonical_accounts = accounts;
-    *noncanonical_accounts.get_mut(1).expect("config account") =
+    *noncanonical_accounts.get_mut(2).expect("config account") =
         (mollusk_pubkey(&noncanonical), empty_placeholder_account());
 
     expect_err_exact(
@@ -517,7 +520,6 @@ fn ring_config_creation_rejects_an_unsigned_ring_config() {
         payer: authority.pubkey(),
         program_id: RING_TEST_PROGRAM_ID.into(),
         authority: authority.pubkey().to_bytes().into(),
-        ring_authority_transact_is_enabled: true,
     }
     .instruction()
     .expect("build create ring config");
@@ -529,22 +531,46 @@ fn ring_config_creation_rejects_an_unsigned_ring_config() {
     Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_litesvm(err);
 }
 
+/// INV-CREATE-ZC-02: creation is permissionless and the payer holds no
+/// authority, so an unrelated payer succeeds. Requiring governance here would
+/// put a governance signature in the same CPI chain as the candidate ring
+/// program, which signs `ring_auth` for its own creation. On a permissioned
+/// pool the config lands inert instead, and governance admits it separately.
 #[test]
-fn ring_config_creation_rejects_an_unconfigured_payer_when_permissioned() {
+fn ring_config_creation_accepts_any_payer_and_lands_inert() {
     let mut pool = Pool::initialized();
     pool.rpc
         .load_ring_test_program()
         .expect("load ring test program");
-    let impostor = pool.funded_signer(1_000_000_000);
+    let stranger = pool.funded_signer(1_000_000_000);
 
-    // The protocol config is permissioned (the default), so a payer that is
-    // not the ring-creation authority must be rejected even though the ring
-    // program signs for the config PDA.
+    let ring_config = pool
+        .rpc
+        .create_ring_config(&stranger, &stranger.pubkey())
+        .expect("permissionless ring creation must succeed");
+
+    let data = pool
+        .rpc
+        .account_data(&ring_config)
+        .expect("ring config account");
+    let config: &RingConfig = bytemuck::from_bytes(&data);
+    assert_eq!(
+        (config.activated, config.ring_authority_transact_is_enabled),
+        (0, 0),
+        "a permissioned pool creates the config inert with the rail off"
+    );
+
+    // And it authorizes nothing until governance admits it.
+    let depositor = pool.funded_signer(2_000_000_000);
+    let tree = pool.tree;
+    let deposit = pool
+        .rpc
+        .ring_sol_shield_data(1_000_000, [4u8; 32], [4u8; 32]);
     let err = pool
         .rpc
-        .create_ring_config(&impostor, &impostor.pubkey(), true)
-        .expect_err("impostor ring creation must fail");
-    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(err);
+        .ring_deposit(&tree, &depositor, &deposit)
+        .expect_err("an inactive ring must authorize nothing");
+    Rejection::pool(ShieldedPoolError::RingNotActivated).assert_litesvm(err);
 }
 
 #[test]
@@ -555,7 +581,7 @@ fn ring_owner_rotation_binds_the_new_owner_to_the_co_signing_account() {
         .expect("load ring test program");
     let ring_config = pool
         .rpc
-        .create_ring_config(&pool.authority, &pool.authority.pubkey(), true)
+        .create_ring_config(&pool.authority, &pool.authority.pubkey())
         .expect("create ring config");
     let impostor = pool.funded_signer(1_000_000_000);
     let next = Keypair::new();
@@ -587,7 +613,7 @@ fn ring_owner_rotation_rejects_an_unsigned_co_signer() {
         .expect("load ring test program");
     let ring_config = pool
         .rpc
-        .create_ring_config(&pool.authority, &pool.authority.pubkey(), true)
+        .create_ring_config(&pool.authority, &pool.authority.pubkey())
         .expect("create ring config");
     let next = Keypair::new();
 
@@ -620,7 +646,6 @@ fn ring_update_rejects_a_cosplay_config_account() {
     let ix = zolana_interface::instruction::UpdateRingConfig {
         authority: pool.authority.pubkey(),
         ring_config: impostor_config,
-        ring_authority_transact_is_enabled: false,
         paused: false,
     }
     .instruction();

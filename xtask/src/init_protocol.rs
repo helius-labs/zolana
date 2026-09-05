@@ -10,21 +10,19 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
-    instruction::{
-        CreateAssetCounter, CreateProtocolConfig, CreateTree, UpdateProtocolConfig,
-        UpdateProtocolConfigData,
-    },
+    instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
     pda,
     state::{nullifier_tree_params, ProtocolConfig, SplAssetCounter},
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
+    create_role_smart_account_ix,
     roles::Role,
-    settings::{settings_member_keys, settings_seed},
+    settings::{settings_member_keys, settings_seed, settings_threshold},
 };
 use zolana_test_utils::smart_account::{
-    create_smart_account_ix, execute_sync_each, execute_sync_ix, program_config_pda, settings_pda,
-    smart_account_pda, Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
+    execute_sync_each, execute_sync_ix, program_config_pda, settings_pda, smart_account_pda,
+    Permissions, SmartAccountSigner, PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR,
     SMART_ACCOUNT_PROGRAM_ID,
 };
 use zolana_tree::TreeFeeSchedule;
@@ -102,7 +100,7 @@ pub struct Options {
     cluster: Cluster,
     rpc_url: Option<String>,
     payer: PathBuf,
-    protocol_signer: PathBuf,
+    protocol_signers: Vec<PathBuf>,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
     transaction_size: TransactionSize,
@@ -115,7 +113,7 @@ impl Options {
         let mut cluster = Cluster::Localnet;
         let mut rpc_url = None;
         let mut payer = None;
-        let mut protocol_signer = None;
+        let mut protocol_signers = Vec::new();
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
         let mut transaction_size = TransactionSize::V1;
@@ -145,8 +143,8 @@ impl Options {
                     ));
                 }
                 "--protocol-signer" => {
-                    protocol_signer =
-                        Some(PathBuf::from(args.next().unwrap_or_else(|| {
+                    protocol_signers
+                        .push(PathBuf::from(args.next().unwrap_or_else(|| {
                             usage_and_exit("--protocol-signer missing value")
                         })));
                 }
@@ -193,14 +191,23 @@ impl Options {
         }
 
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
-        let protocol_signer =
-            protocol_signer.unwrap_or_else(|| usage_and_exit("--protocol-signer is required"));
+        let required_protocol_signers = usize::from(Role::Protocol.threshold());
+        if protocol_signers.len() != required_protocol_signers {
+            usage_and_exit(&format!(
+                "--protocol-signer must be passed {required_protocol_signers} times for the \
+                 {}-of-{} protocol policy (received {})",
+                Role::Protocol.threshold(),
+                authorities::PROTOCOL.len(),
+                protocol_signers.len()
+            ));
+        }
 
-        let provided = reuse_settings.iter().filter(|key| key.is_some()).count();
-        let reuse_settings = match provided {
-            0 => None,
-            5 => Some(reuse_settings.map(|key| key.expect("all five provided"))),
-            _ => {
+        let reuse_settings = match reuse_settings {
+            [None, None, None, None, None] => None,
+            [Some(protocol), Some(tree), Some(ring), Some(merge), Some(forester)] => {
+                Some([protocol, tree, ring, merge, forester])
+            }
+            reuse_settings => {
                 let missing: Vec<String> = Role::ALL
                     .into_iter()
                     .zip(reuse_settings)
@@ -218,7 +225,7 @@ impl Options {
             cluster,
             rpc_url,
             payer,
-            protocol_signer,
+            protocol_signers,
             upgrade_authority,
             reuse_settings,
             transaction_size,
@@ -236,7 +243,7 @@ impl Options {
 
 struct Signers {
     payer: Keypair,
-    protocol_signer: Keypair,
+    protocol_signers: Vec<Keypair>,
     upgrade_authority: Option<Keypair>,
 }
 
@@ -245,25 +252,50 @@ pub(crate) fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
         .map_err(|e| anyhow!("failed to read {label} keypair {}: {e}", path.display()))
 }
 
+pub(crate) fn load_protocol_signers(paths: &[PathBuf]) -> Result<Vec<Keypair>> {
+    let required = usize::from(Role::Protocol.threshold());
+    if paths.len() != required {
+        bail!(
+            "the {}-of-{} protocol policy requires {required} signer keypairs, got {}",
+            Role::Protocol.threshold(),
+            authorities::PROTOCOL.len(),
+            paths.len()
+        );
+    }
+
+    let mut signers = Vec::with_capacity(required);
+    for (index, path) in paths.iter().enumerate() {
+        let label = format!("protocol-signer #{}", index + 1);
+        let signer = load_keypair(path, &label)?;
+        if !authorities::PROTOCOL.contains(&signer.pubkey()) {
+            bail!(
+                "{label} {} is not one of the hardcoded protocol authorities",
+                signer.pubkey()
+            );
+        }
+        if signers
+            .iter()
+            .any(|existing: &Keypair| existing.pubkey() == signer.pubkey())
+        {
+            bail!("{label} {} is duplicated", signer.pubkey());
+        }
+        signers.push(signer);
+    }
+    Ok(signers)
+}
+
 fn load_signers(options: &Options) -> Result<Signers> {
     let payer = load_keypair(&options.payer, "payer")?;
-    let protocol_signer = load_keypair(&options.protocol_signer, "protocol-signer")?;
+    let protocol_signers = load_protocol_signers(&options.protocol_signers)?;
     let upgrade_authority = options
         .upgrade_authority
         .as_ref()
         .map(|path| load_keypair(path, "upgrade-authority"))
         .transpose()?;
 
-    if !authorities::PROTOCOL.contains(&protocol_signer.pubkey()) {
-        bail!(
-            "protocol-signer {} is not one of the hardcoded protocol authorities",
-            protocol_signer.pubkey()
-        );
-    }
-
     Ok(Signers {
         payer,
-        protocol_signer,
+        protocol_signers,
         upgrade_authority,
     })
 }
@@ -338,43 +370,30 @@ pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
     ]
 }
 
-/// Guard the `--resume` seed arithmetic: the five settings accounts derived
-/// from `smart_account_index - 5` must be the ones the previous init run
-/// created, so each must be a Squads `Settings` account listing the expected
-/// role members (protocol/tree/zone/merge: the protocol authorities, so the
-/// `--protocol-signer` keypair among them; forester: the forester
-/// authorities).
-fn verify_resume_settings(rpc: &SolanaRpc, roles: &[RoleAddrs; 5]) -> Result<()> {
-    for (role, expected_members) in roles.iter().zip(expected_role_members()) {
-        let settings = rpc
-            .get_account(to_address(&role.settings))
-            .with_context(|| format!("fetching {} smart account settings", role.label))?
-            .filter(|account| account.owner == SMART_ACCOUNT_PROGRAM_ID);
-        let Some(settings) = settings else {
-            bail!(
-                "cannot resume authority rotation: {} smart account settings {} not found; \
-                 the smart accounts from the previous run could not be located",
-                role.label,
-                role.settings
-            );
-        };
-        verify_settings_members(role.label, &role.settings, &settings.data, expected_members)
-            .context(
-                "cannot resume authority rotation: the derived accounts do not match the \
-                 previous init run",
-            )?;
-    }
-    Ok(())
-}
-
-fn verify_settings_members(
+fn verify_settings_policy(
     label: &str,
     settings_key: &Pubkey,
     data: &[u8],
     expected_members: &[Pubkey],
+    expected_threshold: u16,
 ) -> Result<()> {
+    let threshold = settings_threshold(data)
+        .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
+    if threshold != expected_threshold {
+        bail!(
+            "{label} smart account settings {settings_key} has threshold {threshold}, expected \
+             {expected_threshold}"
+        );
+    }
     let member_keys = settings_member_keys(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
+    if member_keys.len() != expected_members.len() {
+        bail!(
+            "{label} smart account settings {settings_key} has {} members, expected exactly {}",
+            member_keys.len(),
+            expected_members.len()
+        );
+    }
     for expected in expected_members {
         if !member_keys.contains(expected) {
             bail!(
@@ -390,7 +409,8 @@ fn verify_settings_members(
 /// command line, so an init reuses the authority smart accounts of an earlier
 /// deployment instead of creating new ones. Each account must be a Squads
 /// `Settings` owned by the smart-account program, must list the expected role
-/// members, and must be the canonical PDA of the seed stored inside it.
+/// members at the required threshold, and must be the canonical PDA of the
+/// seed stored inside it.
 fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[RoleAddrs; 5]> {
     let mut roles = Vec::with_capacity(Role::ALL.len());
     for ((role, settings_key), expected_members) in Role::ALL
@@ -409,7 +429,13 @@ fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[Ro
                     SMART_ACCOUNT_PROGRAM_ID
                 )
             })?;
-        verify_settings_members(role.label(), settings_key, &account.data, expected_members)?;
+        verify_settings_policy(
+            role.label(),
+            settings_key,
+            &account.data,
+            expected_members,
+            role.threshold(),
+        )?;
         let seed = settings_seed(&account.data).with_context(|| {
             format!(
                 "decoding {} smart account settings {settings_key}",
@@ -472,9 +498,10 @@ fn create_smart_account_with_retry(
     treasury: &Pubkey,
     settings_authority: Option<Pubkey>,
     signers: &[SmartAccountSigner],
-    label: &'static str,
+    role: Role,
 ) -> Result<RoleAddrs> {
     const MAX_ATTEMPTS: usize = 5;
+    let label = role.label();
     let mut attempt = 0;
     loop {
         let index = current_index(rpc)
@@ -482,13 +509,13 @@ fn create_smart_account_with_retry(
         let seed = index + 1;
         let (settings, _) = settings_pda(seed);
         let (vault, _) = smart_account_pda(&settings, 0);
-        let ix = create_smart_account_ix(
+        let ix = create_role_smart_account_ix(
             &payer.pubkey(),
             treasury,
             seed,
             settings_authority,
             signers,
-            1,
+            role,
             0,
         );
         match rpc.create_and_send_transaction(&[ix], to_address(&payer.pubkey()), &[payer]) {
@@ -526,8 +553,14 @@ fn create_all_smart_accounts(
     let protocol_signers = signer_set(&authorities::PROTOCOL);
     let forester_signers = signer_set(&authorities::FORESTER);
 
-    let protocol =
-        create_smart_account_with_retry(rpc, payer, treasury, None, &protocol_signers, "protocol")?;
+    let protocol = create_smart_account_with_retry(
+        rpc,
+        payer,
+        treasury,
+        None,
+        &protocol_signers,
+        Role::Protocol,
+    )?;
     let protocol_vault = protocol.vault;
     let tree = create_smart_account_with_retry(
         rpc,
@@ -535,7 +568,7 @@ fn create_all_smart_accounts(
         treasury,
         Some(protocol_vault),
         &protocol_signers,
-        "tree",
+        Role::Tree,
     )?;
     let ring = create_smart_account_with_retry(
         rpc,
@@ -543,7 +576,7 @@ fn create_all_smart_accounts(
         treasury,
         Some(protocol_vault),
         &protocol_signers,
-        "ring",
+        Role::Ring,
     )?;
     let merge = create_smart_account_with_retry(
         rpc,
@@ -551,7 +584,7 @@ fn create_all_smart_accounts(
         treasury,
         Some(protocol_vault),
         &protocol_signers,
-        "merge",
+        Role::Merge,
     )?;
     let forester = create_smart_account_with_retry(
         rpc,
@@ -559,7 +592,7 @@ fn create_all_smart_accounts(
         treasury,
         Some(protocol_vault),
         &forester_signers,
-        "forester",
+        Role::Forester,
     )?;
 
     Ok([protocol, tree, ring, merge, forester])
@@ -596,16 +629,13 @@ fn system_transfer_ix(from: &Pubkey, to: &Pubkey, lamports: u64) -> Instruction 
 }
 
 fn vault_funding_lamports(rpc: &SolanaRpc) -> Result<u64> {
-    let config_rent = rpc
-        .get_minimum_balance_for_rent_exemption(ProtocolConfig::SIZE)
-        .context("rent for protocol_config")?;
     let counter_rent = rpc
         .get_minimum_balance_for_rent_exemption(SplAssetCounter::SIZE)
         .context("rent for spl_asset_counter")?;
     let vault_rent = rpc
         .get_minimum_balance_for_rent_exemption(0)
         .context("rent for vault")?;
-    Ok(config_rent + counter_rent + vault_rent + VAULT_FUNDING_BUFFER_LAMPORTS)
+    Ok(counter_rent + vault_rent + VAULT_FUNDING_BUFFER_LAMPORTS)
 }
 
 fn fund_protocol_vault(
@@ -630,17 +660,16 @@ fn fund_protocol_vault(
     Ok(())
 }
 
-/// Read the shielded-pool program's deploy upgrade authority from its
-/// loader-v3 `ProgramData` account. `None` means the on-chain initialization
-/// check is inactive (non-upgradeable deployment or immutable program) and
-/// `create_protocol_config` may be sent by the protocol vault directly.
-fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Option<Pubkey>> {
+/// Read the real, nonzero loader-v3 upgrade authority required to initialize
+/// the protocol config. Unsupported, immutable, zero-authority, and malformed
+/// deployment states fail closed exactly like the on-chain gate.
+pub(crate) fn read_deploy_upgrade_authority(rpc: &SolanaRpc) -> Result<Pubkey> {
     let program = rpc
         .get_account(to_address(&shielded_pool_program()))
         .context("fetching shielded-pool program account")?
         .ok_or_else(|| anyhow!("shielded-pool program account not found"))?;
     if program.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
-        return Ok(None);
+        bail!("shielded-pool program is not deployed with loader-v3");
     }
     let program_data_address = match decode_loader_state(&program.data) {
         Some(UpgradeableLoaderState::Program {
@@ -665,15 +694,11 @@ fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {
     bincode::deserialize(data).ok()
 }
 
-/// Map a loader-v3 `ProgramData` account's upgrade authority to the deploy
-/// authority: malformed state is an error, and a zeroed authority (the shape
-/// solana-test-validator `--bpf-program` deployments write, tag 1 || 32 zero
-/// bytes) maps to `None` because the on-chain initialization gate treats it
-/// as "no authority".
+/// Read a loader-v3 `ProgramData` account's real, nonzero upgrade authority.
 fn read_program_data_upgrade_authority(
     program_data_address: &Pubkey,
     data: &[u8],
-) -> Result<Option<Pubkey>> {
+) -> Result<Pubkey> {
     let Some(UpgradeableLoaderState::ProgramData {
         upgrade_authority_address,
         ..
@@ -681,126 +706,114 @@ fn read_program_data_upgrade_authority(
     else {
         bail!("ProgramData account {program_data_address} is not a loader-v3 ProgramData state");
     };
-    Ok(upgrade_authority_address
-        .and_then(|authority| (authority != Pubkey::default()).then_some(authority)))
+    let authority = upgrade_authority_address.ok_or_else(|| {
+        anyhow!(
+            "shielded-pool ProgramData account {program_data_address} has no upgrade authority; \
+             initialize the protocol before making the program immutable"
+        )
+    })?;
+    if authority == Pubkey::default() {
+        bail!(
+            "shielded-pool ProgramData account {program_data_address} has a zero upgrade \
+             authority; initialize it with a real loader-v3 authority"
+        );
+    }
+    Ok(authority)
+}
+
+#[derive(Clone, Copy)]
+enum InitializationAuthority<'a> {
+    Keypair(&'a Keypair),
+    ProtocolVault,
+}
+
+fn resolve_initialization_authority<'a>(
+    expected: Pubkey,
+    supplied_keypair: Option<&'a Keypair>,
+    protocol_vault: Pubkey,
+) -> Result<InitializationAuthority<'a>> {
+    if expected == protocol_vault {
+        if let Some(keypair) = supplied_keypair {
+            bail!(
+                "--upgrade-authority {} was supplied, but the on-chain upgrade authority is the \
+                 protocol Squads vault {protocol_vault}; omit the keypair so Squads authorizes \
+                 initialization",
+                keypair.pubkey()
+            );
+        }
+        return Ok(InitializationAuthority::ProtocolVault);
+    }
+
+    let keypair = supplied_keypair.ok_or_else(|| {
+        anyhow!(
+            "the shielded-pool upgrade authority is {expected}, not the protocol Squads vault \
+             {protocol_vault}; pass its keypair via --upgrade-authority"
+        )
+    })?;
+    if keypair.pubkey() != expected {
+        bail!(
+            "--upgrade-authority {} does not match the on-chain upgrade authority {expected}",
+            keypair.pubkey()
+        );
+    }
+    Ok(InitializationAuthority::Keypair(keypair))
 }
 
 fn send_protocol_config(
     rpc: &SolanaRpc,
     payer: &Keypair,
-    protocol_signer: &Keypair,
-    upgrade_signer: Option<&Keypair>,
+    protocol_signers: &[Keypair],
+    initialization_authority: InitializationAuthority<'_>,
     roles: &[RoleAddrs; 5],
 ) -> Result<()> {
     // Merging is now a per-user opt-in set via the user-registry
     // `set_merging_enabled` instruction, not a protocol-config field, so the
     // `merge` role no longer feeds the protocol config here.
     let [protocol, tree, ring, _merge, forester] = roles;
-    if let Some(upgrade_signer) = upgrade_signer {
-        // Upgradeable deployment (devnet/mainnet): initialization is bound to
-        // the deploy upgrade authority (INV-CREATE-PC-10). Create the config
-        // naming the upgrade authority, then rotate the protocol authority to
-        // the protocol vault (the incoming vault co-signs via the smart
-        // account).
-        let rent = rpc
-            .get_minimum_balance_for_rent_exemption(ProtocolConfig::SIZE)
-            .context("rent for protocol_config")?;
-        let fund_ix = system_transfer_ix(
-            &payer.pubkey(),
-            &upgrade_signer.pubkey(),
-            rent + VAULT_FUNDING_BUFFER_LAMPORTS,
-        );
-        let create_config_ix = CreateProtocolConfig {
-            authority: upgrade_signer.pubkey(),
-            protocol_authority: upgrade_signer.pubkey().to_bytes().into(),
-            tree_creation_authority: tree.vault.to_bytes().into(),
-            tree_creation_is_permissionless: false,
-            forester_authority: forester.vault.to_bytes().into(),
-            ring_creation_authority: ring.vault.to_bytes().into(),
-            fee_authority: upgrade_signer.pubkey().to_bytes().into(),
-            ring_creation_is_permissionless: false,
-            spl_interface_creation_is_permissionless: true,
-        }
-        .instruction();
-        let signature = rpc
-            .create_and_send_transaction(
-                &[fund_ix, create_config_ix],
-                to_address(&payer.pubkey()),
-                &[payer, upgrade_signer],
-            )
-            .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?;
-        println!(
-            "created protocol_config={} sig={signature} (bound to upgrade authority {})",
-            pda::protocol_config(),
-            upgrade_signer.pubkey()
-        );
-
-        return rotate_protocol_authority(rpc, payer, protocol_signer, upgrade_signer, protocol);
-    }
-
+    let initialization_authority_key = match initialization_authority {
+        InitializationAuthority::Keypair(keypair) => keypair.pubkey(),
+        InitializationAuthority::ProtocolVault => protocol.vault,
+    };
     let create_config_ix = CreateProtocolConfig {
-        authority: protocol.vault,
+        fee_payer: payer.pubkey(),
+        initialization_authority: initialization_authority_key,
         protocol_authority: protocol.vault.to_bytes().into(),
         tree_creation_authority: tree.vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
         fee_authority: protocol.vault.to_bytes().into(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: true,
     }
     .instruction();
-    let sync = execute_sync_ix(
-        &protocol.settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &[create_config_ix],
-    );
-    let signature = rpc
-        .create_and_send_transaction(
-            &[sync],
-            to_address(&payer.pubkey()),
-            &[payer, protocol_signer],
-        )
-        .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?;
-    println!(
-        "created protocol_config={} sig={signature}",
-        pda::protocol_config()
-    );
-    Ok(())
-}
 
-/// Rotate `protocol_authority` from the deploy upgrade authority to the
-/// protocol vault (tx2 of the upgradeable-deployment initialization). The
-/// incoming vault co-signs via the smart account.
-fn rotate_protocol_authority(
-    rpc: &SolanaRpc,
-    payer: &Keypair,
-    protocol_signer: &Keypair,
-    upgrade_signer: &Keypair,
-    protocol: &RoleAddrs,
-) -> Result<()> {
-    let rotate_ix = UpdateProtocolConfig {
-        authority: upgrade_signer.pubkey(),
-        update: UpdateProtocolConfigData::ProtocolAuthority(protocol.vault.to_bytes().into()),
-    }
-    .instruction();
-    let sync = execute_sync_ix(
-        &protocol.settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &[rotate_ix],
-    );
-    let signature = rpc
-        .create_and_send_transaction(
-            &[sync],
-            to_address(&payer.pubkey()),
-            &[payer, upgrade_signer, protocol_signer],
-        )
-        .map_err(|e| anyhow!("protocol authority rotation failed: {e}"))?;
+    let signature = match initialization_authority {
+        InitializationAuthority::Keypair(keypair) => rpc
+            .create_and_send_transaction(
+                &[create_config_ix],
+                to_address(&payer.pubkey()),
+                &[payer, keypair],
+            )
+            .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?,
+        InitializationAuthority::ProtocolVault => {
+            let signer_keys: Vec<Pubkey> = protocol_signers.iter().map(Signer::pubkey).collect();
+            let sync = execute_sync_ix(&protocol.settings, 0, &signer_keys, &[create_config_ix]);
+            let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
+            transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
+            rpc.create_and_send_transaction(
+                &[sync],
+                to_address(&payer.pubkey()),
+                &transaction_signers,
+            )
+            .map_err(|e| anyhow!("create_protocol_config through Squads failed: {e}"))?
+        }
+    };
     println!(
-        "rotated protocol_authority to protocol_vault={} sig={signature}",
-        protocol.vault
+        "created protocol_config={} protocol_authority={} initialization_authority={} sig={signature}",
+        pda::protocol_config(),
+        protocol.vault,
+        initialization_authority_key,
     );
     Ok(())
 }
@@ -808,7 +821,7 @@ fn rotate_protocol_authority(
 fn send_asset_counter(
     rpc: &SolanaRpc,
     payer: &Keypair,
-    protocol_signer: &Keypair,
+    protocol_signers: &[Keypair],
     protocol_settings: &Pubkey,
     protocol_vault: Pubkey,
 ) -> Result<()> {
@@ -824,18 +837,12 @@ fn send_asset_counter(
         authority: protocol_vault,
     }
     .instruction();
-    let sync = execute_sync_ix(
-        protocol_settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &[counter_ix],
-    );
+    let signer_keys: Vec<Pubkey> = protocol_signers.iter().map(Signer::pubkey).collect();
+    let sync = execute_sync_ix(protocol_settings, 0, &signer_keys, &[counter_ix]);
+    let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
+    transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
     let signature = rpc
-        .create_and_send_transaction(
-            &[sync],
-            to_address(&payer.pubkey()),
-            &[payer, protocol_signer],
-        )
+        .create_and_send_transaction(&[sync], to_address(&payer.pubkey()), &transaction_signers)
         .map_err(|e| anyhow!("create_asset_counter failed: {e}"))?;
     println!(
         "created spl_asset_counter={} sig={signature}",
@@ -898,40 +905,14 @@ pub fn run(options: Options) -> Result<()> {
     rpc.assert_executable(&SMART_ACCOUNT_PROGRAM_ID)
         .map_err(|e| anyhow!("smart-account program not executable: {e}"))?;
 
-    // F-07: on an upgradeable deployment with a set upgrade authority, only
-    // that authority may initialize the protocol config.
-    let deploy_upgrade_authority = read_deploy_upgrade_authority(&rpc)?;
-    let upgrade_signer = match (deploy_upgrade_authority, &signers.upgrade_authority) {
-        (Some(expected), Some(keypair)) => {
-            if keypair.pubkey() != expected {
-                bail!(
-                    "--upgrade-authority {} does not match the on-chain upgrade authority {expected}",
-                    keypair.pubkey()
-                );
-            }
-            Some(keypair)
-        }
-        (Some(expected), None) => bail!(
-            "the shielded-pool program is upgradeable with upgrade authority {expected}; \
-             pass its keypair via --upgrade-authority"
-        ),
-        (None, _) => None,
-    };
-
     let stored_protocol_authority = read_stored_protocol_authority(&rpc)?;
     let initialized = stored_protocol_authority.is_some();
-    // Resume after a partial initialization: the config was created by the
-    // deploy upgrade authority (tx1) but the rotation to the protocol vault
-    // (tx2) failed, so the stored authority is still the upgrade authority.
-    let resume_rotation = matches!(
-        (stored_protocol_authority, upgrade_signer),
-        (Some(stored), Some(signer)) if stored == signer.pubkey()
-    );
-    if initialized && !resume_rotation && !options.dry_run {
+    if let Some(stored_protocol_authority) = stored_protocol_authority.filter(|_| !options.dry_run)
+    {
         bail!(
             "protocol already initialized: {} exists with protocol_authority {}",
             pda::protocol_config(),
-            stored_protocol_authority.expect("initialized")
+            stored_protocol_authority
         );
     }
 
@@ -944,6 +925,20 @@ pub fn run(options: Options) -> Result<()> {
         .context("resolving the smart accounts to reuse")?;
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
     let protocol_vault = roles[0].vault;
+    let deploy_upgrade_authority = if initialized {
+        None
+    } else {
+        Some(read_deploy_upgrade_authority(&rpc)?)
+    };
+    let dry_run_initialization_authority = deploy_upgrade_authority
+        .map(|expected| {
+            resolve_initialization_authority(
+                expected,
+                signers.upgrade_authority.as_ref(),
+                protocol_vault,
+            )
+        })
+        .transpose()?;
     let tree_id = next_tree_id(&rpc, initialized)?;
     let forester_close = ForesterClose {
         settings: roles[4].settings,
@@ -965,7 +960,9 @@ pub fn run(options: Options) -> Result<()> {
     println!("reuse_existing_smart_accounts={}", reused_roles.is_some());
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
-    println!("protocol_signer={}", signers.protocol_signer.pubkey());
+    for (index, signer) in signers.protocol_signers.iter().enumerate() {
+        println!("protocol_signer_{}={}", index + 1, signer.pubkey());
+    }
     println!("tree_id={tree_id}");
     println!("tree_account={}", pda::tree(tree_id));
     println!("protocol_vault={protocol_vault}");
@@ -980,45 +977,18 @@ pub fn run(options: Options) -> Result<()> {
     print_schedule(options.transaction_size, closes_per_transaction, &fees);
 
     if options.dry_run {
+        if let Some(initialization_authority) = dry_run_initialization_authority {
+            let kind = match initialization_authority {
+                InitializationAuthority::Keypair(_) => "keypair",
+                InitializationAuthority::ProtocolVault => "protocol_squads_vault",
+            };
+            println!("initialization_authority_kind={kind}");
+        }
         println!("dry_run: no transactions sent");
         return Ok(());
     }
 
-    let created = if resume_rotation {
-        let upgrade_signer = upgrade_signer.expect("resume requires the upgrade authority signer");
-        let roles = match reused_roles {
-            Some(roles) => roles,
-            None => {
-                // The previous run created the 5 authority smart accounts before
-                // the failed rotation, so they sit at the 5 seeds below the
-                // current index.
-                let base_index = program_config
-                    .smart_account_index
-                    .checked_sub(5)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "cannot resume authority rotation: smart_account_index {} leaves no room for the 5 authority smart accounts",
-                            program_config.smart_account_index
-                        )
-                    })?;
-                let roles = derive_roles(base_index);
-                verify_resume_settings(&rpc, &roles)?;
-                roles
-            }
-        };
-        println!(
-            "resuming: protocol_config already created by the deploy upgrade authority; \
-             running only the authority rotation"
-        );
-        rotate_protocol_authority(
-            &rpc,
-            &signers.payer,
-            &signers.protocol_signer,
-            upgrade_signer,
-            &roles[0],
-        )?;
-        roles
-    } else if let Some(roles) = reused_roles {
+    let created = if let Some(roles) = reused_roles {
         println!("smart_accounts_created=false");
         for role in &roles {
             println!(
@@ -1036,13 +1006,6 @@ pub fn run(options: Options) -> Result<()> {
             funding,
         )?;
 
-        send_protocol_config(
-            &rpc,
-            &signers.payer,
-            &signers.protocol_signer,
-            upgrade_signer,
-            &roles,
-        )?;
         roles
     } else {
         let created = create_all_smart_accounts(&rpc, &signers.payer, &program_config.treasury)
@@ -1059,29 +1022,39 @@ pub fn run(options: Options) -> Result<()> {
             funding,
         )?;
 
-        send_protocol_config(
-            &rpc,
-            &signers.payer,
-            &signers.protocol_signer,
-            upgrade_signer,
-            &created,
-        )?;
         created
     };
+    let initialization_authority = resolve_initialization_authority(
+        deploy_upgrade_authority.ok_or_else(|| {
+            anyhow!("an uninitialized protocol must have a loader-v3 upgrade authority")
+        })?,
+        signers.upgrade_authority.as_ref(),
+        created[0].vault,
+    )?;
+    send_protocol_config(
+        &rpc,
+        &signers.payer,
+        &signers.protocol_signers,
+        initialization_authority,
+        &created,
+    )?;
     let protocol = &created[0];
     let tree = &created[1];
     send_asset_counter(
         &rpc,
         &signers.payer,
-        &signers.protocol_signer,
+        &signers.protocol_signers,
         &protocol.settings,
         protocol.vault,
     )?;
 
+    let tree_signer = signers.protocol_signers.first().ok_or_else(|| {
+        anyhow!("the protocol policy did not provide a signer for tree initialization")
+    })?;
     let tree_account = create_tree(
         &rpc,
         &signers.payer,
-        &signers.protocol_signer,
+        tree_signer,
         tree_id,
         &tree.settings,
         tree.vault,
@@ -1115,9 +1088,11 @@ fn print_help() {
     println!("  --cluster <localnet|devnet|mainnet>   default: localnet");
     println!("  --rpc-url <URL>                       override the cluster default RPC URL");
     println!("  --payer <KEYPAIR_PATH>                funds + outer fee payer (required)");
-    println!("  --protocol-signer <KEYPAIR_PATH>      one of the protocol authorities (required)");
-    println!("  --upgrade-authority <KEYPAIR_PATH>    the program's deploy upgrade authority");
-    println!("                                        (required on upgradeable deployments)");
+    println!(
+        "  --protocol-signer <KEYPAIR_PATH>      protocol authority signer; pass exactly twice"
+    );
+    println!("  --upgrade-authority <KEYPAIR_PATH>    loader-v3 upgrade authority keypair;");
+    println!("                                        omit when it is the protocol Squads vault");
     println!("  --protocol-settings <PUBKEY>          reuse existing authority smart accounts");
     println!("  --tree-settings <PUBKEY>              instead of creating new ones. All five");
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
@@ -1153,14 +1128,15 @@ mod tests {
     }
 
     #[test]
-    fn zeroed_upgrade_authority_means_no_authority() {
-        // solana-test-validator `--bpf-program` deployments write option tag 1
-        // with a zeroed authority; the on-chain gate skips the check for it,
-        // and the call-site mapping mirrors that.
+    fn zeroed_upgrade_authority_is_rejected() {
         let data = program_data_fixture(1, &[0u8; 32]);
-        let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
-            .expect("valid ProgramData");
-        assert_eq!(parsed, None);
+        assert!(read_program_data_upgrade_authority(&Pubkey::new_unique(), &data).is_err());
+    }
+
+    #[test]
+    fn unset_upgrade_authority_is_rejected() {
+        let data = program_data_fixture(0, &[0u8; 32]);
+        assert!(read_program_data_upgrade_authority(&Pubkey::new_unique(), &data).is_err());
     }
 
     #[test]
@@ -1169,12 +1145,47 @@ mod tests {
         let data = program_data_fixture(1, &authority.to_bytes());
         let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &data)
             .expect("valid ProgramData");
-        assert_eq!(parsed, Some(authority));
+        assert_eq!(parsed, authority);
     }
 
     #[test]
     fn malformed_program_data_is_an_error() {
         let parsed = read_program_data_upgrade_authority(&Pubkey::new_unique(), &[0u8; 4]);
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn protocol_vault_is_selected_without_a_keypair() {
+        let vault = Pubkey::new_unique();
+        assert!(matches!(
+            resolve_initialization_authority(vault, None, vault).expect("vault authority"),
+            InitializationAuthority::ProtocolVault
+        ));
+    }
+
+    #[test]
+    fn direct_upgrade_authority_requires_the_matching_keypair() {
+        let authority = Keypair::new();
+        let vault = Pubkey::new_unique();
+        assert!(matches!(
+            resolve_initialization_authority(
+                authority.pubkey(),
+                Some(&authority),
+                vault
+            )
+            .expect("direct authority"),
+            InitializationAuthority::Keypair(keypair) if keypair.pubkey() == authority.pubkey()
+        ));
+        assert!(resolve_initialization_authority(authority.pubkey(), None, vault).is_err());
+        assert!(
+            resolve_initialization_authority(authority.pubkey(), Some(&Keypair::new()), vault)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn protocol_vault_rejects_an_irrelevant_upgrade_keypair() {
+        let vault = Pubkey::new_unique();
+        assert!(resolve_initialization_authority(vault, Some(&Keypair::new()), vault).is_err());
     }
 }

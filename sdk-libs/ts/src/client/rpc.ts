@@ -81,7 +81,9 @@ export interface MerkleProof {
   readonly path: readonly Bytes32[];
   readonly leafIndex: bigint;
   readonly root: Bytes32;
+  /** Completed Solana slot used to order this state-tree root and assess freshness. */
   readonly rootSeq: bigint;
+  /** Actual on-chain cyclic-history position; it is not derivable from `rootSeq`. */
   readonly rootIndex: number;
 }
 
@@ -94,7 +96,9 @@ export interface NonInclusionProof {
   readonly highElement: Bytes32;
   readonly highElementIndex: bigint;
   readonly root: Bytes32;
+  /** On-chain indexed-tree update sequence. */
   readonly rootSeq: bigint;
+  /** On-chain root-history position for `root`. */
   readonly rootIndex: number;
 }
 

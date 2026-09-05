@@ -1,6 +1,6 @@
 //! Real-proof coverage for transactions with multiple ordered interface transfers.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
+use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
 
 use num_bigint::BigUint;
 use solana_address::Address;
@@ -45,6 +45,7 @@ struct SpendNote {
     utxo_hash: [u8; 32],
     nullifier: [u8; 32],
     dummy_nullifier: [u8; 32],
+    root_index: u16,
     roots: ([u8; 32], [u8; 32]),
     nullifier_pk: [u8; 32],
 }
@@ -66,7 +67,8 @@ fn build_spend_note(
     let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let roots = tree_roots(&env.rpc, &env.tree, 1);
+    let (root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
+    let roots = (utxo_root, nullifier_root);
 
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -105,6 +107,7 @@ fn build_spend_note(
         utxo_hash,
         nullifier,
         dummy_nullifier,
+        root_index,
         roots,
         nullifier_pk,
     }
@@ -270,8 +273,8 @@ fn prove_spend(
         .collect();
     let mut ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(note.nullifier, 1),
-            eddsa_input_utxo(note.dummy_nullifier, 1),
+            eddsa_input_utxo(note.nullifier, note.root_index),
+            eddsa_input_utxo(note.dummy_nullifier, note.root_index),
         ],
         interface_transfers,
         inline_outputs(&output_hashes, &view_tags),

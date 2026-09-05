@@ -455,7 +455,7 @@ export async function createProtocolConfigInstruction(
     treeCreationIsPermissionless: boolean;
     foresterAuthority: Address;
     ringCreationAuthority: Address;
-    ringCreationIsPermissionless: boolean;
+    ringActivationIsPermissionless: boolean;
     splInterfaceCreationIsPermissionless: boolean;
     feeAuthority: Address;
   }>,
@@ -466,7 +466,7 @@ export async function createProtocolConfigInstruction(
     .bool(input.treeCreationIsPermissionless, "treeCreationIsPermissionless")
     .bytes(addressBytes(input.foresterAuthority, "foresterAuthority"))
     .bytes(addressBytes(input.ringCreationAuthority, "ringCreationAuthority"))
-    .bool(input.ringCreationIsPermissionless, "ringCreationIsPermissionless")
+    .bool(input.ringActivationIsPermissionless, "ringActivationIsPermissionless")
     .bool(input.splInterfaceCreationIsPermissionless, "splInterfaceCreationIsPermissionless")
     .bytes(addressBytes(input.feeAuthority, "feeAuthority"))
     .finish();
@@ -483,7 +483,7 @@ export type ProtocolConfigUpdate =
   | Readonly<{ field: "foresterAuthority"; value: Address }>
   | Readonly<{ field: "ringCreationAuthority"; value: Address }>
   | Readonly<{ field: "treeCreationPermissionless"; value: boolean }>
-  | Readonly<{ field: "ringCreationPermissionless"; value: boolean }>
+  | Readonly<{ field: "ringActivationPermissionless"; value: boolean }>
   | Readonly<{ field: "splInterfaceCreationPermissionless"; value: boolean }>
   | Readonly<{ field: "feeAuthority"; value: Address }>;
 
@@ -509,7 +509,7 @@ export async function updateProtocolConfigInstruction(
     case "treeCreationPermissionless":
       writer.u8(4, "update.field").bool(input.update.value, "update.value");
       break;
-    case "ringCreationPermissionless":
+    case "ringActivationPermissionless":
       writer.u8(5, "update.field").bool(input.update.value, "update.value");
       break;
     case "splInterfaceCreationPermissionless":
@@ -538,6 +538,41 @@ export async function pauseTreeInstruction(
       meta(input.authority, true, false),
       meta(await protocolConfigAddress(), false, true),
       meta(input.tree, false, true),
+    ],
+  );
+}
+
+/**
+ * Mirrors Rust `SetRingActivation::instruction`. Governance admits a ring, or
+ * contains one it no longer trusts, and owns the authority-transact rail for
+ * the ring's whole life. The authority must be the config's ring creation
+ * authority. This never touches the ring's own `paused` flag.
+ *
+ * Ring creation is permissionless and lands inert on a permissioned pool, so
+ * this is the second of the two transactions that bring a ring up. The pool is
+ * called directly, which is what keeps a governance signature out of the
+ * candidate ring program's call chain.
+ */
+export async function setRingActivationInstruction(
+  input: Readonly<{
+    authority: SignerAccount;
+    ringConfig: Address;
+    activated: boolean;
+    ringAuthorityTransactIsEnabled: boolean;
+  }>,
+): Promise<Instruction> {
+  return instruction(
+    tagged(
+      InstructionTag.setRingActivation,
+      new Writer()
+        .bool(input.activated, "activated")
+        .bool(input.ringAuthorityTransactIsEnabled, "ringAuthorityTransactIsEnabled")
+        .finish(),
+    ),
+    [
+      meta(input.authority, true, false),
+      meta(await protocolConfigAddress(), false, false),
+      meta(input.ringConfig, false, true),
     ],
   );
 }

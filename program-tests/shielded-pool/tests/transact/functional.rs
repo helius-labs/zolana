@@ -13,7 +13,7 @@
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
 use shielded_pool_tests::support::transact::{
-    proof_env, tree_progress, tree_roots, write_ring_config_account, Pool,
+    current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool,
 };
 
 use num_bigint::BigUint;
@@ -97,7 +97,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -141,8 +141,8 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         Vec::new(),
         inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
@@ -225,6 +225,7 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
         program_id: Address::new_from_array(ring_program.to_bytes()),
         ring_authority_transact_is_enabled: u8::from(enabled),
         paused: 0,
+        activated: 1,
         bump: 0,
     };
     write_ring_config_account(
@@ -281,7 +282,12 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .expect("load ring test program");
     let ring_authority = env.authority.insecure_clone();
     env.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
 
     let payer = env.rpc.payer.insecure_clone();
@@ -311,7 +317,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .expect("ring zero deposit");
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -368,7 +374,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, 1))
+            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
             .collect(),
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
@@ -513,7 +519,7 @@ fn transact_sends_valid_proof() {
         .map(|output| output.utxo_hash)
         .collect();
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
-    let (utxo_root_before, _) = tree_roots(&env.rpc, &tree, 0);
+    let (_, utxo_root_before, _) = current_tree_roots(&env.rpc, &tree);
     let (fees, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
 
     // Accounts: `[payer (signer), tree (writable)]`. Index 0 is the fee payer
@@ -533,8 +539,7 @@ fn transact_sends_valid_proof() {
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect("transact with a valid proof");
 
-    // Tree state: three outputs appended (advancing the utxo root into history
-    // slot 3) and both input nullifiers queued.
+    // Tree state: three outputs appended and both input nullifiers queued.
     let (utxo_next_after, nullifier_next_after) = tree_progress(&env.rpc, &tree);
     assert_eq!(
         utxo_next_after,
@@ -546,10 +551,7 @@ fn transact_sends_valid_proof() {
         nullifier_next_before + 2,
         "two nullifiers queued"
     );
-    let mut data = env.rpc.account_data(&tree).expect("tree account");
-    let account = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
-    // The deposit consumed root-history slot 1, so the transact's root is slot 2.
-    let utxo_root_after = account.get_utxo_tree_root(2).expect("post-transact root");
+    let (_, utxo_root_after, _) = current_tree_roots(&env.rpc, &tree);
     assert_ne!(utxo_root_after, utxo_root_before, "utxo root advanced");
 
     // Event: one Transact event carrying exactly the instruction's nullifiers

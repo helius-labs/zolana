@@ -1,37 +1,32 @@
-//! Which root-history slot the chain holds a given UTXO root in.
+//! Which root-history entry the chain currently holds a given UTXO root in.
 //!
-//! A client quotes this index with its proof and the program loads the root it
-//! verifies against from that slot, so an index that does not describe the
-//! proof's root fails verification while looking like a proof problem. photon
-//! used to derive it by counting indexed transactions, which only tracks the
-//! chain's `root_history_cursor` for as long as the two happen to advance in
-//! step. They drifted, and every transfer failed.
+//! A client quotes an index with its proof and the program loads the root it
+//! verifies against from that entry. State-root history advances once per slot
+//! that changes the tree, not once per Solana slot, so the completed block slot
+//! cannot be converted into a history index. This cache resolves the exact root
+//! against the authoritative on-chain ring and returns the entry that holds it.
 //!
-//! The tree account is authoritative and holds the whole 200-slot ring, so the
-//! answer is a lookup rather than a count. The account is ~1.2 MB, far too
-//! large to fetch per request, and one fetch brings back every root in the
-//! window -- so it is cached, refreshed on a miss, and that on-miss fetch is
-//! rate limited so a root the chain genuinely does not have cannot turn into a
-//! fetch per request.
+//! The tree account is authoritative and holds the whole root-history ring. It
+//! is too large to fetch per request, and one fetch brings back every root in
+//! the window, so it is cached, refreshed on a mismatch, and that on-demand
+//! fetch is rate limited so a root the chain genuinely does not have cannot
+//! turn into a fetch per request.
 //!
 //! Held per process. Only the API serves proofs, and a cache that belongs to
 //! the process reading it needs no coordination with the indexer.
 //!
-//! Refreshed ahead of the request, not on it. A miss is not the rare case it
-//! reads as: every transfer appends a root, so the next transfer's proof asks
-//! for a root the ring does not have yet, and the fetch landed on the critical
-//! path of essentially every transfer -- 721ms of a 2971ms devnet transfer, with
-//! the task at 0.06% CPU and the database at 0.26 ReadIOPS, because the time was
-//! spent waiting on the upstream RPC rather than working.
+//! Refreshed ahead of the request, not on it. A mismatch is normal while Photon
+//! has committed a newer slot than the last account refresh, and fetching the
+//! account on that critical path adds an upstream RPC round trip to the proof
+//! request.
 //!
-//! [`RootIndexCache::refresh_loop`] watches the indexed root's sequence number in
-//! Postgres, which is cheap, and fetches the 1.2 MB account only when that number
-//! moves. The on-miss fetch stays as the fallback: a request that arrives between
-//! a tree update and the next refresh must still be answerable, and only the
-//! common case is being moved, not the contract. The refresher's own fetches
-//! therefore do not count against the on-miss floor: they fire whenever the tree
-//! moves, so letting them close that window would starve the fallback on exactly
-//! the busy tree that needs it.
+//! [`RootIndexCache::refresh_loop`] watches the indexed root's completed block
+//! slot in Postgres, which is cheap, and fetches the account only when that slot
+//! moves. Block ingestion is atomic, so only the final root for a slot becomes
+//! visible. The on-demand fetch stays as the fallback for a request that arrives
+//! between a tree update and the next refresh. Refresher fetches therefore do
+//! not count against the on-demand floor: letting them close that window would
+//! starve the fallback on exactly the busy tree that needs it.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -48,7 +43,7 @@ use crate::rpc::RpcClient;
 
 /// Floor between account fetches for one tree. A miss is normal -- photon
 /// indexes a new root slightly before the next refresh -- but repeated misses
-/// for a root that is not on chain must not become a 1.2 MB fetch per request.
+/// for a root that is not on chain must not become an account fetch per request.
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
 /// How often the refresher asks Postgres whether the tree moved. This is a
@@ -61,7 +56,7 @@ struct TreeRoots {
     indices: HashMap<[u8; 32], u16>,
     /// When the on-demand path last fetched this account, and nothing else. The
     /// floor is there to stop a caller turning a root the chain does not have
-    /// into a fetch per request; the refresher is already gated on the sequence
+    /// into a fetch per request; the refresher is already gated on the root slot
     /// moving, so its fetches must not stamp this.
     fetched_on_miss: Option<Instant>,
 }
@@ -104,8 +99,8 @@ impl RootIndexCache {
         cache
     }
 
-    /// Root-history slot holding `root`, refreshing from the tree account when
-    /// the cached ring does not have it.
+    /// Return the root-history entry holding `root`, refreshing from the tree
+    /// account when the cached ring does not contain it.
     pub async fn index_for(
         &self,
         rpc_client: &RpcClient,
@@ -148,34 +143,34 @@ impl RootIndexCache {
     /// Keep every known state tree's ring current, so `index_for` answers from
     /// memory.
     ///
-    /// Change detection is the point: refreshing on a timer would fetch 1.2 MB
-    /// per tree per tick whether or not anything moved, and refreshing on a
-    /// request puts that fetch in front of the caller. The indexed root's
-    /// sequence number moves exactly when the tree does, and reading it is a
-    /// primary-key lookup.
+    /// Change detection is the point: refreshing on a timer would fetch every
+    /// tree account per tick whether or not anything moved, and refreshing on a
+    /// request puts that fetch in front of the caller. The indexed root's slot
+    /// moves whenever a later slot's final root is committed, and reading it is
+    /// a primary-key lookup.
     pub async fn refresh_loop(&self, db: &DatabaseConnection, rpc_client: &RpcClient) {
         let mut seen: HashMap<Pubkey, Option<i64>> = HashMap::new();
         loop {
             match known_state_trees(db).await {
                 Ok(trees) => {
                     for tree in trees {
-                        let seq = match root_sequence(db, tree).await {
-                            Ok(seq) => seq,
+                        let slot = match root_slot(db, tree).await {
+                            Ok(slot) => slot,
                             Err(error) => {
                                 log::warn!(
-                                    "root index refresher: reading {tree} sequence: {error}"
+                                    "root index refresher: reading {tree} root slot: {error}"
                                 );
                                 continue;
                             }
                         };
                         // First sight of a tree refreshes it; after that only a
-                        // moved sequence does.
-                        if seen.get(&tree).is_some_and(|last| *last == seq) {
+                        // later completed root slot does.
+                        if seen.get(&tree).is_some_and(|last| *last == slot) {
                             continue;
                         }
                         match self.refresh(rpc_client, tree, Fetch::Refresher).await {
                             Ok(()) => {
-                                seen.insert(tree, seq);
+                                seen.insert(tree, slot);
                             }
                             // Leave `seen` alone so the next tick tries again.
                             Err(error) => {
@@ -248,12 +243,10 @@ async fn known_state_trees(db: &DatabaseConnection) -> Result<Vec<Pubkey>, Photo
         .collect()
 }
 
-/// Sequence number the indexer stamped on the tree's root node, which advances
-/// exactly when the tree does.
-async fn root_sequence(
-    db: &DatabaseConnection,
-    tree: Pubkey,
-) -> Result<Option<i64>, PhotonApiError> {
+/// Completed block slot stamped on the indexed tree's root node. Block
+/// ingestion commits atomically, so an observed value describes that slot's
+/// final root rather than an intermediate transaction root.
+async fn root_slot(db: &DatabaseConnection, tree: Pubkey) -> Result<Option<i64>, PhotonApiError> {
     let root = state_trees::Entity::find()
         .filter(
             state_trees::Column::Tree
@@ -273,14 +266,17 @@ mod tests {
 
     fn cache_with(
         tree: Pubkey,
-        entries: &[([u8; 32], u16)],
+        entries: &[(u16, [u8; 32])],
         fetched_on_miss: Option<Instant>,
     ) -> RootIndexCache {
         let cache = RootIndexCache::new();
         cache.trees.write().unwrap().insert(
             tree,
             TreeRoots {
-                indices: entries.iter().copied().collect(),
+                indices: entries
+                    .iter()
+                    .map(|(index, root)| (*root, *index))
+                    .collect(),
                 fetched_on_miss,
             },
         );
@@ -288,15 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn resolves_a_root_anywhere_in_the_ring() {
-        // Not just the newest root: photon serves proofs against the root it has
-        // indexed, which trails the chain by however far it is behind.
+    fn lookup_returns_the_authoritative_history_index() {
         let tree = Pubkey::new_from_array([7; 32]);
-        let cache = cache_with(tree, &[([1; 32], 155), ([2; 32], 41)], Some(Instant::now()));
+        let cache = cache_with(tree, &[(155, [1; 32]), (41, [2; 32])], Some(Instant::now()));
 
-        assert_eq!(cache.lookup(tree, &[155; 32]), None);
         assert_eq!(cache.lookup(tree, &[1; 32]), Some(155));
         assert_eq!(cache.lookup(tree, &[2; 32]), Some(41));
+        assert_eq!(cache.lookup(tree, &[3; 32]), None);
     }
 
     /// The point of refreshing ahead: a request for a root the refresher has
@@ -307,9 +301,20 @@ mod tests {
     #[tokio::test]
     async fn a_root_the_refresher_brought_in_is_answered_without_the_rpc() {
         let tree = Pubkey::new_from_array([7; 32]);
-        let cache = cache_with(tree, &[([9; 32], 12)], Some(Instant::now()));
+        let cache = cache_with(tree, &[(12, [9; 32])], Some(Instant::now()));
 
         // An unreachable endpoint: reaching for it at all is the failure.
+        let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
+        assert_eq!(cache.index_for(&rpc, tree, [9; 32]).await.unwrap(), 12);
+    }
+
+    #[tokio::test]
+    async fn root_index_is_not_derived_from_the_completed_slot() {
+        let tree = Pubkey::new_from_array([7; 32]);
+        let cache = cache_with(tree, &[(12, [9; 32])], Some(Instant::now()));
+
+        // The completed slot may be any value; only the account can tell us
+        // that this root is stored at index 12.
         let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
         assert_eq!(cache.index_for(&rpc, tree, [9; 32]).await.unwrap(), 12);
     }
@@ -321,7 +326,7 @@ mod tests {
         let tree = Pubkey::new_from_array([7; 32]);
         let cache = cache_with(
             tree,
-            &[([9; 32], 12)],
+            &[(12, [9; 32])],
             Instant::now().checked_sub(MIN_REFRESH_INTERVAL * 2),
         );
 
@@ -336,11 +341,11 @@ mod tests {
     }
 
     /// The regression this pairs with: the refresher fetches whenever the tree
-    /// moves, so if its fetches stamped the on-miss floor, every append would
-    /// hold that window shut and the fallback would never fire. A miss right
-    /// after a refresher pass -- a root indexed between the pass and the request
-    /// -- then failed as StaleRoot instead of being fetched, which is a hard
-    /// error on a chain that is merely busy.
+    /// moves, so if its fetches stamped the on-miss floor, each newly indexed
+    /// updating slot would hold that window shut and the fallback would never
+    /// fire. A miss right after a refresher pass -- a root indexed between the
+    /// pass and the request -- then failed as StaleRoot instead of being fetched,
+    /// which is a hard error on a chain that is merely busy.
     ///
     /// Driven through `store`, so it is the code both fetch paths share that is
     /// under test rather than a hand-built cache.
@@ -369,10 +374,10 @@ mod tests {
 
     #[test]
     fn a_fresh_miss_does_not_refetch() {
-        // Rate limit: a root the chain does not have must not cost a 1.2 MB
-        // account fetch on every request that asks for it.
+        // Rate limit: a root the chain does not have must not cost an account
+        // fetch on every request that asks for it.
         let tree = Pubkey::new_from_array([7; 32]);
-        let cache = cache_with(tree, &[([1; 32], 155)], Some(Instant::now()));
+        let cache = cache_with(tree, &[(155, [1; 32])], Some(Instant::now()));
 
         assert!(!cache.due_for_refresh(tree));
     }
@@ -382,7 +387,7 @@ mod tests {
         let tree = Pubkey::new_from_array([7; 32]);
         let cache = cache_with(
             tree,
-            &[([1; 32], 155)],
+            &[(155, [1; 32])],
             Instant::now().checked_sub(MIN_REFRESH_INTERVAL * 2),
         );
 

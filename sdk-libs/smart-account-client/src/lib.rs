@@ -8,6 +8,8 @@
 //! `forester_authority` is a vault, and `execute_sync_ix` has the smart-account
 //! program CPI into the shielded pool with that vault as the signer.
 
+#[cfg(test)]
+use borsh::BorshDeserialize;
 use borsh::BorshSerialize;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
@@ -71,6 +73,7 @@ pub fn smart_account_pda(settings_key: &Pubkey, account_index: u8) -> (Pubkey, u
 // Borsh types mirroring the on-chain program
 // ---------------------------------------------------------------------------
 
+#[cfg_attr(test, derive(BorshDeserialize))]
 #[derive(BorshSerialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Permissions {
     pub mask: u8,
@@ -82,12 +85,14 @@ impl Permissions {
     }
 }
 
+#[cfg_attr(test, derive(BorshDeserialize))]
 #[derive(BorshSerialize, Clone, Debug, PartialEq, Eq)]
 pub struct SmartAccountSigner {
     pub key: Pubkey,
     pub permissions: Permissions,
 }
 
+#[cfg_attr(test, derive(BorshDeserialize))]
 #[derive(BorshSerialize)]
 struct CreateSmartAccountArgs {
     settings_authority: Option<Pubkey>,
@@ -98,6 +103,7 @@ struct CreateSmartAccountArgs {
     memo: Option<String>,
 }
 
+#[cfg_attr(test, derive(BorshDeserialize))]
 #[derive(BorshSerialize)]
 struct SyncTransactionArgs {
     account_index: u8,
@@ -105,6 +111,7 @@ struct SyncTransactionArgs {
     payload: SyncPayload,
 }
 
+#[cfg_attr(test, derive(BorshDeserialize))]
 #[derive(BorshSerialize)]
 enum SyncPayload {
     Transaction(Vec<u8>),
@@ -156,6 +163,27 @@ pub fn create_smart_account_ix(
         ],
         data,
     }
+}
+
+/// Build `createSmartAccount` using Zolana's threshold policy for `role`.
+pub fn create_role_smart_account_ix(
+    creator: &Pubkey,
+    treasury: &Pubkey,
+    settings_seed: u128,
+    settings_authority: Option<Pubkey>,
+    signers: &[SmartAccountSigner],
+    role: roles::Role,
+    time_lock: u32,
+) -> Instruction {
+    create_smart_account_ix(
+        creator,
+        treasury,
+        settings_seed,
+        settings_authority,
+        signers,
+        role.threshold(),
+        time_lock,
+    )
 }
 
 /// Build the `executeTransactionSyncV2` instruction.
@@ -288,4 +316,76 @@ fn compile_instructions_to_payload(
     }
 
     (payload, account_metas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn role_creation_instructions_encode_the_required_thresholds() {
+        let creator = Pubkey::new_unique();
+        let treasury = Pubkey::new_unique();
+        let signers = [
+            SmartAccountSigner {
+                key: Pubkey::new_unique(),
+                permissions: Permissions::all(),
+            },
+            SmartAccountSigner {
+                key: Pubkey::new_unique(),
+                permissions: Permissions::all(),
+            },
+        ];
+
+        for role in roles::Role::ALL {
+            let settings_authority =
+                (role != roles::Role::Protocol).then_some(Pubkey::new_unique());
+            let ix = create_role_smart_account_ix(
+                &creator,
+                &treasury,
+                role.seed(0),
+                settings_authority,
+                &signers,
+                role,
+                0,
+            );
+            let serialized_args = ix
+                .data
+                .get(CREATE_SMART_ACCOUNT_DISCRIMINATOR.len()..)
+                .expect("create instruction contains serialized arguments");
+            let args = CreateSmartAccountArgs::try_from_slice(serialized_args)
+                .expect("create instruction arguments decode");
+            assert_eq!(
+                args.threshold,
+                role.threshold(),
+                "{} threshold",
+                role.label()
+            );
+        }
+    }
+
+    #[test]
+    fn sync_instruction_declares_and_places_two_signers_first() {
+        let settings = Pubkey::new_unique();
+        let signer_keys = [Pubkey::new_unique(), Pubkey::new_unique()];
+        let inner = Instruction {
+            program_id: Pubkey::new_unique(),
+            accounts: vec![AccountMeta::new_readonly(Pubkey::new_unique(), false)],
+            data: vec![1, 2, 3],
+        };
+
+        let ix = execute_sync_ix(&settings, 0, &signer_keys, &[inner]);
+        let serialized_args = ix
+            .data
+            .get(EXECUTE_TX_SYNC_V2_DISCRIMINATOR.len()..)
+            .expect("sync instruction contains serialized arguments");
+        let args = SyncTransactionArgs::try_from_slice(serialized_args)
+            .expect("sync instruction arguments decode");
+        assert_eq!(args.num_signers, 2);
+        let expected_signer_accounts = signer_keys.map(|key| AccountMeta::new_readonly(key, true));
+        assert_eq!(
+            ix.accounts.get(2..4),
+            Some(expected_signer_accounts.as_slice())
+        );
+    }
 }

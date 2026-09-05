@@ -95,7 +95,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_stale_nullifier_root_index`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced nullifier-root slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
+  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced root-history slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
   - Severity: Critical (spending against a pre-nullification root)
@@ -260,7 +260,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/state_props.rs` `state_sizes_and_discriminators_are_stable`
   - Kind: state
   - Affects: CreateProtocolConfig, UpdateProtocolConfig, CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner, CreateAssetCounter, CreateSplInterface, CreateTree
-  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 68 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
+  - Statement: `ProtocolConfig::SIZE` is exactly 132 with discriminator 3, `RingConfig::SIZE` exactly 69 with discriminator 4, `SplAssetCounter::SIZE` exactly 16 with discriminator 6, `SplAssetRegistry::SIZE` exactly 48 with discriminator 5, and the tree discriminator is exactly 1; each created account's `data_len` equals exactly its struct's SIZE.
   - Location: `program-libs/interface/src/state/protocol_config.rs:66-67`, `ring_config.rs:37-38`, `spl_asset_counter.rs:58-59`, `spl_asset_registry.rs:64-65`, `discriminator.rs:1-5`
   - Severity: Medium (compile-time asserts exist; runtime pin catches layout drift)
   - Suggested test: positive (const asserts exist; add explicit pin test mirroring `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -271,7 +271,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: the unsigned and paused-config rejection tests in `deposit/rejection.rs`, `transact/guard.rs`, and `merge/contract.rs`
   - Kind: precondition
   - Affects: RingTransact, RingAuthorityTransact, RingDeposit, RingMergeTransact
-  - Statement: each operational ring instruction requires the `ring_config` account to be a signer, validates owner + size + discriminator, and requires `paused == 0` (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, and a paused ring cannot mutate protocol state. Administrative config update and rotation remain available while paused.
+  - Statement: each operational ring instruction requires the `ring_config` account to be a signer, validates owner + size + discriminator, and requires `activated == 1` and `paused == 0` (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, and neither an inactive nor a paused ring can mutate protocol state. The activation check precedes the pause check. Administrative config update and rotation remain available while paused or inactive.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:140-163` (`RingTransactAccounts::validate_and_parse`), `deposit/account.rs:77-78`, `merge_ring/account.rs:22-39`, `ring_config/loader.rs:14-20`
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / `ShieldedPoolError::RingPaused = 7047` / signer errors
   - Severity: Critical

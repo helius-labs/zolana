@@ -55,6 +55,19 @@ impl Role {
         }
     }
 
+    /// The execution threshold for this authority role.
+    ///
+    /// The autonomous protocol account is a 2-of-5 multisig. The controlled
+    /// tree, ring, merge, and forester accounts deliberately remain at one:
+    /// their settings authority is the protocol vault, while their members
+    /// execute the role's routine operations directly.
+    pub const fn threshold(self) -> u16 {
+        match self {
+            Role::Protocol => 2,
+            Role::Tree | Role::Ring | Role::Merge | Role::Forester => 1,
+        }
+    }
+
     /// The role's seed offset within the batch (1-based; see the module table).
     pub fn seed_offset(self) -> u128 {
         match self {
@@ -105,5 +118,13 @@ mod tests {
         assert_eq!(Role::Forester.seed(40), 45);
         assert_eq!(Role::Protocol.settings_pda(0), settings_pda(1));
         assert_eq!(Role::Forester.settings_pda(40), settings_pda(45));
+    }
+
+    #[test]
+    fn only_the_protocol_role_requires_two_signers() {
+        assert_eq!(Role::Protocol.threshold(), 2);
+        for role in [Role::Tree, Role::Ring, Role::Merge, Role::Forester] {
+            assert_eq!(role.threshold(), 1, "{} threshold", role.label());
+        }
     }
 }

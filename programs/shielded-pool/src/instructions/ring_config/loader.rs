@@ -21,11 +21,19 @@ pub fn load_ring_config(account: &AccountView) -> Result<Ref<'_, RingConfig>, Pr
 }
 
 /// Load a signed ring config for an operational ring instruction and reject it
-/// when the ring owner has paused the ring. Callers must perform the signer
-/// check before invoking this loader.
+/// when governance has not activated the ring or the ring owner has paused it.
+/// Callers must perform the signer check before invoking this loader.
+///
+/// This is the single gate for all four operational rails (`ring_deposit`,
+/// `ring_transact`, `ring_authority_transact`, `ring_merge_transact`).
+/// Activation is checked first so an inert config reports the governance reason
+/// rather than being masked by a stale pause.
 #[inline(always)]
 pub fn load_active_ring_config(account: &AccountView) -> Result<Ref<'_, RingConfig>, ProgramError> {
     let config = load_ring_config(account)?;
+    if !config.is_activated() {
+        return Err(ShieldedPoolError::RingNotActivated.into());
+    }
     if config.is_paused() {
         return Err(ShieldedPoolError::RingPaused.into());
     }

@@ -387,7 +387,12 @@ fn paused_tree_rejects_ring_deposit() {
         .expect("load ring test program");
     let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree;
@@ -418,10 +423,15 @@ fn paused_ring_rejects_ring_deposit_and_unpause_restores_it() {
     let ring_authority = pool.authority.insecure_clone();
     let ring_config = pool
         .rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
     pool.rpc
-        .update_ring_config(&ring_authority, &ring_config, true, true)
+        .update_ring_config(&ring_authority, &ring_config, true)
         .expect("pause ring config");
 
     let depositor = pool.funded_signer(2_000_000_000);
@@ -447,7 +457,7 @@ fn paused_ring_rejects_ring_deposit_and_unpause_restores_it() {
         .assert_rolled_back_except(&[pool.rpc.payer.pubkey()]);
 
     pool.rpc
-        .update_ring_config(&ring_authority, &ring_config, true, false)
+        .update_ring_config(&ring_authority, &ring_config, false)
         .expect("unpause ring config");
     pool.rpc
         .ring_deposit(&tree, &depositor, &data)
@@ -776,4 +786,57 @@ fn mollusk_deposit_rejects_unfunded_depositor_exactly() {
         &accounts,
         ProgramError::Custom(SystemError::ResultWithNegativeLamports as u32),
     );
+}
+
+/// INV-SET-RING-ACT-06: governance can stop a ring that is already live, and
+/// re-admit it. Deactivation strands the ring's UTXOs, which move only through
+/// ring instructions -- the containment power the spec documents.
+#[test]
+fn governance_deactivation_stops_a_live_ring_and_reactivation_restores_it() {
+    let mut pool = Pool::initialized();
+    pool.rpc
+        .load_ring_test_program()
+        .expect("load ring test program");
+    let governance = pool.authority.insecure_clone();
+    let ring_config = pool
+        .rpc
+        .create_activated_ring_config(&governance, &governance.pubkey(), &governance, true)
+        .expect("create and admit ring config");
+
+    let depositor = pool.funded_signer(3_000_000_000);
+    let tree = pool.tree;
+    let data = pool
+        .rpc
+        .ring_sol_shield_data(1_000_000, [7u8; 32], [7u8; 32]);
+    pool.rpc
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("an admitted ring deposits");
+
+    pool.rpc
+        .set_ring_activation(&governance, &ring_config, false, true)
+        .expect("governance deactivates the live ring");
+    let tree_before = pool.rpc.account_data(&tree).expect("tree data");
+    let data = pool
+        .rpc
+        .ring_sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
+    let err = pool
+        .rpc
+        .ring_deposit(&tree, &depositor, &data)
+        .expect_err("a deactivated ring must authorize nothing");
+    Rejection::pool(ShieldedPoolError::RingNotActivated).assert_litesvm(err);
+    assert_eq!(
+        pool.rpc.account_data(&tree).expect("tree data"),
+        tree_before,
+        "a rejected ring deposit must not mutate the tree"
+    );
+
+    pool.rpc
+        .set_ring_activation(&governance, &ring_config, true, true)
+        .expect("governance re-admits the ring");
+    let data = pool
+        .rpc
+        .ring_sol_shield_data(1_000_000, [9u8; 32], [9u8; 32]);
+    pool.rpc
+        .ring_deposit(&tree, &depositor, &data)
+        .expect("re-admitted ring deposits again");
 }

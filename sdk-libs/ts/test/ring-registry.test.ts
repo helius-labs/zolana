@@ -20,9 +20,14 @@ const AUTHORITY = address("54XGz8UVJaGpwba1nxsNC4AfVZ6Uiue6J9cymVSv2Qpu");
 const RING_PROGRAM = address("8QqsEqz1ff1YYt6hH7VNq6VVzq5TGWQ66bkdtrALbhn6");
 const CONFIG_PDA = address("CFXxaVUTKtHr4yrL7zxWbeP9E2dcB15a7cwuVG1hGHP");
 
-/** The account exactly as the program lays it out: 1 + 32 + 32 + 1 + 1 + 1. */
+/** The account exactly as the program lays it out: 1 + 32 + 32 + 1 + 1 + 1 + 1. */
 function ringConfigAccount(
-  options: { enabled?: boolean; paused?: boolean; bump?: number } = {},
+  options: {
+    enabled?: boolean;
+    paused?: boolean;
+    activated?: boolean;
+    bump?: number;
+  } = {},
 ): Uint8Array {
   return Uint8Array.from([
     StateDiscriminator.ringConfig,
@@ -30,17 +35,18 @@ function ringConfigAccount(
     ...addressEncoder.encode(RING_PROGRAM),
     options.enabled ? 1 : 0,
     options.paused ? 1 : 0,
+    (options.activated ?? true) ? 1 : 0,
     options.bump ?? 255,
   ]);
 }
 
 describe("ring config account", () => {
   it("reads the account the program actually writes", () => {
-    // 68 bytes, with `paused` between the enable flag and the bump. An earlier
-    // decoder expected 67 and read the bump out of the paused byte, so it threw
-    // on every real account -- 26 of them exist on devnet, all 68 bytes.
+    // 69 bytes: the three flags run enabled, paused, activated, then the bump.
+    // An earlier decoder was one byte short and read the bump out of the
+    // adjacent flag, so it threw on every real account.
     const bytes = ringConfigAccount({ enabled: true, paused: false, bump: 255 });
-    expect(bytes).toHaveLength(68);
+    expect(bytes).toHaveLength(69);
 
     const config = decodeRingConfig(bytes);
     expect(config).toEqual({
@@ -48,16 +54,23 @@ describe("ring config account", () => {
       programId: RING_PROGRAM,
       ringAuthorityTransactIsEnabled: true,
       paused: false,
+      activated: true,
       bump: 255,
     });
   });
 
-  it("does not confuse the paused flag with the bump", () => {
-    // The two are adjacent, so reading one for the other decodes without error
-    // and reports the wrong thing.
+  it("does not confuse the trailing flags with the bump", () => {
+    // The flags and the bump are adjacent, so reading one for another decodes
+    // without error and reports the wrong thing.
     const paused = decodeRingConfig(ringConfigAccount({ paused: true, bump: 254 }));
     expect(paused.paused).toBe(true);
+    expect(paused.activated).toBe(true);
     expect(paused.bump).toBe(254);
+
+    const inert = decodeRingConfig(ringConfigAccount({ activated: false, bump: 253 }));
+    expect(inert.activated).toBe(false);
+    expect(inert.paused).toBe(false);
+    expect(inert.bump).toBe(253);
   });
 });
 
@@ -95,7 +108,7 @@ describe("listRegisteredRings", () => {
     // Filtered at the RPC: the pool also holds trees and asset registries, and
     // an unfiltered scan would download all of them to find a handful of rings.
     expect(config).toMatchObject({
-      filters: [{ dataSize: 68n }, { memcmp: { offset: 0n } }],
+      filters: [{ dataSize: 69n }, { memcmp: { offset: 0n } }],
     });
   });
 
@@ -113,8 +126,10 @@ describe("listRegisteredRings", () => {
         authority: AUTHORITY,
         ringAuthorityTransactIsEnabled: true,
         // A paused ring is still listed: a wallet holding balance there needs
-        // to see where it is, and a depositor filters deliberately.
+        // to see where it is, and a depositor filters deliberately. The same
+        // goes for an unactivated one.
         paused: true,
+        activated: true,
       },
     ]);
   });
@@ -134,7 +149,7 @@ describe("listRegisteredRings", () => {
       details: {
         method: "getProgramAccounts",
         path: "$.result[0].account.data",
-        expected: 68,
+        expected: 69,
         actual: 3,
       },
     });

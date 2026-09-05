@@ -29,8 +29,8 @@ pub fn process_update_protocol_config(accounts: &mut [AccountView], data: &[u8])
         UpdateProtocolConfigData::TreeCreationPermissionless(b) => {
             current.tree_creation_is_permissionless = u8::from(b)
         }
-        UpdateProtocolConfigData::RingCreationPermissionless(b) => {
-            current.ring_creation_is_permissionless = u8::from(b)
+        UpdateProtocolConfigData::RingActivationPermissionless(b) => {
+            current.ring_activation_is_permissionless = u8::from(b)
         }
         UpdateProtocolConfigData::SplInterfaceCreationPermissionless(b) => {
             current.spl_interface_creation_is_permissionless = u8::from(b)

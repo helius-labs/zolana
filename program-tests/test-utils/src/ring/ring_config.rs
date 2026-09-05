@@ -1,5 +1,6 @@
-//! `create_ring_config` / `update_ring_config` / `update_ring_config_owner` admin
-//! helpers, the Harness operations, and the full-struct state assert.
+//! `create_ring_config` / `update_ring_config` / `update_ring_config_owner` /
+//! `set_ring_activation` admin helpers, the Harness operations, and the
+//! full-struct state assert.
 
 use anyhow::{anyhow, Result};
 use solana_address::Address;
@@ -10,16 +11,18 @@ use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner},
+    instruction::{CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner},
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
     SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
+use zolana_smart_account_client::execute_sync_ix;
 
 use super::RingHarness;
 use crate::{
     localnet::send_transaction,
+    smart_account::standard_accounts,
     test_validator_asserts::{
         assert_account_unchanged, assert_optional_account_unchanged, fetch_account,
         fetch_optional_account,
@@ -33,20 +36,52 @@ struct RingConfigState {
     program_id: Pubkey,
     ring_authority_transact_is_enabled: bool,
     paused: bool,
+    activated: bool,
     bump: u8,
 }
 
 impl RingHarness {
-    /// Create an enabled ring config under a fresh authority keypair, tracking that
-    /// keypair as `self.ring_authority` for the later update/rotate operations.
+    /// Create a ring config under a fresh authority keypair and have governance
+    /// enable the authority-transact rail, tracking the keypair as
+    /// `self.ring_authority` for the later update/rotate operations. The fixture
+    /// runs with `ring_activation_is_permissionless`, so creation already lands
+    /// activated; only the rail needs governance.
     pub fn create_enabled_ring_config(&mut self) -> Result<Signature> {
         let authority = Keypair::new();
-        let signature = self.create_ring_config(
-            &Address::new_from_array(authority.pubkey().to_bytes()),
-            true,
-        )?;
+        let signature =
+            self.create_ring_config(&Address::new_from_array(authority.pubkey().to_bytes()))?;
         self.ring_authority = Some(authority);
+        self.set_ring_activation(true, true)?;
         Ok(signature)
+    }
+
+    /// Governance sets the two flags it owns, signing through the ring role's
+    /// smart account (`protocol_config.ring_creation_authority` is its vault).
+    pub fn set_ring_activation(
+        &mut self,
+        activated: bool,
+        ring_authority_transact_is_enabled: bool,
+    ) -> Result<()> {
+        let ring_config = self.ring_config.ok_or_else(|| anyhow!("no ring config"))?;
+        // The role PDAs are derived, not stored, exactly as the bootstrap does.
+        let accounts = standard_accounts();
+        let ix = SetRingActivation {
+            authority: accounts.ring_vault,
+            ring_config,
+            activated,
+            ring_authority_transact_is_enabled,
+        }
+        .instruction();
+        let sync = execute_sync_ix(&accounts.ring_settings, 0, &[self.ring_key.pubkey()], &[ix]);
+        let payer = self.payer.insecure_clone();
+        let ring_key = self.ring_key.insecure_clone();
+        send_transaction(
+            &mut self.rpc,
+            &[sync],
+            &payer.pubkey(),
+            &[&payer, &ring_key],
+        )?;
+        Ok(())
     }
 
     /// Read the ring config account and decode it into a full `RingConfigState`.
@@ -69,11 +104,13 @@ impl RingHarness {
             program_id: Pubkey::new_from_array(cfg.program_id.to_bytes()),
             ring_authority_transact_is_enabled: cfg.enabled(),
             paused: cfg.is_paused(),
+            activated: cfg.is_activated(),
             bump: cfg.bump,
         })
     }
 
-    /// Full-struct assert of the freshly created, enabled ring config.
+    /// Full-struct assert of the ring config. `activated` is asserted true
+    /// because the fixture bootstraps with permissionless activation.
     pub fn assert_ring_config(&self, enabled: bool, paused: bool) -> Result<()> {
         let authority = self
             .ring_authority
@@ -88,14 +125,16 @@ impl RingHarness {
                 program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
                 ring_authority_transact_is_enabled: enabled,
                 paused,
+                activated: true,
                 bump,
             }
         );
         Ok(())
     }
 
-    /// Update the enabled and paused flags, signed by the current authority.
-    pub fn update_ring_config(&mut self, enabled: bool, paused: bool) -> Result<()> {
+    /// Update the paused flag, signed by the current authority. The ring cannot
+    /// reach the governance-owned flags.
+    pub fn update_ring_config(&mut self, paused: bool) -> Result<()> {
         let authority = self
             .ring_authority
             .as_ref()
@@ -105,7 +144,6 @@ impl RingHarness {
         let ix = UpdateRingConfig {
             authority: authority.pubkey(),
             ring_config,
-            ring_authority_transact_is_enabled: enabled,
             paused,
         }
         .instruction();
@@ -155,7 +193,6 @@ impl RingHarness {
         let ix = UpdateRingConfig {
             authority: stale.pubkey(),
             ring_config,
-            ring_authority_transact_is_enabled: true,
             paused: false,
         }
         .instruction();
@@ -179,7 +216,6 @@ impl RingHarness {
             payer: payer.pubkey(),
             program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
             authority: Address::new_from_array(payer.pubkey().to_bytes()),
-            ring_authority_transact_is_enabled: true,
         }
         .instruction()
         .map_err(|e| anyhow!("ring config PDA: {e}"))?;

@@ -24,7 +24,7 @@ use zolana_transaction::{Data, Utxo, SOL_MINT};
 
 use shielded_pool_tests::support::localnet::{
     account_lamports, build_sol_transfer_witness, dummy_witness_outputs, initialize_indexed_pool,
-    on_chain_roots, print_signature, send_indexed, LocalnetPool, SolTransferWitnessArgs,
+    on_chain_current_roots, print_signature, send_indexed, LocalnetPool, SolTransferWitnessArgs,
 };
 
 use zolana_test_utils::transact::{
@@ -76,6 +76,7 @@ struct ShieldedPayer {
     nullifier_pk: [u8; 32],
     owner_pk_hash: [u8; 32],
     owner_field: [u8; 32],
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -87,6 +88,7 @@ struct TransferredUtxo {
     public_key: PublicKey,
     nullifier_key: NullifierKey,
     blinding: [u8; 32],
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -178,7 +180,8 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 
     cycle.state_tree.append(&payer_utxo_hash)?;
-    let (shield_utxo_root, nullifier_root) = on_chain_roots(&cycle.rpc, &cycle.tree_pubkey, 1)?;
+    let (shield_utxo_root_index, shield_utxo_root, nullifier_root) =
+        on_chain_current_roots(&cycle.rpc, &cycle.tree_pubkey)?;
     assert_eq!(
         cycle.state_tree.root(),
         shield_utxo_root,
@@ -198,6 +201,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
         nullifier_pk: payer_nullifier_pk,
         owner_pk_hash: payer_owner_pk_hash,
         owner_field: payer_owner_field,
+        utxo_root_index: shield_utxo_root_index,
         utxo_root: shield_utxo_root,
         nullifier_root,
     })
@@ -260,7 +264,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     let payer_bytes = cycle.payer.pubkey().to_bytes();
     let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![payer_spend_input, transfer_dummy_input],
-        root_index: 1,
+        root_index: shielded.utxo_root_index,
         output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
         view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
         outputs: vec![
@@ -300,8 +304,8 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
     cycle.state_tree.append(&change_hash)?;
     cycle.state_tree.append(&recipient_hash)?;
     cycle.state_tree.append(&transfer_dummy_hash)?;
-    let (transfer_utxo_root, transfer_nullifier_root) =
-        on_chain_roots(&cycle.rpc, &cycle.tree_pubkey, 2)?;
+    let (transfer_utxo_root_index, transfer_utxo_root, transfer_nullifier_root) =
+        on_chain_current_roots(&cycle.rpc, &cycle.tree_pubkey)?;
     assert_eq!(
         cycle.state_tree.root(),
         transfer_utxo_root,
@@ -313,6 +317,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         public_key: recipient_public_key,
         nullifier_key: recipient_nullifier_key,
         blinding: recipient_output.blinding,
+        utxo_root_index: transfer_utxo_root_index,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
     })
@@ -377,7 +382,7 @@ fn phase_unshield(
     let recipient_bytes = cycle.recipient_owner.pubkey().to_bytes();
     let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![recipient_spend_input, withdraw_dummy_input],
-        root_index: 2,
+        root_index: transferred.utxo_root_index,
         output_hashes: withdraw_output_hashes,
         view_tags: vec![recipient_view_tag; 3],
         outputs: withdraw_outputs,

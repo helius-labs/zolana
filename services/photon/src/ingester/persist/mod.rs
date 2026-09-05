@@ -1,6 +1,6 @@
 use crate::{
     common::rings_tree::RingsTreeKind,
-    dao::generated::{state_trees, transactions},
+    dao::generated::transactions,
     ingester::parser::{
         state_update::{RingsTransactionUpdate, StateUpdate, Transaction},
         tree_info::TreeInfo,
@@ -15,8 +15,7 @@ use nullifier_tree_batch_update::persist_nullifier_tree_batch_updates;
 use ring_configs::persist_ring_configs;
 use rings_transactions::persist_rings_transactions;
 use sea_orm::{
-    sea_query::OnConflict, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
-    QueryFilter, QueryTrait, Set,
+    sea_query::OnConflict, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryTrait, Set,
 };
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
@@ -157,31 +156,8 @@ async fn persist_rings_output_leaf_nodes(
     tree_info_cache: &HashMap<Pubkey, TreeInfo>,
 ) -> Result<(), IngesterError> {
     let mut leaf_nodes_by_tree: HashMap<Pubkey, Vec<LeafNode>> = HashMap::new();
-    let mut root_sequences: HashMap<Pubkey, u64> = HashMap::new();
 
     for update in rings_updates {
-        let update_tree = Pubkey::from(update.output_tree);
-        let root_sequence = match root_sequences.get_mut(&update_tree) {
-            Some(sequence) => {
-                *sequence = sequence.checked_add(1).ok_or_else(|| {
-                    IngesterError::ParserError(format!(
-                        "Rings state root sequence overflowed for tree {update_tree}"
-                    ))
-                })?;
-                *sequence
-            }
-            None => {
-                let previous = current_state_root_sequence(txn, update_tree).await?;
-                let sequence = previous.unwrap_or(0).checked_add(1).ok_or_else(|| {
-                    IngesterError::ParserError(format!(
-                        "Rings state root sequence overflowed for tree {update_tree}"
-                    ))
-                })?;
-                root_sequences.insert(update_tree, sequence);
-                sequence
-            }
-        };
-
         for output in &update.outputs {
             let tree = Pubkey::from(output.output_tree);
             let tree_info = tree_info_cache.get(&tree).ok_or_else(|| {
@@ -202,10 +178,12 @@ async fn persist_rings_output_leaf_nodes(
                 tree_kind: RingsTreeKind::State,
                 leaf_index: output.leaf_index,
                 hash: Hash::from(output.utxo_hash),
-                // The on-chain state tree records one root per append batch, not
-                // one root per output leaf. Every output in this event therefore
-                // shares the transaction's root sequence.
-                seq: Some(root_sequence),
+                // Every output completed in one block carries that block's
+                // slot. Equal-slot updates are applied in ingestion order and
+                // produce one slot-final root with this value. The slot is
+                // proof metadata; its dense on-chain history index is resolved
+                // separately from the tree account.
+                seq: Some(update.slot),
             });
         }
     }
@@ -220,24 +198,6 @@ async fn persist_rings_output_leaf_nodes(
     }
 
     Ok(())
-}
-
-async fn current_state_root_sequence(
-    txn: &DatabaseTransaction,
-    tree: Pubkey,
-) -> Result<Option<u64>, IngesterError> {
-    let root = state_trees::Entity::find()
-        .filter(
-            state_trees::Column::Tree
-                .eq(tree.to_bytes().to_vec())
-                .and(state_trees::Column::TreeKind.eq(i32::from(RingsTreeKind::State)))
-                .and(state_trees::Column::NodeIdx.eq(1)),
-        )
-        .one(txn)
-        .await?;
-    root.and_then(|node| node.seq)
-        .map(|sequence| leaf_node::u64_from_i64(sequence, "state root sequence"))
-        .transpose()
 }
 
 fn metric_count_from_usize(value: usize) -> u64 {

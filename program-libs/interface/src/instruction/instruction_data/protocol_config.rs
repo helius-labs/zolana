@@ -12,7 +12,7 @@ pub struct CreateProtocolConfigData {
     pub tree_creation_is_permissionless: u8,
     pub forester_authority: Address,
     pub ring_creation_authority: Address,
-    pub ring_creation_is_permissionless: u8,
+    pub ring_activation_is_permissionless: u8,
     pub spl_interface_creation_is_permissionless: u8,
     pub fee_authority: Address,
 }
@@ -25,7 +25,7 @@ pub enum UpdateProtocolConfigData {
     ForesterAuthority(Address),
     RingCreationAuthority(Address),
     TreeCreationPermissionless(bool),
-    RingCreationPermissionless(bool),
+    RingActivationPermissionless(bool),
     SplInterfaceCreationPermissionless(bool),
     FeeAuthority(Address),
 }

@@ -6,8 +6,8 @@ use zolana_event::SplTransfer;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateRingConfigData, DepositAsset, DepositSplAccounts,
-        EncryptedRingDepositData, RingAssetDeposit, RingDeposit, UpdateRingConfig,
-        UpdateRingConfigOwner,
+        EncryptedRingDepositData, RingAssetDeposit, RingDeposit, SetRingActivation,
+        UpdateRingConfig, UpdateRingConfigOwner,
     },
     pda,
 };
@@ -41,11 +41,13 @@ impl ZolanaProgramTest {
         Ok(())
     }
 
+    /// Creation is permissionless, so `payer` needs no authority. On a
+    /// permissioned pool the config lands inert -- call
+    /// [`Self::set_ring_activation`] to admit it.
     pub fn create_ring_config(
         &mut self,
         payer: &Keypair,
         authority: &Pubkey,
-        ring_authority_transact_is_enabled: bool,
     ) -> Result<Pubkey, ProgramTestError> {
         let ring_program = Self::ring_test_program_id();
         // The config account IS the ring's canonical `ring_auth` PDA.
@@ -53,7 +55,6 @@ impl ZolanaProgramTest {
         let data = CreateRingConfigData {
             program_id: RING_TEST_PROGRAM_ID.into(),
             authority: authority.to_bytes().into(),
-            ring_authority_transact_is_enabled,
         };
         let ix = Instruction {
             program_id: ring_program,
@@ -93,14 +94,51 @@ impl ZolanaProgramTest {
         &mut self,
         authority: &Keypair,
         ring_config: &Pubkey,
-        ring_authority_transact_is_enabled: bool,
         paused: bool,
     ) -> Result<(), ProgramTestError> {
         let ix = UpdateRingConfig {
             authority: authority.pubkey(),
             ring_config: *ring_config,
-            ring_authority_transact_is_enabled,
             paused,
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
+    }
+
+    /// Create a ring config and have governance admit it, which is what a real
+    /// deployment does in two separate transactions. `governance` must be the
+    /// protocol config's `ring_creation_authority`.
+    pub fn create_activated_ring_config(
+        &mut self,
+        payer: &Keypair,
+        authority: &Pubkey,
+        governance: &Keypair,
+        ring_authority_transact_is_enabled: bool,
+    ) -> Result<Pubkey, ProgramTestError> {
+        let ring_config = self.create_ring_config(payer, authority)?;
+        self.set_ring_activation(
+            governance,
+            &ring_config,
+            true,
+            ring_authority_transact_is_enabled,
+        )?;
+        Ok(ring_config)
+    }
+
+    /// Governance admits or contains a ring. `authority` must be the protocol
+    /// config's `ring_creation_authority`.
+    pub fn set_ring_activation(
+        &mut self,
+        authority: &Keypair,
+        ring_config: &Pubkey,
+        activated: bool,
+        ring_authority_transact_is_enabled: bool,
+    ) -> Result<(), ProgramTestError> {
+        let ix = SetRingActivation {
+            authority: authority.pubkey(),
+            ring_config: *ring_config,
+            activated,
+            ring_authority_transact_is_enabled,
         }
         .instruction();
         self.send(&[ix], &[authority])

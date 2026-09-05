@@ -37,15 +37,17 @@ impl ZolanaProgramTest {
         data: CreateProtocolConfigData,
     ) -> Result<Pubkey, ProgramTestError> {
         self.airdrop(&authority.pubkey(), 1_000_000_000)?;
+        self.set_upgrade_authority(Some(&authority.pubkey()))?;
         let config = pda::protocol_config();
         let ix = CreateProtocolConfig {
-            authority: authority.pubkey(),
+            fee_payer: authority.pubkey(),
+            initialization_authority: authority.pubkey(),
             protocol_authority: data.protocol_authority,
             tree_creation_authority: data.tree_creation_authority,
             tree_creation_is_permissionless: data.tree_creation_is_permissionless != 0,
             forester_authority: data.forester_authority,
             ring_creation_authority: data.ring_creation_authority,
-            ring_creation_is_permissionless: data.ring_creation_is_permissionless != 0,
+            ring_activation_is_permissionless: data.ring_activation_is_permissionless != 0,
             spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless
                 != 0,
             fee_authority: data.fee_authority,
@@ -181,7 +183,7 @@ fn create_protocol_config_data(
         tree_creation_is_permissionless: u8::from(permissionless),
         forester_authority: authority.into(),
         ring_creation_authority: authority.into(),
-        ring_creation_is_permissionless: u8::from(permissionless),
+        ring_activation_is_permissionless: u8::from(permissionless),
         spl_interface_creation_is_permissionless: u8::from(permissionless),
         fee_authority: authority.into(),
     }

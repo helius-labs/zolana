@@ -167,7 +167,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
     }
 
     // 2. The protocol config carries exactly the bootstrap settings the ring
-    //    flows depend on, `ring_creation_is_permissionless` above all: without
+    //    flows depend on, `ring_activation_is_permissionless` above all: without
     //    it the custom-ring program cannot register its `ring_auth` PDA as an
     //    SPP ring config with a plain payer.
     let accounts = smart_account::standard_accounts();
@@ -182,7 +182,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
             forester_authority: accounts.forester_vault,
             ring_creation_authority: accounts.ring_vault,
             tree_creation_is_permissionless: 0,
-            ring_creation_is_permissionless: 1,
+            ring_activation_is_permissionless: 1,
             spl_interface_creation_is_permissionless: 0,
             next_tree_id: 1,
         },
@@ -536,6 +536,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             program_id: ring_program,
             ring_authority_transact_is_enabled: 0,
             paused: 0,
+            // The fixture bootstraps with permissionless activation.
+            activated: 1,
             bump: ring_auth_bump,
         },
         "SPP ring config"

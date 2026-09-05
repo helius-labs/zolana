@@ -1,4 +1,5 @@
 use solana_address::Address;
+use solana_clock::Clock;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -6,6 +7,7 @@ use zolana_event::{general_event_from_indexed, SplTransfer};
 use zolana_interface::{
     instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
     pda,
+    state::STATE_ROOT_HISTORY_CAPACITY,
 };
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
@@ -21,6 +23,7 @@ use zolana_transaction::{
     derive_blinding, owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
     KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
+use zolana_tree::TreeAccount;
 
 use shielded_pool_tests::support::{
     fixtures::{register_mint, spl_depositor, Pool},
@@ -72,6 +75,132 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         },
     );
     assert_eq!(recipient.utxos.len(), 1);
+}
+
+#[test]
+fn deposits_advance_history_once_per_updated_slot_without_gap_entries() {
+    let mut pool = Pool::initialized();
+    let tree = pool.tree;
+    let (initial_index, initial_history_len) = {
+        let mut data = pool.rpc.account_data(&tree).expect("tree account");
+        let mut account =
+            TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree account");
+        (
+            account.utxo_tree().current_root_index(),
+            account.utxo_tree().root_history_len,
+        )
+    };
+    assert_eq!(initial_index, 0);
+    assert_eq!(initial_history_len, 1);
+
+    let current_slot = pool.rpc.svm.get_sysvar::<Clock>().slot;
+    let target_slot = current_slot + 1;
+    pool.rpc
+        .warp_to_slot(target_slot)
+        .expect("warp to first updated slot");
+    let expected_index = (initial_index + 1) % STATE_ROOT_HISTORY_CAPACITY as u16;
+
+    let depositor = pool.funded_signer(2_000_000_000);
+    pool.rpc
+        .deposit(
+            &tree,
+            &depositor,
+            &ZolanaProgramTest::sol_shield_data(1_000_000, [1; 32]),
+        )
+        .expect("first deposit");
+    assert_eq!(pool.rpc.svm.get_sysvar::<Clock>().slot, target_slot);
+
+    let (first_root, first_history_len) = {
+        let mut data = pool.rpc.account_data(&tree).expect("tree account");
+        let mut account =
+            TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree account");
+        assert_eq!(account.utxo_tree().current_root_index(), expected_index);
+        let root = account.utxo_tree().root();
+        assert_eq!(
+            account
+                .get_utxo_tree_root(expected_index)
+                .expect("first slot root"),
+            root
+        );
+        assert_eq!(account.utxo_tree().last_update_slot, target_slot);
+        let history_len = account.utxo_tree().root_history_len;
+        assert_eq!(history_len, 2, "the first updated slot adds one entry");
+        (root, history_len)
+    };
+
+    pool.rpc
+        .deposit(
+            &tree,
+            &depositor,
+            &ZolanaProgramTest::sol_shield_data(1_000_000, [3; 32]),
+        )
+        .expect("second deposit");
+    assert_eq!(pool.rpc.svm.get_sysvar::<Clock>().slot, target_slot);
+
+    let same_slot_final_root = {
+        let mut data = pool.rpc.account_data(&tree).expect("tree account");
+        let mut account =
+            TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree account");
+        let final_root = account.utxo_tree().root();
+        assert_ne!(
+            final_root, first_root,
+            "the second deposit changes the root"
+        );
+        assert_eq!(account.utxo_tree().current_root_index(), expected_index);
+        assert_eq!(
+            account
+                .get_utxo_tree_root(expected_index)
+                .expect("slot-final root"),
+            final_root,
+            "the second root overwrites the first root at the current index"
+        );
+        assert_eq!(account.utxo_tree().last_update_slot, target_slot);
+        assert_eq!(
+            account.utxo_tree().root_history_len,
+            first_history_len,
+            "a second update in the same slot must not consume another history entry"
+        );
+        final_root
+    };
+
+    let expected_gap_index = (expected_index + 1) % STATE_ROOT_HISTORY_CAPACITY as u16;
+    let mut gap_slot = target_slot + STATE_ROOT_HISTORY_CAPACITY as u64;
+    if gap_slot % STATE_ROOT_HISTORY_CAPACITY as u64 == u64::from(expected_gap_index) {
+        gap_slot += 1;
+    }
+    assert_ne!(
+        gap_slot % STATE_ROOT_HISTORY_CAPACITY as u64,
+        u64::from(expected_gap_index),
+        "the regression must distinguish the dense index from slot modulo capacity"
+    );
+    pool.rpc
+        .warp_to_slot(gap_slot)
+        .expect("warp across slots without tree updates");
+    pool.rpc
+        .deposit(
+            &tree,
+            &depositor,
+            &ZolanaProgramTest::sol_shield_data(1_000_000, [5; 32]),
+        )
+        .expect("deposit after slot gap");
+
+    let mut data = pool.rpc.account_data(&tree).expect("tree account");
+    let mut account =
+        TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree account");
+    assert_eq!(account.utxo_tree().current_root_index(), expected_gap_index);
+    assert_eq!(account.utxo_tree().last_update_slot, gap_slot);
+    assert_eq!(
+        account.utxo_tree().root_history_len,
+        first_history_len + 1,
+        "the entire slot gap consumes only the one entry written after it"
+    );
+    assert_eq!(
+        account
+            .get_utxo_tree_root(expected_index)
+            .expect("previous updated-slot root"),
+        same_slot_final_root,
+        "skipped slots do not create holes or evict the prior root"
+    );
 }
 
 #[test]
@@ -313,7 +442,12 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
         .expect("load ring test program");
     let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
 
     let tree = pool.tree;
@@ -390,7 +524,12 @@ fn ring_deposit_event_carries_the_ring_data_preimage_verbatim() {
         .expect("load ring test program");
     let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
     let tree = pool.tree;
     let depositor = pool.funded_signer(2_000_000_000);
@@ -447,7 +586,12 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         .expect("load ring test program");
     let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
 
     let tree = pool.tree;
@@ -553,7 +697,12 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
         .expect("load ring test program");
     let ring_authority = pool.authority.insecure_clone();
     pool.rpc
-        .create_ring_config(&ring_authority, &ring_authority.pubkey(), true)
+        .create_activated_ring_config(
+            &ring_authority,
+            &ring_authority.pubkey(),
+            &ring_authority,
+            true,
+        )
         .expect("create ring config");
     let (mint, _, vault) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint, 1_000_000);

@@ -125,7 +125,7 @@ proptest! {
 fn state_sizes_and_discriminators_are_stable() {
     let sizes = [
         (ProtocolConfig::SIZE, 166),
-        (RingConfig::SIZE, 68),
+        (RingConfig::SIZE, 69),
         (SplAssetCounter::SIZE, 16),
         (SplAssetRegistry::SIZE, 48),
     ];

@@ -37,16 +37,11 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
         return Err(ShieldedPoolError::InvalidRingConfig.into());
     }
 
-    {
-        let protocol = load_protocol_config(protocol_config)?;
-        if !protocol.allows_permissionless_ring_creation()
-            && protocol
-                .check_ring_creation_authority(payer.address())
-                .is_err()
-        {
-            return Err(ShieldedPoolError::UnauthorizedCaller.into());
-        }
-    }
+    // Creation is permissionless and `payer` only funds rent. A governance check
+    // here would force a governance signature into the same CPI chain as the
+    // candidate ring program, which must sign `ring_auth` for its own creation;
+    // governance admits the ring afterwards with `set_ring_activation`.
+    let activated = load_protocol_config(protocol_config)?.allows_permissionless_ring_activation();
 
     // `ring_config`'s signature is propagated from the ring program's outer
     // `invoke_signed`, so SPP supplies no seeds; it only sets owner = SPP so the
@@ -63,7 +58,7 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
     RingConfigInitParams {
         authority: data.authority,
         program_id: data.program_id,
-        ring_authority_transact_is_enabled: data.ring_authority_transact_is_enabled,
+        activated,
         bump: ring_auth_bump,
     }
     .init(ring_config)

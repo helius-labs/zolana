@@ -148,9 +148,15 @@ pub(super) async fn merkle_proof_from_context(
         )));
     }
 
-    let root_seq = proof.root_seq.unwrap_or(0);
-    // The chain's slot for this exact root, not a number photon counted. See
-    // `RootIndexCache` for why the two cannot be kept in step by construction.
+    let root_seq = proof.root_seq.ok_or_else(|| {
+        PhotonApiError::UnexpectedError(format!(
+            "State proof root for tree {} is missing its completed slot",
+            tree_info.tree
+        ))
+    })?;
+    // `root_seq` is completed-slot metadata, not the position in the dense
+    // history ring. Slots without updates do not advance the ring, so resolve
+    // the proof's exact root against the authoritative account history.
     let root_index = root_index_cache
         .index_for(rpc_client, tree_info.tree, proof.root.0)
         .await?;
@@ -202,24 +208,15 @@ pub(super) fn non_inclusion_proof_from_context(
 
 /// Position of a root within its own tree's history ring.
 ///
-/// Only the nullifier tree reaches here, and its sequence number *is* the
-/// chain's: it comes from `NullifierTreeUpdateEvent`, not from a local counter.
-/// The state tree has no such field in its event, so it reads its index from
-/// the tree account instead -- see `RootIndexCache`.
+/// Only the nullifier tree reaches here. Its `root_seq` is the chain sequence
+/// from `NullifierTreeUpdateEvent`, and its history advances once per applied
+/// ZKP batch. State `root_seq` is a completed Solana slot and cannot locate a
+/// root in the dense state history; state indices come from `RootIndexCache`.
 ///
-/// The capacity always comes from `tree_kind`, never from a value that happens
-/// to be in scope. The UTXO and nullifier trees share one account but keep
-/// separate histories of different sizes (200 and 120), so `root_seq % capacity`
-/// gives a different answer per tree, and the program reads that slot of the
-/// ring to check the root it was handed. A capacity from the wrong tree yields a
-/// valid-looking index pointing at the wrong root, which the program rejects as
-/// `InvalidRootIndex` -- surfacing to the client as `StaleNullifierRoot`,
-/// indistinguishable from a proof that genuinely expired. That is an expensive
-/// error to recognise: we spent an hour attributing exactly this code to prover
-/// latency before ruling this path out. Upstream photon shipped that bug by
-/// computing both proof kinds' indices from one capacity
-/// (helius-labs/photon@7113918); taking the capacity from `tree_kind` makes it
-/// unrepresentable here.
+/// The capacity comes from `tree_kind`, never from a value that happens to be
+/// in scope. The UTXO and nullifier trees share one account but keep separate
+/// histories of different sizes. Using the state capacity here would produce a
+/// plausible nullifier index that the program rejects as `InvalidRootIndex`.
 ///
 /// `tree_info` is cross-checked rather than used: it carries the *nullifier*
 /// tree's capacity, because both trees live in one account and that is the one
@@ -473,6 +470,19 @@ pub(super) fn rings_output_slot_from_parts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monitor::tree_metadata_sync::rings_utxo_root_history;
+    use solana_account::Account;
+    use zolana_interface::{
+        pda,
+        state::{
+            default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
+            tree_account_size,
+        },
+    };
+    use zolana_tree::TreeAccount;
+
+    type SerializedRootHistory = Vec<(u16, [u8; 32])>;
+    type UpdateRoots = Vec<[u8; 32]>;
 
     fn cursor_of(row: &u64) -> Result<Vec<u8>, PhotonApiError> {
         Ok(row.to_be_bytes().to_vec())
@@ -511,37 +521,172 @@ mod tests {
         }
     }
 
-    /// The two trees share an account but not a history size, so the same
-    /// `root_seq` lands at different ring positions for each. Getting this wrong
-    /// hands the program a plausible index pointing at the wrong root, which it
-    /// rejects as `InvalidRootIndex` -> `StaleNullifierRoot`, identical to a
-    /// proof that genuinely expired. Upstream photon shipped exactly that
-    /// (helius-labs/photon@7113918).
-    #[test]
-    fn each_tree_indexes_its_root_by_its_own_capacity() {
-        let nullifier_capacity = RingsTreeKind::Nullifier.root_history_capacity();
-        let state_capacity = RingsTreeKind::State.root_history_capacity();
-        assert_ne!(
-            nullifier_capacity, state_capacity,
-            "this test is only meaningful while the capacities differ"
+    /// Build the same serialized account bytes the monitor reads in production,
+    /// then parse its root history back through Photon's account boundary.
+    fn serialized_state_history(
+        tree_pubkey: solana_pubkey::Pubkey,
+        slots: &[u64],
+    ) -> (SerializedRootHistory, UpdateRoots) {
+        let mut data = vec![0u8; tree_account_size()];
+        let mut update_roots = Vec::with_capacity(slots.len());
+        {
+            let params = nullifier_tree_params();
+            let fees = default_tree_fees(params.input_queue_zkp_batch_size)
+                .expect("default fixture tree fees");
+            let mut tree = TreeAccount::init(
+                &mut data,
+                TREE_ACCOUNT_DISCRIMINATOR,
+                u8::try_from(RingsTreeKind::State.tree_height()).expect("state height fits in u8"),
+                tree_pubkey.to_bytes(),
+                0,
+                params,
+                fees,
+            )
+            .expect("initialize serialized Rings tree");
+
+            for (offset, slot) in slots.iter().copied().enumerate() {
+                let mut leaf = [0u8; 32];
+                leaf[0] = u8::try_from(offset + 1).expect("small fixture leaf");
+                tree.utxo_tree()
+                    .append(leaf, slot)
+                    .expect("append fixture leaf");
+                update_roots.push(tree.utxo_tree().root());
+            }
+        }
+
+        let account = Account {
+            lamports: 1,
+            data,
+            owner: pda::shielded_pool_program_id(),
+            executable: false,
+            rent_epoch: 0,
+        };
+        let history = rings_utxo_root_history(tree_pubkey, &account)
+            .expect("Photon parses serialized Rings tree history");
+        (history, update_roots)
+    }
+
+    async fn state_proof_from_cached_history(
+        tree: solana_pubkey::Pubkey,
+        history: Vec<(u16, [u8; 32])>,
+        root: [u8; 32],
+        completed_slot: u64,
+    ) -> MerkleProof {
+        let leaf = Hash::from([9u8; 32]);
+        let proof = MerkleProofWithContext {
+            proof: Vec::new(),
+            root: Hash::from(root),
+            leaf_index: 0,
+            hash: leaf.clone(),
+            merkle_tree: SerializablePubkey::from(tree),
+            root_seq: Some(completed_slot),
+        };
+        let mut info = tree_info_with(RingsTreeKind::Nullifier.root_history_capacity());
+        info.tree = tree;
+        let cache = RootIndexCache::with_roots(tree, history);
+        // If the proof path attempts an account fetch instead of using the
+        // parsed history, this deliberately unreachable endpoint fails it.
+        let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
+
+        merkle_proof_from_context(proof, &info, RingsTreeKind::State, &leaf, &rpc, &cache)
+            .await
+            .expect("state proof resolves from parsed on-chain history")
+    }
+
+    #[tokio::test]
+    async fn state_proof_indices_follow_dense_serialized_history_not_slot_modulo() {
+        let continuous_tree = solana_pubkey::Pubkey::new_unique();
+        let continuous_slots = [1_000, 1_001, 1_002];
+        let (continuous_history, continuous_roots) =
+            serialized_state_history(continuous_tree, &continuous_slots);
+        assert_eq!(
+            continuous_history
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2, 3],
+            "initial root plus three updating slots form four dense entries"
         );
 
-        // The smaller ring has wrapped exactly once here and the larger has
-        // not, so the two disagree about where it lands for any pair of
-        // distinct capacities. A fixed offset would collapse as soon as one
-        // capacity divides the other.
-        let root_seq = nullifier_capacity.min(state_capacity);
+        for (offset, root) in continuous_roots.iter().enumerate() {
+            let expected_index = u16::try_from(offset + 1).expect("fixture index fits");
+            assert!(
+                continuous_history.contains(&(expected_index, *root)),
+                "each updating slot advances exactly one dense history entry"
+            );
+        }
+        let continuous_second_root = *continuous_roots
+            .get(1)
+            .expect("continuous fixture has a second update root");
+        let continuous_proof = state_proof_from_cached_history(
+            continuous_tree,
+            continuous_history,
+            continuous_second_root,
+            continuous_slots[1],
+        )
+        .await;
+        assert_eq!(continuous_proof.root_seq, continuous_slots[1]);
+        assert_eq!(continuous_proof.root_index, 2);
+        assert_ne!(
+            u64::from(continuous_proof.root_index),
+            continuous_proof.root_seq % RingsTreeKind::State.root_history_capacity(),
+            "state history index must not be derived from completed slot"
+        );
+
+        let gap_tree = solana_pubkey::Pubkey::new_unique();
+        // The second slot is far from the first, and its second update must
+        // overwrite its first intermediate root at the same dense entry.
+        let gap_slots = [2_000, 2_507, 2_507];
+        let (gap_history, gap_roots) = serialized_state_history(gap_tree, &gap_slots);
+        assert_eq!(
+            gap_history
+                .iter()
+                .map(|(index, _)| *index)
+                .collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "skipped slots add nothing and same-slot updates share one entry"
+        );
+        let gap_first_root = *gap_roots
+            .first()
+            .expect("gap fixture has a first update root");
+        let gap_intermediate_root = *gap_roots
+            .get(1)
+            .expect("gap fixture has a same-slot intermediate root");
+        let gap_final_root = *gap_roots.get(2).expect("gap fixture has a final root");
+        assert!(gap_history.contains(&(1, gap_first_root)));
+        assert!(
+            !gap_history
+                .iter()
+                .any(|(_, root)| root == &gap_intermediate_root),
+            "same-slot intermediate root must be overwritten"
+        );
+        assert!(gap_history.contains(&(2, gap_final_root)));
+
+        let gap_proof =
+            state_proof_from_cached_history(gap_tree, gap_history, gap_final_root, gap_slots[2])
+                .await;
+        assert_eq!(gap_proof.root_seq, gap_slots[2]);
+        assert_eq!(gap_proof.root_index, 2);
+        assert_ne!(
+            u64::from(gap_proof.root_index),
+            gap_proof.root_seq % RingsTreeKind::State.root_history_capacity(),
+            "skipped Solana slots must not create root-history entries"
+        );
+    }
+
+    /// Nullifier roots use the nullifier history capacity, never the state
+    /// history capacity. Getting this wrong hands the program a plausible index
+    /// pointing at the wrong root, which it rejects as `InvalidRootIndex` ->
+    /// `StaleNullifierRoot`, identical to a proof that genuinely expired.
+    #[test]
+    fn nullifier_root_uses_the_nullifier_history_capacity() {
+        let nullifier_capacity = RingsTreeKind::Nullifier.root_history_capacity();
+        let root_seq = nullifier_capacity + 17;
         let info = tree_info_with(nullifier_capacity);
 
         let nullifier = root_index(root_seq, RingsTreeKind::Nullifier, &info).expect("nullifier");
-        let state = root_index(root_seq, RingsTreeKind::State, &info).expect("state");
 
         assert_eq!(nullifier as u64, root_seq % nullifier_capacity);
-        assert_eq!(state as u64, root_seq % state_capacity);
-        assert_ne!(
-            nullifier, state,
-            "a shared capacity would collapse these to one value -- the upstream bug"
-        );
     }
 
     /// A deployed tree that disagrees with the constant this binary was built
@@ -555,6 +700,35 @@ mod tests {
             result.is_err(),
             "a capacity mismatch must fail loudly, not produce an index"
         );
+    }
+
+    #[tokio::test]
+    async fn a_state_proof_without_a_completed_slot_is_rejected() {
+        let tree = solana_pubkey::Pubkey::new_unique();
+        let mut info = tree_info_with(RingsTreeKind::Nullifier.root_history_capacity());
+        info.tree = tree;
+        let leaf = Hash::from([2u8; 32]);
+        let proof = MerkleProofWithContext {
+            proof: Vec::new(),
+            root: Hash::from([3u8; 32]),
+            leaf_index: 0,
+            hash: leaf.clone(),
+            merkle_tree: SerializablePubkey::from(tree),
+            root_seq: None,
+        };
+        let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
+        let cache = RootIndexCache::new();
+
+        let error =
+            merkle_proof_from_context(proof, &info, RingsTreeKind::State, &leaf, &rpc, &cache)
+                .await
+                .unwrap_err();
+
+        assert!(matches!(
+            error,
+            PhotonApiError::UnexpectedError(message)
+                if message.contains("missing its completed slot")
+        ));
     }
 
     /// The cursor must read from whichever table the query sorts by. Reading it

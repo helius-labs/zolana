@@ -3,15 +3,20 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
 use crate::{
-    instruction::{encode_instruction, tag, CreateRingConfigData, UpdateRingConfigData},
+    instruction::{
+        encode_instruction, tag, CreateRingConfigData, SetRingActivationData, UpdateRingConfigData,
+    },
     pda, PROGRAM_ID_PUBKEY,
 };
 
+/// Permissionless: `payer` only funds rent and is checked against no authority.
+/// The config is created inert unless the protocol config sets
+/// `ring_activation_is_permissionless`; governance admits it with
+/// [`SetRingActivation`].
 pub struct CreateRingConfig {
     pub payer: Pubkey,
     pub program_id: Address,
     pub authority: Address,
-    pub ring_authority_transact_is_enabled: bool,
 }
 
 impl CreateRingConfig {
@@ -19,7 +24,6 @@ impl CreateRingConfig {
         let data = CreateRingConfigData {
             program_id: self.program_id,
             authority: self.authority,
-            ring_authority_transact_is_enabled: self.ring_authority_transact_is_enabled,
         };
 
         // The config account IS the ring's `ring_auth` PDA (canonical); it signs
@@ -64,7 +68,6 @@ impl UpdateRingConfigOwner {
 pub struct UpdateRingConfig {
     pub authority: Pubkey,
     pub ring_config: Pubkey,
-    pub ring_authority_transact_is_enabled: bool,
     /// Pauses every operational ring instruction while leaving config updates
     /// and authority rotation available.
     pub paused: bool,
@@ -81,8 +84,39 @@ impl UpdateRingConfig {
             data: encode_instruction(
                 tag::UPDATE_RING_CONFIG,
                 &UpdateRingConfigData {
-                    ring_authority_transact_is_enabled: self.ring_authority_transact_is_enabled,
                     paused: self.paused,
+                },
+            ),
+        }
+    }
+}
+
+/// Governance admits or contains a ring. `authority` must be
+/// `protocol_config.ring_creation_authority`, and the pool is called directly so
+/// no ring program is ever in the call chain.
+pub struct SetRingActivation {
+    pub authority: Pubkey,
+    pub ring_config: Pubkey,
+    pub activated: bool,
+    pub ring_authority_transact_is_enabled: bool,
+}
+
+impl SetRingActivation {
+    pub fn instruction(&self) -> Instruction {
+        Instruction {
+            program_id: PROGRAM_ID_PUBKEY,
+            accounts: vec![
+                AccountMeta::new_readonly(self.authority, true),
+                AccountMeta::new_readonly(pda::protocol_config(), false),
+                AccountMeta::new(self.ring_config, false),
+            ],
+            data: encode_instruction(
+                tag::SET_RING_ACTIVATION,
+                &SetRingActivationData {
+                    activated: u8::from(self.activated),
+                    ring_authority_transact_is_enabled: u8::from(
+                        self.ring_authority_transact_is_enabled,
+                    ),
                 },
             ),
         }

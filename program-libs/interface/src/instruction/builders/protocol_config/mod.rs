@@ -10,20 +10,19 @@ use crate::{
     pda, PROGRAM_ID_PUBKEY,
 };
 
-/// Initialize the canonical protocol-config PDA. The program creates the PDA via
-/// CPI, so the authority is the rent payer (writable signer) and the system
-/// program must be present. The program account and its loader `ProgramData`
-/// account trail as read-only inputs: on an upgradeable deployment with a set
-/// upgrade authority, only that authority may initialize (front-run protection);
-/// test/localnet deployments skip the check.
+/// Initialize the canonical protocol-config PDA. `fee_payer` funds the account;
+/// `initialization_authority` must be the program's nonzero loader-v3 upgrade
+/// authority. Keeping those roles separate lets a Squads vault authorize the
+/// initialization through CPI while an ordinary transaction signer pays rent.
 pub struct CreateProtocolConfig {
-    pub authority: Pubkey,
+    pub fee_payer: Pubkey,
+    pub initialization_authority: Pubkey,
     pub protocol_authority: Address,
     pub tree_creation_authority: Address,
     pub tree_creation_is_permissionless: bool,
     pub forester_authority: Address,
     pub ring_creation_authority: Address,
-    pub ring_creation_is_permissionless: bool,
+    pub ring_activation_is_permissionless: bool,
     pub spl_interface_creation_is_permissionless: bool,
     pub fee_authority: Address,
 }
@@ -36,7 +35,7 @@ impl CreateProtocolConfig {
             tree_creation_is_permissionless: self.tree_creation_is_permissionless as u8,
             forester_authority: self.forester_authority,
             ring_creation_authority: self.ring_creation_authority,
-            ring_creation_is_permissionless: self.ring_creation_is_permissionless as u8,
+            ring_activation_is_permissionless: self.ring_activation_is_permissionless as u8,
             spl_interface_creation_is_permissionless: self.spl_interface_creation_is_permissionless
                 as u8,
             fee_authority: self.fee_authority,
@@ -45,7 +44,8 @@ impl CreateProtocolConfig {
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
-                AccountMeta::new(self.authority, true),
+                AccountMeta::new(self.fee_payer, true),
+                AccountMeta::new_readonly(self.initialization_authority, true),
                 AccountMeta::new(pda::protocol_config(), false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
                 // The program reads its own loader state to bind initialization

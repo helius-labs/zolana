@@ -1,10 +1,10 @@
 use zolana_interface::state::{
     NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ROOT_HISTORY_CAPACITY, STATE_HEIGHT,
+    STATE_ROOT_HISTORY_CAPACITY,
 };
-use zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
 const _: () = assert!(STATE_HEIGHT <= u32::MAX as usize);
-const _: () = assert!(ROOT_HISTORY_CAPACITY <= u64::MAX as usize);
+const _: () = assert!(STATE_ROOT_HISTORY_CAPACITY <= u64::MAX as usize);
 
 /// Rings tree roles used by Photon API proof contexts and role-specific
 /// persistence tables.
@@ -27,7 +27,7 @@ impl RingsTreeKind {
 
     pub fn root_history_capacity(self) -> u64 {
         match self {
-            Self::State => ROOT_HISTORY_CAPACITY as u64,
+            Self::State => STATE_ROOT_HISTORY_CAPACITY as u64,
             Self::Nullifier => u64::from(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY),
         }
     }

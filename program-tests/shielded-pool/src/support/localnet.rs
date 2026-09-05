@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
+use solana_keypair::{read_keypair_file, Keypair};
 use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -116,7 +116,11 @@ pub fn initialize_indexed_pool(
 
 fn funded_pool_signers(rpc: &mut SolanaRpc) -> Result<(Keypair, Keypair)> {
     let payer = Keypair::new();
-    let authority = Keypair::new();
+    let authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+        Ok(path) => read_keypair_file(&path)
+            .map_err(|error| anyhow!("read SPP upgrade authority keypair {path}: {error}"))?,
+        Err(_) => Keypair::new(),
+    };
     print_signature(
         "airdrop payer",
         &rpc.airdrop(&payer.pubkey(), 100_000_000_000)?,
@@ -131,13 +135,14 @@ fn funded_pool_signers(rpc: &mut SolanaRpc) -> Result<(Keypair, Keypair)> {
 fn protocol_config_instruction(authority: &Keypair) -> Instruction {
     let authority_bytes = authority.pubkey().to_bytes();
     CreateProtocolConfig {
-        authority: authority.pubkey(),
+        fee_payer: authority.pubkey(),
+        initialization_authority: authority.pubkey(),
         protocol_authority: authority_bytes.into(),
         tree_creation_authority: authority_bytes.into(),
         tree_creation_is_permissionless: false,
         forester_authority: authority_bytes.into(),
         ring_creation_authority: authority_bytes.into(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
         fee_authority: authority_bytes.into(),
     }
@@ -150,14 +155,31 @@ pub fn on_chain_roots(
     tree: &Pubkey,
     utxo_index: u16,
 ) -> Result<([u8; 32], [u8; 32])> {
+    let (_, utxo_root, nullifier_root) = on_chain_roots_at(rpc, tree, Some(utxo_index))?;
+    Ok((utxo_root, nullifier_root))
+}
+
+/// Read the current UTXO root index and root, plus nullifier root zero, from
+/// one authoritative tree-account snapshot.
+pub fn on_chain_current_roots(rpc: &SolanaRpc, tree: &Pubkey) -> Result<(u16, [u8; 32], [u8; 32])> {
+    on_chain_roots_at(rpc, tree, None)
+}
+
+fn on_chain_roots_at(
+    rpc: &SolanaRpc,
+    tree: &Pubkey,
+    utxo_index: Option<u16>,
+) -> Result<(u16, [u8; 32], [u8; 32])> {
     let address = Address::new_from_array(tree.to_bytes());
     let mut data = rpc
         .get_account(address)?
         .ok_or_else(|| anyhow!("tree account not found: {tree}"))?
         .data;
-    let account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+    let mut account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
         .map_err(|err| anyhow!("load tree account: {err:?}"))?;
+    let utxo_index = utxo_index.unwrap_or_else(|| account.utxo_tree().current_root_index());
     Ok((
+        utxo_index,
         account
             .get_utxo_tree_root(utxo_index)
             .map_err(|err| anyhow!("get utxo root {utxo_index}: {err:?}"))?,

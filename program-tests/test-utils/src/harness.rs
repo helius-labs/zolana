@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, Result};
 use solana_account::Account;
 use solana_address::Address;
-use solana_keypair::Keypair;
+use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
@@ -138,10 +138,10 @@ pub struct BootstrapConfig {
     /// Extra `(program_id, workspace-relative .so path)` programs the validator
     /// loads (e.g. the ring fixture program).
     pub extra_programs: Vec<(String, String)>,
-    /// `CreateProtocolConfig::ring_creation_is_permissionless`. The ring suite
+    /// `CreateProtocolConfig::ring_activation_is_permissionless`. The ring suite
     /// sets it so the fixture's payer can create ring configs without the ring
     /// smart-account signing.
-    pub ring_creation_is_permissionless: bool,
+    pub ring_activation_is_permissionless: bool,
     /// Whether to fund the merge vault so it can collect the per-nullifier
     /// forester fee (only suites that execute merges need it).
     pub fund_merge_vault: bool,
@@ -170,6 +170,7 @@ pub struct LocalnetHarness<D> {
     pub assets: AssetRegistry,
     pub payer: Keypair,
     pub authority: Keypair,
+    pub ring_key: Keypair,
     pub tree: Pubkey,
     pub tree_address: Address,
     pub actors: BTreeMap<String, Actor<D>>,
@@ -199,6 +200,7 @@ impl<D> LocalnetHarness<D> {
             assets: AssetRegistry::default(),
             payer: setup.payer,
             authority: setup.authority,
+            ring_key: setup.ring_key,
             tree,
             tree_address,
             actors: BTreeMap::new(),
@@ -270,8 +272,8 @@ impl<D> LocalnetHarness<D> {
             send_transaction(rpc, &[ix], &payer.pubkey(), &[&payer])?;
         }
 
-        // The shielded pool program requires the fee payer == protocol_authority,
-        // so we CPI via execute_sync_ix with the protocol vault as the inner fee payer.
+        // The protocol vault is the loader upgrade authority and authorizes
+        // initialization through Squads CPI; the outer payer funds the config.
         rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
         if config.fund_merge_vault {
             // Merge instructions likewise use the merge vault as their inner payer.
@@ -279,30 +281,57 @@ impl<D> LocalnetHarness<D> {
             rpc.airdrop(&accounts.merge_vault, 5_000_000_000)?;
         }
 
+        // A recipe that loads SPP with a keypair as upgrade authority exports
+        // it; initialization then signs with that keypair directly and still
+        // installs the role vaults as the final authorities.
+        let upgrade_authority_keypair =
+            match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+                Ok(path) => Some(read_keypair_file(&path).map_err(|error| {
+                    anyhow!("read SPP upgrade authority keypair {path}: {error}")
+                })?),
+                Err(_) => None,
+            };
+        let initialization_authority = upgrade_authority_keypair
+            .as_ref()
+            .map(Keypair::pubkey)
+            .unwrap_or(accounts.protocol_vault);
         let create_config_ix = CreateProtocolConfig {
-            authority: accounts.protocol_vault,
+            fee_payer: payer.pubkey(),
+            initialization_authority,
             protocol_authority: accounts.protocol_vault.to_bytes().into(),
             tree_creation_authority: accounts.tree_vault.to_bytes().into(),
             tree_creation_is_permissionless: false,
             forester_authority: accounts.forester_vault.to_bytes().into(),
             ring_creation_authority: accounts.ring_vault.to_bytes().into(),
-            ring_creation_is_permissionless: config.ring_creation_is_permissionless,
+            ring_activation_is_permissionless: config.ring_activation_is_permissionless,
             spl_interface_creation_is_permissionless: false,
             fee_authority: accounts.protocol_vault.to_bytes().into(),
         }
         .instruction();
-        let create_config_sync = execute_sync_ix(
-            &accounts.protocol_settings,
-            0,
-            &[authority.pubkey()],
-            &[create_config_ix],
-        );
-        send_transaction(
-            rpc,
-            &[create_config_sync],
-            &payer.pubkey(),
-            &[&payer, &authority],
-        )?;
+        match &upgrade_authority_keypair {
+            Some(keypair) => {
+                send_transaction(
+                    rpc,
+                    &[create_config_ix],
+                    &payer.pubkey(),
+                    &[&payer, keypair],
+                )?;
+            }
+            None => {
+                let create_config_sync = execute_sync_ix(
+                    &accounts.protocol_settings,
+                    0,
+                    &[authority.pubkey()],
+                    &[create_config_ix],
+                );
+                send_transaction(
+                    rpc,
+                    &[create_config_sync],
+                    &payer.pubkey(),
+                    &[&payer, &authority],
+                )?;
+            }
+        }
 
         Ok(ProtocolSetup {
             payer,

@@ -9,7 +9,9 @@ use zolana_interface::{
 pub struct RingConfigInitParams {
     pub authority: Address,
     pub program_id: Address,
-    pub ring_authority_transact_is_enabled: bool,
+    /// From `protocol_config.ring_activation_is_permissionless`. A permissioned
+    /// pool creates the config inert; `set_ring_activation` admits it.
+    pub activated: bool,
     pub bump: u8,
 }
 
@@ -27,8 +29,10 @@ impl RingConfigInitParams {
             discriminator: RING_CONFIG,
             authority: self.authority,
             program_id: self.program_id,
-            ring_authority_transact_is_enabled: u8::from(self.ring_authority_transact_is_enabled),
+            // Governance-owned; only `set_ring_activation` ever turns it on.
+            ring_authority_transact_is_enabled: 0,
             paused: 0,
+            activated: u8::from(self.activated),
             bump: self.bump,
         };
         Ok(())

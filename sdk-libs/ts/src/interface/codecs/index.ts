@@ -339,7 +339,7 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
       ringCreationAuthority: readAddress(reader, "ringCreationAuthority"),
       feeAuthority: readAddress(reader, "feeAuthority"),
       treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
-      ringCreationIsPermissionless: reader.nonzeroBool("ringCreationIsPermissionless"),
+      ringActivationIsPermissionless: reader.nonzeroBool("ringActivationIsPermissionless"),
       splInterfaceCreationIsPermissionless: reader.nonzeroBool(
         "splInterfaceCreationIsPermissionless",
       ),
@@ -387,13 +387,14 @@ export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegist
 }
 
 export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {
-  // 1 + 32 + 32 + 1 + 1 + 1. The program asserts the same size, and `paused`
-  // sits between the enable flag and the bump.
-  return decodeAccount(bytes, 68, StateDiscriminator.ringConfig, (reader) => ({
+  // 1 + 32 + 32 + 1 + 1 + 1 + 1. The program asserts the same size; the three
+  // flags run enabled, paused, activated, and the bump is last.
+  return decodeAccount(bytes, 69, StateDiscriminator.ringConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
     ringAuthorityTransactIsEnabled: reader.nonzeroBool("ringAuthorityTransactIsEnabled"),
     paused: reader.nonzeroBool("paused"),
+    activated: reader.nonzeroBool("activated"),
     bump: reader.u8("bump"),
   }));
 }

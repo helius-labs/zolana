@@ -21,30 +21,29 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-CREATE-PC-02: the signer must be the protocol authority it writes**
-  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_rejects_a_signer_that_names_other_authorities`
-  - Kind: precondition
-  - Statement: `create_protocol_config` returns Err whenever the fee payer's address differs from `data.protocol_authority`.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:24-26` (`fn process_create_protocol_config`)
-  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
+- [x] **INV-CREATE-PC-02: initialization authority is independent of the configured authorities**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_accepts_distinct_initializer_and_configured_authorities`; `program-tests/shielded-pool/tests/protocol_config/gate.rs` `create_accepts_a_separate_payer_initializer_and_protocol_authority`
+  - Kind: success precondition
+  - Statement: the loader-v3 upgrade authority authorizes initialization, but the fee payer and every authority written into `ProtocolConfig` may be different accounts. This permits a keypair-funded transaction or a Squads-vault CPI to install the final vault authorities directly.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs` (`fn process_create_protocol_config`)
   - Severity: Critical (authority bootstrap)
-  - Suggested test: negative; harness: mollusk unit
+  - Suggested test: positive with three distinct accounts; harness: LiteSVM
 
-- [~] **INV-CREATE-PC-10: on an upgradeable deployment, only the deploy upgrade authority may initialize**
-  - Cross-branch coverage: the gate's behavior and tests live on the security/spp-config-init-gate branch, landing before this one — the `program-tests/shielded-pool/tests/protocol_config_gate.rs` suite there (`create_rejects_a_fee_payer_that_is_not_the_upgrade_authority`, `create_accepts_the_upgrade_authority`, `create_skips_the_check_without_an_upgrade_authority`, `create_skips_the_check_with_a_zeroed_upgrade_authority`) and the loader-state parser fixtures in that branch's `xtask/src/init_protocol.rs` test module (on THIS branch the gate, the fixture, and every one of those tests are reverted out; `xtask/src/init_protocol.rs` here contains zero `#[test]` functions)
+- [x] **INV-CREATE-PC-10: only a real loader-v3 deploy upgrade authority may initialize**
+  - Covered by: `program-tests/shielded-pool/tests/protocol_config/gate.rs` `create_rejects_an_initialization_signer_that_is_not_the_upgrade_authority`, `create_accepts_a_separate_payer_initializer_and_protocol_authority`, `create_rejects_an_unset_upgrade_authority`, `create_rejects_a_zeroed_upgrade_authority`, `create_rejects_a_non_loader_v3_deployment`; loader-state parser tests in `xtask/src/init_protocol.rs`
   - Kind: precondition
-  - Statement: when the program account is owned by the upgradeable BPF loader and its `ProgramData` names an upgrade authority, `create_protocol_config` returns Err for every fee payer other than that authority; a non-upgradeable deployment (localnet `--bpf-program`) or an unset authority (immutable program, LiteSVM harness) skips the check; a forged program/`ProgramData` account or truncated loader state fails closed. Loader state is decoded with the canonical `solana-loader-v3-interface` bincode type on-chain and in xtask.
-  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:76-112` (`fn check_initialization_authority`)
+  - Statement: `create_protocol_config` succeeds only when the program account is a valid loader-v3 `Program`, its matching loader-owned `ProgramData` records a nonzero upgrade authority, and that exact authority signs. Non-loader-v3, immutable/unset, zero, malformed, forged, and mismatched states all fail closed. The authority may sign directly as a keypair or through a Squads CPI where the vault PDA is the single signer observed by this program.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs` (`fn check_initialization_authority`)
   - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
   - Severity: Critical (authority bootstrap)
-  - Suggested test: negative + positive + carve-out; harness: mollusk unit
+  - Suggested test: negative matrix + positive distinct-role case; harness: LiteSVM
 
 ### Account Constraints
 
 - [x] **INV-CREATE-PC-03: system program account must be the system program**
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `protocol_config_requires_system_program_exactly`
   - Kind: precondition
-  - Statement: `create_protocol_config` returns Err whenever the third account's address is not the system program id.
+  - Statement: `create_protocol_config` returns Err whenever the fourth account's address is not the system program id.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:21-23` (`fn process_create_protocol_config`)
   - Error: `ProgramError::IncorrectProgramId`
   - Severity: Medium
@@ -75,7 +74,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-CREATE-PC-06: every config field is initialized from instruction data**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: postcondition
-  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the eight remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `ring_creation_authority`, `fee_authority`, `ring_creation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field, and `next_tree_id` is 0. `fee_authority` gates `set_tree_fees` (tree.md INV-SET-FEES-02) and is stored at byte offset 129, after `ring_creation_authority`.
+  - Statement: after a successful `create_protocol_config`, the config account has discriminator exactly 3 and each of the eight remaining fields (`protocol_authority`, `tree_creation_authority`, `tree_creation_is_permissionless`, `forester_authority`, `ring_creation_authority`, `fee_authority`, `ring_activation_is_permissionless`, `spl_interface_creation_is_permissionless`) exactly equal to the corresponding instruction-data field, and `next_tree_id` is 0. `fee_authority` gates `set_tree_fees` (tree.md INV-SET-FEES-02) and is stored at byte offset 129, after `ring_creation_authority`.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/create.rs:46-55` (`fn process_create_protocol_config`), `protocol_config/init.rs:20-39` (`fn ProtocolConfigInitParams::init`)
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
@@ -156,7 +155,7 @@ the required co-signature for a `ProtocolAuthority` rotation, matching the code.
 - [x] **INV-UPDATE-PC-05: exactly the addressed field takes the supplied value**
   - Covered by: `program-tests/shielded-pool/tests/protocol_config/contract.rs` `create_and_update_protocol_config`
   - Kind: postcondition
-  - Statement: after a successful `update_protocol_config` with variant V carrying value v, the config field addressed by V is exactly v (booleans stored as exactly 0 or 1). The variants are `ProtocolAuthority`, `TreeCreationAuthority`, `ForesterAuthority`, `RingCreationAuthority`, `TreeCreationPermissionless`, `RingCreationPermissionless`, `SplInterfaceCreationPermissionless`, and `FeeAuthority(Address)` (borsh tag 7), which rewrites `fee_authority`.
+  - Statement: after a successful `update_protocol_config` with variant V carrying value v, the config field addressed by V is exactly v (booleans stored as exactly 0 or 1). The variants are `ProtocolAuthority`, `TreeCreationAuthority`, `ForesterAuthority`, `RingCreationAuthority`, `TreeCreationPermissionless`, `RingActivationPermissionless`, `SplInterfaceCreationPermissionless`, and `FeeAuthority(Address)` (borsh tag 7), which rewrites `fee_authority`.
   - Location: `programs/shielded-pool/src/instructions/protocol_config/update.rs:23-37` (`fn process_update_protocol_config`)
   - Severity: High
   - Suggested test: positive per variant (all 8); harness: mollusk unit

@@ -856,8 +856,11 @@ test-localnet-deposit: build-programs build-cli
     #!/usr/bin/env bash
     set -euo pipefail
     eval "$(cargo run -q -p xtask -- program-ids)"
-    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
+    spp_authority="$PWD/target/localnet-spp-upgrade-authority.json"
+    solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
+    spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
+    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
 test-localnet-e2e: build-programs build-prover-server build-cli
@@ -874,13 +877,16 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     # any running validator and resets, so restarting between the suites gives
     # each a clean environment (mirroring the per-test restart in the Photon
     # recipe below).
+    spp_authority="$PWD/target/localnet-spp-upgrade-authority.json"
+    solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
+    spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
     dev_start() {
-      cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+      cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     }
     dev_start
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
     dev_start
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" tools/ci/nextest-suite.sh -p shielded-pool-tests --features localnet --test localnet_deposit --no-capture
+    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" tools/ci/nextest-suite.sh -p shielded-pool-tests --features localnet --test localnet_deposit --no-capture
 
 # Local-validator SOL cycle backed by a real Photon Zolana indexer. Each
 # `#[serial]` test restarts a fresh validator + Photon via the `zolana` CLI,
@@ -900,6 +906,10 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
     export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
     export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
+    # These suites create the protocol config directly with a keypair, so the
+    # validator must load SPP with that keypair as its upgrade authority.
+    export ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$PWD/target/localnet-spp-upgrade-authority.json"
+    solana-keygen new --no-bip39-passphrase --silent --force --outfile "$ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR"
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p shielded-pool-tests --features localnet --test localnet_photon --no-capture
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
@@ -928,6 +938,10 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
     trap cleanup EXIT
     rm -rf "$workdir"; mkdir -p "$workdir"
     export ZOLANA_CONFIG_DIR="$PWD/$workdir"
+    export ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$PWD/$workdir/spp-upgrade-authority.json"
+    solana-keygen new --no-bip39-passphrase --silent --force \
+      --outfile "$ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR"
+    spp_authority_pubkey="$(solana-keygen pubkey "$ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR")"
 
     # Clear any services left over from a previous run so the validator binds
     # cleanly (dev start also stops them, but this avoids a port-release race).
@@ -938,7 +952,8 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
     "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
-      --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
+      "$spp_authority_pubkey" \
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so \
       --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
 
@@ -1394,8 +1409,10 @@ build-programs:
 
 # Deploy/upgrade programs to devnet using the local `solana` CLI config.
 # Pass program names to deploy a subset, e.g. `just deploy-devnet shielded-pool`.
-# Requires `just build-programs` first and that the local config keypair is
-# the current upgrade authority. Set ZOLANA_DEVNET_KEYS_DIR to a
+# Requires `just build-programs` first. Direct upgrades use the local config
+# keypair; after the shielded-pool authority is handed to the protocol Squads
+# vault, set ZOLANA_PROTOCOL_SIGNER_1 and ZOLANA_PROTOCOL_SIGNER_2. Set
+# ZOLANA_DEVNET_KEYS_DIR to a
 # `<dir>/program-id/<pubkey>.json` keys checkout for a program's first-ever
 # deploy (only needed once per program's fixed address; upgrades work without
 # it since only the pubkey is required after the account exists on-chain).

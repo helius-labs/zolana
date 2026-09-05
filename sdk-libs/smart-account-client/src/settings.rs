@@ -94,6 +94,22 @@ pub fn settings_seed(data: &[u8]) -> Result<u128, SettingsError> {
     ))
 }
 
+/// Decode the execution threshold of a Squads smart-account `Settings`
+/// account. See the module docs for the pinned layout.
+pub fn settings_threshold(data: &[u8]) -> Result<u16, SettingsError> {
+    let mut cursor = 0;
+    let discriminator = take(data, &mut cursor, 8, "discriminator")?;
+    if discriminator != SETTINGS_ACCOUNT_DISCRIMINATOR {
+        return Err(SettingsError::DiscriminatorMismatch);
+    }
+    take(data, &mut cursor, 16, "seed")?;
+    take(data, &mut cursor, 32, "settings_authority")?;
+    let threshold = take(data, &mut cursor, 2, "threshold")?
+        .try_into()
+        .map_err(|_| SettingsError::Truncated { field: "threshold" })?;
+    Ok(u16::from_le_bytes(threshold))
+}
+
 /// Decode the signer (member) keys of a Squads smart-account `Settings`
 /// account. See the module docs for the pinned layout.
 pub fn settings_member_keys(data: &[u8]) -> Result<Vec<Pubkey>, SettingsError> {
@@ -140,12 +156,16 @@ mod tests {
 
     /// Squads `Settings` account bytes per the pinned layout (module docs),
     /// with `signers` members.
-    fn settings_fixture(archival_authority: Option<Pubkey>, signers: &[(Pubkey, u8)]) -> Vec<u8> {
+    fn settings_fixture(
+        threshold: u16,
+        archival_authority: Option<Pubkey>,
+        signers: &[(Pubkey, u8)],
+    ) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&SETTINGS_ACCOUNT_DISCRIMINATOR);
         data.extend_from_slice(&1u128.to_le_bytes()); // seed
         data.extend_from_slice(&[0u8; 32]); // settings_authority
-        data.extend_from_slice(&1u16.to_le_bytes()); // threshold
+        data.extend_from_slice(&threshold.to_le_bytes());
         data.extend_from_slice(&0u32.to_le_bytes()); // time_lock
         data.extend_from_slice(&0u64.to_le_bytes()); // transaction_index
         data.extend_from_slice(&0u64.to_le_bytes()); // stale_transaction_index
@@ -177,16 +197,17 @@ mod tests {
     #[test]
     fn decodes_settings_member_keys() {
         let members = [(Pubkey::new_unique(), 0b111), (Pubkey::new_unique(), 0b001)];
-        let data = settings_fixture(None, &members);
+        let data = settings_fixture(2, None, &members);
         let keys = settings_member_keys(&data).expect("valid settings");
         assert_eq!(keys, [members[0].0, members[1].0]);
+        assert_eq!(settings_threshold(&data), Ok(2));
     }
 
     #[test]
     fn decodes_settings_with_archival_authority_set() {
         // A set archival_authority occupies 32 bytes and shifts the signers.
         let member = Pubkey::new_unique();
-        let data = settings_fixture(Some(Pubkey::new_unique()), &[(member, 0b111)]);
+        let data = settings_fixture(1, Some(Pubkey::new_unique()), &[(member, 0b111)]);
         let keys = settings_member_keys(&data).expect("valid settings");
         assert_eq!(keys, [member]);
     }
@@ -194,12 +215,23 @@ mod tests {
     #[test]
     fn settings_decoder_fails_closed() {
         let member = Pubkey::new_unique();
-        let data = settings_fixture(None, &[(member, 0b111)]);
+        let data = settings_fixture(1, None, &[(member, 0b111)]);
+        let threshold_offset = SETTINGS_ACCOUNT_DISCRIMINATOR.len()
+            + std::mem::size_of::<u128>()
+            + Pubkey::default().to_bytes().len();
+        assert_eq!(
+            settings_threshold(&data[..threshold_offset + 1]),
+            Err(SettingsError::Truncated { field: "threshold" })
+        );
         // Truncated inside the signers vec.
         assert!(settings_member_keys(&data[..data.len() - 10]).is_err());
         // Wrong discriminator.
         let mut bad_discriminator = data.clone();
         *bad_discriminator.get_mut(7).expect("discriminator byte") ^= 0xff;
+        assert_eq!(
+            settings_threshold(&bad_discriminator),
+            Err(SettingsError::DiscriminatorMismatch)
+        );
         assert_eq!(
             settings_member_keys(&bad_discriminator),
             Err(SettingsError::DiscriminatorMismatch)

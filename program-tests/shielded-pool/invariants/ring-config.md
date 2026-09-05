@@ -1,7 +1,7 @@
 # Ring Config Invariants
 
 Covers `CreateRingConfig` (tag 7), `UpdateRingConfigOwner` (tag 9),
-`UpdateRingConfig` (tag 8). The shared ring-authorization pattern (signer +
+`UpdateRingConfig` (tag 8), `SetRingActivation` (tag 21). The shared ring-authorization pattern (signer +
 owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 `cross-cutting.md`.
 
@@ -18,14 +18,13 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-CREATE-ZC-02: non-permissionless creation requires the ring-creation authority**
-  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `ring_config_creation_rejects_an_unconfigured_payer_when_permissioned`
-  - Kind: precondition
-  - Statement: when `protocol_config.ring_creation_is_permissionless` is exactly 0, `create_ring_config` returns Err for every payer whose address differs from `protocol_config.ring_creation_authority`.
-  - Location: `programs/shielded-pool/src/instructions/ring_config/create.rs:39-48` (`fn process_create_ring_config`)
-  - Error: `ShieldedPoolError::UnauthorizedCaller = 7003`
-  - Severity: High
-  - Suggested test: negative + positive (flag set); harness: mollusk unit
+- [x] **INV-CREATE-ZC-02: creation is permissionless and the payer holds no authority**
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `ring_config_creation_accepts_any_payer_and_lands_inert`
+  - Kind: postcondition
+  - Statement: `create_ring_config` succeeds for every signing payer, including one whose address differs from `protocol_config.ring_creation_authority`; the payer only funds rent and is never compared against an authority. The instruction reads `protocol_config` solely for `ring_activation_is_permissionless`.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/create.rs` (`fn process_create_ring_config`)
+  - Severity: High (a governance check here would place a governance signature in the same CPI chain as the candidate ring program, which signs `ring_auth`)
+  - Suggested test: positive with an unrelated payer; harness: mollusk unit
 
 - [x] **INV-CREATE-ZC-03: the ring_auth PDA must sign its own creation**
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `ring_config_creation_rejects_an_unsigned_ring_config`
@@ -72,8 +71,8 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 - [x] **INV-CREATE-ZC-07: every config field is initialized exactly**
   - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_creation_initializes_the_exact_account_state`
   - Kind: postcondition
-  - Statement: after a successful `create_ring_config`, the account has discriminator exactly 4, `authority` exactly `data.authority`, `program_id` exactly `data.program_id`, `ring_authority_transact_is_enabled` exactly 0 or 1 per `data`, `paused` exactly 0, and `bump` exactly the canonical `ring_auth` bump; the account's `data_len` is exactly `RingConfig::SIZE` (68) and its owner is the shielded-pool program.
-  - Location: `programs/shielded-pool/src/instructions/ring_config/create.rs:53-68` (`fn process_create_ring_config`), `ring_config/init.rs:15-34` (`fn RingConfigInitParams::init`)
+  - Statement: after a successful `create_ring_config`, the account has discriminator exactly 4, `authority` exactly `data.authority`, `program_id` exactly `data.program_id`, `ring_authority_transact_is_enabled` exactly 0, `paused` exactly 0, `activated` exactly 1 when `protocol_config.ring_activation_is_permissionless` is nonzero and exactly 0 otherwise, and `bump` exactly the canonical `ring_auth` bump; the account's `data_len` is exactly `RingConfig::SIZE` (69) and its owner is the shielded-pool program.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/create.rs` (`fn process_create_ring_config`), `ring_config/init.rs` (`fn RingConfigInitParams::init`)
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
 
@@ -144,7 +143,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 - [x] **INV-UPDATE-ZC-OWNER-04: every other config field is unchanged**
   - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_owner_rotation_changes_only_the_authority_field`
   - Kind: frame
-  - Statement: after a successful `update_ring_config_owner`, the config's `discriminator`, `program_id`, `ring_authority_transact_is_enabled`, `paused`, and `bump` are unchanged, and every other account is unchanged. Rotation remains available while paused.
+  - Statement: after a successful `update_ring_config_owner`, the config's `discriminator`, `program_id`, `ring_authority_transact_is_enabled`, `paused`, `activated`, and `bump` are unchanged, and every other account is unchanged. Rotation remains available while paused or inactive.
   - Location: `programs/shielded-pool/src/instructions/ring_config/update_owner.rs:23-25`
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
@@ -167,7 +166,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 - [x] **INV-UPDATE-ZC-02: config account must be writable, program-owned, sized, and stamped**
   - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `ring_update_rejects_a_cosplay_config_account`
   - Kind: precondition
-  - Statement: `update_ring_config` (and `update_ring_config_owner`) returns Err whenever the config account is not writable, not owned by the program, has `data_len` different from exactly 68, or has a first byte different from exactly 4.
+  - Statement: `update_ring_config` (and `update_ring_config_owner`) returns Err whenever the config account is not writable, not owned by the program, has `data_len` different from exactly 69, or has a first byte different from exactly 4.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:23-31` (`fn load_ring_config_mut`)
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: High
@@ -176,7 +175,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 ### Instruction Data Validation
 
 - [x] **INV-UPDATE-ZC-06: malformed borsh payload is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_update_rejects_a_legacy_single_bool_payload`
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_update_rejects_a_legacy_two_bool_payload`
   - Kind: precondition
   - Statement: every payload that `UpdateRingConfigData::try_from_slice` fails to parse makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/update.rs:9-10` (`fn process_update_ring_config`)
@@ -186,21 +185,21 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
 
 ### Success Postconditions
 
-- [x] **INV-UPDATE-ZC-03: both control flags take exactly the supplied values**
-  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_create_update_and_owner_rotation`, `program-tests/shielded-pool/tests/admin/functional.rs` `ring_config_update_changes_enabled_state`
+- [x] **INV-UPDATE-ZC-03: paused takes exactly the supplied value and is the only field the ring may write**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_config_create_update_and_owner_rotation`, `ring_update_cannot_enable_the_authority_rail`
   - Kind: postcondition
-  - Statement: after a successful `update_ring_config`, `ring_authority_transact_is_enabled` and `paused` are independently exactly 1 when their corresponding data bool is true and exactly 0 otherwise. The authority may call this instruction while paused, so unpausing is always possible while the authority remains reachable.
-  - Location: `programs/shielded-pool/src/instructions/ring_config/update.rs:16-17` (`fn process_update_ring_config`)
-  - Severity: High
-  - Suggested test: positive both values; harness: mollusk unit
+  - Statement: after a successful `update_ring_config`, `paused` is exactly 1 when the data bool is true and exactly 0 otherwise, and `ring_authority_transact_is_enabled` is unchanged for every payload — the ring authority cannot enable the authority-transact rail. The authority may call this instruction while paused or inactive, so unpausing is always possible while the authority remains reachable.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/update.rs` (`fn process_update_ring_config`)
+  - Severity: High (the rail moves UTXOs without owner signatures, so only governance may enable it)
+  - Suggested test: positive both values, plus a negative asserting the enabled byte never moves; harness: mollusk unit
 
 ### Frame Conditions
 
 - [ ] **INV-UPDATE-ZC-04: every other config field is unchanged**
   - Partial coverage: `program-tests/shielded-pool/tests/admin/functional.rs` `ring_config_update_changes_enabled_state` (authority, bump, and discriminator compared; `program_id` is not)
   - Kind: frame
-  - Statement: after a successful `update_ring_config`, the config's `discriminator`, `authority`, `program_id`, and `bump` are unchanged, and every other account is unchanged; only the enabled and paused fields may change.
-  - Location: `programs/shielded-pool/src/instructions/ring_config/update.rs:15-17`
+  - Statement: after a successful `update_ring_config`, the config's `discriminator`, `authority`, `program_id`, `ring_authority_transact_is_enabled`, `activated`, and `bump` are unchanged, and every other account is unchanged; only `paused` may change.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/update.rs`
   - Severity: High
   - Suggested test: positive (full struct compare); harness: mollusk unit
 
@@ -213,3 +212,71 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:36-48`, `docs/spec.md:1163-1164, 1200`
   - Severity: Medium (documented burn semantics)
   - Suggested test: positive (burn, then negative toggle, positive ring_transact); harness: program-tests integration (`cargo test-sbf`)
+
+## SetRingActivation
+
+Governance admits and contains a ring here. The instruction is called directly
+against SPP, so no ring program is ever in the call chain and no governance
+signature can reach candidate ring code.
+
+### Authorization
+
+- [x] **INV-SET-RING-ACT-01: authority must sign**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `set_ring_activation_rejects_an_unsigned_authority`
+  - Kind: precondition
+  - Statement: `set_ring_activation` can only succeed when the first account (`authority`) is a signer. The signer check is in the processor, not nested in the loader, so an unsigned authority reports the account-checks signer error.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/set_activation.rs` (`fn process_set_ring_activation`)
+  - Error: account-checks signer error
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+- [x] **INV-SET-RING-ACT-02: only the ring-creation authority may activate**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `set_ring_activation_rejects_a_foreign_authority`
+  - Kind: precondition
+  - Statement: `set_ring_activation` returns Err for every signer whose address differs from `protocol_config.ring_creation_authority`, in both the activating and deactivating direction.
+  - Location: `programs/shielded-pool/src/instructions/protocol_config/loader.rs` (`fn validate_ring_creation_authority`)
+  - Error: `ShieldedPoolError::Unauthorized` via `check_ring_creation_authority`
+  - Severity: Critical (the authority controls the no-owner-signature rail)
+  - Suggested test: negative; harness: mollusk unit
+
+### Account Constraints
+
+- [x] **INV-SET-RING-ACT-03: config account must be writable, program-owned, sized, and stamped**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `set_ring_activation_rejects_a_cosplay_config_account`
+  - Kind: precondition
+  - Statement: `set_ring_activation` returns Err whenever the config account is not writable, not owned by the program, has `data_len` different from exactly 69, or has a first byte different from exactly 4. It shares `load_ring_config_mut` with the ring-owned instructions, so a paused or inactive config still loads.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_ring_config_mut`)
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
+  - Severity: High
+  - Suggested test: negative; harness: mollusk unit
+
+### Success Postconditions
+
+- [x] **INV-SET-RING-ACT-04: both governance flags take exactly the supplied values, in both directions**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `set_ring_activation_sets_both_flags`, `set_ring_activation_changes_only_the_governance_flags`
+  - Kind: postcondition
+  - Statement: after a successful `set_ring_activation`, `activated` and `ring_authority_transact_is_enabled` are independently exactly 1 when their corresponding data byte is nonzero and exactly 0 otherwise. Both transitions are permitted: an activated ring can be deactivated and re-activated.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/set_activation.rs` (`fn process_set_ring_activation`)
+  - Severity: High
+  - Suggested test: positive over all four flag combinations plus a deactivate-then-reactivate cycle; harness: mollusk unit
+
+### Frame Conditions
+
+- [x] **INV-SET-RING-ACT-05: paused and identity fields are unchanged**
+  - Covered by: `program-tests/shielded-pool/tests/ring_config/contract.rs` `set_ring_activation_changes_only_the_governance_flags`
+  - Kind: frame
+  - Statement: after a successful `set_ring_activation`, the config's `discriminator`, `authority`, `program_id`, `paused`, and `bump` are unchanged, and every other account has unchanged data and unchanged lamports. Governance cannot pause or unpause a ring, and pays no rent.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/set_activation.rs`
+  - Severity: High
+  - Suggested test: positive (full struct compare); harness: mollusk unit
+
+### Reachability
+
+- [x] **INV-SET-RING-ACT-06: an inactive ring authorizes nothing**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `ring_transact_rejects_an_inactive_ring_config`, `ring_authority_transact_rejects_an_inactive_ring_config`, `ring_transact_prioritizes_inactive_over_paused`; `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_an_inactive_ring_config`; `program-tests/shielded-pool/tests/deposit/rejection.rs` `governance_deactivation_stops_a_live_ring_and_reactivation_restores_it`; `program-tests/shielded-pool/tests/admin/rejection.rs` `ring_config_creation_accepts_any_payer_and_lands_inert`
+  - Kind: reachability
+  - Statement: while `activated` is 0, every operational ring instruction returns `RingNotActivated`: `ring_deposit`, `ring_transact`, `ring_merge_transact`, and `ring_authority_transact`. The activation check precedes the pause check, so a config that is both inactive and paused reports `RingNotActivated`. Deactivating a live ring therefore strands its UTXOs, which move only through ring instructions.
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`)
+  - Error: `ShieldedPoolError::RingNotActivated = 7064`
+  - Severity: Critical (governance containment power, and the freeze it implies)
+  - Suggested test: negative across all four rails, plus inactive+paused precedence; harness: program-tests integration (`cargo test-sbf`)

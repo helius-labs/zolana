@@ -21,6 +21,9 @@ solana-address = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+# Agave 4.2 executes the legacy loader-v3 upgrade instruction defined by v7.
+# Keep this alias until the cluster activates the v8 wincode instruction ABI.
+solana-loader-v3-interface-v7 = { package = "solana-loader-v3-interface", version = "7.0", features = ["bincode"] }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
 solana-pubkey = { workspace = true }

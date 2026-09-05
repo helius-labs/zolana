@@ -2,22 +2,35 @@ use core::mem::{offset_of, size_of};
 
 use zolana_tree::{
     nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES, NullifierTreeInitParams, TreeAccount,
-    TreeAccountLayout, TreeFeeSchedule, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
+    TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
 };
 
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
+type UtxoLayout = UtxoTreeLayout<UTXO_TREE_HEIGHT>;
 
 #[test]
 fn account_layout_is_pinned() {
-    assert_eq!(size_of::<Layout>(), 30_344);
-    assert_eq!(TreeAccount::account_size(), 30_344);
+    assert_eq!(size_of::<Layout>(), 39_952);
+    assert_eq!(TreeAccount::account_size(), 39_952);
     assert_eq!(offset_of!(Layout, tree_id), 2);
     assert_eq!(offset_of!(Layout, fees), 8);
     assert_eq!(offset_of!(Layout, fee_balance), 32);
     assert_eq!(offset_of!(Layout, _reserved), 40);
     assert_eq!(offset_of!(Layout, utxo), 72);
     assert_eq!(TreeAccount::state_root_offset(), 80);
-    assert_eq!(offset_of!(Layout, nullifier), 7_544);
+    assert_eq!(offset_of!(Layout, nullifier), 17_152);
+
+    assert_eq!(size_of::<UtxoLayout>(), 17_080);
+    assert_eq!(offset_of!(UtxoLayout, next_index), 0);
+    assert_eq!(offset_of!(UtxoLayout, root), 8);
+    assert_eq!(offset_of!(UtxoLayout, root_history_cursor), 40);
+    assert_eq!(offset_of!(UtxoLayout, root_history_len), 42);
+    assert_eq!(offset_of!(UtxoLayout, root_history_capacity), 44);
+    assert_eq!(offset_of!(UtxoLayout, subtrees_len), 46);
+    assert_eq!(offset_of!(UtxoLayout, _padding), 47);
+    assert_eq!(offset_of!(UtxoLayout, last_update_slot), 48);
+    assert_eq!(offset_of!(UtxoLayout, subtrees), 56);
+    assert_eq!(offset_of!(UtxoLayout, root_history), 1_080);
 }
 
 #[test]
@@ -66,7 +79,7 @@ fn deserialize_mut_round_trip() {
         layout.utxo.init(UTXO_TREE_HEIGHT).unwrap();
         let mut leaf = [0u8; 32];
         leaf[31] = 9;
-        layout.utxo.append(leaf).unwrap();
+        layout.utxo.append(leaf, 9).unwrap();
         *layout.nullifier.root_history.roots.get_mut(3).unwrap() = [7u8; 32];
     }
     let reloaded: &mut Layout = wincode::deserialize_mut(&mut bytes).expect("reload");

@@ -599,11 +599,15 @@ pub fn build_spl_withdrawal(
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
     assert_eq!(event.utxo_hash, utxo_hash);
 
-    // The UTXO is leaf 0; its inclusion proof binds the post-shield root
-    // (history index 1, as in transact/withdrawal.rs).
+    // The UTXO is leaf 0; its inclusion proof binds the latest post-shield
+    // root at the tree's current dense history index.
     let mut tree_data = pt.account_data(tree).expect("tree account");
-    let tree_account = TreeAccount::from_bytes(&mut tree_data, tree.to_bytes()).expect("load tree");
-    let utxo_root = tree_account.get_utxo_tree_root(1).expect("utxo root");
+    let mut tree_account =
+        TreeAccount::from_bytes(&mut tree_data, tree.to_bytes()).expect("load tree");
+    let utxo_root_index = tree_account.utxo_tree().current_root_index();
+    let utxo_root = tree_account
+        .get_utxo_tree_root(utxo_root_index)
+        .expect("utxo root");
     let nullifier_root = tree_account
         .get_nullifier_tree_root(0)
         .expect("nullifier root");
@@ -649,8 +653,8 @@ pub fn build_spl_withdrawal(
     // `set_output_owner_tags`).
     let mut data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         vec![InterfaceTransfer::SplWithdrawal {
             amount,

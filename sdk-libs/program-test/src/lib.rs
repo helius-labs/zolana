@@ -24,7 +24,9 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_interface::{state::state_root_offset, SHIELDED_POOL_PROGRAM_ID};
+use zolana_interface::{
+    pda, state::state_root_offset, BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+};
 
 mod admin;
 pub mod events;
@@ -180,6 +182,45 @@ impl ZolanaProgramTest {
             .airdrop(pubkey, lamports)
             .map(|_| ())
             .map_err(ProgramTestError::from)
+    }
+
+    /// Model the loader-v3 metadata written by `solana program deploy`.
+    ///
+    /// LiteSVM's `add_program` helper installs executable code without an
+    /// upgrade authority. Protocol-config initialization intentionally fails
+    /// closed for that state, so tests that exercise initialization must name
+    /// the signer that owns the simulated deployment.
+    pub fn set_upgrade_authority(
+        &mut self,
+        upgrade_authority: Option<&Pubkey>,
+    ) -> Result<(), ProgramTestError> {
+        let program_data = pda::program_data();
+        let program_account = self.svm.get_account(&self.program_id).ok_or_else(|| {
+            ProgramTestError::Litesvm("shielded-pool program account is missing".into())
+        })?;
+        if program_account.owner != BPF_LOADER_UPGRADEABLE_PUBKEY {
+            return Err(ProgramTestError::Litesvm(
+                "shielded-pool program is not loader-v3 upgradeable".into(),
+            ));
+        }
+        let mut program_data_account = self.svm.get_account(&program_data).ok_or_else(|| {
+            ProgramTestError::Litesvm("shielded-pool ProgramData account is missing".into())
+        })?;
+        let metadata = program_data_account.data.get_mut(..45).ok_or_else(|| {
+            ProgramTestError::Litesvm("shielded-pool ProgramData metadata is truncated".into())
+        })?;
+        metadata.fill(0);
+        metadata[..4].copy_from_slice(&3u32.to_le_bytes());
+        match upgrade_authority {
+            Some(authority) => {
+                metadata[12] = 1;
+                metadata[13..45].copy_from_slice(authority.as_ref());
+            }
+            None => metadata[12] = 0,
+        }
+        self.svm
+            .set_account(program_data, program_data_account)
+            .map_err(|e| ProgramTestError::Litesvm(format!("set ProgramData account: {e:?}")))
     }
 
     /// The on-chain state sub-tree root of a pool tree account.
