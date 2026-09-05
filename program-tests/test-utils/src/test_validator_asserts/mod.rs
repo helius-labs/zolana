@@ -238,11 +238,11 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
 ) -> EncryptedUtxoMatch {
     let label = format!("indexed UTXO for signature {signature} tag {tag:?}");
     wait_for(&label, || {
-        let mut cursor = None;
+        let mut since = None;
         loop {
             let response = indexer.get_encrypted_utxos_by_tags(
                 vec![tag],
-                cursor,
+                since,
                 Some(TAG_PAGE_LIMIT),
                 None,
             )?;
@@ -253,8 +253,8 @@ pub fn wait_for_indexed_utxo<I: Rpc>(
             {
                 return Ok(Some(item));
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
+            since = response.next;
+            if since.is_none() {
                 return Ok(None);
             }
         }
@@ -314,11 +314,11 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
 ) -> ShieldedTransaction {
     let label = format!("indexed transaction for signature {signature} tag {tag:?}");
     wait_for(&label, || {
-        let mut cursor = None;
+        let mut since = None;
         loop {
             let response = indexer.get_shielded_transactions_by_tags(
                 vec![tag],
-                cursor,
+                since,
                 Some(TAG_PAGE_LIMIT),
                 None,
             )?;
@@ -329,8 +329,8 @@ pub fn wait_for_indexed_transaction<I: Rpc>(
             {
                 return Ok(Some(item));
             }
-            cursor = response.next_cursor;
-            if cursor.is_none() {
+            since = response.next;
+            if since.is_none() {
                 return Ok(None);
             }
         }

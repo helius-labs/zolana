@@ -9,8 +9,8 @@ use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
-    SerializablePubkey, SerializableSignature, ZolanaApi,
+    Base64String, BlockingZolanaApi, ChainPosition as ApiChainPosition, Hash as ApiHash,
+    RingsOutputSlot as ApiOutputSlot, SerializablePubkey, SerializableSignature, ZolanaApi,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 use zolana_keypair::{constants::P256_PUBKEY_LEN, P256Pubkey};
@@ -21,7 +21,7 @@ use crate::{
     prover::{transact::SpendProof, ProverClient},
     retry::IndexerRpcConfig,
     rpc::{
-        AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        AsyncRpc, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext,
@@ -217,7 +217,7 @@ impl Rpc for ZolanaIndexer {
     fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -229,7 +229,7 @@ impl Rpc for ZolanaIndexer {
                     .api
                     .get_encrypted_utxos_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .map_err(indexer_error)?;
@@ -242,8 +242,8 @@ impl Rpc for ZolanaIndexer {
                         .enumerate()
                         .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )
@@ -252,7 +252,7 @@ impl Rpc for ZolanaIndexer {
     fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -264,7 +264,7 @@ impl Rpc for ZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .map_err(indexer_error)?;
@@ -296,7 +296,7 @@ impl Rpc for ZolanaIndexer {
     fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -308,7 +308,7 @@ impl Rpc for ZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_nullifiers(
                         nullifiers.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .map_err(indexer_error)?;
@@ -323,8 +323,8 @@ impl Rpc for ZolanaIndexer {
                             convert_shielded_transaction(&format!("transactions[{index}]"), item)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )
@@ -428,7 +428,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_encrypted_utxos_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetEncryptedUtxosByTagsResponse, ClientError> {
@@ -440,7 +440,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_encrypted_utxos_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -454,8 +454,8 @@ impl AsyncRpc for AsyncZolanaIndexer {
                         .enumerate()
                         .map(|(index, item)| convert_encrypted_utxo_match(index, item))
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )
@@ -465,7 +465,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_tags(
         &self,
         tags: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByTagsResponse, ClientError> {
@@ -477,7 +477,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_tags(
                         tags.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -513,7 +513,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
     async fn get_shielded_transactions_by_nullifiers(
         &self,
         nullifiers: Vec<[u8; 32]>,
-        cursor: Option<Vec<u8>>,
+        since: Option<ChainPosition>,
         limit: Option<u32>,
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetShieldedTransactionsByNullifiersResponse, ClientError> {
@@ -525,7 +525,7 @@ impl AsyncRpc for AsyncZolanaIndexer {
                     .api
                     .get_shielded_transactions_by_nullifiers(
                         nullifiers.iter().copied().map(encode_hash).collect(),
-                        encode_cursor(cursor.clone()),
+                        since.map(encode_position),
                         limit.map(u64::from),
                     )
                     .await
@@ -541,8 +541,8 @@ impl AsyncRpc for AsyncZolanaIndexer {
                             convert_shielded_transaction(&format!("transactions[{index}]"), item)
                         })
                         .collect::<Result<Vec<_>, _>>()?,
-                    next_cursor: response.next_cursor.map(Into::into),
-                    scanned_through: response.scanned_through.map(Into::into),
+                    next: response.next.map(decode_position),
+                    latest: response.latest.map(decode_position),
                 })
             },
         )
@@ -679,8 +679,8 @@ fn convert_shielded_transactions_response(
                 convert_shielded_transaction(&format!("transactions[{index}]"), item)
             })
             .collect::<Result<Vec<_>, _>>()?,
-        next_cursor: response.next_cursor.map(Into::into),
-        scanned_through: response.scanned_through.map(Into::into),
+        next: response.next.map(decode_position),
+        latest: response.latest.map(decode_position),
     })
 }
 
@@ -791,8 +791,18 @@ fn encode_pubkey(address: Address) -> SerializablePubkey {
     SerializablePubkey::from(address.to_bytes())
 }
 
-fn encode_cursor(cursor: Option<Vec<u8>>) -> Option<Base64String> {
-    cursor.map(Base64String::from)
+fn encode_position(position: ChainPosition) -> ApiChainPosition {
+    ApiChainPosition {
+        slot: position.slot,
+        signature: SerializableSignature(position.signature),
+    }
+}
+
+fn decode_position(position: ApiChainPosition) -> ChainPosition {
+    ChainPosition {
+        slot: position.slot,
+        signature: position.signature.0,
+    }
 }
 
 fn decode_optional_p256(
@@ -886,13 +896,13 @@ mod tests {
                 },
                 "txViewingPk": STANDARD.encode(&tx_viewing_pk_bytes),
             }],
-            "nextCursor": STANDARD.encode([5, 6]),
+            "next": { "slot": 7, "signature": position(7, 6).signature.to_string() },
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
 
         let got = indexer
-            .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(vec![1, 2, 3]), Some(7), None)
+            .get_encrypted_utxos_by_tags(vec![tag_a, tag_b], Some(position(3, 1)), Some(7), None)
             .expect("encrypted UTXO lookup");
         let request = server.request();
 
@@ -902,7 +912,7 @@ mod tests {
             request.body["params"],
             json!({
                 "tags": [encode_hash_string(tag_a), encode_hash_string(tag_b)],
-                "cursor": STANDARD.encode([1, 2, 3]),
+                "since": { "slot": 3, "signature": position(3, 1).signature.to_string() },
                 "limit": 7,
             })
         );
@@ -928,8 +938,8 @@ mod tests {
                     tx_viewing_pk: Some(tx_viewing_pk),
                     salt: None,
                 }],
-                next_cursor: Some(vec![5, 6]),
-                scanned_through: None,
+                next: Some(position(7, 6)),
+                latest: None,
             }
         );
     }
@@ -960,7 +970,7 @@ mod tests {
                 "nullifiers": [encode_hash_string(nullifier)],
                 "proofless": true,
             }],
-            "nextCursor": STANDARD.encode([23]),
+            "next": { "slot": 50, "signature": position(50, 14).signature.to_string() },
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -1004,8 +1014,8 @@ mod tests {
                     proofless: true,
                     messages: vec![],
                 }],
-                next_cursor: Some(vec![23]),
-                scanned_through: None,
+                next: Some(position(50, 14)),
+                latest: None,
             }
         );
     }
@@ -1058,7 +1068,7 @@ mod tests {
         let response = rpc_result(json!({
             "context": { "blockTime": 52, "slot": 1 },
             "transactions": [],
-            "nextCursor": null,
+            "latest": { "slot": 9, "signature": position(9, 2).signature.to_string() },
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());
@@ -1066,7 +1076,7 @@ mod tests {
         let got = indexer
             .get_shielded_transactions_by_nullifiers(
                 vec![nullifier_a, nullifier_b],
-                Some(vec![1, 2]),
+                Some(position(2, 1)),
                 Some(3),
                 None,
             )
@@ -1082,7 +1092,7 @@ mod tests {
                     encode_hash_string(nullifier_a),
                     encode_hash_string(nullifier_b)
                 ],
-                "cursor": STANDARD.encode([1, 2]),
+                "since": { "slot": 2, "signature": position(2, 1).signature.to_string() },
                 "limit": 3,
             })
         );
@@ -1094,10 +1104,17 @@ mod tests {
                     slot: 1
                 },
                 transactions: vec![],
-                next_cursor: None,
-                scanned_through: None,
+                next: None,
+                latest: Some(position(9, 2)),
             }
         );
+    }
+
+    fn position(slot: u64, byte: u8) -> ChainPosition {
+        ChainPosition {
+            slot,
+            signature: signature(byte),
+        }
     }
 
     #[test]
@@ -1304,7 +1321,6 @@ mod tests {
                 "nullifiers": [],
                 "proofless": true,
             }],
-            "nextCursor": null,
         }));
         let server = MockServer::respond_once(response);
         let indexer = ZolanaIndexer::new(server.url());

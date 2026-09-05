@@ -16,16 +16,13 @@ pub use get_shielded_transactions_by_tags::get_shielded_transactions_by_tags;
 
 #[cfg(test)]
 mod tests {
-    use super::common::{decode_cursor, encode_cursor, validate_proof_leaves, CursorKind};
-    use super::get_encrypted_utxos_by_tags::EncryptedUtxoCursor;
-    use super::get_shielded_transactions_by_tags::ShieldedTxCursor;
+    use super::common::validate_proof_leaves;
     use crate::api::error::PhotonApiError;
     use crate::common::bn254::BN254_FIELD_SIZE_MINUS_ONE_BYTES;
     use crate::common::rings_tree::RingsTreeKind;
     use serde_json::Value;
-    use solana_signature::SIGNATURE_BYTES;
     use zolana_indexer_api::{
-        Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
+        Base64String, ChainPosition, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsRequest, Hash, MerkleContext, NonInclusionProof, RingsMessage,
         RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature,
         ShieldedTransaction,
@@ -40,50 +37,16 @@ mod tests {
     }
 
     #[test]
-    fn cursor_codecs_round_trip_typed_values() {
-        let signature = [7; SIGNATURE_BYTES];
-        let encrypted = EncryptedUtxoCursor {
+    fn one_position_serves_every_rings_stream() {
+        let position = ChainPosition {
             slot: 42,
-            signature,
-            event_index: 3,
-            output_index: 5,
+            signature: SerializableSignature::default(),
         };
-        let encrypted_cursor =
-            Base64String(encode_cursor(CursorKind::EncryptedUtxos, &encrypted).unwrap());
-        assert_eq!(
-            decode_cursor::<EncryptedUtxoCursor>(CursorKind::EncryptedUtxos, &encrypted_cursor)
-                .unwrap(),
-            encrypted
-        );
-
-        let shielded = ShieldedTxCursor {
-            slot: 43,
-            signature,
-            event_index: 8,
-        };
-        let shielded_cursor =
-            Base64String(encode_cursor(CursorKind::ShieldedTxByTags, &shielded).unwrap());
-        assert_eq!(
-            decode_cursor::<ShieldedTxCursor>(CursorKind::ShieldedTxByTags, &shielded_cursor)
-                .unwrap(),
-            shielded
-        );
-
-        let mut malformed_cursor = shielded_cursor.0.clone();
-        malformed_cursor.push(1);
-        assert!(decode_cursor::<ShieldedTxCursor>(
-            CursorKind::ShieldedTxByTags,
-            &Base64String(malformed_cursor)
-        )
-        .is_err());
-
-        // Tags and nullifiers share this cursor byte for byte, so without the
-        // kind one resumes mid-scan in the other and skips silently.
-        assert!(decode_cursor::<ShieldedTxCursor>(
-            CursorKind::ShieldedTxByNullifiers,
-            &shielded_cursor
-        )
-        .is_err());
+        let json = serde_json::to_value(&position).unwrap();
+        assert!(json.get("slot").is_some());
+        assert!(json.get("signature").is_some());
+        let round_tripped: ChainPosition = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, position);
     }
 
     #[test]
@@ -222,20 +185,23 @@ mod tests {
     }
 
     #[test]
-    fn serializes_response_cursor_like_rings_spec() {
+    fn serializes_response_positions_like_rings_spec() {
         let value = serde_json::to_value(GetEncryptedUtxosByTagsResponse {
             context: Context {
                 block_time: 10,
                 slot: 1,
             },
             matches: Vec::new(),
-            next_cursor: Some(Base64String(vec![1, 2, 3])),
-            scanned_through: None,
+            next: Some(ChainPosition {
+                slot: 1,
+                signature: SerializableSignature::default(),
+            }),
+            latest: None,
         })
         .unwrap();
 
         assert!(matches!(value, Value::Object(_)));
-        assert!(value.get("nextCursor").is_some());
-        assert!(value.get("next_cursor").is_none());
+        assert!(value.get("next").is_some());
+        assert!(value.get("latest").is_none());
     }
 }

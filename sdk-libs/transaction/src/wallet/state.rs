@@ -1,6 +1,10 @@
-use std::collections::{hash_map::Entry, BTreeSet, HashMap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{hash_map::Entry, BTreeSet, HashMap, HashSet},
+};
 
 use solana_address::Address;
+use solana_signature::Signature;
 use zolana_keypair::{shielded::ShieldedAddress, viewing_key::ViewTag, P256Pubkey};
 
 use crate::{
@@ -136,6 +140,29 @@ pub struct SyncReport {
     pub unknown_asset_ids: BTreeSet<u64>,
 }
 
+/// One transaction's place in the total order every rings stream shares.
+///
+/// Ordered by `(slot, signature)`, matching the indexer's pagination. Record a
+/// position only once every row of that transaction has been applied, a resume
+/// returns rows strictly after it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChainPosition {
+    pub slot: u64,
+    pub signature: Signature,
+}
+
+impl Ord for ChainPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.slot, self.signature.as_ref()).cmp(&(other.slot, other.signature.as_ref()))
+    }
+}
+
+impl PartialOrd for ChainPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// One key on one indexer stream. `ViewTag` is `[u8; 32]`, so the variant is
 /// what stops a tag being read as a nullifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -175,7 +202,7 @@ pub struct Wallet {
     pub last_synced: i64,
     /// Per key, the position everything matching it has been seen through.
     /// Streams advance independently. Nullifier entries die with their spend.
-    pub cursors: HashMap<CursorStream, Vec<u8>>,
+    pub cursors: HashMap<CursorStream, ChainPosition>,
 }
 
 impl Wallet {

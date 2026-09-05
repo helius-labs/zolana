@@ -1,5 +1,5 @@
 import { ZolanaApi } from "../api/index.js";
-import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
+import { hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
   GetEncryptedUtxosByTagsResponse as WireGetEncryptedUtxosByTagsResponse,
@@ -30,6 +30,7 @@ import {
   type IndexerRpcConfig,
 } from "./retry.js";
 import {
+  type ChainPosition,
   type EncryptedUtxoMatch,
   type GetByNullifiersRequest,
   type GetByTagsRequest,
@@ -67,7 +68,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getEncryptedUtxosByTags(
           {
             tags: owned.tags.map((tag) => hash(tag)),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.since === undefined ? {} : { since: owned.since }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -91,7 +92,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByTags(
           {
             tags: owned.tags.map((tag) => hash(tag)),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.since === undefined ? {} : { since: owned.since }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -115,7 +116,7 @@ export class ZolanaIndexer {
         const response = await this.#api.getShieldedTransactionsByNullifiers(
           {
             nullifiers: owned.nullifiers.map((nullifier) => hash(nullifier)),
-            ...(owned.cursor === undefined ? {} : { cursor: base64String(owned.cursor) }),
+            ...(owned.since === undefined ? {} : { since: owned.since }),
             ...(owned.limit === undefined ? {} : { limit: limit(BigInt(owned.limit)) }),
           },
           context,
@@ -202,25 +203,29 @@ export class ZolanaIndexer {
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
-  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
-  }
+  const since = copiedPosition(request.since);
   return Object.freeze({
     tags: copyFixedBytes(request.tags, 32, "tags") as readonly Bytes32[],
-    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
+    ...(since === undefined ? {} : { since }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });
 }
 
 function copyNullifierRequest(request: GetByNullifiersRequest): GetByNullifiersRequest {
-  if (request.cursor !== undefined && !(request.cursor instanceof Uint8Array)) {
-    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "cursor" } });
-  }
+  const since = copiedPosition(request.since);
   return Object.freeze({
     nullifiers: copyFixedBytes(request.nullifiers, 32, "nullifiers") as readonly Bytes32[],
-    ...(request.cursor === undefined ? {} : { cursor: new Uint8Array(request.cursor) }),
+    ...(since === undefined ? {} : { since }),
     ...(request.limit === undefined ? {} : { limit: checkedPageLimit(request.limit) }),
   });
+}
+
+function copiedPosition(position: ChainPosition | undefined): ChainPosition | undefined {
+  if (position === undefined) return undefined;
+  if (typeof position.slot !== "bigint" || typeof position.signature !== "string") {
+    throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "since" } });
+  }
+  return Object.freeze({ slot: position.slot, signature: position.signature });
 }
 
 function checkedPageLimit(value: number): number {
@@ -299,12 +304,8 @@ function convertEncryptedUtxosResponse(
         convertEncryptedUtxoMatch(item, method, `$.matches[${String(index)}]`),
       ),
     ),
-    ...(response.nextCursor === undefined
-      ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
-    ...(response.scannedThrough === undefined
-      ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
+    ...(response.next === undefined ? {} : { next: Object.freeze({ ...response.next }) }),
+    ...(response.latest === undefined ? {} : { latest: Object.freeze({ ...response.latest }) }),
   });
 }
 
@@ -335,12 +336,8 @@ function convertShieldedTransactionsResponse(
         convertShieldedTransaction(item, method, `$.transactions[${String(index)}]`),
       ),
     ),
-    ...(response.nextCursor === undefined
-      ? {}
-      : { nextCursor: decodeBase64(response.nextCursor, "nextCursor") }),
-    ...(response.scannedThrough === undefined
-      ? {}
-      : { scannedThrough: decodeBase64(response.scannedThrough, "scannedThrough") }),
+    ...(response.next === undefined ? {} : { next: Object.freeze({ ...response.next }) }),
+    ...(response.latest === undefined ? {} : { latest: Object.freeze({ ...response.latest }) }),
   });
 }
 

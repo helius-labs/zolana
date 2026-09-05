@@ -38,26 +38,33 @@ describe("rings-by-tags request encoding", () => {
 });
 
 describe("shielded transactions by tags response", () => {
-  const page = { context: { blockTime: 1, slot: 2 }, transactions: [], nextCursor: null };
+  const signature = "1".repeat(64);
+  const page = { context: { blockTime: 1, slot: 2 }, transactions: [], next: null };
 
-  it("accepts the scan position newer indexers report, and pages without it", () => {
+  it("accepts the stream tip a terminal page reports, and pages without it", () => {
     expect(decodeShieldedTransactionsResponse(page)).toEqual({
       context: { blockTime: 1n, slot: 2n },
       transactions: [],
     });
-    expect(decodeShieldedTransactionsResponse({ ...page, scannedThrough: "AQID" })).toEqual({
-      context: { blockTime: 1n, slot: 2n },
-      transactions: [],
-      scannedThrough: "AQID",
-    });
+    expect(decodeShieldedTransactionsResponse({ ...page, latest: { slot: 3, signature } })).toEqual(
+      {
+        context: { blockTime: 1n, slot: 2n },
+        transactions: [],
+        latest: { slot: 3n, signature },
+      },
+    );
     expect(() => decodeShieldedTransactionsResponse({ ...page, extra: 1 })).toThrow();
     expect(
       decodeEncryptedUtxosResponse({
         context: page.context,
         matches: [],
-        nextCursor: null,
-        scannedThrough: "AQID",
+        next: null,
+        latest: { slot: 3, signature },
       }),
-    ).toEqual({ context: { blockTime: 1n, slot: 2n }, matches: [], scannedThrough: "AQID" });
+    ).toEqual({
+      context: { blockTime: 1n, slot: 2n },
+      matches: [],
+      latest: { slot: 3n, signature },
+    });
   });
 });

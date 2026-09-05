@@ -67,26 +67,52 @@ describe("wallet persistence", () => {
   it("round-trips sync cursors on every stream", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), Uint8Array.of(1, 2));
-    wallet._setSyncCursor("proofless", "bb".repeat(32), Uint8Array.of(3));
-    wallet._setSyncCursor("nullifiers", "cc".repeat(32), Uint8Array.of(4, 5, 6));
+    wallet._setSyncCursor("transactions", "aa".repeat(32), { slot: 1n, signature: SIGNATURE });
+    wallet._setSyncCursor("proofless", "bb".repeat(32), { slot: 2n, signature: SIGNATURE });
+    wallet._setSyncCursor("nullifiers", "cc".repeat(32), { slot: 3n, signature: SIGNATURE });
 
     const serialized = serializeWallet(wallet);
     const restored = deserializeWallet(serialized);
 
-    expect(restored._syncCursor("transactions", "aa".repeat(32))).toEqual(Uint8Array.of(1, 2));
-    expect(restored._syncCursor("proofless", "bb".repeat(32))).toEqual(Uint8Array.of(3));
-    expect(restored._syncCursor("nullifiers", "cc".repeat(32))).toEqual(Uint8Array.of(4, 5, 6));
+    expect(restored._syncCursor("transactions", "aa".repeat(32))).toEqual({
+      slot: 1n,
+      signature: SIGNATURE,
+    });
+    expect(restored._syncCursor("proofless", "bb".repeat(32))).toEqual({
+      slot: 2n,
+      signature: SIGNATURE,
+    });
+    expect(restored._syncCursor("nullifiers", "cc".repeat(32))).toEqual({
+      slot: 3n,
+      signature: SIGNATURE,
+    });
     expect(serializeWallet(restored)).toBe(serialized);
   });
 
   it("accepts version 2 state with empty cursors", () => {
     const keypair = ShieldedKeypair.generate();
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    wallet._setSyncCursor("transactions", "aa".repeat(32), Uint8Array.of(1));
+    wallet._setSyncCursor("transactions", "aa".repeat(32), { slot: 1n, signature: SIGNATURE });
     const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
     snapshot["version"] = 2;
     delete snapshot["syncCursors"];
+
+    const restored = deserializeWallet(JSON.stringify(snapshot));
+
+    expect(restored._syncCursor("transactions", "aa".repeat(32))).toBeUndefined();
+  });
+
+  it("accepts version 3 state and drops its byte cursors", () => {
+    const keypair = ShieldedKeypair.generate();
+    const wallet = new Wallet({ identity: keypair.shieldedAddress() });
+    const snapshot = JSON.parse(serializeWallet(wallet)) as Record<string, unknown>;
+    snapshot["version"] = 3;
+    // Version 3 stored opaque cursor bytes, positions in a retired encoding.
+    snapshot["syncCursors"] = {
+      transactions: [{ key: "aa".repeat(32), cursor: "AQI=" }],
+      proofless: [],
+      nullifiers: [],
+    };
 
     const restored = deserializeWallet(JSON.stringify(snapshot));
 
@@ -102,9 +128,13 @@ describe("wallet persistence", () => {
       nullifiers: new Set(["dd".repeat(32)]),
     });
     const snapshot = JSON.parse(serializeWallet(wallet)) as {
-      syncCursors: { nullifiers: { key: string; cursor: string }[] };
+      syncCursors: { nullifiers: { key: string; slot: string; signature: string }[] };
     };
-    snapshot.syncCursors.nullifiers.push({ key: "dd".repeat(32), cursor: "AQI=" });
+    snapshot.syncCursors.nullifiers.push({
+      key: "dd".repeat(32),
+      slot: "1",
+      signature: SIGNATURE,
+    });
 
     const restored = deserializeWallet(JSON.stringify(snapshot));
 

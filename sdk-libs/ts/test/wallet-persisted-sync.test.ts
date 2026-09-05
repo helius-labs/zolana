@@ -25,41 +25,41 @@ const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const SIGNATURE = "1".repeat(64) as Signature;
 
-const TAG_CURSOR = Uint8Array.of(1, 1);
-const PROOFLESS_CURSOR = Uint8Array.of(2, 2);
-const NULLIFIER_CURSOR = Uint8Array.of(3, 3);
+const TAG_TIP = Object.freeze({ slot: 1n as bigint, signature: SIGNATURE });
+const PROOFLESS_TIP = Object.freeze({ slot: 2n as bigint, signature: SIGNATURE });
+const NULLIFIER_TIP = Object.freeze({ slot: 3n as bigint, signature: SIGNATURE });
 
 function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
-interface RequestWithCursor {
-  readonly cursor?: Uint8Array;
+interface RequestWithSince {
+  readonly since?: Readonly<{ slot: bigint; signature: Signature }>;
 }
 
-function firstCursor(
-  fake: ReturnType<typeof vi.fn<(request: RequestWithCursor) => Promise<unknown>>>,
-): Uint8Array | undefined {
-  return fake.mock.calls[0]?.[0]?.cursor;
+function firstSince(
+  fake: ReturnType<typeof vi.fn<(request: RequestWithSince) => Promise<unknown>>>,
+): Readonly<{ slot: bigint; signature: Signature }> | undefined {
+  return fake.mock.calls[0]?.[0]?.since;
 }
 
 /** Terminal pages carrying one distinct resume position per stream. */
 function cursorPages() {
   return {
-    getShieldedTransactionsByTags: vi.fn(async (_request: RequestWithCursor) => ({
+    getShieldedTransactionsByTags: vi.fn(async (_request: RequestWithSince) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
-      scannedThrough: TAG_CURSOR,
+      latest: TAG_TIP,
     })),
-    getEncryptedUtxosByTags: vi.fn(async (_request: RequestWithCursor) => ({
+    getEncryptedUtxosByTags: vi.fn(async (_request: RequestWithSince) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       matches: [],
-      scannedThrough: PROOFLESS_CURSOR,
+      latest: PROOFLESS_TIP,
     })),
-    getShieldedTransactionsByNullifiers: vi.fn(async (_request: RequestWithCursor) => ({
+    getShieldedTransactionsByNullifiers: vi.fn(async (_request: RequestWithSince) => ({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
-      scannedThrough: NULLIFIER_CURSOR,
+      latest: NULLIFIER_TIP,
     })),
   };
 }
@@ -134,7 +134,7 @@ describe("persisted wallet sync", () => {
     expect(store.save).toHaveBeenCalledTimes(1);
     expect(store.saved).toBe(snapshot);
     expect(snapshot).toBe(serializeWallet(wallet));
-    expect((JSON.parse(snapshot) as { version: number }).version).toBe(3);
+    expect((JSON.parse(snapshot) as { version: number }).version).toBe(4);
     expect(wallet.lastSynced).toBeGreaterThan(0n);
     expect(report.storedUtxos).toBe(0);
   });
@@ -155,9 +155,9 @@ describe("persisted wallet sync", () => {
     const reads = cursorPages();
     await syncWallet({ wallet: restored, authority, client: syncReads(reads) });
 
-    expect(firstCursor(reads.getShieldedTransactionsByTags)).toEqual(TAG_CURSOR);
-    expect(firstCursor(reads.getEncryptedUtxosByTags)).toEqual(PROOFLESS_CURSOR);
-    expect(firstCursor(reads.getShieldedTransactionsByNullifiers)).toEqual(NULLIFIER_CURSOR);
+    expect(firstSince(reads.getShieldedTransactionsByTags)).toEqual(TAG_TIP);
+    expect(firstSince(reads.getEncryptedUtxosByTags)).toEqual(PROOFLESS_TIP);
+    expect(firstSince(reads.getShieldedTransactionsByNullifiers)).toEqual(NULLIFIER_TIP);
   });
 
   it("saves nothing when the indexer fails", async () => {
@@ -206,7 +206,7 @@ describe("persisted wallet sync", () => {
       store,
       cipher: plainCipher,
     });
-    expect(firstCursor(reads.getShieldedTransactionsByTags)).toBeUndefined();
+    expect(firstSince(reads.getShieldedTransactionsByTags)).toBeUndefined();
     const saved = JSON.parse(store.saved ?? "") as {
       syncCursors: Record<string, readonly unknown[]>;
     };
@@ -234,7 +234,7 @@ describe("persisted wallet sync", () => {
     readsB.getShieldedTransactionsByTags.mockResolvedValue({
       context: { blockTime: 1_700_000_000n, slot: 0n },
       transactions: [],
-      scannedThrough: Uint8Array.of(9, 9),
+      latest: { slot: 9n, signature: SIGNATURE },
     });
 
     const first = syncPersistedWallet({
@@ -311,7 +311,7 @@ describe("persisted wallet sync", () => {
       cipher: plainCipher,
     });
 
-    expect(firstCursor(retryReads.getShieldedTransactionsByTags)).toEqual(TAG_CURSOR);
+    expect(firstSince(retryReads.getShieldedTransactionsByTags)).toEqual(TAG_TIP);
     expect(store.saved).toBe(snapshot);
     const saved = JSON.parse(snapshot) as { syncCursors: { transactions: readonly unknown[] } };
     expect(saved.syncCursors.transactions).not.toHaveLength(0);
@@ -337,7 +337,7 @@ describe("persisted wallet sync", () => {
       version: number;
       syncCursors: { transactions: readonly unknown[] };
     };
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     expect(saved.syncCursors.transactions).not.toHaveLength(0);
   });
 });

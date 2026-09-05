@@ -350,7 +350,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     for ring_program_id in [None, Some(ours)] {
         let request = GetRingsByTagsRequest {
             tags: vec![Hash::from(view_tag)],
-            cursor: None,
+            since: None,
             limit: None,
             ring_program_id,
         };
@@ -370,13 +370,13 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
             3,
             "ring_program_id={ring_program_id:?}"
         );
-        assert!(shielded.scanned_through.is_some());
-        assert!(encrypted.scanned_through.is_some());
+        assert!(shielded.latest.is_some());
+        assert!(encrypted.latest.is_some());
     }
 
     let other_ring = GetRingsByTagsRequest {
         tags: vec![Hash::from(view_tag)],
-        cursor: None,
+        since: None,
         limit: None,
         ring_program_id: Some(theirs),
     };
@@ -390,15 +390,15 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     assert!(encrypted.matches.is_empty());
 
     let shielded_frontier = shielded
-        .scanned_through
+        .latest
         .expect("an exhausted transaction scan reports its frontier");
     let encrypted_frontier = encrypted
-        .scanned_through
+        .latest
         .expect("an exhausted UTXO scan reports its frontier");
     let resumed_shielded = get_shielded_transactions_by_tags(
         &db,
         GetRingsByTagsRequest {
-            cursor: Some(shielded_frontier.clone()),
+            since: Some(shielded_frontier.clone()),
             ..other_ring.clone()
         },
     )
@@ -407,7 +407,7 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     let resumed_encrypted = get_encrypted_utxos_by_tags(
         &db,
         GetRingsByTagsRequest {
-            cursor: Some(encrypted_frontier.clone()),
+            since: Some(encrypted_frontier.clone()),
             ..other_ring
         },
     )
@@ -415,8 +415,8 @@ async fn both_tag_endpoints_honour_the_ring_filter() {
     .expect("resume UTXO scan");
     assert!(resumed_shielded.transactions.is_empty());
     assert!(resumed_encrypted.matches.is_empty());
-    assert_eq!(resumed_shielded.scanned_through, Some(shielded_frontier));
-    assert_eq!(resumed_encrypted.scanned_through, Some(encrypted_frontier));
+    assert_eq!(resumed_shielded.latest, Some(shielded_frontier));
+    assert_eq!(resumed_encrypted.latest, Some(encrypted_frontier));
 }
 
 #[test]
@@ -1524,7 +1524,7 @@ async fn assert_rings_api_exposes_output_hashes(
         .expect("output payload should exist");
     let request = GetRingsByTagsRequest {
         tags: vec![Hash::try_from(output.view_tag.clone()).unwrap()],
-        cursor: None,
+        since: None,
         limit: None,
         ring_program_id: None,
     };
@@ -1533,10 +1533,10 @@ async fn assert_rings_api_exposes_output_hashes(
         .await
         .unwrap();
     assert_eq!(shielded.context.block_time, UNSHIELD_SLOT as i64);
-    // A non-empty page carries the position of its last row even when it is
-    // short, so a client can resume from the tip rather than rescan. The stream
-    // ends on the next page, which comes back empty.
-    assert!(shielded.next_cursor.is_some());
+    // A short page is terminal, so it reports the stream tip rather than a
+    // next page to follow.
+    assert!(shielded.next.is_none());
+    assert!(shielded.latest.is_some());
     assert!(!shielded.transactions.is_empty());
     let output_slot = shielded
         .transactions
@@ -1599,7 +1599,8 @@ async fn assert_rings_api_exposes_output_hashes(
 
     let encrypted = get_encrypted_utxos_by_tags(db, request).await.unwrap();
     assert_eq!(encrypted.context.block_time, UNSHIELD_SLOT as i64);
-    assert!(encrypted.next_cursor.is_some());
+    assert!(encrypted.next.is_none());
+    assert!(encrypted.latest.is_some());
     assert!(!encrypted.matches.is_empty());
     let encrypted_match = encrypted
         .matches

@@ -9,14 +9,14 @@ use crate::dao::generated::{indexed_trees, rings_outputs};
 use crate::ingester::parser::tree_info::TreeInfo;
 use crate::ingester::persist::MerkleProofWithContext;
 use crate::rpc::RpcClient;
-use bincode::{Decode, Encode};
 use sea_orm::{
-    ColumnTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, Value,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseTransaction, EntityTrait, QueryFilter,
+    QueryOrder, Value,
 };
 use solana_signature::{Signature, SIGNATURE_BYTES};
 use zolana_indexer_api::{
-    Base64String, Hash, MerkleContext, MerkleProof, NonInclusionProof, RingsOutputContext,
-    RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
+    Base64String, ChainPosition, Hash, MerkleContext, MerkleProof, NonInclusionProof,
+    RingsOutputContext, RingsOutputSlot, SerializablePubkey, SerializableSignature, PAGE_LIMIT,
 };
 
 pub(super) fn validate_tags(tags: &[Hash]) -> Result<(), PhotonApiError> {
@@ -283,115 +283,60 @@ pub(super) fn bind_u64_as_i64(
     Ok(bind_sql_value(params, backend, value))
 }
 
-/// Builds the "strictly after this position" predicate as a row comparison.
+/// Builds the "strictly after this transaction" predicate as a row comparison.
 ///
 /// `alias` must name the table the query's ORDER BY uses. Filtering on one table
 /// while sorting by another cannot use an index for both.
 ///
-/// `trailing` appends further columns, for callers whose sort key extends past
-/// the transaction (the UTXO endpoint adds `output_index`).
-///
 /// A row comparison rather than the equivalent chain of ORs: Postgres can begin
 /// an index scan at `(a, b) > (x, y)` and cannot at
 /// `a > x OR (a = x AND b > y)`, where each page costs more than the last.
-pub(super) fn tx_cursor_sql_condition(
+pub(super) fn since_sql_condition(
     alias: &str,
-    slot: u64,
-    signature: &[u8],
-    event_index: u16,
-    trailing: &[(&str, i32)],
+    since: &ChainPosition,
     backend: DatabaseBackend,
     params: &mut Vec<Value>,
 ) -> Result<String, PhotonApiError> {
-    let slot = bind_u64_as_i64(params, backend, slot)?;
-    let signature = bind_sql_value(params, backend, signature.to_vec());
-    let event_index_value = bind_sql_value(params, backend, i32::from(event_index));
-
-    let mut columns = vec![
-        format!("{alias}.slot"),
-        format!("{alias}.signature"),
-        format!("{alias}.event_index"),
-    ];
-    let mut values = vec![slot, signature, event_index_value];
-    for (column, value) in trailing {
-        columns.push(format!("{alias}.{column}"));
-        values.push(bind_sql_value(params, backend, *value));
-    }
-
+    let slot = bind_u64_as_i64(params, backend, since.slot)?;
+    let signature = bind_sql_value(params, backend, since.signature.0.as_ref().to_vec());
     Ok(format!(
-        "({}) > ({})",
-        columns.join(", "),
-        values.join(", ")
+        "({alias}.slot, {alias}.signature) > ({slot}, {signature})"
     ))
 }
 
-/// Which stream minted a cursor, as its first byte.
-///
-/// Tags and nullifiers share `ShieldedTxCursor` byte for byte, so one resumes
-/// cleanly in the other and skips every match before it. Encrypted-utxo cursors
-/// differ only by length, which is accident, not design.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(super) enum CursorKind {
-    EncryptedUtxos = 1,
-    ShieldedTxByTags = 2,
-    ShieldedTxByNullifiers = 3,
-}
-
-pub(super) fn decode_cursor<T: Decode<()>>(
-    kind: CursorKind,
-    cursor: &Base64String,
-) -> Result<T, PhotonApiError> {
-    let (tag, body) = cursor
-        .0
-        .split_first()
-        .ok_or_else(|| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
-    if *tag != kind as u8 {
+/// Rows below the first indexed block were never ingested, so a silent resume
+/// from that gap would skip them forever.
+pub(super) async fn ensure_since_indexed(
+    tx: &DatabaseTransaction,
+    since: &ChainPosition,
+) -> Result<(), PhotonApiError> {
+    let backend = tx.get_database_backend();
+    let floor = tx
+        .query_one(sea_orm::Statement::from_string(
+            backend,
+            "SELECT MIN(slot) AS slot FROM blocks".to_owned(),
+        ))
+        .await?
+        .and_then(|row| row.try_get::<Option<i64>>("", "slot").ok())
+        .flatten();
+    let complete = match floor {
+        Some(floor) => since.slot.saturating_add(1) >= u64_from_i64(floor, "slot")?,
+        None => false,
+    };
+    if !complete {
         return Err(PhotonApiError::ValidationError(
-            "Invalid cursor: it belongs to a different query".to_string(),
+            "since precedes the indexed history".to_string(),
         ));
     }
-
-    let config = cursor_bincode_config();
-    let (decoded, bytes_read) = bincode::decode_from_slice(body, config)
-        .map_err(|_| PhotonApiError::ValidationError("Invalid cursor".to_string()))?;
-
-    if bytes_read != body.len() {
-        return Err(PhotonApiError::ValidationError(
-            "Invalid cursor: trailing bytes".to_string(),
-        ));
-    }
-
-    Ok(decoded)
+    Ok(())
 }
 
-pub(super) fn encode_cursor<T: Encode>(
-    kind: CursorKind,
-    cursor: &T,
-) -> Result<Vec<u8>, PhotonApiError> {
-    let config = cursor_bincode_config();
-    let body = bincode::encode_to_vec(cursor, config)
-        .map_err(|_| PhotonApiError::UnexpectedError("Failed to encode cursor".to_string()))?;
-    let mut encoded = Vec::with_capacity(1 + body.len());
-    encoded.push(kind as u8);
-    encoded.extend_from_slice(&body);
-    Ok(encoded)
-}
-
-fn cursor_bincode_config() -> impl bincode::config::Config {
-    bincode::config::standard()
-        .with_big_endian()
-        .with_fixed_int_encoding()
-}
-
-/// Position of the last row returned, or `None` when there were none.
-pub(super) fn next_cursor_from_rows<T>(
-    rows: &[T],
-    cursor_from_row: impl FnOnce(&T) -> Result<Vec<u8>, PhotonApiError>,
-) -> Result<Option<Base64String>, PhotonApiError> {
-    rows.last()
-        .map(cursor_from_row)
-        .transpose()
-        .map(|cursor| cursor.map(Base64String))
+/// The position of one fetched row's transaction.
+pub(super) fn chain_position(slot: i64, signature: &[u8]) -> Result<ChainPosition, PhotonApiError> {
+    Ok(ChainPosition {
+        slot: u64_from_i64(slot, "slot")?,
+        signature: signature_from_bytes(signature)?,
+    })
 }
 
 pub(super) fn signature_from_bytes(bytes: &[u8]) -> Result<SerializableSignature, PhotonApiError> {
@@ -404,18 +349,6 @@ pub(super) fn signature_array(bytes: &[u8]) -> Result<[u8; SIGNATURE_BYTES], Pho
     bytes
         .try_into()
         .map_err(|_| PhotonApiError::UnexpectedError("Invalid signature bytes".to_string()))
-}
-
-pub(super) fn cursor_sort_key(
-    slot: i64,
-    signature: &[u8],
-    event_index: i16,
-) -> Result<(u64, [u8; SIGNATURE_BYTES], u16), PhotonApiError> {
-    Ok((
-        u64_from_i64(slot, "slot")?,
-        signature_array(signature)?,
-        u16_from_i16(event_index, "event index")?,
-    ))
 }
 
 pub(super) fn hash_from_vec(bytes: Vec<u8>) -> Result<Hash, PhotonApiError> {
@@ -474,33 +407,6 @@ pub(super) fn rings_output_slot_from_parts(
 mod tests {
     use super::*;
 
-    fn cursor_of(row: &u64) -> Result<Vec<u8>, PhotonApiError> {
-        Ok(row.to_be_bytes().to_vec())
-    }
-
-    /// The cursor doubles as the client's sync watermark, so a short page has to
-    /// carry one. Returning `None` there -- correct for "is there another page?"
-    /// -- made every wallet whose history fits in one page refetch all of it on
-    /// every sync.
-    #[test]
-    fn a_short_page_still_reports_its_last_row() {
-        let rows = vec![10u64, 50];
-        let cursor = next_cursor_from_rows(&rows, cursor_of).expect("cursor");
-        assert_eq!(
-            cursor.map(|c| c.0),
-            Some(50u64.to_be_bytes().to_vec()),
-            "a page below the limit still reports where it got to"
-        );
-    }
-
-    /// How the loop terminates now: the client asks once more and gets nothing.
-    #[test]
-    fn an_empty_page_ends_the_stream() {
-        let rows: Vec<u64> = Vec::new();
-        let cursor = next_cursor_from_rows(&rows, cursor_of).expect("cursor");
-        assert!(cursor.is_none(), "no rows means no position to resume from");
-    }
-
     fn tree_info_with(root_history_capacity: u64) -> TreeInfo {
         TreeInfo {
             tree: Default::default(),
@@ -557,28 +463,24 @@ mod tests {
         );
     }
 
-    /// The cursor must read from whichever table the query sorts by. Reading it
-    /// from `po` is half of what keeps the query on its index; the ORDER BY is
-    /// the other half, and the two have to agree.
+    /// The resume predicate must read from whichever table the query sorts by.
+    /// Reading it from `po` is half of what keeps the query on its index; the
+    /// ORDER BY is the other half, and the two have to agree.
     #[test]
-    fn the_cursor_predicate_reads_from_the_table_it_is_told_to() {
+    fn the_since_predicate_reads_from_the_table_it_is_told_to() {
+        let since = ChainPosition {
+            slot: 42,
+            signature: SerializableSignature(Signature::from([7u8; 64])),
+        };
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "po",
-            42,
-            &[7u8; 64],
-            3,
-            &[],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
-        .expect("condition");
+        let sql = since_sql_condition("po", &since, DatabaseBackend::Postgres, &mut params)
+            .expect("condition");
 
         assert!(
             !sql.contains("pt."),
             "a po-ordered query must not filter on pt: {sql}"
         );
-        for column in ["po.slot", "po.signature", "po.event_index"] {
+        for column in ["po.slot", "po.signature"] {
             assert!(sql.contains(column), "expected {column} in: {sql}");
         }
     }
@@ -586,44 +488,36 @@ mod tests {
     /// The predicate must stay a row comparison: Postgres cannot begin an index
     /// scan at the equivalent OR chain.
     #[test]
-    fn the_cursor_predicate_is_a_row_comparison_so_the_index_can_seek() {
+    fn the_since_predicate_is_a_row_comparison_so_the_index_can_seek() {
+        let since = ChainPosition {
+            slot: 42,
+            signature: SerializableSignature(Signature::from([7u8; 64])),
+        };
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "po",
-            42,
-            &[7u8; 64],
-            3,
-            &[("output_index", 5)],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
-        .expect("condition");
+        let sql = since_sql_condition("po", &since, DatabaseBackend::Postgres, &mut params)
+            .expect("condition");
 
         assert!(
             !sql.contains(" OR "),
             "an OR chain cannot be used as an index seek: {sql}"
         );
         assert!(
-            sql.starts_with("(po.slot, po.signature, po.event_index, po.output_index) > ("),
+            sql.starts_with("(po.slot, po.signature) > ("),
             "expected a single row comparison in sort-key order: {sql}"
         );
-        assert_eq!(params.len(), 4, "one bind per column in the comparison");
+        assert_eq!(params.len(), 2, "one bind per column in the comparison");
     }
 
     /// The aliases are not interchangeable.
     #[test]
-    fn the_transactions_cursor_still_reads_from_the_transactions_table() {
+    fn the_transactions_predicate_still_reads_from_the_transactions_table() {
+        let since = ChainPosition {
+            slot: 42,
+            signature: SerializableSignature(Signature::from([7u8; 64])),
+        };
         let mut params = Vec::new();
-        let sql = tx_cursor_sql_condition(
-            "pt",
-            42,
-            &[7u8; 64],
-            3,
-            &[],
-            DatabaseBackend::Postgres,
-            &mut params,
-        )
-        .expect("condition");
+        let sql = since_sql_condition("pt", &since, DatabaseBackend::Postgres, &mut params)
+            .expect("condition");
 
         assert!(!sql.contains("po."), "unexpected po reference in: {sql}");
         assert!(sql.contains("pt.slot"), "expected pt.slot in: {sql}");

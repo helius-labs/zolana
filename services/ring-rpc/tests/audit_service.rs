@@ -14,7 +14,9 @@ use solana_address::Address;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Context, GetShieldedTransactionsByTagsResponse};
+use zolana_client::{
+    rpc::ChainPosition, ClientError, Context, GetShieldedTransactionsByTagsResponse,
+};
 use zolana_indexer_api::{Base64String, Hash, Limit};
 use zolana_interface::instruction::MessageData;
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
@@ -203,7 +205,7 @@ fn decide_now(auth: &ReadAuth, origins: &Origins) -> Result<Claim, Unauthorized>
             ring: RING,
             timestamp: auth.timestamp,
             nonce,
-            cursor: None,
+            since: None,
             limit: None,
         },
     )
@@ -284,7 +286,7 @@ fn passkeys_require_canonical_same_origin_assertions() {
 struct StaticSource {
     transactions: Vec<ShieldedTransaction>,
     origins: HashMap<Signature, bool>,
-    next_cursor: Option<Vec<u8>>,
+    next: Option<ChainPosition>,
     /// Per ring, so a read can never be authorized against another ring's
     /// config.
     configs: HashMap<Address, RingConfiguration>,
@@ -300,6 +302,20 @@ struct StaticSource {
     /// Ring history, newest first.
     history: Vec<Examined>,
     examined_limit: Arc<AtomicUsize>,
+}
+
+fn chain_position(n: u8) -> ChainPosition {
+    ChainPosition {
+        slot: u64::from(n),
+        signature: Signature::from([n; 64]),
+    }
+}
+
+fn wire(position: ChainPosition) -> zolana_indexer_api::ChainPosition {
+    zolana_indexer_api::ChainPosition {
+        slot: position.slot,
+        signature: position.signature.into(),
+    }
 }
 
 /// One ring signature and the deposits it made.
@@ -324,10 +340,10 @@ impl StaticSource {
 impl TransactionSource for StaticSource {
     fn transactions_by_tag(
         &self,
-        request: TransactionPage<'_>,
+        request: TransactionPage,
     ) -> impl Future<Output = Result<GetShieldedTransactionsByTagsResponse, ClientError>> + Send
     {
-        assert!(request.page.limit().get() <= 100);
+        assert!(request.limit.get() <= 100);
         let transactions = self
             .by_tag
             .get(&request.tag)
@@ -339,8 +355,8 @@ impl TransactionSource for StaticSource {
                 slot: 99,
             },
             transactions,
-            next_cursor: self.next_cursor.clone(),
-            scanned_through: None,
+            next: self.next,
+            latest: None,
         };
         async move { Ok(response) }
     }
@@ -576,7 +592,7 @@ impl Fixture {
         let source = StaticSource {
             transactions: Vec::new(),
             origins: HashMap::new(),
-            next_cursor: Some(vec![7, 7]),
+            next: Some(chain_position(7)),
             configs: HashMap::from([(
                 RING,
                 RingConfiguration {
@@ -639,7 +655,7 @@ async fn granted_reader_opens_audited_transfers_and_reports_the_rest() {
         .expect("read");
 
     assert_eq!(response.context.slot, 99);
-    assert_eq!(response.value.cursor, Some(Base64String(vec![7, 7])));
+    assert_eq!(response.value.next, Some(wire(chain_position(7))));
     let [item] = response.value.items.as_slice() else {
         panic!("expected one audited transaction");
     };
@@ -851,7 +867,7 @@ async fn rows_outside_the_ring_are_dropped() {
         .expect("read");
     assert!(response.value.items.is_empty());
     assert_eq!(response.value.skipped.len(), 2);
-    assert_eq!(response.value.cursor, Some(Base64String(vec![7, 7])));
+    assert_eq!(response.value.next, Some(wire(chain_position(7))));
 }
 
 #[tokio::test]
@@ -925,33 +941,15 @@ async fn indexer_pages_must_match_the_attested_bounds() {
         Err(RingRpcError::InvalidIndexerResponse)
     ));
 
-    for cursor in [Vec::new(), vec![1; 257]] {
-        let mut source = fixture.source();
-        source.next_cursor = Some(cursor);
-        let service = fixture.hub(source).service().expect("service");
-        let request = auth(&signer);
-        assert!(matches!(
-            service
-                .read(AuditRead {
-                    auth: &request,
-                    page: &page(),
-                })
-                .await,
-            Err(RingRpcError::InvalidIndexerResponse)
-        ));
-    }
-
     let mut source = fixture.source();
-    source.next_cursor = Some(vec![8]);
+    source.next = Some(chain_position(8));
     let service = fixture.hub(source).service().expect("service");
     let repeated_page = PageOptions::default()
-        .with_cursor(vec![8].into())
-        .expect("cursor")
+        .with_since(&wire(chain_position(8)))
         .build()
         .expect("page");
     let request = GetDecryptedTransactionsRequest::read(RING)
-        .with_cursor(vec![8].into())
-        .expect("cursor")
+        .with_since(wire(chain_position(8)))
         .sign(&signer)
         .expect("request")
         .auth;
@@ -982,19 +980,11 @@ async fn indexer_pages_must_match_the_attested_bounds() {
 }
 
 #[test]
-fn request_builder_rejects_noncanonical_pages() {
-    assert!(matches!(
-        GetDecryptedTransactionsRequest::read(RING).with_cursor(Vec::new().into()),
-        Err(ReadBuildError::Cursor)
-    ));
+fn request_builder_rejects_an_out_of_bounds_limit() {
     assert!(matches!(
         GetDecryptedTransactionsRequest::read(RING)
             .with_limit(Limit::new(101).expect("indexer limit")),
         Err(ReadBuildError::Limit)
-    ));
-    assert!(matches!(
-        PageOptions::default().with_cursor(Vec::new().into()),
-        Err(RingRpcError::InvalidPage)
     ));
 }
 
