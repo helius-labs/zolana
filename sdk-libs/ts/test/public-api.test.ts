@@ -485,7 +485,6 @@ describe("address and instruction builders", () => {
           asset: DepositAsset.sol(),
           viewTag: new Uint8Array(32).fill(1) as Bytes32,
           recipientOwnerHash: new Uint8Array(32).fill(2) as Bytes32,
-          blinding: new Uint8Array(32).fill(3) as Bytes32,
           amount: 42n,
         },
       ],

@@ -31,10 +31,13 @@ use zolana_client::{ClientError, Rpc};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
-use zolana_keypair::{random_blinding, ShieldedAddress};
+use zolana_keypair::ShieldedAddress;
 use zolana_transaction::{Data, Utxo, SOL_MINT};
 
-use crate::harness::{BootstrapConfig, LocalnetHarness};
+use crate::{
+    harness::{BootstrapConfig, LocalnetHarness},
+    test_validator_asserts::wait_for_indexed_transaction,
+};
 
 /// The extra account snapshots an SPL deposit assert needs.
 pub(crate) use crate::harness::SplDepositAccounts;
@@ -136,17 +139,16 @@ impl Deposit<'_> {
     /// Build and send the shield. `payer` funds the fee; `authority` signs the
     /// debit of `sender` (for SOL it must equal `sender`; for SPL it is the token
     /// account's owner).
-    pub(crate) fn execute<R: Rpc>(
+    pub(crate) fn execute<R: Rpc, I: Rpc>(
         self,
         rpc: &R,
+        indexer: &I,
         payer: &Keypair,
         authority: &Keypair,
     ) -> Result<DepositResult, ClientError> {
-        // The recipient `owner_hash` is computed from public address material and
-        // a fresh blinding is sent in the clear, so the depositor needs no shared
-        // secret; the recipient re-derives the UTXO from the deposit event.
+        // The recipient `owner_hash` is public address material, so a
+        // third-party depositor shares no secret with the recipient.
         let owner = self.recipient.owner_hash()?;
-        let blinding = random_blinding();
         let view_tag = self.recipient.viewing_pubkey.x();
 
         let sender_account = rpc.get_account(Address::new_from_array(self.sender.to_bytes()))?;
@@ -190,7 +192,6 @@ impl Deposit<'_> {
             asset: deposit_asset,
             view_tag,
             owner,
-            blinding,
             amount: self.amount,
             utxo_data: None,
             memo: None,
@@ -207,11 +208,22 @@ impl Deposit<'_> {
         }
         let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
         let signature = rpc.create_and_send_transaction(&[ix], payer_address, &signers)?;
+        // The leaf index, and so the blinding, is assigned at append; the
+        // deposit publishes both in the clear, so read the UTXO back.
+        let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
+        let deposited = indexed
+            .output_slots
+            .iter()
+            .filter(|slot| slot.view_tag == view_tag)
+            .find_map(|slot| slot.proofless_output().filter(|out| out.owner == owner))
+            .ok_or_else(|| {
+                ClientError::Rpc(format!("no indexed deposit output for {signature}"))
+            })?;
         let utxo = Utxo {
             owner: self.recipient.signing_pubkey,
             asset,
             amount: self.amount,
-            blinding,
+            blinding: deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         };

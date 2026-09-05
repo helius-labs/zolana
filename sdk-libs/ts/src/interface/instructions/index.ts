@@ -292,7 +292,6 @@ export async function depositInstruction(
           assetIndex: depositAssetIndex(layout, deposit),
           viewTag: deposit.viewTag,
           recipientOwnerHash: deposit.recipientOwnerHash,
-          blinding: deposit.blinding,
           amount: deposit.amount,
           ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
           ...(deposit.memo === undefined ? {} : { memo: deposit.memo }),

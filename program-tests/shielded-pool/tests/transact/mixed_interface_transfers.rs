@@ -24,7 +24,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
+use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
@@ -33,7 +33,7 @@ use zolana_test_utils::transact::{
 };
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
-    Data, Utxo, SOL_MINT,
+    Utxo, SOL_MINT,
 };
 
 const SOL_SPLIT_TOTAL: u64 = 1_000_000_000;
@@ -112,22 +112,19 @@ fn build_spend_note(
 
 fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
     let payer = env.rpc.payer.insecure_clone();
-    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer.pubkey().to_bytes()),
-        asset: SOL_MINT,
-        amount,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let owner = PublicKey::from_ed25519(&payer.pubkey().to_bytes());
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
     let event = env
         .rpc
-        .deposit_sol(&env.tree, &payer, amount, owner_field, blinding)
+        .deposit_sol(&env.tree, &payer, amount, owner_field)
         .expect("SOL deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner)
+        .expect("indexed deposit UTXO");
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, amount));
     let zero = [0u8; 32];
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(event.utxo_hash, utxo_hash);
@@ -160,22 +157,13 @@ fn deposit_spl_note_with_program(
         .mint_to_with_program(&mint, &source, amount, token_program)
         .expect("mint tokens");
 
-    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer.pubkey().to_bytes()),
-        asset: Address::new_from_array(mint.to_bytes()),
-        amount,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let owner = PublicKey::from_ed25519(&payer.pubkey().to_bytes());
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
     let data = ZolanaProgramTest::spl_shield_data_with_program(
         amount,
         owner_field,
-        blinding,
         &mint,
         &source,
         token_program,
@@ -184,6 +172,11 @@ fn deposit_spl_note_with_program(
         .rpc
         .deposit(&env.tree, &payer, &data)
         .expect("SPL deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner)
+        .expect("indexed deposit UTXO");
+    assert_eq!((utxo.asset, utxo.amount), (mint, amount));
     let zero = [0u8; 32];
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(event.utxo_hash, utxo_hash);

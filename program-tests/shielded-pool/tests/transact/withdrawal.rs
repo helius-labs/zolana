@@ -37,7 +37,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_program_test::{test_blinding, Rejection};
+use zolana_program_test::Rejection;
 use zolana_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
@@ -61,9 +61,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
 
-    let withdrawal =
-        build_spl_withdrawal(&mut env.rpc, &env.authority, &tree, SPL_AMOUNT, [7u8; 32])
-            .expect("build SPL withdrawal");
+    let withdrawal = build_spl_withdrawal(&mut env.rpc, &env.authority, &tree, SPL_AMOUNT)
+        .expect("build SPL withdrawal");
     let vault = withdrawal.vault;
     let user_token = withdrawal.user_token;
     assert_eq!(env.rpc.token_balance(&user_token), Some(0));
@@ -132,27 +131,25 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). Fixed
-    // blinding / nullifier secret keep the run deterministic.
-    let blinding = test_blinding(7);
+    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). A
+    // fixed nullifier secret keeps the run deterministic.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner.owner_proof_input_hash().expect("owner pk hash");
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
     let event = env
         .rpc
-        .deposit_sol(&tree, &payer, AMOUNT, owner_field, blinding)
+        .deposit_sol(&tree, &payer, AMOUNT, owner_field)
         .expect("proofless deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(
@@ -793,28 +790,25 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let payer_blinding = test_blinding(7);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey().expect("payer nullifier pk");
-    let payer_utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding: payer_blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let payer_owner_pk_hash = payer_utxo
-        .owner
+    let payer_owner = PublicKey::from_ed25519(&payer_bytes);
+    let payer_owner_pk_hash = payer_owner
         .owner_proof_input_hash()
         .expect("payer owner pk hash");
     let payer_owner_field =
-        owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
+        owner_hash(&payer_owner, &payer_nullifier_pk).expect("payer owner field");
 
     let event = env
         .rpc
-        .deposit_sol(&tree, payer, AMOUNT, payer_owner_field, payer_blinding)
+        .deposit_sol(&tree, payer, AMOUNT, payer_owner_field)
         .expect("deposit");
+    let payer_utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, payer_owner)
+        .expect("indexed deposit UTXO");
+    let payer_blinding = payer_utxo.blinding;
+    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero)
         .expect("payer utxo hash");

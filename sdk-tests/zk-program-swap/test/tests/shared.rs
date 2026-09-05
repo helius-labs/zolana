@@ -32,6 +32,7 @@ use zolana_test_utils::{
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
+    test_validator_asserts::wait_for_indexed_utxo,
 };
 use zolana_transaction::{
     instructions::types::SppProofInputUtxo, utxo::Utxo, AssetRegistry, Data, Wallet, SOL_MINT,
@@ -267,17 +268,29 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?;
-    maker_deposit.send(&rpc, &payer, tree, &payer)?;
+    let maker_view_tag = maker_deposit.view_tag();
+    let maker_signature = maker_deposit.send(&rpc, &payer, tree, &payer)?;
+    // The order authority is a PDA holding no viewing key, but a proofless
+    // deposit publishes its UTXO in the clear, so the depositor-chosen view tag
+    // reads it back from the indexer.
+    let maker_deposited = wait_for_indexed_utxo(&indexer, maker_view_tag, maker_signature)
+        .output_slot
+        .proofless_output()
+        .ok_or_else(|| anyhow!("indexed maker deposit is not a proofless UTXO"))?;
     let maker_input = SppProofInputUtxo::new(
         Utxo {
             owner: order_authority_address.signing_pubkey,
-            asset: spl_mint,
-            amount: MAKER_SHIELD_SPL,
-            blinding: maker_deposit.deposit.blinding,
+            asset: Address::new_from_array(maker_deposited.asset),
+            amount: maker_deposited.amount,
+            blinding: maker_deposited.blinding,
             ring_program_id: None,
             data: Data::default(),
         },
         order_nullifier_key,
+    );
+    assert_eq!(
+        (maker_input.utxo.asset, maker_input.utxo.amount),
+        (spl_mint, MAKER_SHIELD_SPL)
     );
     Deposit::new(DepositParams {
         recipient: &taker_shielded_keypair.shielded_address()?,

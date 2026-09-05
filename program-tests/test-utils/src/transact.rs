@@ -42,7 +42,7 @@ use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     instructions::transact::PrivateTxHash,
     instructions::types::SppProofInputUtxo,
-    Data, SppProofOutputUtxo, Utxo,
+    SppProofOutputUtxo, Utxo,
 };
 use zolana_tree::TreeAccount;
 
@@ -560,14 +560,13 @@ pub struct SplWithdrawal {
 /// from the vault back to the payer's token account. The input carries a real
 /// state-inclusion proof against the on-chain UTXO tree root and a real
 /// nullifier non-inclusion proof against the on-chain nullifier tree root, both
-/// built from reference trees and gated against the on-chain roots. Fixed
-/// blinding / nullifier secrets keep the run deterministic.
+/// built from reference trees and gated against the on-chain roots. A fixed
+/// nullifier secret keeps the run deterministic.
 pub fn build_spl_withdrawal(
     pt: &mut ZolanaProgramTest,
     authority: &Keypair,
     tree: &Pubkey,
     amount: u64,
-    blinding: [u8; 32],
 ) -> Result<SplWithdrawal> {
     let mint = pt.create_mint().context("create mint")?;
     pt.ensure_asset_counter(authority)
@@ -587,19 +586,16 @@ pub fn build_spl_withdrawal(
 
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: Address::new_from_array(mint.to_bytes()),
-        amount,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
-    let shield =
-        ZolanaProgramTest::spl_shield_data(amount, owner_field, blinding, &mint, &user_token);
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner.owner_proof_input_hash().expect("owner hash");
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
+    let shield = ZolanaProgramTest::spl_shield_data(amount, owner_field, &mint, &user_token);
     let event = pt.deposit(tree, &payer, &shield).context("SPL deposit")?;
+    let utxo = pt
+        .indexed_deposit_utxo(&event, owner)
+        .context("indexed deposit UTXO")?;
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (mint, amount));
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
     assert_eq!(event.utxo_hash, utxo_hash);
 

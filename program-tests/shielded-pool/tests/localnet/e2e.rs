@@ -8,7 +8,7 @@ use num_bigint::BigUint;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{prover::field::right_align, SolanaRpc, STATE_TREE_HEIGHT};
+use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
@@ -143,21 +143,13 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     let zero = [0u8; 32];
 
     let payer_bytes = cycle.payer.pubkey().to_bytes();
-    let payer_blinding = right_align(&[7u8; 31]);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
-    let payer_utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding: payer_blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let payer_owner_pk_hash = payer_utxo.owner.owner_proof_input_hash()?;
-    let payer_owner_field = owner_hash(&payer_utxo.owner, &payer_nullifier_pk)?;
+    let payer_owner = PublicKey::from_ed25519(&payer_bytes);
+    let payer_owner_pk_hash = payer_owner.owner_proof_input_hash()?;
+    let payer_owner_field = owner_hash(&payer_owner, &payer_nullifier_pk)?;
 
-    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field, payer_blinding);
+    let shield_data = ZolanaProgramTest::sol_shield_data(AMOUNT, payer_owner_field);
     let shield_ix = Deposit {
         tree: cycle.tree_pubkey,
         depositor: cycle.payer.pubkey(),
@@ -175,6 +167,13 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     print_signature("deposit", &shield_tx.signature);
 
     let shield_view = single_deposit_view(&shield_tx.events)?;
+    // A proofless deposit's output is plaintext, so the blinding comes back
+    // with the indexed record.
+    let payer_utxo = cycle
+        .indexer
+        .deposit_utxo(&shield_view.utxo_hash, payer_owner)
+        .map_err(|err| anyhow!("indexed deposit UTXO: {err:?}"))?;
+    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
     let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
     assert_eq!(payer_utxo_hash, shield_view.utxo_hash);
 

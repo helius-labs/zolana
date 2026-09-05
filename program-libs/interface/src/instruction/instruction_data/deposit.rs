@@ -4,6 +4,7 @@ use wincode::{
     len::FixIntLen,
     SchemaRead, SchemaWrite,
 };
+use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 
@@ -19,6 +20,23 @@ pub struct UtxoData {
 
 /// Maximum number of distinct assets (settlement groups) per `deposit` batch.
 pub const MAX_DEPOSIT_ASSETS: usize = 5;
+
+/// Domain tag separating the deposit blinding derivation from every other
+/// SHA-256 derivation in the protocol.
+pub const DEPOSIT_BLINDING_DOMAIN: &[u8] = b"Deposit";
+
+/// Blinding of the deposit output landing at `leaf_index` in `tree`.
+/// `(tree, leaf_index)` does not repeat, so no two deposits share a blinding, a
+/// `utxo_hash`, or a nullifier. `Sha256BE` zeroes the leading byte, keeping the
+/// result below the BN254 modulus. Clients read the blinding from the indexer;
+/// recompute it here only to check an indexed record.
+pub fn deposit_blinding(tree: &[u8; 32], leaf_index: u64) -> Result<[u8; 32], HasherError> {
+    Sha256BE::hashv(&[
+        DEPOSIT_BLINDING_DOMAIN,
+        tree.as_slice(),
+        &leaf_index.to_be_bytes(),
+    ])
+}
 
 /// Kind of one settlement group, declaring how many accounts it consumes and how
 /// they are validated: `Sol` takes (`system_program`, `sol_interface`), `Spl`
@@ -42,14 +60,9 @@ pub struct DepositEntry {
     /// Indexing tag for this output slot; chosen per the spec's View Tag
     /// Selection.
     pub view_tag: [u8; 32],
-    /// Recipient `owner_hash`; the program nests it with `blinding` into the
-    /// UTXO's `owner_utxo_hash`.
+    /// Recipient `owner_hash`; the program nests it with the blinding it
+    /// derives via [`deposit_blinding`] into the UTXO's `owner_utxo_hash`.
     pub owner: [u8; 32],
-    /// Fresh CSPRNG per deposit; sent in the clear so a third-party depositor
-    /// needs no shared secret and the recipient spends it directly. A big-endian
-    /// field element (31 random bytes right-aligned, so always below the BN254
-    /// modulus).
-    pub blinding: [u8; 32],
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the
@@ -104,7 +117,6 @@ pub struct DepositEntryRef<'a> {
     pub asset_index: u8,
     pub view_tag: &'a [u8; 32],
     pub owner: &'a [u8; 32],
-    pub blinding: &'a [u8; 32],
     pub amount: u64,
     pub utxo_data: Option<UtxoDataRef<'a>>,
     pub memo: Option<&'a [u8]>,
@@ -212,5 +224,38 @@ pub struct RingDepositIxDataRef<'a> {
 impl<'a> RingDepositIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
         wincode::config::deserialize_exact(data, DepositRefConfig::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deposit_blinding;
+
+    /// Pinned cross-language vector; the TypeScript `depositBlinding` mirror
+    /// asserts the same bytes.
+    #[test]
+    fn deposit_blinding_is_pinned() {
+        let blinding = deposit_blinding(&[1u8; 32], 7).expect("derive");
+        assert_eq!(
+            blinding,
+            [
+                0x00, 0x4d, 0x1e, 0x40, 0xd2, 0x14, 0x24, 0x11, 0xb3, 0x9e, 0x40, 0xc7, 0x63, 0xdb,
+                0x9d, 0xef, 0xb6, 0xca, 0x70, 0xab, 0xea, 0xad, 0x20, 0x67, 0x44, 0x43, 0xd3, 0x3f,
+                0x88, 0xbe, 0x67, 0x3a,
+            ]
+        );
+    }
+
+    /// The leaf index is what makes a deposit leaf unique, so it must change the
+    /// blinding, and so must the tree.
+    #[test]
+    fn deposit_blinding_separates_tree_and_leaf_index() {
+        let base = deposit_blinding(&[1u8; 32], 7).expect("derive");
+        assert_ne!(base, deposit_blinding(&[1u8; 32], 8).expect("derive"));
+        assert_ne!(base, deposit_blinding(&[2u8; 32], 7).expect("derive"));
+        assert_eq!(
+            base[0], 0,
+            "leading byte is zeroed to stay below the modulus"
+        );
     }
 }

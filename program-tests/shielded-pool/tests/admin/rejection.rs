@@ -150,7 +150,7 @@ fn partially_allocated_tree_is_not_usable() {
     let depositor = pool.funded_signer(1_000_000_000);
     let err = pool
         .rpc
-        .deposit_sol(&create.tree(), &depositor, 1_000_000, [1; 32], [2; 32])
+        .deposit_sol(&create.tree(), &depositor, 1_000_000, [1; 32])
         .expect_err("a tree that is still allocating must reject deposits");
     Rejection::pool(ShieldedPoolError::InvalidTreeAccounts).assert_litesvm(err);
 }

@@ -9,7 +9,7 @@ use zolana_transaction::{SyncWalletAuthority, Wallet};
 
 use super::{
     assert_indexed_deposit_utxo, expected_deposit_view, fetch_account, state_root_from, to_address,
-    wait_for_indexed_utxo, wait_for_merkle_proof,
+    utxo_next_index_from, wait_for_indexed_utxo, wait_for_merkle_proof, ExpectedDeposit,
 };
 
 pub struct DepositAssertArgs<'a> {
@@ -42,7 +42,16 @@ pub fn assert_deposit<R: Rpc, I: Rpc, A: SyncWalletAuthority + ?Sized>(
 
     assert_eq!(
         *event,
-        expected_deposit_view(data, expected_amount, expected_asset, event),
+        expected_deposit_view(
+            data,
+            ExpectedDeposit {
+                tree: tree.to_bytes(),
+                leaf_index: utxo_next_index_from(tree, tree_before),
+                amount: expected_amount,
+                asset: expected_asset,
+            },
+            event
+        ),
         "deposit event"
     );
 

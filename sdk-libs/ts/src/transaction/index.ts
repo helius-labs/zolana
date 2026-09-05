@@ -49,7 +49,14 @@ export type {
   PublicAmounts,
   Shape,
 } from "./instructions/index.js";
-export { ProofInputUtxo, Utxo, createProofOutput, deriveBlinding, ownerUtxoHash } from "./utxo.js";
+export {
+  ProofInputUtxo,
+  Utxo,
+  createProofOutput,
+  depositBlinding,
+  deriveBlinding,
+  ownerUtxoHash,
+} from "./utxo.js";
 export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
 export {
   AssetRegistry,

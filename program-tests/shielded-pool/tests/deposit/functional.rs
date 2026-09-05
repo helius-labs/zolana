@@ -4,14 +4,14 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_event::{general_event_from_indexed, SplTransfer};
 use zolana_interface::{
-    instruction::{AssetDeposit, Deposit, UtxoData},
+    instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
     pda,
 };
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
 };
 use zolana_program_test::{
-    test_blinding, DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
+    DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
 use zolana_test_utils::litesvm_asserts::{
     litesvm_assert_deposit, litesvm_assert_ring_deposit, DepositAssertArgs, RingDepositAssertArgs,
@@ -38,14 +38,14 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data =
-        ZolanaProgramTest::wallet_sol_shield_data(750_000_000, &recipient.identity, &[3u8; 32], 0)
-            .expect("deposit data");
+    let mut data = ZolanaProgramTest::wallet_sol_shield_data(750_000_000, &recipient.identity)
+        .expect("deposit data");
     data.memo = Some(b"manual program test".to_vec());
 
     let tree = pool.tree;
     let mut oracle = SolDepositOracle::capture(&pool.rpc, &tree, &depositor.pubkey());
     let root_before = pool.rpc.state_root(&tree).expect("state root");
+    let indexed_outputs_before = pool.rpc.indexer().utxos().len();
     assert_eq!(
         pool.rpc.indexer().root(),
         root_before,
@@ -67,6 +67,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
             expected_amount: 750_000_000,
             expected_asset: [0u8; 32],
             root_before,
+            indexed_outputs_before,
             authority: &KeypairWalletAuthority::new(Pubkey::default(), &recipient_key),
         },
     );
@@ -79,7 +80,7 @@ fn sol_deposit_emits_one_general_event_with_the_exact_deposit_withdraw() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(2_000_000_000);
     let tree = pool.tree;
-    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32], [9u8; 32]);
+    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),
@@ -173,26 +174,16 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     const AMOUNT: u64 = 250_000_000;
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
-    let blinding: [u8; 32] = [7u8; 32];
-    // 0x07-padded stays below the BN254 modulus, so the Poseidon hash accepts it.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pk");
     let owner_pk = PublicKey::from_ed25519(&depositor.pubkey().to_bytes());
     let owner_field = owner_hash(&owner_pk, &nullifier_pk).expect("owner field");
-    let utxo = Utxo {
-        owner: owner_pk,
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
 
     let mut data_hash = [0u8; 32];
     if let Some(last) = data_hash.last_mut() {
         *last = 42;
     }
-    let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field, blinding);
+    let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field);
     data.utxo_data = Some(UtxoData {
         data_hash,
         data: vec![1, 2, 3],
@@ -203,6 +194,15 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
         .rpc
         .deposit(&tree, &depositor, &data)
         .expect("SOL deposit with utxo data");
+    let blinding = deposit_blinding(&tree.to_bytes(), event.leaf_index).expect("deposit blinding");
+    let utxo = Utxo {
+        owner: owner_pk,
+        asset: SOL_MINT,
+        amount: AMOUNT,
+        blinding,
+        ring_program_id: None,
+        data: Data::default(),
+    };
 
     let zero = [0u8; 32];
     assert_eq!(
@@ -246,11 +246,8 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     let mut owner_utxo_hashes = Vec::new();
     let mut view_tags = Vec::new();
     for (i, amount) in AMOUNTS.into_iter().enumerate() {
-        let mut seed = [0xA0; 32];
-        *seed.get_mut(30).expect("seed has message byte") = i as u8;
-        let data =
-            ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity, &seed, i as u8)
-                .expect("wallet deposit data");
+        let data = ZolanaProgramTest::wallet_sol_shield_data(amount, &recipient.identity)
+            .expect("wallet deposit data");
         let event = pool.rpc.deposit(&tree, &depositor, &data).expect("deposit");
         oracle.record_accepted(&data, &event);
         let before = recipient.utxos.len();
@@ -267,8 +264,13 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
             before + 1,
             "wallet must discover deposit {i}"
         );
-        owner_utxo_hashes
-            .push(owner_utxo_hash(&data.owner, &data.blinding).expect("owner utxo hash"));
+        let blinding = recipient
+            .utxos
+            .last()
+            .expect("discovered UTXO")
+            .utxo
+            .blinding;
+        owner_utxo_hashes.push(owner_utxo_hash(&data.owner, &blinding).expect("owner utxo hash"));
         view_tags.push(data.view_tag);
 
         assert_eq!(
@@ -643,6 +645,8 @@ fn sol_interface_lamports(rpc: &ZolanaProgramTest) -> u64 {
         .map_or(0, |account| account.lamports)
 }
 
+/// Byte-identical entries must still append distinct leaves: each blinding
+/// comes from the leaf index, so two outputs cannot collide into one UTXO.
 #[test]
 fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     const AMOUNT: u64 = 1_000_000;
@@ -651,12 +655,8 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     let depositor = pool.funded_signer(5_000_000_000);
     let tree = pool.tree;
     let interface_before = sol_interface_lamports(&pool.rpc);
-    let deposits: Vec<AssetDeposit> = (1..=COUNT)
-        .map(|seed| {
-            let seed = u8::try_from(seed).expect("small batch");
-            ZolanaProgramTest::sol_shield_data(AMOUNT, [seed; 32], test_blinding(seed))
-        })
-        .collect();
+    let deposits: Vec<AssetDeposit> =
+        vec![ZolanaProgramTest::sol_shield_data(AMOUNT, [7u8; 32]); COUNT as usize];
 
     let batch = pool
         .rpc
@@ -665,6 +665,13 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     let outputs = batch.outputs;
 
     assert_distinct_leaves(&outputs, COUNT as usize);
+    for output in &outputs {
+        assert_eq!(
+            output.output.blinding,
+            deposit_blinding(&tree.to_bytes(), output.leaf_index).expect("expected blinding"),
+            "each entry carries the blinding derived for its own leaf index"
+        );
+    }
     assert_eq!(
         batch.spl_transfers,
         vec![SplTransfer {
@@ -686,6 +693,44 @@ fn sol_deposit_batch_settles_once_and_appends_three_distinct_leaves() {
     assert_batch_root_matches_reference(&pool.rpc, &tree);
 }
 
+/// Repeating the same entry in a later transaction must not reproduce the
+/// earlier leaf, whose nullifier is already spendable from the public blinding.
+#[test]
+fn repeating_an_identical_deposit_in_a_later_transaction_appends_a_distinct_leaf() {
+    const AMOUNT: u64 = 1_000_000;
+    let mut pool = Pool::initialized();
+    let depositor = pool.funded_signer(5_000_000_000);
+    let tree = pool.tree;
+    let data = ZolanaProgramTest::sol_shield_data(AMOUNT, [9u8; 32]);
+
+    let first = pool
+        .rpc
+        .deposit(&tree, &depositor, &data)
+        .expect("first deposit");
+    let second = pool
+        .rpc
+        .deposit(&tree, &depositor, &data)
+        .expect("second deposit");
+
+    assert_ne!(first.leaf_index, second.leaf_index, "distinct leaf indices");
+    assert_ne!(
+        first.output.blinding, second.output.blinding,
+        "identical instruction data must not reproduce a blinding"
+    );
+    assert_ne!(
+        first.utxo_hash, second.utxo_hash,
+        "identical instruction data must not reproduce a leaf"
+    );
+    for output in [&first, &second] {
+        assert_eq!(
+            output.output.blinding,
+            deposit_blinding(&tree.to_bytes(), output.leaf_index).expect("expected blinding"),
+            "blinding is derived from the tree and the leaf index"
+        );
+    }
+    assert_batch_root_matches_reference(&pool.rpc, &tree);
+}
+
 #[test]
 fn multi_asset_deposit_batch_settles_each_asset_once_and_appends_three_distinct_leaves() {
     const LAMPORTS: u64 = 1_000_000;
@@ -698,9 +743,9 @@ fn multi_asset_deposit_batch_settles_each_asset_once_and_appends_three_distinct_
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
 
     let deposits = vec![
-        ZolanaProgramTest::sol_shield_data(LAMPORTS, [1u8; 32], test_blinding(1)),
-        ZolanaProgramTest::spl_shield_data(TOKENS, [2u8; 32], test_blinding(2), &mint, &user_token),
-        ZolanaProgramTest::sol_shield_data(LAMPORTS, [3u8; 32], test_blinding(3)),
+        ZolanaProgramTest::sol_shield_data(LAMPORTS, [1u8; 32]),
+        ZolanaProgramTest::spl_shield_data(TOKENS, [2u8; 32], &mint, &user_token),
+        ZolanaProgramTest::sol_shield_data(LAMPORTS, [3u8; 32]),
     ];
     let batch = pool
         .rpc

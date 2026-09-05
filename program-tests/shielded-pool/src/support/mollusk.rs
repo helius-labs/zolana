@@ -79,7 +79,7 @@ pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>
     let depositor = Keypair::new();
     test.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("fund depositor");
-    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32], [8u8; 32]);
+    let data = ZolanaProgramTest::sol_shield_data(1_000_000, [8u8; 32]);
     let ix = Deposit {
         tree,
         depositor: depositor.pubkey(),

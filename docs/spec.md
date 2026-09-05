@@ -570,8 +570,9 @@ struct Utxo {
     asset: Address,
     /// Amount in the smallest unit of `asset`.
     amount: u64,
-    /// Random bytes ensuring distinct UTXO hashes for equal
-    /// `(owner, asset, amount)` triples.
+    /// Ensures distinct UTXO hashes for equal `(owner, asset, amount)` triples.
+    /// The `transact` rails use fresh random bytes; `deposit` derives it from
+    /// the leaf index (see [Blinding](#blinding-derivation)).
     blinding: [u8; 31],
     /// Arbitrary data committed via `data_hash`; the application circuit/SDK
     /// interprets it.
@@ -595,7 +596,7 @@ owner_utxo_hash = Poseidon(owner, blinding)
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `ring_program_id` uses `pk_field` (see [Shielded Address](#shielded-address)). An absent `ring_program_id` is `0` (not `pk_field(0)`), so a UTXO without one keeps `ring_hash` over a `0` program field. `data_hash` enters `utxo_hash` directly and is `0` when absent.
 
-`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` and `blinding` in the clear and the program recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
+`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` in the clear, and the program derives the `blinding` and recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
 
 ## Nullifier
 
@@ -1308,7 +1309,7 @@ operations, and tags 18–20 are maintenance and administration.
 | update_ring_config | Tag 8; sets `ring_config.ring_authority_transact_is_enabled` and `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused. |
 | update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
 | emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
-| deposit | Tag 11; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
+| deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
@@ -1571,7 +1572,7 @@ public-amount direction proven by the proof (`true` for a deposit).
 
 **Discriminator:** 11
 
-**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) and a fresh `blinding` in the clear, and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
+**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) in the clear, and the program derives the `blinding` (see [Blinding](#blinding-derivation)) and recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
 One instruction is a batch: it carries a list of entries, each appending one output UTXO, and a list of settlement groups (`assets`) naming the assets those entries deposit — at most `MAX_DEPOSIT_ASSETS` (5). Entries naming the same asset are summed, so each asset settles with exactly one transfer regardless of how many outputs it funds, and the whole batch emits a single [`GeneralEvent`](#general-event). A single deposit is a batch of one.
 
@@ -1617,12 +1618,9 @@ struct DepositEntry {
     /// Recipient's 32-byte Ed25519 signing pubkey; the indexing tag for this
     /// output slot.
     view_tag: [u8; 32],
-    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
-    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
+    /// Recipient `owner_hash`; nested with the derived `blinding` into the
+    /// UTXO's `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
     owner: [u8; 32],
-    /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
-    /// directly.
-    blinding: [u8; 31],
     /// Deposited amount of the asset `asset_index` selects.
     amount: u64,
     /// Data hash; authorized by the `payer` signer.
@@ -1642,9 +1640,20 @@ program, and the SPP program account. The rail is selected by the account
 count; surplus accounts are rejected.
 
 <a id="blinding-derivation"></a>
-**Blinding.** `blinding` is a fresh 31-byte CSPRNG value the depositor sends in
-the instruction data. It is not derived; the recipient reads it back from the
-[`GeneralEvent`](#general-event) to spend the note.
+**Blinding.** `blinding` is not in the instruction data. The program derives it
+from the tree and the leaf index the output lands at:
+
+```text
+blinding_i = Sha256BE("Deposit" || tree_account || u64_be(first_output_leaf_index + i))
+```
+
+`Sha256BE` zeroes the leading byte, keeping the result below the BN254 modulus.
+`(tree_account, leaf_index)` does not repeat, so no two deposits share a
+`blinding`, a `utxo_hash`, or a [nullifier](#nullifier); a depositor cannot make
+a recipient's UTXO unspendable by colliding with an existing one. The blinding is
+public on this rail: the recipient reads it back with the indexed UTXO. The leaf
+index is assigned at append, so the depositor cannot know the `utxo_hash` before
+the transaction executes.
 
 **Checks**
 
@@ -1653,7 +1662,7 @@ the instruction data. It is not derived; the recipient reads it back from the
 3. Read the accounts each `assets` entry names, validating each group as its kind requires. Two groups must not name the same asset: that would split one asset's settlement across two transfers and let an entry pick either.
 4. Every `asset_index` is within `assets`, and every declared asset is named by at least one entry; an unfunded group would otherwise pass validation without settling.
 5. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-6. Per entry, compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
+6. Per entry, derive its `blinding` from the tree and the leaf index the entry appends at (see [Blinding](#blinding-derivation)), compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
 7. Sum each asset's entry amounts; the sum must not overflow.
 8. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 9. Emit one [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, carrying every output.
@@ -1678,7 +1687,8 @@ GeneralEvent {
         // own pubkey.
         view_tag,
         utxo_hash,
-        // owner and blinding are public; the recipient spends from them directly.
+        // owner is public and blinding is derived; the recipient spends from
+        // them directly.
         // ring_data_hash and ring_data only set by ring_deposit.
         data: serialize(OutputData::Proofless(ProoflessOutput {
             owner,
@@ -1843,8 +1853,10 @@ struct RingDepositEntry {
 }
 ```
 
-Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
-[`deposit`](#blinding-derivation).
+Unlike [`deposit`](#blinding-derivation), a ring entry publishes only
+`owner_utxo_hash`; the owner hash and blinding stay in the recipient ciphertext,
+so SPP cannot derive or check the blinding. The calling ring program authorizes
+the instruction and must use a fresh blinding per output.
 
 **Checks**
 

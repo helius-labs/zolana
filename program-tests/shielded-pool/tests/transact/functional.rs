@@ -76,9 +76,8 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let input_owner_bytes = input_owner.to_bytes();
     let zero = [0u8; 32];
 
-    // The real input: a zero-value SOL deposit owned by `input_owner` (fixed
-    // blinding / nullifier secret keep the run deterministic).
-    let blinding = test_blinding(7);
+    // The real input: a zero-value SOL deposit owned by `input_owner`. A fixed
+    // nullifier secret keeps the run deterministic.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_public_key = PublicKey::from_ed25519(&input_owner_bytes);
@@ -86,17 +85,16 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .owner_proof_input_hash()
         .expect("owner pk hash");
     let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
-    let utxo = Utxo {
-        owner: owner_public_key,
-        asset: SOL_MINT,
-        amount: 0,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    env.rpc
-        .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
+    let event = env
+        .rpc
+        .deposit_sol(&env.tree, &payer, 0, owner_field)
         .expect("proofless zero deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner_public_key)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);

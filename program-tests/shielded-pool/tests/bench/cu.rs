@@ -27,8 +27,8 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::{test_blinding, ZolanaProgramTest};
-use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
+use zolana_program_test::ZolanaProgramTest;
+use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots};
 use zolana_test_utils::{
@@ -341,8 +341,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = test_blinding(3);
-    let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, 0)
+    let data = ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
         .expect("wallet deposit data");
 
     let ix = Deposit {
@@ -379,10 +378,9 @@ fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut C
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = test_blinding(3);
     let deposits = (0..3)
-        .map(|position| {
-            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient, &seed, position)
+        .map(|_| {
+            ZolanaProgramTest::wallet_sol_shield_data(1_000_000, &recipient)
                 .expect("wallet deposit data")
         })
         .collect();
@@ -434,10 +432,8 @@ fn bench_deposit_spl(
         .expect("recipient keypair")
         .shielded_address()
         .expect("shielded address");
-    let seed = test_blinding(7);
-    let data =
-        ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &seed, 0, &mint, &user_token)
-            .expect("wallet deposit data");
+    let data = ZolanaProgramTest::wallet_spl_shield_data(1_000, &recipient, &mint, &user_token)
+        .expect("wallet deposit data");
 
     let ix = Deposit {
         tree,
@@ -604,23 +600,20 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let blinding = test_blinding(7);
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner.owner_proof_input_hash().expect("owner pk hash");
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
 
     let event = pt
-        .deposit_sol(&tree, &payer, AMOUNT, owner_field, blinding)
+        .deposit_sol(&tree, &payer, AMOUNT, owner_field)
         .expect("proofless deposit");
+    let utxo = pt
+        .indexed_deposit_utxo(&event, owner)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(utxo_hash, event.utxo_hash);
 
@@ -770,8 +763,8 @@ fn bench_withdrawal_spl(
     spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000;
-    let withdrawal = build_spl_withdrawal(&mut pt, &authority, &tree, AMOUNT, test_blinding(7))
-        .expect("build SPL withdrawal");
+    let withdrawal =
+        build_spl_withdrawal(&mut pt, &authority, &tree, AMOUNT).expect("build SPL withdrawal");
     let ix = withdrawal.instruction;
 
     let accounts = transact_accounts(&pt, &ix, program_id, Some(token_program_account));
