@@ -40,9 +40,7 @@ func asCustomRingP256(a *testAssignment, authorization p256Authorization) fronte
 		Public: customring.CustomRingP256Public{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
-			TreeIDs:                      a.TreeIDs,
-			UtxoTreeRoots:                a.UtxoTreeRoots,
-			NullifierTreeRoots:           a.NullifierTreeRoots,
+			TreeSlots:                    a.TreeSlots,
 			OutputTreeID:                 a.OutputTreeID,
 			PrivateTxHash:                a.PrivateTxHash,
 			P256MessageHashLow:           authorization.low,
@@ -172,9 +170,7 @@ func refreshCustomRingP256PublicInputHashWithOwner(
 	fields := []*big.Int{
 		spptest.MustHashChain(t, spptest.ToBigInts(assignment.InputNullifiers())),
 		spptest.MustHashChain(t, spptest.ToBigInts(assignment.OutputHashes())),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.TreeIDs)),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.UtxoTreeRoots)),
-		spptest.MustHashChain(t, spptest.ToBigInts(assignment.NullifierTreeRoots)),
+		spptest.MustTreeSlotsHashChain(t, treeSlotsToProtocol(assignment.TreeSlots)),
 		spptest.AsBigInt(assignment.OutputTreeID),
 		spptest.AsBigInt(assignment.PrivateTxHash),
 		messageHash,

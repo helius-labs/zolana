@@ -40,9 +40,7 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	f.publicInputHash = hashChain(t, []*big.Int{
 		hashChain(t, asBigInts(f.public.Nullifiers)),
 		f.public.OutputHash.(*big.Int),
-		hashChain(t, asBigInts(f.public.TreeIDs)),
-		hashChain(t, asBigInts(f.public.UtxoTreeRoots)),
-		hashChain(t, asBigInts(f.public.NullifierTreeRoots)),
+		treeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
 		f.public.OutputTreeID.(*big.Int),
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),

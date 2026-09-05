@@ -44,11 +44,9 @@ type Transaction struct {
 
 	Nullifiers   []frontend.Variable
 	OutputHashes []frontend.Variable
-	// InputTrees tree slots: the raw u16 id and both roots of each tree inputs
-	// may be spent from. An input picks its slot privately (Input.TreeSlot).
-	TreeIDs            []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
+	// InputTrees tree slots inputs may be spent from. An input picks its slot
+	// privately (Input.TreeSlot).
+	TreeSlots []TreeSlot
 	// Raw u16 id of the tree every output is appended to.
 	OutputTreeID frontend.Variable
 
@@ -103,9 +101,7 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 	checks := []LengthCheck{
 		{"nullifier", len(t.Nullifiers), t.Shape.NInputs},
 		{"output hash", len(t.OutputHashes), t.Shape.NOutputs},
-		{"tree id", len(t.TreeIDs), InputTrees},
-		{"utxo tree root", len(t.UtxoTreeRoots), InputTrees},
-		{"nullifier tree root", len(t.NullifierTreeRoots), InputTrees},
+		{"tree slot", len(t.TreeSlots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
 	for _, check := range append(checks, extra...) {
@@ -136,13 +132,10 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			api.Mul(api.Sub(1, t.AllowDummyInputs), api.Sub(1, in.isUtxo(api))),
 			0,
 		)
-		treeID, utxoTreeRoot, nullifierTreeRoot := SelectTreeSlot(api, in.TreeSlot, t.TreeIDs, t.UtxoTreeRoots, t.NullifierTreeRoots)
 		signals := PublicInputUtxoInputs{
-			Nullifier:         t.Nullifiers[i],
-			UtxoTreeRoot:      utxoTreeRoot,
-			NullifierTreeRoot: nullifierTreeRoot,
-			SignerPk:          signers[i],
-			TreeID:            treeID,
+			Nullifier: t.Nullifiers[i],
+			SignerPk:  signers[i],
+			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots),
 		}
 		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
 	}
@@ -188,9 +181,7 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
 		gadget.HashChain(api, t.Nullifiers),
 		gadget.HashChain(api, t.OutputHashes),
-		gadget.HashChain(api, t.TreeIDs),
-		gadget.HashChain(api, t.UtxoTreeRoots),
-		gadget.HashChain(api, t.NullifierTreeRoots),
+		TreeSlotsHashChain(api, t.TreeSlots),
 		t.OutputTreeID,
 		t.PrivateTxHash,
 	}

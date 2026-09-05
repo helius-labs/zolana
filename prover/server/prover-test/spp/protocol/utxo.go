@@ -35,7 +35,53 @@ const (
 	UtxoDomain    = 3
 	// OutputBlindingDomainV1 is the ASCII tag "TXOB".
 	OutputBlindingDomainV1 = 0x54584f42
+	// OutputBlindingSeedDomainV1 is the ASCII tag "TXOS".
+	OutputBlindingSeedDomainV1 = 0x54584f53
+	// PrivateTxBlindingDomainV1 is the ASCII tag "TXPB".
+	PrivateTxBlindingDomainV1 = 0x54585042
 )
+
+// A transaction draws one secret, txSecret, and derives every other
+// per-transaction secret from it and the first nullifier. A nullifier enters
+// the nullifier tree once, so each child is unique to one accepted
+// transaction even if a client reuses a secret.
+//
+// The children are domain-separated because they are disclosed to different
+// parties: OutputBlindingSeed goes to the reader of an anonymous Sender bundle
+// or a plaintext transfer, PrivateTxBlinding goes to a policy or third-party
+// co-prover. Neither can invert its child to txSecret, so neither can reach
+// the other's. txSecret itself is disclosed to nobody.
+
+// OutputBlindingSeed derives the seed every physical output blinding comes
+// from. This value is disclosed by the layouts that describe several slots
+// from one payload; the derived blindings are what other layouts carry.
+func OutputBlindingSeed(firstNullifier, txSecret *big.Int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(OutputBlindingSeedDomainV1),
+		firstNullifier,
+		txSecret,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: output blinding seed: %w", err)
+	}
+	return h, nil
+}
+
+// PrivateTxBlinding derives the final private_tx_hash preimage element, shared
+// by the transfer and merge rails. It is never published: every other preimage
+// element is public or computable, so a known blinding would let an observer
+// test candidate input UTXO hashes against the published hash.
+func PrivateTxBlinding(firstNullifier, txSecret *big.Int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(PrivateTxBlindingDomainV1),
+		firstNullifier,
+		txSecret,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: private tx blinding: %w", err)
+	}
+	return h, nil
+}
 
 // OutputBlinding derives one physical SPP transaction output blinding.
 func OutputBlinding(firstNullifier, seed *big.Int, outputIndex int) (*big.Int, error) {

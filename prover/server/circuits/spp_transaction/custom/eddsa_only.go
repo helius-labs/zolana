@@ -19,13 +19,9 @@ type CustomRingEddsaOnlyPublic struct {
 	Nullifiers []frontend.Variable
 	// New output UTXO hashes.
 	OutputHashes []frontend.Variable
-	// Input tree slots: raw u16 tree ids and the UTXO tree roots to prove
-	// inclusion of real input UTXOs.
-	TreeIDs       []frontend.Variable
-	UtxoTreeRoots []frontend.Variable
-	// Nullifier roots aligned with TreeIDs and UtxoTreeRoots; each input
-	// selects all three with its private tree slot.
-	NullifierTreeRoots []frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []shared.TreeSlot
 	// Raw u16 id of the output tree.
 	OutputTreeID frontend.Variable
 	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
@@ -75,9 +71,7 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 		Public: CustomRingEddsaOnlyPublic{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
-			TreeIDs:                      make([]frontend.Variable, shared.InputTrees),
-			UtxoTreeRoots:                make([]frontend.Variable, shared.InputTrees),
-			NullifierTreeRoots:           make([]frontend.Variable, shared.InputTrees),
+			TreeSlots:                    shared.NewTreeSlots(),
 			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
@@ -93,24 +87,22 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 
 func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
-		Shape:              c.Shape,
-		Nullifiers:         c.Public.Nullifiers,
-		OutputHashes:       c.Public.OutputHashes,
-		TreeIDs:            c.Public.TreeIDs,
-		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
-		NullifierTreeRoots: c.Public.NullifierTreeRoots,
-		OutputTreeID:       c.Public.OutputTreeID,
-		Inputs:             c.Private.Inputs,
-		Outputs:            c.Private.Outputs,
-		TxSecret:           c.Private.TxSecret,
-		PrivateTxHash:      c.Public.PrivateTxHash,
-		ExternalDataHash:   c.Public.ExternalDataHash,
-		PublicAssets:       c.Public.PublicAssets,
-		PublicAmounts:      c.Public.PublicAmounts,
-		RingProgramID:      c.Public.RingProgramID,
-		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:   c.Public.AllowDummyInputs,
-		PublicInputHash:    c.Public.PublicInputHash,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		TreeSlots:         c.Public.TreeSlots,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		TxSecret:          c.Private.TxSecret,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     c.Public.RingProgramID,
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.HashChain(api, c.Public.PublishedOutputOwnerPkHashes),
 		},

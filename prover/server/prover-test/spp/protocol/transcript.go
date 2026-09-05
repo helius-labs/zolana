@@ -58,12 +58,14 @@ func RightHashChain(inputs []*big.Int) (*big.Int, error) {
 
 // PrivateTxHash mirrors PrivateTxHashGadget. addressUtxoHashes is the address
 // category (the UTXO hash of every address slot, 0 for real spends and padding);
-// it has the same length as inputUtxoHashes.
+// it has the same length as inputUtxoHashes. blinding is the transaction's
+// private blinding, which the circuit rejects when zero.
 func PrivateTxHash(
 	inputUtxoHashes []*big.Int,
 	outputUtxoHashes []*big.Int,
 	addressUtxoHashes []*big.Int,
 	externalDataHash *big.Int,
+	blinding *big.Int,
 ) (*big.Int, error) {
 	inputChain, err := HashChain(inputUtxoHashes)
 	if err != nil {
@@ -83,6 +85,7 @@ func PrivateTxHash(
 		outputChain,
 		addressChain,
 		externalDataHash,
+		blinding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash: %w", err)

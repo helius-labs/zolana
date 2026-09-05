@@ -20,36 +20,25 @@ import (
 func TestTransactionRejectsMalformedTreeSlots(t *testing.T) {
 	newTransaction := func() Transaction {
 		return Transaction{
-			Shape:              Shape{NInputs: 1, NOutputs: 1},
-			Inputs:             NewInputs(1),
-			Outputs:            make([]UtxoCircuitFields, 1),
-			Nullifiers:         make([]frontend.Variable, 1),
-			OutputHashes:       make([]frontend.Variable, 1),
-			TreeIDs:            make([]frontend.Variable, InputTrees),
-			UtxoTreeRoots:      make([]frontend.Variable, InputTrees),
-			NullifierTreeRoots: make([]frontend.Variable, InputTrees),
+			Shape:        Shape{NInputs: 1, NOutputs: 1},
+			Inputs:       NewInputs(1),
+			Outputs:      make([]UtxoCircuitFields, 1),
+			Nullifiers:   make([]frontend.Variable, 1),
+			OutputHashes: make([]frontend.Variable, 1),
+			TreeSlots:    NewTreeSlots(),
 		}
 	}
 	if err := newTransaction().ValidateLayout(); err != nil {
 		t.Fatalf("valid tree layout rejected: %v", err)
 	}
 	for _, count := range []int{0, InputTrees - 1, InputTrees + 1} {
-		for _, field := range []string{"tree id", "utxo tree root", "nullifier tree root"} {
-			t.Run(fmt.Sprintf("%s/%d", field, count), func(t *testing.T) {
-				tx := newTransaction()
-				switch field {
-				case "tree id":
-					tx.TreeIDs = make([]frontend.Variable, count)
-				case "utxo tree root":
-					tx.UtxoTreeRoots = make([]frontend.Variable, count)
-				case "nullifier tree root":
-					tx.NullifierTreeRoots = make([]frontend.Variable, count)
-				}
-				if err := tx.ValidateLayout(); err == nil || !strings.Contains(err.Error(), field) {
-					t.Fatalf("expected %s length error, got %v", field, err)
-				}
-			})
-		}
+		t.Run(fmt.Sprintf("tree_slots/%d", count), func(t *testing.T) {
+			tx := newTransaction()
+			tx.TreeSlots = make([]TreeSlot, count)
+			if err := tx.ValidateLayout(); err == nil || !strings.Contains(err.Error(), "tree slot") {
+				t.Fatalf("expected tree slot length error, got %v", err)
+			}
+		})
 	}
 }
 
@@ -88,24 +77,22 @@ type testAssignment struct {
 	Outputs  []testOutput
 	TxSecret frontend.Variable
 
-	ExternalDataHash   frontend.Variable
-	PrivateTxHash      frontend.Variable
-	PublicAssets       [NPublicSlots]frontend.Variable
-	PublicAmounts      [NPublicSlots]frontend.Variable
-	RingProgramID      frontend.Variable
-	AllowDummyInputs   frontend.Variable
-	SignerPkHashes     []frontend.Variable
-	TreeIDs            []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
-	OutputTreeID       frontend.Variable
+	ExternalDataHash frontend.Variable
+	PrivateTxHash    frontend.Variable
+	PublicAssets     [NPublicSlots]frontend.Variable
+	PublicAmounts    [NPublicSlots]frontend.Variable
+	RingProgramID    frontend.Variable
+	AllowDummyInputs frontend.Variable
+	SignerPkHashes   []frontend.Variable
+	TreeSlots        []TreeSlot
+	OutputTreeID     frontend.Variable
 
 	PublicInputHash frontend.Variable
 }
 
 // inputTreeID is the tree id of the slot input i selects.
 func (a *testAssignment) inputTreeID(i int) frontend.Variable {
-	return a.TreeIDs[spptest.AsBigInt(a.Inputs[i].TreeSlot).Int64()]
+	return a.TreeSlots[spptest.AsBigInt(a.Inputs[i].TreeSlot).Int64()].ID
 }
 
 func (a *testAssignment) InputNullifiers() []frontend.Variable {
@@ -199,9 +186,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 		Public: customring.CustomRingEddsaOnlyPublic{
 			Nullifiers:                   a.InputNullifiers(),
 			OutputHashes:                 a.OutputHashes(),
-			TreeIDs:                      a.TreeIDs,
-			UtxoTreeRoots:                a.UtxoTreeRoots,
-			NullifierTreeRoots:           a.NullifierTreeRoots,
+			TreeSlots:                    a.TreeSlots,
 			OutputTreeID:                 a.OutputTreeID,
 			PrivateTxHash:                a.PrivateTxHash,
 			ExternalDataHash:             a.ExternalDataHash,
@@ -227,20 +212,18 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 	return &customring.CustomRingAuthorityCircuit{
 		Public: customring.CustomRingAuthorityPublic{
-			Nullifiers:         a.InputNullifiers(),
-			OutputHashes:       a.OutputHashes(),
-			TreeIDs:            a.TreeIDs,
-			UtxoTreeRoots:      a.UtxoTreeRoots,
-			NullifierTreeRoots: a.NullifierTreeRoots,
-			OutputTreeID:       a.OutputTreeID,
-			PrivateTxHash:      a.PrivateTxHash,
-			ExternalDataHash:   a.ExternalDataHash,
-			PublicAssets:       a.PublicAssets,
-			PublicAmounts:      a.PublicAmounts,
-			RingProgramID:      a.RingProgramID,
-			SignerPkHashes:     a.AuthoritySignerPkHashes(),
-			AllowDummyInputs:   a.AllowDummyInputs,
-			PublicInputHash:    a.PublicInputHash,
+			Nullifiers:       a.InputNullifiers(),
+			OutputHashes:     a.OutputHashes(),
+			TreeSlots:        a.TreeSlots,
+			OutputTreeID:     a.OutputTreeID,
+			PrivateTxHash:    a.PrivateTxHash,
+			ExternalDataHash: a.ExternalDataHash,
+			PublicAssets:     a.PublicAssets,
+			PublicAmounts:    a.PublicAmounts,
+			RingProgramID:    a.RingProgramID,
+			SignerPkHashes:   a.AuthoritySignerPkHashes(),
+			AllowDummyInputs: a.AllowDummyInputs,
+			PublicInputHash:  a.PublicInputHash,
 		},
 		Private: customring.CustomRingAuthorityPrivate{
 			Inputs:             a.coreInputs(),
@@ -256,9 +239,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 		Public: defaultring.DefaultRingEddsaOnlyPublic{
 			Nullifiers:          a.InputNullifiers(),
 			OutputHashes:        a.OutputHashes(),
-			TreeIDs:             a.TreeIDs,
-			UtxoTreeRoots:       a.UtxoTreeRoots,
-			NullifierTreeRoots:  a.NullifierTreeRoots,
+			TreeSlots:           a.TreeSlots,
 			OutputTreeID:        a.OutputTreeID,
 			PrivateTxHash:       a.PrivateTxHash,
 			ExternalDataHash:    a.ExternalDataHash,
@@ -390,9 +371,7 @@ func buildCircuitAssignmentExact(
 	}
 	// Every slot publishes the one fixture state root under its own tree id;
 	// inputs sit in slot 0, whose id is testInputTreeID.
-	treeIDs := testSlotTreeIDs()
-	utxoTreeRoots := asFrontendVariables(spptest.RepeatBigInt(stateRoot, InputTrees))
-	nullifierTreeRoots := asFrontendVariables(spptest.RepeatBigInt(nullifierTree.Root(), InputTrees))
+	treeSlots := testTreeSlots(stateRoot, nullifierTree.Root())
 	txSecret := spptest.Fe(4242)
 	firstNullifier := spptest.AsBigInt(nullifiers[0])
 	outputBlindingSeed, seedErr := protocol.OutputBlindingSeed(firstNullifier, txSecret)
@@ -479,7 +458,7 @@ func buildCircuitAssignmentExact(
 		}
 	}
 	publicInputs.OutputOwnerPkHashes = publishedOutputOwnerPkHashes
-	publicInputHash := testPublicInputHash(t, publicInputs, treeIDs, utxoTreeRoots, nullifierTreeRoots, spptest.Fe(testOutputTreeID))
+	publicInputHash := testPublicInputHash(t, publicInputs, treeSlots, spptest.Fe(testOutputTreeID))
 
 	inputs := make([]testInput, shape.NInputs)
 	for i := 0; i < shape.NInputs; i++ {
@@ -510,20 +489,18 @@ func buildCircuitAssignmentExact(
 	}
 
 	circuit := &testAssignment{
-		Shape:              Shape(shape),
-		Inputs:             inputs,
-		Outputs:            outputs,
-		TxSecret:           txSecret,
-		ExternalDataHash:   externalDataHash,
-		PrivateTxHash:      privateTxHash,
-		RingProgramID:      publicInputs.RingProgramID,
-		AllowDummyInputs:   publicInputs.AllowDummyInputs,
-		SignerPkHashes:     asFrontendVariables(publicInputs.SignerPkHashes),
-		TreeIDs:            treeIDs,
-		UtxoTreeRoots:      utxoTreeRoots,
-		NullifierTreeRoots: nullifierTreeRoots,
-		OutputTreeID:       spptest.Fe(testOutputTreeID),
-		PublicInputHash:    publicInputHash,
+		Shape:            Shape(shape),
+		Inputs:           inputs,
+		Outputs:          outputs,
+		TxSecret:         txSecret,
+		ExternalDataHash: externalDataHash,
+		PrivateTxHash:    privateTxHash,
+		RingProgramID:    publicInputs.RingProgramID,
+		AllowDummyInputs: publicInputs.AllowDummyInputs,
+		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
+		TreeSlots:        treeSlots,
+		OutputTreeID:     spptest.Fe(testOutputTreeID),
+		PublicInputHash:  publicInputHash,
 	}
 	for i := 0; i < NPublicSlots; i++ {
 		circuit.PublicAssets[i] = publicInputs.PublicAssets[i]
@@ -594,14 +571,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bin
 	if bindOutputOwnerTags {
 		publicInputs.OutputOwnerPkHashes = spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes())
 	}
-	assignment.PublicInputHash = testPublicInputHash(
-		t,
-		publicInputs,
-		assignment.TreeIDs,
-		assignment.UtxoTreeRoots,
-		assignment.NullifierTreeRoots,
-		assignment.OutputTreeID,
-	)
+	assignment.PublicInputHash = testPublicInputHash(t, publicInputs, assignment.TreeSlots, assignment.OutputTreeID)
 }
 
 func defaultBalancedUtxos(t testing.TB, shape protocol.Shape) ([]protocol.Utxo, []protocol.Utxo) {
@@ -691,8 +661,8 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		stateEntries[defaultStateLeafIndex(i)] = inputHash
 	}
 	stateRoot, stateProofs := spptest.MustBuildSparseStateTree(t, stateEntries)
-	for k := range assignment.UtxoTreeRoots {
-		assignment.UtxoTreeRoots[k] = stateRoot
+	for k := range assignment.TreeSlots {
+		assignment.TreeSlots[k].UtxoRoot = stateRoot
 	}
 	nullifierTree := spptest.MustNewNullifierTree(t)
 	for i := range assignment.Inputs {
@@ -713,7 +683,9 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		fillStateProofElements(assignment.Inputs[i].NullifierLowPathElements, nfWitness.PathElements)
 		assignment.Inputs[i].NullifierLowPathIndex = new(big.Int).SetUint64(nfWitness.LowIndex)
 	}
-	assignment.NullifierTreeRoots = asFrontendVariables(spptest.RepeatBigInt(nullifierTree.Root(), InputTrees))
+	for k := range assignment.TreeSlots {
+		assignment.TreeSlots[k].NullifierRoot = nullifierTree.Root()
+	}
 	refreshDerivedOutputBlindings(t, assignment)
 
 	OutputHashes := spptest.ToBigInts(assignment.OutputHashes())

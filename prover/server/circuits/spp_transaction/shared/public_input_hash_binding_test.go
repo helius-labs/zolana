@@ -63,20 +63,20 @@ func assertPublicInputHashBindsEveryField(
 			run:  func() { refreshWithChangedField(&assignment.Inputs[index].Nullifier) },
 		})
 	}
-	for k := range assignment.TreeIDs {
+	for k := range assignment.TreeSlots {
 		slot := k
 		mutations = append(mutations,
 			publicInputHashMutation{
-				name: fmt.Sprintf("tree_ids/%d", slot),
-				run:  func() { refreshWithChangedField(&assignment.TreeIDs[slot]) },
+				name: fmt.Sprintf("tree_slots/%d/id", slot),
+				run:  func() { refreshWithChangedField(&assignment.TreeSlots[slot].ID) },
 			},
 			publicInputHashMutation{
-				name: fmt.Sprintf("utxo_tree_roots/%d", slot),
-				run:  func() { refreshWithChangedField(&assignment.UtxoTreeRoots[slot]) },
+				name: fmt.Sprintf("tree_slots/%d/utxo_root", slot),
+				run:  func() { refreshWithChangedField(&assignment.TreeSlots[slot].UtxoRoot) },
 			},
 			publicInputHashMutation{
-				name: fmt.Sprintf("nullifier_tree_roots/%d", slot),
-				run:  func() { refreshWithChangedField(&assignment.NullifierTreeRoots[slot]) },
+				name: fmt.Sprintf("tree_slots/%d/nullifier_root", slot),
+				run:  func() { refreshWithChangedField(&assignment.TreeSlots[slot].NullifierRoot) },
 			},
 		)
 	}
@@ -182,17 +182,35 @@ func publicFieldElementCount(t testing.TB, circuit frontend.Circuit) int {
 	}
 	count := 0
 	for i := range public.NumField() {
-		field := public.Field(i)
-		switch field.Kind() {
-		case reflect.Interface:
-			count++
-		case reflect.Array, reflect.Slice:
-			count += field.Len()
-		default:
-			t.Fatalf("unsupported public field %q of kind %s", public.Type().Field(i).Name, field.Kind())
-		}
+		count += fieldElementCount(t, public.Type().Field(i).Name, public.Field(i))
 	}
 	return count
+}
+
+// fieldElementCount counts the frontend.Variable leaves of one public field: a
+// variable, a slice or array of variables, or a slice of structs of variables
+// such as []TreeSlot.
+func fieldElementCount(t testing.TB, name string, field reflect.Value) int {
+	t.Helper()
+	switch field.Kind() {
+	case reflect.Interface:
+		return 1
+	case reflect.Array, reflect.Slice:
+		count := 0
+		for i := range field.Len() {
+			count += fieldElementCount(t, name, field.Index(i))
+		}
+		return count
+	case reflect.Struct:
+		count := 0
+		for i := range field.NumField() {
+			count += fieldElementCount(t, name, field.Field(i))
+		}
+		return count
+	default:
+		t.Fatalf("unsupported public field %q of kind %s", name, field.Kind())
+		return 0
+	}
 }
 
 func nextPublicInputField(value frontend.Variable) *big.Int {

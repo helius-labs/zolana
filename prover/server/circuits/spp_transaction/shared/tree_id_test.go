@@ -22,12 +22,26 @@ const (
 	testOutputTreeID = 11
 )
 
-// testSlotTreeIDs returns InputTrees distinct tree ids, slot 0 = testInputTreeID.
-func testSlotTreeIDs() []frontend.Variable {
+// testTreeSlots returns InputTrees slots with distinct tree ids, slot 0 =
+// testInputTreeID, all publishing the same UTXO and nullifier roots.
+func testTreeSlots(utxoRoot, nullifierRoot *big.Int) []TreeSlot {
 	ids := []int64{testInputTreeID, 17, 19, 23, 29}
-	out := make([]frontend.Variable, InputTrees)
+	out := make([]TreeSlot, InputTrees)
 	for k := range out {
-		out[k] = spptest.Fe(ids[k])
+		out[k] = TreeSlot{ID: spptest.Fe(ids[k]), UtxoRoot: utxoRoot, NullifierRoot: nullifierRoot}
+	}
+	return out
+}
+
+// treeSlotsToProtocol converts assigned circuit slots to their host values.
+func treeSlotsToProtocol(slots []TreeSlot) []protocol.TreeSlot {
+	out := make([]protocol.TreeSlot, len(slots))
+	for k, slot := range slots {
+		out[k] = protocol.TreeSlot{
+			ID:            spptest.AsBigInt(slot.ID),
+			UtxoRoot:      spptest.AsBigInt(slot.UtxoRoot),
+			NullifierRoot: spptest.AsBigInt(slot.NullifierRoot),
+		}
 	}
 	return out
 }
@@ -55,21 +69,19 @@ func testUtxoHash(t testing.TB, u protocol.Utxo, treeID frontend.Variable) *big.
 }
 
 // testPublicInputHash mirrors Transaction.publicInputHash: protocol's preimage
-// with the tree slots, the nullifier root chain, and the output tree id after the
-// output hash chain. The root fields of `inputs` are ignored.
+// with the tree slot chain and the output tree id after the output hash chain.
+// The root fields of `inputs` are ignored.
 func testPublicInputHash(
 	t testing.TB,
 	inputs protocol.PublicInputs,
-	treeIDs, utxoTreeRoots, nullifierTreeRoots []frontend.Variable,
+	treeSlots []TreeSlot,
 	outputTreeID frontend.Variable,
 ) *big.Int {
 	t.Helper()
 	fields := []*big.Int{
 		spptest.MustHashChain(t, inputs.Nullifiers),
 		spptest.MustHashChain(t, inputs.OutputUtxoHashes),
-		spptest.MustHashChain(t, spptest.ToBigInts(treeIDs)),
-		spptest.MustHashChain(t, spptest.ToBigInts(utxoTreeRoots)),
-		spptest.MustHashChain(t, spptest.ToBigInts(nullifierTreeRoots)),
+		spptest.MustTreeSlotsHashChain(t, treeSlotsToProtocol(treeSlots)),
 		spptest.AsBigInt(outputTreeID),
 		inputs.PrivateTxHash,
 		inputs.ExternalDataHash,

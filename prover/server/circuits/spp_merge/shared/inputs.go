@@ -12,12 +12,11 @@ import (
 // FirstNullifier is zero while input 0 is constrained and input 0's derived
 // nullifier afterwards.
 type mergeInputContext struct {
-	OwnerHash         frontend.Variable
-	NullifierSecret   frontend.Variable
-	Asset             frontend.Variable
-	NullifierTreeRoot frontend.Variable
-	RingProgramID     frontend.Variable
-	FirstNullifier    frontend.Variable
+	OwnerHash       frontend.Variable
+	NullifierSecret frontend.Variable
+	Asset           frontend.Variable
+	RingProgramID   frontend.Variable
+	FirstNullifier  frontend.Variable
 }
 
 // Checks:
@@ -31,13 +30,12 @@ type mergeInputContext struct {
 // - all UTXO fields and nullifier secret are zero
 // - nullifier is derived deterministically
 //
-// treeID and utxoTreeRoot are the input's selected tree slot.
+// tree is the slot the input's private TreeSlot selected.
 func constrainInput(
 	api frontend.API,
 	in Input,
 	ctx mergeInputContext,
-	treeID,
-	utxoTreeRoot frontend.Variable,
+	tree transaction.TreeSlot,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
@@ -61,9 +59,9 @@ func constrainInput(
 		RingProgramID: leafRingProgramID,
 	}
 	transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
-	utxoHash := transaction.UtxoHashCircuit(api, utxo, treeID)
+	utxoHash := transaction.UtxoHashCircuit(api, utxo, tree.ID)
 
-	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
+	// Inclusion: utxoHash is a leaf of the state tree at the slot's UTXO root.
 	statePathIndices := api.ToBinary(in.StatePathIndex, transaction.StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadget.MerkleRootGadget{
 		Hash:   utxoHash,
@@ -71,7 +69,7 @@ func constrainInput(
 		Path:   in.StatePathElements,
 		Height: transaction.StateTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, stateRoot, utxoTreeRoot)
+	assertEqualWhen(api, notDummy, stateRoot, tree.UtxoRoot)
 
 	nullifier := abstractor.Call(api, transaction.NullifierGadget{
 		UtxoHash:        utxoHash,
@@ -95,7 +93,7 @@ func constrainInput(
 		Height: transaction.NullifierTreeHeight,
 	})
 
-	api.AssertIsEqual(nfRoot, ctx.NullifierTreeRoot)
+	api.AssertIsEqual(nfRoot, tree.NullifierRoot)
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
 		Lo:  in.NullifierLowValue,
 		Mid: nullifier,

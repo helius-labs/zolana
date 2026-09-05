@@ -62,7 +62,7 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 
 	in := &assignment.Inputs[idx]
 	in.TreeSlot = spptest.Fe(int64(slot))
-	inputHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.TreeIDs[slot])
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.TreeSlots[slot].ID)
 
 	const freshStateLeafIndex = 99
 	stateRoot, stateProofs := spptest.MustBuildSparseStateTree(t, map[uint64]*big.Int{
@@ -71,7 +71,7 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 	stateProof := stateProofs[freshStateLeafIndex]
 	fillStateProofElements(in.StatePathElements, stateProof.PathElements)
 	in.StatePathIndex = new(big.Int).SetUint64(stateProof.PathIndex)
-	assignment.UtxoTreeRoots[slot] = stateRoot
+	assignment.TreeSlots[slot].UtxoRoot = stateRoot
 
 	in.Nullifier = spptest.MustNullifier(
 		t,
@@ -83,7 +83,7 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 	if err := nullifierTree.Insert(spptest.Fe(int64(slot + 1))); err != nil {
 		t.Fatal(err)
 	}
-	assignment.NullifierTreeRoots[slot] = nullifierTree.Root()
+	assignment.TreeSlots[slot].NullifierRoot = nullifierTree.Root()
 	nfWitness := spptest.MustNonInclusion(t, nullifierTree, spptest.AsBigInt(in.Nullifier))
 	in.NullifierLowValue = nfWitness.LowValue
 	in.NullifierNextValue = nfWitness.NextValue
@@ -116,13 +116,14 @@ func TestCircuitBindsBothRootsToTreeSlot(t *testing.T) {
 			circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 			assignment := buildCircuitAssignment(t, shape)
 			moveInputToSlot(t, assignment, 1, slot)
-			if spptest.AsBigInt(assignment.UtxoTreeRoots[slot]).Cmp(spptest.AsBigInt(assignment.UtxoTreeRoots[0])) == 0 ||
-				spptest.AsBigInt(assignment.NullifierTreeRoots[slot]).Cmp(spptest.AsBigInt(assignment.NullifierTreeRoots[0])) == 0 {
+			moved, base := assignment.TreeSlots[slot], assignment.TreeSlots[0]
+			if spptest.AsBigInt(moved.UtxoRoot).Cmp(spptest.AsBigInt(base.UtxoRoot)) == 0 ||
+				spptest.AsBigInt(moved.NullifierRoot).Cmp(spptest.AsBigInt(base.NullifierRoot)) == 0 {
 				t.Fatal("expected distinct UTXO and nullifier roots across slots")
 			}
 			assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 
-			assignment.NullifierTreeRoots[slot] = assignment.NullifierTreeRoots[0]
+			assignment.TreeSlots[slot].NullifierRoot = base.NullifierRoot
 			refreshPublicInputHash(t, assignment)
 			assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 		})
@@ -139,7 +140,7 @@ func TestCircuitRejectsInputClaimingWrongStateRoot(t *testing.T) {
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildCircuitAssignment(t, shape)
 	moveInputToSlot(t, assignment, 1, 1)
-	assignment.UtxoTreeRoots[1] = assignment.UtxoTreeRoots[0]
+	assignment.TreeSlots[1].UtxoRoot = assignment.TreeSlots[0].UtxoRoot
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -159,7 +160,7 @@ func TestCircuitRejectsInputClaimingWrongNullifierRoot(t *testing.T) {
 	if err := nullifierTree.Insert(spptest.Fe(3)); err != nil {
 		t.Fatalf("perturb nullifier tree: %v", err)
 	}
-	assignment.NullifierTreeRoots[0] = nullifierTree.Root()
+	assignment.TreeSlots[0].NullifierRoot = nullifierTree.Root()
 	refreshPublicInputHash(t, assignment)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
@@ -328,8 +329,8 @@ func TestDummyInputRejectsMimickedPublicColumns(t *testing.T) {
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
 	assignment.Inputs[0].Nullifier = spptest.Fe(7)
-	assignment.UtxoTreeRoots[0] = spptest.Fe(8)
-	assignment.NullifierTreeRoots[0] = spptest.Fe(9)
+	assignment.TreeSlots[0].UtxoRoot = spptest.Fe(8)
+	assignment.TreeSlots[0].NullifierRoot = spptest.Fe(9)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

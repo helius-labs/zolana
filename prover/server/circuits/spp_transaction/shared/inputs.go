@@ -25,13 +25,12 @@ type Input struct {
 	NullifierSecret frontend.Variable
 }
 
-// Public inputs per input UTXO.
+// Public inputs per input UTXO. Tree is the slot the input's private TreeSlot
+// selected.
 type PublicInputUtxoInputs struct {
-	Nullifier         frontend.Variable
-	UtxoTreeRoot      frontend.Variable
-	NullifierTreeRoot frontend.Variable
-	SignerPk          frontend.Variable
-	TreeID            frontend.Variable
+	Nullifier frontend.Variable
+	SignerPk  frontend.Variable
+	Tree      TreeSlot
 }
 
 func NewInputs(n int) []Input {
@@ -66,21 +65,6 @@ func inputUtxos(inputs []Input) []UtxoCircuitFields {
 	return out
 }
 
-// SelectTreeSlot selects one tree's id and both roots with the same private
-// slot, asserting the slot is in range. Callers validate the slice lengths.
-func SelectTreeSlot(api frontend.API, slot frontend.Variable, treeIDs, utxoRoots, nullifierRoots []frontend.Variable) (frontend.Variable, frontend.Variable, frontend.Variable) {
-	var hits, treeID, utxoRoot, nullifierRoot frontend.Variable = 0, 0, 0, 0
-	for k := range treeIDs {
-		sel := api.IsZero(api.Sub(slot, k))
-		hits = api.Add(hits, sel)
-		treeID = api.Add(treeID, api.Mul(sel, treeIDs[k]))
-		utxoRoot = api.Add(utxoRoot, api.Mul(sel, utxoRoots[k]))
-		nullifierRoot = api.Add(nullifierRoot, api.Mul(sel, nullifierRoots[k]))
-	}
-	api.AssertIsEqual(hits, 1)
-	return treeID, utxoRoot, nullifierRoot
-}
-
 // AssertDistinctNullifiers asserts pairwise inequality so no input slot is
 // spent twice within one proof.
 func AssertDistinctNullifiers(api frontend.API, nullifiers []frontend.Variable) {
@@ -105,7 +89,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 
 	// Checks for UTXO, dummy UTXO, adddress:
 	// 1. nullifier must not exist in nullifier tree.
-	utxoHash := UtxoHashCircuit(api, in.Utxo, signals.TreeID)
+	utxoHash := UtxoHashCircuit(api, in.Utxo, signals.Tree.ID)
 	in.checkNonInclusion(api, utxoHash, signals)
 
 	// Checks UTXO and address:
@@ -125,7 +109,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// UTXO checks:
 	// 1. UTXO hash must exist in state Merkle tree.
 	{
-		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.Tree.UtxoRoot))
 	}
 	// Dummy checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding.
@@ -201,7 +185,7 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 
 //  1. derived nullifier equals the public nullifier.
 //  2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in the
-//     nullifier tree at signals.NullifierTreeRoot.
+//     nullifier tree at signals.Tree.NullifierRoot.
 //  3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 //
 // -> nullifier does not exist yet in indexed Merkle tree.
@@ -223,7 +207,7 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Path:   in.NullifierLowPathElements,
 		Height: NullifierTreeHeight,
 	})
-	api.AssertIsEqual(nfRoot, signals.NullifierTreeRoot)
+	api.AssertIsEqual(nfRoot, signals.Tree.NullifierRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
 }

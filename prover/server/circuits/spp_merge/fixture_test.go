@@ -9,6 +9,7 @@ import (
 
 	merge "zolana/prover/circuits/spp_merge"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
+	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/poseidon"
 	"zolana/prover/prover-test/spp/protocol"
 )
@@ -63,6 +64,37 @@ func fixtureSlotTreeIDs() []*big.Int {
 		out[k] = big.NewInt(ids[k])
 	}
 	return out
+}
+
+// fixtureTreeSlots pairs each slot's id with its two roots.
+func fixtureTreeSlots(ids, utxoRoots, nullifierRoots []*big.Int) []protocol.TreeSlot {
+	slots := make([]protocol.TreeSlot, len(ids))
+	for k := range ids {
+		slots[k] = protocol.TreeSlot{ID: ids[k], UtxoRoot: utxoRoots[k], NullifierRoot: nullifierRoots[k]}
+	}
+	return slots
+}
+
+// publicTreeSlots reads the assigned circuit slots back as host values.
+func publicTreeSlots(slots []transaction.TreeSlot) []protocol.TreeSlot {
+	out := make([]protocol.TreeSlot, len(slots))
+	for k, slot := range slots {
+		out[k] = protocol.TreeSlot{
+			ID:            slot.ID.(*big.Int),
+			UtxoRoot:      slot.UtxoRoot.(*big.Int),
+			NullifierRoot: slot.NullifierRoot.(*big.Int),
+		}
+	}
+	return out
+}
+
+func treeSlotsHashChain(t *testing.T, slots []protocol.TreeSlot) *big.Int {
+	t.Helper()
+	h, err := protocol.TreeSlotsHashChain(slots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 // mergeUtxoHash mirrors the circuit's seven-field utxo hash; protocol.UtxoHash
@@ -367,12 +399,11 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 		allowDummyInputs = options.allowDummyInputs
 	}
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
+	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	publicInputPreimage := []*big.Int{
 		hashChain(t, pubNullifiers),
 		outHash,
-		hashChain(t, treeIDs),
-		hashChain(t, slotRoots),
-		hashChain(t, slotNullifierRoots),
+		treeSlotsHashChain(t, treeSlots),
 		outputTreeID,
 		privateTxHash,
 		externalDataHash,
@@ -402,10 +433,12 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	public.OutputHash = outHash
 	public.AllowDummyInputs = allowDummyInputs
 	public.OutputTreeID = outputTreeID
-	for k := range treeIDs {
-		public.TreeIDs[k] = treeIDs[k]
-		public.UtxoTreeRoots[k] = slotRoots[k]
-		public.NullifierTreeRoots[k] = slotNullifierRoots[k]
+	for k, slot := range treeSlots {
+		public.TreeSlots[k] = transaction.TreeSlot{
+			ID:            slot.ID,
+			UtxoRoot:      slot.UtxoRoot,
+			NullifierRoot: slot.NullifierRoot,
+		}
 	}
 
 	for i := 0; i < merge.MergeInputs; i++ {
