@@ -1,10 +1,11 @@
-use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
-
-use crate::{
-    tag, EncryptedRingDepositOutput, EventKind, GeneralEvent, OutputDataEncoding, ProoflessOutput,
-    ENCRYPTED_RING_DEPOSIT_SCHEME,
+use zolana_interface::{
+    instruction::tag,
+    output_data::{decode_output_data, ProoflessOutput},
 };
+
+use crate::reconstruction::{general_event_from_site, ReconstructError};
+use crate::{EventKind, GeneralEvent};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedInstruction {
@@ -40,107 +41,64 @@ pub struct InstructionGroup {
 pub struct IndexedEvent {
     /// SPP instruction tag: always [`tag::EMIT_EVENT`] for logged events.
     pub tag: u8,
-    /// Bytes after `EMIT_EVENT`: `[EventKind, borsh(GeneralEvent)]`.
+    /// Bytes after `EMIT_EVENT`: `[EventKind, borsh(body)]`. The body is a
+    /// `GeneralEvent` for deposits, a fixed-size `TransactEvent` / `MergeEvent`
+    /// for those state changes, or a `NullifierTreeUpdateEvent` for a batch
+    /// update.
     pub payload: Vec<u8>,
-    pub decoded: Result<GeneralEvent, EventDecodeError>,
+    /// Instruction tag of the parent state transition.
+    pub source_instruction_tag: u8,
+    /// Parent-aware decode result. Compact transact and merge bodies cannot be
+    /// decoded without their parent instruction, so reconstruction happens once
+    /// while the parent is available instead of leaking parent buffers to every
+    /// consumer.
+    pub decoded: Result<GeneralEvent, ReconstructError>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EventDecodeError {
-    MissingInstructionTag,
-    InvalidInstructionTag(u8),
-    InvalidPayload,
-    InvalidEventKind(u8),
+pub enum DepositOutputDecodeError {
     InvalidOutputData,
     MissingOutput,
     MissingDepositSplTransfer,
 }
 
-pub fn decode_event_instruction(data: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
-    let (&instruction_tag, payload) = data
-        .split_first()
-        .ok_or(EventDecodeError::MissingInstructionTag)?;
-    if instruction_tag != tag::EMIT_EVENT {
-        return Err(EventDecodeError::InvalidInstructionTag(instruction_tag));
-    }
-    decode_event_payload(payload)
-}
-
-pub fn decode_event_payload(payload: &[u8]) -> Result<GeneralEvent, EventDecodeError> {
-    let (&kind_byte, event_bytes) = payload
-        .split_first()
-        .ok_or(EventDecodeError::InvalidPayload)?;
-    // Validate the kind envelope up front; every known kind currently decodes
-    // to a `GeneralEvent`, so dispatch is a single arm until a kind needs its
-    // own payload struct.
-    EventKind::from_byte(kind_byte).ok_or(EventDecodeError::InvalidEventKind(kind_byte))?;
-    GeneralEvent::try_from_slice(event_bytes).map_err(|_| EventDecodeError::InvalidPayload)
-}
-
-pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
-    let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
-        .map_err(|_| EventDecodeError::InvalidOutputData)?
-    else {
-        return Err(EventDecodeError::InvalidOutputData);
-    };
-    let (&scheme, body) = blob
-        .split_first()
-        .ok_or(EventDecodeError::InvalidOutputData)?;
-    if scheme != 0 {
-        return Err(EventDecodeError::InvalidOutputData);
-    }
-    ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
-}
-
-pub fn decode_encrypted_ring_deposit_output_data(
-    data: &[u8],
-) -> Result<EncryptedRingDepositOutput, EventDecodeError> {
-    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data)
-        .map_err(|_| EventDecodeError::InvalidOutputData)?
-    else {
-        return Err(EventDecodeError::InvalidOutputData);
-    };
-    let (&scheme, body) = blob
-        .split_first()
-        .ok_or(EventDecodeError::InvalidOutputData)?;
-    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
-        return Err(EventDecodeError::InvalidOutputData);
-    }
-    EncryptedRingDepositOutput::try_from_slice(body)
-        .map_err(|_| EventDecodeError::InvalidOutputData)
-}
-
-pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDecodeError> {
+pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, DepositOutputDecodeError> {
     let output = event
         .outputs
         .first()
-        .ok_or(EventDecodeError::MissingOutput)?;
-    let proofless = decode_output_data(&output.data)?;
+        .ok_or(DepositOutputDecodeError::MissingOutput)?;
+    let proofless = decode_output_data(&output.data)
+        .map_err(|_| DepositOutputDecodeError::InvalidOutputData)?;
     require_deposit(event)?;
     Ok(proofless)
 }
 
 /// Decode every output of a batched proofless `deposit` event, in slot order.
-pub fn proofless_outputs(event: &GeneralEvent) -> Result<Vec<ProoflessOutput>, EventDecodeError> {
+pub fn proofless_outputs(
+    event: &GeneralEvent,
+) -> Result<Vec<ProoflessOutput>, DepositOutputDecodeError> {
     if event.outputs.is_empty() {
-        return Err(EventDecodeError::MissingOutput);
+        return Err(DepositOutputDecodeError::MissingOutput);
     }
     require_deposit(event)?;
     event
         .outputs
         .iter()
-        .map(|output| decode_output_data(&output.data))
+        .map(|output| {
+            decode_output_data(&output.data)
+                .map_err(|_| DepositOutputDecodeError::InvalidOutputData)
+        })
         .collect()
 }
 
-fn require_deposit(event: &GeneralEvent) -> Result<(), EventDecodeError> {
+fn require_deposit(event: &GeneralEvent) -> Result<(), DepositOutputDecodeError> {
     if event.spl_transfers.is_empty()
         || !event
             .spl_transfers
             .iter()
             .all(|transfer| transfer.is_deposit)
     {
-        return Err(EventDecodeError::MissingDepositSplTransfer);
+        return Err(DepositOutputDecodeError::MissingDepositSplTransfer);
     }
     Ok(())
 }
@@ -156,12 +114,8 @@ pub fn event_kind_from_indexed(event: &IndexedEvent) -> Option<EventKind> {
         .and_then(EventKind::from_byte)
 }
 
-/// Returns the decoded [`GeneralEvent`] body when the indexed payload is valid.
-pub fn general_event_from_indexed(event: &IndexedEvent) -> Result<&GeneralEvent, EventDecodeError> {
-    match &event.decoded {
-        Ok(general_event) => Ok(general_event),
-        Err(err) => Err(*err),
-    }
+pub fn general_event_from_indexed(event: &IndexedEvent) -> Result<&GeneralEvent, ReconstructError> {
+    event.decoded.as_ref().map_err(|error| *error)
 }
 
 pub fn indexed_events_from_instruction_groups(
@@ -171,11 +125,16 @@ pub fn indexed_events_from_instruction_groups(
     let mut events = Vec::new();
     for group in groups {
         for (index, instruction) in group.inner.iter().enumerate() {
-            if is_emit_event(shielded_pool_program_id, instruction)
-                && parent_is_event_source(shielded_pool_program_id, group, index)
-            {
-                events.push(indexed_event(&instruction.data));
+            if !is_emit_event(shielded_pool_program_id, instruction) {
+                continue;
             }
+            let Some(parent) = event_parent(group, index) else {
+                continue;
+            };
+            if !is_event_source(shielded_pool_program_id, parent) {
+                continue;
+            }
+            events.push(indexed_event(&instruction.data, parent));
         }
     }
     events
@@ -189,47 +148,54 @@ pub fn instruction_may_emit_events(
         || is_ring_wrapper_event_source(shielded_pool_program_id, instruction)
 }
 
-fn indexed_event(data: &[u8]) -> IndexedEvent {
+fn indexed_event(data: &[u8], parent: &ParsedInstruction) -> IndexedEvent {
+    let payload = data.get(1..).unwrap_or_default().to_vec();
+    let source_instruction_tag = parent.data.first().copied().unwrap_or_default();
     IndexedEvent {
         tag: tag::EMIT_EVENT,
-        payload: data.get(1..).unwrap_or_default().to_vec(),
-        decoded: decode_event_instruction(data),
+        decoded: general_event_from_pubkey_site(
+            source_instruction_tag,
+            &parent.data,
+            &parent.accounts,
+            &payload,
+        ),
+        payload,
+        source_instruction_tag,
     }
 }
 
-fn parent_is_event_source(
-    shielded_pool_program_id: Pubkey,
-    group: &InstructionGroup,
-    event_index: usize,
-) -> bool {
-    let Some(event_height) = group.inner[event_index].stack_height else {
-        return false;
-    };
-    let Some(parent_height) = event_height.checked_sub(1) else {
-        return false;
-    };
+/// Parent-aware off-chain decoder for callers whose account list uses Solana
+/// pubkeys. The conversion intentionally copies addresses here; the on-chain
+/// instruction parser and external-data hash never call this helper.
+pub fn general_event_from_pubkey_site(
+    source_instruction_tag: u8,
+    parent_data: &[u8],
+    parent_accounts: &[Pubkey],
+    payload: &[u8],
+) -> Result<GeneralEvent, ReconstructError> {
+    let account_addresses: Vec<[u8; 32]> = parent_accounts.iter().map(Pubkey::to_bytes).collect();
+    general_event_from_site(
+        source_instruction_tag,
+        parent_data,
+        &account_addresses,
+        payload,
+    )
+}
 
-    let parent = group.inner[..event_index]
+/// The instruction that invoked this event, by stack height. One level up from
+/// the event, which covers the ring-CPI case where the pool instruction is
+/// itself an inner instruction.
+fn event_parent(group: &InstructionGroup, event_index: usize) -> Option<&ParsedInstruction> {
+    let event_height = group.inner.get(event_index)?.stack_height?;
+    let parent_height = event_height.checked_sub(1)?;
+
+    group
+        .inner
+        .get(..event_index)?
         .iter()
         .rev()
         .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer));
-
-    parent.is_some_and(|instruction| is_event_source(shielded_pool_program_id, instruction))
-}
-
-/// SPP instructions that finish by emitting a [`GeneralEvent`] via `emit_event`.
-fn is_general_event_source_tag(tag_byte: u8) -> bool {
-    matches!(
-        tag_byte,
-        tag::DEPOSIT
-            | tag::RING_DEPOSIT
-            | tag::TRANSACT
-            | tag::RING_TRANSACT
-            | tag::RING_AUTHORITY_TRANSACT
-            | tag::MERGE_TRANSACT
-            | tag::RING_MERGE_TRANSACT
-    )
+        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer))
 }
 
 fn is_event_source(shielded_pool_program_id: Pubkey, instruction: &ParsedInstruction) -> bool {
@@ -238,7 +204,8 @@ fn is_event_source(shielded_pool_program_id: Pubkey, instruction: &ParsedInstruc
             .data
             .first()
             .copied()
-            .is_some_and(is_general_event_source_tag)
+            .and_then(EventKind::for_source_instruction)
+            .is_some()
 }
 
 /// Ring programs CPI into SPP with a ring instruction tag; SPP is listed in the

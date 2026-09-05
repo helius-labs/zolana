@@ -1,8 +1,9 @@
 use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use thiserror::Error;
 use zolana_interface::instruction::{
-    RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
+    RingTransact, TransactBuildError, TransactInterfaceTransferAccounts, TransactIxData,
 };
 
 use crate::CustomRing;
@@ -41,8 +42,16 @@ pub struct CustomRingTransact {
     pub transact: TransactIxData,
 }
 
+#[derive(Debug, Error)]
+pub enum CustomRingTransactBuildError {
+    #[error(transparent)]
+    Transact(#[from] TransactBuildError),
+    #[error(transparent)]
+    Encoding(#[from] wincode::WriteError),
+}
+
 impl CustomRingTransact {
-    pub fn instruction(self) -> Result<Instruction, wincode::Error> {
+    pub fn instruction(self) -> Result<Instruction, CustomRingTransactBuildError> {
         let Self {
             ring: deployment,
             payer,
@@ -65,7 +74,7 @@ impl CustomRingTransact {
         };
         // `.instruction()` (not `.cpi_instruction()`) is the client-facing form:
         // it targets a ring program and leaves `ring_config` unsigned.
-        let spp_accounts = ring.instruction().accounts;
+        let spp_accounts = ring.instruction()?.accounts;
         let transact = ring.data;
 
         let mut accounts = Vec::with_capacity(2 + spp_accounts.len());

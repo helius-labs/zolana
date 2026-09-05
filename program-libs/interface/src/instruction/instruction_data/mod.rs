@@ -1,5 +1,6 @@
 #[cfg(feature = "tree")]
 pub mod batch_update_nullifier_tree;
+mod borrowed;
 #[cfg(feature = "tree")]
 pub mod create_tree;
 pub mod deposit;
@@ -10,6 +11,8 @@ pub mod ring_config;
 #[cfg(feature = "tree")]
 pub mod set_tree_fees;
 pub mod transact;
+
+pub use borrowed::{BorrowedList, BorrowedListIter, DecodeError};
 
 #[cfg(feature = "tree")]
 pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
@@ -24,14 +27,14 @@ pub use deposit::{
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
     MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,
-    MERGE_INPUT_COUNT,
+    MERGE_DEFAULT_INPUT_COUNT,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InputUtxoRef, InterfaceTransfer,
+    MessageDataRef, OwnerTag, OwnerTagRef, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, TransactProofRef,
 };

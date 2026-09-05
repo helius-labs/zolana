@@ -141,7 +141,8 @@ fn create_pair_escrow_and_settle() -> Result<()> {
                 interface_transfer_accounts: Vec::new(),
                 data: split_transact,
             }
-            .instruction();
+            .instruction()
+            .expect("valid transact builder input");
             env.client
                 .rpc()
                 .create_and_send_transaction(&[split_ix], user_solana.pubkey(), &[&user_solana])

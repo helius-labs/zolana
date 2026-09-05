@@ -4,10 +4,10 @@
 //! change the bytes an indexer or wallet parses.
 
 use borsh::BorshSerialize;
-use zolana_event::{
-    decode_output_data, encode_output_data, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, OutputDataEncoding, ProoflessOutput,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
+use zolana_interface::output_data::{
+    decode_output_data, encode_output_data, encode_verifiably_encrypted,
+    is_confidential_encrypted_output, ring_confidential_encrypted_output_body, OutputDataEncoding,
+    ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
@@ -44,6 +44,15 @@ fn encoded_output_decodes_back() {
         let encoded = encode_output_data(data.clone());
         assert_eq!(decode_output_data(&encoded).expect("decode"), data);
     }
+}
+
+#[test]
+fn plaintext_decoder_rejects_other_envelopes_and_schemes() {
+    let encrypted = borsh::to_vec(&OutputDataEncoding::Encrypted(vec![0])).unwrap();
+    assert!(decode_output_data(&encrypted).is_err());
+
+    let wrong_scheme = borsh::to_vec(&OutputDataEncoding::Plaintext(vec![1])).unwrap();
+    assert!(decode_output_data(&wrong_scheme).is_err());
 }
 
 /// `PLAINTEXT_OUTPUT_FIXED_LEN` is the capacity reserved before the variable
@@ -154,8 +163,6 @@ fn every_option_present_but_empty() -> ProoflessOutput {
 #[test]
 fn verifiably_encrypted_round_trips_with_tag_byte_two() {
     use borsh::BorshDeserialize;
-    use zolana_event::encode_verifiably_encrypted;
-
     let blob = vec![1u8, 2, 3, 4, 5];
     let encoded = encode_verifiably_encrypted(blob.clone());
     assert_eq!(

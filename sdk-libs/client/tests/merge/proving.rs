@@ -4,9 +4,9 @@ use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
 use zolana_client::{
     prover::merge::MergeProver, Merge, MergeWitness, ProverClient, Rpc, SppProofInputUtxo,
-    MERGE_INPUTS,
+    MAX_MERGE_INPUTS,
 };
-use zolana_interface::verifying_keys::merge_8_1;
+use zolana_interface::verifying_keys::{merge_36_1, merge_8_1};
 use zolana_keypair::{random_blinding, ShieldedKeypair, SigningKey};
 use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo};
 
@@ -16,7 +16,10 @@ impl MergeHarness {
     pub(crate) fn prove_and_verify_merge(&self) {
         start_prover();
         let n = self.plan.real_inputs;
-        assert!((1..=MERGE_INPUTS).contains(&n), "real inputs must be 1..=8");
+        assert!(
+            (1..=MAX_MERGE_INPUTS).contains(&n),
+            "real inputs must be 1..={MAX_MERGE_INPUTS}"
+        );
 
         let sender = if self.plan.eddsa {
             let mut seed = [0u8; 32];
@@ -51,8 +54,8 @@ impl MergeHarness {
             inputs.push(SppProofInputUtxo::new(utxo, &sender));
         }
         // The plan derives the merged output and owner identity; preparing it pads to
-        // MERGE_INPUTS, and the MergeWitness folds in the owner nullifier key and the
-        // proofs. The prover never sees the high-level plan.
+        // the smallest supported shape that fits, and the MergeWitness folds in the
+        // owner nullifier key and the proofs. The prover never sees the plan.
         let merge = Merge::new(&sender, inputs)
             .expect("build merge plan")
             .with_expiry(0);
@@ -86,14 +89,16 @@ impl MergeHarness {
             "merge proof must use vanilla Groth16"
         );
         let public_inputs: [[u8; 32]; 1] = [result.public_input_hash];
-        let mut verifier = Groth16Verifier::new(
-            &proof.a,
-            &proof.b,
-            &proof.c,
-            &public_inputs,
-            &merge_8_1::VERIFYINGKEY,
-        )
-        .expect("construct verifier");
+        // The padded shape selects the key, exactly as the program does: merge
+        // instruction data has no circuit selector, so the input count is the
+        // shape.
+        let vk = match result.nullifiers.len() {
+            8 => &merge_8_1::VERIFYINGKEY,
+            36 => &merge_36_1::VERIFYINGKEY,
+            other => panic!("no committed verifying key for a {other}-input merge"),
+        };
+        let mut verifier = Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, vk)
+            .expect("construct verifier");
         verifier.verify().expect("merge groth16 proof verifies");
 
         // The owner reconstructs the ciphertext-free merge output from the

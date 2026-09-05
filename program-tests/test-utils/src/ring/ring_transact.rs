@@ -123,7 +123,7 @@ impl RingWithdrawal {
         match self {
             Self::Sol { recipient } => {
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: *recipient,
+                    user_account: *recipient,
                 })
             }
             Self::Spl {
@@ -455,7 +455,7 @@ impl RingHarness {
             interface_transfer_accounts,
             data: data.clone(),
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let instructions = [compute_budget, transfer_ix.clone()];
         let signature = send_transaction_fitting(&mut self.rpc, &instructions, &fee_payer, &[])?;
@@ -809,7 +809,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match send_transaction(
@@ -1119,22 +1119,22 @@ fn assemble_ix_data(
         ),
     };
     Ok(TransactIxData {
-        proof,
         expiry_unix_ts: external.expiry_unix_ts,
-        private_tx_hash,
-        circuit,
-        inputs,
         interface_transfers: external
             .interface_transfers
             .iter()
             .map(|transfer| transfer.interface_transfer())
             .collect(),
-        data_hash: external.data_hash,
-        ring_data_hash: external.ring_data_hash,
         tx_viewing_pk: external.tx_viewing_pk,
         salt: external.salt,
         outputs: external.outputs.clone(),
         messages: external.messages.clone(),
+        proof,
+        private_tx_hash,
+        circuit,
+        inputs,
+        data_hash: external.data_hash,
+        ring_data_hash: external.ring_data_hash,
     })
 }
 

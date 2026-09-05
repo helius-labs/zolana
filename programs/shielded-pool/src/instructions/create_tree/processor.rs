@@ -26,6 +26,8 @@ use crate::instructions::{
 pub fn process_create_tree(accounts: &mut [AccountView], data: &[u8]) -> ProgramResult {
     let data = CreateTreeData::try_from_slice(data)
         .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
+    TreeAccount::validate_init_params(STATE_HEIGHT as u8, data.nullifier_params)
+        .map_err(tree_error)?;
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;

@@ -73,7 +73,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data.clone(),
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let signature = send_transaction(
             &mut self.rpc,
@@ -299,8 +299,17 @@ impl RingHarness {
         }];
 
         let ix_data = TransactIxData {
-            proof: pack_transact_proof(&proof)?,
             expiry_unix_ts: external_data.expiry_unix_ts,
+            interface_transfers: external_data
+                .interface_transfers
+                .iter()
+                .map(|transfer| transfer.interface_transfer())
+                .collect(),
+            tx_viewing_pk: external_data.tx_viewing_pk,
+            salt: external_data.salt,
+            outputs: external_data.outputs.clone(),
+            messages: external_data.messages.clone(),
+            proof: pack_transact_proof(&proof)?,
             private_tx_hash: result.private_tx_hash,
             circuit: CircuitId::RingAuthority(
                 inputs.len() as u8,
@@ -308,17 +317,8 @@ impl RingHarness {
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
             inputs,
-            interface_transfers: external_data
-                .interface_transfers
-                .iter()
-                .map(|transfer| transfer.interface_transfer())
-                .collect(),
             data_hash: external_data.data_hash,
             ring_data_hash: external_data.ring_data_hash,
-            tx_viewing_pk: external_data.tx_viewing_pk,
-            salt: external_data.salt,
-            outputs: external_data.outputs.clone(),
-            messages: external_data.messages.clone(),
         };
 
         Ok((ix_data, input_utxo, utxo_hash, output_plaintext))
@@ -376,7 +376,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         match send_transaction(
             &mut self.rpc,
@@ -424,7 +424,7 @@ impl RingHarness {
             interface_transfer_accounts: Vec::new(),
             data: ix_data,
         }
-        .instruction();
+        .instruction()?;
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         match send_transaction(
             &mut self.rpc,

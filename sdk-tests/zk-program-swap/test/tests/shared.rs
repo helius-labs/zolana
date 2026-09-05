@@ -28,7 +28,7 @@ use zolana_keypair::{
 };
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
+    localnet::{isolated_temp_path, LocalnetValidator, ValidatorBackend, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
@@ -95,6 +95,7 @@ pub fn setup() -> Result<TestEnv> {
 
     LocalnetValidator {
         cli_bin: cli.clone(),
+        backend: ValidatorBackend::default(),
         working_dir: artifacts.root(),
         rpc_port,
         photon_port,

@@ -7,7 +7,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_interface::instruction::tag;
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
@@ -195,7 +196,9 @@ mod rpc {
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
         commitment: Some(CommitmentConfig::confirmed()),
-        max_supported_transaction_version: Some(0),
+        // Large transact shapes need transaction v1, whose 4 KB limit is the
+        // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+        max_supported_transaction_version: Some(1),
     };
 
     #[must_use]

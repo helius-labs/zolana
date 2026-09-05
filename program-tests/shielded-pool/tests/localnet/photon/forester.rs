@@ -143,6 +143,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
         std::env::var(INDEXER_URL_ENV).unwrap_or_else(|_| DEFAULT_INDEXER_URL.to_owned());
 
     let config = BootstrapConfig {
+        backend: ValidatorBackend::default(),
         label: "zolana-photon",
         extra_programs: Vec::new(),
         ring_creation_is_permissionless: false,
@@ -370,7 +371,8 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &env.tree_pubkey)?;
     let tree_before = fetch_tree_account(env)?;
     let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;

@@ -18,7 +18,10 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{pda, SPL_TOKEN_ACCOUNT_AMOUNT_END, SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET};
-use zolana_test_utils::{localnet::start_shielded_pool_localnet, prover::spawn_workspace_prover};
+use zolana_test_utils::{
+    localnet::{start_shielded_pool_localnet, ValidatorBackend},
+    prover::spawn_workspace_prover,
+};
 use zolana_transaction::Address;
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -52,7 +55,7 @@ fn spl_token_account_amount(rpc: &SolanaRpc, token_account: &Pubkey) -> Result<u
 /// recipient resolution); `--skip-prover` leaves the persistent prover server
 /// untouched so its proving keys stay loaded.
 fn restart_localnet() {
-    start_shielded_pool_localnet("zolana-wallet-cli", &[]);
+    start_shielded_pool_localnet("zolana-wallet-cli", ValidatorBackend::default(), &[]);
 }
 
 fn cli_bin() -> PathBuf {

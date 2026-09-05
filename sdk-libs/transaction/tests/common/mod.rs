@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use zolana_event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::SENDER_SLOT_COUNT,

@@ -25,20 +25,19 @@ type externalDataHashVector struct {
 	Salt                     string                    `json:"salt"`
 	ExpiryUnixTs             uint64                    `json:"expiry_unix_ts"`
 	InterfaceTransfers       []interfaceTransferVector `json:"interface_transfers"`
-	DataHash                 string                    `json:"data_hash"`
-	RingDataHash             string                    `json:"ring_data_hash"`
 	OutputHashes             []string                  `json:"output_hashes"`
 	EncryptedUtxos           string                    `json:"encrypted_utxos"`
 	Hash                     string                    `json:"hash"`
 }
 
 type interfaceTransferVector struct {
-	IsSpl       bool   `json:"is_spl"`
-	IsDeposit   bool   `json:"is_deposit"`
-	Asset       string `json:"asset"`
-	Amount      uint64 `json:"amount"`
-	UserAccount string `json:"user_account"`
-	PoolAccount string `json:"pool_account"`
+	IsSpl            bool   `json:"is_spl"`
+	IsDeposit        bool   `json:"is_deposit"`
+	Asset            string `json:"asset"`
+	Amount           uint64 `json:"amount"`
+	SplInterfaceBump uint8  `json:"spl_interface_bump"`
+	UserAccount      string `json:"user_account"`
+	PoolAccount      string `json:"pool_account"`
 }
 
 type solanaPkFieldVector struct {
@@ -62,27 +61,30 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 
 	external := vector.ExternalDataHash
 	senderViewTag := mustHex32(t, external.SenderViewTag)
-	outputs, err := resolveOutputs(
+	outputs, err := buildTransactOutputs(
 		vectorFieldValues(t, external.OutputHashes),
 		senderViewTag,
 		mustHexBytes(t, external.EncryptedUtxos),
 	)
 	if err != nil {
-		t.Fatalf("resolve external outputs: %v", err)
+		t.Fatalf("build external outputs: %v", err)
 	}
-	gotExternal := externalDataFieldHash(externalDataPreimage{
-		InstructionDiscriminator: external.InstructionDiscriminator,
-		ExpiryUnixTs:             external.ExpiryUnixTs,
-		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
-		DataHashPresent:          false,
-		DataHash:                 mustFieldBytes(t, external.DataHash),
-		RingDataHashPresent:      false,
-		RingDataHash:             mustFieldBytes(t, external.RingDataHash),
-		TxViewingPk:              mustHex33(t, external.TxViewingPk),
-		Salt:                     mustHex16(t, external.Salt),
-		Outputs:                  outputs,
+	interfaceTransfers, err := buildInterfaceTransfers(vectorInterfaceTransferRequests(external.InterfaceTransfers))
+	if err != nil {
+		t.Fatalf("build external interface transfers: %v", err)
+	}
+	gotExternalBytes, err := externalDataHash(externalDataHashInput{
+		instructionDiscriminator: external.InstructionDiscriminator,
+		expiryUnixTs:             external.ExpiryUnixTs,
+		interfaceTransfers:       interfaceTransfers,
+		txViewingPk:              mustHex33(t, external.TxViewingPk),
+		salt:                     mustHex16(t, external.Salt),
+		outputs:                  outputs,
 	})
-	expectField(t, "external_data_hash", gotExternal, external.Hash)
+	if err != nil {
+		t.Fatalf("hash external data: %v", err)
+	}
+	expectField(t, "external_data_hash", new(big.Int).SetBytes(gotExternalBytes[:]), external.Hash)
 
 	solanaHash, err := protocol.SolanaPkField(mustHex32(t, vector.SolanaPkField.Pubkey))
 	if err != nil {
@@ -131,31 +133,14 @@ func vectorInterfaceTransferRequests(transfers []interfaceTransferVector) []Inte
 	out := make([]InterfaceTransferRequest, 0, len(transfers))
 	for _, transfer := range transfers {
 		out = append(out, InterfaceTransferRequest{
-			IsSpl:       transfer.IsSpl,
-			IsDeposit:   transfer.IsDeposit,
-			Asset:       transfer.Asset,
-			Amount:      transfer.Amount,
-			UserAccount: transfer.UserAccount,
-			PoolAccount: transfer.PoolAccount,
+			IsSpl:            transfer.IsSpl,
+			IsDeposit:        transfer.IsDeposit,
+			Asset:            transfer.Asset,
+			Amount:           transfer.Amount,
+			SplInterfaceBump: transfer.SplInterfaceBump,
+			UserAccount:      transfer.UserAccount,
+			PoolAccount:      transfer.PoolAccount,
 		})
-	}
-	return out
-}
-
-func vectorResolvedInterfaceTransfers(t *testing.T, transfers []interfaceTransferVector) []resolvedInterfaceTransfer {
-	t.Helper()
-	out := make([]resolvedInterfaceTransfer, 0, len(transfers))
-	for _, transfer := range transfers {
-		resolved := resolvedInterfaceTransfer{
-			isSpl:       transfer.IsSpl,
-			isDeposit:   transfer.IsDeposit,
-			amount:      transfer.Amount,
-			userAccount: mustHex32(t, transfer.UserAccount),
-		}
-		if transfer.IsSpl {
-			resolved.poolAccount = mustHex32(t, transfer.PoolAccount)
-		}
-		out = append(out, resolved)
 	}
 	return out
 }
@@ -227,14 +212,5 @@ func mustHex16(t *testing.T, value string) [16]byte {
 	}
 	var out [16]byte
 	copy(out[:], bytes)
-	return out
-}
-
-func mustFieldBytes(t *testing.T, value string) [32]byte {
-	t.Helper()
-	out, err := parse.FieldBytes(mustField(t, value))
-	if err != nil {
-		t.Fatalf("encode field %q: %v", value, err)
-	}
 	return out
 }

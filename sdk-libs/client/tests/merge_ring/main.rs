@@ -28,3 +28,19 @@ fn run_owner_rail(eddsa: bool) {
         .prove_and_verify_merge_ring();
     }
 }
+
+/// The wide shape on the policy-ring rail: 9 real inputs pad to 36, so the
+/// proof must verify against merge_ring_36_1 rather than the 8-input key.
+#[test]
+#[serial_test::serial]
+fn merge_ring_proofs_cover_the_wide_shape() {
+    for real_inputs in [9, 36] {
+        MergeRingHarness {
+            plan: MergeRingPlan {
+                real_inputs,
+                eddsa: false,
+            },
+        }
+        .prove_and_verify_merge_ring();
+    }
+}

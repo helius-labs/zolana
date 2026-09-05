@@ -7,8 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-zolana-interface = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["output-codec"] }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 async-trait = { workspace = true }
@@ -30,6 +29,8 @@ hex = { workspace = true }
 proptest = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+# Only the constants-vector test needs the tree account constants.
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["tree"] }
 
 [[test]]
 name = "behavior"

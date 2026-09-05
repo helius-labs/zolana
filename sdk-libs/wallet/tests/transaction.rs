@@ -19,7 +19,7 @@ use zolana_client::{
     ProverVariant, PublicTransfers, Rpc, SettlementTarget, SpendProof, SppProofInputUtxo,
     SppProofInputs, TransferProver, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
 
 use zolana_interface::instruction::instruction_data::transact::{

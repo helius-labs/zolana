@@ -1,9 +1,10 @@
+use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::{create_hash_chain_from_slice, HashChain};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
-    verifying_keys::{merge_8_1, merge_ring_8_1},
+    instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
+    verifying_keys::{merge_36_1, merge_8_1, merge_ring_36_1, merge_ring_8_1},
 };
 
 use crate::instructions::verifier;
@@ -14,12 +15,13 @@ use crate::instructions::verifier;
 /// owner-identity fields. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
-    /// registry record -- `pk_field(owner_p256)`. Verified against `merge_8_1`.
+    /// registry record -- `pk_field(owner_p256)`. Verified against
+    /// `merge_<n_inputs>_1`.
     Registry { signing_pk_field: [u8; 32] },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_8_1`.
+    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
@@ -30,20 +32,26 @@ pub enum MergeOwnerBinding {
 /// merge, the registry), folded into the merge public-input hash alongside the
 /// instruction fields.
 pub struct MergeProofInputs {
-    pub utxo_roots: [[u8; 32]; MERGE_INPUT_COUNT],
-    pub nullifier_tree_roots: [[u8; 32]; MERGE_INPUT_COUNT],
+    /// Left-folded chains over the per-input roots, in `ix.nullifiers` order.
+    /// `input_count` is how many were folded and must equal the instruction's
+    /// declared input count when the public input is assembled.
+    pub utxo_root_chain: [u8; 32],
+    pub nullifier_tree_root_chain: [u8; 32],
+    pub input_count: u8,
     pub external_data_hash: [u8; 32],
     pub allow_dummy_inputs: [u8; 32],
     pub owner_binding: MergeOwnerBinding,
 }
 
-pub struct MergeProof<'a> {
-    ix: &'a MergeTransactIxDataRef<'a>,
-    derived: MergeProofInputs,
+pub struct MergeProof<'a, 'data> {
+    ix: &'a MergeTransactIxDataRef<'data>,
+    // Borrowed rather than owned so assembling the proof does not copy the
+    // derived inputs onto this frame on top of the caller's copy.
+    derived: &'a MergeProofInputs,
 }
 
-impl<'a> MergeProof<'a> {
-    pub fn new(ix: &'a MergeTransactIxDataRef<'a>, derived: MergeProofInputs) -> Self {
+impl<'a, 'data> MergeProof<'a, 'data> {
+    pub fn new(ix: &'a MergeTransactIxDataRef<'data>, derived: &'a MergeProofInputs) -> Self {
         Self { ix, derived }
     }
 
@@ -58,12 +66,7 @@ impl<'a> MergeProof<'a> {
             c: p.c,
             commitment: None,
         };
-        // The policy-ring merge (`merge_ring`) commits `ring_program_id`, so it uses
-        // its own verifying key; the default-ring merge uses `merge_8_1`.
-        let vk = match self.derived.owner_binding {
-            MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
-            MergeOwnerBinding::Ring { .. } => &merge_ring_8_1::VERIFYINGKEY,
-        };
+        let vk = self.verifying_key()?;
         verifier::verify_groth16(
             proof,
             public_input_hash,
@@ -71,6 +74,32 @@ impl<'a> MergeProof<'a> {
             encoding_err,
             ShieldedPoolError::TransactProofVerificationFailed,
         )
+    }
+
+    /// Select the verifying key from the owner binding and the declared input
+    /// count.
+    ///
+    /// Both halves are load-bearing. The rail differs in what the
+    /// public-input-hash tail binds (`merge_ring` commits `ring_program_id`), and
+    /// the input count differs in the constraint system itself, because the
+    /// hash prefix folds three chains whose length is the input count. Merge
+    /// instruction data carries no circuit selector, so the count is implicit in
+    /// `nullifiers.len()`; a shape with no key must be refused here rather than
+    /// verified against a key for a different width.
+    fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
+        let input_count = self.ix.nullifiers.len();
+        let vk = match (&self.derived.owner_binding, input_count) {
+            (MergeOwnerBinding::Registry { .. }, 8) => &merge_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Registry { .. }, 36) => &merge_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 36) => &merge_ring_36_1::VERIFYINGKEY,
+            // Unreachable through the instruction parse, which rejects any count
+            // outside MERGE_SUPPORTED_INPUT_COUNTS. Kept fail-closed so adding a
+            // count to that set without a key here cannot fall through to the
+            // wrong verifying key.
+            _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
+        };
+        Ok(vk)
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
@@ -83,10 +112,18 @@ impl<'a> MergeProof<'a> {
     /// registry to bind it against) and appends the output `ring_data_hash` and
     /// `ring_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
-        let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
-        let utxo_roots = create_hash_chain_from_slice(&self.derived.utxo_roots)?;
-        let nullifier_tree_roots =
-            create_hash_chain_from_slice(&self.derived.nullifier_tree_roots)?;
+        let mut nullifiers = HashChain::new();
+        for nullifier in self.ix.nullifiers.try_iter() {
+            nullifiers.push(nullifier.map_err(|_| ProgramError::InvalidInstructionData)?)?;
+        }
+        let nullifiers = nullifiers.finish();
+        // The root chains were folded over `ix.nullifiers`; requiring the folded
+        // count to match replaces the bounds the fixed-width arrays gave.
+        if usize::from(self.derived.input_count) != self.ix.nullifiers.len() {
+            return Err(ShieldedPoolError::InvalidMergeShape.into());
+        }
+        let utxo_roots = self.derived.utxo_root_chain;
+        let nullifier_tree_roots = self.derived.nullifier_tree_root_chain;
 
         let prefix = [
             nullifiers,

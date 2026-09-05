@@ -27,7 +27,6 @@ bytemuck = { workspace = true }
 groth16-solana = { workspace = true }
 light-array-map = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
-solana-msg = { workspace = true, features = ["alloc"] }
 zolana-account-checks = { workspace = true }
 zolana-hasher = { workspace = true }
 light-program-profiler = { workspace = true }
@@ -35,6 +34,7 @@ pinocchio-system = { workspace = true }
 pinocchio = { workspace = true, features = ["account-resize"] }
 spl-token-2022-interface = { workspace = true }
 tinyvec = { workspace = true }
+zolana-event = { workspace = true, features = ["nullifier-tree"] }
 zolana-interface = { workspace = true, features = ["borsh"] }
 zolana-tree = { workspace = true, features = ["account-view", "verify"] }
 zolana-user-registry-interface = { workspace = true }

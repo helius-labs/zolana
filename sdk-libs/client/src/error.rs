@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::instruction::DepositBuildError;
+use zolana_interface::instruction::{DepositBuildError, MergeBuildError, TransactBuildError};
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
@@ -9,6 +9,12 @@ use zolana_transaction::TransactionError;
 pub enum ClientError {
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
+
+    #[error("transact builder error: {0}")]
+    TransactBuild(#[from] TransactBuildError),
+
+    #[error("merge builder error: {0}")]
+    MergeBuild(#[from] MergeBuildError),
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),

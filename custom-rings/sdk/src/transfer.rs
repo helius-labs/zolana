@@ -11,7 +11,7 @@ use zolana_client::{
     ProverClient, RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation,
     Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferInputs, TransferSpendInput,
 };
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
         tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
@@ -36,7 +36,7 @@ use zolana_tree::{TreeAccount, TreeError};
 use crate::{
     to_instruction_proof, AccountReadError, CustomRing, CustomRingProof, CustomRingProofError,
     CustomRingProofInputError, CustomRingProofParams, CustomRingProofRequest, CustomRingTransact,
-    Deposit, EncryptedAudit, PendingCustomRingProof,
+    CustomRingTransactBuildError, Deposit, EncryptedAudit, PendingCustomRingProof,
 };
 
 const NO_RING_DATA_HASH: [u8; 32] = [0u8; 32];
@@ -124,7 +124,7 @@ pub enum TransferError {
     #[error(transparent)]
     Proof(#[from] CustomRingProofError),
     #[error(transparent)]
-    Instruction(#[from] wincode::Error),
+    Instruction(#[from] CustomRingTransactBuildError),
     #[error(transparent)]
     Encoding(#[from] std::io::Error),
     #[error("indexer returned an incomplete proof set")]
@@ -784,26 +784,26 @@ impl RingEddsaInstructionData<'_> {
 
         let external = &self.proof_inputs.external_data;
         Ok(TransactIxData {
-            proof: self.proof,
             expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: self.result.private_tx_hash,
-            circuit: CircuitId::RingEddsa(
-                n_inputs as u8,
-                external.outputs.len() as u8,
-                N_PUBLIC_SLOTS as u8,
-            ),
-            inputs,
+            tx_viewing_pk: external.tx_viewing_pk,
+            salt: external.salt,
             interface_transfers: external
                 .interface_transfers
                 .iter()
                 .map(|transfer| transfer.interface_transfer())
                 .collect(),
-            data_hash: external.data_hash,
-            ring_data_hash: external.ring_data_hash,
-            tx_viewing_pk: external.tx_viewing_pk,
-            salt: external.salt,
             outputs: external.outputs.clone(),
             messages: external.messages.clone(),
+            data_hash: external.data_hash,
+            ring_data_hash: external.ring_data_hash,
+            circuit: CircuitId::RingEddsa(
+                n_inputs as u8,
+                external.outputs.len() as u8,
+                N_PUBLIC_SLOTS as u8,
+            ),
+            proof: self.proof,
+            private_tx_hash: self.result.private_tx_hash,
+            inputs,
         })
     }
 }
@@ -811,11 +811,11 @@ impl RingEddsaInstructionData<'_> {
 #[cfg(test)]
 mod tests {
     use zolana_client::MerkleContext;
-    use zolana_interface::instruction::{
-        instruction_data::transact::{
+    use zolana_interface::{
+        instruction::TransactSolTransferAccounts,
+        output_data::{
             confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
         },
-        TransactSolTransferAccounts,
     };
     use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
     use zolana_transaction::SOL_MINT;
@@ -1001,7 +1001,9 @@ mod tests {
         validate_transfer_accounts(
             &prepared,
             &[TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient },
+                TransactSolTransferAccounts {
+                    user_account: recipient,
+                },
             )],
         )
         .expect("withdrawal accounts");

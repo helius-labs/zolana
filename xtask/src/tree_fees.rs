@@ -8,6 +8,13 @@ use zolana_tree::TreeFeeSchedule;
 
 pub const BASE_TRANSACTION_FEE_LAMPORTS: u64 = 5_000;
 
+/// Which transaction format the forester's close batches are budgeted against.
+///
+/// This must match `forester::close_nullifier_pdas::LEGACY_TRANSACTION_SIZE_LIMIT`:
+/// the schedule divides one base fee across the closes that fit in a
+/// transaction, so budgeting for v1 while the forester sends legacy would
+/// under-reimburse it by about threefold. The forester is on legacy today, so
+/// `V0` is the honest choice; move both together.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransactionSize {
     V0,

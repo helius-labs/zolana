@@ -146,17 +146,11 @@ fn test_new_initializes_entire_queue() {
 }
 
 #[test]
-fn test_get_num_zkp_batches() {
-    let metadata = new_queue::<5>(10, 2).unwrap();
-    assert_eq!(metadata.get_num_zkp_batches(), 5);
-}
-
-#[test]
 fn test_get_current_batch() {
     let mut metadata = new_queue::<5>(10, 2).unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
-        BatchState::Fill
+        Ok(BatchState::Fill)
     );
     metadata
         .get_current_batch_mut()
@@ -165,7 +159,7 @@ fn test_get_current_batch() {
         .unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
-        BatchState::Full
+        Ok(BatchState::Full)
     );
     metadata
         .get_current_batch_mut()
@@ -174,6 +168,6 @@ fn test_get_current_batch() {
         .unwrap();
     assert_eq!(
         metadata.get_current_batch().unwrap().get_state(),
-        BatchState::Inserted
+        Ok(BatchState::Inserted)
     );
 }

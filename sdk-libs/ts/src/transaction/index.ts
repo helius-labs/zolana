@@ -14,7 +14,7 @@ export {
 export {
   BN254_MODULUS_DEC,
   ConfidentialSplit,
-  MERGE_INPUTS,
+  MERGE_DEFAULT_INPUTS,
   Merge,
   PreparedMerge,
   PreparedSplit,

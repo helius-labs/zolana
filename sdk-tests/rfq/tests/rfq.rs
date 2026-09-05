@@ -86,7 +86,8 @@ fn cosigned_rfq_settlement() -> Result<()> {
         interface_transfer_accounts: Vec::new(),
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let signature =
         send_cosigned_v0_with_lookup_table(client.rpc(), &maker_solana, &taker_solana, ix)?;

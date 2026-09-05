@@ -217,7 +217,9 @@ impl SolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                // Large transact shapes need transaction v1, whose 4 KB limit is the
+                // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+                max_supported_transaction_version: Some(1),
             };
             match self.client.get_transaction_with_config(signature, config) {
                 Ok(transaction) => return Ok(transaction),
@@ -267,7 +269,9 @@ impl AsyncSolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                // Large transact shapes need transaction v1, whose 4 KB limit is the
+                // only one they fit; a ceiling of 0 makes the RPC refuse to return them.
+                max_supported_transaction_version: Some(1),
             };
             match self
                 .client

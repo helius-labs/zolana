@@ -4,10 +4,13 @@ use super::state_update::{
     StateUpdate,
 };
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
-use zolana_event::{decode_event_payload, tag};
+use zolana_event::{general_event_from_pubkey_site, EventKind};
+use zolana_interface::instruction::tag;
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 3;
+// 4: `transact` and `merge` events shrank to their assigned positions and are
+// reconstructed from the parent instruction, so version 3 rows must reparse.
+const RINGS_PARSE_VERSION: i16 = 4;
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
@@ -27,7 +30,16 @@ pub fn parse_rings_events(
         let event_index_i16 = i16::try_from(event_index).map_err(|_| {
             IngesterError::ParserError(format!("Event index {} does not fit in i16", event_index))
         })?;
-        let event = decode_event_payload(&event_site.payload).map_err(|err| {
+        // `transact` and `merge` log only the positions execution assigns; the
+        // rest is rebuilt from the instruction that emitted the event, which
+        // `find_event_sites` already resolved. Deposits still log a whole event.
+        let event = general_event_from_pubkey_site(
+            event_site.source_instruction_tag,
+            &event_site.parent_data,
+            &event_site.parent_accounts,
+            &event_site.payload,
+        )
+        .map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode Rings event for {} event {}: {:?}",
                 tx.signature, event_index, err
@@ -147,21 +159,8 @@ pub fn parse_rings_events(
 }
 
 fn is_general_event_source(source_instruction_tag: u8) -> bool {
-    // Keep this in sync with shielded-pool processors that call
-    // `emit_general_event`, directly or via process_transact_core /
-    // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
-    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
-    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
-    // drops those transactions from the index (they never get a rings_transactions
-    // row).
     matches!(
-        source_instruction_tag,
-        tag::TRANSACT
-            | tag::RING_TRANSACT
-            | tag::RING_AUTHORITY_TRANSACT
-            | tag::MERGE_TRANSACT
-            | tag::RING_MERGE_TRANSACT
-            | tag::DEPOSIT
-            | tag::RING_DEPOSIT
+        EventKind::for_source_instruction(source_instruction_tag),
+        Some(EventKind::Deposit | EventKind::Transact | EventKind::Merge)
     )
 }

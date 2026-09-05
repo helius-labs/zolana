@@ -1,4 +1,5 @@
-//! High-level builder for the 8-in/1-out merge proof. It reuses the spp transfer
+//! High-level builder for the n-in/1-out merge proof, where n is the padded
+//! shape the prepared merge chose. It reuses the spp transfer
 //! input/output assembly verbatim ([`assemble_inputs`]/[`assemble_outputs`]);
 //! only the deterministic output-blinding / dummy-nullifier derivations and the
 //! public-input-hash element set are merge-specific.
@@ -31,7 +32,7 @@ use crate::{
     rpc::NonInclusionProof,
 };
 
-/// Merge consolidates up to 8 inputs sharing one owner, asset, and nullifier
+/// Merge consolidates up to MAX_MERGE_INPUTS inputs sharing one owner, asset, and nullifier
 /// secret into one output whose blinding is derived from the owner's nullifier
 /// secret and the first input's nullifier, so the owner recovers it by
 /// reconstruction rather than decryption. The owner is either rail: a P256

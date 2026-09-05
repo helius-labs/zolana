@@ -141,16 +141,18 @@ func runCli() {
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
 					&cli.StringFlag{Name: "circuit", Usage: "Merge circuit (\"merge\" default / \"merge-ring\")", Required: false},
+					&cli.UintFlag{Name: "n-inputs", Usage: "Number of input slots", Required: true},
 				},
 				Action: func(context *cli.Context) error {
 					path := context.String("output")
+					nInputs := uint32(context.Uint("n-inputs"))
 					var ps *common.TransferProofSystem
 					var err error
 					switch context.String("circuit") {
 					case "", "merge":
-						ps, err = mergeprover.SetupMerge()
+						ps, err = mergeprover.SetupMerge(nInputs)
 					case "merge-ring":
-						ps, err = mergeprover.SetupMergeRing()
+						ps, err = mergeprover.SetupMergeRing(nInputs)
 					default:
 						return fmt.Errorf("unknown merge circuit %q", context.String("circuit"))
 					}
@@ -172,7 +174,7 @@ func runCli() {
 						return err
 					}
 					logging.Logger().Info().
-						Uint32("n_inputs", mergeprover.MergeNInputs).
+						Uint32("n_inputs", nInputs).
 						Uint32("n_outputs", mergeprover.MergeNOutputs).
 						Int64("bytes_written", written).
 						Str("output", path).

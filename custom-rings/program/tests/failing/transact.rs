@@ -13,10 +13,10 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
-    event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
         CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
     },
+    output_data::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };
@@ -64,17 +64,17 @@ fn other_message() -> MessageData {
 fn transact(messages: Vec<MessageData>) -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [1; 32],
-        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: auditor_pubkey(3),
         salt: [3; 16],
-        proof: TransactProof::zeroed(),
-        inputs: Vec::new(),
         interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
         outputs: Vec::new(),
         messages,
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [1; 32],
+        inputs: Vec::new(),
     }
 }
 

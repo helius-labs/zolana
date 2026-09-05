@@ -16,9 +16,9 @@ use crate::ingester::{
 };
 use solana_pubkey::Pubkey;
 use zolana_event::{
-    tag, tag::InstructionTag, InstructionGroup as RingsInstructionGroup,
-    ParsedInstruction as RingsInstruction,
+    InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
 };
+use zolana_interface::instruction::{tag, InstructionTag};
 
 pub struct EventSite {
     /// Tag of the instruction that emitted this event.
@@ -28,6 +28,11 @@ pub struct EventSite {
     /// Event bytes: `[kind, borsh(body)]`, i.e. the `EMIT_EVENT` instruction
     /// data with the tag byte removed.
     pub payload: Vec<u8>,
+    /// The instruction that emitted this event, with its tag byte, and its
+    /// account list. `transact` and `merge` log only the positions execution
+    /// assigns, so the rest of the event is rebuilt from these.
+    pub parent_data: Vec<u8>,
+    pub parent_accounts: Vec<Pubkey>,
 }
 
 pub fn to_rings_instruction_groups(
@@ -94,6 +99,8 @@ pub fn find_event_sites(
                 ring_config: ring_config_index(source_instruction_tag)
                     .and_then(|index| parent.accounts.get(index).copied()),
                 payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
+                parent_data: parent.data.clone(),
+                parent_accounts: parent.accounts.clone(),
             });
         }
     }

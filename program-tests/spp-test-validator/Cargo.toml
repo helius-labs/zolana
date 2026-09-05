@@ -5,13 +5,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `lifecycle` and `proof_cu` test targets build; both consume
-# the shared fixture from `zolana-test-utils` (`lifecycle` module).
+# Only the explicit `lifecycle`, `proof_cu` and `large_shape` test targets
+# build; all three consume the shared fixture from `zolana-test-utils`
+# (`lifecycle` module).
 autotests = false
 
 [dependencies]
 anyhow = { workspace = true }
 solana-address = { workspace = true }
+solana-message = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
@@ -30,3 +32,7 @@ path = "tests/lifecycle.rs"
 [[test]]
 name = "proof_cu"
 path = "tests/proof_cu.rs"
+
+[[test]]
+name = "large_shape"
+path = "tests/large_shape.rs"

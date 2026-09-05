@@ -12,8 +12,8 @@ use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::hash_bytes, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -29,7 +29,7 @@ use shielded_pool_tests::support::localnet::{
 
 use zolana_test_utils::transact::{
     dummy_input, dummy_transfer_output, nullifier_tree, public_sol_field, real_output, spend_input,
-    transfer_output, SpendInputArgs,
+    transfer_output, ResolvedInterfaceTransfer, SpendInputArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -286,7 +286,8 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
         interface_transfer_accounts: Vec::new(),
         data: transfer_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let transfer_tx = send_indexed(
         &mut cycle.rpc,
         &mut cycle.indexer,
@@ -403,12 +404,13 @@ fn phase_unshield(
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts {
-                recipient: public_recipient,
+                user_account: public_recipient,
             },
         )],
         data: withdraw_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let withdraw_tx = send_indexed(
         &mut cycle.rpc,
         &mut cycle.indexer,

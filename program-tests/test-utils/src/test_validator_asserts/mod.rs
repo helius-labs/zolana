@@ -72,7 +72,7 @@ pub fn expected_deposit_view(
         utxo_hash: event.utxo_hash,
         output_tree: expected.tree,
         leaf_index: expected.leaf_index,
-        output: zolana_event::ProoflessOutput {
+        output: zolana_interface::output_data::ProoflessOutput {
             owner: data.owner,
             blinding: deposit_blinding(&expected.tree, expected.leaf_index)
                 .expect("expected deposit blinding"),

@@ -7,39 +7,62 @@ use light_program_profiler::{
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_account::Account;
+use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicInputs, PublicTransfers, TransferOutput, STATE_TREE_HEIGHT,
+    prover::field::be, ProofCompressed, ProverClient, PublicInputs, PublicTransfers,
+    TransferOutput, TransferP256Inputs, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::hash_bytes;
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactIxData,
+        instruction_data::{
+            merge_transact::MERGE_SUPPORTED_INPUT_COUNTS,
+            transact::{CircuitId, InterfaceTransfer},
+        },
+        tag, Deposit, RingTransact, Transact, TransactInterfaceTransferAccounts, TransactIxData,
         TransactSolTransferAccounts,
     },
-    state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
-    NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    pda,
+    state::{
+        discriminator::RING_CONFIG, nullifier_tree_params, tree_account_size,
+        tree_working_capital_lamports, RingConfig,
+    },
+    verifying_keys::RingP256ProofData,
+    NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+    SPL_TOKEN_PROGRAM_ID,
 };
-use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
+use zolana_keypair::{
+    hash::{owner_hash, sha256},
+    pubkey::PublicKey,
+    NullifierKey, ShieldedKeypair, SigningKey,
+};
 use zolana_merkle_tree::MerkleTree;
-use zolana_program_test::ZolanaProgramTest;
-use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
+use zolana_program_test::{test_blinding, ZolanaProgramTest, RING_TEST_PROGRAM_ID};
+use zolana_transaction::{
+    instructions::transact::PrivateTxHash, Data, SyncWalletAuthority, Utxo, SOL_MINT,
+};
 
-use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots};
+use shielded_pool_tests::support::{
+    fixtures::Pool,
+    merge::RealMergeProof,
+    mollusk,
+    transact::{tree_roots, write_ring_config_account},
+};
 use zolana_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
     transact::{
-        build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
-        eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
+        account_tagged_owner_addresses, build_spl_withdrawal, build_transfer_prover_inputs,
+        dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash,
+        external_data_hash_with_addresses, fe, inline_outputs, new_transact_ix_data,
         nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
         public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-        transfer_output, SpendInputArgs, TransferProverInputsArgs,
+        transfer_output, ResolvedInterfaceTransfer, SpendInputArgs, TransferProverInputsArgs,
     },
 };
 
@@ -181,8 +204,13 @@ fn bench_cu_deposit() {
         description:
             "Compute unit profiling for feasible shielded-pool instruction families, replayed \
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
-             proof-free SOL/SPL shields, all ten Groth16-proven EdDSA transact shapes (including \
-             the 1x8 split shape), and SOL/SPL withdrawals. This target is a pure benchmark: no \
+             proof-free SOL/SPL shields, all eleven Groth16-proven EdDSA transact shapes \
+             (including the 1x8 split shape and the 36x2 consolidation shape, the widest that \
+             fits a transaction v1), that same 36x2 consolidation shape on both policy-ring \
+             `ring_transact` rails (EdDSA, and P256 -- whose BSB22 commitment adds a Pedersen \
+             proof-of-knowledge pairing to verification), both supported `merge_transact` \
+             shapes (8x1 and 36x1), and SOL/SPL withdrawals. This target \
+             is a pure benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
              ceiling that never runs would be unfalsifiable. Regression ceilings live in the \
              fast cross_cutting_cu_budget suite, which pins every proofless instruction family \
@@ -219,8 +247,15 @@ fn bench_cu_deposit() {
         (5, 3),
         (5, 4),
         (1, 8),
+        (36, 2),
     ] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
+    }
+    for rail in [RingRail::Eddsa, RingRail::P256] {
+        bench_ring_transfer_shape(&mollusk, &program_id, rail, 36, 2, &mut bench);
+    }
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
+        bench_merge_shape(&mollusk, &program_id, input_count, &mut bench);
     }
     bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
     bench_withdrawal_spl(&mollusk, &program_id, &token_program_account, &mut bench);
@@ -273,7 +308,6 @@ fn transact_accounts(
     program_id: &Pubkey,
     token_program_account: Option<&(Pubkey, Account)>,
 ) -> Vec<(Pubkey, Account)> {
-    let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
     let data = TransactIxData::deserialize(ix.data.get(1..).expect("tagged transact data"))
         .expect("transact instruction data");
     let input_tree = ix.accounts.get(1).expect("input tree meta").pubkey;
@@ -282,7 +316,30 @@ fn transact_accounts(
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
-    let nullifier_pdas = nullifier_pda_addresses(&input_tree, &nullifiers);
+    nullifier_spend_accounts(
+        pt,
+        ix,
+        program_id,
+        input_tree,
+        &nullifiers,
+        token_program_account,
+    )
+}
+
+// The account mapping shared by every nullifier-spending instruction, `transact`
+// and `merge_transact` alike. Both publish a nullifier per input and create one
+// PDA each, so both need the same treatment; only where the nullifier list comes
+// from differs, and the caller supplies it.
+fn nullifier_spend_accounts(
+    pt: &ZolanaProgramTest,
+    ix: &Instruction,
+    program_id: &Pubkey,
+    input_tree: Pubkey,
+    nullifiers: &[[u8; 32]],
+    token_program_account: Option<&(Pubkey, Account)>,
+) -> Vec<(Pubkey, Account)> {
+    let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let nullifier_pdas = nullifier_pda_addresses(&input_tree, nullifiers);
     let tree_rent = pt
         .svm
         .minimum_balance_for_rent_exemption(tree_account_size());
@@ -577,7 +634,8 @@ fn bench_transfer_shape(
         interface_transfer_accounts: Vec::new(),
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
@@ -585,6 +643,388 @@ fn bench_transfer_shape(
 
     let entries = take_profiling_entries();
     let name = format!("transfer eddsa {n_inputs}x{n_outputs}");
+    assert!(!entries.is_empty(), "no profiling entries for '{name}'");
+    bench.add_from_entries(&name, entries);
+}
+
+/// The proof rail a benched `ring_transact` runs on. Both rails share the
+/// account layout, the tree work, and the shape; they differ in the verifying
+/// key and in how ownership is authorized.
+#[derive(Clone, Copy)]
+enum RingRail {
+    /// Standard Groth16. Input owners are matched privately against the public
+    /// Solana signer run.
+    Eddsa,
+    /// Ownership authorized inside the proof by a shared P256 signature, whose
+    /// emulated-curve gadget adds a BSB22 commitment: verification runs one
+    /// extra Pedersen proof-of-knowledge pairing.
+    P256,
+}
+
+impl RingRail {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Eddsa => "ring",
+            Self::P256 => "p256 ring",
+        }
+    }
+}
+
+/// One `ring_transact` shape per policy-ring rail, spending one real
+/// zero-value input plus dummies and settling nothing, so the measurement
+/// isolates the rail's proof verification, public-input hashing, and tree
+/// application from the confidential rail benched above.
+///
+/// The real input is what the P256 rail requires: `P256Signers` asserts at
+/// least one content-bearing P256-owned slot, so an all-dummy witness is
+/// unprovable there. It is a default-ring UTXO, which
+/// `AssertRingMemberOrFree` accepts beside members of the signing ring, and on
+/// the P256 rail that publishes the owner's x-coordinate as
+/// `default_owner_tag`. Every output is a dummy tagged with the payer: a real
+/// default-ring output would have to publish its owner hash, and these
+/// unmarked (`data: None`) slots publish zero.
+///
+/// The signing `RingConfig` is written at the ring's canonical `ring_auth` PDA
+/// and passed as a signer, exactly as the ring program's CPI would: the
+/// program reads `ring_program_id` from it and never re-derives the address.
+fn bench_ring_transfer_shape(
+    mollusk: &Mollusk,
+    program_id: &Pubkey,
+    rail: RingRail,
+    n_inputs: usize,
+    n_outputs: usize,
+    bench: &mut CuBenchmark,
+) {
+    assert!(n_inputs > 0, "a ring proof needs at least one real input");
+    let (mut pt, _authority, tree) = bench_setup();
+    spawn_workspace_prover();
+
+    let payer = pt.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
+    let zero = [0u8; 32];
+    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
+
+    let ring_program = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
+    let (ring_config, ring_config_bump) = pda::ring_auth(&ring_program);
+    let config = RingConfig {
+        discriminator: RING_CONFIG,
+        authority: Address::new_from_array(payer_bytes),
+        program_id: Address::new_from_array(ring_program.to_bytes()),
+        ring_authority_transact_is_enabled: 0,
+        paused: 0,
+        bump: ring_config_bump,
+    };
+    write_ring_config_account(
+        &mut pt,
+        ring_config,
+        Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID),
+        bytemuck::bytes_of(&config).to_vec(),
+    );
+    // The program folds `hash_bytes` of the signing config's stored program id
+    // into the public `ring_program_id` element, which the circuit requires to
+    // be non-zero.
+    let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
+
+    let p256_keypair = ShieldedKeypair::from_keypair(
+        SigningKey::from_p256_bytes(&[7u8; 32]).expect("fixed P256 signing key"),
+    )
+    .expect("P256 shielded keypair");
+    // The eddsa rail spends the payer's own UTXO; the P256 rail spends one
+    // owned by the shared P256 authorization key.
+    let (owner_public_key, input_owner_pk_hash) = match rail {
+        RingRail::Eddsa => (PublicKey::from_ed25519(&payer_bytes), payer_hash),
+        // Zero is the sentinel `P256Signers` resolves to the authorization
+        // pubkey; a non-zero tag would be read as a Solana signer identity.
+        RingRail::P256 => (p256_keypair.signing_pubkey(), zero),
+    };
+
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
+    let event = pt
+        .deposit_sol(&tree, &payer, 0, owner_field)
+        .expect("proofless zero deposit");
+    let utxo = pt
+        .indexed_deposit_utxo(&event, owner_public_key)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
+    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    assert_eq!(utxo_hash, event.utxo_hash);
+
+    // The deposit made the UTXO leaf 0, so its inclusion proof binds root
+    // history index 1.
+    let roots = tree_roots(&pt, &tree, 1);
+    let (utxo_root, nullifier_root) = roots;
+    let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    state_tree.append(&utxo_hash).expect("append state leaf");
+    assert_eq!(state_tree.root(), utxo_root, "state root gate");
+    let state_path: Vec<[u8; 32]> = state_tree
+        .get_proof_of_leaf(0, true)
+        .expect("state proof")
+        .to_vec();
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+    let nullifier = nullifier_key
+        .nullifier(&utxo_hash, &blinding)
+        .expect("nullifier");
+    let non_inclusion = nf_tree
+        .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+        .expect("non-inclusion proof");
+
+    let mut inputs = vec![spend_input(SpendInputArgs {
+        utxo: &utxo,
+        owner_field: &owner_field,
+        state_path: &state_path,
+        state_path_index: 0,
+        non_inclusion: &non_inclusion,
+        roots,
+        nullifier: &nullifier,
+        owner_pk_hash: &input_owner_pk_hash,
+        nullifier_key: &nullifier_key,
+    })
+    .expect("real input")];
+    let mut nullifiers = vec![nullifier];
+    for index in 0..n_inputs - 1 {
+        let seed = u8::try_from(index).expect("supported ring input count");
+        let (input, dummy_nullifier) = dummy_input(
+            &[seed.checked_add(31).expect("dummy input seed"); 31],
+            &nf_tree,
+            roots,
+        )
+        .expect("dummy input");
+        inputs.push(input);
+        nullifiers.push(dummy_nullifier);
+    }
+
+    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = (0..n_outputs)
+        .map(|position| {
+            let seed = u8::try_from(position).expect("supported ring output count");
+            dummy_transfer_output(&[seed.checked_add(1).expect("dummy output seed"); 31])
+                .expect("dummy output")
+        })
+        .collect();
+    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
+    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+
+    // Every dummy output names the payer, a transaction participant
+    // (`AssertMaskedDummyOutputTags`).
+    let view_tags = vec![payer_bytes; n_outputs];
+    let mut transact_ix_data = new_transact_ix_data(
+        nullifiers
+            .iter()
+            .map(|nullifier| eddsa_input_utxo(*nullifier, 1))
+            .collect(),
+        Vec::new(),
+        inline_outputs(&output_hashes, &view_tags),
+    );
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &vec![zero; n_outputs]);
+
+    let addresses =
+        account_tagged_owner_addresses(&transact_ix_data).expect("account-tagged owners");
+    let external_data_hash =
+        external_data_hash_with_addresses(&transact_ix_data, tag::RING_TRANSACT, &addresses)
+            .expect("ring external data hash");
+    // The real input contributes its utxo hash; every dummy input and every
+    // dummy output contributes zero.
+    let mut private_inputs = vec![utxo_hash];
+    private_inputs.extend(std::iter::repeat_n(zero, n_inputs - 1));
+    let private_tx =
+        PrivateTxHash::new(&private_inputs, &vec![zero; n_outputs], &external_data_hash)
+            .hash()
+            .expect("private tx hash");
+
+    // The signer run the proof binds: the payer alone, zero-padded to the
+    // n_inputs + 1 circuit width. The P256 owner authorizes inside the proof,
+    // so it never joins the run.
+    let mut signer_pk_hashes = vec![payer_hash];
+    signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
+    let public_transfers = PublicTransfers {
+        assets: public_slot_assets,
+        amounts: public_slot_amounts,
+    };
+    let allow_dummy_inputs = fe(1);
+    let utxo_roots = vec![utxo_root; n_inputs];
+    let nullifier_tree_roots = vec![nullifier_root; n_inputs];
+    // The ring rails publish owner tags only for confidential-marked outputs;
+    // these carry no data, so every published slot is zero -- which is what the
+    // program folds into its output-owner chain.
+    let published_output_owner_pk_hashes = vec![zero; n_outputs];
+    let public_inputs = PublicInputs {
+        nullifiers: &nullifiers,
+        output_hashes: &output_hashes,
+        utxo_roots: &utxo_roots,
+        nullifier_tree_roots: &nullifier_tree_roots,
+        private_tx: &private_tx,
+        external_data_hash: &external_data_hash,
+        public_transfers: &public_transfers,
+        ring_program_id: &ring_field,
+        allow_dummy_inputs: &allow_dummy_inputs,
+        signer_pk_hashes: &signer_pk_hashes,
+        output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
+    };
+
+    let n_in = u8::try_from(n_inputs).expect("supported ring input count");
+    let n_out = u8::try_from(n_outputs).expect("supported ring output count");
+    let n_slots = N_PUBLIC_SLOTS as u8;
+    let (wire_proof, circuit) = match rail {
+        RingRail::Eddsa => {
+            let public_input_hash = public_inputs.hash().expect("public input hash");
+            let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+                inputs,
+                outputs,
+                external_data_hash,
+                private_tx_hash: private_tx,
+                public_slot_assets,
+                public_slot_amounts,
+                signer_pk_hashes: signer_pk_hashes.clone(),
+                public_input_hash,
+            });
+            prover_inputs.ring_program_id = be(&ring_field);
+            prover_inputs.published_output_owner_pk_hashes =
+                published_output_owner_pk_hashes.iter().map(be).collect();
+            let proof = ProverClient::local()
+                .prove_transfer_ring(&prover_inputs)
+                .unwrap_or_else(|error| {
+                    panic!("prove ring transfer {n_inputs}x{n_outputs}: {error}")
+                });
+            (
+                pack_transact_proof(&proof).expect("pack ring proof"),
+                CircuitId::RingEddsa(n_in, n_out, n_slots),
+            )
+        }
+        RingRail::P256 => {
+            // The shared authorization signs the SHA-256 digest of
+            // `private_tx_hash`, which the program recomputes from instruction
+            // data; the circuit binds both its Poseidon hash and the 128-bit
+            // limbs of the digest itself.
+            let message_digest = sha256(&private_tx);
+            let (high, low) = message_digest.split_at(16);
+            let authorization = SyncWalletAuthority::sign_p256(&p256_keypair, &message_digest)
+                .expect("P256 authorization");
+            let (pub_x, pub_y) = authorization
+                .pubkey
+                .coordinates()
+                .expect("P256 pubkey coordinates");
+            // The real input is default-ring, so the shared owner is published
+            // as `default_owner_tag` and the program hashes it into the public
+            // input.
+            let default_owner_tag = pub_x;
+            let default_p256_owner_pk_hash =
+                hash_bytes(&default_owner_tag).expect("default P256 owner pk hash");
+            let public_input_hash = public_inputs
+                .hash_with_p256_authorization(
+                    &hash_bytes(&message_digest).expect("P256 message proof input hash"),
+                    &default_p256_owner_pk_hash,
+                )
+                .expect("public input hash");
+            let prover_inputs = TransferP256Inputs {
+                inputs,
+                outputs,
+                external_data_hash: be(&external_data_hash),
+                private_tx_hash: be(&private_tx),
+                p256_pub_x: be(&pub_x),
+                p256_pub_y: be(&pub_y),
+                p256_sig_r: be(&authorization.sig_r),
+                p256_sig_s: be(&authorization.sig_s),
+                p256_message_hash_low: BigUint::from_bytes_be(low),
+                p256_message_hash_high: BigUint::from_bytes_be(high),
+                default_p256_owner_pk_hash: be(&default_p256_owner_pk_hash),
+                public_assets: public_slot_assets.map(|asset| be(&asset)),
+                public_amounts: public_slot_amounts.map(|amount| be(&amount)),
+                ring_program_id: be(&ring_field),
+                signer_pk_hashes: signer_pk_hashes.iter().map(be).collect(),
+                allow_dummy_inputs: BigUint::from(1u8),
+                published_output_owner_pk_hashes: published_output_owner_pk_hashes
+                    .iter()
+                    .map(be)
+                    .collect(),
+                public_input_hash: be(&public_input_hash),
+            };
+            let proof = ProverClient::local()
+                .prove_transfer_p256_ring(&prover_inputs)
+                .unwrap_or_else(|error| {
+                    panic!("prove P256 ring transfer {n_inputs}x{n_outputs}: {error}")
+                });
+            let (wire_proof, bsb22_commitment) = ProofCompressed::try_from(proof)
+                .expect("compress P256 ring proof")
+                .into_ring_p256_transact_parts()
+                .expect("split P256 ring proof");
+            (
+                wire_proof,
+                CircuitId::RingP256(
+                    n_in,
+                    n_out,
+                    n_slots,
+                    RingP256ProofData {
+                        bsb22_commitment,
+                        default_owner_tag: Some(default_owner_tag),
+                    },
+                ),
+            )
+        }
+    };
+    transact_ix_data.proof = wire_proof;
+    transact_ix_data.private_tx_hash = private_tx;
+    transact_ix_data.circuit = circuit;
+
+    let ix = RingTransact {
+        payer: payer.pubkey(),
+        input_tree: tree,
+        output_tree: tree,
+        ring_program_id: ring_program,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .cpi_instruction()
+    .expect("valid ring transact builder input");
+
+    let accounts = transact_accounts(&pt, &ix, program_id, None);
+    let mollusk_ix = to_mollusk_instruction(&ix);
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    let name = format!("transfer {} {n_inputs}x{n_outputs}", rail.label());
+    assert!(!entries.is_empty(), "no profiling entries for '{name}'");
+    bench.add_from_entries(&name, entries);
+}
+
+// A merge at one supported shape: the owner collapses one real UTXO plus derived
+// dummy slots into a single output. Merge is the other nullifier-spending
+// instruction, and it carries the same dominant per-input work as transact -- one
+// queue insertion and one PDA per declared input -- so both shapes are benched to
+// show what the padding in a narrow merge costs and what the wide circuit costs.
+// Each shape needs its own pool: the proof builder deposits the real input and
+// reconstructs the state witness from that single leaf, so the tree must be empty.
+fn bench_merge_shape(
+    mollusk: &Mollusk,
+    program_id: &Pubkey,
+    input_count: usize,
+    bench: &mut CuBenchmark,
+) {
+    std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
+    let mut pool = Pool::initialized();
+    spawn_workspace_prover();
+
+    let merge = RealMergeProof { input_count }.build(&mut pool);
+    let ix = merge.instruction(&pool);
+    let accounts = nullifier_spend_accounts(
+        &pool.rpc,
+        &ix,
+        program_id,
+        pool.tree,
+        &merge.nullifiers,
+        None,
+    );
+    let mollusk_ix = to_mollusk_instruction(&ix);
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    let name = format!("merge {input_count}x1");
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }
@@ -731,11 +1171,14 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
-            TransactSolTransferAccounts { recipient },
+            TransactSolTransferAccounts {
+                user_account: recipient,
+            },
         )],
         data: transact_ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);

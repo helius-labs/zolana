@@ -1,6 +1,6 @@
 export {
   ConfidentialSplit,
-  MERGE_INPUTS,
+  MERGE_DEFAULT_INPUTS,
   Merge,
   PreparedMerge,
   PreparedSplit,

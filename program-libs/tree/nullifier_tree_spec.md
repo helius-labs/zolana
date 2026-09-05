@@ -458,7 +458,7 @@ transaction, 224 to 226 maintenance transactions cost 0.00112 to 0.00113 SOL in
 base fees.
 
 At the current default rent rate, one ten-byte PDA requires 960,480
-lamports. One full batch locks 24.012 SOL, all returned to the tree when its
+lamports. One full batch locks 28.8144 SOL, all returned to the tree when its
 PDAs are closed.
 
 ### Working capital

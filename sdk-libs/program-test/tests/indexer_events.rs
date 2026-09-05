@@ -1,5 +1,5 @@
 use solana_signature::Signature;
-use zolana_event::{encode_event_instruction, EventKind, GeneralEvent, Input};
+use zolana_event::{encode_transact_event, GeneralEvent, Input, TransactEvent};
 use zolana_program_test::TestIndexer;
 
 fn sample_transact_event() -> GeneralEvent {
@@ -80,14 +80,73 @@ fn test_indexer_transact_leaf_indices_must_be_contiguous() {
 fn indexed_emit_event_round_trip_through_index_events() {
     use solana_pubkey::Pubkey;
     use zolana_event::{
-        indexed_events_from_instruction_groups, tag, InstructionGroup, ParsedInstruction,
+        indexed_events_from_instruction_groups, InstructionGroup, ParsedInstruction,
+    };
+    use zolana_interface::{
+        instruction::{
+            tag, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        },
+        N_PUBLIC_SLOTS,
     };
     use zolana_program_test::index_events;
 
     let spp = Pubkey::new_unique();
-    let emit_data = encode_event_instruction(EventKind::Transact, sample_transact_event());
+    let event = sample_transact_event();
+    let first_input = event.inputs.first().expect("sample has an input");
+    let parent = TransactIxData {
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: event.tx_viewing_pk,
+        salt: event.salt,
+        interface_transfers: Vec::new(),
+        outputs: event
+            .outputs
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: output.utxo_hash,
+                owner_tag: OwnerTag::Inline(output.view_tag),
+                data: Some(output.data.clone()),
+            })
+            .collect(),
+        messages: event.messages.clone(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::ConfidentialEddsa(
+            event.inputs.len() as u8,
+            event.outputs.len() as u8,
+            N_PUBLIC_SLOTS as u8,
+        ),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        inputs: event
+            .inputs
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: input.nullifier,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+    };
+    let mut parent_data = vec![tag::TRANSACT];
+    parent_data.extend_from_slice(&parent.serialize().expect("serialize parent transact"));
+    let emit_data = encode_transact_event(&TransactEvent {
+        first_input_queue_seq: first_input.input_queue_seq,
+        first_output_leaf_index: event.first_output_leaf_index,
+    })
+    .to_vec();
+    // Real transact parents have the five fixed accounts followed by one
+    // nullifier PDA per input. Reconstruction intentionally uses the same
+    // layout as the program rather than accepting a shortened test fixture.
+    let mut parent_accounts = vec![
+        Pubkey::new_unique(),
+        Pubkey::new_from_array(first_input.tree),
+        Pubkey::new_from_array(event.output_tree),
+        spp,
+        Pubkey::new_unique(),
+    ];
+    parent_accounts.extend(event.inputs.iter().map(|_| Pubkey::new_unique()));
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(spp, Vec::new(), vec![tag::TRANSACT], Some(1)),
+        outer: ParsedInstruction::new(spp, parent_accounts, parent_data, Some(1)),
         inner: vec![ParsedInstruction::new(spp, Vec::new(), emit_data, Some(2))],
     };
     let events = indexed_events_from_instruction_groups(spp, &[group]);

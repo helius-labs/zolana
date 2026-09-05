@@ -24,22 +24,22 @@ use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
 /// proof verification, and the valid shapes stop at the dummy-proof check.
 fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
         interface_transfers,
-        data_hash: None,
-        ring_data_hash: None,
         outputs: vec![
             inline_output([1u8; 32], [1u8; 32]),
             inline_output([2u8; 32], [2u8; 32]),
             inline_output([3u8; 32], [3u8; 32]),
         ],
         messages: Vec::new(),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
+        inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
+        data_hash: None,
+        ring_data_hash: None,
     }
 }
 
@@ -70,7 +70,9 @@ fn assert_rejected_without_sol_movement(
     let interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts> = interface_transfers
         .iter()
         .map(|_| {
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient: payer })
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                user_account: payer,
+            })
         })
         .collect();
     // The `Transact` builder's validating serializer rejects invalid legs
@@ -125,13 +127,16 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
             TransactInterfaceTransferAccounts::Sol(
-                TransactSolTransferAccounts { recipient: payer }
+                TransactSolTransferAccounts {
+                    user_account: payer,
+                }
             );
             interface_transfers.len()
         ],
         data: ix_data(interface_transfers),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     let vault = pda::sol_interface();
     let before = pool.rpc.svm.get_balance(&vault).unwrap_or(0);
     expect_rejection(
@@ -209,7 +214,8 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
             },
         ]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let before = pool.rpc.token_balance(&vault).expect("vault balance");
     expect_rejection(
@@ -262,7 +268,8 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     expect_rejection(
         &mut pool.rpc,
@@ -306,7 +313,8 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
             spl_interface_bump: canonical_bump.wrapping_add(1),
         }]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let vault_before = pool.rpc.token_balance(&vault).expect("vault balance");
     let user_before = pool
@@ -360,7 +368,8 @@ fn spl_deposit_requires_depositor_signature() {
         )],
         data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // Accounts: [payer, trees, program, system, one nullifier PDA per input, mint,
     // spl_interface, token_authority, user_token, token_program].
     ix.accounts
@@ -411,7 +420,8 @@ fn spl_withdrawal_rejects_a_shifted_token_program_account() {
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
         }]),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // Accounts: [payer, trees, program, system, cpi_authority, mint,
     // spl_interface, user_token, token_program(9)].
     ix.accounts
@@ -468,7 +478,8 @@ fn four_distinct_public_assets_are_rejected() {
         interface_transfer_accounts,
         data: ix_data(interface_transfers),
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     expect_rejection(
         &mut pool.rpc,

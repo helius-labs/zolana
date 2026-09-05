@@ -61,7 +61,7 @@ now states H=32 and lists tag 4.
   - Suggested test: negative; harness: program-tests integration
 
 - [x] **INV-CREATE-TREE-04: the tree is initialized only when it reaches the canonical layout size**
-  - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `tree_creation_completes_in_three_steps_and_advances_next_tree_id` (two `TREE_ALLOCATION_STEP` chunks stay all-zero, the third step reaches exactly `tree_account_size()` and initializes); `program-tests/shielded-pool/tests/admin/rejection.rs` `partially_allocated_tree_is_not_usable` (a tree after two of the three steps is rejected by `deposit_sol` with 7001), `tree_creation_rejects_double_initialization`
+  - Covered by: `program-tests/shielded-pool/tests/admin/functional.rs` `tree_creation_completes_in_three_steps_and_advances_next_tree_id` (three `TREE_ALLOCATION_STEP` chunks stay all-zero, the fourth step reaches exactly `tree_account_size()` and initializes); `program-tests/shielded-pool/tests/admin/rejection.rs` `partially_allocated_tree_is_not_usable` (a tree after three steps is rejected by `deposit_sol` with 7001), `tree_creation_rejects_double_initialization`
   - Kind: precondition + postcondition
   - Statement: each `create_tree` step grows the account by at most `TREE_ALLOCATION_STEP` bytes and never beyond `tree_account_size()`; while `data_len < tree_account_size()` the step returns Ok without writing the header, so the account stays `UNINITIALIZED` and every other instruction rejects it; `TreeAccount::init` runs exactly in the step that reaches the full size, and a continuation step on an account whose state byte is not `UNINITIALIZED` returns Err.
   - Location: `programs/shielded-pool/src/instructions/create_tree/processor.rs` (`fn process_create_tree`), `create_tree/allocate.rs` (`fn grow_tree`)
@@ -175,7 +175,7 @@ now states H=32 and lists tag 4.
 - [ ] **INV-BATCH-NULL-05: a successful update emits the batch event exactly when one is produced**
   - Partial coverage: `program-tests/shielded-pool/tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (nullifier root advances via the forester; the `EmitEvent` self-CPI itself is not asserted)
   - Kind: postcondition
-  - Statement: after a successful `batch_update_nullifier_tree` that produced a `BatchAddressAppendEvent`, exactly one self-CPI `EmitEvent` inner instruction carrying that event is recorded; when the update produces no event, no self-CPI occurs.
+  - Statement: after a successful `batch_update_nullifier_tree` that produced a `NullifierTreeUpdateEvent`, exactly one self-CPI `EmitEvent` inner instruction carrying that event is recorded; when the update produces no event, no self-CPI occurs.
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:43-52` (`fn process_batch_update_nullifier_tree`)
   - Severity: Medium (forester/indexer sync)
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
@@ -195,7 +195,7 @@ now states H=32 and lists tag 4.
 - [~] **INV-BATCH-NULL-07: Photon records a batch update only from an authenticated emitted event**
   - Cross-branch coverage: the event-sourced parser and its tests live on the security/photon-batch-event-sourcing branch, landing before this one — the `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` test module there (`drops_forged_batch_update_cpi_without_event`, `drops_successful_batch_update_without_event`, `drops_event_with_foreign_parent`, `drops_event_under_non_batch_update_parent`, `parses_batch_update_from_emitted_event`, `records_event_root_not_instruction_root`; on THIS branch the parser is reverted to the instruction-intent form)
   - Kind: postcondition (indexer)
-  - Statement: Photon ingests a nullifier-tree batch update only from a `BatchAddressAppendEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-4 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
+  - Statement: Photon ingests a nullifier-tree batch update only from a `NullifierTreeUpdateEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-4 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
   - Location: `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` (`fn parse_nullifier_tree_batch_update`)
   - Severity: Critical (permissionless indexer halt)
   - Suggested test: negative + positive; harness: photon parser unit tests
@@ -214,7 +214,7 @@ now states H=32 and lists tag 4.
 - [ ] **INV-BATCH-NULL-09: the event emit is the last fallible operation**
   - Partial coverage: photon parser tests (the consumer half: Photon records updates only from events in successful transactions); the ordering itself is a documented code invariant, untestable directly
   - Kind: state
-  - Statement: every fallible step (including `pay_reimbursement`) precedes the `emit_batch_nullifier_append_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
+  - Statement: every fallible step (including `pay_reimbursement`) precedes the `emit_nullifier_tree_update_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:43-52` (documented code INVARIANT)
   - Severity: Critical (indexer wedge, F-04 companion)
   - Suggested test: none possible on-chain (convention); consumer half exists as photon parser unit tests
@@ -283,7 +283,7 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
 ### Success Postconditions
 
 - [x] **INV-TRANSACT-46: one PDA per input, stamped with its queue index and canonical bump**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_creates_one_nullifier_pda_per_input` (exact `queue_index = q_before + i`, bump, owner, 10 bytes, rent), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof`; localnet: `tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (`queue_nullifiers_once` asserts both PDAs after every queue transaction)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_creates_one_nullifier_pda_per_input` (exact `queue_index = q_before + i`, bump, owner, 9 bytes, rent), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof`; localnet: `tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (`queue_nullifiers_once` asserts both PDAs after every queue transaction)
   - Kind: postcondition
   - Statement: after a successful transact-family instruction with `n` inputs, for every input `i` the account at `PDA(["nullifier", input_tree, nullifier_i])` is owned by the program, is exactly `NULLIFIER_PDA_SIZE` (10) bytes, decodes to `NullifierPda { queue_index, tree_id }` with `queue_index` equal to the queue sequence the insert reserved (`input.input_queue_seq`, the pre-transaction `queue_next_index + i`) and `tree_id` the tree's id, and holds at least `Rent::minimum_balance(10)` lamports (exactly that amount unless it was prefunded above it).
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/create.rs:24-99` (`fn create_nullifier_pdas`, `fn create_nullifier_pda`), `transact/processor.rs:87-91`, `merge/processor.rs:123-127`

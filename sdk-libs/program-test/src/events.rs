@@ -3,11 +3,15 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
     event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_outputs, EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    proofless_outputs, EventKind, GeneralEvent,
 };
 pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_interface::instruction::tag;
+use zolana_interface::output_data::{
+    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
+    encode_output_data, EncryptedRingDepositOutput, ProoflessOutput,
+};
 use zolana_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
@@ -38,7 +42,7 @@ impl DepositOutput {
             outputs: vec![zolana_event::OutputUtxo {
                 view_tag: self.view_tag,
                 utxo_hash: self.utxo_hash,
-                data: zolana_event::encode_output_data(self.output.clone()),
+                data: encode_output_data(self.output.clone()),
             }],
             messages: Vec::new(),
             tx_viewing_pk: [0u8; 33],
@@ -292,22 +296,27 @@ pub fn index_events(
     for event in events {
         match event_kind_from_indexed(event) {
             Some(EventKind::Deposit) => {
-                if let Ok(deposits) = deposit_outputs_from_event(event) {
-                    for deposit in deposits {
-                        indexer.record_deposit(&deposit)?;
+                match event.source_instruction_tag {
+                    tag::DEPOSIT => {
+                        for deposit in deposit_outputs_from_event(event)? {
+                            indexer.record_deposit(&deposit)?;
+                        }
                     }
-                } else {
-                    for deposit in ring_deposit_outputs_from_event(event)? {
-                        indexer.record_ring_deposit(&deposit)?;
+                    tag::RING_DEPOSIT => {
+                        for deposit in ring_deposit_outputs_from_event(event)? {
+                            indexer.record_ring_deposit(&deposit)?;
+                        }
+                    }
+                    source => {
+                        return Err(ProgramTestError::Event(format!(
+                            "deposit event has non-deposit source instruction tag {source}"
+                        )));
                     }
                 }
-                indexer.record_transaction(
-                    signature,
-                    general_event_from_indexed(event).map_err(|err| {
-                        ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
-                    })?,
-                    true,
-                );
+                let deposit_event = general_event_from_indexed(event).map_err(|err| {
+                    ProgramTestError::Event(format!("deposit event decode failed: {err:?}"))
+                })?;
+                indexer.record_transaction(signature, deposit_event, true);
             }
             Some(EventKind::Transact) | Some(EventKind::Merge) => {
                 let general_event = general_event_from_indexed(event).map_err(|err| {
@@ -323,7 +332,10 @@ pub fn index_events(
 }
 
 pub fn single_deposit_view(events: &[IndexedEvent]) -> Result<DepositOutput, ProgramTestError> {
-    let mut deposits = events.iter().map(deposit_output_from_event);
+    let mut deposits = events
+        .iter()
+        .filter(|event| event.source_instruction_tag == tag::DEPOSIT)
+        .map(deposit_output_from_event);
     let Some(deposit) = deposits.next() else {
         return Err(ProgramTestError::Event(
             "no proofless deposit event emitted by transaction".into(),

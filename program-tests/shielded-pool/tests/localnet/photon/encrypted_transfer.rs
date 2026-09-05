@@ -109,7 +109,8 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         interface_transfer_accounts: Vec::new(),
         data: ix_data,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
     // Proof verification needs more than the 200k default compute budget.
     let compute_budget =
         solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(

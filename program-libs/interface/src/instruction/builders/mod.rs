@@ -22,7 +22,7 @@ pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
-pub use merge_transact::MergeTransact;
+pub use merge_transact::{MergeBuildError, MergeTransact};
 pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
@@ -31,6 +31,6 @@ pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner}
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{
-    nullifier_pda_accounts, Transact, TransactInterfaceTransferAccounts,
+    nullifier_pda_accounts, Transact, TransactBuildError, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
 };

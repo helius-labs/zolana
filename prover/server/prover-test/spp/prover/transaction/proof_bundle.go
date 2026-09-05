@@ -36,12 +36,13 @@ type ProofTransactionRequest struct {
 }
 
 type InterfaceTransferRequest struct {
-	IsSpl       bool   `json:"is_spl"`
-	IsDeposit   bool   `json:"is_deposit"`
-	Asset       string `json:"asset"`
-	Amount      uint64 `json:"amount"`
-	UserAccount string `json:"user_account"`
-	PoolAccount string `json:"pool_account"`
+	IsSpl            bool   `json:"is_spl"`
+	IsDeposit        bool   `json:"is_deposit"`
+	Asset            string `json:"asset"`
+	Amount           uint64 `json:"amount"`
+	SplInterfaceBump uint8  `json:"spl_interface_bump"`
+	UserAccount      string `json:"user_account"`
+	PoolAccount      string `json:"pool_account"`
 }
 
 type ProofStateEntry struct {
@@ -289,10 +290,11 @@ func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]Inter
 			return nil, fmt.Errorf("interface_transfers[%d].user_account: %w", position, err)
 		}
 		normalized := InterfaceTransferRequest{
-			IsSpl:       transfer.IsSpl,
-			IsDeposit:   transfer.IsDeposit,
-			Amount:      transfer.Amount,
-			UserAccount: parse.BytesHex(userAccount[:]),
+			IsSpl:            transfer.IsSpl,
+			IsDeposit:        transfer.IsDeposit,
+			Amount:           transfer.Amount,
+			SplInterfaceBump: transfer.SplInterfaceBump,
+			UserAccount:      parse.BytesHex(userAccount[:]),
 		}
 		if transfer.IsSpl {
 			asset, err := parse.Hex32(transfer.Asset)
@@ -309,6 +311,8 @@ func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]Inter
 			return nil, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", position)
 		} else if transfer.PoolAccount != "" {
 			return nil, fmt.Errorf("interface_transfers[%d].pool_account must be empty for SOL", position)
+		} else if transfer.SplInterfaceBump != 0 {
+			return nil, fmt.Errorf("interface_transfers[%d].spl_interface_bump must be zero for SOL", position)
 		}
 		out = append(out, normalized)
 	}

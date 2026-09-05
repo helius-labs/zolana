@@ -8,10 +8,10 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// MaxInterfaceTransfers is the encoding ceiling: external_data_hash encodes
-// the ordered interface-transfer count in one byte. Solana transaction size and account
-// limits impose a much lower practical bound for real transactions.
-const MaxInterfaceTransfers = 1<<8 - 1
+// MaxInterfaceTransfers matches the program's validation bound. The wire count
+// is one byte, but accepting shapes the program always rejects would let the Go
+// prover produce unusable proofs.
+const MaxInterfaceTransfers = 32
 
 type publicSlots struct {
 	assets  [protocol.NPublicSlots]*big.Int
@@ -26,7 +26,7 @@ type aggregatedPublicAsset struct {
 func derivePublicSlots(tx ProofTransactionRequest) (publicSlots, error) {
 	if len(tx.InterfaceTransfers) > MaxInterfaceTransfers {
 		return publicSlots{}, fmt.Errorf(
-			"spp: interface_transfers length %d exceeds u8 encoding maximum %d",
+			"spp: interface_transfers length %d exceeds protocol maximum %d",
 			len(tx.InterfaceTransfers),
 			MaxInterfaceTransfers,
 		)

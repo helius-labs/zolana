@@ -7,7 +7,13 @@ export {
   decodeRingConfig,
 } from "./accounts.js";
 export { decodeTreeFeeSchedule, decodeTreeFees, encodeTreeFeeSchedule } from "./codecs/index.js";
-export { MERGE_INPUT_COUNT } from "./constants.js";
+export {
+  MAX_MERGE_INPUTS,
+  MERGE_DEFAULT_INPUT_COUNT,
+  MERGE_SUPPORTED_INPUT_COUNTS,
+  isSupportedMergeInputCount,
+  mergePaddedInputCount,
+} from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
   DecodedShieldedPoolError,

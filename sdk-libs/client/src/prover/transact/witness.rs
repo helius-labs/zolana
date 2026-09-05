@@ -287,18 +287,18 @@ pub fn assemble_with_dummy_policy(
     }
 
     let ix = TransactIxData {
-        proof: TransactProof::zeroed(),
         expiry_unix_ts,
-        private_tx_hash: private_tx,
-        circuit: circuit_id,
-        inputs,
         interface_transfers,
-        data_hash,
-        ring_data_hash,
         tx_viewing_pk,
         salt,
         outputs,
         messages,
+        data_hash,
+        ring_data_hash,
+        proof: TransactProof::zeroed(),
+        private_tx_hash: private_tx,
+        circuit: circuit_id,
+        inputs,
     };
 
     Ok(AssembledTransfer {

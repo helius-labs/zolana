@@ -1,4 +1,5 @@
-use zolana_event::{encode_output_data, ProoflessOutput};
+use zolana_interface::output_data::encode_output_data;
+use zolana_interface::output_data::ProoflessOutput;
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     Address, AssetRegistry, KeypairWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,

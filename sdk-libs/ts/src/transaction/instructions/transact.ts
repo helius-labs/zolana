@@ -233,12 +233,25 @@ export interface ExternalDataInit {
 
 /** Rust's default expiry: `u64::MAX`, meaning no expiry. */
 const NO_EXPIRY = 0xffff_ffff_ffff_ffffn;
+const MAX_INTERFACE_TRANSFERS = 32;
+const MAX_OUTPUTS = 0xff;
+const MAX_MESSAGES = 0xff;
+
 function externalDataHash(data: ExternalDataFields): Bytes32 {
   if (data.outputs.length !== data.resolvedOwnerTags.length) {
     throw new TransactionError("TRANSACTION_OUTPUT_TAG_MISMATCH");
   }
-  if (data.outputs.length > 0xffff || data.messages.length > 0xffff) {
-    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+  if (data.outputs.length > MAX_OUTPUTS) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS", {
+      got: data.outputs.length,
+      max: MAX_OUTPUTS,
+    });
+  }
+  if (data.messages.length > MAX_MESSAGES) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_MESSAGES", {
+      got: data.messages.length,
+      max: MAX_MESSAGES,
+    });
   }
   const checkedInteger = (value: bigint, byteLength: number, signed = false): void => {
     const bits = byteLength * 8;
@@ -262,10 +275,10 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
     }
   };
   checkedInteger(data.expiryUnixTs, 8);
-  if (data.interfaceTransfers.length > 0xff) {
+  if (data.interfaceTransfers.length > MAX_INTERFACE_TRANSFERS) {
     throw new TransactionError("TRANSACTION_TOO_MANY_INTERFACE_TRANSFERS", {
       got: data.interfaceTransfers.length,
-      max: 0xff,
+      max: MAX_INTERFACE_TRANSFERS,
     });
   }
   for (const transfer of data.interfaceTransfers) {
@@ -283,33 +296,44 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   data.messages.forEach((message) => {
     checkedLength(message.data);
   });
+  // Addresses the proof commits, in protocol order: each leg's settlement
+  // accounts, then the resolved owner of every account-tagged output.
+  const committedAddresses: (Address | Bytes32)[] = [];
+  for (const transfer of data.interfaceTransfers) {
+    if (transfer.kind === "sol") {
+      committedAddresses.push(transfer.userSolAccount);
+    } else {
+      committedAddresses.push(transfer.tokenAccount, transfer.splTokenInterface);
+    }
+  }
+  data.outputs.forEach((output, index) => {
+    if (output.ownerTag.kind === "account") {
+      committedAddresses.push(data.resolvedOwnerTags[index] as Bytes32);
+    }
+  });
+
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
     expiryUnixTs: data.expiryUnixTs,
+    txViewingPk: data.txViewingPublicKey.toBytes(),
+    salt: data.salt,
     interfaceTransfers: data.interfaceTransfers.map((transfer) =>
       transfer.kind === "sol"
         ? {
             kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
             amount: transfer.amount,
-            recipient: transfer.userSolAccount,
           }
         : {
             kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
             amount: transfer.amount,
-            tokenAccount: transfer.tokenAccount,
-            splInterfacePda: transfer.splTokenInterface,
+            splInterfaceBump: transfer.splInterfaceBump,
           },
     ),
     ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
     ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
-    txViewingPk: data.txViewingPublicKey.toBytes(),
-    salt: data.salt,
-    outputs: data.outputs.map((output, index) => ({
-      utxoHash: output.utxoHash,
-      ownerTag: data.resolvedOwnerTags[index] as Bytes32,
-      ...(output.data === undefined ? {} : { data: output.data }),
-    })),
+    outputs: data.outputs,
     messages: data.messages,
+    committedAddresses,
   });
 }
 
@@ -318,17 +342,23 @@ type ExternalDataFields = Omit<
   "hash" | "withInterfaceTransfer" | "withInterfaceTransfers"
 >;
 
-export function createExternalData(input: ExternalDataInit): ExternalData {
-  const snapshot: ExternalDataFields = {
+function snapshotExternalData(input: ExternalDataInit): ExternalDataFields {
+  return {
     ...input,
     instructionDiscriminator: input.instructionDiscriminator ?? InstructionTag.transact,
     expiryUnixTs: input.expiryUnixTs ?? NO_EXPIRY,
     interfaceTransfers: Object.freeze(
       (input.interfaceTransfers ?? []).map((transfer) => Object.freeze({ ...transfer })),
     ),
+    ...(input.dataHash === undefined
+      ? {}
+      : { dataHash: checked<Bytes32>(input.dataHash, 32, "data hash") }),
+    ...(input.ringDataHash === undefined
+      ? {}
+      : { ringDataHash: checked<Bytes32>(input.ringDataHash, 32, "ring data hash") }),
     salt: checked<Bytes16>(input.salt, 16, "salt"),
-    // The hash closes over these arrays, so freezing them is what keeps a
-    // holder of the returned value from changing the preimage under it.
+    // The hash closes over this private snapshot. Freeze record structure here;
+    // byte-bearing public getters return fresh copies below.
     outputs: Object.freeze(
       input.outputs.map((output) =>
         Object.freeze({
@@ -357,24 +387,110 @@ export function createExternalData(input: ExternalDataInit): ExternalData {
       ),
     ),
   };
-  return sealExternalData(snapshot);
 }
 
-/// The builders re-enter through `createExternalData` so a derived value is
-/// copied and frozen exactly like the original; a caller keeping the value it
-/// passed cannot reach into either.
-function sealExternalData(fields: ExternalDataFields): ExternalData {
-  const set = (changed: Partial<ExternalDataFields>): ExternalData =>
-    createExternalData({ ...fields, ...changed });
-  return Object.freeze({
-    ...fields,
-    hash: (): Bytes32 => externalDataHash(fields),
-    withInterfaceTransfer: (transfer: SettlementTransfer): ExternalData =>
-      set({ interfaceTransfers: [...fields.interfaceTransfers, transfer] }),
-    withInterfaceTransfers: (transfers: readonly SettlementTransfer[]): ExternalData =>
-      set({ interfaceTransfers: [...transfers] }),
-  });
+export function createExternalData(input: ExternalDataInit): ExternalData {
+  return Object.freeze(new ExternalDataSnapshot(snapshotExternalData(input)));
 }
+
+/**
+ * Typed arrays cannot be frozen. Keep the committed fields in a true private
+ * slot and return a new deep copy from every byte-bearing getter, so mutation
+ * through the public view cannot affect hashing or instruction assembly.
+ */
+class ExternalDataSnapshot implements ExternalData {
+  readonly #fields: ExternalDataFields;
+  declare readonly instructionDiscriminator: number;
+  declare readonly expiryUnixTs: bigint;
+  declare readonly interfaceTransfers: readonly SettlementTransfer[];
+  declare readonly dataHash?: Bytes32;
+  declare readonly ringDataHash?: Bytes32;
+  declare readonly txViewingPublicKey: P256PublicKey;
+  declare readonly salt: Bytes16;
+  declare readonly outputs: readonly TransactOutput[];
+  declare readonly resolvedOwnerTags: readonly Bytes32[];
+  declare readonly messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+
+  constructor(fields: ExternalDataFields) {
+    this.#fields = fields;
+    const dataHash = fields.dataHash;
+    const ringDataHash = fields.ringDataHash;
+    Object.defineProperties(this, {
+      instructionDiscriminator: {
+        enumerable: true,
+        get: () => fields.instructionDiscriminator,
+      },
+      expiryUnixTs: { enumerable: true, get: () => fields.expiryUnixTs },
+      interfaceTransfers: {
+        enumerable: true,
+        get: () =>
+          Object.freeze(
+            fields.interfaceTransfers.map((transfer) => Object.freeze({ ...transfer })),
+          ),
+      },
+      ...(dataHash === undefined
+        ? {}
+        : { dataHash: { enumerable: true, get: () => copy(dataHash) } }),
+      ...(ringDataHash === undefined
+        ? {}
+        : {
+            ringDataHash: {
+              enumerable: true,
+              get: () => copy(ringDataHash),
+            },
+          }),
+      txViewingPublicKey: { enumerable: true, get: () => fields.txViewingPublicKey },
+      salt: { enumerable: true, get: () => copy(fields.salt) },
+      outputs: {
+        enumerable: true,
+        get: () =>
+          Object.freeze(
+            fields.outputs.map((output) =>
+              Object.freeze({
+                ...output,
+                utxoHash: copy(output.utxoHash),
+                ownerTag:
+                  output.ownerTag.kind === "inline"
+                    ? Object.freeze({ kind: "inline" as const, value: copy(output.ownerTag.value) })
+                    : Object.freeze({ ...output.ownerTag }),
+                ...(output.data === undefined ? {} : { data: copy(output.data) }),
+              }),
+            ),
+          ),
+      },
+      resolvedOwnerTags: {
+        enumerable: true,
+        get: () => Object.freeze(fields.resolvedOwnerTags.map((tag) => copy(tag))),
+      },
+      messages: {
+        enumerable: true,
+        get: () =>
+          Object.freeze(
+            fields.messages.map((message) =>
+              Object.freeze({ viewTag: copy(message.viewTag), data: copy(message.data) }),
+            ),
+          ),
+      },
+    });
+  }
+
+  hash(): Bytes32 {
+    return externalDataHash(this.#fields);
+  }
+
+  withInterfaceTransfer(transfer: SettlementTransfer): ExternalData {
+    return createExternalData({
+      ...this.#fields,
+      interfaceTransfers: [...this.#fields.interfaceTransfers, transfer],
+    });
+  }
+
+  withInterfaceTransfers(transfers: readonly SettlementTransfer[]): ExternalData {
+    return createExternalData({ ...this.#fields, interfaceTransfers: transfers });
+  }
+}
+
+Object.freeze(ExternalDataSnapshot.prototype);
 
 /**
  * A spent UTXO carrying the nullifier public key rather than the secret, for

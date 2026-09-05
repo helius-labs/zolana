@@ -1,4 +1,4 @@
-use shielded_pool_tests::support::fixtures::Pool;
+use shielded_pool_tests::support::{fixtures::Pool, transact::set_synthetic_nullifier_sequence};
 
 use solana_account::Account;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -37,24 +37,25 @@ const CLOSE_TREE_OFFSET: usize = 2;
 const CLOSE_NULLIFIER_PDA_OFFSET: usize = 4;
 const NULLIFIER_ZKP_BATCHES: usize =
     (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as usize;
+const SYNTHETIC_CLOSE_BEFORE_INDEX: u64 = NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE + 1;
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_ZKP_BATCHES>;
 
 fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
     TransactIxData {
-        proof: TransactProof::zeroed(),
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: [0u8; 32],
-        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
         interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
         outputs: (11..11 + n_out)
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
         messages: Vec::new(),
+        proof: TransactProof::zeroed(),
+        private_tx_hash: [0u8; 32],
+        circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
+        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        data_hash: None,
+        ring_data_hash: None,
     }
 }
 
@@ -75,6 +76,7 @@ fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
         data,
     }
     .instruction()
+    .expect("valid transact builder input")
 }
 
 fn close_instruction(env: &Pool, nullifiers: Vec<[u8; 32]>) -> Instruction {
@@ -192,13 +194,13 @@ fn queue_nullifier_pdas(
         .collect()
 }
 
-fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
+fn set_reclaimable_watermark(env: &mut Pool) {
     let tree = env.tree;
     let mut account = tree_account(env);
     {
         let mut on_chain =
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
-        on_chain.nullifier_tree().close_before_index = close_before_index;
+        set_synthetic_nullifier_sequence(&mut on_chain, 2 * NULLIFIER_ZKP_BATCHES as u64);
     }
     env.rpc
         .svm
@@ -206,27 +208,25 @@ fn set_close_before_index(env: &mut Pool, close_before_index: u64) {
         .expect("write tree watermark fixture");
     assert_eq!(
         tree_close_before_index(&env.rpc, &tree).expect("close_before_index"),
-        close_before_index,
+        SYNTHETIC_CLOSE_BEFORE_INDEX,
         "watermark fixture"
     );
 }
 
-fn set_synthetic_watermark_and_zero_root(
-    env: &mut Pool,
-    close_before_index: u64,
-    root_index: usize,
-) {
+fn set_synthetic_watermark_and_zero_root(env: &mut Pool, root_index: usize) {
     let tree = env.tree;
     let mut account = tree_account(env);
-    let layout: &mut Layout = wincode::deserialize_mut(&mut account.data)
-        .expect("load tree layout for reclaimable fixture");
-    layout.nullifier.close_before_index = close_before_index;
-    *layout
-        .nullifier
-        .root_history
-        .roots
-        .get_mut(root_index)
-        .expect("fixture root index") = [0u8; 32];
+    {
+        let mut on_chain =
+            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+        set_synthetic_nullifier_sequence(&mut on_chain, 2 * NULLIFIER_ZKP_BATCHES as u64);
+        *on_chain
+            .nullifier_tree()
+            .root_history
+            .roots
+            .get_mut(root_index)
+            .expect("fixture root index") = [0u8; 32];
+    }
     env.rpc
         .svm
         .set_account(tree, account)
@@ -511,7 +511,7 @@ fn close_rejects_a_non_forester_authority() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let intruder = env.funded_signer(1_000_000_000);
     let tree_before = tree_account(&env);
 
@@ -547,7 +547,7 @@ fn close_rejects_an_unsigned_authority() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
 
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts.first_mut().expect("authority meta").is_signer = false;
@@ -584,9 +584,9 @@ fn close_honours_the_watermark_boundary() {
     let mut env = Pool::initialized();
     let at_watermark = fe(1);
     let below_watermark = fe(2);
-    queue_nullifier_pda(&mut env, &at_watermark, 5);
-    queue_nullifier_pda(&mut env, &below_watermark, 4);
-    set_close_before_index(&mut env, 5);
+    queue_nullifier_pda(&mut env, &at_watermark, SYNTHETIC_CLOSE_BEFORE_INDEX);
+    queue_nullifier_pda(&mut env, &below_watermark, SYNTHETIC_CLOSE_BEFORE_INDEX - 1);
+    set_reclaimable_watermark(&mut env);
 
     let ix = close_instruction(&env, vec![at_watermark]);
     expect_close_rejection(
@@ -594,8 +594,13 @@ fn close_honours_the_watermark_boundary() {
         ix,
         Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable),
     );
-    assert_nullifier_pda(&env.rpc, &env.tree, &at_watermark, 5)
-        .expect("nullifier PDA at the watermark kept");
+    assert_nullifier_pda(
+        &env.rpc,
+        &env.tree,
+        &at_watermark,
+        SYNTHETIC_CLOSE_BEFORE_INDEX,
+    )
+    .expect("nullifier PDA at the watermark kept");
 
     let tree_before = tree_account(&env);
     let ix = close_instruction(&env, vec![below_watermark]);
@@ -608,7 +613,7 @@ fn close_honours_the_watermark_boundary() {
     assert_close_nullifier_pdas(&env, &trace, &tree_before, &[below_watermark]);
     assert_eq!(
         tree_close_before_index(&env.rpc, &env.tree).expect("close_before_index"),
-        5,
+        SYNTHETIC_CLOSE_BEFORE_INDEX,
         "close does not move the watermark"
     );
 }
@@ -618,7 +623,7 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2), fe(3)];
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_close_before_index(&mut env, 4);
+    set_reclaimable_watermark(&mut env);
     let tree_before = tree_account(&env);
 
     let ix = close_instruction(&env, nullifiers.to_vec());
@@ -633,7 +638,7 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
 
 fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u64 {
     queue_nullifier_pdas(env, nullifiers, 1);
-    set_close_before_index(env, 1 + nullifiers.len() as u64);
+    set_reclaimable_watermark(env);
     fund_fee_balance(env, fee_balance);
     let tree_before = tree_account(env);
     let payer_before = env
@@ -718,7 +723,7 @@ fn close_rejects_a_program_owned_reimbursement_recipient() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_close_before_index(&mut env, 3);
+    set_reclaimable_watermark(&mut env);
     fund_fee_balance(&mut env, 1_000_000);
     let open_nullifier_pda = pda::nullifier_pda(&env.tree, &fe(2)).0;
 
@@ -739,7 +744,7 @@ fn close_pays_a_recipient_other_than_the_payer() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_close_before_index(&mut env, 3);
+    set_reclaimable_watermark(&mut env);
     fund_fee_balance(&mut env, 1_000_000);
     let recipient = funded_system_account(&mut env);
     let recipient_before = env.rpc.svm.get_account(&recipient).expect("recipient");
@@ -769,7 +774,7 @@ fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
     let data = transfer_ix_data(2, 3);
     let nullifiers = nullifiers_of(&data);
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_synthetic_watermark_and_zero_root(&mut env, 1 + nullifiers.len() as u64, 0);
+    set_synthetic_watermark_and_zero_root(&mut env, 0);
 
     let ix = close_instruction(&env, nullifiers.clone());
     send_close(&mut env, ix).expect("close nullifier PDAs below the reclaim watermark");
@@ -790,8 +795,8 @@ fn closed_nullifier_pda_does_not_make_an_obsolete_root_spendable_again() {
 fn close_is_atomic_across_nullifier_pdas() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2), fe(3)];
-    queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_close_before_index(&mut env, 3);
+    queue_nullifier_pdas(&mut env, &nullifiers, SYNTHETIC_CLOSE_BEFORE_INDEX - 2);
+    set_reclaimable_watermark(&mut env);
 
     let ix = close_instruction(&env, nullifiers.to_vec());
     expect_close_rejection(
@@ -799,7 +804,7 @@ fn close_is_atomic_across_nullifier_pdas() {
         ix,
         Rejection::pool(ShieldedPoolError::NullifierPdaNotClosable),
     );
-    for (nullifier, queue_index) in nullifiers.iter().zip(1..) {
+    for (nullifier, queue_index) in nullifiers.iter().zip(SYNTHETIC_CLOSE_BEFORE_INDEX - 2..) {
         assert_nullifier_pda(&env.rpc, &env.tree, nullifier, queue_index)
             .expect("no nullifier PDA closed by a rejected batch");
     }
@@ -810,7 +815,7 @@ fn close_accepts_nullifier_pdas_in_any_order() {
     let mut env = Pool::initialized();
     let nullifiers = [fe(1), fe(2)];
     queue_nullifier_pdas(&mut env, &nullifiers, 1);
-    set_close_before_index(&mut env, 3);
+    set_reclaimable_watermark(&mut env);
     let mut ix = close_instruction(&env, nullifiers.to_vec());
     ix.accounts
         .swap(CLOSE_NULLIFIER_PDA_OFFSET, CLOSE_NULLIFIER_PDA_OFFSET + 1);
@@ -834,7 +839,7 @@ fn close_rejects_a_nullifier_pda_of_another_tree() {
         },
         rent,
     );
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
 
     let ix = close_instruction(&env, vec![nullifier]);
     expect_close_rejection(
@@ -848,7 +853,7 @@ fn close_rejects_a_nullifier_pda_of_another_tree() {
 fn close_rejects_a_non_nullifier_pda_account() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let system_owned = funded_system_account(&mut env);
     let tree = env.tree;
 
@@ -883,7 +888,7 @@ fn close_rejects_a_zero_queue_index_record() {
         },
         rent,
     );
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
 
     let ix = close_instruction(&env, vec![nullifier]);
     expect_close_rejection(
@@ -898,7 +903,7 @@ fn close_rejects_a_read_only_nullifier_pda_meta() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
         .get_mut(CLOSE_NULLIFIER_PDA_OFFSET)
@@ -917,7 +922,7 @@ fn close_rejects_the_same_nullifier_pda_twice_in_one_instruction() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
 
     let ix = close_instruction(&env, vec![nullifier, nullifier]);
     expect_close_rejection(
@@ -945,7 +950,7 @@ fn close_rejects_a_trailing_non_nullifier_account() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let extra = funded_system_account(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts.push(AccountMeta::new(extra, false));
@@ -963,7 +968,7 @@ fn close_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let authority = env.authority.insecure_clone();
     env.rpc
         .pause_tree(&authority, &env.tree, true)
@@ -979,7 +984,7 @@ fn close_rejects_a_read_only_tree_meta() {
     let mut env = Pool::initialized();
     let nullifier = fe(1);
     queue_nullifier_pda(&mut env, &nullifier, 1);
-    set_close_before_index(&mut env, 2);
+    set_reclaimable_watermark(&mut env);
     let mut ix = close_instruction(&env, vec![nullifier]);
     ix.accounts
         .get_mut(CLOSE_TREE_OFFSET)

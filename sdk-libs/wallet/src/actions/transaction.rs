@@ -8,7 +8,7 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::{Shape, SPP_SUPPORTED_SHAPES},
+    shape::{Shape, SPP_AUTO_SHAPES},
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
@@ -16,7 +16,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUTS},
         transact::{
             ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SettlementTarget, SppProofInputs,
@@ -618,7 +618,12 @@ fn select_bounded_inputs(
     if amount == 0 {
         return Err(ClientError::ZeroSpendAmount);
     }
-    let max_inputs = SPP_SUPPORTED_SHAPES
+    // The automatic set, not the full validation set: a cover this path selects
+    // is handed to `canonical_shape`, which only searches the automatic shapes.
+    // Bounding by the validation set would select more inputs than any shape
+    // `canonical_shape` can serve, and route a small transfer into the large
+    // circuit if one ever were added there.
+    let max_inputs = SPP_AUTO_SHAPES
         .iter()
         .map(|shape| shape.n_inputs())
         .max()
@@ -716,10 +721,12 @@ fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofI
 }
 
 /// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
-/// [`MERGE_INPUTS`] of the smallest plain utxos of `asset` (ascending, dust
-/// first). `Some(hashes)` takes exactly the named utxos: 2..=8 distinct, unspent
-/// utxos of `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to
-/// reject with a precise reason.
+/// [`MERGE_DEFAULT_INPUTS`] of the smallest plain utxos of `asset` (ascending,
+/// dust first) -- the auto-sweep deliberately stays on the smallest shape, so a
+/// routine dust clear never pays for the wide circuit. `Some(hashes)` takes
+/// exactly the named utxos: 2..=[`MAX_MERGE_INPUTS`] distinct, unspent utxos of
+/// `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to reject
+/// with a precise reason.
 fn select_merge_inputs(
     wallet: &Wallet,
     tree: Address,
@@ -741,7 +748,7 @@ fn select_merge_inputs(
                 .collect();
             // Smallest first: a sweep clears dust and leaves large utxos intact.
             candidates.sort_by_key(|entry| entry.utxo.amount);
-            candidates.truncate(MERGE_INPUTS);
+            candidates.truncate(MERGE_DEFAULT_INPUTS);
             if candidates.len() < 2 {
                 return Err(ClientError::NothingToMerge { asset });
             }
@@ -751,10 +758,10 @@ fn select_merge_inputs(
                 .collect())
         }
         Some(hashes) => {
-            if hashes.len() > MERGE_INPUTS {
+            if hashes.len() > MAX_MERGE_INPUTS {
                 return Err(ClientError::TooManyInputs {
                     got: hashes.len(),
-                    max: MERGE_INPUTS,
+                    max: MAX_MERGE_INPUTS,
                 });
             }
             if hashes.len() < 2 {
@@ -1033,7 +1040,9 @@ fn withdrawal_target(
             SettlementTarget::Sol {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
-            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts { recipient }),
+            TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
+                user_account: recipient,
+            }),
         ));
     }
 
@@ -1449,7 +1458,7 @@ mod tests {
             } if pubkey == recipient
                 && settlement_transfers == vec![
                     TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                        recipient
+                        user_account: recipient
                     })
                 ]
         ));
@@ -1671,10 +1680,10 @@ mod tests {
             created.settlement_transfers,
             vec![
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: user
+                    user_account: user
                 }),
                 TransactInterfaceTransferAccounts::Sol(TransactSolTransferAccounts {
-                    recipient: relayer
+                    user_account: relayer
                 }),
             ]
         );
@@ -2208,7 +2217,7 @@ mod tests {
         let selected =
             select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
 
-        assert_eq!(selected.len(), MERGE_INPUTS);
+        assert_eq!(selected.len(), MERGE_DEFAULT_INPUTS);
         assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
     }
 
@@ -2293,7 +2302,8 @@ mod tests {
     fn merge_explicit_selection_rejects_more_than_the_shape() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let wallet = sol_wallet(&keypair);
-        let hashes: Vec<[u8; 32]> = (0..9u8).map(|i| [i; 32]).collect();
+        let hashes: Vec<[u8; 32]> = (0..=MAX_MERGE_INPUTS as u8).map(|i| [i; 32]).collect();
+        let got = hashes.len();
 
         let error = match select_merge_inputs(
             &wallet,
@@ -2303,15 +2313,15 @@ mod tests {
             Some(hashes),
         ) {
             Err(error) => error,
-            Ok(_) => panic!("more than 8 inputs must be rejected"),
+            Ok(_) => panic!("more inputs than the widest shape must be rejected"),
         };
 
         assert!(matches!(
             error,
             ClientError::TooManyInputs {
-                got: 9,
-                max: MERGE_INPUTS
-            }
+                got: rejected,
+                max: MAX_MERGE_INPUTS
+            } if rejected == got
         ));
     }
 
@@ -2923,7 +2933,7 @@ mod tests {
         assert_eq!(created.num_inputs, 3);
         assert_eq!(created.merged_amount, 60);
         assert_eq!(created.tree, Address::default());
-        assert_eq!(created.prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(created.prepared.inputs.len(), MERGE_DEFAULT_INPUTS);
         assert_eq!(created.prepared.output.amount, 60);
     }
 }

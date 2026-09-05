@@ -2,13 +2,10 @@
 
 ## 0.1.6-alpha — unreleased
 
-A tree derives from its id instead of one fixed address, holds its own fee
-schedule, and takes three instructions in one transaction to create. Every
-spent nullifier gets its own account, and the transact, merge, and ring
-builders take one nullifier account per input. Wallet replay keeps merge outputs when their inputs arrive in the same
-sync.
+Wallet replay keeps merge outputs when their inputs arrive in the same sync.
+Selection and approval text use UTXO terminology without changing version 3 snapshot keys.
 
-Breaking
+Changed
 
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the
@@ -51,6 +48,50 @@ Breaking
   deposited UTXO from the indexer after the deposit lands, since the blinding,
   and therefore the hash, depend on the leaf index assigned when the transaction
   executes.
+- **Breaking:** `transact` instruction data uses one flat order:
+  `expiryUnixTs`, `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`,
+  `ringDataHash`, `outputs`, `messages`, `privateTxHash`, `circuit`, `proof`,
+  `inputs`. `encodeTransactInstructionData` emits the new order, so
+  instruction bytes built by an older SDK are not accepted.
+- **Breaking:** `externalDataHash` now takes one flat input containing
+  `instructionDiscriminator`, `expiryUnixTs`, `txViewingPk`, `salt`,
+  `interfaceTransfers`, `dataHash`, `ringDataHash`, `outputs`, `messages`, and
+  `committedAddresses`. It hashes the exact flat instruction prefix through
+  `messages` followed by the raw committed account addresses in protocol order,
+  in one SHA-256 call. Digests differ from previous releases. The hash also
+  covers the owner-tag _encoding_, so an output tagged inline and one tagged by
+  account no longer collide.
+- `dataHash` and `ringDataHash` are covered by `externalDataHash` as part of the
+  flat instruction prefix.
+- External data rejects more than 32 interface transfers or more than 255
+  outputs or messages, matching the protocol limit and `u8` wire counts.
+- **Breaking:** the unused `ResolvedInterfaceTransfer` and `ResolvedOutput`
+  types are removed.
+- **Breaking:** `MERGE_INPUT_COUNT` and `MERGE_INPUTS` are gone, because merge
+  now has two shapes rather than one fixed arity → import
+  `MERGE_DEFAULT_INPUT_COUNT` or `MERGE_DEFAULT_INPUTS`, both still 8, or read
+  `MERGE_SUPPORTED_INPUT_COUNTS`.
+- **Breaking:** the `CLIENT_INVALID_MERGE_SHAPE` details are
+  `{ supported, actual }` → read `supported` instead of `expected`.
+- `Merge` accepts up to 36 inputs and pads to the smallest supported shape that
+  fits, and `encodeMergeTransactInstructionData` accepts either supported count instead
+  of exactly 8.
+- `wallet.merge` with named UTXO hashes accepts up to 36 of them; the automatic
+  sweep still selects at most 8, so a dust clear keeps the cheaper proof.
+- No merge shape fits the 200,000 compute-unit default: a merge consumes
+  193,000 to 212,000 units at 8 inputs and 406,000 to 446,000 at 36, so an
+  instruction from `mergeTransactInstruction` must be sent with a raised limit,
+  which `buildUnsignedMergeTransaction` requests as
+  `MERGE_TRANSACT_COMPUTE_UNIT_LIMIT`.
+- The default compute limit `createZolanaClient` requests for `transact` rises
+  from 300,000 to 800,000 units, so every supported shape fits on every rail
+  without an override. The binding case is not the widest shape but the P256
+  rail: its BSB22 commitment adds a Pedersen proof-of-knowledge pairing, so
+  verification costs 224,654 units against 93,356 on the EdDSA and ring rails,
+  and a 36x2 P256 ring transact reaches about 585,000 in the instruction alone.
+  Requested units set the prioritization fee, so a caller submitting only small
+  shapes should pass a lower `computeUnitLimit` to keep paying what it did
+  before.
 
 Added
 
@@ -82,19 +123,37 @@ Added
   derives for a deposit output, so a caller that does not want to trust an
   indexer can verify a deposited UTXO against the tree and leaf index alone.
   Reading the indexed UTXO remains the normal way to spend a deposit.
+- `TRANSACTION_TOO_MANY_MESSAGES`: the external-data builder rejects a message
+  count that cannot fit the instruction's `u8` length prefix.
+- `MERGE_SUPPORTED_INPUT_COUNTS`, `MAX_MERGE_INPUTS`,
+  `isSupportedMergeInputCount`, and `mergePaddedInputCount`: which merge shapes
+  the program has verifying keys for, and which one a given real input count is
+  padded to.
+- `ShieldedPoolError` codes 7056 to 7061 (`NonCanonicalOutputUtxoHash`,
+  `NonCanonicalInputNullifier`, `NonCanonicalPrivateTxHash`,
+  `NonCanonicalRingDataHash`, `NonCanonicalDepositField`, `NonCanonicalRoot`):
+  the program rejects instruction-data hashes that are not canonical BN254
+  field elements before touching any account.
+- `InstructionTag.claimTreeLamports` (tag 20): the fee authority moves a
+  tree's lamports above its rent, fee balance, and nullifier PDA working
+  capital to a recipient, for example after a rent reduction.
+- `ShieldedPoolError` code 7062 (`NoClaimableTreeLamports`): the tree holds
+  nothing above that reserve.
 
 Changed
 
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
   `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100, `TREE_ACCOUNT_SIZE` is 30,344,
-  `TREE_CREATION_STEP_COUNT` is 3 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
-  `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
+  and `TREE_CREATION_STEP_COUNT` is 3.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
 
 Fixed
 
+- `createExternalData` keeps a private deep copy for hashing and derived
+  builders, so mutating typed arrays through either the caller's input or the
+  returned view cannot change the committed transaction.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
 - A deposit could be given a blinding that already belonged to another deposit,

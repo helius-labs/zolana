@@ -10,7 +10,12 @@ autotests = false
 [features]
 default = []
 indexer-api = ["dep:zolana-api"]
-solana-rpc = ["dep:bs58", "dep:solana-rpc-client", "dep:solana-commitment-config"]
+solana-rpc = [
+    "dep:bs58",
+    "dep:solana-rpc-client",
+    "dep:solana-commitment-config",
+    "dep:zolana-event",
+]
 client = ["indexer-api", "solana-rpc"]
 # Gates the test binaries that spawn the local prover, so a plain
 # `cargo test -p zolana-client` stays hermetic by construction.
@@ -18,7 +23,7 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true, features = ["offchain"], optional = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }

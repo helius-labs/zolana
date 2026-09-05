@@ -441,7 +441,8 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         interface_transfer_accounts: Vec::new(),
         data: transact,
     }
-    .instruction();
+    .instruction()
+    .expect("valid transact builder input");
 
     let fixtures = vec![
         (tree, tree_account),
