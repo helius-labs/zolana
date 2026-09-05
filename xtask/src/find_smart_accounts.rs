@@ -4,7 +4,10 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::state::ProtocolConfig;
-use zolana_smart_account_client::{roles::Role, settings::settings_member_keys};
+use zolana_smart_account_client::{
+    roles::Role,
+    settings::{settings_member_keys, settings_threshold},
+};
 use zolana_test_utils::smart_account::SMART_ACCOUNT_PROGRAM_ID;
 
 use crate::init_protocol::{expected_role_members, read_program_config, to_address, Cluster};
@@ -136,7 +139,7 @@ fn scan_for_base_index(vault: &Pubkey, max_index: u128) -> Option<u128> {
     None
 }
 
-fn verify_members(rpc: &SolanaRpc, settings: &Pubkey, role: Role) -> Result<Vec<Pubkey>> {
+fn read_policy(rpc: &SolanaRpc, settings: &Pubkey, role: Role) -> Result<(u16, Vec<Pubkey>)> {
     let account = rpc
         .get_account(to_address(settings))
         .with_context(|| format!("fetching {} settings {settings}", role.label()))?
@@ -148,8 +151,11 @@ fn verify_members(rpc: &SolanaRpc, settings: &Pubkey, role: Role) -> Result<Vec<
                 SMART_ACCOUNT_PROGRAM_ID
             )
         })?;
-    settings_member_keys(&account.data)
-        .with_context(|| format!("decoding {} settings {settings}", role.label()))
+    let threshold = settings_threshold(&account.data)
+        .with_context(|| format!("decoding {} settings {settings}", role.label()))?;
+    let members = settings_member_keys(&account.data)
+        .with_context(|| format!("decoding {} settings {settings}", role.label()))?;
+    Ok((threshold, members))
 }
 
 pub fn run(options: Options) -> Result<()> {
@@ -208,21 +214,31 @@ pub fn run(options: Options) -> Result<()> {
     for (role, expected_members) in Role::ALL.into_iter().zip(expected_role_members()) {
         let (settings, _) = role.settings_pda(base_index);
         let (vault, _) = role.vault_pda(base_index);
-        let member_keys = verify_members(&rpc, &settings, role)?;
+        let (threshold, member_keys) = read_policy(&rpc, &settings, role)?;
+        if threshold != role.threshold() {
+            bail!(
+                "{} settings {settings} has threshold {threshold}, expected {}",
+                role.label(),
+                role.threshold()
+            );
+        }
         let missing: Vec<String> = expected_members
             .iter()
             .filter(|expected| !member_keys.contains(expected))
             .map(|expected| expected.to_string())
             .collect();
-        if !missing.is_empty() {
+        if member_keys.len() != expected_members.len() || !missing.is_empty() {
             bail!(
-                "{} settings {settings} does not list expected members {}",
+                "{} settings {settings} does not contain exactly the expected {} members; \
+                 found {}, missing [{}]",
                 role.label(),
+                expected_members.len(),
+                member_keys.len(),
                 missing.join(", ")
             );
         }
         println!(
-            "{}_settings={settings} {}_vault={vault} seed={} members={}",
+            "{}_settings={settings} {}_vault={vault} seed={} threshold={threshold} members={}",
             role.label(),
             role.label(),
             role.seed(base_index),

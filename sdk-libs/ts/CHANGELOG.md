@@ -3,13 +3,38 @@
 ## 0.1.6-alpha — unreleased
 
 A tree derives from its id instead of one fixed address, holds its own fee
-schedule, and takes three instructions in one transaction to create. Every
+schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
-builders take one nullifier account per input. Wallet replay keeps merge outputs when their inputs arrive in the same
+builders take one nullifier account per input. Registering a ring and admitting
+it are now two separate steps with two different signers. Wallet replay keeps merge outputs when their inputs arrive in the same
 sync.
 
 Breaking
 
+- Ring registration is permissionless and produces a config that authorizes
+  nothing, and governance admits it separately with
+  `getSetRingActivationInstructionAsync` → a ring is live only after its
+  activation transaction lands, and the payer of the registration no longer
+  needs to be the pool's ring authority.
+- `RingConfigAccount` and `RegisteredRing` gain `activated`, and
+  `decodeRingConfig` reads a 69-byte account → a config account written before
+  this release no longer decodes, and a caller choosing a deposit target should
+  filter on `activated` as deliberately as on `paused`.
+- `getUpdateRingConfigInstructionAsync` no longer carries
+  `ringAuthorityTransactIsEnabled`, which only the pool's ring authority can
+  set → move that flag to `getSetRingActivationInstructionAsync`, which also
+  turns a ring on and off.
+- `ProtocolConfigAccount.ringCreationIsPermissionless` and the
+  `ProtocolConfigUpdate` field `ringCreationPermissionless` are
+  `ringActivationIsPermissionless` and `ringActivationPermissionless` → rename,
+  and read the flag as deciding whether a new ring is born activated rather
+  than who may register one.
+
+- State-tree root history retains one final root per updated slot in a dense
+  500-entry cyclic buffer. Its cursor, length, and capacity are native `u16`s,
+  and it stores the latest update slot as a `u64`, making pre-release
+  30,344-byte tree accounts incompatible → deploy fresh 39,952-byte trees
+  and reindex Photon as one coordinated upgrade.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the
   removed constant held.
@@ -54,13 +79,18 @@ Breaking
 
 Added
 
-- `ShieldedPoolError` adds codes 7029 to 7062: deposit and SPL interface
+- `getSetRingActivationInstructionAsync` admits a ring, contains one it no
+  longer trusts, and owns its authority-transact rail. The pool's ring authority
+  signs it directly, so no governance signature reaches the ring program.
+- `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
   `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,
-  `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`), and six
+  `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`,
+  `RingNotActivated`), and six
   `NonCanonical*` codes the program returns before touching any account when an
   instruction-data hash is not a canonical BN254 field element.
+- `InstructionTag.setRingActivation` (21).
 - `InstructionTag.closeNullifierPdas` (18), `InstructionTag.setTreeFees` (19),
   and `InstructionTag.claimTreeLamports` (20): the forester closes spent
   nullifier accounts, and the fee authority writes a tree's fee schedule and
@@ -86,8 +116,12 @@ Added
 Changed
 
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
-  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100, `TREE_ACCOUNT_SIZE` is 30,344,
-  `TREE_CREATION_STEP_COUNT` is 3 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100. The state tree retains one
+  final root for each of the latest 500 slots that updated it, exported as
+  `STATE_ROOT_HISTORY_CAPACITY`. A root cannot be overwritten until 500 later
+  slots update the tree: about 100 seconds at the 200 ms target slot time, and
+  longer when slots contain no update. `TREE_ACCOUNT_SIZE` is 39,952,
+  `TREE_CREATION_STEP_COUNT` is 4 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
   `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while

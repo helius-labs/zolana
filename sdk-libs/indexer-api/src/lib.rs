@@ -720,7 +720,11 @@ pub struct MerkleProof {
     pub path: Vec<Hash>,
     pub leaf_index: u64,
     pub root: Hash,
+    /// Root ordering key: the completed Solana slot for state-tree proof
+    /// freshness, or the on-chain update sequence for an indexed-tree proof.
     pub root_seq: u64,
+    /// Actual on-chain history position for `root`. A state root's position is
+    /// not derivable from `root_seq`: slots without updates consume no entry.
     pub root_index: u16,
 }
 
@@ -752,7 +756,10 @@ pub struct NonInclusionProof {
     pub high_element: Hash,
     pub high_element_index: u64,
     pub root: Hash,
+    /// Root ordering key: the completed Solana slot for a state-tree proof,
+    /// or the on-chain update sequence for an indexed-tree proof.
     pub root_seq: u64,
+    /// On-chain history position for `root`.
     pub root_index: u16,
 }
 

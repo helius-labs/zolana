@@ -1,4 +1,4 @@
-use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
+use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, Pool};
 
 use num_bigint::BigUint;
 use solana_account::Account;
@@ -55,7 +55,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &env.tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -96,8 +96,8 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         Vec::new(),
         inline_outputs(&output_hashes, &[payer_bytes; 3]),

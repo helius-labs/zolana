@@ -94,18 +94,24 @@ pub fn deposit_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>
 
 pub fn protocol_config_fixture() -> (Mollusk, Instruction, Vec<(Pubkey, MolluskAccount)>) {
     let mut test = runtime::program_test();
+    let payer = Keypair::new();
     let authority = Keypair::new();
+    test.airdrop(&payer.pubkey(), 1_000_000_000)
+        .expect("fund payer");
     test.airdrop(&authority.pubkey(), 1_000_000_000)
         .expect("fund authority");
+    test.set_upgrade_authority(Some(&authority.pubkey()))
+        .expect("install upgradeable program metadata");
     let authority_address = authority.pubkey().to_bytes().into();
     let ix = CreateProtocolConfig {
-        authority: authority.pubkey(),
+        fee_payer: payer.pubkey(),
+        initialization_authority: authority.pubkey(),
         protocol_authority: authority_address,
         tree_creation_authority: authority_address,
         tree_creation_is_permissionless: false,
         forester_authority: authority_address,
         ring_creation_authority: authority_address,
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
         fee_authority: authority_address,
     }

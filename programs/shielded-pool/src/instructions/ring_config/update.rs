@@ -13,8 +13,10 @@ pub fn process_update_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
     let authority = iter.next_signer("authority")?;
     let config = iter.next_mut("ring_config")?;
 
+    // `paused` is the only field the ring itself may write. Both
+    // `ring_authority_transact_is_enabled` and `activated` are governance-owned,
+    // because the authority-transact rail moves UTXOs with no owner signatures.
     let mut current = load_and_validate_ring_authority_mut(config, authority)?;
-    current.ring_authority_transact_is_enabled = u8::from(data.ring_authority_transact_is_enabled);
     current.paused = u8::from(data.paused);
     Ok(())
 }

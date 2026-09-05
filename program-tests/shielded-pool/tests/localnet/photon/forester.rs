@@ -145,7 +145,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
     let config = BootstrapConfig {
         label: "zolana-photon",
         extra_programs: Vec::new(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         fund_merge_vault: false,
     };
     let (mut rpc, indexer) = LocalnetHarness::<()>::start_stack(&config)?;

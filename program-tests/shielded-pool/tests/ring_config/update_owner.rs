@@ -19,6 +19,7 @@ fn ring_config(authority: [u8; 32]) -> Vec<u8> {
         program_id: [9u8; 32].into(),
         ring_authority_transact_is_enabled: 1,
         paused: 0,
+        activated: 1,
         bump: 7,
     })
     .to_vec()

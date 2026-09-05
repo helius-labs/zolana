@@ -7,7 +7,9 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::SolanaRpc;
 use zolana_interface::{
-    instruction::{encode_instruction, tag, CreateRingConfigData, Deposit, RingDeposit},
+    instruction::{
+        encode_instruction, tag, CreateRingConfigData, Deposit, RingDeposit, SetRingActivation,
+    },
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::ShieldedKeypair;
@@ -88,10 +90,9 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     // config first via the ring program's `CREATE_RING_CONFIG` forwarding
     // instruction; without it SPP rejects the ring deposit with
     // `InvalidRingConfig`.
-    // The instruction's fee-payer account (index 0) must be the protocol config's
-    // `ring_creation_authority` -- here the `authority` keypair -- since ring
-    // creation is not permissionless. `ring_authority` is the config's stored
-    // owner and needs no signature at creation.
+    // Creation is permissionless and lands the config inert; the pool's
+    // `authority` is also its `ring_creation_authority`, so it activates the
+    // ring in the same transaction.
     let ring_authority = Keypair::new();
     let (ring_auth, _) = pda::ring_auth(&ring_program_id);
     let create_ring_config = Instruction {
@@ -108,15 +109,21 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
             &CreateRingConfigData {
                 program_id: RING_TEST_PROGRAM_ID.into(),
                 authority: ring_authority.pubkey().to_bytes().into(),
-                ring_authority_transact_is_enabled: true,
             },
         ),
     };
+    let set_ring_activation = SetRingActivation {
+        authority: authority.pubkey(),
+        ring_config: ring_auth,
+        activated: true,
+        ring_authority_transact_is_enabled: true,
+    }
+    .instruction();
     let create_ring_config_tx = send_indexed(
         &mut rpc,
         &mut indexer,
         program_id,
-        &[create_ring_config],
+        &[create_ring_config, set_ring_activation],
         &authority.pubkey(),
         &[&authority],
     )?;

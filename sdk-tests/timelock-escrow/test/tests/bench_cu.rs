@@ -110,8 +110,11 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
                 .expect("default tree fees"),
         )
         .expect("init tree account");
-        for leaf in leaves {
-            account.utxo_tree().append(*leaf).expect("append leaf");
+        for (slot, leaf) in (1_u64..).zip(leaves) {
+            account
+                .utxo_tree()
+                .append(*leaf, slot)
+                .expect("append leaf");
         }
         (
             account.get_utxo_tree_root(root_index).expect("utxo root"),

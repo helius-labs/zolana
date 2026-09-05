@@ -30,7 +30,11 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
-use shielded_pool_tests::support::{fixtures::Pool, mollusk, transact::tree_roots};
+use shielded_pool_tests::support::{
+    fixtures::Pool,
+    mollusk,
+    transact::{current_tree_roots, tree_roots},
+};
 use zolana_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
@@ -617,7 +621,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(utxo_hash, event.utxo_hash);
 
-    let (utxo_root, nullifier_root) = tree_roots(&pt, &tree, 1);
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&pt, &tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -667,8 +671,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),

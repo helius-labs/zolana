@@ -85,7 +85,6 @@ mod tests {
             &CreateRingConfigData {
                 program_id: program_id.to_bytes().into(),
                 authority: authority.to_bytes().into(),
-                ring_authority_transact_is_enabled: true,
             },
         )
         .expect("serialize");

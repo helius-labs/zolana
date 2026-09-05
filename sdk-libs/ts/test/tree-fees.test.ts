@@ -172,7 +172,7 @@ describe("protocol config fee authority", () => {
       ringCreationAuthority: filledAddress(4),
       feeAuthority: filledAddress(5),
       treeCreationIsPermissionless: true,
-      ringCreationIsPermissionless: false,
+      ringActivationIsPermissionless: false,
       splInterfaceCreationIsPermissionless: true,
       nextTreeId: 0x0107,
     });
@@ -190,7 +190,7 @@ describe("protocol config fee authority", () => {
       treeCreationIsPermissionless: true,
       foresterAuthority: filledAddress(3),
       ringCreationAuthority: filledAddress(4),
-      ringCreationIsPermissionless: false,
+      ringActivationIsPermissionless: false,
       splInterfaceCreationIsPermissionless: true,
       feeAuthority: filledAddress(5),
     });

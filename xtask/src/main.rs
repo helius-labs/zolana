@@ -14,6 +14,7 @@ mod loadtest;
 mod set_tree_fees;
 mod tree_fees;
 mod update_protocol_config;
+mod upgrade_shielded_pool;
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -85,6 +86,14 @@ fn main() {
                 update_protocol_config::run(update_protocol_config::Options::parse(args.collect()))
             {
                 eprintln!("update-protocol-config failed: {error:?}");
+                std::process::exit(1);
+            }
+        }
+        Some("upgrade-shielded-pool") => {
+            if let Err(error) =
+                upgrade_shielded_pool::run(upgrade_shielded_pool::Options::parse(args.collect()))
+            {
+                eprintln!("upgrade-shielded-pool failed: {error:?}");
                 std::process::exit(1);
             }
         }
@@ -381,6 +390,7 @@ fn print_help() {
         "  find-smart-accounts      Recover an existing deployment's authority smart accounts"
     );
     println!("  update-protocol-config   Update protocol config flags on a cluster (see --help)");
+    println!("  upgrade-shielded-pool    Execute a loader-v3 upgrade through the protocol Squads");
     println!("  set-tree-fees            Set a pool tree's forester fee schedule (see --help)");
     println!(
         "  create-release           Build the localnet release artifacts + lockfile (see --help)"

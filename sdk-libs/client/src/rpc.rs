@@ -106,7 +106,10 @@ pub struct MerkleProof {
     pub path: Vec<[u8; 32]>,
     pub leaf_index: u64,
     pub root: [u8; 32],
+    /// Completed Solana slot for ordering and freshness of a state-tree proof.
     pub root_seq: u64,
+    /// Actual on-chain cyclic-history position for `root`; it is not derived
+    /// from `root_seq` because slots without a tree update consume no entry.
     pub root_index: u16,
 }
 
@@ -128,7 +131,9 @@ pub struct NonInclusionProof {
     pub high_element: [u8; 32],
     pub high_element_index: u64,
     pub root: [u8; 32],
+    /// On-chain indexed-tree update sequence.
     pub root_seq: u64,
+    /// On-chain root-history position for `root`.
     pub root_index: u16,
 }
 

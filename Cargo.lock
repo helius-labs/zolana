@@ -7520,6 +7520,7 @@ dependencies = [
  "solana-instruction",
  "solana-pubkey 4.2.0",
  "solana-sdk-ids",
+ "solana-system-interface 3.2.0",
 ]
 
 [[package]]
@@ -10912,6 +10913,7 @@ dependencies = [
  "solana-hash",
  "solana-instruction",
  "solana-keypair",
+ "solana-loader-v3-interface 7.0.0",
  "solana-loader-v3-interface 8.0.1",
  "solana-message",
  "solana-pubkey 4.2.0",

@@ -28,7 +28,7 @@ use zolana_keypair::{
 };
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
+    localnet::{isolated_temp_path, LocalnetValidator, UpgradeableProgram, WorkspaceArtifacts},
     prover::spawn_workspace_prover,
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
@@ -93,6 +93,9 @@ pub fn setup() -> Result<TestEnv> {
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = artifacts.path("target/deploy/squads_smart_account_program.so");
 
+    let protocol_vault = smart_account::standard_accounts()
+        .protocol_vault
+        .to_string();
     LocalnetValidator {
         cli_bin: cli.clone(),
         working_dir: artifacts.root(),
@@ -102,12 +105,15 @@ pub fn setup() -> Result<TestEnv> {
         account_dir: isolated_temp_path("zolana-swap-smart-accounts"),
         programs: vec![
             (swap_program_id, swap_program_so),
-            (spp_program_id, spp_program_so),
             (user_registry_id, user_registry_so),
             (smart_account_id, smart_account_so),
         ],
     }
-    .start();
+    .start_with_upgradeable_programs(&[UpgradeableProgram {
+        address: &spp_program_id,
+        path: &spp_program_so,
+        authority: &protocol_vault,
+    }]);
 
     spawn_workspace_prover();
 
@@ -155,14 +161,15 @@ pub fn setup() -> Result<TestEnv> {
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
 
     let create_config_ix = CreateProtocolConfig {
-        authority: accounts.protocol_vault,
+        fee_payer: payer.pubkey(),
+        initialization_authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault.to_bytes().into(),
         fee_authority: accounts.protocol_vault.to_bytes().into(),
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
         ring_creation_authority: accounts.ring_vault.to_bytes().into(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();

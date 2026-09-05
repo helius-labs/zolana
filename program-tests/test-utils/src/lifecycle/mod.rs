@@ -91,7 +91,7 @@ impl LifecycleHarness {
         let (base, merge_key) = LocalnetHarness::bootstrap(BootstrapConfig {
             label: "zolana-spp",
             extra_programs: Vec::new(),
-            ring_creation_is_permissionless: false,
+            ring_activation_is_permissionless: false,
             fund_merge_vault: true,
         })?;
         Ok(Self {

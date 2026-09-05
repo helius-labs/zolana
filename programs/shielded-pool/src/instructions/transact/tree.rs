@@ -78,6 +78,7 @@ pub(crate) fn apply_output_tree(
     output_tree_account: &mut AccountView,
     ix: &TransactIxDataRef<'_>,
     inputs: Vec<Input>,
+    slot: u64,
 ) -> Result<TreeWrite, ProgramError> {
     let output_tree_address = output_tree_account.address().to_bytes();
     let mut output_tree = TreeAccount::from_account_view_mut(
@@ -90,7 +91,7 @@ pub(crate) fn apply_output_tree(
     let first_output_leaf_index = output_tree.utxo_tree().next_index();
     output_tree
         .utxo_tree()
-        .append_batch(ix.outputs.iter().map(|o| o.utxo_hash))
+        .append_batch(ix.outputs.iter().map(|o| o.utxo_hash), slot)
         .map_err(tree_error)?;
     Ok(TreeWrite {
         inputs,

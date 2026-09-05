@@ -25,9 +25,13 @@
 //! ## State tree
 //!
 //! [`smt::UtxoTreeLayout`] appends output commitments one leaf at a time and
-//! keeps a cyclic root history of [`smt::ROOT_HISTORY_CAPACITY`] roots for
-//! validity proofs. Its height is pinned to [`UTXO_TREE_HEIGHT`], and
-//! [`TreeAccount::init`] rejects any other value.
+//! keeps the final state root written in each observed Solana slot in a
+//! conventional cyclic history. The first write in a new slot advances the
+//! history cursor, while later writes in that slot replace its earlier root.
+//! History indices are therefore consecutive even when observed slot numbers
+//! are not. The 500-root history covers about 100 seconds at the 200 ms target
+//! slot time under continuous updates. Its height is pinned to
+//! [`UTXO_TREE_HEIGHT`], and [`TreeAccount::init`] rejects any other value.
 //!
 //! ## Nullifier tree
 //!
@@ -372,8 +376,14 @@ impl<'a> TreeAccount<'a> {
 }
 
 fn check_layout(layout: &SppTreeLayout) -> Result<(), TreeError> {
+    let root_history_capacity = usize::from(layout.utxo.root_history_capacity);
+    let root_history_cursor = usize::from(layout.utxo.root_history_cursor);
+    let root_history_len = usize::from(layout.utxo.root_history_len);
     if layout.utxo.subtrees_len as usize != UTXO_TREE_HEIGHT
-        || layout.utxo.root_history_capacity as usize != smt::ROOT_HISTORY_CAPACITY
+        || root_history_capacity != smt::ROOT_HISTORY_CAPACITY
+        || root_history_cursor >= root_history_capacity
+        || !(1..=root_history_capacity).contains(&root_history_len)
+        || (root_history_len < root_history_capacity && root_history_cursor + 1 != root_history_len)
     {
         return Err(TreeError::Deserialize);
     }

@@ -11,7 +11,7 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, UpgradeableProgram},
     smart_account::{self, StandardSigners},
 };
 
@@ -38,6 +38,9 @@ pub fn setup() -> Result<SetupContext> {
     let smart_account_id = smart_account::SMART_ACCOUNT_PROGRAM_ID.to_string();
     let smart_account_so = format!("{root}/target/deploy/squads_smart_account_program.so");
 
+    let protocol_vault = smart_account::standard_accounts()
+        .protocol_vault
+        .to_string();
     LocalnetValidator {
         cli_bin: cli,
         working_dir: root.to_string(),
@@ -46,7 +49,6 @@ pub fn setup() -> Result<SetupContext> {
         ledger: "/tmp/zolana-client-example-test-ledger".to_string(),
         account_dir: "/tmp/zolana-client-example-accounts".to_string(),
         programs: vec![
-            (spp_program_id, spp_program_so),
             (
                 zolana_user_registry_interface::user_registry_program_id().to_string(),
                 user_registry_so,
@@ -54,7 +56,11 @@ pub fn setup() -> Result<SetupContext> {
             (smart_account_id, smart_account_so),
         ],
     }
-    .start();
+    .start_with_upgradeable_programs(&[UpgradeableProgram {
+        address: &spp_program_id,
+        path: &spp_program_so,
+        authority: &protocol_vault,
+    }]);
 
     std::env::set_var(
         "ZOLANA_PROVER_KEYS_DIR",
@@ -108,14 +114,15 @@ pub fn setup() -> Result<SetupContext> {
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
 
     let create_config_ix = CreateProtocolConfig {
-        authority: accounts.protocol_vault,
+        fee_payer: payer.pubkey(),
+        initialization_authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault,
         fee_authority: accounts.protocol_vault,
         tree_creation_authority: accounts.tree_vault,
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault,
         ring_creation_authority: accounts.ring_vault,
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();

@@ -270,7 +270,7 @@ mod tests {
             ring_creation_authority: authority,
             fee_authority: authority,
             tree_creation_is_permissionless: 0,
-            ring_creation_is_permissionless: 0,
+            ring_activation_is_permissionless: 0,
             spl_interface_creation_is_permissionless: u8::from(permissionless),
             next_tree_id: 0,
         }

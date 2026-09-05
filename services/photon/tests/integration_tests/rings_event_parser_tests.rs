@@ -79,6 +79,7 @@ const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
 const TEST_TREE: [u8; 32] = [41; 32];
+const TEST_STATE_ROOT_INDEX: u16 = 137;
 
 fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
     assert_eq!(items.len(), 1, "expected exactly one {description}");
@@ -594,6 +595,71 @@ async fn signature_lookup_returns_multiple_events_in_event_order() {
     assert!(missing.transactions.is_empty());
 }
 
+#[tokio::test]
+async fn state_root_is_slot_final_across_multiple_events_in_one_block() {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    RingsMigrator::up(&db, None).await.unwrap();
+    let slot = SHIELDED_TRANSFER_SLOT;
+    insert_test_blocks(&db, &[slot]).await;
+
+    let state_update = StateUpdate::merge_updates(vec![
+        parse_ingestion_update(proofless_shield_transaction_info(), slot),
+        parse_ingestion_update(shielded_transfer_transaction_info(), slot),
+    ]);
+    insert_known_rings_tree_accounts_from_outputs(&db, &state_update).await;
+    let outputs = state_update
+        .rings_transactions
+        .iter()
+        .flat_map(|update| update.outputs.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(outputs.len() > 1, "fixture must exercise multiple outputs");
+    assert!(outputs.iter().all(|output| output.output_tree == TEST_TREE));
+
+    let txn = db.begin().await.unwrap();
+    persist_state_update(&txn, state_update).await.unwrap();
+    txn.commit().await.unwrap();
+
+    let state_nodes = state_trees::Entity::find()
+        .filter(state_trees::Column::Tree.eq(TEST_TREE.to_vec()))
+        .filter(state_trees::Column::TreeKind.eq(i32::from(RingsTreeKind::State)))
+        .all(&db)
+        .await
+        .unwrap();
+    let root = state_nodes
+        .iter()
+        .find(|node| node.node_idx == 1)
+        .expect("slot-final state root");
+    assert_eq!(root.seq, Some(slot as i64));
+
+    let leaf_slots = state_nodes
+        .iter()
+        .filter(|node| node.level == 0)
+        .map(|node| node.seq)
+        .collect::<Vec<_>>();
+    assert_eq!(leaf_slots, vec![Some(slot as i64); outputs.len()]);
+
+    let expected_root = Hash::try_from(root.hash.clone()).unwrap();
+    let response = merkle_proofs_for_test(
+        &db,
+        GetMerkleProofsRequest {
+            tree_account: SerializablePubkey::from(TEST_TREE),
+            leaves: outputs
+                .iter()
+                .map(|output| Hash::from(output.utxo_hash))
+                .collect(),
+        },
+    )
+    .await
+    .expect("all same-slot outputs should be included in the final root");
+    assert_eq!(response.proofs.len(), outputs.len());
+    assert!(response.proofs.iter().all(|proof| {
+        proof.root == expected_root
+            && proof.root_seq == slot
+            && proof.root_index == TEST_STATE_ROOT_INDEX
+    }));
+}
+
 /// A caller that already knows its signature -- the confirmation path, or
 /// anyone resolving a signature seen elsewhere -- can ask for that one
 /// transaction instead of walking the view tag index.
@@ -881,6 +947,8 @@ async fn rings_mode_persists_output_leaf_nodes_without_zk_tables() {
         proof.merkle_context.tree_type,
         u16::from(RingsTreeKind::State)
     );
+    assert_eq!(proof.root_seq, PROOFLESS_SHIELD_SLOT);
+    assert_eq!(proof.root_index, TEST_STATE_ROOT_INDEX);
 }
 
 #[tokio::test]
@@ -1957,9 +2025,9 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
     }
 }
 
-/// Proof helper for tests: seeds the root-index cache from the tree photon just
-/// built, so the proof path resolves an index without an RPC endpoint. The
-/// index itself is not what these tests are about.
+/// Proof helper for tests: seed the root-index cache with the authoritative
+/// history position of the state root Photon just built. The deliberately
+/// unrelated slot and index catch attempts to derive one from the other.
 async fn merkle_proofs_for_test(
     db: &sea_orm::DatabaseConnection,
     request: GetMerkleProofsRequest,
@@ -1969,19 +2037,17 @@ async fn merkle_proofs_for_test(
     use photon_indexer::dao::generated::state_trees;
 
     let tree = solana_pubkey::Pubkey::from(request.tree_account.0.to_bytes());
-    let roots = state_trees::Entity::find()
+    let root = state_trees::Entity::find()
         .filter(state_trees::Column::Tree.eq(tree.to_bytes().to_vec()))
+        .filter(state_trees::Column::TreeKind.eq(i32::from(RingsTreeKind::State)))
         .filter(state_trees::Column::NodeIdx.eq(1))
-        .all(db)
+        .one(db)
         .await
         .unwrap()
-        .into_iter()
-        .filter_map(|node| <[u8; 32]>::try_from(node.hash.as_slice()).ok())
-        .enumerate()
-        .filter_map(|(index, root)| u16::try_from(index).ok().map(|index| (index, root)))
-        .collect::<Vec<_>>();
+        .expect("state root");
+    let root_hash = <[u8; 32]>::try_from(root.hash.as_slice()).expect("32-byte state root");
 
-    let cache = RootIndexCache::with_roots(tree, roots);
+    let cache = RootIndexCache::with_roots(tree, [(TEST_STATE_ROOT_INDEX, root_hash)]);
     let rpc = photon_indexer::rpc::RpcClient::new("http://127.0.0.1:1".to_string());
     get_merkle_proofs(db, &rpc, &cache, request).await
 }

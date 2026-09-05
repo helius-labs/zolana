@@ -39,8 +39,8 @@ use crate::instructions::{
         update::process_update_protocol_config,
     },
     ring_config::{
-        create::process_create_ring_config, update::process_update_ring_config,
-        update_owner::process_update_ring_config_owner,
+        create::process_create_ring_config, set_activation::process_set_ring_activation,
+        update::process_update_ring_config, update_owner::process_update_ring_config_owner,
     },
     set_tree_fees::process_set_tree_fees,
     transact::process_transact_ix,
@@ -93,6 +93,7 @@ pub fn process_instruction(
             process_update_ring_config_owner(accounts, payload)
         }
         InstructionTag::UpdateRingConfig => process_update_ring_config(accounts, payload),
+        InstructionTag::SetRingActivation => process_set_ring_activation(accounts, payload),
         InstructionTag::MergeTransact => process_merge_transact_ix(accounts, payload),
         InstructionTag::RingMergeTransact => process_merge_ring_ix(accounts, payload),
         InstructionTag::CloseNullifierPdas => process_close_nullifier_pdas(accounts, payload),

@@ -10,7 +10,7 @@
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_progress, tree_roots};
+use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, tree_progress};
 
 use borsh::BorshSerialize;
 use groth16_solana::groth16::Groth16Verifier;
@@ -126,7 +126,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
 
     // Merkle witnesses against the on-chain roots, gated on the local trees.
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
     assert_eq!(state_tree.root(), utxo_root, "state root gate");
@@ -179,8 +179,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
                 leaf_index: 0,
                 root: utxo_root,
                 root_seq: 0,
-                // The deposit consumed root-history slot 1.
-                root_index: 1,
+                root_index: utxo_root_index,
             },
             nullifier: to_non_inclusion(first_nullifier, &non_inclusion),
         }),

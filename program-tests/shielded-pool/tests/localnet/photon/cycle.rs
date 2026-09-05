@@ -214,7 +214,8 @@ fn phase_indexer_sync(env: &CycleEnv, shield: &PayerShield) -> TestResult<PayerP
             .leaf,
         extra_nullifier_b
     );
-    let (shield_utxo_root, nullifier_root) = on_chain_roots(&env.rpc, &env.tree_pubkey, 1)?;
+    let (shield_utxo_root, nullifier_root) =
+        on_chain_roots(&env.rpc, &env.tree_pubkey, payer_state_proof.root_index)?;
     assert_eq!(payer_state_proof.root, shield_utxo_root, "shield root gate");
     assert_eq!(
         payer_nullifier_proof.root, nullifier_root,

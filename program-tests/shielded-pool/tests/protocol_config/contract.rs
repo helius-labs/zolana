@@ -150,7 +150,7 @@ fn create_and_update_protocol_config() {
         ring_creation_authority: authority.pubkey().to_bytes().into(),
         fee_authority: authority.pubkey().to_bytes().into(),
         tree_creation_is_permissionless: 0,
-        ring_creation_is_permissionless: 0,
+        ring_activation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 0,
         next_tree_id: 0,
     };
@@ -209,10 +209,10 @@ fn create_and_update_protocol_config() {
     backend
         .send_protocol_config_update(
             &authority,
-            UpdateProtocolConfigData::RingCreationPermissionless(true),
+            UpdateProtocolConfigData::RingActivationPermissionless(true),
         )
         .expect("toggle ring permissionless");
-    expected.ring_creation_is_permissionless = 1;
+    expected.ring_activation_is_permissionless = 1;
     assert_eq!(read_config(&backend), expected, "ring flag toggled");
 
     backend

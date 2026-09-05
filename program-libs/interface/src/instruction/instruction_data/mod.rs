@@ -27,7 +27,7 @@ pub use merge_transact::{
     MERGE_INPUT_COUNT,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
-pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
+pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{

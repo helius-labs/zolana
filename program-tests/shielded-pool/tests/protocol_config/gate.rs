@@ -1,20 +1,19 @@
 //! F-07: `create_protocol_config` is bound to the deploy upgrade authority.
 //!
-//! On an upgradeable loader-v3 deployment whose `ProgramData` names an upgrade
-//! authority, only that authority may initialize the one-time protocol config
-//! (front-run protection, INV-CREATE-PC-10). Non-upgradeable deployments and an
-//! unset or zeroed authority skip the check. The accounts are fabricated
-//! directly in LiteSVM, mirroring the bytes a real `solana program deploy`
-//! writes.
+//! Only the real, nonzero loader-v3 upgrade authority may initialize the
+//! one-time protocol config (front-run protection, INV-CREATE-PC-10).
+//! Non-upgradeable, immutable, and zero-authority deployments fail closed. The
+//! accounts are fabricated directly in LiteSVM, mirroring the bytes a real
+//! `solana program deploy` writes.
 
 use shielded_pool_tests::support::runtime::program_test;
 use solana_account::Account;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_pubkey::Pubkey;
+use solana_pubkey::{pubkey, Pubkey};
 use solana_signer::Signer;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::CreateProtocolConfig, pda,
+    error::ShieldedPoolError, instruction::CreateProtocolConfig, pda, state::ProtocolConfig,
     BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
@@ -71,17 +70,22 @@ fn install_upgradeable_deploy(rpc: &mut ZolanaProgramTest, upgrade_authority: Op
         .expect("write program data account");
 }
 
-fn create_ix_for(authority: &Keypair) -> Instruction {
+fn create_ix(
+    fee_payer: &Pubkey,
+    initialization_authority: &Pubkey,
+    protocol_authority: &Pubkey,
+) -> Instruction {
     CreateProtocolConfig {
-        authority: authority.pubkey(),
-        protocol_authority: authority.pubkey().to_bytes().into(),
-        tree_creation_authority: authority.pubkey().to_bytes().into(),
+        fee_payer: *fee_payer,
+        initialization_authority: *initialization_authority,
+        protocol_authority: protocol_authority.to_bytes().into(),
+        tree_creation_authority: protocol_authority.to_bytes().into(),
         tree_creation_is_permissionless: false,
-        forester_authority: authority.pubkey().to_bytes().into(),
-        ring_creation_authority: authority.pubkey().to_bytes().into(),
-        ring_creation_is_permissionless: false,
+        forester_authority: protocol_authority.to_bytes().into(),
+        ring_creation_authority: protocol_authority.to_bytes().into(),
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
-        fee_authority: authority.pubkey().to_bytes().into(),
+        fee_authority: protocol_authority.to_bytes().into(),
     }
     .instruction()
 }
@@ -94,17 +98,24 @@ fn boot_with_deploy(upgrade_authority: Option<&Pubkey>, payer: &Keypair) -> Zola
     rpc
 }
 
-/// A fee payer other than the upgrade authority must not initialize the
-/// protocol config on an upgradeable deployment (deploy-time front-run).
+/// A signer other than the upgrade authority must not initialize the protocol
+/// config on an upgradeable deployment (deploy-time front-run).
 #[test]
-fn create_rejects_a_fee_payer_that_is_not_the_upgrade_authority() {
+fn create_rejects_an_initialization_signer_that_is_not_the_upgrade_authority() {
     let deployer = Keypair::new();
     let attacker = Keypair::new();
     let mut rpc = boot_with_deploy(Some(&deployer.pubkey()), &attacker);
 
     let error = rpc
-        .create_and_send_default_payer_transaction(&[create_ix_for(&attacker)], &[&attacker])
-        .expect_err("a non-upgrade-authority payer must be rejected");
+        .create_and_send_default_payer_transaction(
+            &[create_ix(
+                &attacker.pubkey(),
+                &attacker.pubkey(),
+                &attacker.pubkey(),
+            )],
+            &[&attacker],
+        )
+        .expect_err("a non-upgrade-authority initializer must be rejected");
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
     assert!(
         rpc.account_data(&pda::protocol_config()).is_none(),
@@ -112,46 +123,92 @@ fn create_rejects_a_fee_payer_that_is_not_the_upgrade_authority() {
     );
 }
 
-/// The deploy upgrade authority itself initializes successfully.
+/// The deploy upgrade authority initializes successfully even when the rent
+/// payer and final protocol authority are different accounts.
 #[test]
-fn create_accepts_the_upgrade_authority() {
+fn create_accepts_a_separate_payer_initializer_and_protocol_authority() {
+    let payer = Keypair::new();
     let deployer = Keypair::new();
-    let mut rpc = boot_with_deploy(Some(&deployer.pubkey()), &deployer);
+    let protocol_authority = Pubkey::new_unique();
+    let mut rpc = boot_with_deploy(Some(&deployer.pubkey()), &payer);
 
-    rpc.create_and_send_default_payer_transaction(&[create_ix_for(&deployer)], &[&deployer])
-        .expect("the upgrade authority initializes");
-    assert!(
-        rpc.account_data(&pda::protocol_config()).is_some(),
-        "config must be written"
+    rpc.create_and_send_default_payer_transaction(
+        &[create_ix(
+            &payer.pubkey(),
+            &deployer.pubkey(),
+            &protocol_authority,
+        )],
+        &[&payer, &deployer],
+    )
+    .expect("the upgrade authority initializes");
+    let config_data = rpc
+        .account_data(&pda::protocol_config())
+        .expect("config must be written");
+    let config = ProtocolConfig::from_account_bytes(&config_data).expect("valid protocol config");
+    assert_eq!(
+        config.protocol_authority.to_bytes(),
+        protocol_authority.to_bytes()
     );
 }
 
-/// An unset upgrade authority (immutable program, test harness) skips the gate.
 #[test]
-fn create_skips_the_check_without_an_upgrade_authority() {
+fn create_rejects_an_unset_upgrade_authority() {
     let payer = Keypair::new();
     let mut rpc = boot_with_deploy(None, &payer);
 
-    rpc.create_and_send_default_payer_transaction(&[create_ix_for(&payer)], &[&payer])
-        .expect("unset upgrade authority skips the check");
-    assert!(
-        rpc.account_data(&pda::protocol_config()).is_some(),
-        "config must be written"
-    );
+    let error = rpc
+        .create_and_send_default_payer_transaction(
+            &[create_ix(&payer.pubkey(), &payer.pubkey(), &payer.pubkey())],
+            &[&payer],
+        )
+        .expect_err("unset upgrade authority must reject initialization");
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
+    assert!(rpc.account_data(&pda::protocol_config()).is_none());
 }
 
-/// A zeroed upgrade authority (the shape solana-test-validator gives
-/// `--bpf-program` deployments) skips the gate.
 #[test]
-fn create_skips_the_check_with_a_zeroed_upgrade_authority() {
+fn create_rejects_a_zeroed_upgrade_authority() {
     let payer = Keypair::new();
     let zeroed = Pubkey::default();
     let mut rpc = boot_with_deploy(Some(&zeroed), &payer);
 
-    rpc.create_and_send_default_payer_transaction(&[create_ix_for(&payer)], &[&payer])
-        .expect("zeroed upgrade authority skips the check");
-    assert!(
-        rpc.account_data(&pda::protocol_config()).is_some(),
-        "config must be written"
-    );
+    let error = rpc
+        .create_and_send_default_payer_transaction(
+            &[create_ix(&payer.pubkey(), &payer.pubkey(), &payer.pubkey())],
+            &[&payer],
+        )
+        .expect_err("zero upgrade authority must reject initialization");
+    Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_litesvm(error);
+    assert!(rpc.account_data(&pda::protocol_config()).is_none());
+}
+
+#[test]
+fn create_rejects_a_non_loader_v3_deployment() {
+    let payer = Keypair::new();
+    let mut rpc = program_test();
+    rpc.airdrop(&payer.pubkey(), 10_000_000_000)
+        .expect("airdrop");
+    let program_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let program_data = rpc
+        .svm
+        .get_account(&pda::program_data())
+        .expect("shielded-pool ProgramData account");
+    let program_bytes = program_data
+        .data
+        .get(45..)
+        .expect("loader-v3 ProgramData header");
+    rpc.svm
+        .add_program_with_loader(
+            program_id,
+            program_bytes,
+            pubkey!("BPFLoader1111111111111111111111111111111111"),
+        )
+        .expect("replace program with a loader-v2 deployment");
+
+    rpc.create_and_send_default_payer_transaction(
+        &[create_ix(&payer.pubkey(), &payer.pubkey(), &payer.pubkey())],
+        &[&payer],
+    )
+    .expect_err("a non-loader-v3 deployment must reject initialization");
+    assert!(rpc.account_data(&pda::protocol_config()).is_none());
 }

@@ -125,12 +125,12 @@ fn parse_rings_tree_account<'a>(
     Some(tree)
 }
 
-/// Every occupied slot of the UTXO tree's root history, paired with its index.
+/// Every occupied entry of the UTXO tree's root history, paired with its index.
 ///
 /// A client quotes the index of the root its proof was built against, and the
-/// program loads the root it verifies against from that slot. So the question
-/// to answer is "which slot holds this root?", for whatever root is being
-/// served -- not only the newest one. Empty slots are skipped because
+/// program loads the root it verifies against from that entry. So the question
+/// to answer is "which entry holds this root?", for whatever root is being
+/// served -- not only the newest one. Empty entries are skipped because
 /// `root_by_index` rejects them, so they can never be a valid answer.
 pub(crate) fn rings_utxo_root_history(
     pubkey: Pubkey,

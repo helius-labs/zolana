@@ -10,17 +10,20 @@ use zolana_interface::{
     pda,
     state::ProtocolConfig,
 };
+use zolana_smart_account_client::roles::Role;
 use zolana_test_utils::smart_account::{execute_sync_ix, settings_pda, smart_account_pda};
 
-use crate::init_protocol::{authorities, load_keypair, read_program_config, to_address, Cluster};
+use crate::init_protocol::{
+    authorities, load_keypair, load_protocol_signers, read_program_config, to_address, Cluster,
+};
 
 pub struct Options {
     cluster: Cluster,
     rpc_url: Option<String>,
     payer: PathBuf,
-    protocol_signer: PathBuf,
+    protocol_signers: Vec<PathBuf>,
     tree_creation_permissionless: Option<bool>,
-    ring_creation_permissionless: Option<bool>,
+    ring_activation_permissionless: Option<bool>,
     spl_interface_creation_permissionless: Option<bool>,
     fee_authority: Option<Address>,
     yes: bool,
@@ -32,9 +35,9 @@ impl Options {
         let mut cluster = Cluster::Localnet;
         let mut rpc_url = None;
         let mut payer = None;
-        let mut protocol_signer = None;
+        let mut protocol_signers = Vec::new();
         let mut tree_creation_permissionless = None;
-        let mut ring_creation_permissionless = None;
+        let mut ring_activation_permissionless = None;
         let mut spl_interface_creation_permissionless = None;
         let mut fee_authority = None;
         let mut yes = false;
@@ -63,8 +66,8 @@ impl Options {
                     ));
                 }
                 "--protocol-signer" => {
-                    protocol_signer =
-                        Some(PathBuf::from(args.next().unwrap_or_else(|| {
+                    protocol_signers
+                        .push(PathBuf::from(args.next().unwrap_or_else(|| {
                             usage_and_exit("--protocol-signer missing value")
                         })));
                 }
@@ -72,9 +75,9 @@ impl Options {
                     tree_creation_permissionless =
                         Some(parse_bool(args.next(), "--tree-creation-permissionless"));
                 }
-                "--ring-creation-permissionless" => {
-                    ring_creation_permissionless =
-                        Some(parse_bool(args.next(), "--ring-creation-permissionless"));
+                "--ring-activation-permissionless" => {
+                    ring_activation_permissionless =
+                        Some(parse_bool(args.next(), "--ring-activation-permissionless"));
                 }
                 "--spl-interface-creation-permissionless" => {
                     spl_interface_creation_permissionless = Some(parse_bool(
@@ -96,10 +99,18 @@ impl Options {
         }
 
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
-        let protocol_signer =
-            protocol_signer.unwrap_or_else(|| usage_and_exit("--protocol-signer is required"));
+        let required_protocol_signers = usize::from(Role::Protocol.threshold());
+        if protocol_signers.len() != required_protocol_signers {
+            usage_and_exit(&format!(
+                "--protocol-signer must be passed {required_protocol_signers} times for the \
+                 {}-of-{} protocol policy (received {})",
+                Role::Protocol.threshold(),
+                authorities::PROTOCOL.len(),
+                protocol_signers.len()
+            ));
+        }
         if tree_creation_permissionless.is_none()
-            && ring_creation_permissionless.is_none()
+            && ring_activation_permissionless.is_none()
             && spl_interface_creation_permissionless.is_none()
             && fee_authority.is_none()
         {
@@ -110,9 +121,9 @@ impl Options {
             cluster,
             rpc_url,
             payer,
-            protocol_signer,
+            protocol_signers,
             tree_creation_permissionless,
-            ring_creation_permissionless,
+            ring_activation_permissionless,
             spl_interface_creation_permissionless,
             fee_authority,
             yes,
@@ -131,8 +142,10 @@ impl Options {
         if let Some(value) = self.tree_creation_permissionless {
             updates.push(UpdateProtocolConfigData::TreeCreationPermissionless(value));
         }
-        if let Some(value) = self.ring_creation_permissionless {
-            updates.push(UpdateProtocolConfigData::RingCreationPermissionless(value));
+        if let Some(value) = self.ring_activation_permissionless {
+            updates.push(UpdateProtocolConfigData::RingActivationPermissionless(
+                value,
+            ));
         }
         if let Some(value) = self.spl_interface_creation_permissionless {
             updates.push(UpdateProtocolConfigData::SplInterfaceCreationPermissionless(value));
@@ -151,7 +164,7 @@ struct OnChainConfig {
     ring_creation_authority: Pubkey,
     fee_authority: Pubkey,
     tree_creation_is_permissionless: u8,
-    ring_creation_is_permissionless: u8,
+    ring_activation_is_permissionless: u8,
     spl_interface_creation_is_permissionless: u8,
     lamports: u64,
     len: usize,
@@ -172,7 +185,7 @@ fn read_protocol_config(rpc: &SolanaRpc) -> Result<OnChainConfig> {
         ring_creation_authority: Pubkey::new_from_array(config.ring_creation_authority.to_bytes()),
         fee_authority: Pubkey::new_from_array(config.fee_authority.to_bytes()),
         tree_creation_is_permissionless: config.tree_creation_is_permissionless,
-        ring_creation_is_permissionless: config.ring_creation_is_permissionless,
+        ring_activation_is_permissionless: config.ring_activation_is_permissionless,
         spl_interface_creation_is_permissionless: config.spl_interface_creation_is_permissionless,
         lamports: account.lamports,
         len: account.data.len(),
@@ -198,8 +211,8 @@ fn print_config(label: &str, config: &OnChainConfig) {
         config.tree_creation_is_permissionless != 0
     );
     println!(
-        "  ring_creation_is_permissionless={}",
-        config.ring_creation_is_permissionless != 0
+        "  ring_activation_is_permissionless={}",
+        config.ring_activation_is_permissionless != 0
     );
     println!(
         "  spl_interface_creation_is_permissionless={}",
@@ -227,13 +240,7 @@ pub fn find_vault_settings(rpc: &SolanaRpc, vault_authority: &Pubkey) -> Result<
 
 pub fn run(options: Options) -> Result<()> {
     let payer = load_keypair(&options.payer, "payer")?;
-    let protocol_signer = load_keypair(&options.protocol_signer, "protocol-signer")?;
-    if !options.dry_run && !authorities::PROTOCOL.contains(&protocol_signer.pubkey()) {
-        bail!(
-            "protocol-signer {} is not one of the hardcoded protocol authorities",
-            protocol_signer.pubkey()
-        );
-    }
+    let protocol_signers = load_protocol_signers(&options.protocol_signers)?;
     if options.cluster == Cluster::Mainnet && !options.dry_run && !options.yes {
         bail!("refusing to send mainnet transactions without --yes");
     }
@@ -246,7 +253,9 @@ pub fn run(options: Options) -> Result<()> {
     println!("rpc_url={url}");
     println!("dry_run={}", options.dry_run);
     println!("payer={}", payer.pubkey());
-    println!("protocol_signer={}", protocol_signer.pubkey());
+    for (index, signer) in protocol_signers.iter().enumerate() {
+        println!("protocol_signer_{}={}", index + 1, signer.pubkey());
+    }
     println!("protocol_config={}", pda::protocol_config());
     print_config("current config", &config);
 
@@ -269,23 +278,21 @@ pub fn run(options: Options) -> Result<()> {
             .instruction()
         })
         .collect();
-    instructions.push(execute_sync_ix(
-        &settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &inner,
-    ));
+    let signer_keys: Vec<Pubkey> = protocol_signers.iter().map(Signer::pubkey).collect();
+    instructions.push(execute_sync_ix(&settings, 0, &signer_keys, &inner));
 
     if options.dry_run {
         println!("dry_run: no transactions sent");
         return Ok(());
     }
 
+    let mut transaction_signers: Vec<&dyn Signer> = vec![&payer];
+    transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
     let signature = rpc
         .create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
-            &[&payer, &protocol_signer],
+            &transaction_signers,
         )
         .map_err(|e| anyhow!("update_protocol_config failed: {e}"))?;
     println!("update_protocol_config sig={signature}");
@@ -321,7 +328,7 @@ fn print_help() {
     println!("xtask update-protocol-config [flags]");
     println!();
     println!("Update shielded-pool protocol config flags on a cluster. The update is");
-    println!("wrapped in a Squads execute_sync signed by one protocol authority member.");
+    println!("wrapped in a Squads execute_sync signed by two protocol authority members.");
     println!();
     println!("Flags:");
     println!("  --cluster <localnet|devnet|mainnet>              default: localnet");
@@ -329,12 +336,14 @@ fn print_help() {
         "  --rpc-url <URL>                                  override the cluster default RPC URL"
     );
     println!("  --payer <KEYPAIR_PATH>                           outer fee payer (required)");
-    println!("  --protocol-signer <KEYPAIR_PATH>                 one of the protocol authorities (required)");
+    println!(
+        "  --protocol-signer <KEYPAIR_PATH>                 protocol signer; pass exactly twice"
+    );
     println!(
         "  --tree-creation-permissionless <true|false>      set tree_creation_is_permissionless"
     );
     println!(
-        "  --ring-creation-permissionless <true|false>      set ring_creation_is_permissionless"
+        "  --ring-activation-permissionless <true|false>      set ring_activation_is_permissionless"
     );
     println!("  --spl-interface-creation-permissionless <true|false>");
     println!("                                                   set spl_interface_creation_is_permissionless");

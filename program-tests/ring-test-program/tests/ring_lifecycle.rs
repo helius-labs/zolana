@@ -24,11 +24,14 @@ fn ring_config_admin_enforces_updates_rotation_and_authority() -> Result<()> {
     harness.create_enabled_ring_config()?;
     harness.assert_ring_config(true, false)?;
 
-    harness.update_ring_config(false, true)?;
+    // The two flags now have two owners: governance turns the
+    // authority-transact rail off, the ring pauses itself.
+    harness.set_ring_activation(true, false)?;
+    harness.update_ring_config(true)?;
     harness.assert_ring_config(false, true)?;
     harness.rotate_ring_config_owner()?;
     harness.assert_ring_config(false, true)?;
-    harness.update_ring_config(false, false)?;
+    harness.update_ring_config(false)?;
     harness.assert_ring_config(false, false)?;
     harness.old_owner_update_rejected()?;
     harness.create_invalid_ring_authority_rejected()?;
@@ -201,7 +204,7 @@ fn dump_ring_transact_fixture() -> Result<()> {
 fn ring_transact_succeeds_while_ring_authority_transact_is_disabled() -> Result<()> {
     let mut harness = RingHarness::new()?;
     harness.create_enabled_ring_config()?;
-    harness.update_ring_config(false, false)?;
+    harness.set_ring_activation(true, false)?;
     harness.assert_ring_config(false, false)?;
     harness.make_payer_actor("alice")?;
     for _ in 0..2 {

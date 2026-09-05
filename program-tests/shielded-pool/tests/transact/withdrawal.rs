@@ -13,7 +13,7 @@
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
+use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, tree_roots, Pool};
 
 use borsh::BorshSerialize;
 use num_bigint::BigUint;
@@ -164,9 +164,9 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         .update_protocol_config(&env.authority, &next_authority)
         .expect("rotate protocol authorities after shielding");
 
-    // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
-    // shield append (history index 1).
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
+    // The UTXO is leaf 0; its inclusion proof is against the latest root after
+    // the shield append.
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
 
     // State inclusion proof (height 32) for leaf 0.
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
@@ -236,8 +236,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
@@ -755,6 +755,7 @@ struct ShieldedPayer {
     spend_input: TransferInput,
     state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -770,6 +771,7 @@ struct TransferredRecipient {
     output_hash: [u8; 32],
     state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -818,7 +820,8 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
     state_tree
         .append(&payer_utxo_hash)
         .expect("append shield leaf");
-    let (shield_utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
+    let (shield_utxo_root_index, shield_utxo_root, nullifier_root) =
+        current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), shield_utxo_root, "shield root gate");
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
@@ -855,6 +858,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         spend_input: payer_spend_input,
         state_tree,
         nf_tree,
+        utxo_root_index: shield_utxo_root_index,
         utxo_root: shield_utxo_root,
         nullifier_root,
     }
@@ -878,6 +882,7 @@ fn phase_transfer_to_recipient(
         spend_input: payer_spend_input,
         mut state_tree,
         nf_tree,
+        utxo_root_index: shield_utxo_root_index,
         utxo_root: shield_utxo_root,
         nullifier_root,
     } = shield;
@@ -929,8 +934,8 @@ fn phase_transfer_to_recipient(
     let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(payer_nullifier, 1),
-            eddsa_input_utxo(transfer_dummy_nullifier, 1),
+            eddsa_input_utxo(payer_nullifier, shield_utxo_root_index),
+            eddsa_input_utxo(transfer_dummy_nullifier, shield_utxo_root_index),
         ],
         Vec::new(),
         inline_outputs(
@@ -1020,8 +1025,8 @@ fn phase_transfer_to_recipient(
     state_tree
         .append(&transfer_dummy_hash)
         .expect("append dummy leaf");
-    // init=0, post-deposit=1, post-transfer=2.
-    let (transfer_utxo_root, transfer_nullifier_root) = tree_roots(&env.rpc, &tree, 2);
+    let (transfer_utxo_root_index, transfer_utxo_root, transfer_nullifier_root) =
+        current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 
@@ -1034,6 +1039,7 @@ fn phase_transfer_to_recipient(
         output_hash: recipient_hash,
         state_tree,
         nf_tree,
+        utxo_root_index: transfer_utxo_root_index,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
     }
@@ -1056,6 +1062,7 @@ fn phase_withdraw_recipient_utxo(
         output_hash: recipient_hash,
         state_tree,
         nf_tree,
+        utxo_root_index: transfer_utxo_root_index,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
     } = transfer;
@@ -1138,8 +1145,8 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, 2),
-            eddsa_input_utxo(withdraw_dummy_nullifier, 2),
+            eddsa_input_utxo(recipient_nullifier, transfer_utxo_root_index),
+            eddsa_input_utxo(withdraw_dummy_nullifier, transfer_utxo_root_index),
         ],
         vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,

@@ -1,7 +1,11 @@
 use crate::instructions::shared::caused_by;
 use light_array_map::ArrayMap;
 use light_program_profiler::profile;
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, ProgramResult,
+};
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -196,10 +200,12 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         });
     }
 
+    let slot = Clock::get()?.slot;
+
     // One batch append: only the last leaf hashes up to the root, so a batch
     // costs one root recomputation instead of one per entry.
     tree.utxo_tree()
-        .append_batch(utxo_hashes.iter())
+        .append_batch(utxo_hashes.iter(), slot)
         .map_err(ShieldedPoolError::from)?;
     drop(tree);
 

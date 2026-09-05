@@ -24,6 +24,7 @@ const CREATE_RING_CONFIG_CU_CEILING: u64 = 20_000; // observed 6_658
 const UPDATE_RING_CONFIG_CU_CEILING: u64 = 450; // observed 141
 const RING_DEPOSIT_SOL_CU_CEILING: u64 = 120_000; // observed 47_441
 const UPDATE_RING_CONFIG_OWNER_CU_CEILING: u64 = 700; // observed 218
+const SET_RING_ACTIVATION_CU_CEILING: u64 = 700;
 
 #[track_caller]
 fn assert_last_under(test: &ZolanaProgramTest, operation: &str, limit: u64) {
@@ -68,7 +69,7 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
         ),
         (
             "update ring permission",
-            UpdateProtocolConfigData::RingCreationPermissionless(true),
+            UpdateProtocolConfigData::RingActivationPermissionless(true),
         ),
         (
             "update SPL permission",
@@ -145,14 +146,19 @@ fn proofless_instruction_families_stay_within_transaction_budgets() {
     test.load_ring_test_program()
         .expect("load ring test program");
     let ring_config = test
-        .create_ring_config(&authority, &authority.pubkey(), true)
+        .create_ring_config(&authority, &authority.pubkey())
         .expect("create ring config");
     assert_last_under(&test, "create ring config", CREATE_RING_CONFIG_CU_CEILING);
-    test.update_ring_config(&authority, &ring_config, false, false)
+    // The ring owns only `paused`; governance owns activation and the
+    // authority-transact rail, so the rail toggle is a separate instruction.
+    test.update_ring_config(&authority, &ring_config, false)
         .expect("update ring config");
     assert_last_under(&test, "update ring config", UPDATE_RING_CONFIG_CU_CEILING);
-    test.update_ring_config(&authority, &ring_config, true, false)
-        .expect("re-enable ring config");
+    test.set_ring_activation(&authority, &ring_config, true, false)
+        .expect("deactivate the authority rail");
+    assert_last_under(&test, "set ring activation", SET_RING_ACTIVATION_CU_CEILING);
+    test.set_ring_activation(&authority, &ring_config, true, true)
+        .expect("re-enable the authority rail");
 
     let ring_data = test.ring_sol_shield_data(1_000_000, [5; 32], [6; 32]);
     test.ring_deposit(&tree, &depositor, &ring_data)
