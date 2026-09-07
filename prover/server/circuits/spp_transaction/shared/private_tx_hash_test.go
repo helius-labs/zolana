@@ -52,7 +52,7 @@ func TestCircuitRejectsForeignPrivateTxBlinding(t *testing.T) {
 		t,
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
-		noAddressHashes(len(inputHashes)),
+		noAddressNullifiers(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 		spptest.Fe(0xB11E),
 	)

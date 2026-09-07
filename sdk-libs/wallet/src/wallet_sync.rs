@@ -2801,6 +2801,7 @@ mod tests {
                 &owner.nullifier_key.pubkey().expect("nullifier pubkey"),
                 &[0u8; 32],
                 &[0u8; 32],
+                TEST_TREE_ID,
             )
             .expect("output hash");
         let output_view_tag = owner
@@ -2829,6 +2830,10 @@ mod tests {
             proofless: false,
         }
     }
+
+    /// Test fixtures live in the first localnet tree.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    const TEST_TREE_ID: u16 = 0;
 
     fn signature_for_slot(slot: u64) -> Signature {
         let mut bytes = [0u8; 64];
@@ -2860,7 +2865,7 @@ mod tests {
             let utxo = test_utxo(owner, asset, amount, seed);
             let nullifier_pk = owner.nullifier_key.pubkey().expect("nullifier pubkey");
             let hash = utxo
-                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .expect("utxo hash");
             let nullifier = utxo
                 .nullifier(&hash, &owner.nullifier_key)
@@ -2875,6 +2880,7 @@ mod tests {
                 nullifier,
                 data_hash: None,
                 ring_data_hash: None,
+                tree_id: TEST_TREE_ID,
                 spent: false,
             });
         }
@@ -2946,7 +2952,7 @@ mod tests {
             .next()
             .expect("proofless utxo");
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
-        utxo.hash(&nullifier_pk, &data_hash, &ring_data_hash)
+        utxo.hash(&nullifier_pk, &data_hash, &ring_data_hash, TEST_TREE_ID)
             .expect("proofless leaf hash")
     }
 

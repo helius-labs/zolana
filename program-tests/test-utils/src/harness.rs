@@ -172,6 +172,9 @@ pub struct LocalnetHarness<D> {
     pub authority: Keypair,
     pub tree: Pubkey,
     pub tree_address: Address,
+    /// The raw id [`Self::tree`] was created with. Every UTXO commitment in the
+    /// suite is hashed under it, so the harness resolves it once at bootstrap.
+    pub tree_id: u16,
     pub actors: BTreeMap<String, Actor<D>>,
     pub indexed: Vec<ShieldedTransaction>,
     pub spls: Vec<SplAsset>,
@@ -192,7 +195,7 @@ impl<D> LocalnetHarness<D> {
     pub fn bootstrap(config: BootstrapConfig) -> Result<(Self, Keypair)> {
         let (mut rpc, indexer) = Self::start_stack(&config)?;
         let setup = Self::setup_protocol_accounts(&mut rpc, &config)?;
-        let (tree, tree_address) = Self::create_tree(&mut rpc, &setup, None)?;
+        let (tree, tree_address, tree_id) = Self::create_tree(&mut rpc, &setup, None)?;
         let harness = Self {
             rpc,
             indexer,
@@ -201,6 +204,7 @@ impl<D> LocalnetHarness<D> {
             authority: setup.authority,
             tree,
             tree_address,
+            tree_id,
             actors: BTreeMap::new(),
             indexed: Vec::new(),
             spls: Vec::new(),
@@ -323,11 +327,12 @@ impl<D> LocalnetHarness<D> {
         rpc: &mut SolanaRpc,
         setup: &ProtocolSetup,
         nullifier_params: Option<NullifierTreeInitParams>,
-    ) -> Result<(Pubkey, Address)> {
+    ) -> Result<(Pubkey, Address, u16)> {
+        let tree_id = zolana_program_test::next_tree_id(rpc)?;
         let create = CreateTree {
             payer: setup.payer.pubkey(),
             authority: setup.accounts.tree_vault,
-            tree_id: zolana_program_test::next_tree_id(rpc)?,
+            tree_id,
             nullifier_params: nullifier_params.unwrap_or_else(nullifier_tree_params),
             fees: default_tree_fees(
                 nullifier_params
@@ -350,7 +355,7 @@ impl<D> LocalnetHarness<D> {
         )?;
 
         let tree = create.tree();
-        Ok((tree, Address::new_from_array(tree.to_bytes())))
+        Ok((tree, Address::new_from_array(tree.to_bytes()), tree_id))
     }
 
     /// Create `name` (idempotently) as an eddsa-rail actor backed by a FRESH

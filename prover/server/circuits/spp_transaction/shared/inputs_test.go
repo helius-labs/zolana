@@ -99,7 +99,7 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 		t,
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
-		noAddressHashes(len(inputHashes)),
+		noAddressNullifiers(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)
@@ -280,7 +280,7 @@ func buildDummyInputShield(t testing.TB, deposit int64) *testAssignment {
 		t,
 		[]*big.Int{big.NewInt(0)},
 		OutputHashes,
-		noAddressHashes(1),
+		noAddressNullifiers(1),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)

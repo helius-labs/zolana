@@ -18,7 +18,7 @@ use zolana_transaction::{
 
 use crate::{
     instructions::make::OrderMarker,
-    shared::{input_sum, test_blinding},
+    shared::{input_sum, test_blinding, INDEXED_TREE_ID},
     state::{OrderTerms, OrderUtxo},
 };
 
@@ -123,13 +123,15 @@ pub(crate) fn order_fixture() -> OrderFixture {
     let change =
         SppProofOutputUtxo::new(source_mint, change_amount, maker_address).expect("change output");
     let mut transaction_outputs = vec![change, order_output_utxo];
-    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+    let tx_secret = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
         .expect("derive output blindings");
     let [change, order_output_utxo]: [_; 2] = transaction_outputs
         .try_into()
         .expect("make transaction has two outputs");
     order_utxo.blinding = order_output_utxo.blinding;
-    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
+    let order_utxo_hash = order_output_utxo
+        .hash(INDEXED_TREE_ID)
+        .expect("order output hash");
     let marker_message = OrderMarker {
         order_utxo_hash,
         maker_pubkey,
@@ -144,6 +146,7 @@ pub(crate) fn order_fixture() -> OrderFixture {
         &[change, order_output_utxo],
         &registry,
         &transaction_viewing_key,
+        INDEXED_TREE_ID,
     )
     .expect("encode slots");
 
@@ -160,7 +163,8 @@ pub(crate) fn order_fixture() -> OrderFixture {
         external_data,
         Address::default(),
     )
-    .with_output_blinding_seed(output_blinding_seed);
+    .with_tx_secret(tx_secret)
+    .with_output_tree_id(INDEXED_TREE_ID);
 
     OrderFixture {
         tx: shielded_transaction(&spp_proof_inputs),

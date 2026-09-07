@@ -6,7 +6,7 @@ use zolana_interface::{
     SHIELDED_POOL_PROGRAM_ID,
 };
 
-use crate::{account_address, account_pda, err, tag, CreateIxData};
+use crate::{account_address, account_pda, err, shared::DEFAULT_TREE_ID, tag, CreateIxData};
 
 pub struct Create {
     pub payer: Address,
@@ -37,7 +37,7 @@ impl Create {
         .map_err(err)?;
 
         let pda = account_pda(&payer);
-        let nullifier = account_address(&pda)?;
+        let nullifier = account_address(&pda, DEFAULT_TREE_ID)?;
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),

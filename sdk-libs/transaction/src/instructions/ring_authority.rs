@@ -10,9 +10,13 @@ use solana_address::Address;
 use crate::{
     error::TransactionError,
     instructions::{
-        transact::{shape::Shape, spp_proof_inputs::PublicTransfers},
+        transact::{
+            shape::Shape,
+            spp_proof_inputs::{first_nullifier, PublicTransfers},
+        },
         types::{InputUtxoContext, SppProofInputUtxo},
     },
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -22,7 +26,12 @@ use crate::{
 pub struct PreparedRingAuthority {
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
-    pub output_blinding_seed: [u8; 32],
+    /// The transaction's single private random value. See
+    /// [`SppProofInputs::tx_secret`](super::transact::SppProofInputs).
+    pub tx_secret: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub output_tree_id: u16,
     pub public_transfers: PublicTransfers,
     pub external_data: ExternalData,
     pub payer: Address,
@@ -34,6 +43,21 @@ pub struct PreparedRingAuthority {
 }
 
 impl PreparedRingAuthority {
+    /// Nullifier of the first input slot, which must be a real spend.
+    pub fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
+        first_nullifier(&self.inputs)
+    }
+
+    /// Seed every physical output blinding derives from.
+    pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
+        derive_output_blinding_seed(&self.first_nullifier()?, &self.tx_secret)
+    }
+
+    /// Final `private_tx_hash` preimage element.
+    pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
+        derive_private_tx_blinding(&self.first_nullifier()?, &self.tx_secret)
+    }
+
     /// Commitments for the real inputs only; dummy padding has a zero owner and no
     /// meaningful commitment to look up.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {

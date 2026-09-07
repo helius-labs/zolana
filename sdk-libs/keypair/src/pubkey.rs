@@ -175,12 +175,16 @@ impl PublicKey {
         }
     }
 
-    /// Owner-identity proof-input hash over the fixed 32-byte owner tag. P256
-    /// parity is excluded because it is carried in encrypted owner data.
+    /// Owner identity over the fixed 32-byte owner tag, tagged by algorithm so
+    /// a P256 x-coordinate and a Solana key with equal bytes never share an
+    /// identity. P256 parity is excluded because it is carried in encrypted
+    /// owner data.
     pub fn owner_proof_input_hash(&self) -> Result<[u8; 32], KeypairError> {
-        Ok(zolana_hasher::primitives::hash_bytes(
-            &self.confidential_view_tag()?,
-        )?)
+        let tag = self.confidential_view_tag()?;
+        Ok(match self.curve()? {
+            Curve::P256 => zolana_hasher::primitives::p256_owner_identity(&tag)?,
+            Curve::Ed25519 | Curve::Pda => zolana_hasher::primitives::solana_owner_identity(&tag)?,
+        })
     }
 
     /// Verifies a [`crate::SigningKey::sign_message`] signature in the

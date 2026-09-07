@@ -49,6 +49,7 @@ fn escrow_then_withdraw() -> Result<()> {
     let TestEnv {
         client,
         tree,
+        tree_id,
         mut creator,
         creator_input,
     } = setup()?;
@@ -70,7 +71,10 @@ fn escrow_then_withdraw() -> Result<()> {
     let creator_address = creator.keypair.shielded_address()?;
     let escrow_output_utxo = escrow_utxo.output_utxo()?;
 
-    let input_utxos = vec![creator_input, SppProofInputUtxo::new_dummy()];
+    let input_utxos = vec![
+        creator_input.in_tree(tree_id),
+        SppProofInputUtxo::new_dummy().in_tree(tree_id),
+    ];
 
     let escrow_utxo_asset = escrow_output_utxo.asset;
     let leftover =
@@ -79,7 +83,7 @@ fn escrow_then_withdraw() -> Result<()> {
         .map_err(|_| anyhow!("insufficient shielded balance: {leftover}"))?;
     let change = SppProofOutputUtxo::new(escrow_utxo_asset, change_amount, creator_address)?;
     let mut transaction_outputs = vec![change, escrow_output_utxo];
-    let output_blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+    let tx_secret = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
     let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
         .try_into()
         .map_err(|_| anyhow!("escrow transaction must have two outputs"))?;
@@ -92,6 +96,7 @@ fn escrow_then_withdraw() -> Result<()> {
         &[change.clone(), escrow_output_utxo],
         &creator.registry,
         &transaction_viewing_key,
+        tree_id,
     )
     .map_err(|e| anyhow!("encode escrow slots: {e:?}"))?;
 
@@ -108,7 +113,8 @@ fn escrow_then_withdraw() -> Result<()> {
         external_data,
         creator_address.solana_address()?,
     )
-    .with_output_blinding_seed(output_blinding_seed);
+    .with_tx_secret(tx_secret)
+    .with_output_tree_id(tree_id);
 
     let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
     let spp_proof = client
@@ -172,13 +178,14 @@ fn escrow_then_withdraw() -> Result<()> {
 
     let escrow_input_utxo = escrow_utxo
         .to_input_utxo()
-        .map_err(|e| anyhow!("escrow spend: {e:?}"))?;
+        .map_err(|e| anyhow!("escrow spend: {e:?}"))?
+        .in_tree(tree_id);
     let input_utxos = vec![escrow_input_utxo];
-    let output_blinding_seed =
+    let tx_secret =
         prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))?;
     let source_output_blinding = source_output.blinding;
     let source_output_hash = source_output
-        .hash()
+        .hash(tree_id)
         .map_err(|e| anyhow!("source output hash: {e:?}"))?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator.keypair, &input_utxos)
@@ -187,6 +194,7 @@ fn escrow_then_withdraw() -> Result<()> {
         std::slice::from_ref(&source_output),
         &creator.registry,
         &transaction_viewing_key,
+        tree_id,
     )
     .map_err(|e| anyhow!("encode withdraw slots: {e:?}"))?;
 
@@ -204,7 +212,8 @@ fn escrow_then_withdraw() -> Result<()> {
         external_data,
         creator_address.solana_address()?,
     )
-    .with_output_blinding_seed(output_blinding_seed);
+    .with_tx_secret(tx_secret)
+    .with_output_tree_id(tree_id);
 
     let withdraw_proof_inputs = WithdrawProofInputParams {
         escrow_utxo: escrow_utxo.clone(),
@@ -213,6 +222,11 @@ fn escrow_then_withdraw() -> Result<()> {
             .external_data
             .hash()
             .map_err(|e| anyhow!("withdraw external data hash: {e:?}"))?,
+        private_tx_blinding: withdraw_spp_proof_inputs
+            .private_tx_blinding()
+            .map_err(|e| anyhow!("withdraw private tx blinding: {e:?}"))?,
+        input_tree_id: tree_id,
+        output_tree_id: tree_id,
     };
 
     let spp_proof = client

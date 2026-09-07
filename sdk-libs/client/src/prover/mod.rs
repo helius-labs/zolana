@@ -15,7 +15,7 @@ pub use client::{
 };
 pub use inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs,
+    TransferP256Inputs, TreeSlotFields,
 };
 pub use merge::{MergeProofResult, MergeProver};
 pub use merge_ring::{MergeRingProver, MergeRingWitness};

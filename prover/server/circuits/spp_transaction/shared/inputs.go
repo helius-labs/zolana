@@ -121,11 +121,13 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// 1. All UTXO fields and nullifier secret 0, except the blinding and owner.
 	AssertWhen(api, isAddress, in.checkAddress(api))
 
-	// Only UTXOs and addresses must be accessible as such
-	// in zk program proofs via private transaction hash.
+	// Only UTXOs and addresses must be accessible as such in zk program proofs
+	// via the private transaction hash. A spent UTXO is exposed by its hash; an
+	// address slot by its nullifier, which is the compressed address SPP inserts
+	// (already public, and the value a zk program names an account by).
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
-	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
-	return inputHash, addressHash
+	addressNullifier := api.Select(isAddress, signals.Nullifier, frontend.Variable(0))
+	return inputHash, addressNullifier
 }
 
 // isUtxo: the slot spends an existing utxo.

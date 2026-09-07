@@ -75,12 +75,27 @@ pub fn state_root_offset() -> usize {
     TreeAccount::state_root_offset()
 }
 
+/// Byte offset of the little-endian `u16` tree id within the account
+/// (`TreeAccountLayout { discriminator: u8, state: u8, tree_id: u16, .. }`).
+pub fn tree_id_offset() -> usize {
+    TreeAccount::tree_id_offset()
+}
+
+/// The tree id stored in raw tree-account data, `None` when the data is too
+/// short. Lets a client resolve the id a UTXO is hashed under without
+/// deserializing the whole account.
+pub fn read_tree_id(account_data: &[u8]) -> Option<u16> {
+    let bytes =
+        account_data.get(tree_id_offset()..tree_id_offset() + core::mem::size_of::<u16>())?;
+    Some(u16::from_le_bytes(bytes.try_into().ok()?))
+}
+
 #[cfg(test)]
 mod tests {
     use solana_rent::Rent;
 
     use super::*;
-    use crate::NULLIFIER_PDA_SIZE;
+    use crate::{tree_slot::tree_id_field, NULLIFIER_PDA_SIZE};
 
     #[test]
     fn default_tree_fees_are_exact_cost_for_the_supported_batch_sizes() {
@@ -113,6 +128,32 @@ mod tests {
             Some(37_500 * 960_480)
         );
         assert_eq!(tree_working_capital_lamports(canonical, u64::MAX), None);
+    }
+
+    #[test]
+    fn read_tree_id_reads_the_initialized_id_at_offset_two() {
+        assert_eq!(tree_id_offset(), 2);
+        let mut bytes = vec![0u8; tree_account_size()];
+        // The `TreeAccount` borrows `bytes` mutably; read the id field off the
+        // temporary so the borrow ends before the raw-byte reads below.
+        let tree_id_array = TreeAccount::init(
+            &mut bytes,
+            1,
+            STATE_HEIGHT as u8,
+            [7u8; 32],
+            0x1234,
+            nullifier_tree_params(),
+            default_tree_fees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)
+                .expect("default tree fees"),
+        )
+        .expect("init tree")
+        .tree_id_array();
+        // The tree crate cannot depend on the interface, so it spells out the
+        // field encoding itself; both must agree byte for byte.
+        assert_eq!(tree_id_array, tree_id_field(0x1234));
+        assert_eq!(read_tree_id(&bytes), Some(0x1234));
+        assert_eq!(bytes.get(2..4), Some(&0x1234u16.to_le_bytes()[..]));
+        assert_eq!(read_tree_id(&bytes[..3]), None);
     }
 
     #[test]

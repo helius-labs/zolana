@@ -56,6 +56,7 @@ fn make_and_take_swap_inline() -> Result<()> {
     let TestEnv {
         client,
         tree,
+        tree_id,
         maker,
         maker_input,
         mut taker,
@@ -95,7 +96,10 @@ fn make_and_take_swap_inline() -> Result<()> {
         let order_output_utxo = order_utxo.output_utxo(taker_address.viewing_pubkey)?;
 
         // 2. Select input utxos.
-        let input_utxos = vec![maker_input, SppProofInputUtxo::new_dummy()];
+        let input_utxos = vec![
+            maker_input.in_tree(tree_id),
+            SppProofInputUtxo::new_dummy().in_tree(tree_id),
+        ];
 
         // 3. create output utxos.
         let order_utxo_asset = order_output_utxo.asset;
@@ -106,15 +110,14 @@ fn make_and_take_swap_inline() -> Result<()> {
             .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
         let change = SppProofOutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
         let mut transaction_outputs = vec![change, order_output_utxo];
-        let output_blinding_seed =
-            prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+        let tx_secret = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
         let [change, order_output_utxo]: [_; 2] = transaction_outputs
             .try_into()
             .map_err(|_| anyhow!("make transaction must have two outputs"))?;
         order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("order output hash: {e:?}"))?;
 
         // 4. Encrypt output utxos.
@@ -126,6 +129,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             &[change.clone(), order_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
+            tree_id,
         )?;
 
         let marker_message = OrderMarker {
@@ -147,7 +151,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             external_data,
             maker_address.solana_address()?,
         )
-        .with_output_blinding_seed(output_blinding_seed);
+        .with_tx_secret(tx_secret)
+        .with_output_tree_id(tree_id);
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         // 5. create spp proof.
@@ -215,19 +220,20 @@ fn make_and_take_swap_inline() -> Result<()> {
             order_utxo.destination_output(terms.destination, random_blinding());
         let order_input_utxo = order_utxo
             .to_input_utxo()
-            .map_err(|e| anyhow!("order spend: {e:?}"))?;
-        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
+            .map_err(|e| anyhow!("order spend: {e:?}"))?
+            .in_tree(tree_id);
+        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair).in_tree(tree_id);
         let inputs = vec![order_input_utxo, taker_spend];
         let mut transaction_outputs = vec![source_output, destination_output];
-        let output_blinding_seed = prepare_output_blindings(&inputs, &mut transaction_outputs)?;
+        let tx_secret = prepare_output_blindings(&inputs, &mut transaction_outputs)?;
         let [source_output, destination_output]: [_; 2] = transaction_outputs
             .try_into()
             .map_err(|_| anyhow!("take transaction must have two outputs"))?;
         let source_output_hash = source_output
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let destination_output_hash = destination_output
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
 
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
@@ -237,6 +243,7 @@ fn make_and_take_swap_inline() -> Result<()> {
             &[source_output.clone(), destination_output.clone()],
             &taker.registry,
             &transaction_viewing_key,
+            tree_id,
         )?;
 
         let mut external_data = ExternalData::new(
@@ -253,7 +260,8 @@ fn make_and_take_swap_inline() -> Result<()> {
             external_data,
             taker_address.solana_address()?,
         )
-        .with_output_blinding_seed(output_blinding_seed);
+        .with_tx_secret(tx_secret)
+        .with_output_tree_id(tree_id);
 
         let take_proof_inputs = TakeProofInputParams {
             order_utxo,
@@ -264,6 +272,11 @@ fn make_and_take_swap_inline() -> Result<()> {
                 .external_data
                 .hash()
                 .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
+            private_tx_blinding: take_spp_proof_inputs
+                .private_tx_blinding()
+                .map_err(|e| anyhow!("take private tx blinding: {e:?}"))?,
+            input_tree_id: tree_id,
+            output_tree_id: tree_id,
         };
 
         let spp_proof = client

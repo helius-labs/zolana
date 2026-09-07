@@ -105,6 +105,13 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     };
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
+    // Every deposited UTXO is hashed under the id of the tree it is appended
+    // to. The tree stays borrowed while the entries are hashed; nothing in the
+    // loop touches the tree account.
+    let mut tree =
+        TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
+            .map_err(ShieldedPoolError::from)?;
+    let tree_id = tree.tree_id_array();
 
     let mut asset_sums: ArrayMap<u8, u64, MAX_DEPOSIT_ASSETS> = ArrayMap::new();
     let mut outputs = Vec::with_capacity(entry_count);
@@ -139,6 +146,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         let ring_hash = hash_with_program_id(ring_data_hash, &ring_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
+            tree_id.as_slice(),
             group.asset_field.as_slice(),
             field_from_u64(amount).as_slice(),
             data_hash.as_slice(),
@@ -175,9 +183,6 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         });
     }
 
-    let mut tree =
-        TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
-            .map_err(ShieldedPoolError::from)?;
     let first_output_leaf_index = tree.utxo_tree().next_index();
 
     // One batch append: only the last leaf hashes up to the root, so a batch

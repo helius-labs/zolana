@@ -8,10 +8,6 @@ use crate::{
     ProofInputUtxo,
 };
 
-/// Per-output-slot domains folded into the settle output-blinding derivation
-/// (`Poseidon(order_blinding, reservation_blinding, domain)`). These MUST stay
-/// byte-for-byte in sync with the Go copies in
-/// `prover/circuits/escrow_settle/escrow_settle.go`.
 /// Proof inputs for the `escrow_settle` circuit -- the single circuit `settle`
 /// uses for both outcomes (settle and price-refund). Exact 2-in (order,
 /// reservation) / 3-out (recipient, maker_counter, maker_source), no padding.
@@ -49,6 +45,7 @@ pub struct EscrowSettleProofInputs {
     pub maker_counter: ProofInputUtxo,
     pub maker_source: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowSettleProofInputs {
@@ -94,6 +91,10 @@ impl EscrowSettleProofInputs {
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
+        map.insert(
+            "PrivateTxBlinding".to_string(),
+            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+        );
         for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
             .chain(utxo_witness_entries(&self.reservation_in, "ReservationIn"))
@@ -116,6 +117,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::utxo::expected_utxo_witness_keys;
 
     fn sample() -> EscrowSettleProofInputs {
         EscrowSettleProofInputs {
@@ -135,6 +137,7 @@ mod tests {
             maker_counter: ProofInputUtxo::default(),
             maker_source: ProofInputUtxo::default(),
             external_data_hash: [8; 32],
+            private_tx_blinding: [9; 32],
         }
     }
 
@@ -155,6 +158,7 @@ mod tests {
             "CreatedAt".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
+            "PrivateTxBlinding".to_string(),
         ];
         for prefix in [
             "OrderIn",
@@ -163,18 +167,7 @@ mod tests {
             "MakerCounter",
             "MakerSource",
         ] {
-            for suffix in [
-                "Domain",
-                "Owner",
-                "Asset",
-                "Amount",
-                "Blinding",
-                "DataHash",
-                "RingDataHash",
-                "RingProgramID",
-            ] {
-                expected.push(format!("{prefix}_{suffix}"));
-            }
+            expected.extend(expected_utxo_witness_keys(prefix));
         }
 
         let expected: HashSet<&str> = expected.iter().map(String::as_str).collect();

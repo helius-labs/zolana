@@ -48,7 +48,7 @@ pub use prover::{
     RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
+    TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{

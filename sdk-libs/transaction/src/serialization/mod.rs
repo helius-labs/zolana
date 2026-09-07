@@ -49,7 +49,7 @@ pub struct OwnerCx<'a> {
     pub ring_program_id: Option<Address>,
     /// The transaction's first nullifier, which a transact output blinding
     /// derives from. `None` for a rail whose payload holds the blinding itself
-    /// (deposits, confidential slots, anonymous recipients, split, merge).
+    /// (deposits, confidential slots, anonymous recipients, merge).
     pub first_nullifier: Option<[u8; 32]>,
 }
 

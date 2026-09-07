@@ -4,8 +4,8 @@ use num_bigint::BigUint;
 use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{PublicInputs, PublicTransfers, TransferOutput, STATE_TREE_HEIGHT};
-use zolana_hasher::{primitives::hash_bytes, Poseidon};
+use zolana_client::{PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::transact::TransactIxData, Transact},
@@ -21,10 +21,12 @@ use zolana_test_utils::{
         tree_fees_from, tree_id,
     },
     transact::{
-        build_transfer_prover_inputs, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-        external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-        output_owner_pk_hashes, prove_and_verify_transfer, set_output_owner_tags, sol_public_slots,
-        spend_input, SpendInputArgs, TransferProverInputsArgs,
+        build_transfer_prover_inputs, change_and_dummy_outputs,
+        derive_test_transfer_output_blindings, dummy_input, eddsa_input_utxo, external_data_hash,
+        fe, inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        prove_and_verify_transfer, set_output_owner_tags, single_tree_slots, sol_public_slots,
+        spend_input, test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs,
+        TEST_TX_SECRET,
     },
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
@@ -56,7 +58,10 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
         .expect("proofless zero deposit");
 
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let tree_id = env.tree_id;
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -74,27 +79,38 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non-inclusion proof");
 
-    let roots = (utxo_root, nullifier_root);
-    let (dummy, dummy_nullifier) = dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
+    let (dummy, dummy_nullifier) = dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
     })
     .expect("real input");
 
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    // Slot 0 is a real zero-amount change output owned by the payer and slots
+    // 1-2 are dummies naming it: the payer is this transaction's only signer
+    // and `AssertDummyTags` refuses a dummy tag that names only the payer.
+    let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let change_nullifier_pk = change_nullifier_key
+        .pubkey()
+        .expect("change output nullifier pubkey");
+    let mut outputs = change_and_dummy_outputs(
+        utxo.owner,
+        change_nullifier_pk,
+        [1u8; 31],
+        &[[2u8; 31], [3u8; 31]],
+        tree_id,
+    )
+    .expect("change and dummy outputs");
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -106,19 +122,34 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    set_output_owner_tags(
+        &mut outputs,
+        &owner_pk_hashes,
+        &[change_nullifier_pk, zero, zero],
+    );
 
     let external_hash = external_data_hash(&transact_ix_data, &[]).expect("external data hash");
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
-        .hash()
-        .expect("private tx hash");
-    let signer_hashes = [hash_bytes(&payer_bytes).expect("payer hash"), zero, zero];
+    let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
+    let change_output_hash = *output_hashes.first().expect("change output hash");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[change_output_hash, zero, zero],
+        &external_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
+    let signer_hashes = [
+        solana_owner_identity(&payer_bytes).expect("payer identity"),
+        zero,
+        zero,
+    ];
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
-        utxo_roots: &[utxo_root, utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_hash,
         public_transfers: &PublicTransfers {
@@ -136,6 +167,9 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![real_input, dummy],
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        tx_secret: TEST_TX_SECRET,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
         public_slot_assets,

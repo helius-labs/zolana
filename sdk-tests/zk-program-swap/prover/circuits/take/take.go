@@ -38,12 +38,19 @@ func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable) {
 type Core struct {
 	Order orderterms.OrderTerms
 
-	OrderUtxo         spp.UtxoCircuitFields
-	TakerIn           spp.UtxoCircuitFields
-	SourceOutput      spp.UtxoCircuitFields
-	DestinationOutput spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	OrderUtxo               spp.UtxoCircuitFields
+	OrderUtxoTreeID         frontend.Variable
+	TakerIn                 spp.UtxoCircuitFields
+	TakerInTreeID           frontend.Variable
+	SourceOutput            spp.UtxoCircuitFields
+	SourceOutputTreeID      frontend.Variable
+	DestinationOutput       spp.UtxoCircuitFields
+	DestinationOutputTreeID frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
@@ -61,6 +68,7 @@ func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
 		SourceOutputUtxoHash:      sourceOutputUtxoHash,
 		DestinationOutputUtxoHash: destinationOutputUtxoHash,
 		ExternalDataHash:          f.ExternalDataHash,
+		PrivateTxBlinding:         f.PrivateTxBlinding,
 		PrivateTxHash:             privateTxHash,
 	}.Check(api)
 }
@@ -71,6 +79,7 @@ type privateTxHashInputs struct {
 	SourceOutputUtxoHash      frontend.Variable
 	DestinationOutputUtxoHash frontend.Variable
 	ExternalDataHash          frontend.Variable
+	PrivateTxBlinding         frontend.Variable
 	PrivateTxHash             frontend.Variable
 }
 
@@ -79,7 +88,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash, t.DestinationOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -89,7 +105,7 @@ func (f Core) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Vari
 	api.AssertIsEqual(f.OrderUtxo.RingProgramID, 0)
 	api.AssertIsEqual(f.OrderUtxo.DataHash, f.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(f.OrderUtxo.Amount, 0)
-	return spp.UtxoHashCircuit(api, f.OrderUtxo)
+	return spp.UtxoHashCircuit(api, f.OrderUtxo, f.OrderUtxoTreeID)
 }
 
 func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
@@ -99,7 +115,7 @@ func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.TakerIn.DataHash, 0)
 	api.AssertIsEqual(f.TakerIn.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.TakerIn.Amount, f.Order.DestinationAmount)
-	return spp.UtxoHashCircuit(api, f.TakerIn)
+	return spp.UtxoHashCircuit(api, f.TakerIn, f.TakerInTreeID)
 }
 
 func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
@@ -110,7 +126,7 @@ func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.SourceOutput.Asset, f.OrderUtxo.Asset)
 	api.AssertIsEqual(f.SourceOutput.Amount, f.OrderUtxo.Amount)
 	api.AssertIsEqual(f.SourceOutput.Owner, f.TakerIn.Owner)
-	return spp.UtxoHashCircuit(api, f.SourceOutput)
+	return spp.UtxoHashCircuit(api, f.SourceOutput, f.SourceOutputTreeID)
 }
 
 func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
@@ -121,5 +137,5 @@ func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.DestinationOutput.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.DestinationOutput.Amount, f.Order.DestinationAmount)
 	api.AssertIsEqual(f.DestinationOutput.Owner, f.Order.MakerOwnerHash)
-	return spp.UtxoHashCircuit(api, f.DestinationOutput)
+	return spp.UtxoHashCircuit(api, f.DestinationOutput, f.DestinationOutputTreeID)
 }

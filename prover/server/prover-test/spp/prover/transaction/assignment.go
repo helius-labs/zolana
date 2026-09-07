@@ -125,15 +125,15 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 	// This builder constructs only real spends and padding dummies, never address
-	// slots, so the address category is all zeros (one per input).
-	addressHashes := make([]*big.Int, shape.NInputs)
-	for i := range addressHashes {
-		addressHashes[i] = big.NewInt(0)
+	// slots, so the address nullifier category is all zeros (one per input).
+	addressNullifiers := make([]*big.Int, shape.NInputs)
+	for i := range addressNullifiers {
+		addressNullifiers[i] = big.NewInt(0)
 	}
 	privateTxHash, err := protocol.PrivateTxHash(
 		inputs.hashes,
 		outputs.privateTxHashes,
-		addressHashes,
+		addressNullifiers,
 		external.hash,
 		privateTxBlinding,
 	)

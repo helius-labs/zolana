@@ -313,9 +313,9 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 			inputHashChainInputs[i] = big.NewInt(0)
 		}
 	}
-	addressHashes := make([]*big.Int, merge.MergeInputs)
-	for i := range addressHashes {
-		addressHashes[i] = big.NewInt(0)
+	addressNullifiers := make([]*big.Int, merge.MergeInputs)
+	for i := range addressNullifiers {
+		addressNullifiers[i] = big.NewInt(0)
 	}
 	privateTxBlinding, err := protocol.PrivateTxBlinding(nullifiers[0], nullifierSecret)
 	if err != nil {
@@ -324,7 +324,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	privateTxHash, err := protocol.PrivateTxHash(
 		inputHashChainInputs,
 		[]*big.Int{outHash},
-		addressHashes,
+		addressNullifiers,
 		externalDataHash,
 		privateTxBlinding,
 	)

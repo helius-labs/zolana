@@ -77,7 +77,10 @@ fn asset_registry_and_blinding_rules_are_explicit() {
     cases::asset::duplicate_mint();
     cases::blinding::blindings_deterministic();
     cases::blinding::blinding_top_byte_dropped();
+    cases::blinding::transact_domains_are_ascii_tags();
     cases::blinding::transact_output_blinding_matches_circuit_vector();
+    cases::blinding::output_blinding_seed_matches_circuit_vector();
+    cases::blinding::private_tx_blinding_matches_circuit_vector();
 }
 
 #[test]
@@ -141,6 +144,12 @@ fn split_outputs_round_trip_at_regular_and_maximum_shapes() {
         cases::split::split_decrypt(&mut world, "owner".into(), count, amount);
     }
     cases::split::split_data_zero_outputs(&mut world, "owner".into());
+    cases::split::split_too_many_outputs_rejected(&mut world, "owner".into());
+}
+
+#[test]
+fn split_bundle_derives_the_committed_outputs_from_the_first_nullifier() {
+    cases::split::split_bundle_derives_committed_outputs();
 }
 
 #[test]
@@ -184,6 +193,7 @@ fn utxo_hashes_nullifiers_and_encryption_bind_all_context() {
     cases::utxo::utxo_hash_props(&mut world, "alice".into());
     cases::utxo::utxo_hash_nesting(&mut world, "alice".into());
     cases::utxo::utxo_nullifier(&mut world, "alice".into());
+    cases::utxo::private_tx_hash_is_blinded();
     cases::utxo_encryption::standard_transfer_round_trips(
         &mut world,
         "sender".into(),

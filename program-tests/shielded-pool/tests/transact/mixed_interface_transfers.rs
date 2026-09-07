@@ -11,7 +11,7 @@ use zolana_client::{
     PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
 use zolana_event::{general_event_from_indexed, SplTransfer};
-use zolana_hasher::{primitives::hash_bytes, Poseidon};
+use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -20,7 +20,9 @@ use zolana_interface::{
         Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
-    pda, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    pda,
+    tree_slot::TreeSlot,
+    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
@@ -29,8 +31,8 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    real_output, set_output_owner_tags, spend_input, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs,
+    real_output, set_output_owner_tags, single_tree_slots, spend_input, test_private_tx_blinding,
+    transfer_output, SpendInputArgs, TransferProverInputsArgs, TEST_TX_SECRET,
 };
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
@@ -46,7 +48,10 @@ struct SpendNote {
     utxo_hash: [u8; 32],
     nullifier: [u8; 32],
     dummy_nullifier: [u8; 32],
-    roots: ([u8; 32], [u8; 32]),
+    /// The proof's public tree slots; only slot 0 (`input_tree`) is populated.
+    tree_slots: [TreeSlot; INPUT_TREES],
+    /// Raw id of the tree this note lives in, shared by the outputs.
+    tree_id: u16,
     nullifier_pk: [u8; 32],
 }
 
@@ -67,6 +72,8 @@ fn build_spend_note(
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
     let roots = tree_roots(&env.rpc, &env.tree, 1);
+    let tree_id = env.tree_id;
+    let tree_slots = single_tree_slots(tree_id, roots.0, roots.1);
 
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -85,14 +92,14 @@ fn build_spend_note(
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non inclusion proof");
     let (dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
     let input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
@@ -105,7 +112,8 @@ fn build_spend_note(
         utxo_hash,
         nullifier,
         dummy_nullifier,
-        roots,
+        tree_slots,
+        tree_id,
         nullifier_pk,
     }
 }
@@ -129,7 +137,9 @@ fn deposit_sol_note(env: &mut Pool, amount: u64) -> SpendNote {
         .deposit_sol(&env.tree, &payer, amount, owner_field, blinding)
         .expect("SOL deposit");
     let zero = [0u8; 32];
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, env.tree_id)
+        .expect("utxo hash");
     assert_eq!(event.utxo_hash, utxo_hash);
     build_spend_note(env, utxo, nullifier_key, utxo_hash)
 }
@@ -185,7 +195,9 @@ fn deposit_spl_note_with_program(
         .deposit(&env.tree, &payer, &data)
         .expect("SPL deposit");
     let zero = [0u8; 32];
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, env.tree_id)
+        .expect("utxo hash");
     assert_eq!(event.utxo_hash, utxo_hash);
     (
         build_spend_note(env, utxo, nullifier_key, utxo_hash),
@@ -194,11 +206,12 @@ fn deposit_spl_note_with_program(
     )
 }
 
-fn dummy_outputs(owner_tag: [u8; 32]) -> Vec<WitnessOutput> {
+fn dummy_outputs(owner_tag: [u8; 32], output_tree_id: u16) -> Vec<WitnessOutput> {
     [[31u8; 31], [32u8; 31], [33u8; 31]]
         .iter()
         .map(|blinding| {
-            let (transfer, _) = dummy_transfer_output(blinding).expect("dummy transfer output");
+            let (transfer, _) =
+                dummy_transfer_output(blinding, output_tree_id).expect("dummy transfer output");
             WitnessOutput {
                 transfer,
                 is_private: false,
@@ -209,19 +222,46 @@ fn dummy_outputs(owner_tag: [u8; 32]) -> Vec<WitnessOutput> {
         .collect()
 }
 
+/// A real zero-amount SOL change output owned by `payer_owner` followed by two
+/// dummies that name it. `AssertDummyTags` only accepts a dummy tag that names
+/// an owner signer other than the payer or a real output's owner, and these
+/// fixtures spend a payer-owned note with no other signer, so an all-dummy
+/// output set has no nameable participant. The wallet follows the same rule for
+/// a self-paid transaction with no real output.
+fn change_and_dummy_outputs(
+    payer_owner: PublicKey,
+    nullifier_pk: [u8; 32],
+    output_tree_id: u16,
+) -> Vec<WitnessOutput> {
+    let payer_tag = payer_owner
+        .confidential_view_tag()
+        .expect("payer confidential view tag");
+    let mut outputs = vec![real_witness_output(
+        payer_owner,
+        nullifier_pk,
+        SOL_MINT,
+        0,
+        [30u8; 31],
+        output_tree_id,
+    )];
+    outputs.extend(dummy_outputs(payer_tag, output_tree_id).into_iter().take(2));
+    outputs
+}
+
 fn real_witness_output(
     signing_pubkey: PublicKey,
     nullifier_pk: [u8; 32],
     asset: Address,
     amount: u64,
     blinding: [u8; 31],
+    output_tree_id: u16,
 ) -> WitnessOutput {
     let output = real_output(signing_pubkey, nullifier_pk, asset, amount, blinding);
     let view_tag = signing_pubkey
         .confidential_view_tag()
         .expect("confidential view tag");
     WitnessOutput {
-        transfer: transfer_output(&output).expect("real transfer output"),
+        transfer: transfer_output(&output, output_tree_id).expect("real transfer output"),
         is_private: true,
         nullifier_pk,
         view_tag,
@@ -305,22 +345,25 @@ fn prove_spend(
 
     let external_hash =
         external_data_hash(&ix_data, resolved_transfers).expect("external data hash");
+    let private_tx_blinding =
+        test_private_tx_blinding(&note.nullifier).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
         &[note.utxo_hash, [0u8; 32]],
         &output_private_hashes,
         &external_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
     let (public_slot_assets, public_slot_amounts) = public_slots(public_movements);
     let payer_pubkey_hash =
-        hash_bytes(&env.rpc.payer.pubkey().to_bytes()).expect("payer pubkey hash");
+        solana_owner_identity(&env.rpc.payer.pubkey().to_bytes()).expect("payer identity");
     let signer_hashes = [payer_pubkey_hash, [0u8; 32], [0u8; 32]];
     let public_hash = PublicInputs {
         nullifiers: &[note.nullifier, note.dummy_nullifier],
         output_hashes: &output_hashes,
-        utxo_roots: &[note.roots.0, note.roots.0],
-        nullifier_tree_roots: &[note.roots.1, note.roots.1],
+        tree_slots: &note.tree_slots,
+        output_tree_id: note.tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_hash,
         public_transfers: &PublicTransfers {
@@ -337,6 +380,9 @@ fn prove_spend(
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![note.input, note.dummy_input],
         outputs: transfer_outputs,
+        tree_slots: note.tree_slots,
+        output_tree_id: note.tree_id,
+        tx_secret: TEST_TX_SECRET,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -354,6 +400,7 @@ fn sol_split_case(reorder_recipients: bool) {
     let mut env = proof_env();
     let payer = env.rpc.payer.insecure_clone();
     let note = deposit_sol_note(&mut env, SOL_SPLIT_TOTAL);
+    let note_nullifier_pk = note.nullifier_pk;
     let user_amount = 700_000_000u64;
     let relayer_amount = SOL_SPLIT_TOTAL - user_amount;
     let user = Keypair::new().pubkey();
@@ -394,7 +441,11 @@ fn sol_split_case(reorder_recipients: bool) {
             (SOL_ASSET_FIELD, -(user_amount as i64)),
             (SOL_ASSET_FIELD, -(relayer_amount as i64)),
         ],
-        dummy_outputs(env.rpc.payer.pubkey().to_bytes()),
+        change_and_dummy_outputs(
+            PublicKey::from_ed25519(&env.rpc.payer.pubkey().to_bytes()),
+            note_nullifier_pk,
+            env.tree_id,
+        ),
     );
     let mut ix = Transact {
         payer: payer.pubkey(),
@@ -491,6 +542,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
         .expect("create mint");
     let (note, vault, _) =
         deposit_spl_note_with_program(&mut env, mint, SPL_SPLIT_TOTAL, token_program);
+    let note_nullifier_pk = note.nullifier_pk;
     let first_amount = 400u64;
     let second_amount = SPL_SPLIT_TOTAL - first_amount;
     let first_token = env
@@ -535,7 +587,11 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
             (mint_field, -(first_amount as i64)),
             (mint_field, -(second_amount as i64)),
         ],
-        dummy_outputs(env.rpc.payer.pubkey().to_bytes()),
+        change_and_dummy_outputs(
+            PublicKey::from_ed25519(&env.rpc.payer.pubkey().to_bytes()),
+            note_nullifier_pk,
+            env.tree_id,
+        ),
     );
     let spl_transfer = |user_token_account| {
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
@@ -628,6 +684,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
             SOL_MINT,
             sol_deposit_amount,
             [41u8; 31],
+            env.tree_id,
         ),
         real_witness_output(
             payer_owner,
@@ -635,8 +692,9 @@ fn three_distinct_assets_support_opposite_public_directions() {
             Address::new_from_array(deposit_mint.to_bytes()),
             spl_deposit_amount,
             [42u8; 31],
+            env.tree_id,
         ),
-        dummy_outputs(env.rpc.payer.pubkey().to_bytes())
+        dummy_outputs(env.rpc.payer.pubkey().to_bytes(), env.tree_id)
             .into_iter()
             .next()
             .expect("dummy output"),

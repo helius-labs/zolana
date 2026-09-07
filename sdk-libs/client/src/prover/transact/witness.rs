@@ -56,6 +56,7 @@ pub(crate) fn attach_input_proofs(
             nullifier_key: spend.nullifier_key,
             data_hash: spend.data_hash,
             ring_data_hash: spend.ring_data_hash,
+            tree_id: spend.tree_id,
             proof,
             nullifier_proof,
         });
@@ -158,13 +159,17 @@ pub fn into_prover_with_dummy_policy(
     dummy_nullifier_proofs: &[NonInclusionProof],
     allow_dummy_inputs: bool,
 ) -> Result<BuiltCircuit, ClientError> {
-    if !allow_dummy_inputs
-        && proof_inputs
+    // `allow_dummy_inputs == 0` forces every slot to be a real spend: the
+    // circuit rejects dummy and address slots alike, so reject them here with
+    // the offending slot named rather than as an opaque proving failure.
+    if !allow_dummy_inputs {
+        if let Some(index) = proof_inputs
             .input_utxos
             .iter()
-            .any(|input| input.is_dummy())
-    {
-        return Err(ClientError::DummyInputsNotAllowed);
+            .position(|input| input.is_dummy())
+        {
+            return Err(ClientError::NonSpendInputNotAllowed { index });
+        }
     }
     if inputs_require_p256(&proof_inputs.input_utxos)? {
         return Err(ClientError::P256TransactUnsupported);
@@ -175,7 +180,8 @@ pub fn into_prover_with_dummy_policy(
     let SppProofInputs {
         input_utxos: inputs,
         output_utxos: outputs,
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id,
         external_data,
         ..
     } = proof_inputs;
@@ -185,7 +191,8 @@ pub fn into_prover_with_dummy_policy(
     let circuit = ProverVariant::Eddsa(TransferProver {
         inputs: spends,
         outputs,
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id,
         external_data,
         public_transfers,
         signer_pk_hashes,
@@ -257,36 +264,24 @@ pub fn assemble_with_dummy_policy(
     let public_input_hash = result.public_input_hash;
     let nullifiers = result.nullifiers;
     let private_tx = result.private_tx_hash;
-    let root_indices = result.input_root_indices;
 
-    if nullifiers.len() != shape.n_inputs() || root_indices.len() != shape.n_inputs() {
+    if nullifiers.len() != shape.n_inputs() {
         return Err(ClientError::WitnessInputCountMismatch {
             got: nullifiers.len(),
             expected: shape.n_inputs(),
         });
     }
 
-    let mut inputs = Vec::with_capacity(shape.n_inputs());
-    for i in 0..shape.n_inputs() {
-        let nullifier_hash = *nullifiers
-            .get(i)
-            .ok_or(ClientError::WitnessInputCountMismatch {
-                got: nullifiers.len(),
-                expected: shape.n_inputs(),
-            })?;
-        let &(utxo_tree_root_index, nullifier_tree_root_index) =
-            root_indices
-                .get(i)
-                .ok_or(ClientError::WitnessInputCountMismatch {
-                    got: root_indices.len(),
-                    expected: shape.n_inputs(),
-                })?;
-        inputs.push(InputUtxo {
-            nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        });
-    }
+    // SPP resolves one `input_tree` per instruction, so every input (dummies
+    // included) references the same pair of root indexes.
+    let inputs = nullifiers
+        .iter()
+        .map(|nullifier_hash| InputUtxo {
+            nullifier_hash: *nullifier_hash,
+            nullifier_tree_root_index: result.nullifier_tree_root_index,
+            utxo_tree_root_index: result.utxo_tree_root_index,
+        })
+        .collect();
 
     let ix = TransactIxData {
         proof: TransactProof::zeroed(),

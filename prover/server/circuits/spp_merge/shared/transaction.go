@@ -222,15 +222,15 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Public.OutputTreeID,
 	)
 
-	addressHashes := make([]frontend.Variable, len(inputHashes))
-	for i := range addressHashes {
-		addressHashes[i] = frontend.Variable(0)
+	addressNullifiers := make([]frontend.Variable, len(inputHashes))
+	for i := range addressNullifiers {
+		addressNullifiers[i] = frontend.Variable(0)
 	}
 	privateTxHash := transaction.PrivateTxHashCircuit(
 		api,
 		inputHashes,
 		[]frontend.Variable{outputHash},
-		addressHashes,
+		addressNullifiers,
 		t.Public.ExternalDataHash,
 		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
 	)

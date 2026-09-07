@@ -24,7 +24,7 @@ use zolana_client::{
     InputUtxoContext, ProverClient, PublicTransfers, Rpc, Shape, TransferProver,
     TransferSpendInput,
 };
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
@@ -32,6 +32,10 @@ use zolana_transaction::{
 };
 
 use crate::test_indexer::TestIndexer;
+
+/// Test fixtures live in the first localnet tree.
+// TODO(tree-id): resolve the tree id from the tree account.
+const TEST_TREE_ID: u16 = 0;
 
 fn start_prover() {
     static INIT: std::sync::Once = std::sync::Once::new();
@@ -133,7 +137,7 @@ fn real_input() -> TransferSpendInput {
 
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo_hash = utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
         .expect("utxo hash");
     let nullifier = utxo
         .nullifier(&utxo_hash, &nullifier_key)
@@ -159,15 +163,16 @@ fn real_input() -> TransferSpendInput {
         nullifier_key,
         data_hash: None,
         ring_data_hash: None,
+        tree_id: TEST_TREE_ID,
         proof: Some(proof),
         nullifier_proof: None,
     }
 }
 
-/// A padding input: zero owner, random blinding, no state proof. The prover
-/// mirrors the first real input's state root onto it; the non-inclusion witness
-/// for its own nullifier comes from a fresh tree (the circuit checks
-/// non-inclusion per slot against the slot's own root).
+/// A padding input: zero owner, random blinding, no state proof. It sits in
+/// tree slot 0 with the real input; the non-inclusion witness for its own
+/// nullifier comes from the same empty nullifier tree, so it shares the one
+/// published nullifier root.
 fn dummy_input() -> TransferSpendInput {
     let mut blinding = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut blinding[1..]);
@@ -179,7 +184,7 @@ fn dummy_input() -> TransferSpendInput {
         ring_program_id: None,
         data: Data::default(),
     };
-    let mut spend = SppProofInputUtxo::new_dummy();
+    let mut spend = SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID);
     spend.utxo.blinding = blinding;
     let nullifier = spend.nullifier().expect("dummy nullifier");
     let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
@@ -188,6 +193,7 @@ fn dummy_input() -> TransferSpendInput {
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
         ring_data_hash: None,
+        tree_id: TEST_TREE_ID,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }
@@ -222,14 +228,15 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         inputs.push(dummy_input());
     }
     let mut outputs: Vec<_> = (0..n_out).map(|_| dummy_output(owner_tag)).collect();
-    let output_blinding_seed = [42u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+    let tx_secret = [42u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &tx_secret)
         .expect("derive output blindings");
     let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
-    signer_pk_hashes[1] = hash_bytes(&owner_tag).expect("owner signer hash");
+    signer_pk_hashes[1] = solana_owner_identity(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, n_out),
@@ -289,18 +296,19 @@ fn dummy_transfer_2_3_proof_verifies() {
         dummy_output(owner_tag),
         dummy_output(owner_tag),
     ];
-    let output_blinding_seed = [43u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+    let tx_secret = [43u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &tx_secret)
         .expect("derive output blindings");
     let prover = TransferProver {
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
         external_data: dummy_external_data(owner_tag, 3),
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes: vec![
             [0u8; 32],
-            hash_bytes(&owner_tag).expect("owner signer hash"),
+            solana_owner_identity(&owner_tag).expect("owner signer hash"),
             [0u8; 32],
         ],
         allow_dummy_inputs: true,

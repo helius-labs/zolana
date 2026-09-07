@@ -207,13 +207,13 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     let zero = [0u8; 32];
     assert_eq!(
         event.utxo_hash,
-        utxo.hash(&nullifier_pk, &data_hash, &zero)
+        utxo.hash(&nullifier_pk, &data_hash, &zero, pool.tree_id)
             .expect("hash with data"),
         "on-chain utxo hash must commit the supplied data_hash"
     );
     assert_ne!(
         event.utxo_hash,
-        utxo.hash(&nullifier_pk, &zero, &zero)
+        utxo.hash(&nullifier_pk, &zero, &zero, pool.tree_id)
             .expect("hash without data"),
         "the data-carrying arm must produce a different commitment than the plain arm"
     );
@@ -449,6 +449,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         .expect("create ring config");
 
     let tree = pool.tree;
+    let tree_id = pool.tree_id;
     let depositor = pool.funded_signer(2_000_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let recipient = recipient_key
@@ -492,7 +493,12 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
             data: Data::default(),
         };
         let utxo_hash = expected_utxo
-            .hash(&recipient.nullifier_pubkey, &[0u8; 32], &ring_data_hash)
+            .hash(
+                &recipient.nullifier_pubkey,
+                &[0u8; 32],
+                &ring_data_hash,
+                tree_id,
+            )
             .expect("ring-bound UTXO hash");
         expected_outputs.push(RingDepositOutput {
             view_tag: data.view_tag,

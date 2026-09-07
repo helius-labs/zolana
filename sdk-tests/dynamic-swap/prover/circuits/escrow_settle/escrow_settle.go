@@ -30,12 +30,19 @@ import (
 type Circuit struct {
 	Public PublicInputs
 
-	OrderIn       spp.UtxoCircuitFields
-	ReservationIn spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	OrderIn             spp.UtxoCircuitFields
+	OrderInTreeID       frontend.Variable
+	ReservationIn       spp.UtxoCircuitFields
+	ReservationInTreeID frontend.Variable
 
-	RecipientOut spp.UtxoCircuitFields
-	MakerCounter spp.UtxoCircuitFields
-	MakerSource  spp.UtxoCircuitFields
+	RecipientOut       spp.UtxoCircuitFields
+	RecipientOutTreeID frontend.Variable
+	MakerCounter       spp.UtxoCircuitFields
+	MakerCounterTreeID frontend.Variable
+	MakerSource        spp.UtxoCircuitFields
+	MakerSourceTreeID  frontend.Variable
 
 	OrderAmount frontend.Variable
 
@@ -51,7 +58,8 @@ type Circuit struct {
 	MaxPrice           frontend.Variable
 	CreatedAt          frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -116,6 +124,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		MakerCounterOutputUtxoHash: makerCounterHash,
 		MakerSourceOutputUtxoHash:  makerSourceHash,
 		ExternalDataHash:           c.ExternalDataHash,
+		PrivateTxBlinding:          c.PrivateTxBlinding,
 		PrivateTxHash:              c.Public.PrivateTxHash,
 	}.Check(api)
 
@@ -165,6 +174,7 @@ type privateTxHashInputs struct {
 	MakerCounterOutputUtxoHash frontend.Variable
 	MakerSourceOutputUtxoHash  frontend.Variable
 	ExternalDataHash           frontend.Variable
+	PrivateTxBlinding          frontend.Variable
 	PrivateTxHash              frontend.Variable
 }
 
@@ -185,7 +195,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 		frontend.Variable(0),
 	}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -194,7 +211,7 @@ func (c *Circuit) checkOrderInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.OrderIn.RingDataHash, 0)
 	api.AssertIsEqual(c.OrderIn.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderIn.Amount, c.OrderAmount)
-	return spp.UtxoHashCircuit(api, c.OrderIn)
+	return spp.UtxoHashCircuit(api, c.OrderIn, c.OrderInTreeID)
 }
 
 func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.Variable) frontend.Variable {
@@ -202,7 +219,7 @@ func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.
 	api.AssertIsEqual(c.ReservationIn.RingDataHash, 0)
 	api.AssertIsEqual(c.ReservationIn.RingProgramID, 0)
 	api.AssertIsEqual(c.ReservationIn.Amount, reserved)
-	return spp.UtxoHashCircuit(api, c.ReservationIn)
+	return spp.UtxoHashCircuit(api, c.ReservationIn, c.ReservationInTreeID)
 }
 
 func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset frontend.Variable) frontend.Variable {
@@ -213,7 +230,7 @@ func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset front
 	api.AssertIsEqual(c.RecipientOut.Asset, asset)
 	api.AssertIsEqual(c.RecipientOut.Amount, amount)
 	api.AssertIsEqual(c.RecipientOut.Owner, c.RecipientOwnerHash)
-	return spp.UtxoHashCircuit(api, c.RecipientOut)
+	return spp.UtxoHashCircuit(api, c.RecipientOut, c.RecipientOutTreeID)
 }
 
 // checkMakerCounterOutputUtxo is the maker's counter-asset leg: the unspent
@@ -231,7 +248,7 @@ func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder fronte
 	api.AssertIsEqual(c.MakerCounter.Amount, remainder)
 	api.ToBinary(c.MakerCounter.Amount, 64)
 
-	return spp.UtxoHashCircuit(api, c.MakerCounter)
+	return spp.UtxoHashCircuit(api, c.MakerCounter, c.MakerCounterTreeID)
 }
 
 // checkMakerSourceOutputUtxo is the pair authority's (maker's) own shielded UTXO
@@ -246,5 +263,5 @@ func (c *Circuit) checkMakerSourceOutputUtxo(api frontend.API, amount frontend.V
 	api.AssertIsEqual(c.MakerSource.Asset, c.OrderIn.Asset)
 	api.AssertIsEqual(c.MakerSource.Amount, amount)
 	api.AssertIsEqual(c.MakerSource.Owner, c.Public.AuthorityOwnerHash)
-	return spp.UtxoHashCircuit(api, c.MakerSource)
+	return spp.UtxoHashCircuit(api, c.MakerSource, c.MakerSourceTreeID)
 }

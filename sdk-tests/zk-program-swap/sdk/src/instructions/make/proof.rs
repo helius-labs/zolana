@@ -7,9 +7,18 @@ use zolana_transaction::{
 
 use crate::{err, state::OrderUtxo};
 
+/// The parts of the SPP transact this make CPIs into that the make proof has to
+/// reproduce byte-for-byte, or the two proofs bind different `private_tx_hash`
+/// values and the instruction can never land.
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the order and change outputs are appended to; it is
+    /// the second element of every output's commitment.
+    pub output_tree_id: u16,
 }
 
 impl SppTxHashes {
@@ -21,6 +30,8 @@ impl SppTxHashes {
         Ok(Self {
             source_input_hash: source_input.hash().map_err(err)?,
             external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
+            private_tx_blinding: spp_proof_inputs.private_tx_blinding().map_err(err)?,
+            output_tree_id: spp_proof_inputs.output_tree_id,
         })
     }
 }
@@ -47,13 +58,18 @@ impl MakeProofInputParams {
             bail!("change output must not carry data or ring commitments");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
+        // Both are created by this transaction, so both commit under the output
+        // tree's id.
+        let output_tree_id = self.spp_tx_hashes.output_tree_id;
         let order_utxo =
-            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
-        let change = ProofInputUtxo::try_from(&self.change).map_err(err)?;
+            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?.in_tree(output_tree_id))
+                .map_err(err)?;
+        let change = ProofInputUtxo::try_from((&self.change, output_tree_id)).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
             &[change.hash().map_err(err)?, order_utxo.hash().map_err(err)?],
             &self.spp_tx_hashes.external_data_hash,
+            &self.spp_tx_hashes.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -64,6 +80,7 @@ impl MakeProofInputParams {
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
             external_data_hash: self.spp_tx_hashes.external_data_hash,
+            private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
         })
     }
 }
@@ -78,6 +95,9 @@ mod tests {
 
     use super::*;
     use crate::state::{OrderTerms, OrderUtxo};
+
+    // TODO(tree-id): resolve the tree id from the tree account.
+    const OUTPUT_TREE_ID: u16 = 0;
 
     // A make funded by an input whose value equals the order amount produces a
     // zero-value change output. That output is non-dummy (owner = order
@@ -110,14 +130,18 @@ mod tests {
         let spp_tx_hashes = SppTxHashes {
             source_input_hash: [3u8; 32],
             external_data_hash: [4u8; 32],
+            private_tx_blinding: [5u8; 32],
+            output_tree_id: OUTPUT_TREE_ID,
         };
 
         let source_input_hash = spp_tx_hashes.source_input_hash;
         let external_data_hash = spp_tx_hashes.external_data_hash;
-        let change_hash = change.hash().expect("change hash");
+        let private_tx_blinding = spp_tx_hashes.private_tx_blinding;
+        let change_hash = change.hash(OUTPUT_TREE_ID).expect("change hash");
         let order_utxo_hash = order_utxo
             .to_input_utxo()
             .expect("order input")
+            .in_tree(OUTPUT_TREE_ID)
             .hash()
             .expect("order hash");
 
@@ -135,6 +159,7 @@ mod tests {
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
             &external_data_hash,
+            &private_tx_blinding,
         )
         .hash()
         .expect("private tx hash");

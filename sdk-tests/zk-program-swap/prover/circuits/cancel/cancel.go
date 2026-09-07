@@ -14,13 +14,18 @@ type Circuit struct {
 
 	Order orderterms.OrderTerms
 
-	OrderUtxo    spp.UtxoCircuitFields
-	SourceOutput spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	OrderUtxo          spp.UtxoCircuitFields
+	OrderUtxoTreeID    frontend.Variable
+	SourceOutput       spp.UtxoCircuitFields
+	SourceOutputTreeID frontend.Variable
 
 	MakerOwnerPkField frontend.Variable
 	MakerNullifierPk  frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -34,6 +39,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		OrderInputUtxoHash:   orderInputUtxoHash,
 		SourceOutputUtxoHash: sourceOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
+		PrivateTxBlinding:    c.PrivateTxBlinding,
 		PrivateTxHash:        c.Public.PrivateTxHash,
 	}.Check(api)
 
@@ -56,6 +62,7 @@ type privateTxHashInputs struct {
 	OrderInputUtxoHash   frontend.Variable
 	SourceOutputUtxoHash frontend.Variable
 	ExternalDataHash     frontend.Variable
+	PrivateTxBlinding    frontend.Variable
 	PrivateTxHash        frontend.Variable
 }
 
@@ -64,7 +71,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -74,7 +88,7 @@ func (c *Circuit) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.
 	api.AssertIsEqual(c.OrderUtxo.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderUtxo.DataHash, c.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(c.OrderUtxo.Amount, 0)
-	return spp.UtxoHashCircuit(api, c.OrderUtxo)
+	return spp.UtxoHashCircuit(api, c.OrderUtxo, c.OrderUtxoTreeID)
 }
 
 func (c *Circuit) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
@@ -85,7 +99,7 @@ func (c *Circuit) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.SourceOutput.Asset, c.OrderUtxo.Asset)
 	api.AssertIsEqual(c.SourceOutput.Amount, c.OrderUtxo.Amount)
 	api.AssertIsEqual(c.SourceOutput.Owner, c.Order.MakerOwnerHash)
-	return spp.UtxoHashCircuit(api, c.SourceOutput)
+	return spp.UtxoHashCircuit(api, c.SourceOutput, c.SourceOutputTreeID)
 }
 
 func (c *Circuit) checkMakerAuthorization(api frontend.API) {

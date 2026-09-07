@@ -33,7 +33,7 @@ use zolana_client::{
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
     hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
-    primitives::hash_bytes,
+    primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -44,6 +44,7 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
+    tree_slot::{tree_id_field, tree_slots_hash_chain},
     NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -53,11 +54,11 @@ use zolana_test_utils::nullifier_pda::{
     assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, fe, inline_outputs, new_transact_ix_data,
+    build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
+    dummy_input, dummy_transfer_output, eddsa_input_utxo, fe, inline_outputs, new_transact_ix_data,
     nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-    resolve_outputs, set_output_owner_tags, sol_public_slots, spend_input, SpendInputArgs,
-    TransferProverInputsArgs,
+    resolve_outputs, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
+    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_TX_SECRET,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -99,7 +100,10 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .deposit_sol(&env.tree, &payer, 0, owner_field, blinding)
         .expect("proofless zero deposit");
 
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let tree_id = env.tree_id;
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -117,29 +121,40 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non-inclusion proof");
 
-    let roots = (utxo_root, nullifier_root);
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let (dummy_input_1, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
     })
     .expect("real input");
 
-    // Three dummy outputs with distinct blindings; they carry the input
-    // owner's tag (the AssertDummyTags rule; see `set_output_owner_tags`).
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    // Slot 0 is a real zero-amount change output owned by the input owner, then
+    // two dummies. `AssertDummyTags` only accepts a dummy tag that names an
+    // owner signer other than the payer or a real output's owner, and this
+    // fixture's input owner may be the payer, so without the change output the
+    // two dummy slots would have no nameable participant. That is the same rule
+    // the wallet follows for a self-paid transaction with no real output.
+    let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let change_nullifier_pk = change_nullifier_key
+        .pubkey()
+        .expect("change output nullifier pubkey");
+    let mut outputs: Vec<TransferOutput> = change_and_dummy_outputs(
+        owner_public_key,
+        change_nullifier_pk,
+        [1u8; 31],
+        &[[2u8; 31], [3u8; 31]],
+        tree_id,
+    )
+    .expect("change and dummy outputs");
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
 
@@ -154,21 +169,32 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
+    set_output_owner_tags(
+        &mut outputs,
+        &owner_pk_hashes,
+        &[change_nullifier_pk, zero, zero],
+    );
 
     let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
 
-    // The real input contributes its utxo hash to private_tx_hash; the dummy
-    // input and all outputs contribute zero.
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    // The real input and the real change output contribute their utxo hashes to
+    // private_tx_hash; the dummy input and the two dummy outputs contribute zero.
+    let change_output_hash = *output_hashes.first().expect("change output hash");
+    let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[change_output_hash, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
 
     // The signer run the proof binds: payer first, then the input owner when
     // it differs from the payer, zero-padded to the circuit width.
-    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
-    let owner_signer_hash = hash_bytes(&input_owner_bytes).expect("input owner hash");
+    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
+    let owner_signer_hash =
+        solana_owner_identity(&input_owner_bytes).expect("input owner identity");
     let signer_hashes = if input_owner_bytes == payer_bytes {
         [payer_hash, zero, zero]
     } else {
@@ -178,8 +204,8 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
-        utxo_roots: &[utxo_root, utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
         public_transfers: &PublicTransfers {
@@ -197,6 +223,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![real_input, dummy_input_1],
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        tx_secret: TEST_TX_SECRET,
         external_data_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -314,7 +343,10 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .ring_deposit(&env.tree, &payer, &deposit_data)
         .expect("ring zero deposit");
 
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let tree_id = env.tree_id;
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("utxo hash");
     let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &env.tree, 1);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -332,14 +364,14 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non-inclusion proof");
 
-    let roots = (utxo_root, nullifier_root);
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
@@ -352,7 +384,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
             .checked_add(u8::try_from(offset).expect("supported ring input count"))
             .expect("dummy-input seed");
         let (input, dummy_nullifier) =
-            dummy_input(&[seed; 31], &nf_tree, roots).expect("dummy input");
+            dummy_input(&[seed; 31], &nf_tree, tree_id).expect("dummy input");
         prover_inputs.push(input);
         nullifiers.push(dummy_nullifier);
     }
@@ -362,7 +394,7 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = (1..=n_outputs)
         .map(|position| {
             let seed = u8::try_from(position).expect("supported ring output count");
-            dummy_transfer_output(&[seed; 31]).expect("dummy output")
+            dummy_transfer_output(&[seed; 31], tree_id).expect("dummy output")
         })
         .collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
@@ -401,15 +433,17 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .chain(std::iter::repeat_n(zero, usize::from(n_inputs) - 1))
         .collect();
     let private_output_hashes = vec![zero; usize::from(n_outputs)];
+    let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
         &private_input_hashes,
         &private_output_hashes,
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
 
-    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
+    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     // The program folds `hash_bytes` of the SIGNING config's stored program id
     // into the `ring_program_id` public-input element.
     let ring_field = hash_bytes(&ring_program.to_bytes()).expect("ring program field");
@@ -425,10 +459,8 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let mut chain = vec![
         create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
         create_hash_chain_from_slice(&output_hashes).expect("output chain"),
-        create_hash_chain_from_slice(&vec![utxo_root; usize::from(n_inputs)])
-            .expect("utxo root chain"),
-        create_hash_chain_from_slice(&vec![nullifier_root; usize::from(n_inputs)])
-            .expect("nullifier root chain"),
+        tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
+        tree_id_field(tree_id),
         private_tx,
         external_data_hash,
     ];
@@ -452,6 +484,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: prover_inputs,
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        tx_secret: TEST_TX_SECRET,
         external_data_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -674,7 +709,7 @@ fn transact_sends_valid_proof() {
 }
 
 /// A tampered output owner tag (changed after proving, so
-/// `hash_bytes(resolved_owner_tag)` no longer matches the proof's committed
+/// `solana_owner_identity(resolved_owner_tag)` no longer matches the proof's committed
 /// output-owner chain) must be rejected: the program reconstructs the owner tags
 /// from the instruction's outputs and the resulting public input no longer
 /// matches the proof.
@@ -687,7 +722,7 @@ fn transact_rejects_tampered_output_owner_tag() {
     let mut transact_ix_data = build_valid_transact_ix(&mut env);
 
     // Flip a recipient output's owner tag. The proof committed to the original
-    // `hash_bytes(resolved_owner_tag)`, so the program's reconstruction now
+    // `solana_owner_identity(resolved_owner_tag)`, so the program's reconstruction now
     // disagrees.
     let tampered = transact_ix_data.outputs.get_mut(1).expect("second output");
     tampered.owner_tag = OwnerTag::Inline([0xAAu8; 32]);
@@ -957,7 +992,7 @@ fn transact_rejects_a_substituted_input_signer() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// INV-TRANSACT-20: the proof folds `hash_bytes(payer)` of accounts[0] as the
+/// INV-TRANSACT-20: the proof folds `solana_owner_identity(payer)` of accounts[0] as the
 /// first element of the signer chain. Submitting the identical instruction
 /// with a different signing payer must fail proof verification. The inputs are
 /// bound to a separate owner in the signer run, so the payer hash is the only

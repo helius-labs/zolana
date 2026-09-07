@@ -29,6 +29,10 @@ use crate::{
     test_indexer::TestIndexer,
 };
 
+/// Test fixtures live in the first localnet tree.
+// TODO(tree-id): resolve the tree id from the tree account.
+const TEST_TREE_ID: u16 = 0;
+
 impl RingAuthorityHarness {
     pub(crate) fn prove_and_verify(&self) {
         start_prover();
@@ -101,19 +105,20 @@ fn boundary_prover() -> RingAuthorityProver {
     };
     let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
     let utxo_hash = utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
         .expect("utxo hash");
     indexer.add_utxo(utxo_hash);
 
     let inputs = vec![
-        SppProofInputUtxo::new(utxo, &kp),
-        SppProofInputUtxo::new_dummy(),
+        SppProofInputUtxo::new(utxo, &kp).in_tree(TEST_TREE_ID),
+        SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID),
     ];
     let mut outputs = vec![dummy_output(), dummy_output()];
-    let output_blinding_seed =
+    let tx_secret =
         prepare_output_blindings(&inputs, &mut outputs).expect("derive output blindings");
     let prepared = PreparedRingAuthority {
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
         public_transfers: PublicTransfers::default(),
@@ -170,11 +175,12 @@ fn assemble_prover(
     n_in: usize,
     n_out: usize,
 ) -> RingAuthorityProver {
-    let output_blinding_seed = [46u8; 32];
-    assign_spend_output_blindings(&inputs, &mut outputs, &output_blinding_seed)
+    let tx_secret = [46u8; 32];
+    assign_spend_output_blindings(&inputs, &mut outputs, &tx_secret)
         .expect("derive output blindings");
     RingAuthorityProver {
-        output_blinding_seed,
+        tx_secret,
+        output_tree_id: TEST_TREE_ID,
         inputs,
         outputs,
         external_data: ring_external_data(n_out),
@@ -209,7 +215,7 @@ fn build_real_inputs(
         };
         let nullifier_pk = kp.nullifier_key.pubkey().expect("nullifier pubkey");
         let utxo_hash = utxo
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
             .expect("utxo hash");
         let nullifier = utxo
             .nullifier(&utxo_hash, &kp.nullifier_key)
@@ -235,6 +241,7 @@ fn build_real_inputs(
             nullifier_key,
             data_hash: None,
             ring_data_hash: None,
+            tree_id: TEST_TREE_ID,
             proof: Some(proof),
             nullifier_proof: None,
         })
@@ -264,10 +271,10 @@ fn dummy_output() -> SppProofOutputUtxo {
     }
 }
 
-/// A padding input: zero owner, random blinding, no state proof. The prover
-/// mirrors the first real input's state root onto it; the non-inclusion witness
-/// for its own nullifier comes from a fresh tree (the circuit checks
-/// non-inclusion per slot against the slot's own root).
+/// A padding input: zero owner, random blinding, no state proof. It sits in
+/// tree slot 0 with the real inputs; the non-inclusion witness for its own
+/// nullifier comes from an equally empty nullifier tree, so it shares the one
+/// published nullifier root.
 fn dummy_input() -> TransferSpendInput {
     let blinding = random_blinding();
     let utxo = Utxo {
@@ -278,7 +285,7 @@ fn dummy_input() -> TransferSpendInput {
         ring_program_id: None,
         data: Data::default(),
     };
-    let mut spend = SppProofInputUtxo::new_dummy();
+    let mut spend = SppProofInputUtxo::new_dummy().in_tree(TEST_TREE_ID);
     spend.utxo.blinding = blinding;
     let nullifier = spend.nullifier().expect("dummy nullifier");
     let nullifier_proof = TestIndexer::new().dummy_nullifier_proof(nullifier);
@@ -287,6 +294,7 @@ fn dummy_input() -> TransferSpendInput {
         nullifier_key: NullifierKey::from_secret([0u8; 31]),
         data_hash: None,
         ring_data_hash: None,
+        tree_id: TEST_TREE_ID,
         proof: None,
         nullifier_proof: Some(nullifier_proof),
     }

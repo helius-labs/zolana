@@ -16,9 +16,9 @@ use zolana_interface::{
 use crate::{
     error::CompressionError,
     instructions::shared::{
-        cpi_spp_transact_signed, private_tx_hash, TransitionAccounts, DEFAULT_TREE,
+        cpi_spp_transact_signed, private_tx_hash, tree_id, TransitionAccounts, DEFAULT_TREE,
     },
-    state::{nullifier, output_blinding, AccountState, PdaOwner},
+    state::{nullifier, output_blinding, private_tx_blinding, AccountState, PdaOwner},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -45,15 +45,19 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     {
         return Err(CompressionError::InvalidTree.into());
     }
+    let input_tree_id = tree_id(parsed.input_tree)?;
+    let output_tree_id = tree_id(parsed.output_tree)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
     let owner = PdaOwner::new(&pda_bytes)?;
-    let address_utxo_hash = owner.address_utxo_hash()?;
+    let address_utxo_hash = owner.address_utxo_hash(input_tree_id)?;
     let address = nullifier(&address_utxo_hash, &owner.address_seed)?;
     // The address nullifier is this transaction's only, and therefore first,
-    // nullifier: the value the circuit binds the output blinding to.
+    // nullifier: the value the circuit binds every derived blinding to. The
+    // transaction secret is the new version (0), so both derivations are
+    // recomputed here rather than read from instruction data.
     let state = AccountState {
         address,
         authority: authority.to_bytes(),
@@ -61,7 +65,7 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         version: 0,
         blinding: output_blinding(&address, 0)?,
     };
-    let output_hash = state.utxo_hash(&owner.owner_hash)?;
+    let output_hash = state.utxo_hash(&owner.owner_hash, output_tree_id)?;
     let payload = state.to_output_data()?;
 
     let resolved_output = [ResolvedOutput {
@@ -83,11 +87,14 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     }
     .hash()
     .map_err(|_| CompressionError::HashingFailed)?;
+    // The address chain carries the nullifier, i.e. the compressed address the
+    // account is created at, not the address UTXO hash.
     let private_tx = private_tx_hash(
         [0u8; 32],
         output_hash,
-        address_utxo_hash,
+        address,
         &external_data_hash,
+        &private_tx_blinding(&address, 0)?,
     )?;
 
     let transact = TransactIxData {

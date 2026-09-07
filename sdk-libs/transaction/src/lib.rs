@@ -28,7 +28,10 @@ pub use serialization::{
     scheme::EncryptedScheme, DecodeCx, OwnerCx, RingDepositPlaintext, UtxoSerialization,
 };
 pub use solana_address::Address;
-pub use utxo::{derive_blinding, owner_utxo_hash, Blinding, ProofInputUtxo, Utxo};
+pub use utxo::{
+    derive_blinding, derive_output_blinding_seed, derive_private_tx_blinding, owner_utxo_hash,
+    Blinding, ProofInputUtxo, Utxo,
+};
 pub use wallet::{
     asset::{AssetRegistry, SOL_ASSET_ID, SOL_MINT},
     AnonymousRecipientSlot, ApprovalRequest, AssetBalance, Balances, ClientEd25519WalletAuthority,

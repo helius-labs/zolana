@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use compression_example_program::state::{output_blinding, version_blinding};
+use compression_example_program::state::{output_blinding, tx_secret};
 use solana_address::Address;
 use zolana_transaction::{
     instructions::{transact::SppProofInputs, types::SppProofInputUtxo},
@@ -7,8 +7,8 @@ use zolana_transaction::{
 };
 
 use crate::{
-    account_pda,
-    shared::{external_data, zero_nullifier_key},
+    account_pda, err,
+    shared::{external_data, zero_nullifier_key, DEFAULT_TREE_ID},
     state::{decode_state, AccountState, AccountUtxo},
 };
 
@@ -44,8 +44,13 @@ impl UpdateProofInputParams {
             .version
             .checked_add(1)
             .ok_or_else(|| anyhow!("account version overflow"))?;
-        // The spent UTXO's nullifier is the transaction's first nullifier, which
-        // the circuit binds the new output's blinding to.
+        // TODO(tree-id): resolve the tree id from the tree account.
+        let tree_id = DEFAULT_TREE_ID;
+        // The spent UTXO's nullifier is the transaction's first nullifier, and
+        // the new version is the deterministic transaction secret: the program
+        // recomputes both derived blindings from them, so the account output
+        // must sit in ACCOUNT_OUTPUT_SLOT (`SppProofInputs` keeps real outputs
+        // in order, and this is the only one).
         let account_utxo = AccountUtxo {
             pda,
             state: AccountState {
@@ -53,22 +58,24 @@ impl UpdateProofInputParams {
                 authority: self.authority.to_bytes(),
                 value: self.new_value,
                 version,
-                blinding: output_blinding(&self.current.nullifier, version)?,
+                blinding: output_blinding(&self.current.nullifier, version).map_err(err)?,
             },
         };
         let output = account_utxo.output_utxo()?;
         let payload = account_utxo.output_data()?;
-        let output_hash = output.hash()?;
+        let output_hash = output.hash(tree_id)?;
         let external = external_data(output_hash, &pda, payload);
         let input = SppProofInputUtxo::new(self.current.utxo.clone(), zero_nullifier_key())
             .with_data_hash(
                 self.current
                     .data_hash
                     .ok_or_else(|| anyhow!("missing current data hash"))?,
-            );
+            )
+            .in_tree(tree_id);
         let spp_proof_inputs =
             SppProofInputs::new(vec![input], vec![output], external, self.authority)
-                .with_output_blinding_seed(version_blinding(version));
+                .with_tx_secret(tx_secret(version))
+                .with_output_tree_id(tree_id);
         Ok(UpdateCompressedAccount {
             spp_proof_inputs,
             old_value: current_state.value,

@@ -125,8 +125,10 @@ impl TransferHarness {
                 .expect("withdraw");
         }
 
-        let seed = transfer.blinding_seed;
         let proof_inputs = transfer.sign(&sender, &assets).expect("sign");
+        let seed = proof_inputs
+            .output_blinding_seed()
+            .expect("output blinding seed");
 
         let commitments = proof_inputs.input_utxo_hashes().expect("input commitments");
         let first_nullifier = commitments.first().expect("at least one input").nullifier;

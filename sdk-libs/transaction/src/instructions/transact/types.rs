@@ -27,6 +27,8 @@ pub struct InputUtxo {
     pub nullifier_pk: [u8; 32],
     pub ring_data_hash: Option<[u8; 32]>,
     pub data_hash: Option<[u8; 32]>,
+    /// Raw id of the tree this UTXO is spent from, hashed into its commitment.
+    pub tree_id: u16,
 }
 
 impl InputUtxo {
@@ -35,6 +37,7 @@ impl InputUtxo {
             &self.nullifier_pk,
             &self.data_hash.unwrap_or_default(),
             &self.ring_data_hash.unwrap_or_default(),
+            self.tree_id,
         )
     }
 }
@@ -128,8 +131,11 @@ impl SppProofOutputUtxo {
         }
     }
 
-    pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        ProofInputUtxo::try_from(self)?.hash()
+    /// Commitment of this output under the raw id of the tree it is appended
+    /// to. The tree id is transaction context, not an output field: the same
+    /// output body commits differently in every tree.
+    pub fn hash(&self, tree_id: u16) -> Result<[u8; 32], TransactionError> {
+        ProofInputUtxo::try_from((self, tree_id))?.hash()
     }
 
     pub fn is_dummy(&self) -> bool {
@@ -137,18 +143,19 @@ impl SppProofOutputUtxo {
     }
 }
 
-impl TryFrom<&SppProofOutputUtxo> for ProofInputUtxo {
+impl TryFrom<(&SppProofOutputUtxo, u16)> for ProofInputUtxo {
     type Error = TransactionError;
 
-    fn try_from(output: &SppProofOutputUtxo) -> Result<Self, Self::Error> {
+    fn try_from((output, tree_id): (&SppProofOutputUtxo, u16)) -> Result<Self, TransactionError> {
         if output.is_dummy() {
-            return Ok(ProofInputUtxo::new_dummy(&output.blinding));
+            return Ok(ProofInputUtxo::new_dummy(&output.blinding, tree_id));
         }
         ProofInputUtxo::new(
             output.owner_hash()?,
             &output.asset,
             output.amount,
             &output.blinding,
+            tree_id,
         )?
         .with_data_hash(output.data_hash.unwrap_or_default())
         .with_ring(
@@ -163,6 +170,11 @@ pub struct EncryptedTransaction {
     pub inputs: Vec<InputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
     pub external_data: ExternalData,
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
+    /// Private blinding of the transaction hash, derived from the transaction
+    /// secret and the first nullifier (`derive_private_tx_blinding`).
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EncryptedTransaction {
@@ -175,17 +187,31 @@ impl EncryptedTransaction {
         let output_hashes = self
             .outputs
             .iter()
-            .map(SppProofOutputUtxo::hash)
+            .map(|output| output.hash(self.output_tree_id))
             .collect::<Result<Vec<_>, _>>()?;
-        PrivateTxHash::new(&input_hashes, &output_hashes, &self.external_data.hash()?).hash()
+        PrivateTxHash::new(
+            &input_hashes,
+            &output_hashes,
+            &self.external_data.hash()?,
+            &self.private_tx_blinding,
+        )
+        .hash()
     }
 }
 
 pub struct PrivateTxHash<'a> {
     pub input_hashes: &'a [[u8; 32]],
     pub output_hashes: &'a [[u8; 32]],
-    pub address_hashes: Option<&'a [[u8; 32]]>,
+    /// One entry per input slot: the public nullifier of each address slot,
+    /// which is the compressed address SPP inserts, and `0` for real spends
+    /// and padding. `None` is a chain of zeros, a transaction that creates no
+    /// address.
+    pub address_nullifiers: Option<&'a [[u8; 32]]>,
     pub external_data_hash: &'a [u8; 32],
+    /// Final preimage element. It is never published: every other element is
+    /// public or computable, so an observer who knew it could test candidate
+    /// input UTXO hashes against the published transaction hash.
+    pub blinding: &'a [u8; 32],
 }
 
 impl<'a> PrivateTxHash<'a> {
@@ -193,20 +219,22 @@ impl<'a> PrivateTxHash<'a> {
         input_hashes: &'a [[u8; 32]],
         output_hashes: &'a [[u8; 32]],
         external_data_hash: &'a [u8; 32],
+        blinding: &'a [u8; 32],
     ) -> Self {
         Self {
             input_hashes,
             output_hashes,
-            address_hashes: None,
+            address_nullifiers: None,
             external_data_hash,
+            blinding,
         }
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         let input_chain = create_hash_chain_from_slice(self.input_hashes)?;
         let output_chain = create_hash_chain_from_slice(self.output_hashes)?;
-        let address_chain = match self.address_hashes {
-            Some(address_hashes) => create_hash_chain_from_slice(address_hashes)?,
+        let address_chain = match self.address_nullifiers {
+            Some(address_nullifiers) => create_hash_chain_from_slice(address_nullifiers)?,
             None => create_hash_chain_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
         };
         Ok(poseidon(&[
@@ -214,6 +242,7 @@ impl<'a> PrivateTxHash<'a> {
             &output_chain,
             &address_chain,
             self.external_data_hash,
+            self.blinding,
         ])?)
     }
 }

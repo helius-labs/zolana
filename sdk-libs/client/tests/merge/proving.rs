@@ -12,6 +12,10 @@ use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo}
 
 use crate::{harness::MergeHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
+/// Test fixtures live in the first localnet tree.
+// TODO(tree-id): resolve the tree id from the tree account.
+const TEST_TREE_ID: u16 = 0;
+
 impl MergeHarness {
     pub(crate) fn prove_and_verify_merge(&self) {
         start_prover();
@@ -45,7 +49,7 @@ impl MergeHarness {
                 data: Data::default(),
             };
             let utxo_hash = utxo
-                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
             inputs.push(SppProofInputUtxo::new(utxo, &sender));
@@ -105,7 +109,9 @@ impl MergeHarness {
             "owner reconstructs the merged output blinding",
         );
         assert_eq!(
-            expected_output.hash().expect("reconstructed utxo hash"),
+            expected_output
+                .hash(TEST_TREE_ID)
+                .expect("reconstructed utxo hash"),
             result.output_hash,
             "owner reconstructs the merged output from the first nullifier",
         );

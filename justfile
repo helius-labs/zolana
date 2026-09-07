@@ -247,7 +247,7 @@ ring-rpc-derived:
 # here and in tools/rings-test-deploy.sh, custom-ring-keys.CHECKSUM, the key
 # sha256 below and in proving-keys.lock, verifying_key.rs with its fingerprint
 # test, the vk hash in prove_test.go and the circuit fingerprint test.
-custom-ring-keys-tag := "custom-ring-keys-v2"
+custom-ring-keys-tag := "custom-ring-keys-v3"
 
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
@@ -273,7 +273,7 @@ ensure-custom-ring-prover-key: build-prover-server
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
         --output prover/server/proving-keys/custom_ring.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249" ]]
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "7b88eb0b441862e082efba5c035e0137ea96426c065fa4cc6adcf9bb79c4fb5e" ]]
     verify_dir="$(mktemp -d)"
     trap 'rm -rf "$verify_dir"' EXIT
     target/prover-server export-vk \

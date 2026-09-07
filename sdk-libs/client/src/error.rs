@@ -277,6 +277,30 @@ pub enum ClientError {
     #[error("assembled witness has {got} input slots, expected {expected}")]
     WitnessInputCountMismatch { got: usize, expected: usize },
 
+    #[error(
+        "inputs disagree on the input tree id, the UTXO root or the root index they were proven against"
+    )]
+    InputTreeRootMismatch,
+
+    #[error("input non-inclusion proofs disagree on the nullifier tree root or root index")]
+    NullifierRootMismatch,
+
+    #[error("inputs span {got} trees, the program resolves roots from one input tree")]
+    MultipleInputTreesUnsupported { got: usize },
+
+    #[error(
+        "a proof cannot spend both a default-ring and a ring-bound P256 UTXO: the ring spend would name the shared owner"
+    )]
+    RingP256MixedDefaultAndRingSpend,
+
+    #[error(
+        "published output owner {index} equals the shared P256 identity while a ring-bound P256 UTXO is spent"
+    )]
+    RingP256PublishedOwnerLeaksIdentity { index: usize },
+
+    #[error("input {index} is not a real spend, and this transaction forbids dummy input slots")]
+    NonSpendInputNotAllowed { index: usize },
+
     #[error("deposit funding account not found: {address:?}")]
     AccountNotFound { address: [u8; 32] },
 

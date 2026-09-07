@@ -403,7 +403,7 @@ func buildCircuitAssignmentExact(
 		t,
 		inputHashes,
 		OutputHashes,
-		noAddressHashes(shape.NInputs),
+		noAddressNullifiers(shape.NInputs),
 		externalDataHash,
 		privateTxBlinding,
 	)
@@ -529,7 +529,7 @@ func defaultStateLeafIndex(i int) uint64 {
 	return uint64(17 + i)
 }
 
-func noAddressHashes(nInputs int) []*big.Int {
+func noAddressNullifiers(nInputs int) []*big.Int {
 	return spptest.RepeatBigInt(spptest.Fe(0), nInputs)
 }
 
@@ -693,7 +693,7 @@ func rebuildAfterOwnerChange(t testing.TB, assignment *testAssignment) {
 		t,
 		inputHashes,
 		OutputHashes,
-		noAddressHashes(len(inputHashes)),
+		noAddressNullifiers(len(inputHashes)),
 		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)

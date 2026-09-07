@@ -3,7 +3,7 @@ use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_keypair::{
     constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, P256Pubkey,
     PublicKey, ShieldedAddress,
@@ -110,10 +110,15 @@ impl DataHash for OrderTermsProofInput {
     }
 }
 
-// All instructions: the taker pubkey as the `taker_pk_fe` terms field.
+// All instructions: the taker pubkey as the `taker_pk_fe` terms field. The
+// take_verifiable_encryption circuit asserts
+// `TakerIn.Owner == Poseidon(TakerPkFe, TakerNullifierPk)`
+// (`prover/circuits/take_verifiable_encryption/take.go:27-28`), and the taker's
+// UTXO owner is `Poseidon(owner_proof_input_hash(pk), nullifier_pk)`, so this
+// must be the algorithm-tagged Solana identity, not the bare `hash_bytes`.
 impl DataHash for Address {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        hash_bytes(self.as_array()).map_err(err)
+        solana_owner_identity(self.as_array()).map_err(err)
     }
 }
 

@@ -6,7 +6,7 @@ use pinocchio::{
     AccountView,
 };
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
     merge_utils::owner_proof_input_hash_compressed,
@@ -59,8 +59,9 @@ impl<'a> MergeTransactAccounts<'a> {
 }
 
 /// The registry-derived owner identity public inputs: the already-derived
-/// `pk_field` of the signing key and its owner-pubkey index tag. Feeding these
-/// into the recomputed public-input hash binds the proof to the registered key.
+/// tagged owner identity of the signing key and its owner-pubkey index tag.
+/// Feeding these into the recomputed public-input hash binds the proof to the
+/// registered key.
 ///
 /// `signing_view_tag` is the owner-pubkey index tag for the merged output (the
 /// confidential default-ring tag): the signing key's 32-byte x-coordinate for a
@@ -76,8 +77,9 @@ pub struct UserPkFields {
 /// discriminator/body. Returns the per-user `merging_enabled` opt-in alongside
 /// the rail-selected owner identity; the processor rejects the merge when it is
 /// `false`. The owner identity is rail-selected by `eddsa_owner`: a Solana owner
-/// derives `signing_pk_field` from the registry account `owner` (ed25519), a P256
-/// owner from `owner_p256`.
+/// derives `signing_pk_field` as the tagged Solana identity of the registry
+/// account `owner` (ed25519), a P256 owner as the tagged P256 identity of
+/// `owner_p256`'s x-coordinate.
 #[inline(never)]
 pub fn load_user_record(
     account: &AccountView,
@@ -101,7 +103,7 @@ pub fn load_user_record(
     let mut signing_view_tag = [0u8; 32];
     let signing_pk_field = if eddsa_owner {
         signing_view_tag.copy_from_slice(record.owner.as_array());
-        hash_bytes(record.owner.as_array())?
+        solana_owner_identity(record.owner.as_array())?
     } else {
         let owner_p256 = record
             .owner_p256

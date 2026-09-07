@@ -67,6 +67,9 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
+    #[error("no participant a padding slot may name: every real input owner is the fee payer and the transaction has no real output")]
+    NoDummyOwnerTagParticipant,
+
     #[error("too many interface transfers: got {got}, max {max}")]
     TooManyInterfaceTransfers { got: usize, max: usize },
 

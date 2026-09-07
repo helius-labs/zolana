@@ -91,6 +91,11 @@ struct SampleOverrides {
     destination_amount: Option<u64>,
 }
 
+/// Non-zero, and different from the output tree, so a swapped or dropped tree id
+/// changes the commitments the proof binds.
+const INPUT_TREE_ID: u16 = 3;
+const OUTPUT_TREE_ID: u16 = 7;
+
 fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInputs {
     let order = sample_order();
     let source_mint = Address::new_from_array([1u8; 32]);
@@ -109,6 +114,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         &source_mint,
         1_000,
         &blinding(7),
+        INPUT_TREE_ID,
     )
     .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
@@ -117,18 +123,27 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         &destination_mint,
         order.destination_amount,
         &blinding(13),
+        INPUT_TREE_ID,
     )
     .expect("taker input utxo");
-    let source_output = ProofInputUtxo::new(taker_owner, &source_mint, 1_000, &blinding(31))
-        .expect("source output utxo");
+    let source_output = ProofInputUtxo::new(
+        taker_owner,
+        &source_mint,
+        1_000,
+        &blinding(31),
+        OUTPUT_TREE_ID,
+    )
+    .expect("source output utxo");
     let destination_output = ProofInputUtxo::new(
         destination_owner,
         &destination_mint,
         destination_amount,
         &full_width_blinding(),
+        OUTPUT_TREE_ID,
     )
     .expect("destination output utxo");
     let external_data_hash = fe(8);
+    let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[
             order_utxo.hash().expect("order utxo hash"),
@@ -139,6 +154,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
             destination_output.hash().expect("destination output hash"),
         ],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -160,6 +176,7 @@ fn build_inputs(overrides: SampleOverrides) -> TakeVerifiableEncryptionProofInpu
         source_output,
         destination_output,
         external_data_hash,
+        private_tx_blinding,
     }
 }
 

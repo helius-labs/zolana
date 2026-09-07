@@ -48,6 +48,11 @@ fn blinding(byte: u8) -> Blinding {
     out
 }
 
+/// Non-zero, and different from the output tree, so a swapped or dropped tree id
+/// changes the commitments the proof binds.
+const INPUT_TREE_ID: u16 = 3;
+const OUTPUT_TREE_ID: u16 = 7;
+
 fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
     let maker_owner_pk_field = fe(71);
     let maker_nullifier_pk = fe(88);
@@ -69,17 +74,25 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         &source_mint,
         1_000,
         &blinding(7),
+        INPUT_TREE_ID,
     )
     .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
-    let source_output =
-        ProofInputUtxo::new(source_output_owner, &source_mint, 1_000, &blinding(11))
-            .expect("source output utxo");
+    let source_output = ProofInputUtxo::new(
+        source_output_owner,
+        &source_mint,
+        1_000,
+        &blinding(11),
+        OUTPUT_TREE_ID,
+    )
+    .expect("source output utxo");
     let external_data_hash = fe(8);
+    let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[order_utxo.hash().expect("order utxo hash")],
         &[source_output.hash().expect("source output hash")],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -99,6 +112,7 @@ fn build_inputs(source_output_owner: [u8; 32]) -> CancelProofInputs {
         order_utxo,
         source_output,
         external_data_hash,
+        private_tx_blinding,
     }
 }
 

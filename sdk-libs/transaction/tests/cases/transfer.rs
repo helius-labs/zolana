@@ -13,7 +13,7 @@ use zolana_transaction::{
     AssetRegistry, OutputContext, OutputSlot, ShieldedTransaction, Utxo,
 };
 
-use crate::TransactionWorld;
+use crate::{cases::TEST_TREE_ID, TransactionWorld};
 
 const SPL_ASSET_ID: u64 = 2;
 const SENDER_BLINDING_SEED: [u8; 32] = [2u8; 32];
@@ -110,7 +110,7 @@ pub(crate) fn build_anonymous_transfer(
     let sender_change_hash = bookkeeping_change
         .last()
         .map(|utxo| {
-            utxo.hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32])
+            utxo.hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .unwrap()
         })
         .unwrap_or([0u8; 32]);
@@ -157,7 +157,9 @@ pub(crate) fn build_anonymous_transfer(
         .unwrap();
 
         let nullifier_pk = spec.keypair.nullifier_key.pubkey().unwrap();
-        let hash = utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+        let hash = utxo
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
+            .unwrap();
         output_slots.push(OutputSlot {
             view_tag: ciphertext.view_tag,
             output_context: OutputContext {

@@ -61,7 +61,9 @@ use zolana_transaction::{
         },
         types::SppProofInputUtxo,
     },
-    utxo::derive_transact_output_blinding,
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
     AssetRegistry, Data, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
@@ -143,6 +145,10 @@ fn escrow_fixture(state: Escrow, program_id: &Pubkey) -> Account {
     dynamic_swap_account(bytemuck::bytes_of(&state).to_vec(), program_id)
 }
 
+/// Raw id of the fixture tree. `build_tree_fixture` initializes the account with
+/// this id, and every UTXO commitment folds it in.
+const BENCH_TREE_ID: u16 = 0;
+
 fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
@@ -152,7 +158,7 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             tree.to_bytes(),
-            0,
+            BENCH_TREE_ID,
             nullifier_tree_params(),
             default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
                 .expect("default tree fees"),
@@ -553,7 +559,7 @@ fn bench_create_escrow(
         ring_program_id: None,
         data: Data::default(),
     };
-    let source_in = SppProofInputUtxo::new(source_utxo, &user_keypair);
+    let source_in = SppProofInputUtxo::new(source_utxo, &user_keypair).in_tree(BENCH_TREE_ID);
 
     // The maker funds the reservation from its own destination-asset UTXO.
     let maker_funding_utxo = Utxo {
@@ -564,7 +570,8 @@ fn bench_create_escrow(
         ring_program_id: None,
         data: Data::default(),
     };
-    let maker_funding = SppProofInputUtxo::new(maker_funding_utxo, &authority_keypair);
+    let maker_funding =
+        SppProofInputUtxo::new(maker_funding_utxo, &authority_keypair).in_tree(BENCH_TREE_ID);
 
     let recipient_owner_hash = user_keypair.owner_hash().expect("user owner hash");
     let escrow_terms = EscrowTerms {
@@ -572,8 +579,14 @@ fn bench_create_escrow(
         max_price: MAX_PRICE,
     };
     let input_utxos = vec![source_in.clone(), maker_funding.clone()];
-    let output_blinding_seed = random_blinding();
+    // The circuit derives the seed and the private transaction blinding from
+    // this one secret, so both must come from it here too.
+    let tx_secret = random_blinding();
     let first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
+    let output_blinding_seed =
+        derive_output_blinding_seed(&first_nullifier, &tx_secret).expect("output blinding seed");
+    let private_tx_blinding =
+        derive_private_tx_blinding(&first_nullifier, &tx_secret).expect("private tx blinding");
     // The final reservation blinding rides in the order UTXO's encrypted note.
     let reservation_blinding =
         derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 1)
@@ -591,7 +604,7 @@ fn bench_create_escrow(
     order_out.blinding =
         derive_transact_output_blinding(&first_nullifier, &output_blinding_seed, 0)
             .expect("order blinding");
-    let order_utxo_hash = order_out.hash().expect("order_utxo hash");
+    let order_utxo_hash = order_out.hash(BENCH_TREE_ID).expect("order_utxo hash");
 
     let reserved = ORDER_AMOUNT * MAX_PRICE;
     let reservation = Reservation {
@@ -630,6 +643,7 @@ fn bench_create_escrow(
         ],
         &assets,
         &viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode outputs");
     let mut outputs = encoded.outputs;
@@ -651,7 +665,8 @@ fn bench_create_escrow(
         external_data,
         authority_solana.pubkey(),
     )
-    .with_output_blinding_seed(output_blinding_seed);
+    .with_tx_secret(tx_secret)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -695,6 +710,8 @@ fn bench_create_escrow(
         created_at: CREATED_AT,
         order_amount: ORDER_AMOUNT,
         external_data_hash,
+        private_tx_blinding,
+        output_tree_id: BENCH_TREE_ID,
     }
     .to_proof_inputs()
     .expect("escrow_open proof inputs");
@@ -819,7 +836,10 @@ fn bench_settle(
         order_amount: ORDER_AMOUNT,
         blinding: random_blinding(),
     };
-    let order_in = escrow_utxo.to_input_utxo(&escrow_owner).expect("order_in");
+    let order_in = escrow_utxo
+        .to_input_utxo(&escrow_owner)
+        .expect("order_in")
+        .in_tree(BENCH_TREE_ID);
     let order_in_hash = ProofInputUtxo::try_from(&order_in)
         .expect("order_in proof utxo")
         .hash()
@@ -833,7 +853,8 @@ fn bench_settle(
     };
     let reservation_in = reservation
         .to_input_utxo(&escrow_owner, order_in_hash)
-        .expect("reservation_in");
+        .expect("reservation_in")
+        .in_tree(BENCH_TREE_ID);
     let reservation_in_hash = ProofInputUtxo::try_from(&reservation_in)
         .expect("reservation_in proof utxo")
         .hash()
@@ -857,11 +878,16 @@ fn bench_settle(
         .expect("maker_source");
 
     let input_utxos = vec![order_in.clone(), reservation_in.clone()];
-    let output_blinding_seed = random_blinding();
+    let tx_secret = random_blinding();
+    let settle_first_nullifier = first_nullifier(&input_utxos).expect("first nullifier");
+    let output_blinding_seed = derive_output_blinding_seed(&settle_first_nullifier, &tx_secret)
+        .expect("output blinding seed");
+    let private_tx_blinding = derive_private_tx_blinding(&settle_first_nullifier, &tx_secret)
+        .expect("private tx blinding");
     let mut transaction_outputs = vec![recipient_out, maker_counter, maker_source];
     assign_output_blindings(
         &mut transaction_outputs,
-        &first_nullifier(&input_utxos).expect("first nullifier"),
+        &settle_first_nullifier,
         &output_blinding_seed,
     )
     .expect("derive settle output blindings");
@@ -886,6 +912,7 @@ fn bench_settle(
         ],
         &assets,
         &viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode outputs");
     let mut outputs = encoded.outputs;
@@ -907,7 +934,8 @@ fn bench_settle(
         external_data,
         authority_solana.pubkey(),
     )
-    .with_output_blinding_seed(output_blinding_seed);
+    .with_tx_secret(tx_secret)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -946,6 +974,8 @@ fn bench_settle(
         recipient_owner_hash,
         authority_owner_hash,
         external_data_hash,
+        private_tx_blinding,
+        output_tree_id: BENCH_TREE_ID,
     }
     .to_proof_inputs()
     .expect("escrow_settle proof inputs");

@@ -122,7 +122,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	api.AssertIsBoolean(t.AllowDummyInputs)
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
-	addressHashes := make([]frontend.Variable, t.Shape.NInputs)
+	addressNullifiers := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
 		// AllowDummyInputs is SPP's nullifier-capacity gate: a spend consumes a
 		// nullifier leaf for a UTXO leaf that already exists, while dummy and
@@ -137,7 +137,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			SignerPk:  signers[i],
 			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots),
 		}
-		inputHashes[i], addressHashes[i] = constrainInput(api, in, signals)
+		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 
@@ -166,7 +166,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 		api,
 		inputHashes,
 		outputHashes,
-		addressHashes,
+		addressNullifiers,
 		t.ExternalDataHash,
 		DerivePrivateTxBlinding(api, t.Nullifiers[0], t.TxSecret),
 	)

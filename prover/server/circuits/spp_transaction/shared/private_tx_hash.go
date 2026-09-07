@@ -7,10 +7,13 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
+// privateTxHashGadget folds the three per-slot chains with the external data
+// hash and the private blinding. AddressNullifiers holds one entry per input
+// slot: the nullifier (compressed address) of every address slot, 0 elsewhere.
 type privateTxHashGadget struct {
 	InputUtxoHashes   []frontend.Variable
 	OutputUtxoHashes  []frontend.Variable
-	AddressUtxoHashes []frontend.Variable
+	AddressNullifiers []frontend.Variable
 	ExternalDataHash  frontend.Variable
 	Blinding          frontend.Variable
 }
@@ -18,7 +21,7 @@ type privateTxHashGadget struct {
 func (gadget privateTxHashGadget) DefineGadget(api frontend.API) interface{} {
 	inputChain := gadgetlib.HashChain(api, gadget.InputUtxoHashes)
 	outputChain := gadgetlib.HashChain(api, gadget.OutputUtxoHashes)
-	addressChain := gadgetlib.HashChain(api, gadget.AddressUtxoHashes)
+	addressChain := gadgetlib.HashChain(api, gadget.AddressNullifiers)
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
 		inputChain,
 		outputChain,
@@ -32,14 +35,14 @@ func PrivateTxHashCircuit(
 	api frontend.API,
 	inputUtxoHashes []frontend.Variable,
 	outputUtxoHashes []frontend.Variable,
-	addressUtxoHashes []frontend.Variable,
+	addressNullifiers []frontend.Variable,
 	externalDataHash frontend.Variable,
 	blinding frontend.Variable,
 ) frontend.Variable {
 	return abstractor.Call(api, privateTxHashGadget{
 		InputUtxoHashes:   inputUtxoHashes,
 		OutputUtxoHashes:  outputUtxoHashes,
-		AddressUtxoHashes: addressUtxoHashes,
+		AddressNullifiers: addressNullifiers,
 		ExternalDataHash:  externalDataHash,
 		Blinding:          blinding,
 	})

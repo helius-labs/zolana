@@ -167,7 +167,9 @@ impl Harness {
         let change_amount = input.amount - amount;
 
         let nullifier_pk = self.alice.nullifier_key.pubkey().unwrap();
-        let input_hash = input.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+        let input_hash = input
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+            .unwrap();
         let first_nullifier = input
             .nullifier(&input_hash, &self.alice.nullifier_key)
             .unwrap();

@@ -26,7 +26,7 @@ use crate::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     },
-    utxo::derive_transact_output_blinding,
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     AssetRegistry, SOL_ASSET_ID, SOL_MINT,
 };
 
@@ -38,8 +38,12 @@ pub struct PreparedTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
-    pub output_blinding_seed: [u8; 32],
+    /// The transaction's single private random value; every derived blinding
+    /// comes from it and [`Self::first_nullifier`].
+    pub tx_secret: [u8; 32],
     pub first_nullifier: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
     pub shape: Shape,
     pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
@@ -88,7 +92,12 @@ pub struct ConfidentialTransfer {
     pub recipients: Vec<Recipient>,
     pub public_transfers: Vec<PublicTransferRequest>,
     pub payer: Address,
-    pub blinding_seed: [u8; 32],
+    /// The transaction's single private random value. See
+    /// [`SppProofInputs::tx_secret`].
+    pub tx_secret: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub output_tree_id: u16,
     pub shape: Option<Shape>,
     change_layout: ChangeLayout,
     /// Binds the change and every later `send` to one ring.
@@ -122,7 +131,8 @@ impl ConfidentialTransfer {
             recipients: Vec::new(),
             public_transfers: Vec::new(),
             payer,
-            blinding_seed: random_blinding(),
+            tx_secret: random_blinding(),
+            output_tree_id: 0,
             shape: None,
             change_layout: ChangeLayout::Padded,
             ring_program_id: None,
@@ -133,6 +143,15 @@ impl ConfidentialTransfer {
     #[must_use]
     pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
         self.ring_program_id = Some(ring_program_id);
+        self
+    }
+
+    /// Appends every output to the tree with the raw id `output_tree_id`. The
+    /// id is hashed into each output commitment, so it must match the tree the
+    /// transaction writes to.
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
         self
     }
 
@@ -310,7 +329,15 @@ impl ConfidentialTransfer {
         };
 
         let spl_change_asset = spl_asset.filter(|_| spl_change > 0);
-        let has_sol_change = sol_change > 0;
+        // Every dummy slot's published tag must name a participant the circuit
+        // already sees. A self-paid transfer that keeps no change and pays no
+        // shielded recipient has none, so it emits its SOL change slot as a real
+        // zero-amount output owned by the sender rather than as padding: the
+        // sender then names itself, exactly like an ordinary change output.
+        let names_a_participant = named_input_owner_tag(&self.inputs, &self.payer)?.is_some()
+            || spl_change_asset.is_some()
+            || !self.recipients.is_empty();
+        let has_sol_change = sol_change > 0 || !names_a_participant;
         let output_layout = match self.change_layout {
             ChangeLayout::Padded => PreparedOutputLayout::BothChanges,
             ChangeLayout::Compact => match (spl_change_asset.is_some(), has_sol_change) {
@@ -368,9 +395,10 @@ impl ConfidentialTransfer {
         }
 
         // The circuit recomputes every output blinding from the first nullifier,
-        // the private seed, and the slot's final physical index, so a compact
+        // the derived seed, and the slot's final physical index, so a compact
         // transfer's change blindings differ from a padded one's.
-        assign_output_blindings(&mut outputs, &first_nullifier, &self.blinding_seed)?;
+        let output_blinding_seed = derive_output_blinding_seed(&first_nullifier, &self.tx_secret)?;
+        assign_output_blindings(&mut outputs, &first_nullifier, &output_blinding_seed)?;
 
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
         let interface_transfers = self
@@ -384,8 +412,9 @@ impl ConfidentialTransfer {
             owner: self.owner,
             inputs: self.inputs,
             outputs,
-            output_blinding_seed: self.blinding_seed,
+            tx_secret: self.tx_secret,
             first_nullifier,
+            output_tree_id: self.output_tree_id,
             shape,
             payer: self.payer,
             interface_transfers,
@@ -507,6 +536,13 @@ impl PreparedTransfer {
         self.change_layout
     }
 
+    /// Seed every physical output blinding derives from. The layouts that
+    /// describe several slots from one payload (the anonymous Sender bundle,
+    /// the plaintext transfer) disclose this instead of the transaction secret.
+    pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
+        derive_output_blinding_seed(&self.first_nullifier, &self.tx_secret)
+    }
+
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
@@ -523,12 +559,14 @@ impl PreparedTransfer {
         slots: Vec<Option<MessageData>>,
         allow_p256_sender: bool,
     ) -> Result<SppProofInputs, TransactionError> {
+        let output_blinding_seed = self.output_blinding_seed()?;
         let PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
-            output_blinding_seed,
+            tx_secret,
             first_nullifier,
+            output_tree_id,
             shape,
             payer,
             interface_transfers,
@@ -543,16 +581,7 @@ impl PreparedTransfer {
         let (sender_tag, sender_resolved) =
             sender_owner_tag(&owner.signing_pubkey, &payer, allow_p256_sender)?;
 
-        // Dummy slots must name a participant already bound to real transaction
-        // content. The transaction author is not necessarily an input owner and
-        // may have no real change output, so use the first real input signer.
-        let dummy_owner_tag = inputs
-            .iter()
-            .find(|input| !input.is_dummy())
-            .ok_or(TransactionError::NoInputs)?
-            .utxo
-            .owner
-            .confidential_view_tag()?;
+        let dummy_owner_tag = dummy_owner_tag(&inputs, &outputs, &payer)?;
         for output in outputs.iter_mut().filter(|output| output.is_dummy()) {
             output.owner_tag = Some(dummy_owner_tag);
         }
@@ -591,7 +620,7 @@ impl PreparedTransfer {
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
         for (position, output) in outputs.iter().enumerate() {
-            let utxo_hash = output.hash()?;
+            let utxo_hash = output.hash(output_tree_id)?;
             let slot = slots.get(position).and_then(|slot| slot.as_ref());
             let (owner_tag, resolved, data) = if output.is_dummy() {
                 (
@@ -642,7 +671,8 @@ impl PreparedTransfer {
         Ok(SppProofInputs {
             input_utxos: inputs,
             output_utxos: outputs,
-            output_blinding_seed,
+            tx_secret,
+            output_tree_id,
             external_data,
             payer,
         })
@@ -683,6 +713,47 @@ fn sender_owner_tag(
         }
     };
     Ok((tag, resolved))
+}
+
+/// View tag of the first real input owner that is not the fee payer, if any.
+/// A fee sponsor signs without taking part in the shielded transfer, so the
+/// circuit refuses to let a padding slot name it.
+fn named_input_owner_tag(
+    inputs: &[SppProofInputUtxo],
+    payer: &Address,
+) -> Result<Option<[u8; 32]>, TransactionError> {
+    let payer_bytes = payer.to_bytes();
+    for spend in inputs.iter().filter(|spend| !spend.is_dummy()) {
+        let tag = spend.utxo.owner.confidential_view_tag()?;
+        if tag != payer_bytes {
+            return Ok(Some(tag));
+        }
+    }
+    Ok(None)
+}
+
+/// The published owner tag of every padding slot. A pad must be
+/// indistinguishable from a real slot, so the circuit lets it name any
+/// participant it already sees -- an owner signer other than the fee payer, or
+/// a real output's owner -- and nothing else, so a pad can never attribute the
+/// transaction to a third party. Self-attribution is always available, which is
+/// why [`ConfidentialTransfer::prepare`] keeps a real zero-amount change output
+/// for a self-paid transfer that would otherwise name nobody.
+fn dummy_owner_tag(
+    inputs: &[SppProofInputUtxo],
+    outputs: &[SppProofOutputUtxo],
+    payer: &Address,
+) -> Result<[u8; 32], TransactionError> {
+    if let Some(tag) = named_input_owner_tag(inputs, payer)? {
+        return Ok(tag);
+    }
+    outputs
+        .iter()
+        .filter_map(|output| output.owner_address)
+        .map(|address| address.signing_pubkey.confidential_view_tag())
+        .next()
+        .transpose()?
+        .ok_or(TransactionError::NoDummyOwnerTagParticipant)
 }
 
 /// Random `len` bytes for a dummy output slot.
@@ -842,6 +913,113 @@ mod tests {
         assert_eq!(prepared.outputs.len(), 1);
         assert_eq!(prepared.outputs[0].amount, 10);
         assert_eq!(prepared.output_layout.sender_output_count(), 0);
+    }
+
+    fn ed25519_input(keypair: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
+        SppProofInputUtxo::new(
+            crate::Utxo {
+                owner: keypair.signing_pubkey(),
+                asset: SOL_MINT,
+                amount,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            keypair,
+        )
+    }
+
+    fn ed25519_address(keypair: &ShieldedKeypair) -> Address {
+        Address::new_from_array(keypair.signing_pubkey().as_ed25519().unwrap())
+    }
+
+    /// A padding slot may name an owner signer other than the fee payer, so the
+    /// payer-owned input is skipped and the next real input owner is used.
+    #[test]
+    fn dummy_tag_skips_the_payer_and_names_the_next_input_owner() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let other = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1), ed25519_input(&other, 1)];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &[], &payer).unwrap(),
+            other.signing_pubkey().confidential_view_tag().unwrap()
+        );
+    }
+
+    /// With every input owned by the fee payer, the tag falls back to the first
+    /// real output's owner -- self-attribution through the sender's own change.
+    #[test]
+    fn dummy_tag_falls_back_to_the_first_real_output_owner() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1)];
+        let outputs = vec![
+            SppProofOutputUtxo::default(),
+            SppProofOutputUtxo {
+                owner_address: Some(recipient.shielded_address().unwrap()),
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &outputs, &payer).unwrap(),
+            recipient.signing_pubkey().confidential_view_tag().unwrap()
+        );
+    }
+
+    #[test]
+    fn dummy_tag_rejects_a_transaction_with_no_nameable_participant() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1)];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &[SppProofOutputUtxo::default()], &payer),
+            Err(TransactionError::NoDummyOwnerTagParticipant)
+        );
+    }
+
+    /// A self-paid transfer that keeps no change and pays no shielded recipient
+    /// would leave every padding slot without a nameable participant, so
+    /// `prepare` emits the SOL change slot as a real zero-amount output owned by
+    /// the sender instead of as padding.
+    #[test]
+    fn self_paid_full_withdrawal_keeps_a_named_zero_change_output() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&sender);
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![ed25519_input(&sender, 10)],
+            payer,
+        )
+        .with_compact_change();
+        transfer
+            .withdraw(
+                SOL_MINT,
+                10,
+                SettlementTarget::Sol {
+                    user_sol_account: payer,
+                },
+            )
+            .unwrap();
+
+        let prepared = transfer.prepare().unwrap();
+        let change = prepared.outputs.first().expect("change output");
+        assert_eq!(prepared.outputs.len(), 1);
+        assert!(!change.is_dummy());
+        assert_eq!(change.amount, 0);
+        assert_eq!(change.asset, SOL_MINT);
+        assert_eq!(
+            change.owner_address.map(|address| address.signing_pubkey),
+            Some(sender.signing_pubkey())
+        );
+        assert_eq!(
+            dummy_owner_tag(&prepared.inputs, &prepared.outputs, &payer).unwrap(),
+            sender.signing_pubkey().confidential_view_tag().unwrap()
+        );
     }
 
     #[test]

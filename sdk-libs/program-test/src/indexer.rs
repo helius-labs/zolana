@@ -307,7 +307,11 @@ fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<P256Pubkey> {
     P256Pubkey::from_bytes(*bytes).ok()
 }
 
-/// Recompute the UTXO commitment through the shared transaction helper.
+/// Recompute the UTXO commitment through the shared transaction helper. A
+/// deposit is hashed under the id of the tree it is appended to.
+// TODO(tree-id): resolve the tree id from the tree account.
+const DEPOSIT_TREE_ID: u16 = 0;
+
 fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], TransactionError> {
     let output = &event.output;
     ProofInputUtxo::new(
@@ -315,6 +319,7 @@ fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], Transac
         &Address::new_from_array(output.asset),
         output.amount,
         &output.blinding,
+        DEPOSIT_TREE_ID,
     )?
     .with_data_hash(output.data_hash.unwrap_or([0u8; 32]))
     .with_ring(

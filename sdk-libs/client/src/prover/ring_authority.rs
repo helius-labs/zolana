@@ -8,13 +8,13 @@
 
 use num_bigint::BigUint;
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_transaction::{
     instructions::{
         ring_authority::PreparedRingAuthority,
         transact::{PrivateTxHash, PublicTransfers},
     },
-    utxo::program_id_proof_input_hash,
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding, program_id_proof_input_hash},
     ExternalData, SppProofOutputUtxo,
 };
 
@@ -26,11 +26,11 @@ use crate::{
         transact::{
             assembly::{
                 assemble_inputs, assemble_outputs, validate_output_blindings, OwnerMode,
-                TransferSpendInput,
+                PublicInputs, TransferSpendInput,
             },
             witness::{attach_input_proofs, SpendProof},
         },
-        Shape, TransferInputs,
+        Shape, TransferInputs, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
@@ -44,7 +44,11 @@ pub struct RingAuthorityProver {
     /// input's `nullifier_key` is supplied by the ring authority.
     pub inputs: Vec<TransferSpendInput>,
     pub outputs: Vec<SppProofOutputUtxo>,
-    pub output_blinding_seed: [u8; 32],
+    /// The transaction's single private random value. See
+    /// [`TransferProver::tx_secret`](crate::prover::TransferProver).
+    pub tx_secret: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
     /// Transaction-level public data; its `instruction_discriminator` must be
     /// `RING_AUTHORITY_TRANSACT` (tag 17) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
@@ -64,9 +68,10 @@ pub struct RingAuthorityProofResult {
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
-    /// Per-input `(utxo_tree_root_index, nullifier_tree_root_index)`, for the
-    /// `ring_authority_transact` instruction data (a later phase).
-    pub input_root_indices: Vec<(u16, u16)>,
+    /// Index into `input_tree`'s UTXO root cache, shared by every input.
+    pub utxo_tree_root_index: u16,
+    /// Index into `input_tree`'s nullifier root cache, shared by every input.
+    pub nullifier_tree_root_index: u16,
 }
 
 impl RingAuthorityProver {
@@ -78,13 +83,16 @@ impl RingAuthorityProver {
             .nullifiers
             .first()
             .ok_or(ClientError::NoInputs)?;
-        validate_output_blindings(&self.outputs, first_nullifier, &self.output_blinding_seed)?;
-        let assembled_outputs = assemble_outputs(&self.outputs)?;
+        let output_blinding_seed = derive_output_blinding_seed(first_nullifier, &self.tx_secret)?;
+        validate_output_blindings(&self.outputs, first_nullifier, &output_blinding_seed)?;
+        let assembled_outputs = assemble_outputs(&self.outputs, self.output_tree_id)?;
         let external_data_hash = self.external_data.hash()?;
+        let private_tx_blinding = derive_private_tx_blinding(first_nullifier, &self.tx_secret)?;
         let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
+            &private_tx_blinding,
         )
         .hash()?;
 
@@ -92,34 +100,36 @@ impl RingAuthorityProver {
         // themselves carry ring_program_id; the circuit binds each non-dummy UTXO's
         // ring field to this public input.
         let ring_program_id = program_id_proof_input_hash(&self.ring_program_id)?;
-        let payer_pk_hash = zolana_hasher::primitives::hash_bytes(self.payer.as_array())?;
+        let payer_pk_hash = solana_owner_identity(self.payer.as_array())?;
 
         // Ring-authority public-input layout: input owner pk_fields stay private
-        // (no owner chain) and there is no confidential appendix.
-        let slots = self.public_transfers.interleaved();
-        let mut elements = Vec::with_capacity(9 + slots.len());
-        elements.extend([
-            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
-            create_hash_chain_from_slice(&assembled_outputs.output_hashes)?,
-            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
-            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
-            private_tx,
-            external_data_hash,
-        ]);
-        elements.extend(slots);
-        elements.extend([
-            ring_program_id,
-            // The authority signer vector contains only the payer. A one-element
-            // right-fold is the element itself.
-            payer_pk_hash,
-            crate::prover::transact::assembly::bool_field(self.allow_dummy_inputs),
-        ]);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        // (no owner chain) and there is no confidential appendix. The authority
+        // signer vector holds only the payer, and a one-element right fold is
+        // the element itself.
+        let signer_pk_hashes = [payer_pk_hash];
+        let public_input = PublicInputs {
+            nullifiers: &assembled_inputs.nullifiers,
+            output_hashes: &assembled_outputs.output_hashes,
+            tree_slots: &assembled_inputs.tree_slots,
+            output_tree_id: self.output_tree_id,
+            private_tx: &private_tx,
+            external_data_hash: &external_data_hash,
+            public_transfers: &self.public_transfers,
+            ring_program_id: &ring_program_id,
+            allow_dummy_inputs: &crate::prover::transact::assembly::bool_field(
+                self.allow_dummy_inputs,
+            ),
+            signer_pk_hashes: &signer_pk_hashes,
+            output_owner_pk_hashes: None,
+        }
+        .hash()?;
 
         let inputs = TransferInputs {
             inputs: assembled_inputs.inputs,
             outputs: assembled_outputs.outputs,
-            output_blinding_seed: be(&self.output_blinding_seed),
+            tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
+            output_tree_id: BigUint::from(self.output_tree_id),
+            tx_secret: be(&self.tx_secret),
             external_data_hash: be(&external_data_hash),
             private_tx_hash: be(&private_tx),
             public_assets: self.public_transfers.assets.map(|asset| be(&asset)),
@@ -137,7 +147,8 @@ impl RingAuthorityProver {
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
-            input_root_indices: assembled_inputs.root_indices,
+            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
+            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
         })
     }
 }
@@ -166,7 +177,8 @@ impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
         let PreparedRingAuthority {
             inputs,
             outputs,
-            output_blinding_seed,
+            tx_secret,
+            output_tree_id,
             public_transfers,
             external_data,
             payer,
@@ -179,7 +191,8 @@ impl TryFrom<RingAuthorityWitness> for RingAuthorityProver {
         Ok(RingAuthorityProver {
             inputs: spends,
             outputs,
-            output_blinding_seed,
+            tx_secret,
+            output_tree_id,
             external_data,
             public_transfers,
             payer,

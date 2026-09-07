@@ -49,6 +49,12 @@ pub struct SettleProofInputParams {
     /// The `Pair` account's on-chain `authority_owner_hash`.
     pub authority_owner_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element. The spent inputs carry their own tree ids.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the recipient, maker-counter and maker-source outputs
+    /// are appended to; it is the second element of every output's commitment.
+    pub output_tree_id: u16,
 }
 
 impl SettleProofInputParams {
@@ -59,9 +65,12 @@ impl SettleProofInputParams {
 
         let order_in = ProofInputUtxo::try_from(&self.order_in).map_err(err)?;
         let reservation_in = ProofInputUtxo::try_from(&self.reservation_in).map_err(err)?;
-        let recipient_out = ProofInputUtxo::try_from(&self.recipient_out).map_err(err)?;
-        let maker_counter = ProofInputUtxo::try_from(&self.maker_counter).map_err(err)?;
-        let maker_source = ProofInputUtxo::try_from(&self.maker_source).map_err(err)?;
+        let recipient_out =
+            ProofInputUtxo::try_from((&self.recipient_out, self.output_tree_id)).map_err(err)?;
+        let maker_counter =
+            ProofInputUtxo::try_from((&self.maker_counter, self.output_tree_id)).map_err(err)?;
+        let maker_source =
+            ProofInputUtxo::try_from((&self.maker_source, self.output_tree_id)).map_err(err)?;
 
         let order_in_hash = order_in.hash().map_err(err)?;
         let reservation_in_hash = reservation_in.hash().map_err(err)?;
@@ -152,6 +161,7 @@ impl SettleProofInputParams {
                 maker_source.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -183,6 +193,7 @@ impl SettleProofInputParams {
             maker_counter,
             maker_source,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

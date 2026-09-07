@@ -1,3 +1,8 @@
+/// Raw id of the tree these cases hash UTXOs under. The SDK reads a single
+/// tree today; the id only has to match between the hash and the tree the
+/// commitment lands in.
+pub(crate) const TEST_TREE_ID: u16 = 0;
+
 pub(crate) mod asset;
 pub(crate) mod blinding;
 pub(crate) mod common;

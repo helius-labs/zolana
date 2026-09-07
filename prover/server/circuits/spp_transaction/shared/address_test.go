@@ -55,7 +55,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 	t.Helper()
 	refreshDerivedOutputBlindings(t, assignment)
 	inputHashes := make([]*big.Int, len(assignment.Inputs))
-	addressHashes := make([]*big.Int, len(assignment.Inputs))
+	addressNullifiers := make([]*big.Int, len(assignment.Inputs))
 	for i := range assignment.Inputs {
 		in := assignment.Inputs[i]
 		domain := spptest.AsBigInt(in.Utxo.Domain).Int64()
@@ -65,10 +65,12 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		} else {
 			inputHashes[i] = big.NewInt(0)
 		}
+		// An address slot enters the chain by its nullifier, the compressed
+		// address, not by its UTXO hash.
 		if domain == AddressDomain {
-			addressHashes[i] = utxoHash
+			addressNullifiers[i] = spptest.AsBigInt(in.Nullifier)
 		} else {
-			addressHashes[i] = big.NewInt(0)
+			addressNullifiers[i] = big.NewInt(0)
 		}
 	}
 	outputHashes := make([]*big.Int, len(assignment.Outputs))
@@ -83,7 +85,7 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		t,
 		inputHashes,
 		outputHashes,
-		addressHashes,
+		addressNullifiers,
 		spptest.AsBigInt(assignment.ExternalDataHash),
 		assignment.privateTxBlinding(t),
 	)

@@ -185,6 +185,40 @@ fn merge_rejects_a_wrong_input_count_shape() {
 }
 
 #[test]
+fn merge_rejects_inputs_that_reference_different_root_indexes() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    // SPP resolves both roots from the single `input_tree`, so the proof binds
+    // one tree slot and every input must name the same pair of root indexes.
+    for data in [
+        {
+            let mut data = merge_ix_data(true);
+            *data
+                .utxo_tree_root_index
+                .last_mut()
+                .expect("merge utxo root indexes") = 1;
+            data
+        },
+        {
+            let mut data = merge_ix_data(true);
+            *data
+                .nullifier_tree_root_index
+                .last_mut()
+                .expect("merge nullifier root indexes") = 1;
+            data
+        },
+    ] {
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .expect_err("a merge with mixed root indexes must be rejected");
+        Rejection::pool(ShieldedPoolError::InputTreeRootIndexMismatch).assert_litesvm(error);
+    }
+}
+
+#[test]
 fn merge_rejects_an_expired_transaction() {
     let (mut rpc, tree) = merge_env();
     let payer = rpc.payer.pubkey();
@@ -376,6 +410,7 @@ fn merge_rejects_a_paused_tree() {
         mut rpc,
         authority,
         tree,
+        ..
     } = Pool::initialized();
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
     let payer = rpc.payer.pubkey();
@@ -600,6 +635,7 @@ fn merge_ring_rejects_a_paused_tree() {
         mut rpc,
         authority,
         tree,
+        ..
     } = Pool::initialized();
     rpc.load_ring_test_program()
         .expect("load ring test program");

@@ -32,6 +32,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         payer,
         authority: _authority,
         tree,
+        tree_id,
     } = initialize_pool(&mut rpc)?;
     let tree_pubkey = tree;
     let tree_address = Address::new_from_array(tree_pubkey.to_bytes());
@@ -68,7 +69,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         .instruction()
         .map_err(|err| anyhow!("deposit instruction: {err}"))?;
         send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
-        let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
+        let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero, tree_id)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
         spends.push(SppProofInputUtxo::new(utxo, &sender));
     }
@@ -200,7 +201,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // and nullifier computed the same way the wallet does). The output context is
     // located in the indexed transaction by the independently computed hash.
     let nullifier_pk = recipient.nullifier_key.pubkey()?;
-    let expected_hash = expected_utxo.hash(&nullifier_pk, &zero, &zero)?;
+    let expected_hash = expected_utxo.hash(&nullifier_pk, &zero, &zero, tree_id)?;
     let output_context = indexed
         .output_slots
         .iter()
@@ -215,6 +216,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         nullifier: expected_nullifier,
         data_hash: None,
         ring_data_hash: None,
+        tree_id,
         spent: false,
     };
     assert_eq!(*recovered, expected);

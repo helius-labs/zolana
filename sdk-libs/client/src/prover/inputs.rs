@@ -1,5 +1,5 @@
 use num_bigint::BigUint;
-use zolana_interface::N_PUBLIC_SLOTS;
+use zolana_interface::{tree_slot::TreeSlot, INPUT_TREES, N_PUBLIC_SLOTS};
 use zolana_transaction::{instructions::types::SppProofInputUtxo, ProofInputUtxo};
 
 use crate::{
@@ -7,6 +7,33 @@ use crate::{
     prover::field::be,
     rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT},
 };
+
+/// One public tree slot of a proof request: the raw `u16` id of a tree inputs
+/// may be spent from and the two roots SPP resolved for it. An unused slot is
+/// all zero. Mirrors Go `common.TreeSlotParams`.
+#[derive(Debug, Clone, Default)]
+pub struct TreeSlotFields {
+    pub id: BigUint,
+    pub utxo_root: BigUint,
+    pub nullifier_root: BigUint,
+}
+
+impl From<&TreeSlot> for TreeSlotFields {
+    fn from(slot: &TreeSlot) -> Self {
+        Self {
+            id: be(&slot.id),
+            utxo_root: be(&slot.utxo_root),
+            nullifier_root: be(&slot.nullifier_root),
+        }
+    }
+}
+
+impl TreeSlotFields {
+    /// Encode the fixed-width slot array every proof request carries.
+    pub fn encode_all(slots: &[TreeSlot; INPUT_TREES]) -> [Self; INPUT_TREES] {
+        core::array::from_fn(|index| slots.get(index).map(Self::from).unwrap_or_default())
+    }
+}
 
 /// One spend input. Mirrors txcircuit.Input.
 #[derive(Debug, Clone)]
@@ -19,24 +46,26 @@ pub struct TransferInput {
     pub nullifier_next_value: BigUint,
     pub nullifier_low_path_elements: Vec<BigUint>,
     pub nullifier_low_path_index: BigUint,
-    pub utxo_tree_root: BigUint,
-    pub nullifier_tree_root: BigUint,
+    /// Private index into the request's tree slots. It selects the pair of
+    /// roots this input is proven against, so the roots themselves are
+    /// published once per tree rather than once per input.
+    pub tree_slot: BigUint,
     pub nullifier: BigUint,
     pub owner_pk_hash: BigUint,
     pub nullifier_secret: BigUint,
 }
 
 impl TransferInput {
-    /// Padding input over the sender's chosen random `blinding` (secret 0). The roots,
-    /// indices, and owner hash are mirrored from the first real input by the caller;
-    /// the circuit skips ownership, inclusion, and the nullifier check for it.
+    /// Padding input over the sender's chosen random `blinding` (secret 0). It
+    /// sits in tree slot 0 and is hashed under the input tree's `tree_id`; the
+    /// caller supplies the owner hash. The circuit skips ownership, inclusion,
+    /// and the nullifier check for it.
     pub fn new_dummy(
         blinding: &[u8; 32],
-        utxo_tree_root: &[u8; 32],
-        nullifier_tree_root: &[u8; 32],
+        tree_id: u16,
         owner_pk_hash: &[u8; 32],
     ) -> Result<(Self, [u8; 32]), ClientError> {
-        let mut spend = SppProofInputUtxo::new_dummy();
+        let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
         spend.utxo.blinding = *blinding;
         let nullifier = spend.nullifier()?;
         Ok((
@@ -49,8 +78,7 @@ impl TransferInput {
                 nullifier_next_value: BigUint::ZERO,
                 nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
                 nullifier_low_path_index: BigUint::ZERO,
-                utxo_tree_root: be(utxo_tree_root),
-                nullifier_tree_root: be(nullifier_tree_root),
+                tree_slot: BigUint::ZERO,
                 nullifier: be(&nullifier),
                 owner_pk_hash: be(owner_pk_hash),
                 nullifier_secret: BigUint::ZERO,
@@ -82,6 +110,11 @@ pub struct TransferOutput {
 pub struct MergeInputs {
     pub inputs: Vec<TransferInput>,
     pub output: TransferOutput,
+    /// The trees inputs may be spent from, one slot per tree; every input
+    /// selects one privately. Unused slots are all zero and sit at the end.
+    pub tree_slots: [TreeSlotFields; INPUT_TREES],
+    /// Raw `u16` id of the tree the merged output is appended to.
+    pub output_tree_id: BigUint,
     /// Shared owner identity: `owner_pk_hash` carries the owner's pk_field on
     /// both owner rails.
     pub owner_pk_hash: BigUint,
@@ -129,7 +162,15 @@ pub struct BatchAddressAppendInputs {
 pub struct TransferInputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
-    pub output_blinding_seed: BigUint,
+    /// The trees inputs may be spent from, one slot per tree; every input
+    /// selects one privately. Unused slots are all zero and sit at the end.
+    pub tree_slots: [TreeSlotFields; INPUT_TREES],
+    /// Raw `u16` id of the tree every output is appended to.
+    pub output_tree_id: BigUint,
+    /// The transaction's single private random value. The circuit derives the
+    /// output blinding seed and the private transaction blinding from it, so
+    /// neither is sent.
+    pub tx_secret: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     /// Uniform public transfer slots (slot 0 = SOL leg, slot 1 = SPL leg); idle
@@ -148,7 +189,14 @@ pub struct TransferInputs {
 pub struct TransferP256Inputs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
-    pub output_blinding_seed: BigUint,
+    /// The trees inputs may be spent from, one slot per tree; every input
+    /// selects one privately. Unused slots are all zero and sit at the end.
+    pub tree_slots: [TreeSlotFields; INPUT_TREES],
+    /// Raw `u16` id of the tree every output is appended to.
+    pub output_tree_id: BigUint,
+    /// The transaction's single private random value. See
+    /// [`TransferInputs::tx_secret`].
+    pub tx_secret: BigUint,
     pub external_data_hash: BigUint,
     pub private_tx_hash: BigUint,
     pub p256_pub_x: BigUint,

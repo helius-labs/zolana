@@ -50,6 +50,10 @@ fn blinding(rng: &mut ThreadRng) -> [u8; 32] {
     b
 }
 
+/// Test fixtures live in the first localnet tree.
+// TODO(tree-id): resolve the tree id from the tree account.
+const TEST_TREE_ID: u16 = 0;
+
 fn test_keypair() -> ShieldedKeypair {
     let mut secret = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut secret);
@@ -293,8 +297,8 @@ fn transfer_round_trip_outputs_and_slots() {
         .send(&recipient.shielded_address().unwrap(), SOL_MINT, 60)
         .unwrap();
 
-    let seed = transfer.blinding_seed;
     let proof_inputs = sign(transfer, &sender).unwrap();
+    let seed = proof_inputs.output_blinding_seed().unwrap();
     let first_nullifier = proof_inputs
         .input_utxo_hashes()
         .unwrap()
@@ -491,11 +495,13 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let real = ix.inputs.first().expect("real input");
     let dummy = ix.inputs.get(1).expect("dummy input");
     assert_eq!(real.nullifier_hash, first_nullifier);
-    assert_eq!(real.utxo_tree_root_index, 5);
-    // The dummy mirrors the first real input's root index but carries its own
-    // distinct nullifier.
-    assert_eq!(dummy.utxo_tree_root_index, 5);
     assert_ne!(dummy.nullifier_hash, first_nullifier);
+    // One input tree: every input, the dummy included, references the fetched
+    // root indexes of that tree.
+    for input in &ix.inputs {
+        assert_eq!(input.utxo_tree_root_index, 5);
+        assert_eq!(input.nullifier_tree_root_index, 5);
+    }
 
     // A pure transfer moves no public value.
     assert!(ix.interface_transfers.is_empty());
@@ -591,8 +597,8 @@ fn withdrawal_sets_external_data_and_change() {
         )
         .unwrap();
 
-    let seed = transfer.blinding_seed;
     let proof_inputs = sign(transfer, &sender).unwrap();
+    let seed = proof_inputs.output_blinding_seed().unwrap();
     let first_nullifier = proof_inputs
         .input_utxo_hashes()
         .unwrap()
@@ -727,6 +733,7 @@ fn input_commitments_include_data_and_ring_hashes() {
             &nullifier_pubkey,
             spend.data_hash.as_ref().unwrap(),
             spend.ring_data_hash.as_ref().unwrap(),
+            TEST_TREE_ID,
         )
         .unwrap();
     let expected_nullifier = spend
@@ -761,7 +768,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
     let nullifier_pk = spend.nullifier_key.pubkey().expect("nullifier pubkey");
     let hash = spend
         .utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
         .expect("utxo hash");
     let nullifier = spend
         .nullifier_key
@@ -782,6 +789,7 @@ fn async_authority_invokes_approval_without_p256_signing() {
         nullifier,
         data_hash: None,
         ring_data_hash: None,
+        tree_id: TEST_TREE_ID,
         spent: false,
     });
     let unsigned = create_withdrawal(WithdrawalParams {
@@ -944,7 +952,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
     };
     let nullifier_pk = sender.nullifier_key.pubkey().expect("nullifier pubkey");
     let hash = utxo
-        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
         .expect("utxo hash");
     let nullifier = utxo
         .nullifier(&hash, &sender.nullifier_key)
@@ -959,6 +967,7 @@ async fn create_transfer_builds_withdrawal_when_recipient_unregistered() {
         nullifier,
         data_hash: None,
         ring_data_hash: None,
+        tree_id: TEST_TREE_ID,
         spent: false,
     });
 

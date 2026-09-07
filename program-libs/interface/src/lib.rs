@@ -5,6 +5,7 @@ pub mod merge_utils;
 pub mod pda;
 pub mod shape;
 pub mod state;
+pub mod tree_slot;
 pub mod verifying_keys;
 
 pub use state::{NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE};
@@ -29,6 +30,12 @@ pub const UTXO_DOMAIN: u16 = 3;
 /// circuit. Ordered interface transfers are aggregated by resolved asset before
 /// filling these slots.
 pub const N_PUBLIC_SLOTS: usize = 3;
+
+/// Number of tree slots a spend proof publishes (mirrors Go
+/// `circuits/spp_transaction/shared` `InputTrees`). SPP spends from one
+/// `input_tree`, which fills slot 0; slots 1.. stay all zero. See
+/// [`tree_slot`].
+pub const INPUT_TREES: usize = 5;
 
 pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
     zolana_hasher::p256::is_reserved_derivation_point(key)

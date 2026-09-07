@@ -1,6 +1,12 @@
 #![allow(dead_code)]
 
 use zolana_event::OutputDataEncoding;
+
+/// Raw id of the tree these helpers hash UTXOs under. The SDK reads a single
+/// tree today; the id only has to match between the hash and the tree the
+/// commitment lands in.
+pub const TEST_TREE_ID: u16 = 0;
+
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair, SigningKey, ViewingKey};
 use zolana_transaction::{
     instructions::transact::SENDER_SLOT_COUNT,
@@ -154,7 +160,10 @@ pub fn build_transfer(
     let nullifier_pk = spec.sender.nullifier_key.pubkey().unwrap();
     let sender_hash = change
         .first()
-        .map(|utxo| utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap())
+        .map(|utxo| {
+            utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
+                .unwrap()
+        })
         .unwrap_or([0u8; 32]);
 
     let recipient_owner_cx = OwnerCx {
@@ -181,7 +190,12 @@ pub fn build_transfer(
 
     let recipient_nullifier_pk = spec.recipient.nullifier_key.pubkey().unwrap();
     let recipient_hash = recipient_utxo
-        .hash(&recipient_nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(
+            &recipient_nullifier_pk,
+            &[0u8; 32],
+            &[0u8; 32],
+            TEST_TREE_ID,
+        )
         .unwrap();
 
     let output_slots = vec![
@@ -296,6 +310,7 @@ pub fn build_unified_transfer(
             &spec.sender.nullifier_key.pubkey().unwrap(),
             &[0u8; 32],
             &[0u8; 32],
+            TEST_TREE_ID,
         )
         .unwrap();
     let recipient_hash = recipient_utxo
@@ -303,6 +318,7 @@ pub fn build_unified_transfer(
             &spec.recipient.nullifier_key.pubkey().unwrap(),
             &[0u8; 32],
             &[0u8; 32],
+            TEST_TREE_ID,
         )
         .unwrap();
 

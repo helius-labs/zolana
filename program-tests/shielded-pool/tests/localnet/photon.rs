@@ -13,8 +13,9 @@ use serial_test::serial;
 use shielded_pool_tests::support::{
     forester::{ForesterAuthority, NullifierTestForester},
     localnet::{
-        account_lamports, build_sol_transfer_witness, dummy_witness_outputs, initialize_pool,
-        on_chain_roots, print_signature, send_transaction, LocalnetPool, SolTransferWitnessArgs,
+        account_lamports, build_sol_transfer_witness, initialize_pool, on_chain_roots,
+        print_signature, send_transaction, LocalnetPool, SolTransferWitness,
+        SolTransferWitnessArgs,
     },
 };
 use solana_address::Address;
@@ -29,7 +30,7 @@ use zolana_client::{
     SolanaRpc, SpendProof, SppProofInputUtxo, TransferInput, ZolanaIndexer,
 };
 use zolana_event::OutputDataEncoding;
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
@@ -67,8 +68,8 @@ use zolana_transaction::{
 use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
-    dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe, pack_transact_proof,
-    public_sol_field, real_output, transfer_output,
+    change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,
+    pack_transact_proof, public_sol_field, real_output, single_tree_slots, transfer_output,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -105,6 +106,8 @@ struct IndexedSpendInputArgs<'a> {
     nullifier: &'a [u8; 32],
     owner_pk_hash: &'a [u8; 32],
     nullifier_key: &'a NullifierKey,
+    /// Raw id of the tree the spend comes from; hashed into its commitment.
+    tree_id: u16,
 }
 
 fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferInput> {
@@ -114,6 +117,7 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
+            args.tree_id,
         )?
         .with_ring([0u8; 32], &args.utxo.ring_program_id)?,
         is_dummy: be(&fe(0)),
@@ -123,8 +127,9 @@ fn indexed_spend_input(args: IndexedSpendInputArgs<'_>) -> TestResult<TransferIn
         nullifier_next_value: be(&args.nullifier_proof.high_element),
         nullifier_low_path_elements: args.nullifier_proof.path.iter().map(be).collect(),
         nullifier_low_path_index: be(&fe(args.nullifier_proof.low_element_index)),
-        utxo_tree_root: be(&args.state_proof.root),
-        nullifier_tree_root: be(&args.nullifier_proof.root),
+        // SPP proves against exactly one input tree, so every input selects
+        // slot 0.
+        tree_slot: num_bigint::BigUint::ZERO,
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
         nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
@@ -149,8 +154,9 @@ impl RealSpendUtxo {
         nullifier_key: &NullifierKey,
         nullifier_pk: &[u8; 32],
         zero: &[u8; 32],
+        tree_id: u16,
     ) -> TestResult<Self> {
-        let hash = utxo.hash(nullifier_pk, zero, zero)?;
+        let hash = utxo.hash(nullifier_pk, zero, zero, tree_id)?;
         let nullifier = utxo.nullifier(&hash, nullifier_key)?;
         Ok(Self {
             utxo,

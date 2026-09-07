@@ -9,6 +9,7 @@ use common::{
 use zolana_keypair::{viewing_key::ViewTag, ShieldedKeypair};
 use zolana_transaction::{
     serialization::split::{Split, SplitEncode},
+    utxo::derive_transact_output_blinding,
     Address, AssetRegistry, Data, OutputContext, OutputSlot, OwnerCx, ShieldedTransaction,
     SyncReport, Utxo, UtxoSerialization, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
@@ -194,7 +195,9 @@ impl Scenario {
     fn send(&mut self, recipient_idx: usize, ordinal: u64, nth: u64, shared_next: &mut u64) {
         let input = self.hot.take().expect("hot utxo");
         let nullifier_pk = self.alice.nullifier_key.pubkey().unwrap();
-        let hash = input.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+        let hash = input
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+            .unwrap();
         let first_nullifier = input.nullifier(&hash, &self.alice.nullifier_key).unwrap();
         let tx_idx = self.tx_next + skip_for(ordinal);
         self.tx_next = tx_idx + 1;
@@ -245,7 +248,9 @@ impl Scenario {
         for k in 0..SPLIT_COUNT {
             let input = self.split_inputs.pop().expect("split input");
             let nullifier_pk = self.alice.nullifier_key.pubkey().unwrap();
-            let hash = input.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+            let hash = input
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+                .unwrap();
             let first_nullifier = input.nullifier(&hash, &self.alice.nullifier_key).unwrap();
             let tx_idx = self.tx_next + skip_for(total_sends() + k);
             self.tx_next = tx_idx + 1;
@@ -268,7 +273,12 @@ impl Scenario {
                     owner: self.alice.signing_pubkey(),
                     asset: SOL_MINT,
                     amount: asset_amount,
-                    blinding: zolana_transaction::derive_blinding(&blinding_seed, i),
+                    blinding: derive_transact_output_blinding(
+                        &first_nullifier,
+                        &blinding_seed,
+                        u32::from(i),
+                    )
+                    .unwrap(),
                     ring_program_id: None,
                     data: Data::default(),
                 })
@@ -278,19 +288,22 @@ impl Scenario {
                 owner: self.alice.signing_pubkey(),
                 assets: &self.assets,
                 ring_program_id: None,
-                first_nullifier: None,
+                first_nullifier: Some(first_nullifier),
             };
             let cx = SplitEncode {
                 tx: tx_key,
                 recipient_pubkey: self.alice.viewing_pubkey(),
                 salt,
                 slot_index: 0,
+                blinding_seed,
             };
             let ciphertext = Split::encode(&outputs, &owner_cx, sender_view_tag, &cx).unwrap();
 
             let mut output_slots = vec![slot(sender_view_tag, [0u8; 32], ciphertext.data)];
             for output in &outputs {
-                let output_hash = output.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+                let output_hash = output
+                    .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+                    .unwrap();
                 output_slots.push(slot(sender_view_tag, output_hash, Vec::new()));
             }
 

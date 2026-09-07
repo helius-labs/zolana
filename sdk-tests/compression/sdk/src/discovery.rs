@@ -5,7 +5,7 @@ use zolana_interface::event::OutputDataEncoding;
 use zolana_transaction::WalletUtxo;
 
 use crate::{
-    shared::zero_nullifier_key,
+    shared::{zero_nullifier_key, DEFAULT_TREE_ID},
     state::{decode_state, AccountUtxo},
 };
 
@@ -33,7 +33,9 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
     let data_hash = account_utxo.state.data_hash()?;
     let utxo = account_utxo.utxo()?;
     let nullifier_key = zero_nullifier_key();
-    let hash = utxo.hash(&nullifier_key.pubkey()?, &data_hash, &[0u8; 32])?;
+    // TODO(tree-id): resolve the tree id from the tree the leaf was indexed in.
+    let tree_id = DEFAULT_TREE_ID;
+    let hash = utxo.hash(&nullifier_key.pubkey()?, &data_hash, &[0u8; 32], tree_id)?;
     if hash != indexed.output_slot.output_context.hash {
         bail!("decoded UTXO commitment does not match indexed output");
     }
@@ -45,6 +47,7 @@ pub fn decode_wallet_utxo(indexed: EncryptedUtxoMatch, pda: &Address) -> Result<
             nullifier,
             data_hash: Some(data_hash),
             ring_data_hash: None,
+            tree_id,
             spent: false,
         },
         version,
@@ -100,6 +103,7 @@ fn discover_from_matches(
 mod tests {
     use super::*;
     use crate::{account_pda, state::AccountState};
+    use compression_example_program::state::output_blinding;
     use zolana_transaction::{OutputContext, OutputSlot};
 
     const AUTHORITY: [u8; 32] = [7u8; 32];
@@ -111,7 +115,7 @@ mod tests {
     fn derived_address(pda: &Address) -> [u8; 32] {
         compression_example_program::state::PdaOwner::new(pda.as_array())
             .unwrap()
-            .address()
+            .address(DEFAULT_TREE_ID)
             .unwrap()
     }
 
@@ -122,8 +126,7 @@ mod tests {
             authority: AUTHORITY,
             value,
             version,
-            blinding: compression_example_program::state::output_blinding(&address, version)
-                .unwrap(),
+            blinding: output_blinding(&address, version).unwrap(),
         }
     }
 
@@ -143,6 +146,7 @@ mod tests {
                 &zero_nullifier_key().pubkey().unwrap(),
                 &data_hash,
                 &[0u8; 32],
+                DEFAULT_TREE_ID,
             )
             .unwrap();
         EncryptedUtxoMatch {

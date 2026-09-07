@@ -42,6 +42,9 @@ pub const TAKER_SHIELD_USDC: u64 = BUY_USDC;
 pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
+    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
+    /// in, so the client and the pool must hash under the same value.
+    pub tree_id: u16,
     pub maker: TestWallet,
     pub taker: TestWallet,
     pub usdc_mint: Address,
@@ -185,6 +188,7 @@ pub fn setup() -> Result<TestEnv> {
     )?;
 
     let tree = tree_creation.tree;
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(&rpc, &tree)?;
 
     let usdc_mint = create_mint(&rpc, &payer)?;
     if rpc.get_account(pda::spl_asset_counter())?.is_none() {
@@ -285,6 +289,7 @@ pub fn setup() -> Result<TestEnv> {
     Ok(TestEnv {
         client,
         tree,
+        tree_id,
         maker: TestWallet {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,

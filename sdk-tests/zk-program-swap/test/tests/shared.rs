@@ -50,6 +50,9 @@ pub const DESTINATION_AMOUNT: u64 = 250_000_000;
 pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
+    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
+    /// in, so the SPP and swap proofs must hash under the same value.
+    pub tree_id: u16,
     pub maker: TestWallet,
     pub maker_input: SppProofInputUtxo,
     pub taker: TestWallet,
@@ -194,6 +197,7 @@ pub fn setup() -> Result<TestEnv> {
     )?;
 
     let tree = tree_creation.tree;
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(&rpc, &tree)?;
 
     // Register an SPL asset with the pool so the maker can order it. Both
     // CreateAssetCounter and CreateSplInterface check the protocol authority (the
@@ -317,6 +321,7 @@ pub fn setup() -> Result<TestEnv> {
     let env = TestEnv {
         client,
         tree,
+        tree_id,
         maker: TestWallet {
             wallet: maker_wallet,
             keypair: maker_shielded_keypair,

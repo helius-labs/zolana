@@ -48,8 +48,17 @@ impl Deposit {
         let owner = request.recipient.owner_hash()?;
         let blinding = random_blinding();
         let view_tag = request.recipient.viewing_pubkey.x();
-        let utxo_hash =
-            ProofInputUtxo::new(owner, &request.asset, request.amount, &blinding)?.hash()?;
+        // A deposit is hashed under the id of the tree it is appended to.
+        // TODO(tree-id): resolve the tree id from the tree account.
+        let output_tree_id = 0;
+        let utxo_hash = ProofInputUtxo::new(
+            owner,
+            &request.asset,
+            request.amount,
+            &blinding,
+            output_tree_id,
+        )?
+        .hash()?;
         Ok(Self {
             deposit: AssetDeposit {
                 asset: deposit_asset(
