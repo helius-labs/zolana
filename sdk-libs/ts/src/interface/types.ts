@@ -238,7 +238,6 @@ export interface TreeFees {
   readonly feeBalance: bigint;
 }
 
-/** The latest state and nullifier roots of one tree with their history indices. */
 export interface TreeHeadRoots {
   readonly stateRoot: Bytes32;
   readonly stateRootIndex: number;

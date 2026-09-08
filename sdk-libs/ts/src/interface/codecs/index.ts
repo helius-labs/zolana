@@ -369,12 +369,7 @@ export function decodeTreeFees(bytes: Uint8Array): TreeFees {
   return { fees, feeBalance };
 }
 
-/**
- * The roots a proof over the tree's current head binds. Mirrors Rust
- * `head_roots`: the state index is the history cursor, the nullifier index
- * the slot before the write cursor, and an unwritten or zero slot is refused
- * like `root_by_index` does.
- */
+/** Mirrors Rust `head_roots`, the nullifier index is the slot before the write cursor. */
 export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
   const utxo = treeAccountReader(
     bytes,
@@ -384,7 +379,11 @@ export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
   const stateRootIndex = utxo.u16("rootHistoryCursor");
   const written = utxo.u16("rootHistoryLen");
   utxo.done();
-  if (written === 0 || (written < UTXO_ROOT_HISTORY_CAPACITY && stateRootIndex >= written)) {
+  if (
+    written === 0 ||
+    stateRootIndex >= UTXO_ROOT_HISTORY_CAPACITY ||
+    (written < UTXO_ROOT_HISTORY_CAPACITY && stateRootIndex >= written)
+  ) {
     fail("INTERFACE_INVALID_ACCOUNT_DATA", { field: "stateRootIndex", actual: stateRootIndex });
   }
   const stateRoot = historyRoot(bytes, UTXO_ROOT_HISTORY_OFFSET, stateRootIndex, "stateRoot");
@@ -397,7 +396,10 @@ export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
     ),
   ).u64("rootHistoryCursor");
   const capacity = BigInt(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
-  const nullifierRootIndex = Number(((cursor % capacity) + capacity - 1n) % capacity);
+  if (cursor >= capacity) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { field: "nullifierRootIndex", actual: cursor });
+  }
+  const nullifierRootIndex = Number((cursor + capacity - 1n) % capacity);
   const nullifierRoot = historyRoot(
     bytes,
     NULLIFIER_ROOT_HISTORY_OFFSET,
