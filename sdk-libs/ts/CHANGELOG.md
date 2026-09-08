@@ -2,15 +2,61 @@
 
 ## 0.1.6-alpha — unreleased
 
-A tree derives from its id instead of one fixed address, holds its own fee
-schedule, and takes four instructions in one transaction to create. Every
-spent nullifier gets its own account, and the transact, merge, and ring
-builders take one nullifier account per input. Registering a ring and admitting
-it are now two separate steps with two different signers. Wallet replay keeps merge outputs when their inputs arrive in the same
-sync.
+The wallet authority is replaced by a key interface a remote holder can
+answer: `WalletKeys` exposes the derivations a wallet needs and proving,
+never a long-lived secret, every build and sync takes it, and proof inputs
+carry the nullifier instead of the nullifier key. A tree derives from its id
+instead of one fixed address, holds its own fee schedule, and takes four
+instructions in one transaction to create. Every spent nullifier gets its own
+account, and the transact, merge, and ring builders take one nullifier account
+per input. Registering a ring and admitting it are now two separate steps with
+two different signers. Wallet replay keeps merge outputs when their inputs
+arrive in the same sync.
 
 Breaking
 
+- `WalletAuthority`, `KeypairWalletAuthority`, `ClientEd25519WalletAuthority`,
+  `SpendAuthority`, `SpendSession`, `SyncAuthority`, `SyncWalletAuthority`, and
+  `WalletSyncMaterial` are removed → build
+  `LocalKeys.fromKeypair(keypair, client.proofService)`, or from a browser
+  wallet's signature
+  `LocalKeys.fromDerivationSeed({ solanaPublicKey, derivationSeed }, client.proofService)`,
+  and pass it as `keys`.
+- `buildTransferTransaction`, `buildWithdrawalTransaction`,
+  `buildSplitTransaction`, `buildMergeTransaction`, `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction`, and
+  `buildRingWithdrawalTransaction` take `keys: WalletKeys` and an optional
+  `approve: ApprovalHandler` instead of `authority` → pass the keys, and move
+  a `requestUserApproval` implementation into `approve`, which receives the
+  same `ApprovalRequest` and returns `approveIntent(request.intent)`; builds
+  without `approve` are approved unattended, and a P256 owner's
+  `solanaPublicKey` and registry record are the fee payer's.
+- `syncWallet`, `syncPersistedWallet`, and `decryptTransactions` take
+  `keys: ShieldedKeys` instead of `authority` → pass `LocalKeys` or
+  `LocalShieldedKeys.fromKeypair(keypair)`; keys for another wallet fail with
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH` before any indexer query.
+- `ProofInputUtxo` carries `nullifierPublicKey` and the derived nullifier
+  instead of a `NullifierKey`, its constructor takes
+  `{ utxo, nullifierPublicKey, nullifier, dataHash?, ringDataHash? }`, and
+  `destroy()` is removed → build inputs with
+  `ProofInputUtxo.fromKeypair(utxo, keypair, hashes?)` or the new
+  `ProofInputUtxo.fromNullifierKey(utxo, key, hashes?)`; wallet entries
+  already hold their nullifier.
+- `ZolanaClient.proveTransact(proofInputs, keys, config?)`,
+  `proveRingTransact(proofInputs, ringProgramId, keys, config?)`,
+  `proveMerge({ prepared, keys })`, and
+  `assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys })`
+  require a `ProofAuthority`, and `MergeMaterialInput` is removed with its
+  `CLIENT_INVALID_MERGE_MATERIAL` code → pass the same `keys` object; a value
+  that cannot prove fails with `CLIENT_INVALID_PROOF_AUTHORITY`.
+- `proveCustomRingTransfer` takes `keys: WalletKeys` instead of `session` →
+  pass the keys.
+- `ProverInputs` input slots and `MergeInputs` carry the nullifier secret only
+  once a `ProofAuthority` fills it in → a prover call whose own real input still
+  lacks it fails with `CLIENT_MISSING_NULLIFIER_SECRET`.
+- `TRANSACTION_WALLET_AUTHORITY_MISMATCH` is renamed
+  `TRANSACTION_KEYS_IDENTITY_MISMATCH`, what the check compares → match the new
+  code.
 - Ring registration is permissionless and produces a config that authorizes
   nothing, and governance admits it separately with
   `getSetRingActivationInstructionAsync` → a ring is live only after its
@@ -82,6 +128,38 @@ Added
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.
+- `ShieldedKeys` (`address`, `viewingPublicKeys`, `decrypt`, `derive`,
+  `transactionKeys`) and `ProofAuthority` (`prove`, `proveMerge`) describe a
+  wallet's privacy roles as batched functions, `WalletKeys` is both, and a
+  remote key holder implements them to drive every build and sync; every
+  method receives the `RequestContext` the sync or build was called with, so
+  the holder's round trip stops when the caller's signal fires.
+- `LocalKeys` and `LocalShieldedKeys` answer those interfaces from keys held
+  in-process, with `fromKeypair`,
+  `fromKeys({ address, viewingKeys, nullifierKey })` for a wallet holding
+  retired viewing keys, and `fromDerivationSeed`, which verifies the seed is
+  the wallet's signature and fails otherwise with
+  `TRANSACTION_INVALID_DERIVATION_SEED`.
+- `ZolanaClient.proofService` is the prover behind the client, what
+  `LocalKeys` forwards completed proof inputs to.
+- `encryptConfidentialTransfer`, `encryptCustomRingTransfer`,
+  `encryptAnonymousTransfer`, and `encryptSplit` seal a prepared transaction
+  under the per-transaction key `ShieldedKeys.transactionKeys` returns.
+- `approveUnattended` is the default `ApprovalHandler`, and `checkKeysIdentity`
+  refuses keys that do not describe a wallet's address.
+- `proverRequestBody(inputs)` and `mergeProverRequestBody(inputs)` return the
+  prover's request body with `null` in every nullifier secret slot a key
+  holder has yet to fill, for a remote `ProofAuthority` to send it.
+- `DecryptRequest`, `DeriveRequest`, `TransactionKeyRequest`, `DecryptLabel`,
+  `ProofService`, `ProverInputs`, `MergeInputs`, `TransferInputs`,
+  `TransferInput`, `TransferOutput`, `CircuitUtxo`, `Field`, and
+  `ProverRequestBody` are exported for key holder implementations.
+- `ViewingKey.clone()` and `NullifierKey.clone()` return an independent copy of
+  a key, so a holder can lend one without exposing the secret bytes.
+- `keyedWalletSnapshotCipher(identity, key)` seals wallet snapshots in the
+  `walletSnapshotCipher` envelope under an AES-GCM key the caller supplies,
+  and `walletSnapshotKey(secret)` derives that key from 32 bytes a key holder
+  handed out, for a wallet whose viewing secret never enters the process.
 - `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
@@ -115,6 +193,14 @@ Added
 
 Changed
 
+- `CLIENT_PROVER_HTTP` carries the prover's own error code and message in
+  `details.reason` when the prover sent them, so a refused proof says whether
+  the circuit is unknown, a field is malformed, or a key is missing.
+- A sync asks the key holder for every ciphertext, nullifier, and
+  per-transaction key it needs in one batch per method and per dependency
+  round, as many rounds as the merges in the batch chain, and a sync or merge
+  fails with `TRANSACTION_KEYS_BATCH_MISMATCH`, `WALLET_KEYS_BATCH_MISMATCH`,
+  or `TRANSACTION_KEYS_UNRESOLVED` when a holder does not answer in full.
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
   `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100. The state tree retains one
   final root for each of the latest 500 slots that updated it, exported as
@@ -135,6 +221,16 @@ Fixed
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the
   tree and the leaf index, so each deposit is unique.
+- `walletSnapshotCipher` and `keyedWalletSnapshotCipher` seal snapshots of any
+  size in a browser: the ciphertext is base64-encoded in chunks instead of
+  spreading every byte into one `String.fromCharCode` call, which overflowed
+  the stack past roughly a hundred kilobytes and surfaced as `WALLET_SNAPSHOT`
+  with a `RangeError` cause.
+- A private-transaction row is identified by its transaction, slot and index.
+  Re-recording it, as a sync does when a transaction it saw earlier is decoded
+  again with the wallet's change now known, replaces the row; before, a row
+  whose amount, kind or counterparty differed was kept beside the stale one and
+  `privateTransactions()` listed the same transfer twice.
 
 ## 0.1.5-alpha — 2026-09-01
 

@@ -1,24 +1,31 @@
 export {
-  ClientEd25519WalletAuthority,
-  KeypairWalletAuthority,
+  LocalShieldedKeys,
+  checkKeysIdentity,
+  type DecryptLabel,
+  type DecryptRequest,
+  type DeriveRequest,
+  type ShieldedKeys,
+  type TransactionKeyRequest,
+} from "./keys.js";
+export {
+  encryptAnonymousTransfer,
+  encryptConfidentialTransfer,
+  encryptCustomRingTransfer,
+  encryptSplit,
   type AnonymousRecipientSlot,
-  type ApprovalRequest,
-  type EncryptedEnvelope,
-  type EncryptedSplit,
   type AuditWitness,
   type EncryptedCustomRingTransfer,
+  type EncryptedEnvelope,
+  type EncryptedSplit,
   type EncryptedTransfer,
   type SplitBundlePlaintext,
-  type SpendAuthority,
-  type SpendSession,
-  type SyncAuthority,
-  type SyncWalletAuthority,
-  type WalletAuthority,
-  type WalletSyncMaterial,
-} from "./authority.js";
+} from "./encrypt-rails.js";
 export {
   approveIntent,
+  approveUnattended,
   intentHash,
+  type ApprovalHandler,
+  type ApprovalRequest,
   type IntentApproval,
   type TransactionIntent,
 } from "./intent.js";

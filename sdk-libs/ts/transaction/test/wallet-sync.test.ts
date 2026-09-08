@@ -12,18 +12,16 @@ import { describe, expect, it } from "vitest";
 import {
   AssetRegistry,
   Data,
+  LocalShieldedKeys,
   SOL_MINT,
   Utxo,
   Wallet,
-  decryptTransactions as syncWalletWithAuthority,
+  decryptTransactions as syncWalletWithKeys,
   type PrivateTransaction,
+  type ShieldedKeys,
   type SyncReport,
   type ViewingKeyEntry,
 } from "../../src/transaction/index.js";
-import type {
-  SyncWalletAuthority,
-  WalletSyncMaterial,
-} from "../../src/transaction/wallet/authority.js";
 import {
   EncryptedScheme,
   encodeOutputData,
@@ -53,7 +51,8 @@ function fixtureAuthority(
   inputs: Readonly<Record<string, unknown>>,
   offset = 0,
 ): Readonly<{
-  authority: SyncWalletAuthority & { solanaPublicKey(): Address };
+  keys: LocalShieldedKeys;
+  solanaPublicKey: Address;
   identity: ShieldedAddress;
   keypair: ShieldedKeypair;
   nullifier: NullifierKey;
@@ -69,20 +68,16 @@ function fixtureAuthority(
   const keypair = ShieldedKeypair.withViewingKey(signing, viewing);
   const nullifier = keypair.nullifierKey();
   const identity = keypair.shieldedAddress();
-  const material: WalletSyncMaterial = {
-    identity,
+  const keys = LocalShieldedKeys.fromKeys({
+    address: identity,
     viewingKeys: [viewing],
     nullifierKey: nullifier,
-  };
+  });
   const solanaPublicKey =
     "solanaPubkeyBytes" in inputs
       ? encodeAddress(hexBytes(fixtureString(inputs, "solanaPubkeyBytes")))
       : SOL_MINT;
-  const authority = {
-    solanaPublicKey: () => solanaPublicKey,
-    syncMaterial: () => Promise.resolve(material),
-  };
-  return { authority, identity, keypair, nullifier, signing, viewing };
+  return { keys, solanaPublicKey, identity, keypair, nullifier, signing, viewing };
 }
 
 /**
@@ -205,16 +200,15 @@ function shieldedTransactions(
 
 async function decryptWallet(
   input: Readonly<{
-    authority: SyncWalletAuthority;
+    keys: ShieldedKeys;
     transactions: readonly IndexedShieldedTransaction[];
     registry: AssetRegistry;
   }>,
 ): Promise<Wallet> {
-  const material = await input.authority.syncMaterial();
-  const wallet = new Wallet({ identity: material.identity, registry: input.registry });
-  await syncWalletWithAuthority({
+  const wallet = new Wallet({ identity: input.keys.address(), registry: input.registry });
+  await syncWalletWithKeys({
     wallet,
-    authority: input.authority,
+    keys: input.keys,
     transactions: input.transactions,
   });
   return wallet;
@@ -245,7 +239,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(
       value.signing.verify(hexBytes(fixtureString(inputs, "messageHashBytes")), signature),
     ).toBe(true);
-    expect(value.authority.solanaPublicKey()).toBe(
+    expect(value.solanaPublicKey).toBe(
       encodeAddress(hexBytes(fixtureString(inputs, "solanaPubkeyBytes"))),
     );
     const envelope = fixtureObject(expected.envelope);
@@ -322,25 +316,25 @@ describe("manifest-verified wallet behavior", () => {
     // The three timestamps are the ones the fixture generator syncs at, so
     // `lastSynced` below is the value Rust recorded rather than an echo.
     expect(
-      await syncWalletWithAuthority({
+      await syncWalletWithKeys({
         wallet,
-        authority: value.authority,
+        keys: value.keys,
         transactions: transactions.slice(0, 1),
         config: { syncedAt: 10n },
       }),
     ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[0]));
     expect(
-      await syncWalletWithAuthority({
+      await syncWalletWithKeys({
         wallet,
-        authority: value.authority,
+        keys: value.keys,
         transactions: transactions.slice(1),
         config: { syncedAt: 20n },
       }),
     ).toEqual(reportRow(fixtureArray(sequentialExpected, "reports")[1]));
     expect(
-      await syncWalletWithAuthority({
+      await syncWalletWithKeys({
         wallet,
-        authority: value.authority,
+        keys: value.keys,
         transactions,
         config: { syncedAt: 30n },
       }),
@@ -358,7 +352,7 @@ describe("manifest-verified wallet behavior", () => {
     // own identity, so the fresh wallet must reach the same state as the one
     // synced above from a wallet the caller constructed.
     const fresh = await decryptWallet({
-      authority: value.authority,
+      keys: value.keys,
       transactions,
       registry: new AssetRegistry(),
     });
@@ -369,7 +363,7 @@ describe("manifest-verified wallet behavior", () => {
     const worker = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
     const workerReport = await syncWalletWorkerEquivalent({
       wallet: worker,
-      authority: value.authority,
+      keys: value.keys,
       transactions,
     });
     expect(workerReport).toEqual(reportRow(fixtureObject(expected.parallelEquivalent).report));
@@ -385,9 +379,9 @@ describe("manifest-verified wallet behavior", () => {
       return { ...transaction, outputSlots: [{ ...slot, payload }] };
     });
     const tamperWallet = new Wallet({ identity: value.identity, registry: new AssetRegistry() });
-    const tamperReport = await syncWalletWithAuthority({
+    const tamperReport = await syncWalletWithKeys({
       wallet: tamperWallet,
-      authority: value.authority,
+      keys: value.keys,
       transactions: tampered,
     });
     const tamperExpected = fixtureObject(expected.tamper);
@@ -395,52 +389,41 @@ describe("manifest-verified wallet behavior", () => {
     expect(tamperWallet.utxos()).toHaveLength(Number(fixtureString(tamperExpected, "utxoCount")));
 
     const other = fixtureAuthority(inputs, 1);
-    const mismatched: SyncWalletAuthority = {
-      ...value.authority,
-      syncMaterial: () => other.authority.syncMaterial(),
-    };
     await expect(
-      syncWalletWithAuthority({
+      syncWalletWithKeys({
         wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
-        authority: mismatched,
+        keys: other.keys,
         transactions,
       }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_WALLET_AUTHORITY_MISMATCH" });
-    const missingViewingKey: SyncWalletAuthority = {
-      ...value.authority,
-      syncMaterial: () =>
-        Promise.resolve({
-          identity: value.identity,
-          viewingKeys: [ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32)],
-          nullifierKey: value.nullifier,
-        }),
+    ).rejects.toMatchObject({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" });
+
+    // A key holder that claims this identity but does not lead with its
+    // viewing key would open nothing addressed to the wallet.
+    const stranger = ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32);
+    const missingViewingKey: ShieldedKeys = {
+      ...value.keys,
+      address: () => value.identity,
+      viewingPublicKeys: () => [stranger.publicKey()],
+      decrypt: (requests) => value.keys.decrypt(requests),
+      derive: (requests) => value.keys.derive(requests),
+      transactionKeys: (requests) => value.keys.transactionKeys(requests),
     };
     await expect(
-      syncWalletWithAuthority({
+      syncWalletWithKeys({
         wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
-        authority: missingViewingKey,
+        keys: missingViewingKey,
         transactions: [],
       }),
     ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
 
-    // `sync_with_material_in_place` checks the viewing keys before the
-    // nullifier key, so material wrong in both ways names the viewing key.
-    const bothWrong: SyncWalletAuthority = {
-      ...value.authority,
-      syncMaterial: () =>
-        Promise.resolve({
-          identity: value.identity,
-          viewingKeys: [ViewingKey.fromBytes(new Uint8Array(32).fill(42) as Bytes32)],
-          nullifierKey: other.nullifier,
-        }),
-    };
-    await expect(
-      syncWalletWithAuthority({
-        wallet: new Wallet({ identity: value.identity, registry: new AssetRegistry() }),
-        authority: bothWrong,
-        transactions: [],
+    // In-process keys refuse to be built for an identity they do not describe.
+    expect(() =>
+      LocalShieldedKeys.fromKeys({
+        address: value.identity,
+        viewingKeys: [stranger],
+        nullifierKey: other.nullifier,
       }),
-    ).rejects.toMatchObject({ code: "TRANSACTION_MISSING_CURRENT_VIEWING_KEY" });
+    ).toThrow(expect.objectContaining({ code: "TRANSACTION_KEYS_IDENTITY_MISMATCH" }));
   });
 
   // `decrypt_transactions` keeps no wallet: it builds one, scans, reports the
@@ -456,7 +439,7 @@ describe("manifest-verified wallet behavior", () => {
 
     const balances = (
       await decryptWallet({
-        authority: value.authority,
+        keys: value.keys,
         transactions,
         registry: new AssetRegistry(),
       })
@@ -468,7 +451,7 @@ describe("manifest-verified wallet behavior", () => {
     expect(
       (
         await decryptWallet({
-          authority: value.authority,
+          keys: value.keys,
           transactions: [],
           registry: new AssetRegistry(),
         })
@@ -493,9 +476,9 @@ describe("manifest-verified wallet behavior", () => {
     // the notes it spends down if the sync that stored them already ran.
     for (const [index, transaction] of transactions.entries()) {
       const step = fixtureObject(steps[index], "history step");
-      const report = await syncWalletWithAuthority({
+      const report = await syncWalletWithKeys({
         wallet,
-        authority: value.authority,
+        keys: value.keys,
         transactions: [transaction],
         config: { syncedAt: BigInt(300 + index) },
       });

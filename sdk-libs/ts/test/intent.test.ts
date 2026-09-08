@@ -2,19 +2,18 @@ import { address, type Address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
+import { LocalKeys } from "../src/client/keys.js";
 import { privateTransactionClient } from "./helpers/clients.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
   Data,
-  KeypairWalletAuthority,
   SOL_MINT,
   Utxo,
   Wallet,
   approveIntent,
   intentHash,
-  type ApprovalRequest,
-  type IntentApproval,
+  type ApprovalHandler,
 } from "../src/transaction/index.js";
 import {
   checkIntentApproval,
@@ -251,22 +250,14 @@ describe("approval binding", () => {
       transactions: [],
       nullifiers: new Set(),
     });
-    const authority = new KeypairWalletAuthority({
-      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-      keypair,
+    const keys = LocalKeys.fromKeypair(keypair, {
+      prove: () => Promise.reject(new Error("prove must not be called")),
+      proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
     });
-    const stale = new Proxy(authority, {
-      get(target, property) {
-        if (property === "requestUserApproval") {
-          return async (request: ApprovalRequest): Promise<IntentApproval> => {
-            if (request.intent.kind !== "transfer") throw new Error("expected transfer");
-            return approveIntent({ ...request.intent, amount: 1n });
-          };
-        }
-        const value = Reflect.get(target, property);
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
+    const stale: ApprovalHandler = (request) => {
+      if (request.intent.kind !== "transfer") throw new Error("expected transfer");
+      return Promise.resolve(approveIntent({ ...request.intent, amount: 1n }));
+    };
     const client = privateTransactionClient({
       getAccount: async () => undefined,
       assembleAuthorizedPrivateTransaction: async (_input: {
@@ -279,7 +270,8 @@ describe("approval binding", () => {
       buildTransferTransaction({
         client,
         wallet,
-        authority: stale,
+        keys,
+        approve: stale,
         feePayer: keypair.shieldedAddress().solanaAddress(),
         recipient: ShieldedKeypair.generate().shieldedAddress(),
         amount: 25n,

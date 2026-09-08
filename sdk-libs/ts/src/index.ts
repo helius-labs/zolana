@@ -20,8 +20,12 @@ export {
   CANONICAL_CLIENT_ERROR_CODES,
   ClientError,
   DEFAULT_INDEXER_POLL_CONFIG,
+  LocalKeys,
   type ClientErrorCode,
   type IndexerPollConfig,
+  type ProofAuthority,
+  type ProofService,
+  type WalletKeys,
   type ZolanaClientConfig,
 } from "./client/index.js";
 export {
@@ -52,9 +56,8 @@ export {
 } from "./keypair/index.js";
 export {
   Data,
-  ClientEd25519WalletAuthority,
+  LocalShieldedKeys,
   formatAmount,
-  KeypairWalletAuthority,
   parseAmount,
   SOL_MINT,
   TransactionError,
@@ -62,16 +65,15 @@ export {
   Wallet,
   deserializeWallet,
   serializeWallet,
+  type DecryptRequest,
+  type DeriveRequest,
   type SerializedCursor,
   type SerializedNoteReservation,
   type SerializedSyncCursors,
   type SerializedWalletState,
+  type ShieldedKeys,
   type SyncReport,
   type TransactionErrorCode,
-  type SpendAuthority,
-  type SpendSession,
-  type SyncAuthority,
-  type WalletAuthority,
   type WalletUtxo,
 } from "./transaction/index.js";
 export {
@@ -92,7 +94,9 @@ export {
   syncPersistedWallet,
   syncWallet,
   viewingKeyIndex,
+  keyedWalletSnapshotCipher,
   walletSnapshotCipher,
+  walletSnapshotKey,
   WalletError,
   type DepositTransactionParams,
   type AssetMetadata,

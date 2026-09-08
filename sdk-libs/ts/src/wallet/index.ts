@@ -2,25 +2,29 @@ export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
 export { AssetMetadataCache, fetchAssetMetadata, type AssetMetadata } from "./asset-metadata.js";
 export { WALLET_ERROR_CODES, WalletError, type WalletErrorCode } from "./error.js";
 export {
-  ClientEd25519WalletAuthority,
-  KeypairWalletAuthority,
-  type AnonymousRecipientSlot,
-  type ApprovalRequest,
-  type AuditWitness,
-  type EncryptedCustomRingTransfer,
-  type EncryptedEnvelope,
-  type EncryptedSplit,
-  type EncryptedTransfer,
-  type SpendAuthority,
-  type SpendSession,
-  type SyncAuthority,
-  type SyncWalletAuthority,
-  type WalletAuthority,
-  type WalletSyncMaterial,
-} from "../transaction/wallet/authority.js";
+  LocalShieldedKeys,
+  type DecryptLabel,
+  type DecryptRequest,
+  type DeriveRequest,
+  type ShieldedKeys,
+  type TransactionKeyRequest,
+} from "../transaction/wallet/keys.js";
+export { LocalKeys } from "../client/keys.js";
+export type { ProofAuthority, ProofService, WalletKeys } from "../client/ports.js";
+export type {
+  AnonymousRecipientSlot,
+  AuditWitness,
+  EncryptedCustomRingTransfer,
+  EncryptedEnvelope,
+  EncryptedSplit,
+  EncryptedTransfer,
+} from "../transaction/wallet/encrypt-rails.js";
 export {
   approveIntent,
+  approveUnattended,
   intentHash,
+  type ApprovalHandler,
+  type ApprovalRequest,
   type IntentApproval,
   type TransactionIntent,
 } from "../transaction/wallet/intent.js";
@@ -58,7 +62,11 @@ export {
   type WalletStateCipher,
   type WalletStateStore,
 } from "./persisted.js";
-export { walletSnapshotCipher } from "./snapshot-cipher.js";
+export {
+  keyedWalletSnapshotCipher,
+  walletSnapshotCipher,
+  walletSnapshotKey,
+} from "./snapshot-cipher.js";
 export {
   buildRegistrationTransaction,
   buildSetMergingEnabledTransaction,

@@ -1,4 +1,4 @@
-import type { Bytes32, MessageData } from "../../interface/types.js";
+import type { Bytes16, Bytes32, MessageData } from "../../interface/types.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { randomSalt } from "../../keypair/bytes.js";
 import type { P256PublicKey } from "../../keypair/public-key.js";
@@ -12,92 +12,84 @@ import {
   encodeOutputData,
   encodeSplitBundle,
   encryptAnonymous,
-  encryptSplit,
+  encryptSplit as encryptSplitSlot,
+  type AnonymousRecipientPlaintext,
   type AnonymousSenderPlaintext,
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
-import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import type { ProofOutputUtxo } from "../utxo.js";
 import type { AssetRegistry } from "../asset.js";
-import type {
-  AnonymousRecipientSlot,
-  EncryptedCustomRingTransfer,
-  EncryptedSplit,
-  EncryptedTransfer,
-  SpendSession,
-  SyncWalletAuthority,
-  WalletSyncMaterial,
-} from "./authority.js";
 
-/** @internal Owns both keys, wipes them when `run` settles. */
-export async function runSpendSession<T>(
-  viewingKey: ViewingKey,
-  nullifierKey: NullifierKey,
-  run: (session: SpendSession) => Promise<T>,
-): Promise<T> {
-  try {
-    return await run({
-      nullifierKey: () => nullifierKey,
-      encryptConfidentialTransfer: (input) =>
-        Promise.resolve(encryptConfidentialTransferWith(viewingKey, input)),
-      encryptCustomRingTransfer: (input) =>
-        Promise.resolve(encryptCustomRingTransferWith(viewingKey, input)),
-      encryptAnonymousTransfer: (input) =>
-        Promise.resolve(encryptAnonymousTransferWith(viewingKey, input)),
-      encryptSplit: (input) => Promise.resolve(encryptSplitWith(viewingKey, input)),
-    });
-  } finally {
-    viewingKey.destroy();
-    nullifierKey.destroy();
-  }
+export type { SplitBundlePlaintext };
+
+/**
+ * Per-transaction encryption envelope: the ephemeral transaction viewing key
+ * and salt every ciphertext in the transaction shares (published in the
+ * clear), plus the sealed payload the operation produced.
+ */
+export interface EncryptedEnvelope<P> {
+  readonly txViewingPublicKey: P256PublicKey;
+  readonly salt: Bytes16;
+  readonly payload: P;
 }
 
-/** @internal Owns the material, wipes its keys when `run` settles. */
-export async function runSyncSession<T>(
-  material: WalletSyncMaterial,
-  run: (session: SyncWalletAuthority) => Promise<T>,
-): Promise<T> {
-  try {
-    return await run({ syncMaterial: () => Promise.resolve(material) });
-  } finally {
-    for (const key of material.viewingKeys) key.destroy();
-    material.nullifierKey.destroy();
-  }
+/**
+ * Transfer payload: one ciphertext per output slot, keyed to that output's
+ * owner. `undefined` marks a dummy slot the transfer builder pads with a
+ * length-matched random ciphertext.
+ */
+export type EncryptedTransfer = EncryptedEnvelope<readonly (MessageData | undefined)[]>;
+
+/**
+ * Split payload: the single sealed slot-0 bundle covering every real output.
+ * Unlike a transfer there is exactly one ciphertext; all other slots stay empty
+ * on the wire.
+ */
+export type EncryptedSplit = EncryptedEnvelope<MessageData>;
+
+/** `txViewingSecret` is what the auditor key opens. It exists for the ring's own prover and is wiped after it. */
+export interface AuditWitness {
+  readonly txViewingSecret: Bytes32;
+  readonly ephemeralSecret: Bytes32;
 }
 
-/** @internal */
-export function encryptConfidentialTransferWith(
-  viewingKey: ViewingKey,
-  input: Readonly<{
-    firstNullifier: Bytes32;
-    outputs: readonly ProofOutputUtxo[];
-    assets: AssetRegistry;
-  }>,
+export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
+  readonly auditorMessage: MessageData;
+  readonly audit: AuditWitness;
+}
+
+export interface AnonymousRecipientSlot {
+  readonly viewTag: Bytes32;
+  readonly recipientPublicKey: P256PublicKey;
+  readonly plaintext: AnonymousRecipientPlaintext;
+}
+
+/**
+ * Every sealing step of a transaction, over the per-transaction key
+ * `ShieldedKeys.transactionKeys` returns for its first nullifier. The key is
+ * the caller's to destroy once the proof inputs are finalized.
+ */
+export function encryptConfidentialTransfer(
+  tx: ViewingKey,
+  input: Readonly<{ outputs: readonly ProofOutputUtxo[]; assets: AssetRegistry }>,
 ): EncryptedTransfer {
-  const tx = viewingKey.transactionViewingKey(input.firstNullifier);
-  try {
-    const salt = randomSalt();
-    return {
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
-    };
-  } finally {
-    tx.destroy();
-  }
+  const salt = randomSalt();
+  return {
+    txViewingPublicKey: tx.publicKey(),
+    salt,
+    payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+  };
 }
 
-/** @internal The caller wipes the returned audit secrets after proving. */
-export function encryptCustomRingTransferWith(
-  viewingKey: ViewingKey,
+/** The caller wipes the returned audit secrets after proving. */
+export function encryptCustomRingTransfer(
+  tx: ViewingKey,
   input: Readonly<{
-    firstNullifier: Bytes32;
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
   }>,
 ): EncryptedCustomRingTransfer {
-  const tx = viewingKey.transactionViewingKey(input.firstNullifier);
   let txViewingSecret: Bytes32 | undefined;
   let ephemeralSecret: Bytes32 | undefined;
   try {
@@ -117,7 +109,6 @@ export function encryptCustomRingTransferWith(
     ephemeralSecret = undefined;
     return encrypted;
   } finally {
-    tx.destroy();
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
   }
@@ -128,86 +119,76 @@ export function encryptCustomRingTransferWith(
  * key; recipient `i` occupies slot `i + 1`. Both the order and the slot
  * indices are bound into each ciphertext, so they must match the layout the
  * transfer instruction publishes.
- * @internal
  */
-export function encryptAnonymousTransferWith(
-  viewingKey: ViewingKey,
+export function encryptAnonymousTransfer(
+  tx: ViewingKey,
   input: Readonly<{
-    firstNullifier: Bytes32;
+    /** The wallet's own viewing public key, which opens the sender bundle. */
+    viewingPublicKey: P256PublicKey;
     senderViewTag: Bytes32;
     sender: AnonymousSenderPlaintext;
     recipients: readonly AnonymousRecipientSlot[];
   }>,
 ): EncryptedTransfer {
-  const tx = viewingKey.transactionViewingKey(input.firstNullifier);
-  try {
-    const salt = randomSalt();
-    const slot = (
-      scheme: EncryptedScheme,
-      recipient: P256PublicKey,
-      plaintext: Uint8Array,
-      slotIndex: number,
-      viewTag: Bytes32,
-    ): MessageData => ({
-      viewTag,
-      data: encodeOutputData(
-        scheme,
-        encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
-        "encrypted",
+  const salt = randomSalt();
+  const slot = (
+    scheme: EncryptedScheme,
+    recipient: P256PublicKey,
+    plaintext: Uint8Array,
+    slotIndex: number,
+    viewTag: Bytes32,
+  ): MessageData => ({
+    viewTag,
+    data: encodeOutputData(
+      scheme,
+      encryptAnonymous(tx, recipient, plaintext, salt, slotIndex),
+      "encrypted",
+    ),
+  });
+  return {
+    txViewingPublicKey: tx.publicKey(),
+    salt,
+    payload: [
+      slot(
+        EncryptedScheme.anonymousSender,
+        input.viewingPublicKey,
+        encodeAnonymousSender(input.sender),
+        0,
+        input.senderViewTag,
       ),
-    });
-    return {
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: [
+      ...input.recipients.map((recipient, index) =>
         slot(
-          EncryptedScheme.anonymousSender,
-          viewingKey.publicKey(),
-          encodeAnonymousSender(input.sender),
-          0,
-          input.senderViewTag,
+          EncryptedScheme.anonymousRecipient,
+          recipient.recipientPublicKey,
+          encodeAnonymousRecipient(recipient.plaintext),
+          index + 1,
+          recipient.viewTag,
         ),
-        ...input.recipients.map((recipient, index) =>
-          slot(
-            EncryptedScheme.anonymousRecipient,
-            recipient.recipientPublicKey,
-            encodeAnonymousRecipient(recipient.plaintext),
-            index + 1,
-            recipient.viewTag,
-          ),
-        ),
-      ],
-    };
-  } finally {
-    tx.destroy();
-  }
+      ),
+    ],
+  };
 }
 
-/** @internal */
-export function encryptSplitWith(
-  viewingKey: ViewingKey,
+export function encryptSplit(
+  tx: ViewingKey,
   input: Readonly<{
-    firstNullifier: Bytes32;
+    /** The wallet's own viewing public key, which opens the bundle. */
+    viewingPublicKey: P256PublicKey;
     viewTag: Bytes32;
     bundle: SplitBundlePlaintext;
   }>,
 ): EncryptedSplit {
-  const tx = viewingKey.transactionViewingKey(input.firstNullifier);
-  try {
-    const salt = randomSalt();
-    return {
-      txViewingPublicKey: tx.publicKey(),
-      salt,
-      payload: {
-        viewTag: input.viewTag,
-        data: encodeOutputData(
-          EncryptedScheme.split,
-          encryptSplit(tx, viewingKey.publicKey(), encodeSplitBundle(input.bundle), salt, 0),
-          "encrypted",
-        ),
-      },
-    };
-  } finally {
-    tx.destroy();
-  }
+  const salt = randomSalt();
+  return {
+    txViewingPublicKey: tx.publicKey(),
+    salt,
+    payload: {
+      viewTag: input.viewTag,
+      data: encodeOutputData(
+        EncryptedScheme.split,
+        encryptSplitSlot(tx, input.viewingPublicKey, encodeSplitBundle(input.bundle), salt, 0),
+        "encrypted",
+      ),
+    },
+  };
 }

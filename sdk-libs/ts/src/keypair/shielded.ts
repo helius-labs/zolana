@@ -268,21 +268,11 @@ export class ShieldedKeypair implements ShieldedKeypairLike, ViewingKeyLike {
   }
 
   viewingKey(): ViewingKey {
-    const secret = this.#viewing.secretBytes();
-    try {
-      return ViewingKey.fromBytes(secret);
-    } finally {
-      secret.fill(0);
-    }
+    return this.#viewing.clone();
   }
 
   nullifierKey(): NullifierKey {
-    const secret = this.#nullifier.secretBytes();
-    try {
-      return NullifierKey.fromSecret(secret);
-    } finally {
-      secret.fill(0);
-    }
+    return this.#nullifier.clone();
   }
 
   curve(): SignatureType {

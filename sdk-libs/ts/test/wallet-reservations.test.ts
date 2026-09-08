@@ -2,12 +2,13 @@ import { address, type Address } from "@solana/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AuthorizedPrivateTransaction } from "../src/client/client.js";
+import { LocalKeys } from "../src/client/keys.js";
 import type { PrivateTransactionClient } from "../src/wallet/index.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import {
   Data,
-  KeypairWalletAuthority,
+  LocalShieldedKeys,
   SOL_MINT,
   Utxo,
   Wallet,
@@ -16,7 +17,7 @@ import {
 } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import { createSplit, createTransfer } from "../src/wallet/actions.js";
-import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
+import { createMerge } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
 import { privateTransactionClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
@@ -33,11 +34,10 @@ function spendingKeypair(): ShieldedKeypair {
   return ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(filled(42)));
 }
 
-function mergeMaterial(keypair: ShieldedKeypair): MergeMaterial {
-  return new MergeMaterial({
-    signingPublicKey: keypair.signingPublicKey(),
-    viewingPublicKey: keypair.viewingPublicKey(),
-    nullifierKey: keypair.nullifierKey(),
+function localKeys(keypair: ShieldedKeypair): LocalKeys {
+  return LocalKeys.fromKeypair(keypair, {
+    prove: () => Promise.reject(new Error("prove must not be called")),
+    proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
   });
 }
 
@@ -94,10 +94,7 @@ function buildParams(client: PrivateTransactionClient, wallet: Wallet, keypair: 
   return {
     client,
     wallet,
-    authority: new KeypairWalletAuthority({
-      solanaPublicKey: keypair.shieldedAddress().solanaAddress(),
-      keypair,
-    }),
+    keys: localKeys(keypair),
     feePayer: keypair.shieldedAddress().solanaAddress(),
     recipient: ShieldedKeypair.generate().shieldedAddress(),
     amount: 3n,
@@ -208,17 +205,17 @@ describe("UTXO reservations", () => {
     await expect(createTransfer(transferParams(accepted, 3n))).resolves.toBeDefined();
   });
 
-  it("releases at once when merge preparation refuses the UTXOs", () => {
+  it("releases at once when merge preparation refuses the UTXOs", async () => {
     const keypair = spendingKeypair();
     const wallet = fundedWallet(keypair, [6n, 4n], [1]);
-    expect(() =>
+    await expect(
       createMerge({
         wallet,
-        material: mergeMaterial(keypair),
+        keys: LocalShieldedKeys.fromKeypair(keypair),
         asset: SOL_MINT,
         inputs: [filled(1), filled(2)],
       }),
-    ).toThrowError(expect.objectContaining({ code: "TRANSACTION_MERGE_INPUT_RING_MISMATCH" }));
+    ).rejects.toMatchObject({ code: "TRANSACTION_MERGE_INPUT_RING_MISMATCH" });
     expect(wallet._reservationEntries()).toHaveLength(0);
   });
 
@@ -229,16 +226,12 @@ describe("UTXO reservations", () => {
     expect(() =>
       createSplit({ wallet, payer: PAYER, asset: SOL_MINT, parts: 2, input: filled(1) }),
     ).toThrowError(expect.objectContaining({ code: "WALLET_NOTE_RESERVED" }));
-    expect(() =>
-      createMerge({
-        wallet,
-        material: mergeMaterial(keypair),
-        asset: SOL_MINT,
-        inputs: [filled(1), filled(2)],
-      }),
-    ).toThrowError(expect.objectContaining({ code: "WALLET_NOTE_RESERVED" }));
-    expect(() =>
-      createMerge({ wallet, material: mergeMaterial(keypair), asset: SOL_MINT }),
-    ).toThrowError(expect.objectContaining({ code: "WALLET_NOTHING_TO_MERGE" }));
+    const keys = LocalShieldedKeys.fromKeypair(keypair);
+    await expect(
+      createMerge({ wallet, keys, asset: SOL_MINT, inputs: [filled(1), filled(2)] }),
+    ).rejects.toMatchObject({ code: "WALLET_NOTE_RESERVED" });
+    await expect(createMerge({ wallet, keys, asset: SOL_MINT })).rejects.toMatchObject({
+      code: "WALLET_NOTHING_TO_MERGE",
+    });
   });
 });
