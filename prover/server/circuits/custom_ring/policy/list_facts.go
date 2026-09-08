@@ -46,9 +46,9 @@ type listFact struct {
 	member  frontend.Variable
 }
 
-// entryProofInputs ties a list fact to its configured namespace owner and
+// listFactContext ties a list fact to its configured namespace owner and
 // supplied tree roots.
-type entryProofInputs struct {
+type listFactContext struct {
 	ownerHash     frontend.Variable
 	stateRoot     frontend.Variable
 	nullifierRoot frontend.Variable
@@ -59,20 +59,20 @@ func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, checker front
 	var out [NListFacts]listFact
 	for i, fact := range c.ListFacts {
 		// 1. Resolve the source namespace for the claimed list.
-		proof := entryProofInputs{
+		context := listFactContext{
 			ownerHash:     resolveSourceOwner(api, c.Sources, fact),
 			stateRoot:     c.StateRoot,
 			nullifierRoot: c.NullifierRoot,
 		}
 
 		// 2. Prove the list fact at the supplied roots.
-		out[i] = fact.check(api, checker, proof)
+		out[i] = fact.check(api, checker, context)
 	}
 	return out
 }
 
 // check authenticates an enabled claim for rule evaluation.
-func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, proof entryProofInputs) listFact {
+func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, context listFactContext) listFact {
 	// 1. Check the enabled claim, member and numeric bounds.
 	api.AssertIsBoolean(w.Enabled)
 	checker.Check(w.ListId, 8)
@@ -93,7 +93,7 @@ func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, pr
 	// 3. Derive the entry address from its source, list and member.
 	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.ListId, w.Member})
 	address := gadget.PoseidonHash(api, []frontend.Variable{
-		addressUtxoHash(api, proof.ownerHash, seed),
+		addressUtxoHash(api, context.ownerHash, seed),
 		seed,
 		0,
 	})
@@ -116,7 +116,7 @@ func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, pr
 		0,
 		dataHash,
 		emptyRingHash,
-		gadget.PoseidonHash(api, []frontend.Variable{proof.ownerHash, w.Version}),
+		gadget.PoseidonHash(api, []frontend.Variable{context.ownerHash, w.Version}),
 	})
 	nullifier := gadget.PoseidonHash(api, []frontend.Variable{utxoHash, w.Version, 0})
 
@@ -132,7 +132,7 @@ func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, pr
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needsStateInclusion,
 		A:    stateRoot,
-		B:    proof.stateRoot,
+		B:    context.stateRoot,
 	})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needsStateInclusion,
@@ -154,7 +154,7 @@ func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, pr
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: w.Enabled,
 		A:    nullifierRoot,
-		B:    proof.nullifierRoot,
+		B:    context.nullifierRoot,
 	})
 
 	// 8. Prove the target lies strictly between canonical lower and upper
