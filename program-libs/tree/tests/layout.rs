@@ -1,11 +1,19 @@
 use core::mem::{offset_of, size_of};
 
 use zolana_tree::{
-    nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES, NullifierTreeInitParams, TreeAccount,
-    TreeAccountLayout, TreeFeeSchedule, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
+    nullifier_tree::{
+        constants::NULLIFIER_TREE_ZKP_BATCHES,
+        layout::{NullifierTreeLayout, RootHistory},
+    },
+    smt::ROOT_HISTORY_CAPACITY,
+    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout,
+    TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
 };
 
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
+type Utxo = UtxoTreeLayout<UTXO_TREE_HEIGHT>;
+type Nullifier = NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES>;
+type NullifierRoots = RootHistory<NULLIFIER_TREE_ZKP_BATCHES>;
 
 #[test]
 fn account_layout_is_pinned() {
@@ -18,6 +26,20 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(Layout, utxo), 72);
     assert_eq!(TreeAccount::state_root_offset(), 80);
     assert_eq!(offset_of!(Layout, nullifier), 7_544);
+}
+
+/// The TypeScript `decodeTreeHeadRoots` reads these offsets.
+#[test]
+fn root_history_layout_is_pinned() {
+    let utxo = offset_of!(Layout, utxo);
+    assert_eq!(utxo + offset_of!(Utxo, root_history_cursor), 112);
+    assert_eq!(utxo + offset_of!(Utxo, root_history_len), 114);
+    assert_eq!(utxo + offset_of!(Utxo, root_history), 1_142);
+    assert_eq!(ROOT_HISTORY_CAPACITY, 200);
+    let roots = offset_of!(Layout, nullifier) + offset_of!(Nullifier, root_history);
+    assert_eq!(roots + offset_of!(NullifierRoots, current_index), 7_616);
+    assert_eq!(roots + offset_of!(NullifierRoots, roots), 7_624);
+    assert_eq!(NULLIFIER_TREE_ZKP_BATCHES, 100);
 }
 
 #[test]
