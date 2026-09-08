@@ -24,9 +24,9 @@ type outputTotals struct {
 
 // guardAmounts supplies the totals and limit selected for one rule and output.
 type guardAmounts struct {
-	subjectOutputTotal frontend.Variable
-	ownerAssetTotal    frontend.Variable
-	assetLimit         assetLimit
+	subjectOutputTotal    frontend.Variable
+	ownerAssetOutputTotal frontend.Variable
+	assetLimit            assetLimit
 }
 
 // sumOutputs makes each amount guard account for every output sharing its
@@ -51,24 +51,27 @@ func sumOutputs(api frontend.API, outputs [NOutputs]utxoView, liveOwner, liveAss
 	return totals
 }
 
-// matchInlineAssets shares each output's inline match between asset rules and
-// amount guards.
-func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, outputs [NOutputs]utxoView, inlineEnabled [NInlineAssets]frontend.Variable) [NOutputs]assetLimit {
+// resolveOutputAssetLimits shares inline membership and limits across rules.
+func (c *CustomRingPolicyCircuit) resolveOutputAssetLimits(api frontend.API, outputs [NOutputs]utxoView, inlineEnabled [NInlineAssets]frontend.Variable) [NOutputs]assetLimit {
 	var limits [NOutputs]assetLimit
 	for i, output := range outputs {
-		var matches [NInlineAssets]frontend.Variable
-		threshold := frontend.Variable(0)
-		// 1. Match the output against committed inline assets and
-		// collect their limits.
-		for j, asset := range c.InlineAssets {
-			matches[j] = api.Mul(inlineEnabled[j], api.IsZero(api.Sub(asset, output.asset)))
-			threshold = api.Add(threshold, api.Mul(matches[j], c.InlineLimits[j]))
-		}
-
-		// 2. Accept inline coverage when any configured asset matches.
-		limits[i] = assetLimit{found: anyOf(api, matches[:]), threshold: threshold}
+		limits[i] = c.matchInlineAssets(api, output.asset, inlineEnabled)
 	}
 	return limits
+}
+
+// matchInlineAssets excludes inactive inline slots from membership and limits.
+func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, outputAsset frontend.Variable, inlineEnabled [NInlineAssets]frontend.Variable) assetLimit {
+	// 1. Match the output asset and collect its configured limits.
+	var matches [NInlineAssets]frontend.Variable
+	threshold := frontend.Variable(0)
+	for i, asset := range c.InlineAssets {
+		matches[i] = api.Mul(inlineEnabled[i], api.IsZero(api.Sub(asset, outputAsset)))
+		threshold = api.Add(threshold, api.Mul(matches[i], c.InlineLimits[i]))
+	}
+
+	// 2. Accept inline coverage when any configured asset matches.
+	return assetLimit{found: anyOf(api, matches[:]), threshold: threshold}
 }
 
 // amountExemption permits missing coverage only within the rule's grouped
@@ -77,22 +80,22 @@ func (w RuleWires) amountExemption(api frontend.API, amounts guardAmounts) front
 	// 1. Compare the subject total with the scalar threshold.
 	scalar := api.Mul(
 		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmount)),
-		atMostAggregated(api, amounts.subjectOutputTotal, w.Threshold),
+		outputTotalAtMost(api, amounts.subjectOutputTotal, w.Threshold),
 	)
 
 	// 2. Compare the owner-and-asset total with its configured limit.
 	perAsset := api.Mul(
 		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmountByAsset)),
 		amounts.assetLimit.found,
-		atMostAggregated(api, amounts.ownerAssetTotal, amounts.assetLimit.threshold),
+		outputTotalAtMost(api, amounts.ownerAssetOutputTotal, amounts.assetLimit.threshold),
 	)
 
 	// 3. Accept an exemption only from the selected guard.
 	return api.Or(scalar, perAsset)
 }
 
-// atMostAggregated compares a bounded output total with its threshold.
+// outputTotalAtMost compares a bounded output total with its threshold.
 // Both operands must be nonnegative and below amountSumOffset.
-func atMostAggregated(api frontend.API, total, threshold frontend.Variable) frontend.Variable {
+func outputTotalAtMost(api frontend.API, total, threshold frontend.Variable) frontend.Variable {
 	return api.ToBinary(api.Add(api.Sub(threshold, total), amountSumOffset), amountSumBits+1)[amountSumBits]
 }

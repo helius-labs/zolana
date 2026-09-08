@@ -331,7 +331,7 @@ func TestAssignRuleReadsTheEncodedBytes(t *testing.T) {
 		"mask":      {fmt.Sprint(wires.ListMask), "29"},
 		"guardTag":  {fmt.Sprint(wires.GuardTag), "28"},
 		"threshold": {wires.Threshold.(*big.Int).Text(16), "1415161718191a1b"},
-		"altMask":   {fmt.Sprint(wires.AltListMask), "19"},
+		"altMask":   {fmt.Sprint(wires.OppositeModeListMask), "19"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s: got %s, want %s", name, check.got, check.want)
