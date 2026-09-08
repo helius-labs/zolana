@@ -139,6 +139,16 @@ Added
   the instructions with `RingSharedSource` curators, and a curator on another
   entries tree or without the list is refused with
   `RING_POLICY_SOURCE_INVALID` before the transaction is compiled.
+- `planRingProgramDeployment` deploys or upgrades a ring program through the
+  upgradeable loader as a `RingProgramDeployment`, the prepare, write and
+  finish transactions the caller signs and sends, reports a binary already on
+  chain as present, and refuses a foreign or renounced upgrade authority with
+  `RING_PROGRAM_AUTHORITY_MISMATCH` or `RING_PROGRAM_IMMUTABLE`.
+- `ringProgramBinary` hashes a program binary, `fetchRingProgramData` reads a
+  deployed program's upgrade authority, capacity and deploy slot as
+  `RingProgramData`, `verifyRingProgram` refuses a missing or different
+  deployed binary with `RING_PROGRAM_NOT_DEPLOYED` or `RING_PROGRAM_MISMATCH`,
+  and `setUpgradeAuthorityInstruction` hands the program over or renounces it.
 - `buildRingListWriteTransaction` adds or clears one list entry as a
   `RingListWrite`, or reports an entry already in that state, and refuses a
   curator-served list with `RING_LIST_SHARED` and a payer the list does not
@@ -198,6 +208,10 @@ Fixed
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
+
+Dependencies
+
+- `@solana-program/system` ^0.13.0 (new).
 
 ## 0.1.5-alpha — 2026-09-01
 

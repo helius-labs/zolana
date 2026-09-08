@@ -211,6 +211,28 @@ export type {
   RingWithdrawal,
   TransactionOrigin,
 } from "./origin.js";
+export {
+  CLOCK_SYSVAR,
+  RENT_SYSVAR,
+  decodeRingProgramData,
+  deployWithMaxDataLenInstruction,
+  extendProgramInstruction,
+  fetchRingProgramData,
+  initializeBufferInstruction,
+  planRingProgramDeployment,
+  ringProgramBinary,
+  setUpgradeAuthorityInstruction,
+  upgradeInstruction,
+  verifyRingProgram,
+  writeBufferInstruction,
+} from "./program.js";
+export type {
+  RingProgramBinary,
+  RingProgramData,
+  RingProgramDeployment,
+  RingProgramDeploymentClient,
+  RingProgramDeploymentParams,
+} from "./program.js";
 export { provePolicyAnswers } from "./answers.js";
 export type { PolicyAnswerInput, PolicyAnswers, RingPolicyAnswerClient } from "./answers.js";
 export { proveRingEntryTransition, ringEntryTransitionInputs } from "./entry-proof.js";

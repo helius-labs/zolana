@@ -520,6 +520,8 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
       RING_RPC_URL="$ring_rpc_url" \
       RING_AUTHORITY_KEYPAIR="$PWD/$ring_dir/authority.json" \
       RING_ORIGIN="$ring_origin" \
+      RING_PROGRAM_SO="$PWD/target/deploy/custom_ring_program.so" \
+      USER_REGISTRY_PROGRAM_SO="$PWD/target/deploy/zolana_user_registry.so" \
       ZOLANA_TEST_AUTHORITY_WALLET="$PWD/$workdir/authority.json" npm run "{{test-script}}"
 
 test-ts-all: test-ts test-ts-e2e
