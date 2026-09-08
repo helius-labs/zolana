@@ -72,7 +72,7 @@ func TestApprovalDoesNotOverrideFrozen(t *testing.T) {
 
 func TestListFactsReuseAcrossRulesAndChange(t *testing.T) {
 	s := reviewedRecipients(t)
-	s.outputs = []OpeningWires{s.outputs[1], s.outputs[1], s.outputs[1]}
+	s.outputs = []UtxoWires{s.outputs[1], s.outputs[1], s.outputs[1]}
 	for i := range s.outputs {
 		s.outputs[i].Blinding = big.NewInt(int64(0x90 + i))
 	}
