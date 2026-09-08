@@ -6,8 +6,6 @@ import type {
   TransactProof,
   TreeHeadRoots,
 } from "../../interface/types.js";
-import type { ProofInputUtxo, ProofOutputUtxo } from "../../transaction/utxo.js";
-
 import type { SpendProof } from "../rpc.js";
 
 export type Shape = Readonly<{ inputs: number; outputs: number }>;
@@ -25,7 +23,6 @@ export interface CircuitUtxo {
 }
 
 export interface TransferInput {
-  readonly utxo: ProofInputUtxo;
   readonly circuit: CircuitUtxo;
   readonly isDummy: Field;
   readonly statePathElements: readonly Field[];
@@ -42,7 +39,6 @@ export interface TransferInput {
 }
 
 export interface TransferOutput {
-  readonly utxo: ProofOutputUtxo;
   readonly circuit: CircuitUtxo;
   readonly isDummy: Field;
   readonly hash: Field;

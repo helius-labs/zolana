@@ -6,6 +6,7 @@ import type {
   RequestContext,
   Transaction,
   TransactInstructionData,
+  TransactProof,
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
@@ -24,6 +25,7 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
   RingTransactRoots,
+  TransferInputs,
 } from "./prover/types.js";
 import type {
   GetByNullifiersRequest,
@@ -120,6 +122,8 @@ export interface Prover {
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
+  /** The ring circuit when `ringProgramId` is non-zero. */
+  proveTransferInputs(inputs: TransferInputs, context?: RequestContext): Promise<TransactProof>;
   proverHealth(context?: RequestContext): Promise<ProverHealth>;
 }
 

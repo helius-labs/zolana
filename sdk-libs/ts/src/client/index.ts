@@ -43,14 +43,19 @@ export {
   disabledRuleAnswer,
 } from "./prover/types.js";
 export type {
+  CircuitUtxo,
   CompressedProof,
   CustomRingBaseProofRequest,
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
   CustomRingSourceOwner,
+  Field,
   Proof,
   RingTransactRoots,
+  TransferInput,
+  TransferInputs,
+  TransferOutput,
 } from "./prover/types.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,

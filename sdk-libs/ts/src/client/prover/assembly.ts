@@ -7,6 +7,7 @@ import type {
   TransactProof,
 } from "../../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
+import { selectSppShape } from "../../interface/shape.js";
 import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import { ProofInputUtxo, type ProofOutputUtxo } from "../../transaction/utxo.js";
@@ -129,19 +130,19 @@ function assembleUnchecked(
   ];
   const allowDummyInputs = 1n;
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
-  const publicInputHash = hashChain([
-    hashChain(nullifiers.map(bytesToBigInt)),
-    hashChain(outputHashes),
-    hashChain(utxoRoots),
-    hashChain(nullifierRoots),
+  const publicInputHash = transferPublicInputHash({
+    nullifiers: nullifiers.map(bytesToBigInt),
+    outputHashes,
+    utxoRoots,
+    nullifierRoots,
     privateTxHash,
     externalDataHash,
-    ...publicSlots,
+    publicSlots,
     ringProgramId,
-    rightHashChain(signerPublicKeyHashes),
+    signerPublicKeyHashes,
     allowDummyInputs,
-    hashChain(outputOwnerFields),
-  ]);
+    publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
+  });
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
     outputs: Object.freeze(transferOutputs),
@@ -365,13 +366,43 @@ export function assembleSlots(
   });
 }
 
+/** Mirrors Rust `PublicInputs::hash`, the signer chain folds from the right. */
+export function transferPublicInputHash(
+  input: Readonly<{
+    nullifiers: readonly bigint[];
+    outputHashes: readonly bigint[];
+    utxoRoots: readonly bigint[];
+    nullifierRoots: readonly bigint[];
+    privateTxHash: bigint;
+    externalDataHash: bigint;
+    publicSlots: readonly bigint[];
+    ringProgramId: bigint;
+    signerPublicKeyHashes: readonly bigint[];
+    allowDummyInputs: bigint;
+    publishedOutputOwnerPublicKeyHashes: readonly bigint[];
+  }>,
+): bigint {
+  return hashChain([
+    hashChain(input.nullifiers),
+    hashChain(input.outputHashes),
+    hashChain(input.utxoRoots),
+    hashChain(input.nullifierRoots),
+    input.privateTxHash,
+    input.externalDataHash,
+    ...input.publicSlots,
+    input.ringProgramId,
+    rightHashChain(input.signerPublicKeyHashes),
+    input.allowDummyInputs,
+    hashChain(input.publishedOutputOwnerPublicKeyHashes),
+  ]);
+}
+
 export function createRealInput(
   input: ProofInputUtxo,
   proof: SpendProof,
   ownerPublicKeyHash: bigint,
 ): TransferInput {
   return Object.freeze({
-    utxo: input,
     circuit: inputCircuitUtxo(input),
     isDummy: asField(0n),
     statePathElements: Object.freeze(
@@ -399,7 +430,6 @@ export function createDummyTransferInput(
   nullifier = input.nullifier(),
 ): TransferInput {
   return Object.freeze({
-    utxo: input,
     circuit: inputCircuitUtxo(input, true),
     isDummy: asField(1n),
     statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
@@ -426,7 +456,6 @@ export function createOutput(output: ProofOutputUtxo): TransferOutput {
       )
     : hashBytesBigInt(output.ownerTag ?? new Uint8Array(32));
   return Object.freeze({
-    utxo: output,
     circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),
     hash: asField(bytesField(output.hash(), "output hash")),
@@ -577,6 +606,25 @@ function zeroOpening(domain: number): CustomRingOpening {
 
 function openingField(value: bigint): Bytes32 {
   return bigintToBytes(value) as Bytes32;
+}
+
+/** Refuses a shape or a path length the prover does not take. */
+export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
+  try {
+    selectSppShape(inputs.inputs.length, inputs.outputs.length);
+  } catch {
+    throw new ClientError("CLIENT_PROVER_INPUT");
+  }
+  const malformed = inputs.inputs.some(
+    (input) =>
+      input.statePathElements.length !== STATE_TREE_HEIGHT ||
+      input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
+  );
+  if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
+  return Object.freeze({
+    circuit: inputs.ringProgramId === 0n ? "transfer" : "transferRing",
+    payload: inputs,
+  });
 }
 
 export function validateSpendProof(input: ProofInputUtxo, proof: SpendProof, index: number): void {
