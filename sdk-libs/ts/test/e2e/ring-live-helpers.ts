@@ -21,7 +21,6 @@ import {
   readRingEntry,
   ringPolicyNamespaceAddress,
   type EntryState,
-  type RingProgramDeployment,
   type RingRpc,
   messageSignerReader,
 } from "../../src/ring/index.js";
@@ -157,32 +156,6 @@ export async function enrolInAllow(
       state: "active",
     });
   }
-}
-
-export async function sendRingProgramDeployment(
-  client: ZolanaClient,
-  deployment: Extract<RingProgramDeployment, { kind: "deploy" | "upgrade" }>,
-  signers: Readonly<{
-    payer: KeyPairSigner;
-    buffer: KeyPairSigner;
-    authority: KeyPairSigner;
-    program?: KeyPairSigner;
-  }>,
-): Promise<void> {
-  await signSendAndConfirm(client, deployment.prepare, [signers.payer, signers.buffer]);
-  const batch = 25;
-  for (let start = 0; start < deployment.writes.length; start += batch) {
-    await Promise.all(
-      deployment.writes
-        .slice(start, start + batch)
-        .map((write) => signSendAndConfirm(client, write, [signers.payer, signers.authority])),
-    );
-  }
-  await signSendAndConfirm(client, deployment.finish, [
-    signers.payer,
-    signers.authority,
-    ...(signers.program === undefined ? [] : [signers.program]),
-  ]);
 }
 
 export { RingListNamespace };

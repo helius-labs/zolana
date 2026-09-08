@@ -215,11 +215,11 @@ export {
   CLOCK_SYSVAR,
   RENT_SYSVAR,
   decodeRingProgramData,
+  deployRingProgram,
   deployWithMaxDataLenInstruction,
   extendProgramInstruction,
   fetchRingProgramData,
   initializeBufferInstruction,
-  planRingProgramDeployment,
   ringProgramBinary,
   setUpgradeAuthorityInstruction,
   upgradeInstruction,
@@ -229,9 +229,9 @@ export {
 export type {
   RingProgramBinary,
   RingProgramData,
-  RingProgramDeployment,
-  RingProgramDeploymentClient,
-  RingProgramDeploymentParams,
+  RingProgramDeployClient,
+  RingProgramDeployOutcome,
+  RingProgramDeployParams,
 } from "./program.js";
 export { provePolicyAnswers } from "./answers.js";
 export type { PolicyAnswerInput, PolicyAnswers, RingPolicyAnswerClient } from "./answers.js";

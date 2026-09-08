@@ -1,13 +1,47 @@
+import { getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
 import { getCreateAccountInstruction } from "@solana-program/system";
-import { address, createNoopSigner, type Instruction } from "@solana/kit";
+import {
+  address,
+  appendTransactionMessageInstruction,
+  createTransactionMessage,
+  createTransactionPlanExecutor,
+  createTransactionPlanner,
+  generateKeyPairSigner,
+  getFirstFailedSingleTransactionPlanResult,
+  isSuccessfulTransactionPlanResult,
+  getLinearMessagePackerInstructionPlan,
+  getSignatureFromTransaction,
+  isSolanaError,
+  nonDivisibleSequentialInstructionPlan,
+  parallelInstructionPlan,
+  passthroughFailedTransactionPlanExecution,
+  sendTransactionWithoutConfirmingFactory,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  sequentialInstructionPlan,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+  singleInstructionPlan,
+  type Instruction,
+  type Signature,
+  type TransactionMessage,
+  type TransactionMessageWithFeePayer,
+  type TransactionPlan,
+  type TransactionSigner,
+} from "@solana/kit";
 
-import type { BlockhashProvider, ChainReader, KitRpcAccess } from "../client/ports.js";
-import { compileUnsignedTransaction } from "../flows/compile.js";
+import { ClientError } from "../client/error.js";
+import { runKitRpc } from "../client/kit.js";
+import { createIndexerPollConfig, pollUntil } from "../client/retry.js";
+import type {
+  BlockhashProvider,
+  ChainReader,
+  KitRpcAccess,
+  TransactionConfirmer,
+} from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { Reader, Writer, encodeBase58, sha256 } from "../interface/internal.js";
-import { TRANSACTION_SIZE_LIMIT, transactionSize } from "../interface/transaction-size.js";
-import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { runKitRpc } from "../client/kit.js";
+import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { equalBytes } from "../wallet/internal.js";
 
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "./config.js";
@@ -221,178 +255,422 @@ export async function extendProgramInstruction(
   };
 }
 
-export type RingProgramDeploymentClient = BlockhashProvider &
+export type RingProgramDeployClient = BlockhashProvider &
   KitRpcAccess &
-  Pick<ChainReader, "getAccount">;
+  Pick<TransactionConfirmer, "confirmTransaction"> &
+  Pick<ChainReader, "getAccount" | "getBalance">;
 
-export interface RingProgramDeploymentParams {
-  readonly client: RingProgramDeploymentClient;
+export interface RingProgramDeployParams {
+  readonly client: RingProgramDeployClient;
   readonly ringProgramId: Address;
   readonly binary: RingProgramBinary;
-  /** The upgrade authority, signs every write and the finish. */
-  readonly authority: Address;
-  /** Pays and, on an upgrade, receives the spill. */
-  readonly payer: Address;
-  /** A fresh keypair's address, it signs `prepare`. */
-  readonly buffer: Address;
+  readonly payer: TransactionSigner;
+  readonly authority: TransactionSigner;
+  /** Signs the first deploy only. */
+  readonly program?: TransactionSigner;
+  /** Pass the same keypair again to resume an interrupted upload. */
+  readonly buffer?: TransactionSigner;
+  /** Writes in flight at once. */
+  readonly concurrency?: number;
+  /** Sends of one transaction, each under a fresh blockhash. */
+  readonly attempts?: number;
   readonly computeUnitPriceMicroLamports?: bigint;
 }
 
-/** Mirrors Rust `DeployPlan`, a first deploy also signs `finish` with the program keypair. */
-export type RingProgramDeployment =
-  | Readonly<{ kind: "present"; programData: RingProgramData }>
-  | Readonly<{
-      kind: "deploy" | "upgrade";
-      buffer: Address;
-      prepare: Transaction;
-      /** Independent, send them in parallel before `finish`, all under one blockhash. */
-      writes: readonly Transaction[];
-      finish: Transaction;
-      /** Mirrors Rust `required_balance`, the payer needs this much before `prepare`. */
-      requiredLamports: bigint;
-    }>;
+export interface RingProgramDeployOutcome {
+  readonly kind: "present" | "deployed" | "upgraded";
+  readonly programData: RingProgramData;
+}
 
-export async function planRingProgramDeployment(
-  params: RingProgramDeploymentParams,
+const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_ATTEMPTS = 5;
+const USABLE_POLL = createIndexerPollConfig(150, 400n, 400n);
+const BUFFER_STATE = 1;
+
+/** Mirrors the ring CLI `deploy`, returns once the program is usable. */
+export async function deployRingProgram(
+  params: RingProgramDeployParams,
   context?: RequestContext,
-): Promise<RingProgramDeployment> {
+): Promise<RingProgramDeployOutcome> {
   try {
-    const programData = await fetchRingProgramData(params.client, params.ringProgramId, context);
-    if (programData !== undefined) {
-      if (programData.upgradeAuthority === undefined) {
-        throw new RingError("RING_PROGRAM_IMMUTABLE", {
-          details: { ringProgramId: params.ringProgramId },
-        });
-      }
-      if (programData.upgradeAuthority !== params.authority) {
-        throw new RingError("RING_PROGRAM_AUTHORITY_MISMATCH", {
-          details: { ringProgramId: params.ringProgramId, authority: programData.upgradeAuthority },
-        });
-      }
-      const deployed = programData.deployedHash(params.binary.bytes.length);
-      if (deployed !== undefined && equalBytes(deployed, params.binary.sha256)) {
-        return Object.freeze({ kind: "present", programData });
-      }
-    }
-    const length = params.binary.bytes.length;
-    const rent = (space: number): Promise<bigint> =>
-      runKitRpc("getMinimumBalanceForRentExemption", context, (abortSignal) =>
-        params.client.solanaRpc
-          .getMinimumBalanceForRentExemption(BigInt(space))
-          .send({ abortSignal }),
-      );
-    const [bufferRent, lifetime] = await Promise.all([
-      rent(BUFFER_METADATA_SIZE + length),
-      params.client.getLatestBlockhash(context),
-    ]);
-    const payer = createNoopSigner(params.payer);
-    const compile = (instructions: readonly Instruction[]): Transaction =>
-      compileUnsignedTransaction({
-        feePayer: params.payer,
-        lifetime,
-        instructions,
-        ...(params.computeUnitPriceMicroLamports === undefined
-          ? {}
-          : { computeUnitPriceMicroLamports: params.computeUnitPriceMicroLamports }),
-      });
-    const prepare = compile([
-      getCreateAccountInstruction({
-        payer,
-        newAccount: createNoopSigner(params.buffer),
-        lamports: bufferRent,
-        space: BigInt(BUFFER_METADATA_SIZE + length),
-        programAddress: BPF_LOADER_UPGRADEABLE_ID,
-      }),
-      initializeBufferInstruction({ buffer: params.buffer, authority: params.authority }),
-    ]);
-    const writes = writeTransactions(params, compile);
-    let requiredLamports = DEPLOY_FEE_BUDGET + bufferRent;
-    let finish: Transaction;
-    if (programData === undefined) {
-      const [programRent, programDataRent] = await Promise.all([
-        rent(PROGRAM_SIZE),
-        rent(PROGRAM_DATA_METADATA_SIZE + length),
-      ]);
-      requiredLamports += programRent + programDataRent;
-      finish = compile([
-        getCreateAccountInstruction({
-          payer,
-          newAccount: createNoopSigner(params.ringProgramId),
-          lamports: programRent,
-          space: BigInt(PROGRAM_SIZE),
-          programAddress: BPF_LOADER_UPGRADEABLE_ID,
-        }),
-        await deployWithMaxDataLenInstruction({
-          payer: params.payer,
-          ringProgramId: params.ringProgramId,
-          buffer: params.buffer,
-          authority: params.authority,
-          maxDataLen: length,
-        }),
-      ]);
-    } else {
-      const instructions: Instruction[] = [];
-      if (length > programData.capacity) {
-        const grown = Math.max(length - programData.capacity, MIN_EXTEND_BYTES);
-        const [before, after] = await Promise.all([
-          rent(PROGRAM_DATA_METADATA_SIZE + programData.capacity),
-          rent(PROGRAM_DATA_METADATA_SIZE + programData.capacity + grown),
-        ]);
-        requiredLamports += after > before ? after - before : 0n;
-        instructions.push(
-          await extendProgramInstruction({
-            ringProgramId: params.ringProgramId,
-            payer: params.payer,
-            additionalBytes: grown,
-          }),
-        );
-      }
-      instructions.push(
-        await upgradeInstruction({
-          ringProgramId: params.ringProgramId,
-          buffer: params.buffer,
-          spill: params.payer,
-          authority: params.authority,
-        }),
-      );
-      finish = compile(instructions);
-    }
-    return Object.freeze({
-      kind: programData === undefined ? "deploy" : "upgrade",
-      buffer: params.buffer,
-      prepare,
-      writes,
-      finish,
-      requiredLamports,
+    const existing = await fetchRingProgramData(params.client, params.ringProgramId, context);
+    const present = deployPlan(params, existing);
+    if (present !== undefined) return Object.freeze({ kind: "present", programData: present });
+    const buffer = params.buffer ?? (await generateKeyPairSigner());
+    const upload = await bufferState(params, buffer.address, context);
+    const programRent = existing === undefined ? await rent(params, PROGRAM_SIZE, context) : 0n;
+    await checkFunding(params, existing, upload, programRent, context);
+    const send = transactionSender(params, context);
+    const planner = createTransactionPlanner({
+      createTransactionMessage: () => baseMessage(params),
     });
+    const plan = (input: Parameters<typeof planner>[0]) => planner(input, abortOption(context));
+    const length = params.binary.bytes.length;
+    const writes = parallelInstructionPlan([
+      getLinearMessagePackerInstructionPlan({
+        totalLength: length,
+        getInstruction: (offset, chunk) =>
+          writeBufferInstruction({
+            buffer: buffer.address,
+            authority: params.authority,
+            offset,
+            bytes: params.binary.bytes.subarray(offset, offset + chunk),
+          }),
+      }),
+    ]);
+    await send(
+      await plan(
+        upload.kind === "missing"
+          ? sequentialInstructionPlan([
+              nonDivisibleSequentialInstructionPlan([
+                getCreateAccountInstruction({
+                  payer: params.payer,
+                  newAccount: buffer,
+                  lamports: upload.rent,
+                  space: BigInt(BUFFER_METADATA_SIZE + length),
+                  programAddress: BPF_LOADER_UPGRADEABLE_ID,
+                }),
+                initializeBufferInstruction({
+                  buffer: buffer.address,
+                  authority: params.authority.address,
+                }),
+              ]),
+              writes,
+            ])
+          : writes,
+      ),
+    );
+    await checkBufferContent(params, buffer.address, context);
+    if (existing === undefined) {
+      await send(
+        await plan(
+          nonDivisibleSequentialInstructionPlan([
+            getCreateAccountInstruction({
+              payer: params.payer,
+              newAccount: programSigner(params),
+              lamports: programRent,
+              space: BigInt(PROGRAM_SIZE),
+              programAddress: BPF_LOADER_UPGRADEABLE_ID,
+            }),
+            await deployWithMaxDataLenInstruction({
+              payer: params.payer,
+              ringProgramId: params.ringProgramId,
+              buffer: buffer.address,
+              authority: params.authority,
+              maxDataLen: length,
+            }),
+          ]),
+        ),
+      );
+    } else {
+      if (length > existing.capacity) {
+        await send(
+          await plan(
+            singleInstructionPlan(
+              await extendProgramInstruction({
+                ringProgramId: params.ringProgramId,
+                payer: params.payer,
+                additionalBytes: growth(existing, length),
+              }),
+            ),
+          ),
+        );
+        // The loader stamps the extend slot and refuses an upgrade in it.
+        const extended = await fetchRingProgramData(params.client, params.ringProgramId, context);
+        if (extended === undefined) throw programDataInvalid();
+        await waitUntilUsable(params, extended.lastDeploySlot, context);
+      }
+      await send(
+        await plan(
+          singleInstructionPlan(
+            await upgradeInstruction({
+              ringProgramId: params.ringProgramId,
+              buffer: buffer.address,
+              spill: params.payer.address,
+              authority: params.authority,
+            }),
+          ),
+        ),
+      );
+    }
+    const programData = await verifyRingProgram(
+      params.client,
+      params.ringProgramId,
+      params.binary,
+      context,
+    );
+    await waitUntilUsable(params, programData.lastDeploySlot, context);
+    return Object.freeze({ kind: existing === undefined ? "deployed" : "upgraded", programData });
   } catch (cause) {
-    throw wrapRingError("RING_BUILD_PROGRAM", cause);
+    throw wrapRingError("RING_DEPLOY_PROGRAM", cause);
   }
 }
 
-/** Every write fills the packet. */
-function writeTransactions(
-  params: RingProgramDeploymentParams,
-  compile: (instructions: readonly Instruction[]) => Transaction,
-): readonly Transaction[] {
-  const write = (offset: number, bytes: Uint8Array): Instruction =>
-    writeBufferInstruction({
-      buffer: params.buffer,
-      authority: params.authority,
-      offset,
-      bytes,
-    });
-  const envelope = transactionSize(compile([write(0, new Uint8Array())]));
-  // The data length prefix grows by one byte past 127 bytes.
-  const chunk = TRANSACTION_SIZE_LIMIT - envelope - 1;
-  if (chunk <= 0) throw new RingError("RING_BUILD_PROGRAM");
-  const transactions: Transaction[] = [];
-  for (let offset = 0; offset < params.binary.bytes.length; offset += chunk) {
-    transactions.push(
-      compile([write(offset, params.binary.bytes.subarray(offset, offset + chunk))]),
-    );
+/** Mirrors Rust `Deploy::plan`, the program data when the binary is already on chain. */
+function deployPlan(
+  params: RingProgramDeployParams,
+  existing: RingProgramData | undefined,
+): RingProgramData | undefined {
+  if (existing === undefined) {
+    programSigner(params);
+    return undefined;
   }
-  return Object.freeze(transactions);
+  if (existing.upgradeAuthority === undefined) {
+    throw new RingError("RING_PROGRAM_IMMUTABLE", {
+      details: { ringProgramId: params.ringProgramId },
+    });
+  }
+  if (existing.upgradeAuthority !== params.authority.address) {
+    throw new RingError("RING_PROGRAM_AUTHORITY_MISMATCH", {
+      details: { ringProgramId: params.ringProgramId, authority: existing.upgradeAuthority },
+    });
+  }
+  const deployed = existing.deployedHash(params.binary.bytes.length);
+  return deployed !== undefined && equalBytes(deployed, params.binary.sha256)
+    ? existing
+    : undefined;
+}
+
+function programSigner(params: RingProgramDeployParams): TransactionSigner {
+  if (params.program === undefined || params.program.address !== params.ringProgramId) {
+    throw new RingError("RING_PROGRAM_KEYPAIR_INVALID", {
+      details: { ringProgramId: params.ringProgramId },
+    });
+  }
+  return params.program;
+}
+
+type BufferState = Readonly<{ kind: "missing"; rent: bigint }> | Readonly<{ kind: "resumed" }>;
+
+async function bufferState(
+  params: RingProgramDeployParams,
+  buffer: Address,
+  context: RequestContext | undefined,
+): Promise<BufferState> {
+  const size = BUFFER_METADATA_SIZE + params.binary.bytes.length;
+  const account = await params.client.getAccount(buffer, context);
+  if (account === undefined) return { kind: "missing", rent: await rent(params, size, context) };
+  const reader = new Reader(
+    account.data.subarray(0, Math.min(account.data.length, BUFFER_METADATA_SIZE)),
+  );
+  const usable =
+    account.owner === BPF_LOADER_UPGRADEABLE_ID &&
+    account.data.length === size &&
+    reader.u32("state") === BUFFER_STATE &&
+    reader.u8("authority") === 1 &&
+    encodeBase58(reader.bytes(32, "authority")) === params.authority.address;
+  if (!usable) throw new RingError("RING_PROGRAM_BUFFER_INVALID", { details: { buffer } });
+  return { kind: "resumed" };
+}
+
+/** Mirrors Rust `required_balance`, a resumed buffer is already paid for. */
+async function checkFunding(
+  params: RingProgramDeployParams,
+  existing: RingProgramData | undefined,
+  upload: BufferState,
+  programRent: bigint,
+  context: RequestContext | undefined,
+): Promise<void> {
+  const length = params.binary.bytes.length;
+  let required = DEPLOY_FEE_BUDGET + (upload.kind === "missing" ? upload.rent : 0n);
+  if (existing === undefined) {
+    required += programRent;
+    required += await rent(params, PROGRAM_DATA_METADATA_SIZE + length, context);
+  } else if (length > existing.capacity) {
+    const before = await rent(params, PROGRAM_DATA_METADATA_SIZE + existing.capacity, context);
+    const after = await rent(
+      params,
+      PROGRAM_DATA_METADATA_SIZE + existing.capacity + growth(existing, length),
+      context,
+    );
+    required += after > before ? after - before : 0n;
+  }
+  const balance = await params.client.getBalance(params.payer.address, context);
+  if (balance < required) {
+    throw new RingError("RING_PROGRAM_UNDERFUNDED", {
+      details: { payer: params.payer.address, required, balance },
+    });
+  }
+}
+
+function growth(existing: RingProgramData, length: number): number {
+  return Math.max(length - existing.capacity, MIN_EXTEND_BYTES);
+}
+
+function rent(
+  params: RingProgramDeployParams,
+  space: number,
+  context: RequestContext | undefined,
+): Promise<bigint> {
+  return runKitRpc("getMinimumBalanceForRentExemption", context, (abortSignal) =>
+    params.client.solanaRpc.getMinimumBalanceForRentExemption(BigInt(space)).send({ abortSignal }),
+  );
+}
+
+function baseMessage(
+  params: RingProgramDeployParams,
+): TransactionMessage & TransactionMessageWithFeePayer {
+  const message = setTransactionMessageFeePayerSigner(
+    params.payer,
+    createTransactionMessage({ version: 0 }),
+  );
+  return params.computeUnitPriceMicroLamports === undefined
+    ? message
+    : appendTransactionMessageInstruction(
+        getSetComputeUnitPriceInstruction({ microLamports: params.computeUnitPriceMicroLamports }),
+        message,
+      );
+}
+
+/** A fresh blockhash per attempt, an earlier attempt that landed late still counts. */
+function transactionSender(
+  params: RingProgramDeployParams,
+  context: RequestContext | undefined,
+): (plan: TransactionPlan) => Promise<void> {
+  const attempts = params.attempts ?? DEFAULT_ATTEMPTS;
+  const gate = semaphore(params.concurrency ?? DEFAULT_CONCURRENCY);
+  const sendTransaction = sendTransactionWithoutConfirmingFactory({ rpc: params.client.solanaRpc });
+  let failed: unknown;
+  const executor = createTransactionPlanExecutor({
+    executeTransactionMessage: async (_result, message, config) =>
+      gate(async () => {
+        const signatures: Signature[] = [];
+        let lastError: unknown;
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          if (failed !== undefined) throw failed;
+          config?.abortSignal?.throwIfAborted();
+          try {
+            const lifetime = await params.client.getLatestBlockhash(context);
+            const signed = await signTransactionMessageWithSigners(
+              setTransactionMessageLifetimeUsingBlockhash(lifetime, message),
+            );
+            const signature = getSignatureFromTransaction(signed);
+            signatures.push(signature);
+            await sendTransaction(signed, {
+              commitment: params.client.commitment,
+              ...abortOption(context),
+            });
+            await params.client.confirmTransaction(signature, undefined, context);
+            return signature;
+          } catch (error) {
+            const landed = await landedSignature(params, signatures, context);
+            if (landed !== undefined) return landed;
+            lastError = error;
+            if (!retryable(error)) break;
+          }
+        }
+        failed = lastError;
+        throw lastError;
+      }),
+  });
+  return async (plan) => {
+    const result = await passthroughFailedTransactionPlanExecution(
+      executor(plan, abortOption(context)),
+    );
+    if (!isSuccessfulTransactionPlanResult(result)) {
+      throw getFirstFailedSingleTransactionPlanResult(result).error;
+    }
+  };
+}
+
+/** A transaction refused on chain or in preflight fails the same way again. */
+function retryable(error: unknown): boolean {
+  if (error instanceof ClientError) {
+    if (error.code === "CLIENT_ABORTED") return false;
+    return error.details?.["reason"] !== "transaction failed";
+  }
+  return !isSolanaError(
+    error,
+    SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  );
+}
+
+async function landedSignature(
+  params: RingProgramDeployParams,
+  signatures: readonly Signature[],
+  context: RequestContext | undefined,
+): Promise<Signature | undefined> {
+  if (signatures.length === 0) return undefined;
+  const { value } = await runKitRpc("getSignatureStatuses", context, (abortSignal) =>
+    params.client.solanaRpc
+      .getSignatureStatuses(signatures, { searchTransactionHistory: true })
+      .send({ abortSignal }),
+  );
+  const index = value.findIndex(
+    (status) =>
+      status !== null &&
+      status.err === null &&
+      (status.confirmationStatus === "confirmed" || status.confirmationStatus === "finalized"),
+  );
+  return index < 0 ? undefined : signatures[index];
+}
+
+function abortOption(context: RequestContext | undefined): Readonly<{ abortSignal?: AbortSignal }> {
+  return context?.signal === undefined ? {} : { abortSignal: context.signal };
+}
+
+function semaphore(limit: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async (task) => {
+    if (active >= limit) {
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    } else {
+      active += 1;
+    }
+    try {
+      return await task();
+    } finally {
+      const next = waiting.shift();
+      if (next === undefined) active -= 1;
+      else next();
+    }
+  };
+}
+
+/** The bytes on chain must hash to the binary before the loader reads them. */
+async function checkBufferContent(
+  params: RingProgramDeployParams,
+  buffer: Address,
+  context: RequestContext | undefined,
+): Promise<void> {
+  const account = await params.client.getAccount(buffer, context);
+  const content = account?.data.subarray(BUFFER_METADATA_SIZE);
+  if (content === undefined || !equalBytes(sha256(content), params.binary.sha256)) {
+    throw new RingError("RING_PROGRAM_BUFFER_INVALID", { details: { buffer } });
+  }
+}
+
+/** Mirrors Rust `wait_until_usable`, the loader refuses a program in its deploy slot. */
+async function waitUntilUsable(
+  params: RingProgramDeployParams,
+  deploySlot: bigint,
+  context: RequestContext | undefined,
+): Promise<void> {
+  const stalled = new ClientError("CLIENT_RPC", {
+    details: { method: "getSlot", reason: "program not usable" },
+  });
+  try {
+    await pollUntil(
+      () =>
+        runKitRpc("getSlot", context, (abortSignal) =>
+          params.client.solanaRpc
+            .getSlot({ commitment: params.client.commitment })
+            .send({ abortSignal }),
+        ),
+      (slot) => slot > deploySlot,
+      {
+        config: USABLE_POLL,
+        ...(context === undefined ? {} : { context }),
+        onTimeout: () => stalled,
+      },
+    );
+  } catch (cause) {
+    if (cause !== stalled) throw cause;
+    throw new RingError("RING_PROGRAM_NOT_USABLE", {
+      details: { ringProgramId: params.ringProgramId, slot: deploySlot },
+    });
+  }
 }
 
 function programDataInvalid(): RingError {

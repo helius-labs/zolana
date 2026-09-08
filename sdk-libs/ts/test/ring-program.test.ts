@@ -1,26 +1,27 @@
-import { AccountRole, getAddressDecoder, type Address } from "@solana/kit";
+import { AccountRole, generateKeyPairSigner, getAddressDecoder, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
-import { transactionSize } from "../src/interface/transaction-size.js";
 import type { Bytes32 } from "../src/interface/types.js";
 import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "../src/ring/config.js";
 import {
   CLOCK_SYSVAR as CLOCK,
   RENT_SYSVAR as RENT,
   decodeRingProgramData,
+  deployRingProgram,
   deployWithMaxDataLenInstruction,
   extendProgramInstruction,
   fetchRingProgramData,
   initializeBufferInstruction,
-  planRingProgramDeployment,
   ringProgramBinary,
   setUpgradeAuthorityInstruction,
   upgradeInstruction,
   verifyRingProgram,
   writeBufferInstruction,
 } from "../src/ring/program.js";
+
+import { ClientError } from "../src/client/error.js";
 
 import { BLOCKHASH, solanaRpcReads } from "./helpers/clients.js";
 import { ownedAccount } from "./helpers/ring-accounts.js";
@@ -190,102 +191,280 @@ describe("loader instructions", () => {
   });
 });
 
-describe("deployment planning", () => {
+describe("deployment", () => {
   const binary = ringProgramBinary(Uint8Array.from({ length: 3_000 }, (_, index) => index % 251));
+  const BUFFER_RENT = 7n * (37n + 3_000n);
+  const DEPLOY_REQUIRED = 20_000_000n + BUFFER_RENT + 7n * 36n + 7n * (45n + 3_000n);
 
-  async function client(
-    deployed?: Readonly<{ authority?: Address; bytes: Uint8Array; capacity?: number }>,
-  ) {
-    const accounts = new Map<Address, ReturnType<typeof ownedAccount>>();
-    if (deployed !== undefined) {
-      accounts.set(PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, new Uint8Array(36)));
-      accounts.set(
-        await ringProgramDataAddress(PROGRAM),
-        ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programData({ slot: 3n, ...deployed })),
-      );
-    }
-    const rents: bigint[] = [];
-    return {
-      rents,
-      getAccount: vi.fn(async (account: Address) => accounts.get(account)),
-      getLatestBlockhash: vi.fn(async () => BLOCKHASH),
-      solanaRpc: solanaRpcReads({
-        getMinimumBalanceForRentExemption: (space: bigint) => ({
-          send: async () => {
-            rents.push(space);
-            return space * 7n;
-          },
-        }),
-      }),
-      commitment: "confirmed" as const,
-    };
+  async function signers() {
+    const [payer, authority, program, buffer] = await Promise.all([
+      generateKeyPairSigner(),
+      generateKeyPairSigner(),
+      generateKeyPairSigner(),
+      generateKeyPairSigner(),
+    ]);
+    return { payer, authority, program, buffer };
   }
 
-  const params = (fake: Awaited<ReturnType<typeof client>>) => ({
-    client: fake,
-    ringProgramId: PROGRAM,
+  interface ChainOptions {
+    readonly deployed?: Readonly<{ authority?: Address; bytes: Uint8Array; capacity?: number }>;
+    readonly buffer?: Readonly<{
+      authority: Address;
+      owner?: Address;
+      size?: number;
+      state?: number;
+    }>;
+    readonly balance?: bigint;
+    readonly bufferContent?: Uint8Array;
+    readonly failFirstConfirmation?: boolean;
+    readonly failFirstSend?: boolean;
+    readonly rejectOnChain?: boolean;
+    /** The first attempt lands after its confirmation timed out. */
+    readonly landLate?: boolean;
+  }
+
+  /** The program exists once a send follows the buffer content read. */
+  function chain(keys: Awaited<ReturnType<typeof signers>>, options: ChainOptions = {}) {
+    const sends: number[] = [];
+    const rents: bigint[] = [];
+    let contentRead = 0;
+    let finished = false;
+    let bufferCreated = options.buffer !== undefined;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let slot = 10n;
+    let confirmations = 0;
+    let sendCalls = 0;
+    const bufferData = () => {
+      const size = options.buffer?.size ?? 37 + binary.bytes.length;
+      const data = new Uint8Array(size);
+      data[0] = options.buffer?.state ?? 1;
+      data[4] = 1;
+      data.set(addressBytes(options.buffer?.authority ?? keys.authority.address), 5);
+      data.set((options.bufferContent ?? binary.bytes).subarray(0, Math.max(0, size - 37)), 37);
+      return data;
+    };
+    const rpc = {
+      getMinimumBalanceForRentExemption: (space: bigint) => ({
+        send: async () => {
+          rents.push(space);
+          return space * 7n;
+        },
+      }),
+      getSlot: () => ({ send: async () => (slot += 1n) }),
+      getSignatureStatuses: () => ({
+        send: async () => ({
+          value: [
+            options.landLate && confirmations === 1
+              ? { err: null, confirmationStatus: "confirmed" as const, slot: 3n }
+              : null,
+          ],
+        }),
+      }),
+      sendTransaction: (encoded: string) => ({
+        send: async () => {
+          sendCalls += 1;
+          if (options.failFirstSend && sendCalls === 1) throw new Error("connection reset");
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          inFlight -= 1;
+          sends.push(Buffer.from(encoded, "base64").length);
+          bufferCreated = true;
+          if (contentRead > 0) finished = true;
+          return "1".repeat(87);
+        },
+      }),
+    };
+    const fake = {
+      sends,
+      rents,
+      maxInFlight: () => maxInFlight,
+      getLatestBlockhash: vi.fn(async () => BLOCKHASH),
+      getBalance: vi.fn(async () => options.balance ?? 1_000_000_000_000n),
+      getAccount: vi.fn(async (account: Address) => {
+        if (account === keys.buffer.address) {
+          if (!bufferCreated) return undefined;
+          contentRead += 1;
+          return ownedAccount(options.buffer?.owner ?? BPF_LOADER_UPGRADEABLE_ID, bufferData());
+        }
+        const deployed = finished
+          ? { authority: keys.authority.address, bytes: binary.bytes }
+          : options.deployed;
+        if (deployed === undefined) return undefined;
+        if (account === keys.program.address) {
+          return ownedAccount(BPF_LOADER_UPGRADEABLE_ID, new Uint8Array(36));
+        }
+        return ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programData({ slot: 3n, ...deployed }));
+      }),
+      confirmTransaction: vi.fn(async () => {
+        confirmations += 1;
+        if (options.rejectOnChain) {
+          throw new ClientError("CLIENT_RPC", {
+            details: { method: "getSignatureStatuses", reason: "transaction failed" },
+          });
+        }
+        if ((options.failFirstConfirmation || options.landLate) && confirmations === 1) {
+          throw new ClientError("CLIENT_RPC", {
+            details: { method: "getSignatureStatuses", reason: "signature not confirmed" },
+          });
+        }
+        return 3n;
+      }),
+      solanaRpc: solanaRpcReads(rpc),
+      commitment: "confirmed" as const,
+    };
+    return fake;
+  }
+
+  const params = (keys: Awaited<ReturnType<typeof signers>>, client: ReturnType<typeof chain>) => ({
+    client,
+    ringProgramId: keys.program.address,
     binary,
-    authority: AUTHORITY,
-    payer: PAYER,
-    buffer: BUFFER,
+    payer: keys.payer,
+    authority: keys.authority,
+    program: keys.program,
+    buffer: keys.buffer,
   });
 
-  it("plans a first deploy with full writes and the program keypair on the finish", async () => {
-    const fake = await client();
-    const plan = await planRingProgramDeployment(params(fake));
-    expect(plan.kind).toBe("deploy");
-    if (plan.kind !== "deploy") return;
-    expect(Object.keys(plan.prepare.signatures).sort()).toEqual([PAYER, BUFFER].sort());
-    expect(Object.keys(plan.finish.signatures).sort()).toEqual([PAYER, PROGRAM, AUTHORITY].sort());
-    expect(plan.writes.length).toBeGreaterThan(2);
-    for (const write of plan.writes.slice(0, -1)) {
-      expect(transactionSize(write)).toBe(1232);
-      expect(Object.keys(write.signatures).sort()).toEqual([PAYER, AUTHORITY].sort());
+  it("deploys through full packets, one blockhash per transaction, within the concurrency", async () => {
+    const keys = await signers();
+    const client = chain(keys);
+    const outcome = await deployRingProgram({ ...params(keys, client), concurrency: 2 });
+    expect(outcome.kind).toBe("deployed");
+    expect(outcome.programData.upgradeAuthority).toBe(keys.authority.address);
+    expect(client.sends.length).toBeGreaterThan(4);
+    for (const size of client.sends) expect(size).toBeLessThanOrEqual(1232);
+    expect(client.sends.filter((size) => size === 1232).length).toBeGreaterThanOrEqual(3);
+    expect(client.getLatestBlockhash).toHaveBeenCalledTimes(client.sends.length);
+    expect(client.maxInFlight()).toBeLessThanOrEqual(2);
+    expect(client.rents).toEqual([37n + 3_000n, 36n, 45n + 3_000n]);
+  });
+
+  it("resends a dropped transaction under a fresh blockhash and keeps a late landing", async () => {
+    const keys = await signers();
+    const dropped = chain(keys, { failFirstConfirmation: true });
+    await deployRingProgram(params(keys, dropped));
+    expect(dropped.getLatestBlockhash).toHaveBeenCalledTimes(dropped.sends.length);
+    const reset = chain(keys, { failFirstSend: true });
+    await deployRingProgram(params(keys, reset));
+    expect(reset.getLatestBlockhash).toHaveBeenCalledTimes(reset.sends.length + 1);
+    const late = chain(keys, { landLate: true });
+    await deployRingProgram(params(keys, late));
+    expect(late.getLatestBlockhash).toHaveBeenCalledTimes(late.sends.length);
+    await expect(
+      deployRingProgram({
+        ...params(keys, chain(keys, { failFirstConfirmation: true })),
+        attempts: 1,
+      }),
+    ).rejects.toMatchObject({ code: "RING_DEPLOY_PROGRAM", causeCode: "CLIENT_RPC" });
+  });
+
+  it("stops at a transaction the chain refused without re-signing it", async () => {
+    const keys = await signers();
+    const refused = chain(keys, { rejectOnChain: true });
+    await expect(deployRingProgram(params(keys, refused))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "CLIENT_RPC",
+    });
+    expect(refused.confirmTransaction).toHaveBeenCalledTimes(1);
+    expect(refused.getLatestBlockhash).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes an interrupted upload and refuses a buffer it cannot own", async () => {
+    const keys = await signers();
+    const fresh = chain(keys);
+    await deployRingProgram(params(keys, fresh));
+    const resumed = chain(keys, { buffer: { authority: keys.authority.address } });
+    await deployRingProgram(params(keys, resumed));
+    expect(fresh.rents).toContain(37n + 3_000n);
+    expect(resumed.rents).not.toContain(37n + 3_000n);
+    expect(resumed.sends.length).toBeGreaterThan(0);
+    const invalid: readonly NonNullable<ChainOptions["buffer"]>[] = [
+      { authority: keys.payer.address },
+      { authority: keys.authority.address, owner: keys.payer.address },
+      { authority: keys.authority.address, size: 37 + 2_999 },
+      { authority: keys.authority.address, state: 3 },
+    ];
+    for (const buffer of invalid) {
+      const client = chain(keys, { buffer });
+      await expect(deployRingProgram(params(keys, client))).rejects.toMatchObject({
+        code: "RING_DEPLOY_PROGRAM",
+        causeCode: "RING_PROGRAM_BUFFER_INVALID",
+      });
+      expect(client.sends).toHaveLength(0);
     }
-    const priced = await planRingProgramDeployment({
-      ...params(await client()),
-      computeUnitPriceMicroLamports: 1_000n,
-    });
-    if (priced.kind !== "deploy") throw new Error("expected a deploy");
-    expect(priced.writes.length).toBeGreaterThanOrEqual(plan.writes.length);
-    for (const write of priced.writes) expect(transactionSize(write)).toBeLessThanOrEqual(1232);
-    expect(fake.rents).toEqual([37n + 3_000n, 36n, 45n + 3_000n]);
-    expect(plan.requiredLamports).toBe(20_000_000n + 7n * (37n + 3_000n + 36n + 45n + 3_000n));
   });
 
-  it("plans an upgrade with an extension when the binary outgrew the program data", async () => {
-    const fake = await client({ authority: AUTHORITY, bytes: new Uint8Array(1_000) });
-    const plan = await planRingProgramDeployment(params(fake));
-    expect(plan.kind).toBe("upgrade");
-    if (plan.kind !== "upgrade") return;
-    expect(Object.keys(plan.finish.signatures).sort()).toEqual([PAYER, AUTHORITY].sort());
-    expect(fake.rents).toEqual([37n + 3_000n, 45n + 1_000n, 45n + 1_000n + 10_240n]);
-    expect(plan.requiredLamports).toBe(20_000_000n + 7n * (37n + 3_000n) + 7n * 10_240n);
-    const same = await client({
-      authority: AUTHORITY,
-      bytes: new Uint8Array(1_000),
-      capacity: 4_000,
+  it("refuses unwritten content after the upload and a short balance before it", async () => {
+    const keys = await signers();
+    const tampered = chain(keys, { bufferContent: new Uint8Array(binary.bytes.length) });
+    await expect(deployRingProgram(params(keys, tampered))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_BUFFER_INVALID",
     });
-    const grown = await planRingProgramDeployment(params(same));
-    expect(grown.kind).toBe("upgrade");
-    expect(same.rents).toEqual([37n + 3_000n]);
+    expect(tampered.sends.length).toBeGreaterThan(0);
+    const poor = chain(keys, { balance: DEPLOY_REQUIRED - 1n });
+    await expect(deployRingProgram(params(keys, poor))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_UNDERFUNDED",
+    });
+    expect(poor.sends).toHaveLength(0);
+    await expect(
+      deployRingProgram(params(keys, chain(keys, { balance: DEPLOY_REQUIRED }))),
+    ).resolves.toMatchObject({ kind: "deployed" });
   });
 
-  it("reports a present binary and refuses a foreign or renounced authority", async () => {
-    const present = await client({ authority: AUTHORITY, bytes: binary.bytes });
-    await expect(planRingProgramDeployment(params(present))).resolves.toMatchObject({
+  it("upgrades, extending in its own transaction and waiting out the extend slot", async () => {
+    const keys = await signers();
+    const grown = chain(keys, {
+      deployed: { authority: keys.authority.address, bytes: new Uint8Array(1_000) },
+    });
+    await expect(deployRingProgram(params(keys, grown))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
+    expect(grown.rents).toEqual([37n + 3_000n, 45n + 1_000n, 45n + 1_000n + 10_240n]);
+    const roomy = chain(keys, {
+      deployed: {
+        authority: keys.authority.address,
+        bytes: new Uint8Array(1_000),
+        capacity: 4_000,
+      },
+    });
+    await expect(deployRingProgram(params(keys, roomy))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
+    expect(roomy.rents).toEqual([37n + 3_000n]);
+    expect(grown.sends.length).toBe(roomy.sends.length + 1);
+    expect(grown.getAccount.mock.calls.length).toBeGreaterThan(roomy.getAccount.mock.calls.length);
+  });
+
+  it("reports a present binary and refuses the wrong authority or keypair", async () => {
+    const keys = await signers();
+    const present = chain(keys, {
+      deployed: { authority: keys.authority.address, bytes: binary.bytes },
+    });
+    await expect(deployRingProgram(params(keys, present))).resolves.toMatchObject({
       kind: "present",
     });
-    expect(present.getLatestBlockhash).not.toHaveBeenCalled();
-    const foreign = await client({ authority: PAYER, bytes: binary.bytes });
-    await expect(planRingProgramDeployment(params(foreign))).rejects.toMatchObject({
-      code: "RING_BUILD_PROGRAM",
+    expect(present.sends).toHaveLength(0);
+    const foreign = chain(keys, {
+      deployed: { authority: keys.payer.address, bytes: binary.bytes },
+    });
+    await expect(deployRingProgram(params(keys, foreign))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
       causeCode: "RING_PROGRAM_AUTHORITY_MISMATCH",
     });
-    const immutable = await client({ bytes: binary.bytes });
-    await expect(planRingProgramDeployment(params(immutable))).rejects.toMatchObject({
-      code: "RING_BUILD_PROGRAM",
+    const immutable = chain(keys, { deployed: { bytes: binary.bytes } });
+    await expect(deployRingProgram(params(keys, immutable))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
       causeCode: "RING_PROGRAM_IMMUTABLE",
     });
+    const { program, ...withoutProgram } = params(keys, chain(keys));
+    await expect(deployRingProgram(withoutProgram)).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_KEYPAIR_INVALID",
+    });
+    expect(program.address).toBe(keys.program.address);
   });
 });
