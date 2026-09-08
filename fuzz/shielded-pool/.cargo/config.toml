@@ -1,0 +1,5 @@
+# The private light-protocol libs (fetched with PRIVATE_LIBS_TOKEN via setup-rust)
+# need cargo to shell out to git and use the ambient credentials rather than its
+# built-in fetcher. crucible itself is public and needs no token.
+[net]
+git-fetch-with-cli = true
