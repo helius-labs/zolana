@@ -7,21 +7,37 @@ import type {
   IndexedShieldedTransaction,
   OutputSlot,
 } from "../src/transaction/instructions/transact.js";
+import { readFileSync } from "node:fs";
+
+import type { CustomRingSourceOwner } from "../src/client/prover/types.js";
+import { decodeRingPolicyConfig } from "../src/ring/codecs.js";
 import {
   LIST_IDS,
   ListId,
   RingListNamespace,
+  buildRuleTable,
   decodeListEntry,
   decodeRule,
   decodeRuleTable,
+  encodeListEntry,
+  encodeRule,
+  encodeRuleTable,
   listSet,
+  listWriter,
   memberOfAsset,
   memberOfTag,
+  policySourceOwners,
   readRingEntries,
   readRingEntry,
   referencedLists,
+  ringNamespaceOwnerHash,
+  ringPolicyHash,
+  ruleAlternatives,
+  verifiedRuleTable,
   type ListEntry,
   type Member,
+  type Rule,
+  type RuleGuard,
 } from "../src/ring/policy.js";
 import { RingError } from "../src/ring/error.js";
 
@@ -531,5 +547,339 @@ describe("lineage walk", () => {
       undefined,
       undefined,
     );
+  });
+});
+
+/** Rust `Rule::any_of`, `require`, `forbid` and the guard combinators. */
+function rule(
+  subject: Rule["subject"],
+  present: readonly ListId[],
+  absent: readonly ListId[],
+  guard: RuleGuard = { kind: "always" },
+): Rule {
+  return { subject, source: { kind: "lists", present, absent }, guard };
+}
+const require = (subject: Rule["subject"], id: ListId): Rule => rule(subject, [id], []);
+const forbid = (subject: Rule["subject"], id: ListId): Rule => rule(subject, [], [id]);
+const above = (base: Rule, amount: bigint): Rule => ({
+  ...base,
+  guard: { kind: "aboveAmount", amount },
+});
+const ALLOW_ONLY_ASSETS: Rule = {
+  subject: "asset",
+  source: { kind: "inlineAssets" },
+  guard: { kind: "always" },
+};
+
+/** Rust `SourceMap::new`, the positional slots of the listed owners. */
+function owners(
+  entries: readonly (readonly [ListId, Bytes32])[],
+): readonly CustomRingSourceOwner[] {
+  return LIST_IDS.map((listId) => {
+    const found = entries.find(([id]) => id === listId);
+    return found === undefined
+      ? { listId: 0, ownerHash: filled(0) }
+      : { listId, ownerHash: found[1] };
+  });
+}
+
+const RECORDS_OWNER_HASH = hex("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be");
+const CURATOR_OWNER_HASH = hex("2719a8eec7b597c45bf36e95b85af000cbceef719715713fadec78fe81c88280");
+const ASSET_MINT = addressOf(filled(0xd4));
+
+describe("rule encoding", () => {
+  it("packs the circuit byte positions", () => {
+    const cases: readonly [Rule, Parameters<typeof row>[0]][] = [
+      [require("outputOwner", ListId.allow), { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b01 }],
+      [forbid("sender", ListId.frozen), { subject: SENDER, mode: ABSENT, mask: 0b100 }],
+      [
+        above(require("outputOwner", ListId.approval), 2000n),
+        { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b0100_0000, guardTag: 1, threshold: 2000n },
+      ],
+      [ALLOW_ONLY_ASSETS, { subject: ASSET, mode: PRESENT, mask: 0 }],
+      [
+        rule("outputOwner", [ListId.allow], [ListId.block]),
+        { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b01, alternative: 0b10 },
+      ],
+      [
+        rule("outputOwner", [], [ListId.block, ListId.frozen]),
+        { subject: OUTPUT_OWNER, mode: ABSENT, mask: 0b110 },
+      ],
+      [
+        rule("sender", [ListId.frozen, ListId.allow], []),
+        { subject: SENDER, mode: PRESENT, mask: 0b101 },
+      ],
+      [
+        { ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } },
+        { subject: OUTPUT_OWNER, mode: PRESENT, mask: 0b01, guardTag: 2 },
+      ],
+    ];
+    for (const [input, expected] of cases) {
+      expect(encodeRule(input)).toEqual(row(expected));
+    }
+    expect(reason(() => encodeRule(require("exitDestination", ListId.allow)))).toBe(
+      "ExitDestination",
+    );
+    expect(reason(() => encodeRule(above(require("asset", ListId.allow), 1n << 64n)))).toBe(
+      "ThresholdRange",
+    );
+  });
+
+  it("lists presences before absences in slot order", () => {
+    expect(
+      ruleAlternatives(
+        rule("outputOwner", [ListId.frozen, ListId.allow], [ListId.escrow, ListId.block]),
+      ),
+    ).toEqual([
+      { listId: ListId.allow, mode: "present" },
+      { listId: ListId.frozen, mode: "present" },
+      { listId: ListId.block, mode: "absent" },
+      { listId: ListId.escrow, mode: "absent" },
+    ]);
+    expect(ruleAlternatives(forbid("sender", ListId.frozen))).toEqual([
+      { listId: ListId.frozen, mode: "absent" },
+    ]);
+    expect(ruleAlternatives(ALLOW_ONLY_ASSETS)).toEqual([]);
+  });
+});
+
+describe("rule table builder", () => {
+  const asset = filled(0x14);
+  const pool = Array.from({ length: 8 }, (_, index) => filled(0x20 + index));
+  const requireAllow = require("outputOwner", ListId.allow);
+
+  it("refuses every table Rust refuses", () => {
+    const cases: readonly [string, Parameters<typeof buildRuleTable>[0]][] = [
+      ["TooManyRules", { rules: Array.from({ length: 17 }, () => requireAllow) }],
+      ["TooManyInlineAssets", { rules: [ALLOW_ONLY_ASSETS], inlineAssets: [...pool, asset] }],
+      ["ZeroInlineAsset", { rules: [ALLOW_ONLY_ASSETS], inlineAssets: [filled(0)] }],
+      [
+        "InlineNotAsset",
+        { rules: [{ ...ALLOW_ONLY_ASSETS, subject: "sender" }], inlineAssets: [asset] },
+      ],
+      ["InlineWithoutPool", { rules: [ALLOW_ONLY_ASSETS] }],
+      ["PoolWithoutInlineRule", { rules: [requireAllow], inlineAssets: [asset] }],
+      ["EmptyLists", { rules: [rule("sender", [], [])] }],
+      [
+        "ListInBothSets",
+        { rules: [rule("outputOwner", [ListId.allow], [ListId.allow, ListId.block])] },
+      ],
+      ["SenderGuard", { rules: [above(forbid("sender", ListId.frozen), 10n)] }],
+      ["ExitDestination", { rules: [require("exitDestination", ListId.allow)] }],
+      ["ZeroThreshold", { rules: [above(require("asset", ListId.approval), 0n)] }],
+      ["DuplicateRule", { rules: [requireAllow, above(requireAllow, 10n)] }],
+      [
+        "OwnerGuardWithoutInlineAsset",
+        {
+          rules: [ALLOW_ONLY_ASSETS, above(requireAllow, 7n)],
+          inlineAssets: [asset, filled(4)],
+        },
+      ],
+      [
+        "TooManyAnswers",
+        {
+          rules: [
+            requireAllow,
+            forbid("outputOwner", ListId.block),
+            require("outputOwner", ListId.approval),
+          ],
+        },
+      ],
+      ["AssetLimitWithoutGuard", { rules: [requireAllow], inlineLimits: [0n] }],
+      [
+        "MissingAssetLimit",
+        {
+          rules: [{ ...requireAllow, guard: { kind: "aboveAmountByAsset" } }],
+          inlineAssets: [asset],
+        },
+      ],
+      [
+        "MissingAssetLimit",
+        {
+          rules: [{ ...requireAllow, guard: { kind: "aboveAmountByAsset" } }],
+          inlineAssets: [asset],
+          inlineLimits: [0n],
+        },
+      ],
+      [
+        "DuplicateInlineAsset",
+        {
+          rules: [{ ...requireAllow, guard: { kind: "aboveAmountByAsset" } }],
+          inlineAssets: [asset, asset],
+          inlineLimits: [1n, 1n],
+        },
+      ],
+      ["LimitRange", { rules: [requireAllow], inlineLimits: [1n << 64n] }],
+    ];
+    for (const [expected, input] of cases) {
+      expect(reason(() => buildRuleTable(input))).toBe(expected);
+    }
+  });
+
+  it("keeps declaration order and pads a limit per inline asset", () => {
+    const table = buildRuleTable({
+      rules: [requireAllow, forbid("sender", ListId.frozen), ALLOW_ONLY_ASSETS],
+      inlineAssets: [asset],
+    });
+    expect(table.rules.map((entry) => entry.subject)).toEqual(["outputOwner", "sender", "asset"]);
+    expect(table.inlineLimits).toEqual([0n]);
+    const encoded = encodeRuleTable(table);
+    expect(encoded.ruleCount).toBe(3);
+    expect(encoded.rules[2]).toEqual(row({ subject: ASSET, mode: PRESENT, mask: 0 }));
+    expect(decodeRuleTable(encoded)).toEqual(table);
+  });
+});
+
+/** `custom-rings/sdk/tests/go_policy_vectors.rs`. */
+describe("policy hash", () => {
+  const records = ringNamespaceOwnerHash(RECORDS_PDA);
+  const curator = ringNamespaceOwnerHash(CURATOR_PDA);
+
+  it("derives the fixture owners and the inline asset member", () => {
+    expect(records).toEqual(RECORDS_OWNER_HASH);
+    expect(curator).toEqual(CURATOR_OWNER_HASH);
+    expect(memberOfAsset(ASSET_MINT)).toEqual(
+      hex("14a6b5092f941bd4336fe2a25fc617a9515b457e027e0cf5e4867c0858855ec1"),
+    );
+  });
+
+  it("matches the Go fixture over four rules and an inline asset", () => {
+    const table = buildRuleTable({
+      rules: [
+        require("outputOwner", ListId.allow),
+        forbid("sender", ListId.frozen),
+        ALLOW_ONLY_ASSETS,
+        above(require("outputOwner", ListId.approval), 2000n),
+      ],
+      inlineAssets: [memberOfAsset(ASSET_MINT)],
+    });
+    const sources = owners([
+      [ListId.allow, records],
+      [ListId.block, records],
+      [ListId.frozen, curator],
+      [ListId.approval, records],
+    ]);
+    expect(ringPolicyHash(table, sources)).toEqual(
+      hex("243120278b6c15d93cd9b27feeb0586457cf41798c30c534da48f66e3fd76b69"),
+    );
+  });
+
+  it("matches the Go fixture for the empty, one-rule, two-rule and mixed tables", () => {
+    expect(ringPolicyHash(buildRuleTable({ rules: [] }), owners([]))).toEqual(
+      hex("16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400"),
+    );
+    expect(
+      ringPolicyHash(
+        buildRuleTable({ rules: [require("outputOwner", ListId.allow)] }),
+        owners([[ListId.allow, records]]),
+      ),
+    ).toEqual(hex("226e9c2ba91e63d29176d27dd80711d501c284769b4d1a76c5c1676259bfd3ff"));
+    expect(
+      ringPolicyHash(
+        buildRuleTable({
+          rules: [require("outputOwner", ListId.allow), forbid("sender", ListId.frozen)],
+        }),
+        owners([
+          [ListId.allow, records],
+          [ListId.frozen, curator],
+        ]),
+      ),
+    ).toEqual(hex("0ab720d70035f79c4c91e8677e4753a855c3f7be0fcaf8f655883d258821189c"));
+    expect(
+      ringPolicyHash(
+        buildRuleTable({ rules: [rule("outputOwner", [ListId.approval], [ListId.block])] }),
+        owners([
+          [ListId.block, records],
+          [ListId.approval, records],
+        ]),
+      ),
+    ).toEqual(hex("1d6806016526767233ca9acecf59629642e061ae50a0018192a78eb6617f46f8"));
+  });
+
+  it("matches the Go fixture for a per-asset limit", () => {
+    const table = buildRuleTable({
+      rules: [{ ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
+      inlineAssets: [memberOfAsset(ASSET_MINT)],
+      inlineLimits: [123n],
+    });
+    expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
+      hex("2903cae630b7cd871a2074e617e68dcd52fc866b28fab7c509033ef87357143d"),
+    );
+  });
+
+  it("fails closed on a referenced list without a source", () => {
+    const table = buildRuleTable({ rules: [forbid("sender", ListId.frozen)] });
+    expect(() => ringPolicyHash(table, owners([[ListId.allow, records]]))).toThrow(
+      expect.objectContaining({
+        code: "RING_POLICY_SOURCE_INVALID",
+        details: { reason: "MissingSource", listId: ListId.frozen },
+      }),
+    );
+  });
+
+  it("reads stored slots positionally and refuses a moved or zero owner", () => {
+    const stored = LIST_IDS.map((listId) => ({
+      listId: listId === ListId.frozen ? listId : 0,
+      namespace: listId === ListId.frozen ? CURATOR_PDA : addressOf(filled(0)),
+    }));
+    expect(policySourceOwners(stored)).toEqual(owners([[ListId.frozen, curator]]));
+    const moved = stored.map(
+      (slot, index) => (index === 0 ? stored[2] : index === 2 ? stored[0] : slot) ?? slot,
+    );
+    expect(() => policySourceOwners(moved)).toThrow(
+      expect.objectContaining({
+        code: "RING_POLICY_SOURCE_INVALID",
+        details: { reason: "NotPositional", index: 0 },
+      }),
+    );
+    expect(() => policySourceOwners(stored.slice(1))).toThrow(
+      expect.objectContaining({ details: { reason: "SlotCount", slots: 7 } }),
+    );
+    expect(() =>
+      ringPolicyHash(buildRuleTable({ rules: [] }), [
+        { listId: 1, ownerHash: filled(0) },
+        ...owners([]).slice(1),
+      ]),
+    ).toThrow(expect.objectContaining({ details: { reason: "NotPositional", index: 0 } }));
+  });
+
+  it("trusts the Rust policy account vector and refuses a tampered hash", () => {
+    const encoded = readFileSync(
+      new URL("../../../custom-rings/sdk/tests/fixtures/policy-config.hex", import.meta.url),
+      "utf8",
+    ).replace(/\s+/g, "");
+    const account = Uint8Array.from(Buffer.from(encoded, "hex"));
+    const table = verifiedRuleTable(decodeRingPolicyConfig(account));
+    expect(table.rules[0]?.guard).toEqual({ kind: "aboveAmountByAsset" });
+    expect(table.inlineLimits).toEqual([123n]);
+    const tampered = new Uint8Array(account);
+    tampered[1] = (tampered[1] ?? 0) ^ 1;
+    expect(() => verifiedRuleTable(decodeRingPolicyConfig(tampered))).toThrow(
+      expect.objectContaining({ code: "RING_POLICY_HASH_MISMATCH" }),
+    );
+  });
+});
+
+describe("list entry encoding", () => {
+  it("writes the plaintext envelope Rust `to_output_data` writes", () => {
+    const active = entry(ListId.allow, memberOfTag(RECIPIENT_TAG), "active", 0n);
+    const cleared = entry(ListId.block, memberOfTag(BLOCKED_TAG), "cleared", 0x0102_0304_0506n);
+    expect(encodeListEntry(active)).toEqual(outputData(active));
+    expect(encodeListEntry(cleared)).toEqual(outputData(cleared));
+    expect(encodeListEntry(cleared)).toHaveLength(79);
+    expect(decodeListEntry(encodeListEntry(cleared))).toEqual(cleared);
+  });
+
+  it("names the writer of every list", () => {
+    expect(LIST_IDS.map(listWriter)).toEqual([
+      "authority",
+      "authority",
+      "authority",
+      "member",
+      "member",
+      "authority",
+      "authority",
+      "member",
+    ]);
   });
 });

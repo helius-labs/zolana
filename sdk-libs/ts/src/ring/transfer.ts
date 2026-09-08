@@ -1,22 +1,12 @@
-import { hexToBytes } from "@noble/hashes/utils.js";
-
-import type {
-  BlockhashProvider,
-  ChainReader,
-  KitRpcAccess,
-  Prover,
-  TreeContext,
-} from "../client/ports.js";
+import type { BlockhashProvider, KitRpcAccess, Prover, TreeContext } from "../client/ports.js";
 import { bigintToBytes, hashChain } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
 import {
   RING_INLINE_ASSET_SLOTS,
-  RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
-  disabledRuleAnswer,
+  type CustomRingSourceOwner,
 } from "../client/prover/types.js";
 import { InstructionTag } from "../interface/program.js";
-import { addressBytes } from "../interface/internal.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
   Address,
@@ -27,14 +17,12 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../interface/types.js";
-import { hashBytes, initializePoseidon } from "../hasher/index.js";
+import { initializePoseidon } from "../hasher/index.js";
 import {
   auditPublicInputHash,
   customRingPublicInputHash,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-import { ownerHash } from "../keypair/hash.js";
-import { poseidon } from "../keypair/poseidon.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
@@ -57,10 +45,11 @@ import {
 import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 import type { UtxoReservation, Wallet, WalletUtxo } from "../transaction/wallet/state.js";
 import { resolveWithdrawalSettlement, withdrawalSetupInstructions } from "../flows/settlement.js";
-import { equalBytes } from "../wallet/internal.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
+import { provePolicyAnswers, type RingPolicyAnswerClient } from "./answers.js";
+import { policySourceOwners, verifiedRuleTable, type RuleTable } from "./policy.js";
 import { fetchRingConfigs } from "./config.js";
 import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
@@ -72,18 +61,11 @@ import { fetchRingLookupTable } from "./lookup-table.js";
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 /** Borsh `Encrypted` tag, its length, the scheme byte and the embedded P-256 key. */
 const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
-/**
- * `RuleTable::hash` over an empty table, MUST track Rust/Go `EMPTY_POLICY_HASH`.
- * @internal
- */
-export const RING_EMPTY_RULES_POLICY_HASH = hexToBytes(
-  "16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400",
-) as Bytes32;
 
 export type RingTransferClient = TreeContext &
   BlockhashProvider &
   KitRpcAccess &
-  Pick<ChainReader, "getAccount"> &
+  RingPolicyAnswerClient &
   Pick<Prover, "proveRingTransact" | "proveCustomRingPolicy" | "proveCustomRingBase">;
 
 export interface RingTransferTransactionParams {
@@ -99,8 +81,6 @@ export interface RingTransferTransactionParams {
   readonly inputs?: "ring" | "ring-or-default" | "default";
   /** Receives every private output, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
-  readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -126,8 +106,6 @@ export interface RingWithdrawalTransactionParams {
   readonly splTokenProgram?: Address;
   /** Receives the private change, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
-  readonly entriesRoots?: RingEntriesRoots;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
@@ -146,16 +124,6 @@ export interface CustomRingTransferParams {
   readonly tree: Address;
   /** Receives every private output, defaults to `tree`. */
   readonly outputTree?: Address;
-  /** Required when `PolicyConfig.entriesTree` differs from the input tree. */
-  readonly entriesRoots?: RingEntriesRoots;
-}
-
-/** History entries read from the ring's dedicated policy entries tree. */
-export interface RingEntriesRoots {
-  readonly stateRoot: Bytes32;
-  readonly stateRootIndex: number;
-  readonly nullifierRoot: Bytes32;
-  readonly nullifierRootIndex: number;
 }
 
 /** Mirrors Rust `ProvenTransfer`. */
@@ -281,7 +249,6 @@ type RingSpendParams = Pick<
   | "asset"
   | "amount"
   | "outputTree"
-  | "entriesRoots"
   | "lookupTable"
   | "computeUnitLimit"
   | "computeUnitPriceMicroLamports"
@@ -370,7 +337,6 @@ async function buildRingSpend<R>(
           assets: input.wallet.registry,
           tree: input.client.tree,
           ...(input.outputTree === undefined ? {} : { outputTree: input.outputTree }),
-          ...(input.entriesRoots === undefined ? {} : { entriesRoots: input.entriesRoots }),
         },
         context,
       );
@@ -473,14 +439,6 @@ export async function buildRingWithdrawalTransaction(
   );
 }
 
-/** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
-export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
-  return ownerHash(
-    hashBytes(addressBytes(namespacePda, "namespacePda")),
-    poseidon([new Uint8Array(32)]),
-  ) as Bytes32;
-}
-
 /** Mirrors Rust `CustomRingTransfer::prove`, the auditor message enters the external data before the SPP proof folds it into `privateTxHash`. */
 export async function proveCustomRingTransfer(
   input: CustomRingTransferParams,
@@ -495,7 +453,7 @@ export async function proveCustomRingTransfer(
   }
   const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
   const config = configs.config;
-  const policy = configs.hasPolicy ? policyContext(configs.policy, input) : undefined;
+  const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -522,7 +480,23 @@ export async function proveCustomRingTransfer(
       }),
     );
     const openings = ringOpenings(proofInputs);
-    const { data, roots } = await input.client.proveRingTransact(
+    const policyRound =
+      policy === undefined
+        ? undefined
+        : {
+            ...policy,
+            ...(await provePolicyAnswers(
+              {
+                client: input.client,
+                table: policy.table,
+                config: policy.config,
+                inputs: proofInputs.inputUtxos,
+                outputs: proofInputs.outputs,
+              },
+              context,
+            )),
+          };
+    const { data } = await input.client.proveRingTransact(
       proofInputs,
       input.ringProgramId,
       undefined,
@@ -539,7 +513,7 @@ export async function proveCustomRingTransfer(
       ownerSigners: ownerSignerAddresses(prepared.inputs, prepared.payer),
     } as const;
 
-    if (policy === undefined) {
+    if (policyRound === undefined) {
       const proof = await input.client.proveCustomRingBase(
         {
           publicInputHash: auditPublicInputHash({
@@ -564,9 +538,7 @@ export async function proveCustomRingTransfer(
       });
     }
 
-    const entriesRoots = policy.suppliedEntriesRoots ?? roots;
-    // A ring without rules proves the empty table over its own openings, every
-    // further policy field is zero or disabled.
+    const { answers, roots } = policyRound;
     const proof = await input.client.proveCustomRingPolicy(
       {
         publicInputHash: customRingPublicInputHash({
@@ -574,9 +546,9 @@ export async function proveCustomRingTransfer(
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,
           message,
-          policyHash: policy.config.policyHash,
-          stateRoot: entriesRoots.stateRoot,
-          nullifierRoot: entriesRoots.nullifierRoot,
+          policyHash: policyRound.config.policyHash,
+          stateRoot: roots.stateRoot,
+          nullifierRoot: roots.nullifierRoot,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
@@ -590,34 +562,30 @@ export async function proveCustomRingTransfer(
         // `privateTxHash`, else the gnark witness is unsatisfiable.
         addressChain: ringAddressChain(openings.nIn),
         externalDataHash: proofInputs.externalData.hash(),
-        sources: policy.config.sources.map((slot) =>
-          slot.listId === 0
-            ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
-            : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
-        ),
-        policyLen: policy.config.ruleCount,
-        rules: paddedRows(policy.config.rules, RING_RULE_SLOTS),
-        inlineAssets: paddedRows(policy.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
+        sources: policyRound.sources,
+        policyLen: policyRound.config.ruleCount,
+        rules: paddedRows(policyRound.config.rules, RING_RULE_SLOTS),
+        inlineAssets: paddedRows(policyRound.config.inlineAssets, RING_INLINE_ASSET_SLOTS),
         inlineLimits: Object.freeze(
           Array.from(
             { length: RING_INLINE_ASSET_SLOTS },
-            (_, index) => policy.config.inlineLimits[index] ?? 0n,
+            (_, index) => policyRound.config.inlineLimits[index] ?? 0n,
           ),
         ),
-        inlineCount: policy.config.inlineCount,
-        stateRoot: entriesRoots.stateRoot,
-        nullifierRoot: entriesRoots.nullifierRoot,
-        answers: Array.from({ length: RING_ANSWER_SLOTS }, () => disabledRuleAnswer()),
+        inlineCount: policyRound.config.inlineCount,
+        stateRoot: roots.stateRoot,
+        nullifierRoot: roots.nullifierRoot,
+        answers,
       },
       context,
     );
     return Object.freeze({
       ...common,
       proof,
-      entriesTree: policy.config.entriesTree,
+      entriesTree: policyRound.config.entriesTree,
       hasPolicy: true,
-      stateRootIndex: entriesRoots.stateRootIndex,
-      nullifierRootIndex: entriesRoots.nullifierRootIndex,
+      stateRootIndex: roots.stateRootIndex,
+      nullifierRootIndex: roots.nullifierRootIndex,
     });
   } finally {
     encrypted.audit.txViewingSecret.fill(0);
@@ -625,64 +593,15 @@ export async function proveCustomRingTransfer(
   }
 }
 
-/** The policy account and caller-supplied entries roots a policy ring proves against. */
 interface PolicyContext {
   readonly config: RingPolicyConfig;
-  readonly suppliedEntriesRoots: RingEntriesRoots | undefined;
+  readonly table: RuleTable;
+  readonly sources: readonly CustomRingSourceOwner[];
 }
 
-function policyContext(config: RingPolicyConfig, input: CustomRingTransferParams): PolicyContext {
-  if (config.ruleCount !== 0 || config.inlineCount !== 0) {
-    throw new RingError("RING_RULES_UNSUPPORTED", {
-      details: {
-        ringProgramId: input.ringProgramId,
-        ruleCount: config.ruleCount,
-        inlineCount: config.inlineCount,
-      },
-    });
-  }
-  // The empty-table proof satisfies only an empty rule table, a rules-bearing
-  // ring pins a different `policy_hash` and fails in proving.
-  if (!equalBytes(config.policyHash, RING_EMPTY_RULES_POLICY_HASH)) {
-    throw new RingError("RING_RULES_UNSUPPORTED", {
-      details: { ringProgramId: input.ringProgramId, policyHash: config.policyHash },
-    });
-  }
-  return Object.freeze({
-    config,
-    suppliedEntriesRoots: checkEntriesRoots(input.entriesRoots, config.entriesTree, input.tree),
-  });
-}
-
-function checkEntriesRoots(
-  supplied: RingEntriesRoots | undefined,
-  entriesTree: Address,
-  inputTree: Address,
-): RingEntriesRoots | undefined {
-  if (supplied === undefined) {
-    if (entriesTree === inputTree) return undefined;
-    throw new RingError("RING_ENTRIES_ROOTS_REQUIRED", {
-      details: { entriesTree, inputTree },
-    });
-  }
-  if (
-    supplied.stateRoot.length !== 32 ||
-    supplied.nullifierRoot.length !== 32 ||
-    !Number.isInteger(supplied.stateRootIndex) ||
-    supplied.stateRootIndex < 0 ||
-    supplied.stateRootIndex > 0xffff ||
-    !Number.isInteger(supplied.nullifierRootIndex) ||
-    supplied.nullifierRootIndex < 0 ||
-    supplied.nullifierRootIndex > 0xffff
-  ) {
-    throw new RingError("RING_ENTRIES_ROOTS_INVALID", { details: { entriesTree } });
-  }
-  return Object.freeze({
-    stateRoot: new Uint8Array(supplied.stateRoot) as Bytes32,
-    stateRootIndex: supplied.stateRootIndex,
-    nullifierRoot: new Uint8Array(supplied.nullifierRoot) as Bytes32,
-    nullifierRootIndex: supplied.nullifierRootIndex,
-  });
+function policyContext(config: RingPolicyConfig): PolicyContext {
+  const sources = policySourceOwners(config.sources);
+  return Object.freeze({ config, table: verifiedRuleTable(config, sources), sources });
 }
 
 function paddedRows(rows: readonly Bytes32[], width: number): readonly Bytes32[] {
@@ -764,7 +683,6 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
 function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
   const asset = input.asset;
   const outputTree = input.outputTree;
-  const entriesRoots = input.entriesRoots;
   const computeUnitLimit = input.computeUnitLimit;
   const computeUnitPriceMicroLamports = input.computeUnitPriceMicroLamports;
   return Object.freeze({
@@ -777,7 +695,6 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     lookupTable: input.lookupTable,
     ...(asset === undefined ? {} : { asset }),
     ...(outputTree === undefined ? {} : { outputTree }),
-    ...(entriesRoots === undefined ? {} : { entriesRoots }),
     ...(computeUnitLimit === undefined ? {} : { computeUnitLimit }),
     ...(computeUnitPriceMicroLamports === undefined ? {} : { computeUnitPriceMicroLamports }),
   });
