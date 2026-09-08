@@ -198,15 +198,15 @@ func (w RuleWires) matchListAndMode(api frontend.API, listFacts [NListFacts]list
 	// 2. Match each enabled list fact to either list-and-mode alternative.
 	var matches [NListFacts]frontend.Variable
 	for i, fact := range listFacts {
-		primary := api.Mul(listInMask(api, listBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, w.Mode)))
-		alternative := api.Mul(listInMask(api, altBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, altMode)))
+		primary := api.Mul(listMaskContains(api, listBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, w.Mode)))
+		alternative := api.Mul(listMaskContains(api, altBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, altMode)))
 		matches[i] = api.Mul(fact.enabled, api.Or(primary, alternative))
 	}
 	return matches
 }
 
-// listInMask tests whether a rule mask selects the fact's list.
-func listInMask(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
+// listMaskContains tests whether a rule mask selects the fact's list.
+func listMaskContains(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
 	selected := frontend.Variable(0)
 	for i, named := range onList {
 		selected = api.Add(selected, api.Mul(named, bits[i]))
