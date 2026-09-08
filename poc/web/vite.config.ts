@@ -9,6 +9,19 @@ export default defineConfig({
   build: { target: "esnext" },
   worker: { format: "es" },
   server: {
+    // Must match the /devnet/ paths deploy/nginx.conf proxies.
+    proxy: {
+      "/devnet/indexer": {
+        target: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/devnet\/indexer/u, ""),
+      },
+      "/devnet/prover": {
+        target: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/devnet\/prover/u, ""),
+      },
+    },
     headers: {
       // Not required by the Go wasm prover -- js/wasm is single-threaded and
       // needs no SharedArrayBuffer -- but set so the page stays cross-origin

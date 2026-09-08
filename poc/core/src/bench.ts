@@ -12,6 +12,7 @@ export type ProverKind = "remote" | "wasm" | "native";
 
 export type StepName =
   | "poseidon-init"
+  | "fund"
   | "key-fetch"
   | "key-load"
   | "wallet-sync"
@@ -48,12 +49,6 @@ export interface Environment {
   readonly cores?: number;
   /** Whether the proving path can use more than one thread. */
   readonly threaded: boolean;
-}
-
-export interface BenchReport {
-  readonly startedAt: string;
-  readonly environment: Environment;
-  readonly runs: readonly RunResult[];
 }
 
 /**
@@ -203,24 +198,4 @@ export function describeEnvironment(): Environment {
     // regardless of how many cores the host reports.
     threaded: false,
   });
-}
-
-/** CSV so a run can be pasted straight into a spreadsheet or a PR comment. */
-export function toCsv(report: BenchReport): string {
-  const header = "shape,prover,step,ms,bytes,note,ok,error";
-  const rows = report.runs.flatMap((run) =>
-    run.measurements.map((entry) =>
-      [
-        run.shape,
-        run.prover,
-        entry.step,
-        entry.ms.toFixed(3),
-        entry.bytes === undefined ? "" : String(entry.bytes),
-        entry.note === undefined ? "" : entry.note.replaceAll(",", ";"),
-        String(run.ok),
-        run.error === undefined ? "" : run.error.replaceAll(",", ";"),
-      ].join(","),
-    ),
-  );
-  return [header, ...rows].join("\n");
 }

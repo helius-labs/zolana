@@ -1,17 +1,30 @@
 /**
  * Browser-side setup for one shield -> transfer -> unshield round trip.
  *
- * Mirrors the sequence in the SDK README and the e2e test: fund a signer by
- * airdrop, register both parties in the user registry (a transfer to an
- * unregistered Solana recipient is refused by design -- the SDK will not silently
- * downgrade a private payment into a public withdrawal), then run the legs.
+ * Mirrors the sequence in the SDK README and the e2e test: fund fresh sender and
+ * recipient signers from the page's funding wallet, register both parties in the
+ * user registry (a transfer to an unregistered Solana recipient is refused by
+ * design -- the SDK will not silently downgrade a private payment into a public
+ * withdrawal), then run the legs.
  *
  * Needs a live localnet, protocol accounts, and an indexer. The key benchmark
  * on the page deliberately does not.
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { airdropFactory, createKeyPairSignerFromBytes, lamports } from "@solana/kit";
+import { getTransferSolInstruction } from "@solana-program/system";
+import {
+  airdropFactory,
+  appendTransactionMessageInstructions,
+  compileTransaction,
+  createKeyPairSignerFromBytes,
+  createTransactionMessage,
+  lamports,
+  pipe,
+  setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash,
+  type KeyPairSigner,
+} from "@solana/kit";
 import {
   KeypairWalletAuthority,
   ShieldedKeypair,
@@ -38,6 +51,7 @@ import type { PocConfig } from "./config.js";
 
 export interface FlowRunOptions {
   readonly config: PocConfig;
+  readonly funding: KeyPairSigner;
   readonly prover: ProverKind;
   /** Notes to fan into before transferring; drives the transfer's shape. */
   readonly notes: number;
@@ -49,9 +63,21 @@ export interface FlowRunOptions {
 
 // Divisible by every note count the sweep uses (LCM of 1..5 is 60), because
 // `split` refuses an amount it cannot divide evenly: WALLET_SPLIT_NOT_DIVISIBLE.
-const SHIELD_LAMPORTS = 240_000_000n;
-const AIRDROP_LAMPORTS = 4_000_000_000n;
+const SHIELD_LAMPORTS = 12_000_000n;
+/** Covers the shield, registration, nullifier account rent, and fees of one run. */
+const SENDER_LAMPORTS = 60_000_000n;
+/** Covers the recipient's registration. */
+const RECEIVER_LAMPORTS = 10_000_000n;
+export const RUN_LAMPORTS = SENDER_LAMPORTS + RECEIVER_LAMPORTS + 10_000n;
+const AIRDROP_LAMPORTS = 1_000_000_000n;
 const PREFLIGHT_TIMEOUT_MS = 3_000;
+const LAMPORTS_PER_SOL = 1_000_000_000n;
+
+export function formatSol(amount: bigint): string {
+  const whole = amount / LAMPORTS_PER_SOL;
+  const frac = (amount % LAMPORTS_PER_SOL).toString().padStart(9, "0").replace(/0+$/u, "");
+  return frac === "" ? `${whole.toString()} SOL` : `${whole.toString()}.${frac} SOL`;
+}
 
 /**
  * Probes the endpoints the flow needs before touching any of them.
@@ -102,8 +128,8 @@ async function preflight(config: PocConfig, prover: ProverKind): Promise<void> {
   const unreachable = results.filter((entry): entry is string => entry !== undefined);
   if (unreachable.length > 0) {
     throw new Error(
-      `unreachable: ${unreachable.join(", ")}. Start the stack with \`just poc-up\`, then ` +
-        `export the VITE_ZOLANA_* values it prints and restart the dev server.`,
+      `unreachable: ${unreachable.join(", ")}. Start a stack with \`just poc-up\` or point ` +
+        "the endpoints above at one you can reach.",
     );
   }
 }
@@ -130,6 +156,36 @@ async function actor(): Promise<
   return Object.freeze({ signer, keypair: ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed)) });
 }
 
+async function ensureFunded(
+  client: Awaited<ReturnType<typeof createZolanaClient>>,
+  funding: KeyPairSigner,
+  required: bigint,
+  log: (line: string) => void,
+): Promise<void> {
+  let balance = await client.getBalance(funding.address);
+  if (balance >= required) return;
+  log(`funding wallet holds ${formatSol(balance)}, requesting an airdrop`);
+  try {
+    await airdropFactory({
+      rpc: client.solanaRpc,
+      rpcSubscriptions: client.solanaRpcSubscriptions,
+    })({
+      commitment: "confirmed",
+      recipientAddress: funding.address,
+      lamports: lamports(AIRDROP_LAMPORTS),
+    });
+  } catch (error) {
+    log(`airdrop refused: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  balance = await client.getBalance(funding.address);
+  if (balance < required) {
+    throw new Error(
+      `send at least ${formatSol(required - balance)} to ${funding.address} ` +
+        "(devnet: https://faucet.solana.com) and run again",
+    );
+  }
+}
+
 export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult> {
   const { config, prover, wasm } = options;
   const log = options.onLog ?? ((): void => {});
@@ -152,28 +208,45 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
     );
     log(`client ready (prover: ${prover})`);
 
+    // An older program on the cluster has no account at the derived tree address, later legs fail on it less legibly.
+    const tree = await client.solanaRpc.getAccountInfo(client.tree, { encoding: "base64" }).send();
+    if (tree.value === null) {
+      throw new Error(
+        `state tree ${client.tree} does not exist on this cluster; its program predates the ` +
+          "tree layout this SDK expects",
+      );
+    }
+
     const [sender, receiver] = await Promise.all([actor(), actor()]);
-    const funding = sender.signer;
+    const funding = options.funding;
     const recipientSigner = receiver.signer;
-    const airdrop = airdropFactory({
-      rpc: client.solanaRpc,
-      rpcSubscriptions: client.solanaRpcSubscriptions,
+    await setup.step("fund", async () => {
+      await ensureFunded(client, funding, RUN_LAMPORTS, log);
+      const lifetime = await client.getLatestBlockhash();
+      const message = pipe(
+        createTransactionMessage({ version: 0 }),
+        (m) => setTransactionMessageFeePayer(funding.address, m),
+        (m) => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+        (m) =>
+          appendTransactionMessageInstructions(
+            [
+              getTransferSolInstruction({
+                source: funding,
+                destination: sender.signer.address,
+                amount: SENDER_LAMPORTS,
+              }),
+              getTransferSolInstruction({
+                source: funding,
+                destination: recipientSigner.address,
+                amount: RECEIVER_LAMPORTS,
+              }),
+            ],
+            m,
+          ),
+      );
+      await signSendAndConfirm(client, compileTransaction(message), [funding]);
     });
-    await setup.step("wallet-sync", async () => {
-      await Promise.all([
-        airdrop({
-          commitment: "confirmed",
-          recipientAddress: funding.address,
-          lamports: lamports(AIRDROP_LAMPORTS),
-        }),
-        airdrop({
-          commitment: "confirmed",
-          recipientAddress: recipientSigner.address,
-          lamports: lamports(AIRDROP_LAMPORTS / 2n),
-        }),
-      ]);
-    });
-    log("airdrops confirmed");
+    log(`actors funded from ${funding.address}`);
 
     const keypair = sender.keypair;
     const recipientKeypair = receiver.keypair;
@@ -181,7 +254,7 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
     // A recipient must be registered before a transfer: the SDK refuses to turn
     // a private payment into a public withdrawal silently.
     for (const [signer, party] of [
-      [funding, keypair],
+      [sender.signer, keypair],
       [recipientSigner, recipientKeypair],
     ] as const) {
       const registration = await buildRegistrationTransaction({
@@ -197,7 +270,7 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
 
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
     const authority = new KeypairWalletAuthority({
-      solanaPublicKey: funding.address,
+      solanaPublicKey: sender.signer.address,
       keypair,
     });
 
@@ -207,7 +280,7 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
         wallet,
         authority,
         shieldedAddress: keypair.shieldedAddress(),
-        signer: funding,
+        signer: sender.signer,
         transferRecipient: recipientSigner.address,
         withdrawalRecipient: recipientSigner.address,
         shieldAmount: SHIELD_LAMPORTS,

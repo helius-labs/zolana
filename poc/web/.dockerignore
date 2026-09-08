@@ -1,0 +1,15 @@
+*
+!package.json
+!package-lock.json
+!LICENSE
+!sdk-libs/ts/
+!poc/core/
+!poc/web/
+!prover/server/
+**/node_modules/
+**/dist/
+prover/server/proving-keys/
+prover/server/formal-verification/
+poc/web/public/keys/
+poc/web/public/prover/
+poc/core/src/vendor/

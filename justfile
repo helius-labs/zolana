@@ -509,7 +509,7 @@ build-prover-wasm:
 # Stage proving keys where the web PoC can fetch them same-origin. Hardlinked,
 # not symlinked: Vite's static middleware does not follow a symlink out of the
 # app directory and answers its SPA fallback instead, and not copied either
-# because the keys are 7.6-37MB each. Falls back to a copy across filesystems.
+# because the keys are large. Falls back to a copy across filesystems.
 poc-keys:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -532,25 +532,14 @@ poc-keys:
       ln "$key" "$target" 2>/dev/null || cp "$key" "$target"
       linked=$((linked + 1))
     done
-    # The manifest is what the browser validates a downloaded key against. It is
-    # generated here rather than copied into source: the pinned key version moves
-    # with the branch, so every size and digest changes across a rebase.
-    node -e '
-      const fs = require("fs");
-      const lock = JSON.parse(
-        fs.readFileSync("prover/server/prover/provingkeys/proving-keys.lock", "utf8"),
-      );
-      const out = {};
-      for (const [name, entry] of Object.entries(lock.keys)) {
-        if (!/^transfer_confidential_|^merge_8_1/.test(name)) continue;
-        if (!fs.existsSync(`poc/web/public/keys/${name}`)) continue;
-        out[name] = { size: entry.size, sha256: entry.sha256 };
-      }
-      fs.writeFileSync("poc/web/public/keys/manifest.json", JSON.stringify(out, null, 2));
-      console.log(`manifest pins ${Object.keys(out).length} key(s) from ${lock.prefix}`);
-    '
+    node poc/web/scripts/key-manifest.mjs "$dest/manifest.json"
     echo "staged $linked proving key(s) into $dest"
-    echo "a key absent from the manifest reports a mismatch in the UI, which is expected"
+
+# Deploy the web PoC to Fly. The image serves the built page and proxies the
+# proving keys from CloudFront same-origin, see poc/web/Dockerfile.
+poc-deploy:
+    fly deploy . --config poc/web/fly.toml --dockerfile poc/web/Dockerfile \
+      --ignorefile poc/web/.dockerignore
 
 # Typecheck and build both PoC packages.
 poc-check: build-prover-wasm
