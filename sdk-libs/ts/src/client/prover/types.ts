@@ -4,6 +4,7 @@ import type {
   Bytes128,
   TransactInstructionData,
   TransactProof,
+  TreeHeadRoots,
 } from "../../interface/types.js";
 import type { ProofInputUtxo, ProofOutputUtxo } from "../../transaction/utxo.js";
 
@@ -83,12 +84,7 @@ export type ProverInputs = Readonly<{
 }>;
 
 /** The tree history entries the ring statement binds. */
-export interface RingTransactRoots {
-  readonly stateRoot: Bytes32;
-  readonly stateRootIndex: number;
-  readonly nullifierRoot: Bytes32;
-  readonly nullifierRootIndex: number;
-}
+export type RingTransactRoots = TreeHeadRoots;
 
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;

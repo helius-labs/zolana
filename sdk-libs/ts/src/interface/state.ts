@@ -53,3 +53,10 @@ export const TREE_CREATION_STEP_COUNT = Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOC
 export const TREE_FEES_OFFSET = 8;
 export const TREE_FEE_BALANCE_OFFSET = 32;
 export const STATE_ROOT_OFFSET = 80;
+// Root history offsets, pinned by `program-libs/tree/tests/layout.rs`.
+export const UTXO_ROOT_HISTORY_CURSOR_OFFSET = 112;
+export const UTXO_ROOT_HISTORY_LEN_OFFSET = 114;
+export const UTXO_ROOT_HISTORY_OFFSET = 1_142;
+export const UTXO_ROOT_HISTORY_CAPACITY = 200;
+export const NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET = 7_616;
+export const NULLIFIER_ROOT_HISTORY_OFFSET = 7_624;

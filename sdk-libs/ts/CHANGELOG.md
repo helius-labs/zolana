@@ -141,6 +141,10 @@ Added
   accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
   the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
   locate both in the account. `CreateTreeData` names the create-tree payload.
+  `decodeTreeHeadRoots(account)` reads the tree's current `TreeHeadRoots`, the
+  state and nullifier roots with their history indices, and refuses an
+  unwritten slot, the `UTXO_ROOT_HISTORY_*` and `NULLIFIER_ROOT_HISTORY_*`
+  offsets locate both histories.
 
 Changed
 
