@@ -240,8 +240,7 @@ ring-rpc-derived:
         --indexer-url {{localnet-photon-url}} --rpc-url {{localnet-rpc-url}} \
         --root-secret-file "$secret"
 
-# The two ring keys from the release the cli lock names and the ring transfer
-# shapes from the object store, each checked against proving-keys.lock.
+# Ring keys and transfer shapes must match proving-keys.lock.
 ensure-custom-ring-live-keys: && check-custom-ring-keys
     #!/usr/bin/env bash
     set -euo pipefail
@@ -269,21 +268,9 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_asset_url() {
-        python3 - "$1" <<'PY'
-    import json, sys
-    lock = json.load(open("custom-rings/cli/release-artifacts.lock"))
-    section = sys.argv[1]
-    if section not in lock:
-        sys.exit("release-artifacts.lock " + lock["release_tag"] + " has no " + section + ", cut a custom-rings release first")
-    print("https://github.com/helius-labs/zolana/releases/download/" + lock["release_tag"] + "/" + lock[section]["asset"])
-    PY
-    }
-    for pair in custom_ring_policy.key:proving_key custom_ring_base.key:audit_key; do
-        name="${pair%%:*}"
-        installed "$name" && continue
-        url="$(release_asset_url "${pair##*:}")"
-        fetch "$name" "$url"
+    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v3"
+    for name in custom_ring_policy.key custom_ring_base.key; do
+        installed "$name" || fetch "$name" "$release_url/$name"
     done
     for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
         installed "$name" || fetch "$name" "{{proving-keys-url}}/$name"
