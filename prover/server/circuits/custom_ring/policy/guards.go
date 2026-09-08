@@ -31,7 +31,7 @@ type guardAmounts struct {
 
 // sumOutputs makes each amount guard account for every output sharing its
 // subject.
-func sumOutputs(api frontend.API, outputs [NOutputs]slotView, liveOwner, liveAsset [NOutputs]frontend.Variable) [NOutputs]outputTotals {
+func sumOutputs(api frontend.API, outputs [NOutputs]utxoView, liveOwner, liveAsset [NOutputs]frontend.Variable) [NOutputs]outputTotals {
 	var totals [NOutputs]outputTotals
 	for i, output := range outputs {
 		totals[i] = outputTotals{byOwner: 0, byAsset: 0, byOwnerAndAsset: 0}
@@ -53,7 +53,7 @@ func sumOutputs(api frontend.API, outputs [NOutputs]slotView, liveOwner, liveAss
 
 // matchInlineAssets shares each output's inline match between asset rules and
 // amount guards.
-func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, outputs [NOutputs]slotView, inlineEnabled [NInlineAssets]frontend.Variable) [NOutputs]assetLimit {
+func (c *CustomRingPolicyCircuit) matchInlineAssets(api frontend.API, outputs [NOutputs]utxoView, inlineEnabled [NInlineAssets]frontend.Variable) [NOutputs]assetLimit {
 	var limits [NOutputs]assetLimit
 	for i, output := range outputs {
 		var matches [NInlineAssets]frontend.Variable

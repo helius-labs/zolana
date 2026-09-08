@@ -491,7 +491,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	return circuit, nil
 }
 
-func assignOpening(dst *policy.OpeningWires, src *Opening) {
+func assignOpening(dst *policy.UtxoWires, src *Opening) {
 	dst.Domain = src.Domain
 	dst.OwnerPkHash = src.OwnerPkHash
 	dst.NullifierPk = src.NullifierPk

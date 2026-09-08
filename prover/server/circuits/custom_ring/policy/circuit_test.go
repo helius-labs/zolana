@@ -673,8 +673,8 @@ type statement struct {
 	stateProofs   map[uint64]protocol.StateTreeWitness
 	nonInclusion  []protocol.NonInclusionWitness
 
-	inputs  []OpeningWires
-	outputs []OpeningWires
+	inputs  []UtxoWires
+	outputs []UtxoWires
 
 	addressChain     *big.Int
 	externalDataHash *big.Int
@@ -815,7 +815,7 @@ func (s *statement) buildTransaction(
 	amount, secondAmount uint64,
 ) {
 	t.Helper()
-	spent := OpeningWires{
+	spent := UtxoWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		OwnerPkHash:   sender,
 		NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(7)),
@@ -826,7 +826,7 @@ func (s *statement) buildTransaction(
 		RingDataHash:  big.NewInt(0),
 		RingProgramID: big.NewInt(0),
 	}
-	created := OpeningWires{
+	created := UtxoWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
 		OwnerPkHash:   recipient,
 		NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(9)),
@@ -837,13 +837,13 @@ func (s *statement) buildTransaction(
 		RingDataHash:  big.NewInt(0),
 		RingProgramID: big.NewInt(0),
 	}
-	s.inputs = []OpeningWires{spent, dummyOpening(t, 0x53)}
+	s.inputs = []UtxoWires{spent, dummyOpening(t, 0x53)}
 	// A second real output to the same recipient exercises the
 	// per-recipient
 	// amount aggregation, else a dummy fills the slot.
 	second := dummyOpening(t, 0x54)
 	if secondAmount > 0 {
-		second = OpeningWires{
+		second = UtxoWires{
 			Domain:        big.NewInt(protocol.UtxoDomain),
 			OwnerPkHash:   recipient,
 			NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(11)),
@@ -855,7 +855,7 @@ func (s *statement) buildTransaction(
 			RingProgramID: big.NewInt(0),
 		}
 	}
-	s.outputs = []OpeningWires{created, second}
+	s.outputs = []UtxoWires{created, second}
 
 	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
@@ -1061,7 +1061,7 @@ func hostPolicyHash(
 	return spptest.MustHashChain(t, elements)
 }
 
-func hostUtxoHash(t *testing.T, w OpeningWires) *big.Int {
+func hostUtxoHash(t *testing.T, w UtxoWires) *big.Int {
 	t.Helper()
 	return spptest.MustUtxoHash(t, protocol.Utxo{
 		Domain:        spptest.AsBigInt(w.Domain),
@@ -1077,7 +1077,7 @@ func hostUtxoHash(t *testing.T, w OpeningWires) *big.Int {
 
 // dummyOpening is a padding slot, everything zero except the blinding that
 // keeps its hash indistinguishable from a real one.
-func dummyOpening(t *testing.T, blinding int64) OpeningWires {
+func dummyOpening(t *testing.T, blinding int64) UtxoWires {
 	t.Helper()
 	opening := zeroOpening()
 	opening.Domain = big.NewInt(protocol.DummyDomain)
@@ -1085,8 +1085,8 @@ func dummyOpening(t *testing.T, blinding int64) OpeningWires {
 	return opening
 }
 
-func zeroOpening() OpeningWires {
-	return OpeningWires{
+func zeroOpening() UtxoWires {
+	return UtxoWires{
 		Domain:        big.NewInt(0),
 		OwnerPkHash:   big.NewInt(0),
 		NullifierPk:   big.NewInt(0),

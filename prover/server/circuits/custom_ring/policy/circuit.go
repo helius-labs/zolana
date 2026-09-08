@@ -29,8 +29,8 @@ type CustomRingPolicyCircuit struct {
 	EphSk         [32]frontend.Variable
 	AuditorPk     [65]frontend.Variable
 
-	Inputs  [NInputs]OpeningWires
-	Outputs [NOutputs]OpeningWires
+	Inputs  [NInputs]UtxoWires
+	Outputs [NOutputs]UtxoWires
 	// Exactly one flag selects count index+1.
 	// Tags preserve the witness names stored in the proving key.
 	InputCountSelected  [NInputs]frontend.Variable  `gnark:"NInOneHot"`
@@ -72,7 +72,7 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	checker := rangecheck.New(api)
 
 	// 2. Bind policy subjects and amounts to the SPP transaction.
-	txContext := c.checkOpenings(api, checker)
+	txContext := c.constrainTransactionContext(api, checker)
 
 	// 3. Check the policy and reconstruct its commitment.
 	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, checker)
