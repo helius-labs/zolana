@@ -461,6 +461,23 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
     indexer = "{{localnet-photon-url}}"
     prover = "{{localnet-prover-url}}"
     ring_rpc = "$ring_rpc_url"
+
+    # The released rows, the TS suites enrol every party in allow themselves.
+    [[policy.rules]]
+    subject = "output-owner"
+    require = "allow"
+
+    [[policy.rules]]
+    subject = "sender"
+    require = "allow"
+
+    [[policy.rules]]
+    subject = "output-owner"
+    forbid = "block"
+
+    [[policy.rules]]
+    subject = "sender"
+    forbid = "frozen"
     TOML
     cargo run -q -p zolana-ring-rpc -- keygen --out "$ring_dir/auditor.key"
     cargo run -q -p custom-ring-cli -- --config "$ring_dir/ring.toml" \

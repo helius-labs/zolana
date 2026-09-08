@@ -3,32 +3,15 @@
 // ZOLANA_INDEXER_URL, ZOLANA_PROVER_URL, ZOLANA_TREE, RING_PROGRAM_ID, RING_RPC_URL
 // and RING_AUTHORITY_KEYPAIR. That key owns the ring config and holds a reader
 // grant, every ring read is grant only.
-import { readFile } from "node:fs/promises";
-
-import { ed25519 } from "@noble/curves/ed25519.js";
 import { p256 } from "@noble/curves/nist.js";
-import {
-  address,
-  createKeyPairSignerFromBytes,
-  generateKeyPairSigner,
-  lamports,
-  type Address,
-  type Instruction,
-  type KeyPairSigner,
-} from "@solana/kit";
+import { address, generateKeyPairSigner, type Address, type KeyPairSigner } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import {
-  ShieldedKeypair,
-  SigningKey,
   SPL_TOKEN_2022_PROGRAM_ID,
-  Wallet,
   buildDepositTransaction,
   createZolanaClient,
-  syncWallet,
-  type Bytes32,
 } from "../../src/index.js";
-import { KeypairWalletAuthority } from "../../src/transaction/wallet/authority.js";
 import { sha256 } from "../../src/interface/internal.js";
 import { P256PublicKey } from "../../src/keypair/public-key.js";
 import {
@@ -47,69 +30,22 @@ import {
   readerKeyBytes,
   type RingReadSigner,
 } from "../../src/ring/index.js";
-import type { ZolanaClient } from "../../src/client/client.js";
-import { compileUnsignedTransaction } from "../../src/flows/compile.js";
 import {
   currentSlot,
   signSendAndConfirm,
   signerFromWalletFile,
   tokenBalance,
-  waitForSignature,
 } from "./live-helpers.js";
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`the ring live test requires ${name}`);
-  return value;
-}
-
-interface Actor {
-  readonly signer: KeyPairSigner;
-  readonly keypair: ShieldedKeypair;
-  readonly wallet: Wallet;
-  readonly authority: KeypairWalletAuthority;
-}
-
-async function freshActor(): Promise<Actor> {
-  const seed = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(seed);
-  const signer = await createKeyPairSignerFromBytes(
-    Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)),
-  );
-  const keypair = ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed as Bytes32));
-  return {
-    signer,
-    keypair,
-    wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
-  };
-}
-
-async function airdrop(client: ZolanaClient, recipient: Address): Promise<void> {
-  const signature = await client.solanaRpc
-    .requestAirdrop(recipient, lamports(5_000_000_000n))
-    .send();
-  await waitForSignature(client.solanaRpc, signature);
-}
-
-async function keypairSignerFromFile(path: string): Promise<KeyPairSigner> {
-  const bytes = Uint8Array.from(JSON.parse(await readFile(path, "utf8")) as number[]);
-  return createKeyPairSignerFromBytes(bytes);
-}
-
-async function sendInstruction(
-  client: ZolanaClient,
-  instruction: Instruction,
-  signer: KeyPairSigner,
-): Promise<void> {
-  const lifetime = await client.getLatestBlockhash();
-  const transaction = compileUnsignedTransaction({
-    feePayer: signer.address,
-    lifetime,
-    instructions: [instruction],
-  });
-  await signSendAndConfirm(client, transaction, [signer]);
-}
+import {
+  airdrop,
+  enrolInAllow,
+  freshActor,
+  keypairSignerFromFile,
+  requiredEnv,
+  sendInstruction,
+  sync,
+  waitForAudited,
+} from "./ring-live-helpers.js";
 
 /** The WebAuthn envelope a browser would produce on `origin`, signed with a software P-256 key. */
 function syntheticPasskey(origin: string): RingReadSigner & { readonly publicKey: P256PublicKey } {
@@ -156,34 +92,6 @@ async function ringReadError(
   return undefined;
 }
 
-async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
-  await syncWallet({
-    client,
-    wallet: actor.wallet,
-    authority: actor.authority,
-    config: { requireSlot: await currentSlot(client) },
-  });
-}
-
-/** The indexer and the ring RPC lag behind confirmation, so the view is polled. */
-async function waitForAudited(
-  ringRpc: RingRpc,
-  ringProgramId: Address,
-  signer: KeyPairSigner,
-  signature: string,
-) {
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const view = await ringRpc.getDecryptedTransactions({
-      ringProgramId,
-      signer: messageSignerReader(signer),
-    });
-    const item = view.items.find((entry) => entry.signature === signature);
-    if (item !== undefined) return item;
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`transaction ${signature} did not reach the ring view`);
-}
-
 describe("ring flow", () => {
   it("deposits, transfers audited, and reads back as authority, delegate and passkey", async () => {
     const ringProgramId = address(requiredEnv("RING_PROGRAM_ID"));
@@ -200,6 +108,9 @@ describe("ring flow", () => {
     const sender = await freshActor();
     const recipient = await freshActor();
     await airdrop(client, sender.signer.address);
+    // The harness ring pins the released rows, every party needs an allow entry.
+    const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
+    await enrolInAllow(client, ringProgramId, authoritySigner, [sender, recipient]);
 
     const amount = 1_000_000_000n;
     // Input selection stops at the first UTXO that covers the transfer, so the
@@ -244,7 +155,6 @@ describe("ring flow", () => {
     const signature = await signSendAndConfirm(client, transfer, [sender.signer]);
 
     // The indexer lags, so the page is polled.
-    const authoritySigner = await keypairSignerFromFile(requiredEnv("RING_AUTHORITY_KEYPAIR"));
     const config = await fetchRingProgramConfig(client, ringProgramId);
     expect(config.authority).toBe(authoritySigner.address);
     let audited;
@@ -396,6 +306,7 @@ describe("ring flow", () => {
     const recipient = await freshActor();
     await airdrop(client, sender.signer.address);
     await airdrop(client, recipient.signer.address);
+    await enrolInAllow(client, ringProgramId, authoritySigner, [sender, recipient]);
 
     // The bring-up mints 1_000_000 raw units and later suites share the supply.
     const deposited = 40_000n;
