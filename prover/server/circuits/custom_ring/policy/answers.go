@@ -8,22 +8,20 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// RuleAnswerWires is one policy entry proof, placing the entry or its absence
-// under both SPP roots.
-type RuleAnswerWires struct {
-	Enabled      frontend.Variable
-	Mode         frontend.Variable
-	ListId       frontend.Variable
-	Member       frontend.Variable
-	ContentHash  frontend.Variable
-	Version      frontend.Variable
-	State        frontend.Variable
-	AbsentBranch frontend.Variable
-	Low          frontend.Variable
-	Next         frontend.Variable
+type AnswerWires struct {
+	Enabled            frontend.Variable
+	Mode               frontend.Variable
+	ListId             frontend.Variable
+	Member             frontend.Variable
+	ContentHash        frontend.Variable
+	Version            frontend.Variable
+	State              frontend.Variable
+	AbsentBranch       frontend.Variable
+	NullifierLowValue  frontend.Variable
+	NullifierNextValue frontend.Variable
 
-	NfPathElements [shared.NullifierTreeHeight]frontend.Variable
-	NfPathIndex    frontend.Variable
+	NullifierLowPathElements [shared.NullifierTreeHeight]frontend.Variable
+	NullifierLowPathIndex    frontend.Variable
 
 	StatePathElements [shared.StateTreeHeight]frontend.Variable
 	StatePathIndex    frontend.Variable
@@ -36,17 +34,17 @@ type answerView struct {
 	member  frontend.Variable
 }
 
-type entries struct {
+type entryProofInputs struct {
 	ownerHash     frontend.Variable
 	stateRoot     frontend.Variable
 	nullifierRoot frontend.Variable
 }
 
-func (c *CustomRingPolicyCircuit) defineAnswers(api frontend.API, checker frontend.Rangechecker) [NAnswers]answerView {
+func (c *CustomRingPolicyCircuit) checkAnswers(api frontend.API, checker frontend.Rangechecker) [NAnswers]answerView {
 	var out [NAnswers]answerView
-	for i, entry := range c.Answers {
-		out[i] = entry.define(api, checker, entries{
-			ownerHash:     resolveOwner(api, c.Sources, entry),
+	for i, answer := range c.Answers {
+		out[i] = answer.check(api, checker, entryProofInputs{
+			ownerHash:     resolveSourceOwner(api, c.Sources, answer),
 			stateRoot:     c.StateRoot,
 			nullifierRoot: c.NullifierRoot,
 		})
@@ -54,13 +52,11 @@ func (c *CustomRingPolicyCircuit) defineAnswers(api frontend.API, checker fronte
 	return out
 }
 
-// define mirrors the derivations in ring_policy::entry.
-func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker, ring entries) answerView {
+func (w AnswerWires) check(api frontend.API, checker frontend.Rangechecker, proof entryProofInputs) answerView {
+	// Enabled answers claim a nonzero list member.
 	api.AssertIsBoolean(w.Enabled)
 	checker.Check(w.ListId, 8)
 	checker.Check(w.Version, 64)
-	// Neither the zero padding member nor the inline listId 0 names an entry,
-	// and listId 0 could only resolve against empty source slots.
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Member))
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.ListId))
 
@@ -69,16 +65,18 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 	shared.AssertWhen(api, w.Enabled, api.Add(isPresent, isAbsent))
 
 	absent := api.Mul(w.Enabled, isAbsent)
-	noAddress := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchNoAddress))
+	neverCreated := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchNeverCreated))
 	cleared := api.IsZero(api.Sub(w.AbsentBranch, AbsentBranchCleared))
-	shared.AssertWhen(api, absent, api.Add(noAddress, cleared))
+	shared.AssertWhen(api, absent, api.Add(neverCreated, cleared))
 
+	// The source, list and member fix the entry address.
 	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.ListId, w.Member})
 	address := gadget.PoseidonHash(api, []frontend.Variable{
-		addressUtxoHash(api, ring.ownerHash, seed),
+		addressUtxoHash(api, proof.ownerHash, seed),
 		seed,
 		0,
 	})
+	// The entry commitment binds its state, version and content.
 	dataHash := gadget.PoseidonHash(api, []frontend.Variable{
 		policyRecordDomain,
 		address,
@@ -88,18 +86,18 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 		w.Version,
 		w.ContentHash,
 	})
-	// The version doubles as the blinding, keeping a re-added member off an old
-	// commitment.
+	// The entry version is its blinding.
 	utxoHash := gadget.PoseidonHash(api, []frontend.Variable{
 		shared.UtxoDomain,
 		solAssetField,
 		0,
 		dataHash,
 		emptyRingHash,
-		gadget.PoseidonHash(api, []frontend.Variable{ring.ownerHash, w.Version}),
+		gadget.PoseidonHash(api, []frontend.Variable{proof.ownerHash, w.Version}),
 	})
 	nullifier := gadget.PoseidonHash(api, []frontend.Variable{utxoHash, w.Version, 0})
 
+	// Present and cleared entries require state inclusion.
 	clearedBranch := api.Mul(absent, cleared)
 	needInclusion := api.Add(api.Mul(w.Enabled, isPresent), clearedBranch)
 	stateRoot := abstractor.Call(api, gadget.MerkleRootGadget{
@@ -111,7 +109,7 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needInclusion,
 		A:    stateRoot,
-		B:    ring.stateRoot,
+		B:    proof.stateRoot,
 	})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: needInclusion,
@@ -119,25 +117,25 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 		B:    api.Select(clearedBranch, EntryStateCleared, EntryStateActive),
 	})
 
-	// Target the address to prove no entry was ever created, the nullifier to
-	// prove the opened entry is unspent.
-	target := api.Select(api.Mul(absent, noAddress), address, nullifier)
+	// Present and cleared entries must be unspent at NullifierRoot.
+	target := api.Select(api.Mul(absent, neverCreated), address, nullifier)
 	nullifierRoot := abstractor.Call(api, gadget.MerkleRootGadget{
-		Hash:   gadget.IndexedLeafHash(api, w.Low, w.Next),
-		Index:  api.ToBinary(w.NfPathIndex, shared.NullifierTreeHeight),
-		Path:   w.NfPathElements[:],
+		Hash:   gadget.IndexedLeafHash(api, w.NullifierLowValue, w.NullifierNextValue),
+		Index:  api.ToBinary(w.NullifierLowPathIndex, shared.NullifierTreeHeight),
+		Path:   w.NullifierLowPathElements[:],
 		Height: shared.NullifierTreeHeight,
 	})
 	abstractor.CallVoid(api, gadget.AssertEqualWhen{
 		Cond: w.Enabled,
 		A:    nullifierRoot,
-		B:    ring.nullifierRoot,
+		B:    proof.nullifierRoot,
 	})
-	low := gadget.CanonicalLimbs(api, w.Low)
-	mid := gadget.CanonicalLimbs(api, target)
-	high := gadget.CanonicalLimbs(api, w.Next)
-	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, low, mid))
-	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, mid, high))
+	// Full-field ordering requires canonical limbs.
+	lowLimbs := gadget.CanonicalLimbs(api, w.NullifierLowValue)
+	targetLimbs := gadget.CanonicalLimbs(api, target)
+	nextLimbs := gadget.CanonicalLimbs(api, w.NullifierNextValue)
+	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, lowLimbs, targetLimbs))
+	shared.AssertWhen(api, w.Enabled, gadget.IsLessLimbs(api, targetLimbs, nextLimbs))
 
 	return answerView{
 		enabled: w.Enabled,
@@ -147,7 +145,7 @@ func (w RuleAnswerWires) define(api frontend.API, checker frontend.Rangechecker,
 	}
 }
 
-// addressUtxoHash is the entry's address slot commitment, blinded by the seed.
+// The seed blinds the address slot.
 func addressUtxoHash(api frontend.API, ownerHash, seed frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
 		shared.AddressDomain,

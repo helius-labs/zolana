@@ -68,10 +68,10 @@ func sampleParams() *PolicyParameters {
 	}
 	p.InlineAssets[0] = big.NewInt(0x60)
 	for i := range p.Answers {
-		p.Answers[i] = zeroedPoolEntry()
+		p.Answers[i] = zeroedAnswer()
 	}
 	p.Answers[0].Enabled = true
-	p.Answers[0].Mode = activeState
+	p.Answers[0].Mode = policy.ModePresent
 	p.Answers[0].ListId = 1
 	p.Answers[0].Member = big.NewInt(0x70)
 	p.Answers[0].Version = 3
@@ -92,20 +92,20 @@ func sampleOpening(seed int64) Opening {
 	}
 }
 
-func zeroedPoolEntry() Answer {
-	entry := Answer{
+func zeroedAnswer() Answer {
+	answer := Answer{
 		Member:      big.NewInt(0),
 		ContentHash: big.NewInt(0),
 		Low:         big.NewInt(0),
 		Next:        big.NewInt(0),
 	}
-	for i := range entry.NfPathElements {
-		entry.NfPathElements[i] = big.NewInt(0)
+	for i := range answer.NfPathElements {
+		answer.NfPathElements[i] = big.NewInt(0)
 	}
-	for i := range entry.StatePathElements {
-		entry.StatePathElements[i] = big.NewInt(0)
+	for i := range answer.StatePathElements {
+		answer.StatePathElements[i] = big.NewInt(0)
 	}
-	return entry
+	return answer
 }
 
 func TestPolicyParametersJSONRoundTrip(t *testing.T) {
@@ -328,10 +328,10 @@ func TestAssignRuleReadsTheEncodedBytes(t *testing.T) {
 	for name, check := range map[string]struct{ got, want string }{
 		"subject":   {fmt.Sprint(wires.Subject), "31"},
 		"mode":      {fmt.Sprint(wires.Mode), "30"},
-		"mask":      {fmt.Sprint(wires.Mask), "29"},
+		"mask":      {fmt.Sprint(wires.ListMask), "29"},
 		"guardTag":  {fmt.Sprint(wires.GuardTag), "28"},
 		"threshold": {wires.Threshold.(*big.Int).Text(16), "1415161718191a1b"},
-		"altMask":   {fmt.Sprint(wires.AltMask), "19"},
+		"altMask":   {fmt.Sprint(wires.AltListMask), "19"},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s: got %s, want %s", name, check.got, check.want)

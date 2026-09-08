@@ -1,8 +1,10 @@
 package policy
 
-import "math/big"
+import (
+	"math/big"
+	"math/bits"
+)
 
-// Baked circuit widths, every slot beyond the claimed count is padding.
 const (
 	NIn           = 5
 	NOut          = 4
@@ -12,11 +14,10 @@ const (
 	NSources      = 8
 )
 
-// PolicyVersion enters the policy_hash preimage, mirroring
-// ring_policy::POLICY_VERSION.
+// PolicyVersion is committed in policy_hash.
 const PolicyVersion = 4
 
-// What a rule ranges over, ExitDestination having no in-circuit instance.
+// ExitDestination is reserved and rejected.
 const (
 	SubjectOutputOwner     = 1
 	SubjectSender          = 2
@@ -29,27 +30,23 @@ const (
 	ModeAbsent  = 2
 )
 
-// InlineKind marks a rule whose members are inlined in the table, never an
-// entry list id.
-const InlineKind = 0
-
 const (
 	EntryStateActive  = 1
 	EntryStateCleared = 2
 )
 
-// GuardAboveAmount exempts an instance at or below the rule's threshold.
-const GuardAboveAmount = 1
-
-const GuardAboveAmountByAsset = 2
-
 const (
-	AbsentBranchNoAddress = 1
-	AbsentBranchCleared   = 2
+	GuardAlways             = 0
+	GuardAboveAmount        = 1
+	GuardAboveAmountByAsset = 2
 )
 
-// Domain separators, the ASCII tags right-aligned in 32 bytes and read
-// big-endian, mirroring ring_policy::packed_ascii.
+const (
+	AbsentBranchNeverCreated = 1
+	AbsentBranchCleared      = 2
+)
+
+// Domain tags use big endian field encoding.
 const (
 	addressDomainTag = "zolana:ring-policy:address:v1"
 	recordDomainTag  = "zolana:ring-policy:record:v1"
@@ -62,38 +59,32 @@ var (
 	policyTableDomain   = packedASCII(tableDomainTag)
 )
 
-// solAssetField is Poseidon(0, 0), the native-SOL asset id of an entry utxo,
-// mirroring zolana_interface::SOL_ASSET_FIELD.
+// Policy entries use the SOL asset Poseidon(0, 0).
 var solAssetField, _ = new(big.Int).SetString(
 	"2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864", 16)
 
-// emptyRingHash is Poseidon(0, 0) again, the ring hash of a utxo in no ring.
 var emptyRingHash = solAssetField
 
-// aggregatedOffset keeps the guard comparison non-negative over a sum of up to
-// NOut range-checked 64-bit amounts, 2^66 bounds NOut=4.
-var aggregatedOffset = new(big.Int).Lsh(big.NewInt(1), 66)
+const amountBits = 64
 
-// Raising NOut past 4 without widening aggregatedOffset and the atMostAggregated
-// bit count would let the guard sum wrap into a false exemption, this underflows
-// at compile time first.
-const _ = uint(4 - NOut)
+var amountSumBits = amountBits + bits.Len(uint(NOut-1))
+var amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))
 
-// ruleShift are the field weights of the ring_policy::Rule::encoded byte groups,
-// 2^96 the alt mask at byte 19.
-var ruleShift = [5]*big.Int{
-	new(big.Int).Lsh(big.NewInt(1), 8),
-	new(big.Int).Lsh(big.NewInt(1), 16),
-	new(big.Int).Lsh(big.NewInt(1), 24),
-	new(big.Int).Lsh(big.NewInt(1), 32),
-	new(big.Int).Lsh(big.NewInt(1), 96),
+// Packed rows bind each field at its encoded byte offset.
+var ruleWeights = struct {
+	mode, listMask, guardTag, threshold, altListMask *big.Int
+}{
+	mode:        new(big.Int).Lsh(big.NewInt(1), 8),
+	listMask:    new(big.Int).Lsh(big.NewInt(1), 16),
+	guardTag:    new(big.Int).Lsh(big.NewInt(1), 24),
+	threshold:   new(big.Int).Lsh(big.NewInt(1), 32),
+	altListMask: new(big.Int).Lsh(big.NewInt(1), 96),
 }
 
-// packedASCII right-aligns the tag in 32 bytes, capped at 31 to stay below the
-// field modulus.
+// Tags fit below the field modulus.
 func packedASCII(tag string) *big.Int {
 	if len(tag) > 31 {
-		panic("transfer: domain tag exceeds 31 bytes")
+		panic("policy domain tag exceeds 31 bytes")
 	}
 	return new(big.Int).SetBytes([]byte(tag))
 }

@@ -14,8 +14,8 @@
       "size": 3764027068
     },
     "custom_ring_policy.key": {
-      "sha256": "c6c7d8b1c368aec3dcb4b800f17acb4e99953b6786437db76cfb21907b42af8f",
-      "size": 179154007,
+      "sha256": "359899051ec3e3bd8a80cb31425e15baa907aa41c586c7108a1608d32f426a3f",
+      "size": 179422815,
       "source": "release"
     },
     "merge_8_1.key": {

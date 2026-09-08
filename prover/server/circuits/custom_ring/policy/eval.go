@@ -2,196 +2,99 @@ package policy
 
 import (
 	"github.com/consensys/gnark/frontend"
+
+	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// evaluate closes every enabled rule against every live instance of its
-// subject, covered by an answer proving one of the rule's (list, mode)
-// alternatives about the instance or by the amount guard.
 func (c *CustomRingPolicyCircuit) evaluate(
 	api frontend.API,
 	slots openings,
 	answers [NAnswers]answerView,
-	enabled [NRules]frontend.Variable,
+	ruleEnabled [NRules]frontend.Variable,
+	inlineEnabled [NInlineAssets]frontend.Variable,
 ) {
-	inline := c.inlineCoverage(api, slots.outputs)
-	assetLimits := c.assetLimits(api, slots.outputs)
-
+	// Answers can satisfy several rules and transaction slots.
 	var eqOutputOwner, eqOutputAsset [NAnswers][NOut]frontend.Variable
 	var eqSender [NAnswers][NIn]frontend.Variable
-	// A disabled answer carries listId 0 and names no list.
 	var onList [NAnswers][NSources]frontend.Variable
-	for e, entry := range answers {
-		for j, out := range slots.outputs {
-			eqOutputOwner[e][j] = api.IsZero(api.Sub(entry.member, out.owner))
-			eqOutputAsset[e][j] = api.IsZero(api.Sub(entry.member, out.asset))
+	for answerIndex, answer := range answers {
+		for outputIndex, output := range slots.outputs {
+			eqOutputOwner[answerIndex][outputIndex] = api.IsZero(api.Sub(answer.member, output.ownerPkHash))
+			eqOutputAsset[answerIndex][outputIndex] = api.IsZero(api.Sub(answer.member, output.asset))
 		}
-		for i, in := range slots.inputs {
-			eqSender[e][i] = api.IsZero(api.Sub(entry.member, in.owner))
+		for inputIndex, input := range slots.inputs {
+			eqSender[answerIndex][inputIndex] = api.IsZero(api.Sub(answer.member, input.ownerPkHash))
 		}
-		for v := range onList[e] {
-			onList[e][v] = api.IsZero(api.Sub(entry.listId, v+1))
+		for listIndex := range onList[answerIndex] {
+			onList[answerIndex][listIndex] = api.IsZero(api.Sub(answer.listId, listIndex+1))
 		}
 	}
 
-	// A padding slot opens to zero and carries no obligation.
+	// Zero subjects and non-UTXO slots have no obligation.
 	var liveOwner, liveAsset [NOut]frontend.Variable
-	for j, out := range slots.outputs {
-		liveOwner[j] = api.Mul(out.live, nonZero(api, out.owner))
-		liveAsset[j] = api.Mul(out.live, nonZero(api, out.asset))
+	for i, output := range slots.outputs {
+		liveOwner[i] = api.Mul(output.live, nonZero(api, output.ownerPkHash))
+		liveAsset[i] = api.Mul(output.live, nonZero(api, output.asset))
 	}
 	var liveSender [NIn]frontend.Variable
-	for i, in := range slots.inputs {
-		liveSender[i] = api.Mul(in.live, nonZero(api, in.owner))
+	for i, input := range slots.inputs {
+		liveSender[i] = api.Mul(input.live, nonZero(api, input.ownerPkHash))
 	}
+	limits := c.matchInlineAssets(api, slots.outputs, inlineEnabled)
+	totals := sumOutputs(api, slots.outputs, liveOwner, liveAsset)
 
-	for k, rule := range c.Rules {
-		isInline := api.IsZero(rule.Mask)
-		isPerAsset := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmountByAsset))
-		onOutputOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
+	// Every rule must pass for every applicable subject.
+	for ruleIndex, rule := range c.Rules {
+		isInline := api.IsZero(rule.ListMask)
+		hasPerAssetGuard := api.IsZero(api.Sub(rule.GuardTag, GuardAboveAmountByAsset))
+		onOwner := api.IsZero(api.Sub(rule.Subject, SubjectOutputOwner))
 		onAsset := api.IsZero(api.Sub(rule.Subject, SubjectAsset))
-		// SubjectExitDestination has no instance here, nothing constrains a rule
-		// carrying it.
 		onSender := api.IsZero(api.Sub(rule.Subject, SubjectSender))
+		listAndModeMatches := rule.matchListAndMode(api, answers, onList)
 
-		maskBits := api.ToBinary(rule.Mask, NSources)
-		altBits := api.ToBinary(rule.AltMask, NSources)
-		altMode := api.Sub(ModePresent+ModeAbsent, rule.Mode)
-		var matched [NAnswers]frontend.Variable
-		for e, entry := range answers {
-			matched[e] = api.Mul(entry.enabled, api.Add(
-				api.Mul(bitMember(api, maskBits, onList[e][:]), api.IsZero(api.Sub(entry.mode, rule.Mode))),
-				api.Mul(bitMember(api, altBits, onList[e][:]), api.IsZero(api.Sub(entry.mode, altMode))),
-			))
-		}
-
-		onOutput := api.Mul(enabled[k], api.Add(onOutputOwner, onAsset))
-		for j := range slots.outputs {
-			subjectVal := api.Select(onAsset, slots.outputs[j].asset, slots.outputs[j].owner)
-			// The exemption weighs the total sent to the same subject value, a
-			// payment split into sub-threshold slots no longer escapes the rule.
-			aggregated := frontend.Variable(0)
-			assetAggregated := frontend.Variable(0)
-			for jp := range slots.outputs {
-				otherVal := api.Select(onAsset, slots.outputs[jp].asset, slots.outputs[jp].owner)
-				liveOther := api.Select(onAsset, liveAsset[jp], liveOwner[jp])
-				same := api.IsZero(api.Sub(otherVal, subjectVal))
-				aggregated = api.Add(aggregated, api.Mul(api.Mul(liveOther, same), slots.outputs[jp].amount))
-				sameOwner := api.IsZero(api.Sub(slots.outputs[jp].owner, slots.outputs[j].owner))
-				sameAsset := api.IsZero(api.Sub(slots.outputs[jp].asset, slots.outputs[j].asset))
-				assetAggregated = api.Add(assetAggregated, api.Mul(liveOwner[jp], sameOwner, sameAsset, slots.outputs[jp].amount))
+		// Owner rules include change outputs.
+		onOutput := api.Mul(ruleEnabled[ruleIndex], api.Add(onOwner, onAsset))
+		for outputIndex := range slots.outputs {
+			var matches [NAnswers]frontend.Variable
+			for answerIndex := range answers {
+				sameMember := api.Select(onAsset, eqOutputAsset[answerIndex][outputIndex], eqOutputOwner[answerIndex][outputIndex])
+				matches[answerIndex] = api.Mul(listAndModeMatches[answerIndex], sameMember)
 			}
-			terms := make([]frontend.Variable, NAnswers)
-			for e := range matched {
-				terms[e] = api.Mul(matched[e], api.Select(onAsset, eqOutputAsset[e][j], eqOutputOwner[e][j]))
+			applies := api.Mul(onOutput, api.Select(onAsset, liveAsset[outputIndex], liveOwner[outputIndex]))
+			covered := api.Select(isInline, limits[outputIndex].found, anyOf(api, matches[:]))
+			amounts := guardAmounts{
+				subjectTotal:    api.Select(onAsset, totals[outputIndex].byAsset, totals[outputIndex].byOwner),
+				ownerAssetTotal: totals[outputIndex].byOwnerAndAsset,
+				assetLimit:      limits[outputIndex],
 			}
-			instance := api.Mul(onOutput, api.Select(onAsset, liveAsset[j], liveOwner[j]))
-			api.AssertIsEqual(api.Mul(instance, isPerAsset, api.Sub(1, assetLimits[j].found)), 0)
-			rule.assertGuardedAnswered(
-				api,
-				instance,
-				api.Select(isInline, inline[j], anyOf(api, terms)),
-				aggregated,
-				assetAggregated,
-				assetLimits[j].threshold,
-				assetLimits[j].found,
-			)
+			exempt := rule.amountExemption(api, amounts)
+			// A per-asset guard requires a configured asset limit.
+			shared.AssertWhen(api, api.Mul(applies, hasPerAssetGuard), limits[outputIndex].found)
+			shared.AssertWhen(api, applies, api.Or(covered, exempt))
 		}
 
-		// Sender rules take no amount guard, an input is answered only by a
-		// covering entry.
-		onInput := api.Mul(enabled[k], onSender)
-		for i := range slots.inputs {
-			terms := make([]frontend.Variable, NAnswers)
-			for e := range matched {
-				terms[e] = api.Mul(matched[e], eqSender[e][i])
+		// Sender rules have no amount exemption.
+		onInput := api.Mul(ruleEnabled[ruleIndex], onSender)
+		for inputIndex := range slots.inputs {
+			var matches [NAnswers]frontend.Variable
+			for answerIndex := range answers {
+				matches[answerIndex] = api.Mul(listAndModeMatches[answerIndex], eqSender[answerIndex][inputIndex])
 			}
-			assertCovered(api, api.Mul(onInput, liveSender[i]), anyOf(api, terms))
+			applies := api.Mul(onInput, liveSender[inputIndex])
+			covered := anyOf(api, matches[:])
+			shared.AssertWhen(api, applies, covered)
 		}
 	}
 }
 
-func (w RuleWires) assertGuardedAnswered(
-	api frontend.API,
-	instance, covered, aggregated, assetAggregated, assetThreshold, assetFound frontend.Variable,
-) {
-	exempt := api.Add(api.Mul(
-		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmount)),
-		atMostAggregated(api, aggregated, w.Threshold),
-	), api.Mul(
-		api.IsZero(api.Sub(w.GuardTag, GuardAboveAmountByAsset)),
-		assetFound,
-		atMostAggregated(api, assetAggregated, assetThreshold),
-	))
-	api.AssertIsEqual(api.Mul(instance, api.Mul(api.Sub(1, covered), api.Sub(1, exempt))), 0)
-}
-
-type assetLimit struct {
-	found     frontend.Variable
-	threshold frontend.Variable
-}
-
-func (c *CustomRingPolicyCircuit) assetLimits(api frontend.API, outputs [NOut]slotView) [NOut]assetLimit {
-	inInline := suffixSums(api, c.InlineCountOneHot[:])
-	var limits [NOut]assetLimit
-	for j, out := range outputs {
-		matches := make([]frontend.Variable, NInlineAssets)
-		threshold := frontend.Variable(0)
-		for m, asset := range c.InlineAssets {
-			matches[m] = api.Mul(inInline[m+1], api.IsZero(api.Sub(asset, out.asset)))
-			threshold = api.Add(threshold, api.Mul(matches[m], c.InlineLimits[m]))
-		}
-		limits[j] = assetLimit{found: anyOf(api, matches), threshold: threshold}
-	}
-	return limits
-}
-
-func assertCovered(api frontend.API, instance, covered frontend.Variable) {
-	api.AssertIsEqual(api.Mul(instance, api.Sub(1, covered)), 0)
-}
-
-// inlineCoverage matches output assets against the policy's inline members, the
-// zero padding member never matching.
-func (c *CustomRingPolicyCircuit) inlineCoverage(api frontend.API, outputs [NOut]slotView) [NOut]frontend.Variable {
-	inInline := suffixSums(api, c.InlineCountOneHot[:])
-	var listed [NInlineAssets]frontend.Variable
-	for m, member := range c.InlineAssets {
-		listed[m] = api.Mul(inInline[m+1], nonZero(api, member))
-	}
-	var covered [NOut]frontend.Variable
-	for j, out := range outputs {
-		terms := make([]frontend.Variable, NInlineAssets)
-		for m, member := range c.InlineAssets {
-			terms[m] = api.Mul(listed[m], api.IsZero(api.Sub(member, out.asset)))
-		}
-		covered[j] = anyOf(api, terms)
-	}
-	return covered
-}
-
-// atMostAggregated returns 1 iff aggregated <= threshold, sound because every
-// summed amount is range-checked to 64 bits, the offset sum never wraps.
-func atMostAggregated(api frontend.API, aggregated, threshold frontend.Variable) frontend.Variable {
-	return api.ToBinary(api.Add(api.Sub(threshold, aggregated), aggregatedOffset), 67)[66]
-}
-
-// anyOf ORs boolean terms by summing, sound while the term count stays far
-// below the field modulus.
 func anyOf(api frontend.API, terms []frontend.Variable) frontend.Variable {
-	sum := frontend.Variable(0)
+	result := frontend.Variable(0)
 	for _, term := range terms {
-		sum = api.Add(sum, term)
+		result = api.Or(result, term)
 	}
-	return nonZero(api, sum)
+	return result
 }
 
 func nonZero(api frontend.API, value frontend.Variable) frontend.Variable {
 	return api.Sub(1, api.IsZero(value))
-}
-
-func bitMember(api frontend.API, bits, onList []frontend.Variable) frontend.Variable {
-	member := frontend.Variable(0)
-	for v, named := range onList {
-		member = api.Add(member, api.Mul(named, bits[v]))
-	}
-	return member
 }
