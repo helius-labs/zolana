@@ -46,4 +46,4 @@ export {
   type KeyLoader,
 } from "./flow.js";
 
-export { signSendAndConfirm, type Signer, type SubmitClient } from "./submit.js";
+export { signSendAndConfirm, type Landed, type Signer, type SubmitClient } from "./submit.js";

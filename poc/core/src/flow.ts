@@ -27,8 +27,9 @@ import {
   type TransferDestination,
   type Wallet,
   type WalletAuthority,
-} from "@zolana/sdk";
-import type { Address } from "@zolana/sdk";
+} from "@heliuslabs/zolana";
+import type { Address } from "@heliuslabs/zolana";
+import type { Transaction } from "@solana/kit";
 
 import { signSendAndConfirm, type Signer, type SubmitClient } from "./submit.js";
 
@@ -136,15 +137,18 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
 
   /**
    * Solana confirmation says a transaction landed; it says nothing about Photon
-   * having indexed the resulting notes. Without waitForIndexer the next leg reads
-   * an empty wallet and fails to find spendable inputs.
+   * having indexed the resulting notes.
    */
+  let landedSlot: bigint | undefined;
+  const submit = async (transaction: Transaction): Promise<void> => {
+    landedSlot = (await signSendAndConfirm(context.client, transaction, [context.signer])).slot;
+  };
   const sync = (): Promise<unknown> =>
     syncWallet({
       client: context.client,
       wallet: context.wallet,
       authority: context.authority,
-      config: { waitForIndexer: true },
+      config: landedSlot === undefined ? {} : { requireSlot: landedSlot },
     });
 
   try {
@@ -165,7 +169,7 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
             recipient: context.shieldedAddress,
             amount: context.shieldAmount,
           });
-          await signSendAndConfirm(context.client, transaction, [context.signer]);
+          await submit(transaction);
         },
         { note: `shielded ${context.shieldAmount.toString()} base units` },
       );
@@ -186,7 +190,7 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
             feePayer: context.signer.address,
             parts: notes,
           });
-          await signSendAndConfirm(context.client, transaction, [context.signer]);
+          await submit(transaction);
         },
         { note: `split into ${String(notes)} notes (1x${String(notes)} proof)` },
       );
@@ -205,7 +209,7 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
           recipient: context.transferRecipient,
           amount: perLeg,
         });
-        await signSendAndConfirm(context.client, transaction, [context.signer]);
+        await submit(transaction);
       },
       { note: `transfer, ${String(notes)} note(s) available` },
     );
@@ -223,7 +227,7 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
           recipient: context.withdrawalRecipient,
           amount: perLeg,
         });
-        await signSendAndConfirm(context.client, transaction, [context.signer]);
+        await submit(transaction);
       },
       { note: "withdraw to public address" },
     );

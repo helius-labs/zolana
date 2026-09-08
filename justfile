@@ -563,15 +563,18 @@ poc-web: build-prover-wasm
     VITE_ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" \
       VITE_ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       VITE_ZOLANA_PROVER_URL="{{localnet-prover-url}}" \
-      VITE_ZOLANA_TREE="${ZOLANA_TREE:-}" \
       npm run poc:dev
 
-# Bring up the same stack `test-ts-e2e` uses and print the env the PoC needs.
-# Leaves the validator, Photon, and prover running; re-run to reset.
+# Bring up the validator, Photon, and prover the PoC needs, with the protocol
+# accounts (config and default tree) preloaded from a snapshot. Leaves the
+# stack running. Re-run to reset.
 poc-up: build-programs build-prover-server build-cli ensure-photon
     #!/usr/bin/env bash
     set -euo pipefail
-    eval "$(cargo run -q -p xtask -- program-ids)"
+    program_ids="$(cargo run -q -p xtask -- program-ids)"
+    eval "$program_ids"
+    : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
+    : "${USER_REGISTRY_PROGRAM_ID:?xtask did not emit USER_REGISTRY_PROGRAM_ID}"
     bin="target/debug/zolana"
     workdir="target/poc-stack"
     rm -rf "$workdir"
@@ -587,23 +590,20 @@ poc-up: build-programs build-prover-server build-cli ensure-photon
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     sleep 2
-    "$bin" dev start --with-photon --no-use-surfpool \
+    accounts_dir="$workdir/accounts"
+    cargo run -q -p xtask -- generate-account-snapshots \
+      --deploy-dir target/deploy --accounts-dir "$accounts_dir"
+    "$bin" dev start --no-use-surfpool \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
-      --photon-port {{localnet-photon-port}} \
+      --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
       --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so
     "$bin" config set --rpc-url {{localnet-rpc-url}} \
       --indexer-url {{localnet-photon-url}} --prover-url {{localnet-prover-url}} >/dev/null
-    "$bin" wallet new --outfile "$workdir/authority.json"
-    tree="$("$bin" dev pool create-tree --keypair "$workdir/authority.json" \
-      --tree-keypair "$workdir/tree.json" --airdrop-lamports 20000000000 \
-      | sed -n 's/^ok tree //p')"
-    test -n "$tree"
-    printf '\nstack is up. Export these for the PoC:\n\n'
-    printf '  export VITE_ZOLANA_LOCALNET_URL=%s\n' "{{localnet-rpc-url}}"
-    printf '  export VITE_ZOLANA_INDEXER_URL=%s\n' "{{localnet-photon-url}}"
-    printf '  export VITE_ZOLANA_PROVER_URL=%s\n' "{{localnet-prover-url}}"
-    printf '  export VITE_ZOLANA_TREE=%s\n\n' "$tree"
+    printf '\nstack is up. `just poc-web` reads the same ports. For the Node verifier export:\n\n'
+    printf '  export ZOLANA_LOCALNET_URL=%s\n' "{{localnet-rpc-url}}"
+    printf '  export ZOLANA_INDEXER_URL=%s\n' "{{localnet-photon-url}}"
+    printf '  export ZOLANA_PROVER_URL=%s\n\n' "{{localnet-prover-url}}"
 
 # Photon unit and SQLite-backed integration tests. The Postgres migration smoke
 # test runs in CI where a database service is available.

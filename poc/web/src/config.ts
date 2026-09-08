@@ -16,8 +16,6 @@ export interface PocConfig {
   readonly wasmBaseUrl: string;
   /** Where the `*.key` proving keys are served from. */
   readonly keyBaseUrl: string;
-  /** Pool tree address; created by `zolana dev pool create-tree`. */
-  readonly tree?: string;
   readonly testMint?: string;
 }
 
@@ -33,7 +31,6 @@ export function loadConfig(): PocConfig {
     proverUrl: env("VITE_ZOLANA_PROVER_URL") ?? "http://127.0.0.1:3001",
     wasmBaseUrl: env("VITE_ZOLANA_WASM_URL") ?? "/prover",
     keyBaseUrl: env("VITE_ZOLANA_KEYS_URL") ?? "/keys",
-    ...(env("VITE_ZOLANA_TREE") === undefined ? {} : { tree: env("VITE_ZOLANA_TREE") as string }),
     ...(env("VITE_ZOLANA_TEST_MINT") === undefined
       ? {}
       : { testMint: env("VITE_ZOLANA_TEST_MINT") as string }),

@@ -71,9 +71,8 @@ Then click **Benchmark proving keys**.
 **Full shield → transfer → unshield — needs the stack.**
 
 ```sh
-just poc-up               # validator + Photon + prover + pool tree
-# export the VITE_* vars it prints, then:
-just poc-web
+just poc-up               # validator + Photon + prover, protocol accounts preloaded
+just poc-web              # reads the same ports the stack bound
 ```
 
 Click **Run shield → transfer → unshield**. It sweeps note counts 1–5; each maps
@@ -104,7 +103,7 @@ localnet up, this captures a real `/prove` request and replays it through the
 module in Node, printing the module's actual error or the proof:
 
 ```sh
-ZOLANA_TREE=<tree> node poc/web/scripts/verify-wasm-prover.mjs
+node poc/web/scripts/verify-wasm-prover.mjs
 ```
 
 It is what caught the deadlock below.

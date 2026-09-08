@@ -6,8 +6,8 @@
 // "status: 500" and drops the body, and a page cannot show a Go fatal error at
 // all -- it kills the wasm instance.
 //
-// Usage, with the localnet up (`just poc-up`):
-//   ZOLANA_TREE=<tree> node poc/web/scripts/verify-wasm-prover.mjs
+// Usage, with the localnet up (`just poc-up` prints the ZOLANA_* URLs):
+//   node poc/web/scripts/verify-wasm-prover.mjs
 //
 // Usable from any working directory: every path is resolved from this module.
 import { createRequire } from "node:module";
@@ -24,15 +24,16 @@ import {
   signTransactionWithSigners,
 } from "@solana/kit";
 import {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
   Wallet,
   buildDepositTransaction,
   buildRegistrationTransaction,
   buildTransferTransaction,
   createZolanaClient,
   syncWallet,
-} from "@zolana/sdk";
+} from "@heliuslabs/zolana";
 
 // ---------- 1. capture a real prove request ----------
 
@@ -45,10 +46,9 @@ globalThis.fetch = async (input, init) => {
 };
 
 const client = await createZolanaClient({
-  solanaRpcUrl: "http://127.0.0.1:8899",
-  indexerUrl: "http://127.0.0.1:8784",
-  proverUrl: "http://127.0.0.1:3001",
-  ...(process.env.ZOLANA_TREE === undefined ? {} : { tree: process.env.ZOLANA_TREE }),
+  solanaRpcUrl: process.env.ZOLANA_LOCALNET_URL ?? "http://127.0.0.1:8899",
+  indexerUrl: process.env.ZOLANA_INDEXER_URL ?? "http://127.0.0.1:8784",
+  proverUrl: process.env.ZOLANA_PROVER_URL ?? "http://127.0.0.1:3001",
 });
 
 async function send(transaction, signers) {
@@ -57,16 +57,7 @@ async function send(transaction, signers) {
   await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
     commitment: client.commitment,
   });
-  for (let i = 0; i < 150; i++) {
-    const { value } = await client.solanaRpc.getSignatureStatuses([signature]).send();
-    const status = value[0];
-    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
-      if (status.err !== null) throw new Error(JSON.stringify(status.err));
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  throw new Error("not confirmed");
+  return await client.confirmTransaction(signature);
 }
 
 async function actor() {
@@ -76,7 +67,7 @@ async function actor() {
     signer: await createKeyPairSignerFromBytes(
       Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)),
     ),
-    keypair: ShieldedKeypair.fromEd25519(seed, 0),
+    keypair: ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed)),
   };
 }
 
@@ -104,11 +95,11 @@ for (const a of [sender, receiver]) {
   if (reg !== undefined) await send(reg, [a.signer]);
 }
 const wallet = new Wallet({ identity: sender.keypair.shieldedAddress() });
-const authority = new LocalWalletAuthority({
+const authority = new KeypairWalletAuthority({
   solanaPublicKey: sender.signer.address,
   keypair: sender.keypair,
 });
-await send(
+const depositSlot = await send(
   await buildDepositTransaction({
     client,
     feePayer: sender.signer.address,
@@ -117,7 +108,7 @@ await send(
   }),
   [sender.signer],
 );
-await syncWallet({ client, wallet, authority, config: { waitForIndexer: true } });
+await syncWallet({ client, wallet, authority, config: { requireSlot: depositSlot } });
 await buildTransferTransaction({
   client,
   wallet,
@@ -170,11 +161,12 @@ const keyFiles = [
   ...(process.env.PRELOAD_KEYS ?? "").split(",").filter(Boolean),
   wanted,
 ];
+const keysDir =
+  process.env.ZOLANA_SPP_KEYS_DIR ??
+  new URL("../../../prover/server/proving-keys", import.meta.url).pathname;
 let started = Date.now();
 for (const keyFile of keyFiles) {
-  const keyBytes = await readFile(
-    new URL(`../../../prover/server/proving-keys/${keyFile}`, import.meta.url),
-  );
+  const keyBytes = await readFile(nodePath.join(keysDir, keyFile));
   started = Date.now();
   const loaded = api.loadKey(keyFile, new Uint8Array(keyBytes));
   if (loaded.error !== undefined) throw new Error(`loadKey ${keyFile}: ${loaded.error}`);

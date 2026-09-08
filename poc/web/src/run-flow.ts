@@ -6,19 +6,21 @@
  * unregistered Solana recipient is refused by design -- the SDK will not silently
  * downgrade a private payment into a public withdrawal), then run the legs.
  *
- * This needs a live localnet, indexer, and a funded pool tree. The key benchmark
+ * Needs a live localnet, protocol accounts, and an indexer. The key benchmark
  * on the page deliberately does not.
  */
 
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { airdropFactory, createKeyPairSignerFromBytes, lamports } from "@solana/kit";
 import {
-  LocalWalletAuthority,
+  KeypairWalletAuthority,
   ShieldedKeypair,
+  SigningKey,
+  type Bytes32,
   Wallet,
   buildRegistrationTransaction,
   createZolanaClient,
-} from "@zolana/sdk";
+} from "@heliuslabs/zolana";
 
 import {
   RunRecorder,
@@ -121,12 +123,11 @@ async function preflight(config: PocConfig, prover: ProverKind): Promise<void> {
 async function actor(): Promise<
   Readonly<{ signer: Awaited<ReturnType<typeof createKeyPairSignerFromBytes>>; keypair: ShieldedKeypair }>
 > {
-  const seed = new Uint8Array(32);
-  crypto.getRandomValues(seed);
+  const seed = crypto.getRandomValues(new Uint8Array(32)) as Bytes32;
   const signer = await createKeyPairSignerFromBytes(
     Uint8Array.of(...seed, ...ed25519.getPublicKey(seed)),
   );
-  return Object.freeze({ signer, keypair: ShieldedKeypair.fromEd25519(seed as never, 0) });
+  return Object.freeze({ signer, keypair: ShieldedKeypair.fromKeypair(SigningKey.fromEd25519Bytes(seed)) });
 }
 
 export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult> {
@@ -144,7 +145,6 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
         solanaRpcUrl: config.solanaRpcUrl,
         indexerUrl: config.indexerUrl,
         proverUrl: config.proverUrl,
-        ...(config.tree === undefined ? {} : { tree: config.tree as never }),
         // Routing prove requests into wasm is the entire local-proving
         // integration; every other request falls through to the real fetch.
         ...(prover === "wasm" && wasm !== undefined ? { fetch: wasm.createFetch() } : {}),
@@ -196,7 +196,7 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
     log("both parties registered");
 
     const wallet = new Wallet({ identity: keypair.shieldedAddress() });
-    const authority = new LocalWalletAuthority({
+    const authority = new KeypairWalletAuthority({
       solanaPublicKey: funding.address,
       keypair,
     });

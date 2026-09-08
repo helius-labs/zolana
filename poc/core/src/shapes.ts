@@ -36,12 +36,7 @@ function entry(inputs: number, outputs: number, keyBytes: number): ShapeKey {
   });
 }
 
-/**
- * The confidential (default transact) rail, which is what the SDK's wallet
- * actions use. The zone and zone-authority rails have their own keys but the
- * TypeScript SDK does not expose policy-zone instructions, so they are out of
- * scope here.
- */
+/** Confidential (default transact) rail only, ring rail keys are out of scope. */
 export const TRANSFER_SHAPES: readonly ShapeKey[] = Object.freeze([
   entry(1, 1, 8_137_200),
   entry(1, 2, 8_670_630),
