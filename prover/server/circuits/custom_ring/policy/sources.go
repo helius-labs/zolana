@@ -7,27 +7,36 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// Source slot i is empty or serves list i+1.
+// checkSources fixes one namespace owner per list and identifies configured
+// slots.
 func (c *CustomRingPolicyCircuit) checkSources(api frontend.API) [NSources]frontend.Variable {
 	var configured [NSources]frontend.Variable
 	for i, source := range c.Sources {
+		// 1. Restrict each slot to empty or its positional list ID.
 		empty := api.IsZero(source.ListId)
 		configured[i] = api.IsZero(api.Sub(source.ListId, i+1))
 		api.AssertIsEqual(api.Add(empty, configured[i]), 1)
+
+		// 2. Require a nonzero namespace owner only for configured
+		// slots.
 		api.AssertIsEqual(api.IsZero(source.OwnerHash), empty)
 	}
 	return configured
 }
 
-func resolveSourceOwner(api frontend.API, sources [NSources]SourceWires, answer AnswerWires) frontend.Variable {
+// resolveSourceOwner selects the namespace owner that determines the entry
+// address.
+func resolveSourceOwner(api frontend.API, sources [NSources]SourceWires, fact ListFactWires) frontend.Variable {
+	// 1. Select the owner for the claimed list.
 	matchCount := frontend.Variable(0)
 	sourceOwnerHash := frontend.Variable(0)
 	for _, source := range sources {
-		selected := api.IsZero(api.Sub(answer.ListId, source.ListId))
+		selected := api.IsZero(api.Sub(fact.ListId, source.ListId))
 		matchCount = api.Add(matchCount, selected)
 		sourceOwnerHash = api.Add(sourceOwnerHash, api.Mul(selected, source.OwnerHash))
 	}
-	// Enabled answers resolve to exactly one source.
-	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: answer.Enabled, A: matchCount, B: 1})
+
+	// 2. Require exactly one source for each enabled list fact.
+	abstractor.CallVoid(api, gadget.AssertEqualWhen{Cond: fact.Enabled, A: matchCount, B: 1})
 	return sourceOwnerHash
 }

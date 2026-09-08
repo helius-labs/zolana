@@ -8,13 +8,17 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// OwnerHash commits to the namespace serving ListId.
+// SourceWires binds a list to its namespace owner through the policy hash.
 type SourceWires struct {
 	ListId    frontend.Variable
 	OwnerHash frontend.Variable
 }
 
+// CustomRingPolicyCircuit proves that transaction subjects satisfy the ring's
+// committed rules.
 type CustomRingPolicyCircuit struct {
+	// The verifier supplies a hash of the audit inputs, policy and accepted
+	// roots.
 	PublicInputHash frontend.Variable `gnark:",public"`
 
 	PrivateTxHash frontend.Variable
@@ -22,28 +26,39 @@ type CustomRingPolicyCircuit struct {
 	EphSk         [32]frontend.Variable
 	AuditorPk     [65]frontend.Variable
 
-	Inputs     [NIn]OpeningWires
-	Outputs    [NOut]OpeningWires
-	NInOneHot  [NIn]frontend.Variable
-	NOutOneHot [NOut]frontend.Variable
+	Inputs  [NInputs]OpeningWires
+	Outputs [NOutputs]OpeningWires
+	// Exactly one flag selects count index+1.
+	// Tags preserve the witness names stored in the proving key.
+	InputCountSelected  [NInputs]frontend.Variable  `gnark:"NInOneHot"`
+	OutputCountSelected [NOutputs]frontend.Variable `gnark:"NOutOneHot"`
 
 	AddressChain     frontend.Variable
 	ExternalDataHash frontend.Variable
 
-	Sources           [NSources]SourceWires
-	RuleCountOneHot   [NRules + 1]frontend.Variable
+	// Every rule uses the same list-to-namespace map.
+	Sources [NSources]SourceWires
+	// Exactly one flag selects count index.
+	RuleCountSelected [NRules + 1]frontend.Variable `gnark:"RuleCountOneHot"`
 	Rules             [NRules]RuleWires
-	InlineAssets      [NInlineAssets]frontend.Variable
-	InlineLimits      [NInlineAssets]frontend.Variable
-	InlineCountOneHot [NInlineAssets + 1]frontend.Variable
+	// Inline rules check asset membership, per-asset guards use matching
+	// limits.
+	InlineAssets [NInlineAssets]frontend.Variable
+	InlineLimits [NInlineAssets]frontend.Variable
+	// Exactly one flag selects count index.
+	InlineAssetCountSelected [NInlineAssets + 1]frontend.Variable `gnark:"InlineCountOneHot"`
 
-	StateRoot     frontend.Variable
+	// The program selects roots from the configured entries tree's history.
+	StateRoot frontend.Variable
+	// The program limits nullifier root age with NULLIFIER_ROOT_WINDOW.
 	NullifierRoot frontend.Variable
 
-	Answers [NAnswers]AnswerWires
+	// All rules and transaction slots share these list facts.
+	ListFacts [NListFacts]ListFactWires `gnark:"Answers"`
 }
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
+	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
 		TxViewingSk:   c.TxViewingSk,
@@ -53,12 +68,19 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	// Both blocks share one BSB22 commitment.
 	checker := rangecheck.New(api)
 
-	slots := c.checkOpenings(api, checker)
-	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, checker)
-	answers := c.checkAnswers(api, checker)
-	c.evaluate(api, slots, answers, ruleEnabled, inlineEnabled)
+	// 2. Bind policy subjects and amounts to the SPP transaction.
+	txContext := c.checkOpenings(api, checker)
 
-	// Bind the policy and supplied entry roots after the audit inputs.
+	// 3. Check the policy and reconstruct its commitment.
+	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, checker)
+
+	// 4. Authenticate the shared list facts.
+	listFacts := c.checkListFacts(api, checker)
+
+	// 5. Require every applicable rule to pass.
+	c.evaluate(api, txContext, listFacts, ruleEnabled, inlineEnabled)
+
+	// 6. Bind the policy and supplied entry roots after the audit inputs.
 	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil

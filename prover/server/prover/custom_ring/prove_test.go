@@ -95,7 +95,7 @@ func baseParams(t *testing.T) *BaseParameters {
 }
 
 // rulesFreeParams opens a one input one output transfer against a length zero
-// rule table with every answer slot disabled.
+// rule table with every list fact slot disabled.
 func rulesFreeParams(t *testing.T) *PolicyParameters {
 	t.Helper()
 	p := &PolicyParameters{
@@ -150,8 +150,8 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		p.InlineAssets[i] = big.NewInt(0)
 		p.InlineLimits[i] = big.NewInt(0)
 	}
-	for i := range p.Answers {
-		p.Answers[i] = zeroedAnswer()
+	for i := range p.ListFacts {
+		p.ListFacts[i] = zeroedListFact()
 	}
 
 	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{

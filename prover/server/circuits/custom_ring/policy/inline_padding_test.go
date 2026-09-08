@@ -12,12 +12,14 @@ import (
 func TestUncommittedInlinePaddingCannotExtendAllowlist(t *testing.T) {
 	cs := testConstraintSystem(t)
 
-	// The committed allowlist holds one asset, 0xe5, that is not transferred.
+	// The committed allowlist holds one asset, 0xe5, that is not
+	// transferred.
 	// The transaction moves 0xd4 (defaultFixture.transferred).
 	f := defaultFixture()
 	f.inlineAsset = fill(0xe5)
 
-	// Control: with inline_count = 1 and no padding, the transferred asset is
+	// Control: with inline_count = 1 and no padding, the transferred asset
+	// is
 	// uncovered and the circuit rejects.
 	control, err := frontend.NewWitness(buildAssignment(t, f), ecc.BN254.ScalarField())
 	if err != nil {
@@ -27,7 +29,8 @@ func TestUncommittedInlinePaddingCannotExtendAllowlist(t *testing.T) {
 		t.Fatal("control: the transferred asset is not in the committed allowlist, want rejection")
 	}
 
-	// Parking the transferred asset in slot 1 while inline_count stays 1 must
+	// Parking the transferred asset in slot 1 while inline_count stays 1
+	// must
 	// fail: the slot is outside the committed prefix.
 	c := buildAssignment(t, f)
 	c.InlineAssets[1] = pkField(t, f.transferred)

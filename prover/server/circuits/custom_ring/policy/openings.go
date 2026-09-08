@@ -7,7 +7,8 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// The owner commitment binds OwnerPkHash and NullifierPk.
+// OpeningWires supplies a transaction slot's fields for hash binding and
+// subject extraction.
 type OpeningWires struct {
 	Domain        frontend.Variable
 	OwnerPkHash   frontend.Variable
@@ -20,74 +21,93 @@ type OpeningWires struct {
 	RingProgramID frontend.Variable
 }
 
+// slotView supplies transaction subjects for evaluation when live.
 type slotView struct {
 	ownerPkHash frontend.Variable
 	asset       frontend.Variable
 	amount      frontend.Variable
-	live        frontend.Variable
+	// Only selected UTXO slots can create policy obligations.
+	live frontend.Variable
 }
 
-type openings struct {
-	inputs  [NIn]slotView
-	outputs [NOut]slotView
+// transactionContext supplies checked inputs and outputs to policy evaluation.
+type transactionContext struct {
+	inputs  [NInputs]slotView
+	outputs [NOutputs]slotView
 }
 
-func (c *CustomRingPolicyCircuit) checkOpenings(api frontend.API, checker frontend.Rangechecker) openings {
-	// Select the transaction slots.
-	assertOneHot(api, c.NInOneHot[:])
-	assertOneHot(api, c.NOutOneHot[:])
-	activeIn := suffixSums(api, c.NInOneHot[:])
-	activeOut := suffixSums(api, c.NOutOneHot[:])
+// checkOpenings binds subject values and amounts to the transaction checked by
+// SPP.
+func (c *CustomRingPolicyCircuit) checkOpenings(api frontend.API, checker frontend.Rangechecker) transactionContext {
+	// 1. Select the transaction slot prefixes.
+	assertOneHot(api, c.InputCountSelected[:])
+	assertOneHot(api, c.OutputCountSelected[:])
+	activeIn := suffixSums(api, c.InputCountSelected[:])
+	activeOut := suffixSums(api, c.OutputCountSelected[:])
 
-	var slots openings
-	// Check input domains and commitments.
-	inputHashes := make([]frontend.Variable, NIn)
+	var txContext transactionContext
+	// 2. Check input domains and commitments.
+	inputHashes := make([]frontend.Variable, NInputs)
 	for i, wires := range c.Inputs {
-		inputHashes[i], slots.inputs[i] = wires.checkInput(api, checker, activeIn[i])
-	}
-	// Check output domains and commitments.
-	outputHashes := make([]frontend.Variable, NOut)
-	for i, wires := range c.Outputs {
-		outputHashes[i], slots.outputs[i] = wires.checkOutput(api, checker, activeOut[i])
+		inputHashes[i], txContext.inputs[i] = wires.checkInput(api, checker, activeIn[i])
 	}
 
-	// Bind the openings to the SPP transaction.
+	// 3. Check output domains and commitments.
+	outputHashes := make([]frontend.Variable, NOutputs)
+	for i, wires := range c.Outputs {
+		outputHashes[i], txContext.outputs[i] = wires.checkOutput(api, checker, activeOut[i])
+	}
+
+	// 4. Bind the openings to the SPP transaction.
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
-		hashPrefix(api, inputHashes, c.NInOneHot[:]),
-		hashPrefix(api, outputHashes, c.NOutOneHot[:]),
+		hashPrefix(api, inputHashes, c.InputCountSelected[:]),
+		hashPrefix(api, outputHashes, c.OutputCountSelected[:]),
 		c.AddressChain,
 		c.ExternalDataHash,
 	}))
-	return slots
+	return txContext
 }
 
+// checkInput admits UTXO, address and dummy inputs while exposing only UTXO
+// subjects.
 func (w OpeningWires) checkInput(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active frontend.Variable,
 ) (frontend.Variable, slotView) {
+	// 1. Restrict selected inputs to supported domains.
 	isUtxo := w.isDomain(api, shared.UtxoDomain)
 	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.AddressDomain), w.isDomain(api, shared.DummyDomain)))
+
+	// 2. Derive the input hash and bounded subject values.
 	return w.checkSlot(api, checker, active, isUtxo)
 }
 
+// checkOutput admits UTXO and dummy outputs while exposing only UTXO subjects.
 func (w OpeningWires) checkOutput(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active frontend.Variable,
 ) (frontend.Variable, slotView) {
+	// 1. Restrict selected outputs to UTXO or dummy domains.
 	isUtxo := w.isDomain(api, shared.UtxoDomain)
 	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.DummyDomain)))
+
+	// 2. Derive the output hash and bounded subject values.
 	return w.checkSlot(api, checker, active, isUtxo)
 }
 
+// checkSlot reconstructs the commitment and marks UTXO fields for rule
+// evaluation.
 func (w OpeningWires) checkSlot(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active, isUtxo frontend.Variable,
 ) (frontend.Variable, slotView) {
-	// Amount bounds prevent overflow in guard totals.
+	// 1. Bound the amount before summing guard totals.
 	checker.Check(w.Amount, amountBits)
+
+	// 2. Bind ownership and UTXO fields into the slot hash.
 	owner := gadget.PoseidonHash(api, []frontend.Variable{w.OwnerPkHash, w.NullifierPk})
 	hash := shared.UtxoHashCircuit(api, shared.UtxoCircuitFields{
 		Domain:        w.Domain,
@@ -99,6 +119,8 @@ func (w OpeningWires) checkSlot(
 		RingDataHash:  w.RingDataHash,
 		RingProgramID: w.RingProgramID,
 	})
+
+	// 3. Mark selected UTXOs for rule evaluation.
 	return api.Select(isUtxo, hash, frontend.Variable(0)), slotView{
 		ownerPkHash: w.OwnerPkHash,
 		asset:       w.Asset,

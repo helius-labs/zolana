@@ -36,8 +36,8 @@ type Opening struct {
 	RingProgramID *big.Int
 }
 
-// Answer is one entry fact the statement proves against the roots.
-type Answer struct {
+// ListFact supplies a presence or absence claim for circuit verification.
+type ListFact struct {
 	Enabled      bool
 	Mode         uint8
 	ListId       uint8
@@ -72,8 +72,8 @@ type PolicyParameters struct {
 
 	NIn     uint8
 	NOut    uint8
-	Inputs  [policy.NIn]Opening
-	Outputs [policy.NOut]Opening
+	Inputs  [policy.NInputs]Opening
+	Outputs [policy.NOutputs]Opening
 
 	AddressChain     *big.Int
 	ExternalDataHash *big.Int
@@ -88,7 +88,7 @@ type PolicyParameters struct {
 	StateRoot     *big.Int
 	NullifierRoot *big.Int
 
-	Answers [policy.NAnswers]Answer
+	ListFacts [policy.NListFacts]ListFact
 }
 
 type openingJSON struct {
@@ -108,7 +108,7 @@ type sourceOwnerJSON struct {
 	OwnerHash string `json:"ownerHash"`
 }
 
-type answerJSON struct {
+type listFactJSON struct {
 	Enabled           bool     `json:"enabled"`
 	Mode              uint8    `json:"mode"`
 	ListId            uint8    `json:"listId"`
@@ -146,7 +146,7 @@ type policyParametersJSON struct {
 	InlineCount      uint8             `json:"inlineCount"`
 	StateRoot        string            `json:"stateRoot"`
 	NullifierRoot    string            `json:"nullifierRoot"`
-	Answers          []answerJSON      `json:"answers"`
+	ListFacts        []listFactJSON    `json:"answers"`
 }
 
 func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
@@ -171,7 +171,7 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		InlineCount:      p.InlineCount,
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
-		Answers:          make([]answerJSON, 0, len(p.Answers)),
+		ListFacts:        make([]listFactJSON, 0, len(p.ListFacts)),
 	}
 	for _, src := range p.Sources {
 		raw.Sources = append(raw.Sources, sourceOwnerJSON{
@@ -188,8 +188,8 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 	for _, limit := range p.InlineLimits {
 		raw.InlineLimits = append(raw.InlineLimits, common.ToHex(limit))
 	}
-	for i := range p.Answers {
-		raw.Answers = append(raw.Answers, writeAnswer(&p.Answers[i]))
+	for i := range p.ListFacts {
+		raw.ListFacts = append(raw.ListFacts, writeListFact(&p.ListFacts[i]))
 	}
 	return json.Marshal(raw)
 }
@@ -202,11 +202,11 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if raw.CircuitType != string(common.CustomRingPolicyCircuitType) {
 		return fmt.Errorf("custom-ring-policy: unexpected circuitType %q", raw.CircuitType)
 	}
-	if raw.NIn == 0 || int(raw.NIn) > policy.NIn {
-		return fmt.Errorf("custom-ring: nIn %d is outside 1..%d", raw.NIn, policy.NIn)
+	if raw.NIn == 0 || int(raw.NIn) > policy.NInputs {
+		return fmt.Errorf("custom-ring: nIn %d is outside 1..%d", raw.NIn, policy.NInputs)
 	}
-	if raw.NOut == 0 || int(raw.NOut) > policy.NOut {
-		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, policy.NOut)
+	if raw.NOut == 0 || int(raw.NOut) > policy.NOutputs {
+		return fmt.Errorf("custom-ring: nOut %d is outside 1..%d", raw.NOut, policy.NOutputs)
 	}
 	if int(raw.PolicyLen) > policy.NRules {
 		return fmt.Errorf("custom-ring: policyLen %d exceeds %d", raw.PolicyLen, policy.NRules)
@@ -309,11 +309,11 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("custom-ring: inlineAssets[%d] is non-zero padding after inlineCount %d", i, raw.InlineCount)
 		}
 	}
-	if len(raw.Answers) != policy.NAnswers {
-		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), policy.NAnswers)
+	if len(raw.ListFacts) != policy.NListFacts {
+		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.ListFacts), policy.NListFacts)
 	}
-	for i, answer := range raw.Answers {
-		if err = readAnswer(&p.Answers[i], answer); err != nil {
+	for i, fact := range raw.ListFacts {
+		if err = readListFact(&p.ListFacts[i], fact); err != nil {
 			return err
 		}
 	}
@@ -338,8 +338,8 @@ func writeOpenings(src []Opening) []openingJSON {
 	return out
 }
 
-func writeAnswer(src *Answer) answerJSON {
-	return answerJSON{
+func writeListFact(src *ListFact) listFactJSON {
+	return listFactJSON{
 		Enabled:           src.Enabled,
 		Mode:              src.Mode,
 		ListId:            src.ListId,
@@ -396,7 +396,7 @@ func readOpenings(dst []Opening, src []openingJSON, name string) error {
 	return nil
 }
 
-func readAnswer(dst *Answer, src answerJSON) error {
+func readListFact(dst *ListFact, src listFactJSON) error {
 	if src.Enabled {
 		if src.Mode != policy.ModePresent && src.Mode != policy.ModeAbsent {
 			return fmt.Errorf("custom-ring: answers mode %d is not present or absent", src.Mode)
@@ -473,10 +473,10 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	for i := range circuit.Outputs {
 		assignOpening(&circuit.Outputs[i], &p.Outputs[i])
 	}
-	assignOneHot(circuit.NInOneHot[:], int(p.NIn)-1)
-	assignOneHot(circuit.NOutOneHot[:], int(p.NOut)-1)
-	assignOneHot(circuit.RuleCountOneHot[:], int(p.PolicyLen))
-	assignOneHot(circuit.InlineCountOneHot[:], int(p.InlineCount))
+	assignOneHot(circuit.InputCountSelected[:], int(p.NIn)-1)
+	assignOneHot(circuit.OutputCountSelected[:], int(p.NOut)-1)
+	assignOneHot(circuit.RuleCountSelected[:], int(p.PolicyLen))
+	assignOneHot(circuit.InlineAssetCountSelected[:], int(p.InlineCount))
 
 	for i := range circuit.Rules {
 		assignRule(&circuit.Rules[i], p.RuleEnc[i])
@@ -485,8 +485,8 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 		circuit.InlineAssets[i] = p.InlineAssets[i]
 		circuit.InlineLimits[i] = p.InlineLimits[i]
 	}
-	for i := range circuit.Answers {
-		assignAnswer(&circuit.Answers[i], &p.Answers[i])
+	for i := range circuit.ListFacts {
+		assignListFact(&circuit.ListFacts[i], &p.ListFacts[i])
 	}
 	return circuit, nil
 }
@@ -527,7 +527,7 @@ func assignRule(dst *policy.RuleWires, encoded [ruleEncLen]byte) {
 	dst.AltListMask = encoded[19]
 }
 
-func assignAnswer(dst *policy.AnswerWires, src *Answer) {
+func assignListFact(dst *policy.ListFactWires, src *ListFact) {
 	dst.Enabled = boolVar(src.Enabled)
 	dst.Mode = src.Mode
 	dst.ListId = src.ListId

@@ -63,7 +63,7 @@ func TestAmountGuardGrouping(t *testing.T) {
 }
 
 type amountBoundCircuit struct {
-	Amounts   [NOut]frontend.Variable
+	Amounts   [NOutputs]frontend.Variable
 	Threshold frontend.Variable
 	AtMost    frontend.Variable
 }
@@ -75,7 +75,7 @@ func (c *amountBoundCircuit) Define(api frontend.API) error {
 		total = api.Add(total, amount)
 	}
 	api.ToBinary(c.Threshold, amountBits)
-	api.AssertIsEqual(sumAtMost(api, total, c.Threshold), c.AtMost)
+	api.AssertIsEqual(atMostAggregated(api, total, c.Threshold), c.AtMost)
 	return nil
 }
 
@@ -83,14 +83,14 @@ func TestAmountSumBounds(t *testing.T) {
 	maximum := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), amountBits), big.NewInt(1))
 	tests := []struct {
 		name      string
-		amounts   [NOut]frontend.Variable
+		amounts   [NOutputs]frontend.Variable
 		threshold frontend.Variable
 		atMost    int
 	}{
-		{"zero", [NOut]frontend.Variable{0, 0, 0, 0}, 0, 1},
-		{"maximum threshold", [NOut]frontend.Variable{maximum, 0, 0, 0}, maximum, 1},
-		{"one above threshold", [NOut]frontend.Variable{maximum, 1, 0, 0}, maximum, 0},
-		{"maximum sum", [NOut]frontend.Variable{maximum, maximum, maximum, maximum}, 0, 0},
+		{"zero", [NOutputs]frontend.Variable{0, 0, 0, 0}, 0, 1},
+		{"maximum threshold", [NOutputs]frontend.Variable{maximum, 0, 0, 0}, maximum, 1},
+		{"one above threshold", [NOutputs]frontend.Variable{maximum, 1, 0, 0}, maximum, 0},
+		{"maximum sum", [NOutputs]frontend.Variable{maximum, maximum, maximum, maximum}, 0, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
