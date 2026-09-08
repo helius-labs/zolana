@@ -87,10 +87,12 @@ func circuitTypeForKeyFile(name string) (common.CircuitType, error) {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.Contains(lower, "transfer"):
-		// Checked before the plain zone case: a zone-authority file name contains
-		// both "transfer" and "zone".
+		// Longer names first, "ring_authority" and "p256_ring" both contain "ring".
 		if strings.Contains(lower, "ring_authority") {
 			return common.TransferRingAuthorityCircuitType, nil
+		}
+		if strings.Contains(lower, "p256_ring") {
+			return common.TransferP256RingCircuitType, nil
 		}
 		if strings.Contains(lower, "ring") {
 			return common.TransferRingCircuitType, nil

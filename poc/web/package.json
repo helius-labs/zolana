@@ -13,7 +13,7 @@
   "dependencies": {
     "@solana/kit": "^7.0.0",
     "@zolana/poc-core": "*",
-    "@zolana/sdk": "*",
+    "@heliuslabs/zolana": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

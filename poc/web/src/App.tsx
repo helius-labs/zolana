@@ -212,8 +212,6 @@ export function App(): React.ReactElement {
             {config.keyBaseUrl} — {TRANSFER_SHAPES.length} shapes,{" "}
             {formatBytes(totalKeyBytes)} total
           </dd>
-          <dt>Pool tree</dt>
-          <dd>{config.tree ?? "not configured (set ZOLANA_TREE)"}</dd>
         </dl>
       </section>
 
