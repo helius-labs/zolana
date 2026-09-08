@@ -7,8 +7,7 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// OpeningWires is one transaction slot, its owner commitment derived rather
-// than witnessed.
+// The owner commitment binds OwnerPkHash and NullifierPk.
 type OpeningWires struct {
 	Domain        frontend.Variable
 	OwnerPkHash   frontend.Variable
@@ -22,10 +21,10 @@ type OpeningWires struct {
 }
 
 type slotView struct {
-	owner  frontend.Variable
-	asset  frontend.Variable
-	amount frontend.Variable
-	live   frontend.Variable
+	ownerPkHash frontend.Variable
+	asset       frontend.Variable
+	amount      frontend.Variable
+	live        frontend.Variable
 }
 
 type openings struct {
@@ -33,63 +32,66 @@ type openings struct {
 	outputs [NOut]slotView
 }
 
-func (c *CustomRingPolicyCircuit) defineOpenings(api frontend.API, checker frontend.Rangechecker) openings {
+func (c *CustomRingPolicyCircuit) checkOpenings(api frontend.API, checker frontend.Rangechecker) openings {
+	// Select the transaction slots.
 	assertOneHot(api, c.NInOneHot[:])
 	assertOneHot(api, c.NOutOneHot[:])
 	activeIn := suffixSums(api, c.NInOneHot[:])
 	activeOut := suffixSums(api, c.NOutOneHot[:])
 
-	var out openings
-	inputs := make([]frontend.Variable, NIn)
+	var slots openings
+	// Check input domains and commitments.
+	inputHashes := make([]frontend.Variable, NIn)
 	for i, wires := range c.Inputs {
-		inputs[i], out.inputs[i] = wires.defineInput(api, checker, activeIn[i])
+		inputHashes[i], slots.inputs[i] = wires.checkInput(api, checker, activeIn[i])
 	}
-	outputs := make([]frontend.Variable, NOut)
+	// Check output domains and commitments.
+	outputHashes := make([]frontend.Variable, NOut)
 	for i, wires := range c.Outputs {
-		outputs[i], out.outputs[i] = wires.defineOutput(api, checker, activeOut[i])
+		outputHashes[i], slots.outputs[i] = wires.checkOutput(api, checker, activeOut[i])
 	}
 
-	// Recomputing PrivateTxHash binds the screened openings to the SPP transaction.
+	// Bind the openings to the SPP transaction.
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
-		prefixSelect(api, inputs, c.NInOneHot[:]),
-		prefixSelect(api, outputs, c.NOutOneHot[:]),
+		hashPrefix(api, inputHashes, c.NInOneHot[:]),
+		hashPrefix(api, outputHashes, c.NOutOneHot[:]),
 		c.AddressChain,
 		c.ExternalDataHash,
 	}))
-	return out
+	return slots
 }
 
-func (w OpeningWires) defineInput(
+func (w OpeningWires) checkInput(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active frontend.Variable,
 ) (frontend.Variable, slotView) {
-	isUtxo := w.is(api, shared.UtxoDomain)
-	shared.AssertWhen(api, active, api.Add(isUtxo, w.is(api, shared.AddressDomain), w.is(api, shared.DummyDomain)))
-	return w.classify(api, checker, active, isUtxo)
+	isUtxo := w.isDomain(api, shared.UtxoDomain)
+	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.AddressDomain), w.isDomain(api, shared.DummyDomain)))
+	return w.checkSlot(api, checker, active, isUtxo)
 }
 
-func (w OpeningWires) defineOutput(
+func (w OpeningWires) checkOutput(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active frontend.Variable,
 ) (frontend.Variable, slotView) {
-	isUtxo := w.is(api, shared.UtxoDomain)
-	shared.AssertWhen(api, active, api.Add(isUtxo, w.is(api, shared.DummyDomain)))
-	return w.classify(api, checker, active, isUtxo)
+	isUtxo := w.isDomain(api, shared.UtxoDomain)
+	shared.AssertWhen(api, active, api.Add(isUtxo, w.isDomain(api, shared.DummyDomain)))
+	return w.checkSlot(api, checker, active, isUtxo)
 }
 
-// classify mirrors shared.ConstrainOutput.
-func (w OpeningWires) classify(
+func (w OpeningWires) checkSlot(
 	api frontend.API,
 	checker frontend.Rangechecker,
 	active, isUtxo frontend.Variable,
 ) (frontend.Variable, slotView) {
-	// The guard comparison needs the amount bounded to 64 bits.
-	checker.Check(w.Amount, 64)
+	// Amount bounds prevent overflow in guard totals.
+	checker.Check(w.Amount, amountBits)
+	owner := gadget.PoseidonHash(api, []frontend.Variable{w.OwnerPkHash, w.NullifierPk})
 	hash := shared.UtxoHashCircuit(api, shared.UtxoCircuitFields{
 		Domain:        w.Domain,
-		Owner:         gadget.PoseidonHash(api, []frontend.Variable{w.OwnerPkHash, w.NullifierPk}),
+		Owner:         owner,
 		Asset:         w.Asset,
 		Amount:        w.Amount,
 		Blinding:      w.Blinding,
@@ -98,51 +100,13 @@ func (w OpeningWires) classify(
 		RingProgramID: w.RingProgramID,
 	})
 	return api.Select(isUtxo, hash, frontend.Variable(0)), slotView{
-		owner:  w.OwnerPkHash,
-		asset:  w.Asset,
-		amount: w.Amount,
-		live:   api.Mul(active, isUtxo),
+		ownerPkHash: w.OwnerPkHash,
+		asset:       w.Asset,
+		amount:      w.Amount,
+		live:        api.Mul(active, isUtxo),
 	}
 }
 
-func (w OpeningWires) is(api frontend.API, domain int) frontend.Variable {
+func (w OpeningWires) isDomain(api frontend.API, domain int) frontend.Variable {
 	return api.IsZero(api.Sub(w.Domain, domain))
-}
-
-// prefixSelect hash-chains the first n contributions, n picked by the one-hot.
-// Soundness is computational, a lie about n must still land on the
-// transaction's private_tx_hash, and that takes a Poseidon preimage.
-func prefixSelect(api frontend.API, contributions, oneHot []frontend.Variable) frontend.Variable {
-	return foldSelect(api, contributions[0], contributions[1:], oneHot)
-}
-
-// foldSelect returns the fold over the first k values, k picked by the one-hot.
-func foldSelect(api frontend.API, head frontend.Variable, values, oneHot []frontend.Variable) frontend.Variable {
-	chain := head
-	selected := api.Mul(oneHot[0], chain)
-	for k, value := range values {
-		chain = gadget.PoseidonHash(api, []frontend.Variable{chain, value})
-		selected = api.Add(selected, api.Mul(oneHot[k+1], chain))
-	}
-	return selected
-}
-
-func assertOneHot(api frontend.API, oneHot []frontend.Variable) {
-	sum := frontend.Variable(0)
-	for _, bit := range oneHot {
-		api.AssertIsBoolean(bit)
-		sum = api.Add(sum, bit)
-	}
-	api.AssertIsEqual(sum, 1)
-}
-
-// suffixSums returns the flag that position k is within the selected count.
-func suffixSums(api frontend.API, oneHot []frontend.Variable) []frontend.Variable {
-	out := make([]frontend.Variable, len(oneHot))
-	sum := frontend.Variable(0)
-	for k := len(oneHot) - 1; k >= 0; k-- {
-		sum = api.Add(sum, oneHot[k])
-		out[k] = sum
-	}
-	return out
 }

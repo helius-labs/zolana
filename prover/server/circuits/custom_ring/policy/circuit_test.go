@@ -27,10 +27,10 @@ import (
 
 // The policy the fixture proves against.
 const (
-	kindAllow    = 1
-	kindBlock    = 2
-	kindFrozen   = 3
-	kindApproval = 7
+	listAllow    = 1
+	listBlock    = 2
+	listFrozen   = 3
+	listApproval = 7
 
 	guardThreshold = 2000
 	transferAmount = 1000
@@ -115,7 +115,7 @@ func TestCircuitSolvesGroupRule(t *testing.T) {
 	cs := testConstraintSystem(t)
 
 	f := defaultFixture()
-	f.outputOwnerMask = lmask(kindBlock, kindAllow)
+	f.outputOwnerMask = listMask(listBlock, listAllow)
 	solve(t, cs, buildAssignment(t, f))
 }
 
@@ -177,8 +177,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "rule dropped from the table",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.LenOneHot[4] = big.NewInt(0)
-				c.LenOneHot[3] = big.NewInt(1)
+				c.RuleCountOneHot[4] = big.NewInt(0)
+				c.RuleCountOneHot[3] = big.NewInt(1)
 				return c
 			},
 		},
@@ -194,7 +194,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry listId swapped",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].ListId = big.NewInt(kindBlock)
+				c.Answers[0].ListId = big.NewInt(listBlock)
 				return c
 			},
 		},
@@ -219,7 +219,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
 				c.Answers[0].Mode = big.NewInt(ModeAbsent)
-				c.Answers[0].AbsentBranch = big.NewInt(AbsentBranchNoAddress)
+				c.Answers[0].AbsentBranch = big.NewInt(AbsentBranchNeverCreated)
 				return c
 			},
 		},
@@ -251,7 +251,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry absence proof does not open the nullifier root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[1].NfPathElements[0] = big.NewInt(1)
+				c.Answers[1].NullifierLowPathElements[0] = big.NewInt(1)
 				return c
 			},
 		},
@@ -267,8 +267,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "live source slots swapped in the witness",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Sources[kindAllow-1], c.Sources[kindFrozen-1] =
-					c.Sources[kindFrozen-1], c.Sources[kindAllow-1]
+				c.Sources[listAllow-1], c.Sources[listFrozen-1] =
+					c.Sources[listFrozen-1], c.Sources[listAllow-1]
 				return c
 			},
 		},
@@ -284,7 +284,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "live listId duplicated into a second slot in the witness",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Sources[4] = c.Sources[kindFrozen-1]
+				c.Sources[4] = c.Sources[listFrozen-1]
 				return c
 			},
 		},
@@ -342,7 +342,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "output owner group excludes the recipient's list",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
-				f.outputOwnerMask = lmask(kindBlock, kindApproval)
+				f.outputOwnerMask = listMask(listBlock, listApproval)
 				return buildAssignment(t, f)
 			},
 		},
@@ -397,7 +397,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				f := mixedFixture()
 				f.answers = []int{senderNotFrozen, allowedNotApproved}
 				c := buildAssignment(t, f)
-				c.Rules[0].Mask, c.Rules[0].AltMask = c.Rules[0].AltMask, c.Rules[0].Mask
+				c.Rules[0].ListMask, c.Rules[0].AltListMask = c.Rules[0].AltListMask, c.Rules[0].ListMask
 				return c
 			},
 		},
@@ -422,7 +422,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "inline rule carrying an alt mask",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := defaultFixture()
-				f.inlineAltMask = lmask(kindBlock)
+				f.inlineAltMask = listMask(listBlock)
 				return buildAssignment(t, f)
 			},
 		},
@@ -484,19 +484,19 @@ func TestPrintPolicyVectors(t *testing.T) {
 
 	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, nil, emptySources())))
 	oneMap := emptySources()
-	oneMap[kindAllow-1] = source{listId: kindAllow, owner: s.ownOwnerHash}
-	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)}}
+	oneMap[listAllow-1] = source{listId: listAllow, owner: s.ownOwnerHash}
+	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}}
 	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap)))
 	twoMap := oneMap
-	twoMap[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
-	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)})
+	twoMap[listFrozen-1] = source{listId: listFrozen, owner: s.curatorOwnerHash}
+	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: listMask(listFrozen)})
 	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, nil, twoMap)))
 	mixedMap := emptySources()
-	mixedMap[kindBlock-1] = source{listId: kindBlock, owner: s.ownOwnerHash}
-	mixedMap[kindApproval-1] = source{listId: kindApproval, owner: s.ownOwnerHash}
-	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), altMask: lmask(kindBlock)}}
+	mixedMap[listBlock-1] = source{listId: listBlock, owner: s.ownOwnerHash}
+	mixedMap[listApproval-1] = source{listId: listApproval, owner: s.ownOwnerHash}
+	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), altMask: listMask(listBlock)}}
 	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, nil, mixedMap)))
-	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow), guardTag: GuardAboveAmountByAsset}}
+	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
 	fmt.Printf("per_asset_policy_hash %s\n", hex32(hostPolicyHash(
 		t, perAssetRule, []*big.Int{pkField(t, fill(0xd4))}, []uint64{123}, oneMap,
 	)))
@@ -572,8 +572,8 @@ func defaultFixture() fixture {
 // absent Block).
 func mixedFixture() fixture {
 	f := defaultFixture()
-	f.outputOwnerMask = lmask(kindApproval)
-	f.outputOwnerAltMask = lmask(kindBlock)
+	f.outputOwnerMask = listMask(listApproval)
+	f.outputOwnerAltMask = listMask(listBlock)
 	return f
 }
 
@@ -618,8 +618,7 @@ type rule struct {
 	threshold uint64
 }
 
-// lmask ORs the bit of each list id, mirroring ring_policy::ListSet::of.
-func lmask(ids ...int64) int64 {
+func listMask(ids ...int64) int64 {
 	var mask int64
 	for _, id := range ids {
 		mask |= 1 << (id - 1)
@@ -638,13 +637,13 @@ func (r rule) packed() *big.Int {
 
 func (r rule) wires() RuleWires {
 	return RuleWires{
-		Packed:    r.packed(),
-		Subject:   big.NewInt(r.subject),
-		Mode:      big.NewInt(r.mode),
-		Mask:      big.NewInt(r.mask),
-		AltMask:   big.NewInt(r.altMask),
-		GuardTag:  big.NewInt(r.guardTag),
-		Threshold: new(big.Int).SetUint64(r.threshold),
+		Packed:      r.packed(),
+		Subject:     big.NewInt(r.subject),
+		Mode:        big.NewInt(r.mode),
+		ListMask:    big.NewInt(r.mask),
+		AltListMask: big.NewInt(r.altMask),
+		GuardTag:    big.NewInt(r.guardTag),
+		Threshold:   new(big.Int).SetUint64(r.threshold),
 	}
 }
 
@@ -696,10 +695,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 		spptest.MustNullifierPk(t, big.NewInt(0)),
 	)
 	s.sources = emptySources()
-	for _, listId := range []int64{kindAllow, kindBlock, kindApproval} {
+	for _, listId := range []int64{listAllow, listBlock, listApproval} {
 		s.sources[listId-1] = source{listId: listId, owner: s.ownOwnerHash}
 	}
-	s.sources[kindFrozen-1] = source{listId: kindFrozen, owner: s.curatorOwnerHash}
+	s.sources[listFrozen-1] = source{listId: listFrozen, owner: s.curatorOwnerHash}
 
 	allowed := pkField(t, allowedKey)
 	sender := pkField(t, fill(0xb2))
@@ -708,13 +707,13 @@ func newStatement(t *testing.T, f fixture) *statement {
 	asset := pkField(t, f.transferred)
 
 	s.entries = []entry{
-		allowedActive:      {listId: kindAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		senderNotFrozen:    {listId: kindFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
-		blockedCleared:     {listId: kindBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
-		allowedNotBlocked:  {listId: kindBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
-		approvedActive:     {listId: kindApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		approvedBlocked:    {listId: kindBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		allowedNotApproved: {listId: kindApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
+		allowedActive:      {listId: listAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		senderNotFrozen:    {listId: listFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
+		blockedCleared:     {listId: listBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
+		allowedNotBlocked:  {listId: listBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
+		approvedActive:     {listId: listApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		approvedBlocked:    {listId: listBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
+		allowedNotApproved: {listId: listApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
 	}
 	for _, r := range s.entries {
 		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
@@ -722,17 +721,17 @@ func newStatement(t *testing.T, f fixture) *statement {
 	// The knobs repoint the map after derivation, leaving the entry fixtures
 	// under the curator.
 	if f.dropCuratorSlot {
-		s.sources[kindFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
+		s.sources[listFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
 	}
 	if f.curatorSlotOwn {
-		s.sources[kindFrozen-1].owner = s.ownOwnerHash
+		s.sources[listFrozen-1].owner = s.ownOwnerHash
 	}
 
 	s.rules = []rule{
-		{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)},
-		{subject: SubjectSender, mode: ModeAbsent, mask: lmask(kindFrozen)},
-		{subject: SubjectAsset, mode: ModePresent, mask: lmask()},
-		{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
+		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)},
+		{subject: SubjectSender, mode: ModeAbsent, mask: listMask(listFrozen)},
+		{subject: SubjectAsset, mode: ModePresent, mask: listMask()},
+		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
 	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
 	if f.secondInlineAsset != [32]byte{} {
@@ -778,6 +777,7 @@ func (s *statement) buildTrees(t *testing.T) {
 	leaves := map[uint64]*big.Int{}
 	tree := spptest.MustNewNullifierTree(t)
 	s.stateLeaf = map[int]uint64{}
+	s.nonInclusion = nil
 	for i, r := range s.entries {
 		if r.state == 0 {
 			continue
@@ -847,29 +847,23 @@ func (s *statement) buildTransaction(
 	}
 	s.outputs = []OpeningWires{created, second}
 
-	// A dummy slot contributes 0 to the chain, mirroring the circuit's isUtxo mux.
-	secondContribution := big.NewInt(0)
-	if secondAmount > 0 {
-		secondContribution = hostUtxoHash(t, s.outputs[1])
-	}
 	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
-	s.privateTxHash = spptest.MustPrivateTxHash(t,
-		[]*big.Int{hostUtxoHash(t, s.inputs[0]), big.NewInt(0)},
-		[]*big.Int{hostUtxoHash(t, s.outputs[0]), secondContribution},
-		[]*big.Int{big.NewInt(0), big.NewInt(0)},
-		s.externalDataHash,
-	)
-
-	elements := s.keys.ChainElements(t, s.privateTxHash)
-	s.publicInputHash = spptest.MustHashChain(t, append(elements,
-		s.policyHash, s.stateRoot, s.nullifierRoot))
+	s.updateHashes(t)
 }
 
 func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	t.Helper()
 	s := newStatement(t, f)
+	if f.rulesFree {
+		return s.assignment(t, nil)
+	}
+	return s.assignment(t, f.answers)
+}
 
+func (s *statement) assignment(t *testing.T, answers []int) *CustomRingPolicyCircuit {
+	t.Helper()
+	s.updateHashes(t)
 	wires := s.keys.AuditBlockWires(s.privateTxHash)
 	c := &CustomRingPolicyCircuit{
 		PublicInputHash:  s.publicInputHash,
@@ -905,16 +899,16 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	c.NOutOneHot[len(s.outputs)-1] = big.NewInt(1)
 
 	// Padding rules repeat ring_policy::Rule::disabled.
-	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: lmask(kindAllow)}
+	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}
 	for k := range c.Rules {
 		c.Rules[k] = disabled.wires()
-		c.LenOneHot[k] = big.NewInt(0)
+		c.RuleCountOneHot[k] = big.NewInt(0)
 	}
 	for k, r := range s.rules {
 		c.Rules[k] = r.wires()
 	}
-	c.LenOneHot[NRules] = big.NewInt(0)
-	c.LenOneHot[len(s.rules)] = big.NewInt(1)
+	c.RuleCountOneHot[NRules] = big.NewInt(0)
+	c.RuleCountOneHot[len(s.rules)] = big.NewInt(1)
 
 	for m := range c.InlineAssets {
 		c.InlineAssets[m] = big.NewInt(0)
@@ -931,68 +925,63 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	c.InlineCountOneHot[len(s.inlineAssets)] = big.NewInt(1)
 
 	for e := range c.Answers {
-		c.Answers[e] = zeroPoolEntry()
+		c.Answers[e] = disabledAnswer()
 	}
-	if f.rulesFree {
-		return c
-	}
-	for e, index := range f.answers {
-		c.Answers[e] = s.poolEntry(t, index)
+	for e, index := range answers {
+		c.Answers[e] = s.answerForEntry(t, index)
 	}
 	return c
 }
 
-// poolEntry answers with the entry's own fact, an Active entry present, a
-// cleared or never added one absent.
-func (s *statement) poolEntry(t *testing.T, index int) RuleAnswerWires {
+func (s *statement) answerForEntry(t *testing.T, index int) AnswerWires {
 	t.Helper()
-	r := s.entries[index]
+	entry := s.entries[index]
 	mode, branch := int64(ModePresent), int64(0)
-	switch r.state {
+	switch entry.state {
 	case 0:
-		mode, branch = ModeAbsent, AbsentBranchNoAddress
+		mode, branch = ModeAbsent, AbsentBranchNeverCreated
 	case EntryStateCleared:
 		mode, branch = ModeAbsent, AbsentBranchCleared
 	}
-	entry := RuleAnswerWires{
-		Enabled:        big.NewInt(1),
-		Mode:           big.NewInt(mode),
-		ListId:         big.NewInt(r.listId),
-		Member:         r.member,
-		ContentHash:    r.content,
-		Version:        big.NewInt(r.version),
-		State:          big.NewInt(r.state),
-		AbsentBranch:   big.NewInt(branch),
-		NfPathIndex:    big.NewInt(0),
-		StatePathIndex: big.NewInt(0),
+	answer := AnswerWires{
+		Enabled:               big.NewInt(1),
+		Mode:                  big.NewInt(mode),
+		ListId:                big.NewInt(entry.listId),
+		Member:                entry.member,
+		ContentHash:           entry.content,
+		Version:               big.NewInt(entry.version),
+		State:                 big.NewInt(entry.state),
+		AbsentBranch:          big.NewInt(branch),
+		NullifierLowPathIndex: big.NewInt(0),
+		StatePathIndex:        big.NewInt(0),
 	}
-	for i := range entry.NfPathElements {
-		entry.NfPathElements[i] = big.NewInt(0)
+	for i := range answer.NullifierLowPathElements {
+		answer.NullifierLowPathElements[i] = big.NewInt(0)
 	}
-	for i := range entry.StatePathElements {
-		entry.StatePathElements[i] = big.NewInt(0)
+	for i := range answer.StatePathElements {
+		answer.StatePathElements[i] = big.NewInt(0)
 	}
 
 	witness := s.nonInclusion[index]
-	entry.Low = witness.LowValue
-	entry.Next = witness.NextValue
-	entry.NfPathIndex = new(big.Int).SetUint64(witness.LowIndex)
+	answer.NullifierLowValue = witness.LowValue
+	answer.NullifierNextValue = witness.NextValue
+	answer.NullifierLowPathIndex = new(big.Int).SetUint64(witness.LowIndex)
 	for i, element := range witness.PathElements {
-		entry.NfPathElements[i] = element
+		answer.NullifierLowPathElements[i] = element
 	}
 
-	if r.state == 0 {
-		return entry
+	if entry.state == 0 {
+		return answer
 	}
 	proof, ok := s.stateProofs[s.stateLeaf[index]]
 	if !ok {
 		t.Fatalf("missing state proof for entry %d", index)
 	}
-	entry.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
+	answer.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
 	for i, element := range proof.PathElements {
-		entry.StatePathElements[i] = element
+		answer.StatePathElements[i] = element
 	}
-	return entry
+	return answer
 }
 
 // deriveRecord mirrors ring_policy::entry, the seed and address fixed by
@@ -1100,28 +1089,28 @@ func zeroOpening() OpeningWires {
 	}
 }
 
-func zeroPoolEntry() RuleAnswerWires {
-	entry := RuleAnswerWires{
-		Enabled:        big.NewInt(0),
-		Mode:           big.NewInt(0),
-		ListId:         big.NewInt(0),
-		Member:         big.NewInt(0),
-		ContentHash:    big.NewInt(0),
-		Version:        big.NewInt(0),
-		State:          big.NewInt(0),
-		AbsentBranch:   big.NewInt(0),
-		Low:            big.NewInt(0),
-		Next:           big.NewInt(0),
-		NfPathIndex:    big.NewInt(0),
-		StatePathIndex: big.NewInt(0),
+func disabledAnswer() AnswerWires {
+	answer := AnswerWires{
+		Enabled:               big.NewInt(0),
+		Mode:                  big.NewInt(0),
+		ListId:                big.NewInt(0),
+		Member:                big.NewInt(0),
+		ContentHash:           big.NewInt(0),
+		Version:               big.NewInt(0),
+		State:                 big.NewInt(0),
+		AbsentBranch:          big.NewInt(0),
+		NullifierLowValue:     big.NewInt(0),
+		NullifierNextValue:    big.NewInt(0),
+		NullifierLowPathIndex: big.NewInt(0),
+		StatePathIndex:        big.NewInt(0),
 	}
-	for i := range entry.NfPathElements {
-		entry.NfPathElements[i] = big.NewInt(0)
+	for i := range answer.NullifierLowPathElements {
+		answer.NullifierLowPathElements[i] = big.NewInt(0)
 	}
-	for i := range entry.StatePathElements {
-		entry.StatePathElements[i] = big.NewInt(0)
+	for i := range answer.StatePathElements {
+		answer.StatePathElements[i] = big.NewInt(0)
 	}
-	return entry
+	return answer
 }
 
 func fill(b byte) [32]byte {

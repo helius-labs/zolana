@@ -151,7 +151,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		p.InlineLimits[i] = big.NewInt(0)
 	}
 	for i := range p.Answers {
-		p.Answers[i] = zeroedPoolEntry()
+		p.Answers[i] = zeroedAnswer()
 	}
 
 	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{

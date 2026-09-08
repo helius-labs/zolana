@@ -20,8 +20,6 @@ const (
 	scalarLen             = 32
 	uncompressedPubkeyLen = 65
 	ruleEncLen            = 32
-	activeState           = 1
-	clearedState          = 2
 )
 
 // Opening is one UTXO slot the statement opens, ordered as the circuit
@@ -110,7 +108,7 @@ type sourceOwnerJSON struct {
 	OwnerHash string `json:"ownerHash"`
 }
 
-type ruleAnswerJSON struct {
+type answerJSON struct {
 	Enabled           bool     `json:"enabled"`
 	Mode              uint8    `json:"mode"`
 	ListId            uint8    `json:"listId"`
@@ -148,7 +146,7 @@ type policyParametersJSON struct {
 	InlineCount      uint8             `json:"inlineCount"`
 	StateRoot        string            `json:"stateRoot"`
 	NullifierRoot    string            `json:"nullifierRoot"`
-	Answers          []ruleAnswerJSON  `json:"answers"`
+	Answers          []answerJSON      `json:"answers"`
 }
 
 func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
@@ -173,7 +171,7 @@ func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 		InlineCount:      p.InlineCount,
 		StateRoot:        common.ToHex(p.StateRoot),
 		NullifierRoot:    common.ToHex(p.NullifierRoot),
-		Answers:          make([]ruleAnswerJSON, 0, len(p.Answers)),
+		Answers:          make([]answerJSON, 0, len(p.Answers)),
 	}
 	for _, src := range p.Sources {
 		raw.Sources = append(raw.Sources, sourceOwnerJSON{
@@ -314,8 +312,8 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if len(raw.Answers) != policy.NAnswers {
 		return fmt.Errorf("custom-ring: answers holds %d entries, expected %d", len(raw.Answers), policy.NAnswers)
 	}
-	for i, entry := range raw.Answers {
-		if err = readPoolEntry(&p.Answers[i], entry); err != nil {
+	for i, answer := range raw.Answers {
+		if err = readAnswer(&p.Answers[i], answer); err != nil {
 			return err
 		}
 	}
@@ -340,8 +338,8 @@ func writeOpenings(src []Opening) []openingJSON {
 	return out
 }
 
-func writeAnswer(src *Answer) ruleAnswerJSON {
-	return ruleAnswerJSON{
+func writeAnswer(src *Answer) answerJSON {
+	return answerJSON{
 		Enabled:           src.Enabled,
 		Mode:              src.Mode,
 		ListId:            src.ListId,
@@ -398,9 +396,9 @@ func readOpenings(dst []Opening, src []openingJSON, name string) error {
 	return nil
 }
 
-func readPoolEntry(dst *Answer, src ruleAnswerJSON) error {
+func readAnswer(dst *Answer, src answerJSON) error {
 	if src.Enabled {
-		if src.Mode != activeState && src.Mode != clearedState {
+		if src.Mode != policy.ModePresent && src.Mode != policy.ModeAbsent {
 			return fmt.Errorf("custom-ring: answers mode %d is not present or absent", src.Mode)
 		}
 		if src.ListId == 0 {
@@ -477,7 +475,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 	}
 	assignOneHot(circuit.NInOneHot[:], int(p.NIn)-1)
 	assignOneHot(circuit.NOutOneHot[:], int(p.NOut)-1)
-	assignOneHot(circuit.LenOneHot[:], int(p.PolicyLen))
+	assignOneHot(circuit.RuleCountOneHot[:], int(p.PolicyLen))
 	assignOneHot(circuit.InlineCountOneHot[:], int(p.InlineCount))
 
 	for i := range circuit.Rules {
@@ -488,7 +486,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 		circuit.InlineLimits[i] = p.InlineLimits[i]
 	}
 	for i := range circuit.Answers {
-		assignPoolEntry(&circuit.Answers[i], &p.Answers[i])
+		assignAnswer(&circuit.Answers[i], &p.Answers[i])
 	}
 	return circuit, nil
 }
@@ -523,13 +521,13 @@ func assignRule(dst *policy.RuleWires, encoded [ruleEncLen]byte) {
 	dst.Packed = new(big.Int).SetBytes(encoded[:])
 	dst.Subject = encoded[31]
 	dst.Mode = encoded[30]
-	dst.Mask = encoded[29]
+	dst.ListMask = encoded[29]
 	dst.GuardTag = encoded[28]
 	dst.Threshold = new(big.Int).SetBytes(encoded[20:28])
-	dst.AltMask = encoded[19]
+	dst.AltListMask = encoded[19]
 }
 
-func assignPoolEntry(dst *policy.RuleAnswerWires, src *Answer) {
+func assignAnswer(dst *policy.AnswerWires, src *Answer) {
 	dst.Enabled = boolVar(src.Enabled)
 	dst.Mode = src.Mode
 	dst.ListId = src.ListId
@@ -538,12 +536,12 @@ func assignPoolEntry(dst *policy.RuleAnswerWires, src *Answer) {
 	dst.Version = src.Version
 	dst.State = src.State
 	dst.AbsentBranch = src.AbsentBranch
-	dst.Low = src.Low
-	dst.Next = src.Next
-	dst.NfPathIndex = src.NfPathIndex
+	dst.NullifierLowValue = src.Low
+	dst.NullifierNextValue = src.Next
+	dst.NullifierLowPathIndex = src.NfPathIndex
 	dst.StatePathIndex = src.StatePathIndex
-	for i := range dst.NfPathElements {
-		dst.NfPathElements[i] = src.NfPathElements[i]
+	for i := range dst.NullifierLowPathElements {
+		dst.NullifierLowPathElements[i] = src.NfPathElements[i]
 	}
 	for i := range dst.StatePathElements {
 		dst.StatePathElements[i] = src.StatePathElements[i]
