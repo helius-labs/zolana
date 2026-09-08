@@ -139,11 +139,14 @@ Added
   the instructions with `RingSharedSource` curators, and a curator on another
   entries tree or without the list is refused with
   `RING_POLICY_SOURCE_INVALID` before the transaction is compiled.
-- `planRingProgramDeployment` deploys or upgrades a ring program through the
-  upgradeable loader as a `RingProgramDeployment`, the prepare, write and
-  finish transactions the caller signs and sends, reports a binary already on
-  chain as present, and refuses a foreign or renounced upgrade authority with
-  `RING_PROGRAM_AUTHORITY_MISMATCH` or `RING_PROGRAM_IMMUTABLE`.
+- `deployRingProgram` deploys or upgrades a ring program with the given
+  signers, resumes an interrupted upload from its buffer, reports a binary
+  already on chain as `present`, and refuses a foreign or renounced upgrade
+  authority with `RING_PROGRAM_AUTHORITY_MISMATCH` or `RING_PROGRAM_IMMUTABLE`,
+  a short payer with `RING_PROGRAM_UNDERFUNDED`, a wrong program keypair on a
+  first deploy with `RING_PROGRAM_KEYPAIR_INVALID`, a foreign or corrupt buffer
+  with `RING_PROGRAM_BUFFER_INVALID`, and a program that stays unusable with
+  `RING_PROGRAM_NOT_USABLE`.
 - `ringProgramBinary` hashes a program binary, `fetchRingProgramData` reads a
   deployed program's upgrade authority, capacity and deploy slot as
   `RingProgramData`, `verifyRingProgram` refuses a missing or different
