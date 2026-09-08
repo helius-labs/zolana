@@ -7,7 +7,9 @@
     "node": ">=24"
   },
   "workspaces": [
-    "sdk-libs/ts"
+    "sdk-libs/ts",
+    "poc/core",
+    "poc/web"
   ],
   "scripts": {
     "build:ts": "npm run build --workspace @heliuslabs/zolana",
@@ -18,7 +20,10 @@
     "test:ts": "npm run test --workspace @heliuslabs/zolana",
     "test:ts:e2e:sdk": "npm run test:e2e --workspace @heliuslabs/zolana",
     "test:ts:example": "npm run build:ts && vitest run --config sdk-tests/client/typescript/vitest.config.ts",
-    "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example"
+    "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example",
+    "poc:dev": "npm run dev --workspace @zolana/poc-web",
+    "poc:build": "npm run build --workspace @zolana/poc-web",
+    "poc:typecheck": "npm run typecheck --workspace @zolana/poc-core && npm run typecheck --workspace @zolana/poc-web"
   },
   "devDependencies": {
     "semver": "^7.8.5",
