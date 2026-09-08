@@ -390,6 +390,7 @@ export async function buildRegistrationTransaction(
     client: AccountReader & BlockhashProvider;
     owner: Address;
     address: ShieldedAddress;
+    feePayer?: Address;
   }>,
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
@@ -406,7 +407,7 @@ export async function buildRegistrationTransaction(
     if (instruction === undefined) return undefined;
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
-      feePayer: input.owner,
+      feePayer: input.feePayer ?? input.owner,
       lifetime,
       instructions: [instruction],
     });
