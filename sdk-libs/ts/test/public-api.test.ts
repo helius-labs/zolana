@@ -239,6 +239,12 @@ describe("public package surface", () => {
       "initSppRingConfigInstruction",
       "ringTransactInstruction",
       "proveCustomRingTransfer",
+      "createRingPolicyInstruction",
+      "setRingPolicyRulesInstruction",
+      "setRingPolicySourceInstruction",
+      "buildRingCreatePolicyTransaction",
+      "createRingEntryInstruction",
+      "buildRingListWriteTransaction",
     ] as const) {
       expect(ring[name]).toBeTypeOf("function");
       for (const other of others) expect(other).not.toHaveProperty(name);

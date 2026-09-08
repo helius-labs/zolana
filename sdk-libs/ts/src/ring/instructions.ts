@@ -14,7 +14,11 @@ import {
   SPL_TOKEN_2022_PROGRAM_ID,
   SPL_TOKEN_PROGRAM_ID,
 } from "../interface/program.js";
-import { protocolConfigAddress, ringAuthAddress } from "../interface/pda/index.js";
+import {
+  nullifierPdaAddress,
+  protocolConfigAddress,
+  ringAuthAddress,
+} from "../interface/pda/index.js";
 import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
@@ -22,21 +26,43 @@ import type { P256PublicKey } from "../keypair/public-key.js";
 import { Writer } from "../interface/internal.js";
 
 import { checkedCustomRingProof } from "./codecs.js";
-import { ringConfigAddress, ringPolicyConfigAddress, ringProgramDataAddress } from "./config.js";
+import {
+  ringConfigAddress,
+  ringPolicyConfigAddress,
+  ringPolicyNamespaceAddress,
+  ringProgramDataAddress,
+} from "./config.js";
+import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
+import {
+  encodeRuleTable,
+  referencedLists,
+  type ListEntry,
+  type ListId,
+  type RuleTable,
+} from "./policy.js";
 
-/** Rust `tag::CREATE_CONFIG`, `tag::INIT_SPP_RING_CONFIG` and `tag::TRANSACT`. */
+/** Rust `tag`. */
 const RingProgramTag = Object.freeze({
   createConfig: 1,
   initSppRingConfig: 2,
   transact: 3,
+  createPolicy: 7,
+  createEntry: 8,
+  updateEntry: 9,
+  setPolicySource: 10,
+  setPolicyRules: 12,
 } as const);
 
-/** Rust `CREATE_CONFIG_COMPUTE_UNIT_LIMIT`, `INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT`, `READ_ACCESS_COMPUTE_UNIT_LIMIT` and `SET_PAUSED_COMPUTE_UNIT_LIMIT`. */
+/** Rust `*_COMPUTE_UNIT_LIMIT`. */
 export const RING_CREATE_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_READ_ACCESS_COMPUTE_UNIT_LIMIT = 50_000;
 export const RING_SET_PAUSED_COMPUTE_UNIT_LIMIT = 50_000;
+export const RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT = 150_000;
+export const RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = 150_000;
+export const RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = 150_000;
+export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
   (
@@ -196,6 +222,222 @@ async function policyAccountMetas(
     { address: policyConfig, role: AccountRole.READONLY },
     { address: entriesTree, role: AccountRole.READONLY },
   ];
+}
+
+export interface RingSharedSource {
+  readonly listId: ListId;
+  readonly curatorRingProgramId: Address;
+}
+
+export interface RingPolicyTableInput {
+  readonly table: RuleTable;
+  /** Every other referenced list reads the ring's own entries. */
+  readonly sharedSources?: readonly RingSharedSource[];
+}
+
+/** Mirrors Rust `CreatePolicy`, signed by the upgrade authority. */
+export async function createRingPolicyInstruction(
+  input: RingPolicyTableInput &
+    Readonly<{
+      ringProgramId: Address;
+      payer: SignerAccount;
+      authority: SignerAccount;
+      entriesTree: Address;
+    }>,
+): Promise<Instruction> {
+  const [policyConfig, programData, body] = await Promise.all([
+    ringPolicyConfigAddress(input.ringProgramId),
+    ringProgramDataAddress(input.ringProgramId),
+    policyTableBody(input),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(policyConfig, false, true),
+      meta(input.entriesTree, false, false),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(input.ringProgramId, false, false),
+      meta(programData, false, false),
+      ...body.curatorPolicyConfigs.map((account) => meta(account, false, false)),
+    ],
+    data: Uint8Array.of(RingProgramTag.createPolicy, ...body.data),
+  };
+}
+
+/** Mirrors Rust `SetPolicyRules`, a new generation under the upgrade authority. */
+export async function setRingPolicyRulesInstruction(
+  input: RingPolicyTableInput & Readonly<{ ringProgramId: Address; authority: SignerAccount }>,
+): Promise<Instruction> {
+  const [policyConfig, programData, body] = await Promise.all([
+    ringPolicyConfigAddress(input.ringProgramId),
+    ringProgramDataAddress(input.ringProgramId),
+    policyTableBody(input),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(policyConfig, false, true),
+      meta(input.ringProgramId, false, false),
+      meta(programData, false, false),
+      ...body.curatorPolicyConfigs.map((account) => meta(account, false, false)),
+    ],
+    data: Uint8Array.of(RingProgramTag.setPolicyRules, ...body.data),
+  };
+}
+
+export type RingPolicySourceOwner =
+  | Readonly<{ kind: "own" }>
+  | Readonly<{ kind: "curator"; ringProgramId: Address }>;
+
+/** Mirrors Rust `SetSourceOwner`, signed by the config authority. */
+export async function setRingPolicySourceInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    authority: SignerAccount;
+    listId: ListId;
+    source: RingPolicySourceOwner;
+  }>,
+): Promise<Instruction> {
+  const [config, policyConfig, curatorPolicyConfig] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringPolicyConfigAddress(input.ringProgramId),
+    input.source.kind === "curator"
+      ? ringPolicyConfigAddress(input.source.ringProgramId)
+      : undefined,
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(policyConfig, false, true),
+      ...(curatorPolicyConfig === undefined ? [] : [meta(curatorPolicyConfig, false, false)]),
+    ],
+    data: Uint8Array.of(
+      RingProgramTag.setPolicySource,
+      input.listId,
+      curatorPolicyConfig === undefined ? 0 : 1,
+    ),
+  };
+}
+
+export interface RingEntryInstructionInput {
+  readonly ringProgramId: Address;
+  /** The mutator, an authority list needs the config authority, a member list the member's key. */
+  readonly payer: SignerAccount;
+  readonly entriesTree: Address;
+  readonly entry: ListEntry;
+  readonly proof: RingEntryProof;
+}
+
+/** Mirrors Rust `ProvenEntry::instruction` for a claim at version zero. */
+export async function createRingEntryInstruction(
+  input: RingEntryInstructionInput,
+): Promise<Instruction> {
+  const data = new Writer()
+    .u8(RingProgramTag.createEntry, "tag")
+    .u8(input.entry.listId, "listId")
+    .bytes(input.entry.member, 32, "member");
+  writeEntryTail(data, input.entry, input.proof);
+  return entryInstruction(input, data.finish());
+}
+
+/** Mirrors Rust `ProvenEntry::instruction` for a spend, the spent fields rebuild the live leaf. */
+export async function updateRingEntryInstruction(
+  input: RingEntryInstructionInput & Readonly<{ spent: ListEntry }>,
+): Promise<Instruction> {
+  const data = new Writer()
+    .u8(RingProgramTag.updateEntry, "tag")
+    .u8(input.entry.listId, "listId")
+    .bytes(input.entry.member, 32, "member")
+    .u8(entryStateByte(input.spent), "spentState")
+    .bytes(input.spent.contentHash, 32, "spentContentHash")
+    .u64(input.spent.version, "spentVersion");
+  writeEntryTail(data, input.entry, input.proof);
+  return entryInstruction(input, data.finish());
+}
+
+function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof): void {
+  writer
+    .u8(entryStateByte(entry), "state")
+    .bytes(entry.contentHash, 32, "contentHash")
+    .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
+    .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
+    .bytes(proof.proof.a, 32, "proof.a")
+    .bytes(proof.proof.b, 64, "proof.b")
+    .bytes(proof.proof.c, 32, "proof.c");
+}
+
+function entryStateByte(entry: ListEntry): number {
+  return entry.state === "active" ? 1 : 2;
+}
+
+/** Everything after the two config accounts is forwarded to SPP position for position. */
+async function entryInstruction(
+  input: RingEntryInstructionInput,
+  data: Uint8Array,
+): Promise<Instruction> {
+  const [config, policyConfig, namespace, nullifierPda] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringPolicyConfigAddress(input.ringProgramId),
+    ringPolicyNamespaceAddress(input.ringProgramId),
+    nullifierPdaAddress(input.entriesTree, input.proof.nullifier),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(config, false, false),
+      meta(policyConfig, false, false),
+      meta(input.payer, true, true),
+      meta(input.entriesTree, false, true),
+      meta(input.entriesTree, false, true),
+      meta(SHIELDED_POOL_PROGRAM_ID, false, false),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(nullifierPda, false, true),
+      meta(namespace, false, false),
+    ],
+    data,
+  };
+}
+
+/** Mirrors Rust `PolicyTable::body`, curators indexed in first-use order. */
+async function policyTableBody(
+  input: RingPolicyTableInput,
+): Promise<Readonly<{ data: Uint8Array; curatorPolicyConfigs: readonly Address[] }>> {
+  const referenced = referencedLists(input.table.rules);
+  const shared = input.sharedSources ?? [];
+  for (const source of shared) {
+    if (!referenced.includes(source.listId)) {
+      throw new RingError("RING_POLICY_SOURCE_INVALID", {
+        details: { reason: "UnreferencedList", listId: source.listId },
+      });
+    }
+  }
+  const curators: Address[] = [];
+  const writer = new Writer().u8(referenced.length, "sources.length");
+  for (const listId of referenced) {
+    const curator = shared.find((source) => source.listId === listId)?.curatorRingProgramId;
+    let source = 0;
+    if (curator !== undefined) {
+      if (!curators.includes(curator)) curators.push(curator);
+      source = 1 + curators.indexOf(curator);
+    }
+    writer.u8(listId, "listId").u8(source, "source");
+  }
+  const encoded = encodeRuleTable(input.table);
+  writer.u8(encoded.ruleCount, "rules.length");
+  for (const row of encoded.rules) writer.bytes(row, 32, "rule");
+  writer.u8(encoded.inlineCount, "inlineAssets.length");
+  for (const asset of encoded.inlineAssets) writer.bytes(asset, 32, "inlineAsset");
+  writer.u8(encoded.inlineCount, "inlineLimits.length");
+  for (const limit of encoded.inlineLimits) writer.u64(limit, "inlineLimit");
+  return Object.freeze({
+    data: writer.finish(),
+    curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
+  });
 }
 
 /** Mirrors Rust `lookup_table_addresses`. */

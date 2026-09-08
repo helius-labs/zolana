@@ -39,8 +39,13 @@ Breaking
   `trees` of the fetch.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
-  gains `proveCustomRingBase` → read `.data` where the instruction data was
-  used and add the method to a custom prover.
+  gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
+  `TransferInputs` → read `.data` where the instruction data was used and add
+  both methods to a custom prover.
+- `RingTransferClient` reads entries and their proofs through
+  `getEncryptedUtxosByTags`, `getShieldedTransactionsByNullifiers`,
+  `getMerkleProofs` and `getNonInclusionProofs` → add the four methods to a
+  custom client.
 - `customRingPublicInputHash` takes `policyHash`, `stateRoot`, and
   `nullifierRoot` → use `auditPublicInputHash` for the audit statement alone.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
@@ -79,17 +84,24 @@ Breaking
 
 Added
 
-- `proveCustomRingTransfer` proves the tier the ring config selects, and
+- `proveCustomRingTransfer` proves the tier the ring config selects and, for
+  a policy ring, the rule table over the list entries the rules name, and
   `ProvenRingTransfer` reports `hasPolicy`, `outputTree`, `stateRootIndex`,
-  and `nullifierRootIndex`, with `entriesTree` when `hasPolicy` is true, a
-  policy ring with a non-empty rule table is refused with
-  `RING_RULES_UNSUPPORTED`.
+  and `nullifierRootIndex`, with `entriesTree` when `hasPolicy` is true. A
+  transfer no entry admits is refused with `RING_POLICY_RULE_UNSATISFIED`, a
+  shape the policy cannot answer with `RING_POLICY_SHAPE_UNSUPPORTED`, an
+  unknown inline asset with `RING_POLICY_ASSET_UNSUPPORTED` and an
+  incomplete proof set with `RING_ENTRY_PROOF_INCOMPLETE`, all before any
+  prover call.
 - `buildRingTransferTransaction`, `buildRingEntryTransaction`,
   `buildRingExitTransaction`, and `buildRingWithdrawalTransaction` accept
-  `outputTree` for the outputs and, when the policy entries tree differs from
-  the input tree, `entriesRoots` as `RingEntriesRoots`, a missing or malformed
-  pair is refused with `RING_ENTRIES_ROOTS_REQUIRED` or
-  `RING_ENTRIES_ROOTS_INVALID`.
+  `outputTree` for the outputs. A policy ring binds the roots of its entries
+  tree, proofs read under two roots are refused with
+  `RING_POLICY_ROOT_MISMATCH` and an unreadable tree with
+  `RING_ENTRIES_TREE_INVALID`.
+- `provePolicyAnswers` resolves the list entries a policy ring's rules name
+  into the answers and roots a ring transfer proves, and
+  `readRingEntryLineages` reads the live version of many entries in one walk.
 - `fetchRingPolicyConfig` and `decodeRingPolicyConfig` read a policy ring's
   `RingPolicyConfig` with its rule table hash, entries tree,
   `RingPolicySource` list, rule rows and inline assets with their counts, and
@@ -111,6 +123,30 @@ Added
   reason, `referencedLists` names the lists a table consults, and
   `fetchRingConfigs` reads a ring's config with its policy config when the
   ring has one.
+- `buildRuleTable`, `encodeRule` and `encodeRuleTable` compile a `RuleTable`
+  and encode its rows, `ruleAlternatives` orders the lists a rule consults,
+  `listWriter` names who writes a list, and `encodeListEntry` writes an
+  entry's published bytes.
+- `ringPolicyHash` computes the hash a policy config pins from a `RuleTable`,
+  its source owners (`policySourceOwners`) and `RING_POLICY_VERSION`,
+  `verifiedRuleTable` returns the stored table only when it reproduces that
+  hash, else `RING_POLICY_HASH_MISMATCH`, and a referenced list without a
+  source is `RING_POLICY_SOURCE_INVALID`.
+- `buildRingCreatePolicyTransaction`, `buildRingSetPolicyRulesTransaction`
+  and `buildRingSetPolicySourceTransaction` pin, replace and re-source a
+  ring's rule table, `createRingPolicyInstruction`,
+  `setRingPolicyRulesInstruction` and `setRingPolicySourceInstruction` build
+  the instructions with `RingSharedSource` curators, and a curator on another
+  entries tree or without the list is refused with
+  `RING_POLICY_SOURCE_INVALID` before the transaction is compiled.
+- `buildRingListWriteTransaction` adds or clears one list entry as a
+  `RingListWrite`, or reports an entry already in that state, and refuses a
+  curator-served list with `RING_LIST_SHARED` and a payer the list does not
+  admit with `RING_LIST_WRITER_UNAUTHORIZED`.
+- `proveRingEntryTransition` and `ringEntryTransitionInputs` prove one entry
+  transition, `createRingEntryInstruction` and `updateRingEntryInstruction`
+  build its instruction, and an unreadable entries tree or proof is
+  `RING_ENTRIES_TREE_INVALID` or `RING_ENTRY_PROOF_INCOMPLETE`.
 - `readRingEntry` and `readRingEntries` walk a namespace's entry lineages
   through the indexer and return each live `ListEntry` with the transaction
   that wrote it, `decodeListEntry` reads a published entry, `memberOfTag` and
@@ -139,12 +175,11 @@ Added
   `TreeFeeSchedule`, signed by the fee authority.
 - `decodeTreeFees(account)` reads a tree's `TreeFees`, its schedule and its
   accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
-  the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
-  locate both in the account. `CreateTreeData` names the create-tree payload.
-  `decodeTreeHeadRoots(account)` reads the tree's current `TreeHeadRoots`, the
-  state and nullifier roots with their history indices, and refuses an
-  unwritten slot, the `UTXO_ROOT_HISTORY_*` and `NULLIFIER_ROOT_HISTORY_*`
-  offsets locate both histories.
+  the schedule alone, `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET` locate
+  both in the account, `decodeTreeHeadRoots(account)` reads the tree's
+  `TreeHeadRoots` with their history indices and refuses an unwritten or zero
+  slot, the `UTXO_ROOT_HISTORY_*` and `NULLIFIER_ROOT_HISTORY_*` constants
+  locate both histories, and `CreateTreeData` names the create-tree payload.
 
 Changed
 

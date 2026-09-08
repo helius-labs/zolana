@@ -1,9 +1,17 @@
 import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
+import { ownerHash } from "../keypair/hash.js";
 import type { IndexerReader } from "../client/ports.js";
+import {
+  RING_ANSWER_SLOTS,
+  RING_INLINE_ASSET_SLOTS,
+  RING_RULE_SLOTS,
+  RING_SOURCE_SLOTS,
+  type CustomRingSourceOwner,
+} from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
-import { Reader } from "../interface/internal.js";
+import { Reader, Writer, addressBytes } from "../interface/internal.js";
 import { ADDRESS_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
@@ -21,9 +29,8 @@ import {
 } from "../transaction/internal.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
-import type { RingPolicyConfig } from "./codecs.js";
+import type { RingPolicyConfig, RingPolicySource } from "./codecs.js";
 import { RingError } from "./error.js";
-import { ringNamespaceOwnerHash } from "./transfer.js";
 
 /** Mirrors Rust `ListId`, the on-chain discriminant of a list, never `0`. */
 export const ListId = Object.freeze({
@@ -75,21 +82,70 @@ export interface Rule {
   readonly guard: RuleGuard;
 }
 
+/** One limit per inline asset, zero outside a per-asset guard. */
 export interface RuleTable {
   readonly rules: readonly Rule[];
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
 }
 
-const RULE_SLOTS = 16;
-const INLINE_ASSET_SLOTS = 8;
-/** A circuit width. */
-const ANSWER_SLOTS = 10;
 /** Rust `GUARANTEED_LOAD`. */
 const GUARANTEED_SENDERS = 1;
 const GUARANTEED_OUTPUTS = 4;
+const U64_MAX = (1n << 64n) - 1n;
 
 const SUBJECTS: readonly RuleSubject[] = ["outputOwner", "sender", "exitDestination", "asset"];
+
+export type RuleMode = "present" | "absent";
+
+export interface RuleAlternative {
+  readonly listId: ListId;
+  readonly mode: RuleMode;
+}
+
+/** Mirrors Rust `Rule::alternatives`, presences first, each in slot order. */
+export function ruleAlternatives(rule: Rule): readonly RuleAlternative[] {
+  if (rule.source.kind !== "lists") return Object.freeze([]);
+  const { present, absent } = rule.source;
+  return Object.freeze([
+    ...listSet(listBits(present)).map((listId) => ({ listId, mode: "present" as const })),
+    ...listSet(listBits(absent)).map((listId) => ({ listId, mode: "absent" as const })),
+  ]);
+}
+
+/** Mirrors Rust `Rule::encoded`, an absent-only rule carries its lists in the mask. */
+export function encodeRule(rule: Rule): Bytes32 {
+  checkRule(rule);
+  let mask = 0;
+  let alternative = 0;
+  let mode = 1;
+  if (rule.source.kind === "lists") {
+    const present = listBits(rule.source.present);
+    if (present === 0) {
+      mask = listBits(rule.source.absent);
+      mode = 2;
+    } else {
+      mask = present;
+      alternative = listBits(rule.source.absent);
+    }
+  }
+  const [guardTag, threshold] =
+    rule.guard.kind === "always"
+      ? [0, 0n]
+      : rule.guard.kind === "aboveAmount"
+        ? [1, rule.guard.amount]
+        : [2, 0n];
+  if (threshold < 0n || threshold > U64_MAX) throw ruleTableInvalid("ThresholdRange");
+  return new Writer()
+    .bytes(new Uint8Array(19))
+    .u8(alternative, "alternative")
+    .bytes(bigIntBytes(threshold, 8))
+    .u8(guardTag, "guardTag")
+    .u8(mask, "mask")
+    .u8(mode, "mode")
+    .u8(SUBJECTS.indexOf(rule.subject) + 1, "subject")
+    .finish() as Bytes32;
+}
 
 /** Mirrors Rust `Rule::decode` and `Rule::check`, `details.reason` names the Rust variant. */
 export function decodeRule(row: Bytes32): Rule {
@@ -157,14 +213,71 @@ function checkRule(rule: Rule): void {
 export function decodeRuleTable(
   config: Pick<RingPolicyConfig, "rules" | "inlineAssets" | "inlineLimits">,
 ): RuleTable {
-  if (config.rules.length > RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
-  if (config.inlineAssets.length > INLINE_ASSET_SLOTS) {
-    throw ruleTableInvalid("TooManyInlineAssets");
+  if (config.rules.length > RING_RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
+  if (config.inlineLimits.length !== config.inlineAssets.length) {
+    throw ruleTableInvalid("MissingAssetLimit");
   }
-  if (config.inlineAssets.some((asset) => equalBytes(asset, ZERO_32))) {
+  return checkedRuleTable(config.rules.map(decodeRule), config.inlineAssets, config.inlineLimits);
+}
+
+export interface RuleTableInput {
+  readonly rules: readonly Rule[];
+  readonly inlineAssets?: readonly Bytes32[];
+  readonly inlineLimits?: readonly bigint[];
+}
+
+/** Mirrors Rust `RuleTableBuilder::try_build`. */
+export function buildRuleTable(input: RuleTableInput): RuleTable {
+  const inlineAssets = input.inlineAssets ?? [];
+  const inlineLimits = input.inlineLimits ?? [];
+  if (input.rules.length > RING_RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
+  if (inlineLimits.length > RING_INLINE_ASSET_SLOTS) throw ruleTableInvalid("TooManyInlineAssets");
+  if (inlineAssets.some((asset) => asset.length !== 32)) {
+    throw ruleTableInvalid("InlineAssetLength");
+  }
+  if (inlineLimits.some((limit) => limit < 0n || limit > U64_MAX)) {
+    throw ruleTableInvalid("LimitRange");
+  }
+  const table = checkedRuleTable(
+    input.rules,
+    inlineAssets,
+    inlineAssets.map((_, index) => inlineLimits[index] ?? 0n),
+  );
+  const perAssetGuard = table.rules.some((rule) => rule.guard.kind === "aboveAmountByAsset");
+  if (perAssetGuard ? inlineLimits.length !== inlineAssets.length : inlineLimits.length !== 0) {
+    throw ruleTableInvalid(perAssetGuard ? "MissingAssetLimit" : "AssetLimitWithoutGuard");
+  }
+  return table;
+}
+
+/** Mirrors Rust `RuleTable::encode`, counted rows without the zero padding. */
+export function encodeRuleTable(table: RuleTable): EncodedRuleTable {
+  const rules = table.rules.map(encodeRule);
+  return Object.freeze({
+    ruleCount: rules.length,
+    rules: Object.freeze(rules),
+    inlineCount: table.inlineAssets.length,
+    inlineAssets: table.inlineAssets,
+    inlineLimits: table.inlineLimits,
+  });
+}
+
+export type EncodedRuleTable = Pick<
+  RingPolicyConfig,
+  "ruleCount" | "rules" | "inlineCount" | "inlineAssets" | "inlineLimits"
+>;
+
+/** The invariants both `decode` and `try_build` enforce. */
+function checkedRuleTable(
+  rules: readonly Rule[],
+  inlineAssets: readonly Bytes32[],
+  inlineLimits: readonly bigint[],
+): RuleTable {
+  if (inlineAssets.length > RING_INLINE_ASSET_SLOTS) throw ruleTableInvalid("TooManyInlineAssets");
+  if (inlineAssets.some((asset) => equalBytes(asset, ZERO_32))) {
     throw ruleTableInvalid("ZeroInlineAsset");
   }
-  const rules = config.rules.map(decodeRule);
+  for (const rule of rules) checkRule(rule);
   const signatures = new Set<string>();
   let ownerGuard = false;
   let inlineRule = false;
@@ -181,28 +294,27 @@ export function decodeRuleTable(
     if (rule.subject === "outputOwner" && rule.guard.kind === "aboveAmount") ownerGuard = true;
     if (rule.guard.kind === "aboveAmountByAsset") perAssetGuard = true;
   }
-  const pool = config.inlineAssets.length;
+  const pool = inlineAssets.length;
   if (inlineRule && pool === 0) throw ruleTableInvalid("InlineWithoutPool");
   if (!inlineRule && !perAssetGuard && pool > 0) throw ruleTableInvalid("PoolWithoutInlineRule");
   if (ownerGuard && !(unguardedInline && pool === 1)) {
     throw ruleTableInvalid("OwnerGuardWithoutInlineAsset");
   }
-  if (config.inlineLimits.length !== pool) throw ruleTableInvalid("MissingAssetLimit");
   if (perAssetGuard) {
-    if (pool === 0 || config.inlineLimits.some((limit) => limit === 0n)) {
+    if (pool === 0 || inlineLimits.some((limit) => limit === 0n)) {
       throw ruleTableInvalid("MissingAssetLimit");
     }
-    const assets = new Set(config.inlineAssets.map((asset) => bytesKey(asset)));
+    const assets = new Set(inlineAssets.map((asset) => bytesKey(asset)));
     if (assets.size !== pool) throw ruleTableInvalid("DuplicateInlineAsset");
-  } else if (config.inlineLimits.some((limit) => limit !== 0n)) {
+  } else if (inlineLimits.some((limit) => limit !== 0n)) {
     throw ruleTableInvalid("AssetLimitWithoutGuard");
   }
   const answers = rules.reduce((total, rule) => total + maxAnswers(rule), 0);
-  if (answers > ANSWER_SLOTS) throw ruleTableInvalid("TooManyAnswers");
+  if (answers > RING_ANSWER_SLOTS) throw ruleTableInvalid("TooManyAnswers");
   return Object.freeze({
-    rules: Object.freeze(rules),
-    inlineAssets: config.inlineAssets,
-    inlineLimits: config.inlineLimits,
+    rules: Object.freeze([...rules]),
+    inlineAssets: Object.freeze([...inlineAssets]),
+    inlineLimits: Object.freeze([...inlineLimits]),
   });
 }
 
@@ -243,6 +355,76 @@ function ruleTableInvalid(reason: string): RingError {
   return new RingError("RING_RULE_TABLE_INVALID", { details: { reason } });
 }
 
+/** Mirrors Rust `SourceMap::from_namespaces`. */
+export function policySourceOwners(
+  sources: readonly RingPolicySource[],
+): readonly CustomRingSourceOwner[] {
+  return checkedSourceOwners(
+    sources.map((slot) =>
+      Object.freeze(
+        slot.listId === 0
+          ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
+          : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
+      ),
+    ),
+  );
+}
+
+function checkedSourceOwners(
+  owners: readonly CustomRingSourceOwner[],
+): readonly CustomRingSourceOwner[] {
+  if (owners.length !== RING_SOURCE_SLOTS) {
+    throw sourceInvalid("SlotCount", { slots: owners.length });
+  }
+  owners.forEach((slot, index) => {
+    const empty = slot.listId === 0 && equalBytes(slot.ownerHash, ZERO_32);
+    const positional = slot.listId === index + 1 && !equalBytes(slot.ownerHash, ZERO_32);
+    if (!empty && !positional) throw sourceInvalid("NotPositional", { index });
+  });
+  return Object.freeze([...owners]);
+}
+
+function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>>): RingError {
+  return new RingError("RING_POLICY_SOURCE_INVALID", { details: { reason, ...details } });
+}
+
+/** Rust `POLICY_VERSION`, enters the policy hash. */
+export const RING_POLICY_VERSION = 4;
+
+/** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
+export function ringPolicyHash(
+  table: RuleTable,
+  sources: readonly CustomRingSourceOwner[],
+): Bytes32 {
+  const owners = checkedSourceOwners(sources);
+  for (const listId of referencedLists(table.rules)) {
+    if (owners[listId - 1]?.listId !== listId) throw sourceInvalid("MissingSource", { listId });
+  }
+  const encoded = encodeRuleTable(table);
+  const elements: Bytes32[] = [POLICY_TABLE_DOMAIN, fieldU8(RING_POLICY_VERSION)];
+  for (const slot of owners) elements.push(fieldU8(slot.listId), slot.ownerHash);
+  elements.push(fieldU8(encoded.ruleCount), ...encoded.rules);
+  encoded.inlineAssets.forEach((asset, index) => {
+    elements.push(asset, fieldU64(encoded.inlineLimits[index] ?? 0n));
+  });
+  return elements.reduce((chain, element) => poseidon([chain, element]));
+}
+
+/** Mirrors Rust `policy_config_table`, the rows are trusted once they reproduce the pinned hash. */
+export function verifiedRuleTable(
+  config: RingPolicyConfig,
+  sources: readonly CustomRingSourceOwner[] = policySourceOwners(config.sources),
+): RuleTable {
+  const table = decodeRuleTable(config);
+  const hash = ringPolicyHash(table, sources);
+  if (!equalBytes(hash, config.policyHash)) {
+    throw new RingError("RING_POLICY_HASH_MISMATCH", {
+      details: { entriesTree: config.entriesTree, generation: config.generation },
+    });
+  }
+  return table;
+}
+
 declare const memberBrand: unique symbol;
 /** Mirrors Rust `Member`, never zero. */
 export type Member = Bytes32 & { readonly [memberBrand]: true };
@@ -278,6 +460,37 @@ export interface ListEntry {
 
 const LIST_ENTRY_LEN = 74;
 
+export type ListWriter = "authority" | "member";
+
+/** Mirrors Rust `ListId::writer`. */
+export function listWriter(listId: ListId): ListWriter {
+  switch (listId) {
+    case ListId.ringViewing:
+    case ListId.recovery:
+    case ListId.escrow:
+      return "member";
+    case ListId.allow:
+    case ListId.block:
+    case ListId.frozen:
+    case ListId.reader:
+    case ListId.approval:
+      return "authority";
+  }
+}
+
+/** Mirrors Rust `ListEntry::to_output_data`. */
+export function encodeListEntry(entry: ListEntry): Uint8Array {
+  return new Writer()
+    .u8(0, "tag")
+    .u32(LIST_ENTRY_LEN, "length")
+    .u8(entry.listId, "listId")
+    .bytes(entry.member, 32, "member")
+    .u8(ENTRY_STATES.indexOf(entry.state) + 1, "state")
+    .u64(entry.version, "version")
+    .bytes(entry.contentHash, 32, "contentHash")
+    .finish();
+}
+
 /** Mirrors Rust `ListEntry::from_entry_bytes` over the plaintext output-data envelope. */
 export function decodeListEntry(outputData: Uint8Array): ListEntry {
   const reader = new Reader(outputData);
@@ -307,6 +520,15 @@ export interface EntryHashes {
 
 const POLICY_ADDRESS_DOMAIN = packedAscii("zolana:ring-policy:address:v1");
 const POLICY_RECORD_DOMAIN = packedAscii("zolana:ring-policy:record:v1");
+const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
+
+/** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
+export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
+  return ownerHash(
+    hashBytes(addressBytes(namespacePda, "namespacePda")),
+    poseidon([new Uint8Array(32)]),
+  ) as Bytes32;
+}
 
 /** Mirrors Rust `ListNamespace`. */
 export class RingListNamespace {
@@ -325,7 +547,7 @@ export class RingListNamespace {
   /** One address lineage per `(listId, member)` pair under one namespace. */
   entryAddress(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
     const seed = entrySeed(input);
-    return entryNullifier(this.addressUtxoHash(seed), seed);
+    return entryNullifier(this.addressSlotHash(seed), seed);
   }
 
   entryHashes(entry: ListEntry): EntryHashes {
@@ -342,7 +564,7 @@ export class RingListNamespace {
     const blinding = fieldU64(entry.version);
     const utxoHash = poseidon([
       fieldU16(UTXO_DOMAIN),
-      hashBytes(decodeAddress(SOL_MINT)),
+      solAssetField(),
       ZERO_32,
       dataHash,
       ringHash(),
@@ -357,7 +579,7 @@ export class RingListNamespace {
   }
 
   /** The address slot commitment, its blinding is the entry seed. */
-  private addressUtxoHash(seed: Bytes32): Bytes32 {
+  addressSlotHash(seed: Bytes32): Bytes32 {
     return poseidon([
       fieldU16(ADDRESS_DOMAIN),
       ZERO_32,
@@ -369,7 +591,13 @@ export class RingListNamespace {
   }
 }
 
-function entrySeed(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
+/** Rust `SOL_ASSET_FIELD`, the asset every entry note carries. */
+export function solAssetField(): Bytes32 {
+  return hashBytes(decodeAddress(SOL_MINT)) as Bytes32;
+}
+
+/** Mirrors Rust `entry_seed`. */
+export function entrySeed(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
   return poseidon([POLICY_ADDRESS_DOMAIN, fieldU8(input.listId), input.member]);
 }
 
@@ -427,12 +655,11 @@ export async function readRingEntry(
   input: ReadRingEntryInput,
   context?: RequestContext,
 ): Promise<LiveEntry | undefined> {
-  const [live] = await walkLineages(
+  const [live] = await readRingEntryLineages(
     {
       indexer: input.indexer,
       entriesTree: input.entriesTree,
-      namespace: RingListNamespace.of(input.namespace),
-      pairs: [{ listId: input.listId, member: input.member }],
+      lookups: [{ namespace: input.namespace, listId: input.listId, member: input.member }],
     },
     context,
   );
@@ -451,7 +678,6 @@ export async function readRingEntries(
   input: ReadRingEntriesInput,
   context?: RequestContext,
 ): Promise<readonly LiveEntry[]> {
-  const namespace = RingListNamespace.of(input.namespace);
   const tag = decodeAddress(input.namespace);
   const pairs = new Map<string, EntryPair>();
   await collectPages(
@@ -475,12 +701,11 @@ export async function readRingEntries(
       }
     },
   );
-  const lineages = await walkLineages(
+  const lineages = await readRingEntryLineages(
     {
       indexer: input.indexer,
       entriesTree: input.entriesTree,
-      namespace,
-      pairs: [...pairs.values()],
+      lookups: [...pairs.values()].map((pair) => ({ ...pair, namespace: input.namespace })),
     },
     context,
   );
@@ -502,6 +727,7 @@ function tryDecodeListEntry(outputData: Uint8Array): ListEntry | undefined {
 }
 
 interface Head {
+  readonly namespace: RingListNamespace;
   readonly pair: EntryPair;
   readonly address: Bytes32;
   live: LiveEntry | undefined;
@@ -509,19 +735,27 @@ interface Head {
   ended: boolean;
 }
 
-/** Mirrors Rust `LineageWalk`, a head nobody spent is live. */
-async function walkLineages(
-  input: Readonly<{
-    indexer: EntryIndexer;
-    entriesTree: Address;
-    namespace: RingListNamespace;
-    pairs: readonly EntryPair[];
-  }>,
-  context: RequestContext | undefined,
+export interface RingEntryLookup extends EntryPair {
+  readonly namespace: Address;
+}
+
+export interface ReadRingEntryLineagesInput {
+  readonly indexer: EntryIndexer;
+  readonly entriesTree: Address;
+  readonly lookups: readonly RingEntryLookup[];
+}
+
+/** Mirrors Rust `Lineages::fetch`, one walk for every lookup, a head nobody spent is live. */
+export async function readRingEntryLineages(
+  input: ReadRingEntryLineagesInput,
+  context?: RequestContext,
 ): Promise<readonly (LiveEntry | undefined)[]> {
-  const heads: Head[] = input.pairs.map((pair) => {
-    const address = input.namespace.entryAddress(pair);
-    return { pair, address, live: undefined, nullifier: address, ended: false };
+  const namespaces = new Map<Address, RingListNamespace>();
+  const heads: Head[] = input.lookups.map((lookup) => {
+    const namespace = namespaces.get(lookup.namespace) ?? RingListNamespace.of(lookup.namespace);
+    namespaces.set(lookup.namespace, namespace);
+    const address = namespace.entryAddress(lookup);
+    return { namespace, pair: lookup, address, live: undefined, nullifier: address, ended: false };
   });
   for (;;) {
     const open = heads.filter((head) => !head.ended);
@@ -550,7 +784,7 @@ async function walkLineages(
       }
       const successor = spender.outputSlots
         .filter((slot) => slot.outputContext.tree === input.entriesTree)
-        .map((slot) => decodeSuccessor(input.namespace, head, slot))
+        .map((slot) => decodeSuccessor(head.namespace, head, slot))
         .find((candidate) => candidate !== undefined);
       if (successor === undefined) {
         throw new RingError("RING_ENTRY_LINEAGE_BROKEN", {

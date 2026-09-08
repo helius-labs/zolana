@@ -19,7 +19,7 @@ import type {
 
 const CONTEXT: RpcContext = Object.freeze({ blockTime: 1_700_000_000n, slot: 0n });
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
-const BLOCKHASH: LatestBlockhash = Object.freeze({
+export const BLOCKHASH: LatestBlockhash = Object.freeze({
   blockhash: blockhash("11111111111111111111111111111111"),
   lastValidBlockHeight: 1n,
 });
@@ -112,6 +112,10 @@ export function ringTransferClient(
     proveRingTransact: notImplemented("proveRingTransact"),
     proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
     proveCustomRingBase: notImplemented("proveCustomRingBase"),
+    getEncryptedUtxosByTags: notImplemented("getEncryptedUtxosByTags"),
+    getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
+    getMerkleProofs: notImplemented("getMerkleProofs"),
+    getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     solanaRpc: solanaRpcReads({}),
     commitment: "confirmed",
     ...overrides,
