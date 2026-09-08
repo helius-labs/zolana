@@ -179,6 +179,7 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
+    fee_payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
@@ -186,7 +187,7 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
-    unsigned_registration_message(owner, &instructions, blockhash).map(Some)
+    unsigned_registration_message(fee_payer.unwrap_or(owner), &instructions, blockhash).map(Some)
 }
 
 /// Blocking adapter for building the unsigned v1 register/update message.
@@ -198,6 +199,7 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
+    fee_payer: Option<Pubkey>,
 ) -> Result<Option<VersionedMessage>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
@@ -205,7 +207,7 @@ pub fn build_registration_transaction_sync<R: Rpc>(
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash()?;
-    unsigned_registration_message(owner, &instructions, blockhash).map(Some)
+    unsigned_registration_message(fee_payer.unwrap_or(owner), &instructions, blockhash).map(Some)
 }
 
 fn registration_instructions(
@@ -247,12 +249,12 @@ fn registration_instructions(
 }
 
 fn unsigned_registration_message(
-    owner: Pubkey,
+    fee_payer: Pubkey,
     instructions: &[Instruction],
     blockhash: solana_hash::Hash,
 ) -> Result<VersionedMessage, ClientError> {
     compile_message(
-        &owner,
+        &fee_payer,
         instructions,
         blockhash,
         ComputeBudgetConfig::for_instruction_count(instructions.len()),
@@ -707,6 +709,7 @@ mod tests {
             owner,
             &keypair.shielded_address().expect("shielded address"),
             Some(proof),
+            None,
         )
         .expect("build registration")
         .expect("registration required");
@@ -740,8 +743,9 @@ mod tests {
         let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let address = keypair.shielded_address().expect("shielded address");
 
-        let error = build_registration_transaction_sync(&MockRpc::default(), owner, &address, None)
-            .expect_err("P256 registration without proof must fail");
+        let error =
+            build_registration_transaction_sync(&MockRpc::default(), owner, &address, None, None)
+                .expect_err("P256 registration without proof must fail");
 
         assert!(matches!(error, ClientError::MissingRegistryP256Proof));
     }
@@ -756,9 +760,14 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let error =
-            build_registration_transaction_sync(&MockRpc::default(), owner, &address, Some(proof))
-                .expect_err("Ed25519 registration with P256 proof must fail");
+        let error = build_registration_transaction_sync(
+            &MockRpc::default(),
+            owner,
+            &address,
+            Some(proof),
+            None,
+        )
+        .expect_err("Ed25519 registration with P256 proof must fail");
 
         assert!(matches!(error, ClientError::UnexpectedRegistryP256Proof));
     }
@@ -776,7 +785,7 @@ mod tests {
                 )
                 .expect("proof signature"),
         };
-        let future = build_registration_transaction(&rpc, owner, &address, Some(proof));
+        let future = build_registration_transaction(&rpc, owner, &address, Some(proof), None);
         fn assert_send<T: Send>(value: T) -> T {
             value
         }
@@ -787,6 +796,30 @@ mod tests {
 
         assert!(matches!(message, VersionedMessage::V1(_)));
         assert_eq!(message.static_account_keys().first().copied(), Some(owner));
+    }
+
+    #[test]
+    fn registration_builder_uses_optional_fee_payer() {
+        let owner = Pubkey::new_unique();
+        let fee_payer = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("ed25519 keypair");
+        let address = keypair.shielded_address().expect("shielded address");
+        let message = build_registration_transaction_sync(
+            &MockRpc::default(),
+            owner,
+            &address,
+            None,
+            Some(fee_payer),
+        )
+        .expect("build registration")
+        .expect("registration required");
+
+        assert!(matches!(message, VersionedMessage::V1(_)));
+        assert_eq!(
+            message.static_account_keys().first().copied(),
+            Some(fee_payer)
+        );
     }
 
     #[test]
