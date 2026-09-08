@@ -22,7 +22,7 @@ import {
 import { RingError } from "./error.js";
 
 const encoder = new TextEncoder();
-const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
+export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
 

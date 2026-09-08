@@ -72,6 +72,7 @@
     "@noble/hashes": "^2.2.0",
     "@solana-program/address-lookup-table": "^0.13.0",
     "@solana-program/compute-budget": "^0.17.0",
+    "@solana-program/system": "^0.13.0",
     "@solana-program/token": "^0.15.0",
     "bn.js": "^5.2.5"
   },
