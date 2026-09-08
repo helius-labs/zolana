@@ -67,14 +67,14 @@ func sampleParams() *PolicyParameters {
 		p.InlineLimits[i] = big.NewInt(0)
 	}
 	p.InlineAssets[0] = big.NewInt(0x60)
-	for i := range p.Answers {
-		p.Answers[i] = zeroedAnswer()
+	for i := range p.ListFacts {
+		p.ListFacts[i] = zeroedListFact()
 	}
-	p.Answers[0].Enabled = true
-	p.Answers[0].Mode = policy.ModePresent
-	p.Answers[0].ListId = 1
-	p.Answers[0].Member = big.NewInt(0x70)
-	p.Answers[0].Version = 3
+	p.ListFacts[0].Enabled = true
+	p.ListFacts[0].Mode = policy.ModePresent
+	p.ListFacts[0].ListId = 1
+	p.ListFacts[0].Member = big.NewInt(0x70)
+	p.ListFacts[0].Version = 3
 	return p
 }
 
@@ -92,20 +92,20 @@ func sampleOpening(seed int64) Opening {
 	}
 }
 
-func zeroedAnswer() Answer {
-	answer := Answer{
+func zeroedListFact() ListFact {
+	fact := ListFact{
 		Member:      big.NewInt(0),
 		ContentHash: big.NewInt(0),
 		Low:         big.NewInt(0),
 		Next:        big.NewInt(0),
 	}
-	for i := range answer.NfPathElements {
-		answer.NfPathElements[i] = big.NewInt(0)
+	for i := range fact.NfPathElements {
+		fact.NfPathElements[i] = big.NewInt(0)
 	}
-	for i := range answer.StatePathElements {
-		answer.StatePathElements[i] = big.NewInt(0)
+	for i := range fact.StatePathElements {
+		fact.StatePathElements[i] = big.NewInt(0)
 	}
-	return answer
+	return fact
 }
 
 func TestPolicyParametersJSONRoundTrip(t *testing.T) {
@@ -143,8 +143,8 @@ func TestPolicyParametersJSONRoundTrip(t *testing.T) {
 			t.Fatalf("source slot %d mismatch", i)
 		}
 	}
-	if !got.Answers[0].Enabled || got.Answers[0].Member.Cmp(p.Answers[0].Member) != 0 {
-		t.Fatalf("answer mismatch")
+	if !got.ListFacts[0].Enabled || got.ListFacts[0].Member.Cmp(p.ListFacts[0].Member) != 0 {
+		t.Fatalf("list fact mismatch")
 	}
 }
 
@@ -185,13 +185,13 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 		}
 	}
 	for key, count := range map[string]int{
-		"inputs":       policy.NIn,
-		"outputs":      policy.NOut,
+		"inputs":       policy.NInputs,
+		"outputs":      policy.NOutputs,
 		"sources":      policy.NSources,
 		"ruleEnc":      policy.NRules,
 		"inlineAssets": policy.NInlineAssets,
 		"inlineLimits": policy.NInlineAssets,
-		"answers":      policy.NAnswers,
+		"answers":      policy.NListFacts,
 	} {
 		var entries []json.RawMessage
 		if err := json.Unmarshal(raw[key], &entries); err != nil {
@@ -208,7 +208,7 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	answers := func(m map[string]interface{}) map[string]interface{} {
+	listFacts := func(m map[string]interface{}) map[string]interface{} {
 		return m["answers"].([]interface{})[0].(map[string]interface{})
 	}
 	source := func(m map[string]interface{}, i int) map[string]interface{} {
@@ -232,7 +232,7 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 			m["publicInputHash"] = "0x" + ecc.BN254.ScalarField().Text(16)
 		},
 		"zero input count":     func(m map[string]interface{}) { m["nIn"] = 0 },
-		"input count too high": func(m map[string]interface{}) { m["nIn"] = policy.NIn + 1 },
+		"input count too high": func(m map[string]interface{}) { m["nIn"] = policy.NInputs + 1 },
 		"policy len too high":  func(m map[string]interface{}) { m["policyLen"] = policy.NRules + 1 },
 		"inline count too high": func(m map[string]interface{}) {
 			m["inlineCount"] = policy.NInlineAssets + 1
@@ -242,7 +242,7 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		},
 		"missing input slot": func(m map[string]interface{}) { m["inputs"] = m["inputs"].([]interface{})[:1] },
 		"missing rule":       func(m map[string]interface{}) { m["ruleEnc"] = m["ruleEnc"].([]interface{})[:policy.NRules-1] },
-		"missing answer":     func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:policy.NAnswers-1] },
+		"missing answer":     func(m map[string]interface{}) { m["answers"] = m["answers"].([]interface{})[:policy.NListFacts-1] },
 		"short sources": func(m map[string]interface{}) {
 			m["sources"] = m["sources"].([]interface{})[:policy.NSources-1]
 		},
@@ -253,12 +253,12 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		"empty source slot with nonzero owner": func(m map[string]interface{}) {
 			source(m, 2)["ownerHash"] = source(m, 0)["ownerHash"]
 		},
-		"answers mode invalid": func(m map[string]interface{}) { answers(m)["mode"] = 9 },
-		"answers listId unset": func(m map[string]interface{}) { answers(m)["listId"] = 0 },
-		"zero answers member":  func(m map[string]interface{}) { answers(m)["member"] = "0x" + strings.Repeat("00", 32) },
+		"answers mode invalid": func(m map[string]interface{}) { listFacts(m)["mode"] = 9 },
+		"answers listId unset": func(m map[string]interface{}) { listFacts(m)["listId"] = 0 },
+		"zero answers member":  func(m map[string]interface{}) { listFacts(m)["member"] = "0x" + strings.Repeat("00", 32) },
 		"short nullifier path": func(m map[string]interface{}) {
-			paths := answers(m)["nfPathElements"].([]interface{})
-			answers(m)["nfPathElements"] = paths[:len(paths)-1]
+			paths := listFacts(m)["nfPathElements"].([]interface{})
+			listFacts(m)["nfPathElements"] = paths[:len(paths)-1]
 		},
 	}
 	rejectTampered[PolicyParameters](t, base, tests)

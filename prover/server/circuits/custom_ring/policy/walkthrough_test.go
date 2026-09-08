@@ -70,7 +70,7 @@ func TestApprovalDoesNotOverrideFrozen(t *testing.T) {
 	rejectAssignment(t, s.assignment(t, []int{aliceApproved, aliceNotFrozen}))
 }
 
-func TestAnswersReuseAcrossRulesAndChange(t *testing.T) {
+func TestListFactsReuseAcrossRulesAndChange(t *testing.T) {
 	s := reviewedRecipients(t)
 	s.outputs = []OpeningWires{s.outputs[1], s.outputs[1], s.outputs[1]}
 	for i := range s.outputs {
@@ -83,7 +83,7 @@ func TestAnswersReuseAcrossRulesAndChange(t *testing.T) {
 	)
 	c := s.assignment(t, []int{aliceApproved, aliceNotFrozen})
 	solve(t, testConstraintSystem(t), c)
-	c.Answers[1].Enabled = big.NewInt(0)
+	c.ListFacts[1].Enabled = big.NewInt(0)
 	rejectAssignment(t, c)
 }
 
@@ -94,7 +94,7 @@ func TestBlockedRecipientWithoutApprovalFails(t *testing.T) {
 	rejectAssignment(t, s.assignment(t, []int{malloryBlocked, malloryNotApproved}))
 }
 
-func TestInlineAssetsNeedNoAnswers(t *testing.T) {
+func TestInlineAssetsNeedNoListFacts(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 	s.rules = []rule{{subject: SubjectAsset, mode: ModePresent}}
 	solve(t, testConstraintSystem(t), s.assignment(t, nil))
@@ -103,10 +103,10 @@ func TestInlineAssetsNeedNoAnswers(t *testing.T) {
 	solve(t, testConstraintSystem(t), s.assignment(t, nil))
 }
 
-func TestDisabledAnswersNeedNotBeZero(t *testing.T) {
+func TestDisabledListFactsNeedNotBeZero(t *testing.T) {
 	s := reviewedRecipients(t)
 	c := s.assignment(t, []int{bobNotBlocked, aliceApproved, aliceBlocked})
-	c.Answers[2].Enabled = big.NewInt(0)
+	c.ListFacts[2].Enabled = big.NewInt(0)
 	solve(t, testConstraintSystem(t), c)
 }
 

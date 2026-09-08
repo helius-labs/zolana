@@ -10,7 +10,7 @@ import (
 	"zolana/prover/prover-test/spp/spptest"
 )
 
-func TestAnswerBranches(t *testing.T) {
+func TestListFactBranches(t *testing.T) {
 	tests := []struct {
 		name       string
 		entryIndex int
@@ -32,7 +32,7 @@ func TestAnswerBranches(t *testing.T) {
 	}
 }
 
-func TestAnswerRequiresStrictNullifierInterval(t *testing.T) {
+func TestListFactRequiresStrictNullifierInterval(t *testing.T) {
 	tests := []struct {
 		name   string
 		bounds func(target, modulus *big.Int) (*big.Int, *big.Int)
@@ -59,7 +59,7 @@ func TestAnswerRequiresStrictNullifierInterval(t *testing.T) {
 			s := newStatement(t, defaultFixture())
 			s.rules = []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}}
 			s.inlineAssets = nil
-			answer := s.answerForEntry(t, allowedActive)
+			fact := s.listFactForEntry(t, allowedActive)
 			low, next := tt.bounds(s.derived[allowedActive].nullifier, ecc.BN254.ScalarField())
 			proof := s.nonInclusion[allowedActive]
 			leaf := spptest.MustPoseidon(t, 3, []*big.Int{low, next})
@@ -69,9 +69,9 @@ func TestAnswerRequiresStrictNullifierInterval(t *testing.T) {
 			}
 			s.nullifierRoot = root
 			c := s.assignment(t, nil)
-			answer.NullifierLowValue = low
-			answer.NullifierNextValue = next
-			c.Answers[0] = answer
+			fact.NullifierLowValue = low
+			fact.NullifierNextValue = next
+			c.ListFacts[0] = fact
 			if tt.passes {
 				solve(t, testConstraintSystem(t), c)
 			} else {

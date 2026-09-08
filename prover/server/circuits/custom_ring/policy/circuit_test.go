@@ -74,7 +74,8 @@ func TestCircuitCommitmentShape(t *testing.T) {
 		t.Fatalf("unexpected commitments type %T", cs.GetCommitments())
 	}
 	// groth16-solana's BSB22 verifier supports exactly one commitment over
-	// private wires, a committed public wire makes the vk parser reject the key
+	// private wires, a committed public wire makes the vk parser reject the
+	// key
 	// with Bsb22UnsupportedMultiCommitment.
 	if len(commitments) != 1 {
 		t.Fatalf("expected 1 BSB22 commitment, got %d", len(commitments))
@@ -109,7 +110,8 @@ func TestCircuitSolvesValidWitness(t *testing.T) {
 	solve(t, cs, validAssignment(t))
 }
 
-// A require-any group is satisfied when the subject is present in any one of the
+// A require-any group is satisfied when the subject is present in any one of
+// the
 // masked lists, the recipient sits on Allow within an Allow-or-Block group.
 func TestCircuitSolvesGroupRule(t *testing.T) {
 	cs := testConstraintSystem(t)
@@ -126,12 +128,12 @@ func TestCircuitSolvesMixedModeRule(t *testing.T) {
 	cs := testConstraintSystem(t)
 
 	absent := mixedFixture()
-	absent.answers = []int{senderNotFrozen, allowedNotBlocked}
+	absent.listFacts = []int{senderNotFrozen, allowedNotBlocked}
 	solve(t, cs, buildAssignment(t, absent))
 
 	present := mixedFixture()
 	present.recipient = approvedKey
-	present.answers = []int{senderNotFrozen, approvedActive}
+	present.listFacts = []int{senderNotFrozen, approvedActive}
 	solve(t, cs, buildAssignment(t, present))
 }
 
@@ -177,8 +179,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "rule dropped from the table",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.RuleCountOneHot[4] = big.NewInt(0)
-				c.RuleCountOneHot[3] = big.NewInt(1)
+				c.RuleCountSelected[4] = big.NewInt(0)
+				c.RuleCountSelected[3] = big.NewInt(1)
 				return c
 			},
 		},
@@ -186,7 +188,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry mode swapped",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].Mode = big.NewInt(ModeAbsent)
+				c.ListFacts[0].Mode = big.NewInt(ModeAbsent)
 				return c
 			},
 		},
@@ -194,7 +196,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry listId swapped",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].ListId = big.NewInt(listBlock)
+				c.ListFacts[0].ListId = big.NewInt(listBlock)
 				return c
 			},
 		},
@@ -202,7 +204,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry proves a different member",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].Member = new(big.Int).Add(spptest.AsBigInt(c.Answers[0].Member), big.NewInt(1))
+				c.ListFacts[0].Member = new(big.Int).Add(spptest.AsBigInt(c.ListFacts[0].Member), big.NewInt(1))
 				return c
 			},
 		},
@@ -210,7 +212,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "zero member",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].Member = big.NewInt(0)
+				c.ListFacts[0].Member = big.NewInt(0)
 				return c
 			},
 		},
@@ -218,8 +220,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "present member claimed absent",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].Mode = big.NewInt(ModeAbsent)
-				c.Answers[0].AbsentBranch = big.NewInt(AbsentBranchNeverCreated)
+				c.ListFacts[0].Mode = big.NewInt(ModeAbsent)
+				c.ListFacts[0].AbsentBranch = big.NewInt(AbsentBranchUnclaimedAddress)
 				return c
 			},
 		},
@@ -227,7 +229,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "cleared entry claimed present",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[2].Mode = big.NewInt(ModePresent)
+				c.ListFacts[2].Mode = big.NewInt(ModePresent)
 				return c
 			},
 		},
@@ -243,7 +245,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry inclusion proof does not open the state root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[0].StatePathElements[0] = big.NewInt(1)
+				c.ListFacts[0].StatePathElements[0] = big.NewInt(1)
 				return c
 			},
 		},
@@ -251,7 +253,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "entry absence proof does not open the nullifier root",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.Answers[1].NullifierLowPathElements[0] = big.NewInt(1)
+				c.ListFacts[1].NullifierLowPathElements[0] = big.NewInt(1)
 				return c
 			},
 		},
@@ -374,8 +376,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 			name: "output count understated",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := validAssignment(t)
-				c.NOutOneHot[1] = big.NewInt(0)
-				c.NOutOneHot[0] = big.NewInt(1)
+				c.OutputCountSelected[1] = big.NewInt(0)
+				c.OutputCountSelected[0] = big.NewInt(1)
 				return c
 			},
 		},
@@ -392,29 +394,30 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		{
 			name: "alt mask swapped with the primary mask",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				// Under the swapped wires the Approval absence would cover, only
+				// Under the swapped wires the Approval absence
+				// would cover, only
 				// the packed row disagrees.
 				f := mixedFixture()
-				f.answers = []int{senderNotFrozen, allowedNotApproved}
+				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
 				c := buildAssignment(t, f)
 				c.Rules[0].ListMask, c.Rules[0].AltListMask = c.Rules[0].AltListMask, c.Rules[0].ListMask
 				return c
 			},
 		},
 		{
-			name: "alt list answered in the primary mode",
+			name: "alt list fact in the primary mode",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := mixedFixture()
 				f.recipient = approvedKey
-				f.answers = []int{senderNotFrozen, approvedBlocked}
+				f.listFacts = []int{senderNotFrozen, approvedBlocked}
 				return buildAssignment(t, f)
 			},
 		},
 		{
-			name: "primary-only list answered in the alt mode",
+			name: "primary-only list fact in the alt mode",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				f := mixedFixture()
-				f.answers = []int{senderNotFrozen, allowedNotApproved}
+				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
 				return buildAssignment(t, f)
 			},
 		},
@@ -429,7 +432,8 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 		{
 			name: "rule mode outside present and absent",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
-				// The guard exempts the recipient, only the mode assertion rejects.
+				// The guard exempts the recipient, only the
+				// mode assertion rejects.
 				f := defaultFixture()
 				f.guardedMode = 3
 				return buildAssignment(t, f)
@@ -521,23 +525,27 @@ func validAssignment(t *testing.T) *CustomRingPolicyCircuit {
 // fixture is the knob set of one statement, a tamper row needing a
 // self-consistent witness rebuilds with one knob changed.
 type fixture struct {
-	amount             uint64
-	secondAmount       uint64 // 0 keeps one real output, else a second to the same recipient
-	outputOwnerMask    int64  // 0 keeps the single Allow rule, else the OutputOwner rule's list mask
-	outputOwnerAltMask int64  // lists satisfying the OutputOwner rule in the opposite mode
-	guardedMode        int64  // 0 keeps Present, else the guarded Approval rule's mode
-	inlineAltMask      int64  // an alt mask on the inline asset rule
-	recipient          [32]byte
-	answers            []int // entry indices filling the answer slots
-	transferred        [32]byte
-	inlineAsset        [32]byte
-	secondTransferred  [32]byte
-	secondInlineAsset  [32]byte
-	perAssetLimits     []uint64
-	rulesFree          bool
-	dropCuratorSlot    bool
-	curatorSlotOwn     bool
-	keys               func(audittest.Keys) audittest.Keys
+	amount uint64
+	// 0 keeps one real output, else a second to the same recipient
+	secondAmount uint64
+	// 0 keeps the single Allow rule, else the OutputOwner rule's list mask
+	outputOwnerMask int64
+	// lists satisfying the OutputOwner rule in the opposite mode
+	outputOwnerAltMask int64
+	// 0 keeps Present, else the guarded Approval rule's mode
+	guardedMode       int64
+	inlineAltMask     int64 // an alt mask on the inline asset rule
+	recipient         [32]byte
+	listFacts         []int // entry indices filling the list fact slots
+	transferred       [32]byte
+	inlineAsset       [32]byte
+	secondTransferred [32]byte
+	secondInlineAsset [32]byte
+	perAssetLimits    []uint64
+	rulesFree         bool
+	dropCuratorSlot   bool
+	curatorSlotOwn    bool
+	keys              func(audittest.Keys) audittest.Keys
 }
 
 // Member keys of the fixture ring, the recipient knob picks among them.
@@ -562,7 +570,7 @@ func defaultFixture() fixture {
 	return fixture{
 		amount:      transferAmount,
 		recipient:   allowedKey,
-		answers:     []int{allowedActive, senderNotFrozen, blockedCleared},
+		listFacts:   []int{allowedActive, senderNotFrozen, blockedCleared},
 		transferred: fill(0xd4),
 		inlineAsset: fill(0xd4),
 	}
@@ -718,7 +726,8 @@ func newStatement(t *testing.T, f fixture) *statement {
 	for _, r := range s.entries {
 		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
 	}
-	// The knobs repoint the map after derivation, leaving the entry fixtures
+	// The knobs repoint the map after derivation, leaving the entry
+	// fixtures
 	// under the curator.
 	if f.dropCuratorSlot {
 		s.sources[listFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
@@ -829,7 +838,8 @@ func (s *statement) buildTransaction(
 		RingProgramID: big.NewInt(0),
 	}
 	s.inputs = []OpeningWires{spent, dummyOpening(t, 0x53)}
-	// A second real output to the same recipient exercises the per-recipient
+	// A second real output to the same recipient exercises the
+	// per-recipient
 	// amount aggregation, else a dummy fills the slot.
 	second := dummyOpening(t, 0x54)
 	if secondAmount > 0 {
@@ -858,10 +868,10 @@ func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	if f.rulesFree {
 		return s.assignment(t, nil)
 	}
-	return s.assignment(t, f.answers)
+	return s.assignment(t, f.listFacts)
 }
 
-func (s *statement) assignment(t *testing.T, answers []int) *CustomRingPolicyCircuit {
+func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyCircuit {
 	t.Helper()
 	s.updateHashes(t)
 	wires := s.keys.AuditBlockWires(s.privateTxHash)
@@ -882,38 +892,38 @@ func (s *statement) assignment(t *testing.T, answers []int) *CustomRingPolicyCir
 
 	for i := range c.Inputs {
 		c.Inputs[i] = zeroOpening()
-		c.NInOneHot[i] = big.NewInt(0)
+		c.InputCountSelected[i] = big.NewInt(0)
 	}
 	for i, opening := range s.inputs {
 		c.Inputs[i] = opening
 	}
-	c.NInOneHot[len(s.inputs)-1] = big.NewInt(1)
+	c.InputCountSelected[len(s.inputs)-1] = big.NewInt(1)
 
 	for i := range c.Outputs {
 		c.Outputs[i] = zeroOpening()
-		c.NOutOneHot[i] = big.NewInt(0)
+		c.OutputCountSelected[i] = big.NewInt(0)
 	}
 	for i, opening := range s.outputs {
 		c.Outputs[i] = opening
 	}
-	c.NOutOneHot[len(s.outputs)-1] = big.NewInt(1)
+	c.OutputCountSelected[len(s.outputs)-1] = big.NewInt(1)
 
 	// Padding rules repeat ring_policy::Rule::disabled.
 	disabled := rule{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}
 	for k := range c.Rules {
 		c.Rules[k] = disabled.wires()
-		c.RuleCountOneHot[k] = big.NewInt(0)
+		c.RuleCountSelected[k] = big.NewInt(0)
 	}
 	for k, r := range s.rules {
 		c.Rules[k] = r.wires()
 	}
-	c.RuleCountOneHot[NRules] = big.NewInt(0)
-	c.RuleCountOneHot[len(s.rules)] = big.NewInt(1)
+	c.RuleCountSelected[NRules] = big.NewInt(0)
+	c.RuleCountSelected[len(s.rules)] = big.NewInt(1)
 
 	for m := range c.InlineAssets {
 		c.InlineAssets[m] = big.NewInt(0)
 		c.InlineLimits[m] = big.NewInt(0)
-		c.InlineCountOneHot[m] = big.NewInt(0)
+		c.InlineAssetCountSelected[m] = big.NewInt(0)
 	}
 	for m, member := range s.inlineAssets {
 		c.InlineAssets[m] = member
@@ -921,29 +931,29 @@ func (s *statement) assignment(t *testing.T, answers []int) *CustomRingPolicyCir
 			c.InlineLimits[m] = new(big.Int).SetUint64(s.inlineLimits[m])
 		}
 	}
-	c.InlineCountOneHot[NInlineAssets] = big.NewInt(0)
-	c.InlineCountOneHot[len(s.inlineAssets)] = big.NewInt(1)
+	c.InlineAssetCountSelected[NInlineAssets] = big.NewInt(0)
+	c.InlineAssetCountSelected[len(s.inlineAssets)] = big.NewInt(1)
 
-	for e := range c.Answers {
-		c.Answers[e] = disabledAnswer()
+	for e := range c.ListFacts {
+		c.ListFacts[e] = disabledListFact()
 	}
-	for e, index := range answers {
-		c.Answers[e] = s.answerForEntry(t, index)
+	for e, index := range listFacts {
+		c.ListFacts[e] = s.listFactForEntry(t, index)
 	}
 	return c
 }
 
-func (s *statement) answerForEntry(t *testing.T, index int) AnswerWires {
+func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	t.Helper()
 	entry := s.entries[index]
 	mode, branch := int64(ModePresent), int64(0)
 	switch entry.state {
 	case 0:
-		mode, branch = ModeAbsent, AbsentBranchNeverCreated
+		mode, branch = ModeAbsent, AbsentBranchUnclaimedAddress
 	case EntryStateCleared:
 		mode, branch = ModeAbsent, AbsentBranchCleared
 	}
-	answer := AnswerWires{
+	fact := ListFactWires{
 		Enabled:               big.NewInt(1),
 		Mode:                  big.NewInt(mode),
 		ListId:                big.NewInt(entry.listId),
@@ -955,33 +965,33 @@ func (s *statement) answerForEntry(t *testing.T, index int) AnswerWires {
 		NullifierLowPathIndex: big.NewInt(0),
 		StatePathIndex:        big.NewInt(0),
 	}
-	for i := range answer.NullifierLowPathElements {
-		answer.NullifierLowPathElements[i] = big.NewInt(0)
+	for i := range fact.NullifierLowPathElements {
+		fact.NullifierLowPathElements[i] = big.NewInt(0)
 	}
-	for i := range answer.StatePathElements {
-		answer.StatePathElements[i] = big.NewInt(0)
+	for i := range fact.StatePathElements {
+		fact.StatePathElements[i] = big.NewInt(0)
 	}
 
 	witness := s.nonInclusion[index]
-	answer.NullifierLowValue = witness.LowValue
-	answer.NullifierNextValue = witness.NextValue
-	answer.NullifierLowPathIndex = new(big.Int).SetUint64(witness.LowIndex)
+	fact.NullifierLowValue = witness.LowValue
+	fact.NullifierNextValue = witness.NextValue
+	fact.NullifierLowPathIndex = new(big.Int).SetUint64(witness.LowIndex)
 	for i, element := range witness.PathElements {
-		answer.NullifierLowPathElements[i] = element
+		fact.NullifierLowPathElements[i] = element
 	}
 
 	if entry.state == 0 {
-		return answer
+		return fact
 	}
 	proof, ok := s.stateProofs[s.stateLeaf[index]]
 	if !ok {
 		t.Fatalf("missing state proof for entry %d", index)
 	}
-	answer.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
+	fact.StatePathIndex = new(big.Int).SetUint64(proof.PathIndex)
 	for i, element := range proof.PathElements {
-		answer.StatePathElements[i] = element
+		fact.StatePathElements[i] = element
 	}
-	return answer
+	return fact
 }
 
 // deriveRecord mirrors ring_policy::entry, the seed and address fixed by
@@ -1089,8 +1099,8 @@ func zeroOpening() OpeningWires {
 	}
 }
 
-func disabledAnswer() AnswerWires {
-	answer := AnswerWires{
+func disabledListFact() ListFactWires {
+	fact := ListFactWires{
 		Enabled:               big.NewInt(0),
 		Mode:                  big.NewInt(0),
 		ListId:                big.NewInt(0),
@@ -1104,13 +1114,13 @@ func disabledAnswer() AnswerWires {
 		NullifierLowPathIndex: big.NewInt(0),
 		StatePathIndex:        big.NewInt(0),
 	}
-	for i := range answer.NullifierLowPathElements {
-		answer.NullifierLowPathElements[i] = big.NewInt(0)
+	for i := range fact.NullifierLowPathElements {
+		fact.NullifierLowPathElements[i] = big.NewInt(0)
 	}
-	for i := range answer.StatePathElements {
-		answer.StatePathElements[i] = big.NewInt(0)
+	for i := range fact.StatePathElements {
+		fact.StatePathElements[i] = big.NewInt(0)
 	}
-	return answer
+	return fact
 }
 
 func fill(b byte) [32]byte {

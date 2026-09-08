@@ -53,7 +53,7 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 			s.inlineAssets = append(s.inlineAssets, s.inlineAssets[0])
 			s.inlineLimits = []uint64{1000, 1000}
 		}},
-		{"zero limit with covering answer", func(s *statement) {
+		{"zero limit with matching list fact", func(s *statement) {
 			s.rules[0].guardTag = GuardAboveAmountByAsset
 			s.inlineLimits = []uint64{0}
 		}},
@@ -71,7 +71,7 @@ func TestRejectsMalformedCommittedPolicies(t *testing.T) {
 	}
 }
 
-func TestUnconfiguredAssetFailsDespiteCoveringAnswer(t *testing.T) {
+func TestUnconfiguredAssetFailsDespiteMatchingListFact(t *testing.T) {
 	s := newStatement(t, defaultFixture())
 	s.rules = []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
 	s.inlineAssets = []*big.Int{big.NewInt(17)}
