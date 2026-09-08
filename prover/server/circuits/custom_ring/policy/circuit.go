@@ -1,3 +1,6 @@
+// Requires the transaction to satisfy the ring's policy in the same
+// proof that checks audit encryption and binds the supplied entry roots.
+
 package policy
 
 import (

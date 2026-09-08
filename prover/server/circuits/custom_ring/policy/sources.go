@@ -1,3 +1,6 @@
+// Checks the owner configured for each list and requires one source per
+// enabled fact to derive its entry address.
+
 package policy
 
 import (

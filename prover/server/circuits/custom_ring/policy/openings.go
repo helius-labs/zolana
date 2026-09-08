@@ -1,3 +1,6 @@
+// Binds policy subjects and amounts to the transaction hash and marks
+// selected UTXO slots for evaluation.
+
 package policy
 
 import (

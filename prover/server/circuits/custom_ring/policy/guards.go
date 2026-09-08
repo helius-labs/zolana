@@ -1,3 +1,6 @@
+// Checks amount exemptions against totals grouped by owner and asset,
+// including transfers split across several outputs.
+
 package policy
 
 import (

@@ -1,3 +1,6 @@
+// Checks policy encoding and permitted rule combinations, reconstructing
+// the policy hash that binds evaluation to the ring's configuration.
+
 package policy
 
 import (

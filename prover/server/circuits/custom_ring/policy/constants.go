@@ -1,3 +1,6 @@
+// Fixes circuit capacities and policy encodings for consistent rule
+// selection, amount checks and commitment hashes.
+
 package policy
 
 import (
