@@ -18,8 +18,6 @@ export {
   formatMs,
   measurementFor,
   proveMs,
-  toCsv,
-  type BenchReport,
   type Environment,
   type Measurement,
   type ProverKind,

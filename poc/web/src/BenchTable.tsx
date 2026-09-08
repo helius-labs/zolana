@@ -15,6 +15,7 @@ import { formatBytes, formatMs, proveMs } from "@zolana/poc-core";
 
 const STEP_LABELS: Readonly<Record<StepName, string>> = {
   "poseidon-init": "Poseidon init",
+  fund: "Fund actors",
   "key-fetch": "Key fetch",
   "key-load": "Key deserialize",
   "wallet-sync": "Wallet sync",

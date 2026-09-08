@@ -82,6 +82,25 @@ per-step timings, and **Export CSV** dumps them.
 `poc-keys` needs the keys present locally (`just build-prover-server` fetches
 them per `provingkeys/proving-keys.lock`).
 
+## Deploying the web PoC
+
+```sh
+just poc-deploy           # fly deploy, app and region in poc/web/fly.toml
+```
+
+The image builds the wasm prover and the page, and nginx proxies `/keys/` to
+the CloudFront folder the lockfile pins, so the keys stay same-origin without
+shipping them in the image, and `/devnet/indexer` and `/devnet/prover` to the
+devnet services, which speak plaintext HTTP an HTTPS page cannot call. The hosted
+page opens on the devnet preset. The three service URLs are editable and persist
+in the browser, so a tester points the flow at any stack they can reach. A
+non-loopback indexer or prover must be HTTPS, the SDK refuses plaintext otherwise.
+
+The flow pays from a funding wallet the page generates and keeps in browser
+storage. On a localnet it airdrops to itself. On devnet, send SOL to the address
+the page shows. Devnet currently runs the program from before the nullifier tree
+change, so the flow stops at the missing state tree until devnet is redeployed.
+
 ## Running the mobile app
 
 ```sh

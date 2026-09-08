@@ -188,3 +188,80 @@ tr.failed td {
     Menlo,
     monospace;
 }
+
+.endpoints {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.endpoints label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+}
+
+.endpoints input {
+  font: inherit;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+dd {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 15px;
+  }
+
+  main {
+    padding: 1rem 0.75rem 3rem;
+  }
+
+  h1 {
+    font-size: 1.15rem;
+  }
+
+  .panel {
+    padding: 0.75rem;
+  }
+
+  dl {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+
+  dt {
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .row label {
+    align-items: flex-start;
+  }
+
+  .row input {
+    flex-shrink: 0;
+    margin-top: 0.25rem;
+  }
+
+  button {
+    width: 100%;
+    padding: 0.7rem 0.8rem;
+  }
+
+  .log {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}

@@ -11,9 +11,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@heliuslabs/zolana": "*",
+    "@solana-program/system": "^0.13.0",
     "@solana/kit": "^7.0.0",
     "@zolana/poc-core": "*",
-    "@heliuslabs/zolana": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
