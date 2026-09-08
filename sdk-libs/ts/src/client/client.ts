@@ -21,6 +21,7 @@ import type {
   Bytes32,
   RequestContext,
   TransactInstructionData,
+  TransactProof,
   TransactWithdrawal,
 } from "../interface/types.js";
 import { PreparedMerge } from "../transaction/instructions/builders.js";
@@ -57,11 +58,15 @@ import {
   type SolanaRpc,
   type SolanaRpcSubscriptions,
 } from "./kit.js";
-import { assemble } from "./prover/assembly.js";
+import { assemble, checkedProverInputs } from "./prover/assembly.js";
 import { ProverClient, type AsyncPollConfig, type ProverHealth } from "./prover/client.js";
 import { assembleMerge } from "./prover/merge.js";
 import { compressProof } from "./prover/proof.js";
-import type { CustomRingBaseProofRequest, CustomRingPolicyProofRequest } from "./prover/types.js";
+import type {
+  CustomRingBaseProofRequest,
+  CustomRingPolicyProofRequest,
+  TransferInputs,
+} from "./prover/types.js";
 import {
   DEFAULT_INDEXER_RPC_CONFIG,
   indexerPollTimeout,
@@ -611,6 +616,18 @@ export class ZolanaClient
     try {
       const proof = await this.#prover.proveCustomRingBase(inputs, context);
       return compressProof(proof).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveTransferInputs(
+    inputs: TransferInputs,
+    context?: RequestContext,
+  ): Promise<TransactProof> {
+    try {
+      const proof = await this.#prover.prove(checkedProverInputs(inputs), context);
+      return compressProof(proof).toTransactProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }

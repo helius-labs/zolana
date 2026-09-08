@@ -16,6 +16,7 @@ import {
   type ZolanaClientConfig,
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
+import { asField, assemble } from "../src/client/prover/assembly.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
@@ -481,6 +482,39 @@ describe("ZolanaClient", () => {
         limit: 1000,
       },
     });
+  });
+
+  it("proves caller-assembled transfer inputs on the transfer circuit", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify(STANDARD_PROOF), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const instance = client(fetch);
+    const fixture = proofFixture();
+    const { proverInputs } = assemble(fixture.proofInputs, [fixture.spendProof]);
+
+    const proof = await instance.proveTransferInputs(proverInputs.payload);
+
+    expect(Object.keys(proof).sort()).toEqual(["a", "b", "c"]);
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:3001/prove");
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      circuitType: "transfer-confidential",
+      publicInputHash: `0x${proverInputs.payload.publicInputHash.toString(16)}`,
+    });
+
+    await instance.proveTransferInputs({ ...proverInputs.payload, ringProgramId: asField(7n) });
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toMatchObject({
+      circuitType: "transfer-ring",
+    });
+    const [input] = proverInputs.payload.inputs;
+    await expect(
+      instance.proveTransferInputs({
+        ...proverInputs.payload,
+        inputs: input === undefined ? [] : [{ ...input, statePathElements: [] }],
+      }),
+    ).rejects.toMatchObject({ code: "CLIENT_PROVER_INPUT" });
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {
