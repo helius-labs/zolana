@@ -50,13 +50,13 @@ pub(crate) fn run_deposit(opts: DepositOptions) -> Result<()> {
         memo: None,
     })?;
     let signature = deposit.send(&rpc, &material.funding, tree, &material.funding)?;
-    wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
+    let indexed = wait_for_indexed_utxo(&indexer, deposit.view_tag(), signature)?;
     println!(
         "ok deposit amount={} mint={} to={} utxo_hash={} signature={}",
         opts.amount,
         format_address(asset),
         recipient_pubkey,
-        hex::encode(deposit.utxo_hash),
+        hex::encode(indexed.output_slot.output_context.hash),
         signature
     );
     Ok(())

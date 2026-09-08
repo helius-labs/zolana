@@ -37,7 +37,7 @@ fn created_settings_accounts_decode_to_their_creation_members() -> Result<()> {
     let config = BootstrapConfig {
         label: "spp-settings",
         extra_programs: Vec::new(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         fund_merge_vault: false,
     };
     let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;

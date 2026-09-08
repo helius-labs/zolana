@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # Deploy (or upgrade) the on-chain programs to devnet using the local `solana`
 # CLI config (--url / default keypair). Requires the program .so files to
-# already exist in target/deploy (run `just build-programs` first) and that
-# the local config keypair is the current upgrade authority for each program.
+# already exist in target/deploy (run `just build-programs` first).
 #
 # DEPLOYMENT NOTES for the protocol-config initialization gate
 # (INV-CREATE-PC-10):
 # - Run `cargo run -p xtask -- init-protocol` BEFORE renouncing the upgrade
-#   authority. Once the program is made immutable (`solana program
-#   set-upgrade-authority --final`), the on-chain gate no longer restricts who
-#   may create the singleton config, and the first caller wins every role.
-# - The gate reads the upgradeable loader (loader-v3) state. A deployment
-#   that is not loader-v3 (e.g. a future loader-v4/native deploy) silently
-#   skips the check; init before any such migration.
+#   authority or migrating away from loader-v3. Immutable, zero-authority and
+#   non-loader-v3 deployments all fail closed and cannot initialize the config.
+# - Before the Squads handoff, the local config keypair performs direct
+#   deploys/upgrades. After the protocol vault becomes the shielded-pool
+#   upgrade authority, set ZOLANA_PROTOCOL_SIGNER_1 and
+#   ZOLANA_PROTOCOL_SIGNER_2 to two protocol-member keypair paths. This script
+#   then writes a loader buffer and executes the upgrade through Squads.
 #
 # A program's first-ever deploy to its fixed address needs that address's
 # private keypair (not just the pubkey), since the account has to be created
@@ -26,6 +26,14 @@ set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
+
+deploy_temp_dir=""
+cleanup() {
+    if [[ -n "$deploy_temp_dir" && -d "$deploy_temp_dir" ]]; then
+        rm -rf -- "$deploy_temp_dir"
+    fi
+}
+trap cleanup EXIT
 
 known_programs="shielded-pool user-registry"
 
@@ -80,6 +88,7 @@ if [[ "$cluster_url" != *devnet* ]]; then
 fi
 
 deploy_authority=$(solana address)
+payer_keypair=$(solana config get | awk -F': ' '/^Keypair Path/ {print $2}')
 echo "Cluster:   $cluster_url"
 echo "Authority: $deploy_authority"
 echo "Programs:  $targets"
@@ -105,6 +114,60 @@ deploy_with_retry() {
     return 1
 }
 
+program_authority() {
+    local pid="$1"
+    local info
+    if ! info=$(solana program show "$pid" --output json-compact 2>/dev/null); then
+        return 1
+    fi
+    printf '%s\n' "$info" \
+        | sed -n 's/.*"authority"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+}
+
+upgrade_shielded_pool_via_squads() {
+    local so_path="$1"
+    local vault="$2"
+    local signer_1="${ZOLANA_PROTOCOL_SIGNER_1:-}"
+    local signer_2="${ZOLANA_PROTOCOL_SIGNER_2:-}"
+    if [[ -z "$signer_1" || -z "$signer_2" ]]; then
+        echo "shielded-pool upgrade authority is Squads vault $vault" >&2
+        echo "set ZOLANA_PROTOCOL_SIGNER_1 and ZOLANA_PROTOCOL_SIGNER_2 to two protocol-member keypair paths" >&2
+        return 1
+    fi
+    if [[ ! -f "$payer_keypair" || ! -f "$signer_1" || ! -f "$signer_2" ]]; then
+        echo "Squads upgrade requires filesystem keypairs for the payer and both protocol signers" >&2
+        return 1
+    fi
+
+    # Verify the loader authority is exactly the configured protocol vault and
+    # that its Squads settings can be recovered before funding a buffer.
+    cargo run -q -p xtask -- upgrade-shielded-pool \
+        --cluster devnet --rpc-url "$cluster_url" --payer "$payer_keypair" \
+        --protocol-signer "$signer_1" --protocol-signer "$signer_2" \
+        --check-only
+
+    deploy_temp_dir=$(mktemp -d "${TMPDIR:-/tmp}/zolana-squads-upgrade.XXXXXX")
+    local buffer_keypair="$deploy_temp_dir/buffer.json"
+    solana-keygen new --no-bip39-passphrase --silent --force --outfile "$buffer_keypair"
+    local buffer
+    buffer=$(solana-keygen pubkey "$buffer_keypair")
+
+    echo "Writing loader buffer $buffer..."
+    solana program write-buffer "$so_path" \
+        --url "$cluster_url" --keypair "$payer_keypair" --fee-payer "$payer_keypair" \
+        --buffer "$buffer_keypair" --buffer-authority "$payer_keypair"
+    solana program set-buffer-authority "$buffer" \
+        --url "$cluster_url" --keypair "$payer_keypair" \
+        --buffer-authority "$payer_keypair" --new-buffer-authority "$vault"
+
+    echo "Executing loader upgrade through protocol Squads vault $vault..."
+    echo "If execution is interrupted, rerun the xtask with --buffer $buffer; the on-chain buffer remains vault-controlled."
+    cargo run -q -p xtask -- upgrade-shielded-pool \
+        --cluster devnet --rpc-url "$cluster_url" --payer "$payer_keypair" \
+        --protocol-signer "$signer_1" --protocol-signer "$signer_2" \
+        --buffer "$buffer"
+}
+
 for target in $targets; do
     so_path=$(program_so "$target")
     pid=$(program_id "$target")
@@ -115,7 +178,22 @@ for target in $targets; do
         exit 1
     fi
 
-    deploy_with_retry "$so_path" "$pid_arg"
+    current_authority=""
+    if current_authority=$(program_authority "$pid"); then
+        if [[ -z "$current_authority" ]]; then
+            echo "$target program $pid is immutable; it cannot be upgraded" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ -z "$current_authority" || "$current_authority" == "$deploy_authority" ]]; then
+        deploy_with_retry "$so_path" "$pid_arg"
+    elif [[ "$target" == "shielded-pool" ]]; then
+        upgrade_shielded_pool_via_squads "$so_path" "$current_authority"
+    else
+        echo "$target upgrade authority is $current_authority, not local signer $deploy_authority" >&2
+        exit 1
+    fi
     echo "Deployed $target to https://explorer.solana.com/address/$pid?cluster=devnet"
     echo
 done

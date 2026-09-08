@@ -31,7 +31,7 @@ fn pause_blocks_tree_mutation_and_unpause_restores_it() {
     let root = backend.rpc.state_root(&tree).expect("tree root");
     let error = backend
         .rpc
-        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32], [2; 32])
+        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32])
         .expect_err("paused tree must reject deposit");
     Rejection::pool(ShieldedPoolError::TreePaused).assert_litesvm(error);
     assert_eq!(backend.rpc.state_root(&tree), Some(root));
@@ -43,7 +43,7 @@ fn pause_blocks_tree_mutation_and_unpause_restores_it() {
     assert_eq!(tree_state_byte(&backend, &tree), INITIALIZED);
     backend
         .rpc
-        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32], [2; 32])
+        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32])
         .expect("deposit after unpause");
     assert_ne!(backend.rpc.state_root(&tree), Some(root));
 }
@@ -72,7 +72,7 @@ fn deposit_rejects_an_append_to_a_full_utxo_tree() {
 
     let error = backend
         .rpc
-        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32], [2; 32])
+        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32])
         .expect_err("an append to a full tree must fail");
     Rejection::pool(ShieldedPoolError::StateAppendFailed).assert_litesvm(error);
     backend

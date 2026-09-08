@@ -303,6 +303,10 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
 
     let payer = Keypair::new();
     let payer_address = payer.pubkey();
+    let accounts = smart_account::standard_accounts();
+    let spp_program_address = spp_program.to_string();
+    let protocol_vault_address = accounts.protocol_vault.to_string();
+    let payer_address_string = payer_address.to_string();
     let validator = LocalnetValidator {
         // The Squads smart-account program is loaded for the protocol bootstrap
         // only: `CreateProtocolConfig` and `CreateTree` check authorities that the
@@ -315,25 +319,26 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         ledger: isolated_temp_path("zolana-custom-ring-ledger"),
         account_dir: isolated_temp_path("zolana-custom-ring-smart-accounts"),
         programs: vec![
-            (spp_program.to_string(), spp_program_so),
             (user_registry.to_string(), user_registry_so),
             (smart_account.to_string(), smart_account_so),
         ],
     };
-    let upgrade_authority = payer_address.to_string();
     let ring_addresses: Vec<String> = std::iter::once(ring_program)
         .chain(extra_ring_programs.iter().copied())
         .map(|address| address.to_string())
         .collect();
-    let ring_deployments: Vec<UpgradeableProgram<'_>> = ring_addresses
-        .iter()
-        .map(|address| UpgradeableProgram {
-            address,
-            path: &ring_program_so,
-            authority: &upgrade_authority,
-        })
-        .collect();
-    validator.start_with_upgradeable_programs(&ring_deployments);
+    let deployments: Vec<UpgradeableProgram<'_>> = std::iter::once(UpgradeableProgram {
+        address: &spp_program_address,
+        path: &spp_program_so,
+        authority: &protocol_vault_address,
+    })
+    .chain(ring_addresses.iter().map(|address| UpgradeableProgram {
+        address,
+        path: &ring_program_so,
+        authority: &payer_address_string,
+    }))
+    .collect();
+    validator.start_with_upgradeable_programs(&deployments);
 
     spawn_workspace_prover();
 
@@ -356,7 +361,6 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     rpc.airdrop(&tree_creation_authority.pubkey(), SIGNER_AIRDROP)?;
     rpc.airdrop(&ring_creation_authority.pubkey(), SIGNER_AIRDROP)?;
 
-    let accounts = smart_account::standard_accounts();
     for ix in accounts.create_ixs(
         &payer.pubkey(),
         StandardSigners {
@@ -372,21 +376,22 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
 
     rpc.airdrop(&accounts.protocol_vault, PROTOCOL_VAULT_AIRDROP)?;
 
-    // `ring_creation_is_permissionless` is the one bootstrap setting this
+    // `ring_activation_is_permissionless` is the one bootstrap setting this
     // example needs to differ from the swap harness: with it set, the
     // custom-ring program can register its `ring_auth` PDA as an SPP ring
     // config with a plain payer, instead of the ring Squads vault having to
     // co-sign `create_ring_config`. Same precedent as the ring suite's
     // `BootstrapConfig` (program-tests/test-utils/src/ring/mod.rs).
     let create_config_ix = CreateProtocolConfig {
-        authority: accounts.protocol_vault,
+        fee_payer: payer.pubkey(),
+        initialization_authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault.to_bytes().into(),
         fee_authority: accounts.protocol_vault.to_bytes().into(),
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
         ring_creation_authority: accounts.ring_vault.to_bytes().into(),
-        ring_creation_is_permissionless: true,
+        ring_activation_is_permissionless: true,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();

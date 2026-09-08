@@ -192,7 +192,7 @@ nullifiers.
 - [x] **INV-RING-MERGE-02: ring_config must be a valid SPP-owned RingConfig**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_ring_rejects_a_ring_config_with_a_wrong_owner`, `merge_ring_rejects_a_ring_config_with_a_wrong_discriminator`
   - Kind: precondition
-  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 68 and discriminator 4; any violation returns Err.
+  - Statement: the `ring_config` account must be owned by the shielded-pool program with `data_len` exactly 69 and discriminator 4; any violation returns Err.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:14-20` (`fn load_ring_config`), `merge_ring/account.rs:27`
   - Error: `ShieldedPoolError::InvalidRingConfig = 7014`
   - Severity: Critical

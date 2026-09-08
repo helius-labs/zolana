@@ -25,6 +25,10 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     let mut iter = AccountIterator::new(accounts);
     let fee_payer = iter.next_signer("fee_payer")?;
+    // Do not require this account to remain read-only: when the fee payer and
+    // upgrade authority are the same key, Solana merges the two metas and the
+    // writable fee-payer privilege necessarily applies to both positions.
+    let initialization_authority = iter.next_signer("initialization_authority")?;
     let protocol_config = iter.next_mut("protocol_config")?;
     let system_program = iter.next_account("system_program")?;
     let program = iter.next_account("program")?;
@@ -33,10 +37,7 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(ProgramError::IncorrectProgramId);
     }
-    if *fee_payer.address() != data.protocol_authority {
-        return Err(ShieldedPoolError::UnauthorizedCaller.into());
-    }
-    check_initialization_authority(fee_payer, program, program_data)?;
+    check_initialization_authority(initialization_authority, program, program_data)?;
 
     let bump = verify_pda(
         protocol_config.address(),
@@ -61,33 +62,26 @@ pub fn process_create_protocol_config(accounts: &mut [AccountView], data: &[u8])
         tree_creation_is_permissionless: data.tree_creation_is_permissionless,
         forester_authority: data.forester_authority,
         ring_creation_authority: data.ring_creation_authority,
-        ring_creation_is_permissionless: data.ring_creation_is_permissionless,
+        ring_activation_is_permissionless: data.ring_activation_is_permissionless,
         spl_interface_creation_is_permissionless: data.spl_interface_creation_is_permissionless,
         fee_authority: data.fee_authority,
     }
     .init(protocol_config)
 }
 
-/// Front-run protection (INV-CREATE-PC-10): on an upgradeable deployment whose
-/// `ProgramData` names an upgrade authority, only that authority may pay for
-/// (and thereby name) the one-time protocol config. The deployment shape
-/// itself gates the check -- an attacker cannot influence the owner or
-/// contents of the program's own account, so:
+/// Front-run protection (INV-CREATE-PC-10): one-time initialization is allowed
+/// only while this program is a loader-v3 deployment with a real, nonzero
+/// upgrade authority, and that authority signs this instruction. The signer is
+/// independent of the rent payer and the protocol authority written into the
+/// config, so a Squads vault may authorize initialization through CPI while an
+/// ordinary transaction payer funds the account.
 ///
-/// - non-upgradeable deployments skip the check (the gate applies to loader-v3
-///   upgradeable deployments only; loader-v4/native deploys skip it);
-/// - an unset or zeroed upgrade authority (immutable program, LiteSVM harness,
-///   localnet `--bpf-program` on solana-test-validator 4.x, which loads via
-///   the upgradeable loader with a zeroed authority) skips it.
-///
-/// Operational note: renouncing the upgrade authority BEFORE init reopens
-/// permissionless init (the gate no longer names an authority), so deploys
-/// must init the config before `--final`.
-///
-/// Anything malformed or forged (wrong program account, wrong `ProgramData`
-/// address/owner, truncated state) fails closed.
+/// Non-loader-v3 deployments and unset, zeroed, malformed, forged, or
+/// mismatched loader state all fail closed. Consequently the protocol config
+/// must be initialized before the program is made immutable or migrated to a
+/// different loader.
 fn check_initialization_authority(
-    fee_payer: &AccountView,
+    initialization_authority: &AccountView,
     program: &AccountView,
     program_data: &AccountView,
 ) -> ProgramResult {
@@ -95,7 +89,7 @@ fn check_initialization_authority(
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     if program.owner().as_array() != &BPF_LOADER_UPGRADEABLE_ID {
-        return Ok(());
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
     let program_state = program
         .try_borrow()
@@ -115,20 +109,17 @@ fn check_initialization_authority(
         .try_borrow()
         .map_err(|_| ProgramError::AccountBorrowFailed)?;
     let Some(UpgradeableLoaderState::ProgramData {
-        upgrade_authority_address,
+        upgrade_authority_address: Some(upgrade_authority),
         ..
     }) = decode_loader_state(&program_data_state)
     else {
         return Err(ShieldedPoolError::UnauthorizedCaller.into());
     };
-    match upgrade_authority_address.map(|key| key.to_bytes()) {
-        Some(authority)
-            if authority != [0u8; 32] && authority != *fee_payer.address().as_array() =>
-        {
-            Err(ShieldedPoolError::UnauthorizedCaller.into())
-        }
-        // No authority set, or a zeroed authority (immutable; the shape
-        // solana-test-validator gives `--bpf-program` deployments).
-        _ => Ok(()),
+    let upgrade_authority = upgrade_authority.to_bytes();
+    if upgrade_authority == [0u8; 32]
+        || upgrade_authority != *initialization_authority.address().as_array()
+    {
+        return Err(ShieldedPoolError::UnauthorizedCaller.into());
     }
+    Ok(())
 }

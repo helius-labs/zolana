@@ -10,7 +10,7 @@ use spl_token_2022_interface::{
 };
 use zolana_account_checks::AccountError;
 use zolana_interface::{error::ShieldedPoolError, instruction::CreateSplInterface, pda};
-use zolana_program_test::{system_create_account_ix, test_blinding, Rejection, ZolanaProgramTest};
+use zolana_program_test::{system_create_account_ix, Rejection, ZolanaProgramTest};
 
 use shielded_pool_tests::support::fixtures::{register_mint, spl_accounts, spl_depositor, Pool};
 
@@ -486,8 +486,7 @@ fn spl_deposit_rejects_foreign_source() {
         .rpc
         .create_token_account(&mint_a, &other_owner.pubkey())
         .expect("foreign token account");
-    let data =
-        ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &foreign_token);
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &foreign_token);
     pool.rpc
         .mint_to(&mint_a, &foreign_token, 1_000_000)
         .expect("fund foreign token account");
@@ -509,8 +508,7 @@ fn spl_deposit_rejects_noncanonical_vault() {
     let (mint_a, _, _) = register_mint(&mut pool);
     let (depositor, user_token) = spl_depositor(&mut pool, mint_a, 1_000_000);
     let tree = pool.tree;
-    let data =
-        ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &user_token);
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &user_token);
     let decoy_vault = pool
         .rpc
         .create_token_account(&mint_a, &pda::shielded_pool_cpi_authority())
@@ -542,7 +540,7 @@ fn spl_deposit_rejects_mismatched_mint_atomically() {
     pool.rpc
         .mint_to(&mint_b, &token_b, 1_000_000)
         .expect("fund mint B token account");
-    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], [1u8; 32], &mint_a, &token_b);
+    let data = ZolanaProgramTest::spl_shield_data(1_000, [1u8; 32], &mint_a, &token_b);
 
     let err = pool
         .rpc
@@ -571,7 +569,7 @@ fn spl_deposit_rejects_insufficient_funds_atomically() {
         .deposit(
             &tree,
             &depositor,
-            &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], [3u8; 32], &mint, &user_token),
+            &ZolanaProgramTest::spl_shield_data(5_000, [3u8; 32], &mint, &user_token),
         )
         .expect_err("insufficient token funds must fail");
     Rejection::custom(spl_token::error::TokenError::InsufficientFunds as u32).assert_litesvm(err);
@@ -666,7 +664,6 @@ fn transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount
     let data = ZolanaProgramTest::spl_shield_data_with_program(
         400,
         [1u8; 32],
-        test_blinding(7),
         &mint,
         &source,
         token_program,

@@ -82,5 +82,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             .first()
             .ok_or(ShieldedPoolError::InvalidMergeShape)?,
         ix.output_ring_data_hash.to_vec(),
+        clock.slot,
     )
 }

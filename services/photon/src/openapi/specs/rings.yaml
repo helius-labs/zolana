@@ -1025,10 +1025,16 @@ components:
         rootIndex:
           type: integer
           format: u-int16
+          description: |-
+            Actual on-chain history position for `root`. A state root's position is
+            not derivable from `root_seq`: slots without updates consume no entry.
           minimum: 0
         rootSeq:
           type: integer
           format: u-int64
+          description: |-
+            Root ordering key: the completed Solana slot for state-tree proof
+            freshness, or the on-chain update sequence for an indexed-tree proof.
           minimum: 0
       additionalProperties: false
     NonInclusionProof:
@@ -1070,10 +1076,14 @@ components:
         rootIndex:
           type: integer
           format: u-int16
+          description: On-chain history position for `root`.
           minimum: 0
         rootSeq:
           type: integer
           format: u-int64
+          description: |-
+            Root ordering key: the completed Solana slot for a state-tree proof,
+            or the on-chain update sequence for an indexed-tree proof.
           minimum: 0
       additionalProperties: false
     NullifierQueueElement:

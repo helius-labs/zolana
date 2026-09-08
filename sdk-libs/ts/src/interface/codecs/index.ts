@@ -24,14 +24,15 @@ import {
   NULLIFIER_ROOT_HISTORY_OFFSET,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
   PROTOCOL_CONFIG_SIZE,
+  STATE_HEIGHT,
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
   UTXO_ROOT_HISTORY_CAPACITY,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
+  UTXO_SUBTREES_LEN_OFFSET,
 } from "../state.js";
 import {
   Reader,
@@ -76,7 +77,6 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
       .u8(deposit.assetIndex, "deposit.assetIndex")
       .bytes(deposit.viewTag, 32, "deposit.viewTag")
       .bytes(deposit.recipientOwnerHash, 32, "deposit.recipientOwnerHash")
-      .bytes(deposit.blinding, 32, "deposit.blinding")
       .u64(deposit.amount, "deposit.amount")
       .option(deposit.utxoData, (output, data) => {
         output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
@@ -348,7 +348,7 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
       ringCreationAuthority: readAddress(reader, "ringCreationAuthority"),
       feeAuthority: readAddress(reader, "feeAuthority"),
       treeCreationIsPermissionless: reader.nonzeroBool("treeCreationIsPermissionless"),
-      ringCreationIsPermissionless: reader.nonzeroBool("ringCreationIsPermissionless"),
+      ringActivationIsPermissionless: reader.nonzeroBool("ringActivationIsPermissionless"),
       splInterfaceCreationIsPermissionless: reader.nonzeroBool(
         "splInterfaceCreationIsPermissionless",
       ),
@@ -374,15 +374,21 @@ export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
   const utxo = treeAccountReader(
     bytes,
     UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-    UTXO_ROOT_HISTORY_LEN_OFFSET + 2,
+    UTXO_SUBTREES_LEN_OFFSET + 1,
   );
   const stateRootIndex = utxo.u16("rootHistoryCursor");
   const written = utxo.u16("rootHistoryLen");
+  const stateCapacity = utxo.u16("rootHistoryCapacity");
+  const subtreesLen = utxo.u8("subtreesLen");
   utxo.done();
+  if (stateCapacity !== UTXO_ROOT_HISTORY_CAPACITY || subtreesLen !== STATE_HEIGHT) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA");
+  }
   if (
     written === 0 ||
-    stateRootIndex >= UTXO_ROOT_HISTORY_CAPACITY ||
-    (written < UTXO_ROOT_HISTORY_CAPACITY && stateRootIndex >= written)
+    written > stateCapacity ||
+    stateRootIndex >= stateCapacity ||
+    (written < stateCapacity && stateRootIndex + 1 !== written)
   ) {
     fail("INTERFACE_INVALID_ACCOUNT_DATA", { field: "stateRootIndex", actual: stateRootIndex });
   }
@@ -447,13 +453,14 @@ export function decodeSplAssetRegistryAccount(bytes: Uint8Array): SplAssetRegist
 }
 
 export function decodeRingConfigAccount(bytes: Uint8Array): RingConfigAccount {
-  // 1 + 32 + 32 + 1 + 1 + 1. The program asserts the same size, and `paused`
-  // sits between the enable flag and the bump.
-  return decodeAccount(bytes, 68, StateDiscriminator.ringConfig, (reader) => ({
+  // 1 + 32 + 32 + 1 + 1 + 1 + 1. The program asserts the same size; the three
+  // flags run enabled, paused, activated, and the bump is last.
+  return decodeAccount(bytes, 69, StateDiscriminator.ringConfig, (reader) => ({
     authority: readAddress(reader, "authority"),
     programId: readAddress(reader, "programId"),
     ringAuthorityTransactIsEnabled: reader.nonzeroBool("ringAuthorityTransactIsEnabled"),
     paused: reader.nonzeroBool("paused"),
+    activated: reader.nonzeroBool("activated"),
     bump: reader.u8("bump"),
   }));
 }

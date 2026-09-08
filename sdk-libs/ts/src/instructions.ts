@@ -8,6 +8,7 @@ export {
   mergeTransactInstruction as getMergeTransactInstructionAsync,
   nullifierPdaAccounts as getNullifierPdaAccountsAsync,
   pauseTreeInstruction as getPauseTreeInstructionAsync,
+  setRingActivationInstruction as getSetRingActivationInstructionAsync,
   setTreeFeesInstruction as getSetTreeFeesInstructionAsync,
   transactInstruction as getTransactInstructionAsync,
   updateProtocolConfigInstruction as getUpdateProtocolConfigInstructionAsync,

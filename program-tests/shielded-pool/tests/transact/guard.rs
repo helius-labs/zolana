@@ -113,6 +113,7 @@ fn write_ring_config(
         program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
         ring_authority_transact_is_enabled: u8::from(enabled),
         paused: u8::from(paused),
+        activated: 1,
         bump: 255,
     };
     let keypair = Keypair::new();
@@ -120,6 +121,28 @@ fn write_ring_config(
         &mut env.rpc,
         keypair.pubkey(),
         owner,
+        bytemuck::bytes_of(&config).to_vec(),
+    );
+    keypair
+}
+
+/// Same, but with governance's `activated` byte cleared, which is how a ring
+/// config exists before `set_ring_activation` admits it.
+fn write_inactive_ring_config(env: &mut Pool, enabled: bool, paused: bool) -> Keypair {
+    let config = RingConfig {
+        discriminator: RING_CONFIG,
+        authority: Address::new_from_array([9u8; 32]),
+        program_id: Address::new_from_array(RING_TEST_PROGRAM_ID),
+        ring_authority_transact_is_enabled: u8::from(enabled),
+        paused: u8::from(paused),
+        activated: 0,
+        bump: 255,
+    };
+    let keypair = Keypair::new();
+    write_ring_config_account(
+        &mut env.rpc,
+        keypair.pubkey(),
+        pda::shielded_pool_program_id(),
         bytemuck::bytes_of(&config).to_vec(),
     );
     keypair
@@ -570,6 +593,48 @@ fn ring_transact_rejects_a_ring_config_with_a_wrong_discriminator() {
         ix,
         &[&ring_config],
         Rejection::pool(ShieldedPoolError::InvalidRingConfig),
+    );
+}
+
+/// INV-SET-RING-ACT-06: an inactive ring authorizes nothing, on either rail.
+#[test]
+fn ring_transact_rejects_an_inactive_ring_config() {
+    let mut env = Pool::initialized();
+    let ring_config = write_inactive_ring_config(&mut env, true, false);
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingNotActivated),
+    );
+}
+
+#[test]
+fn ring_authority_transact_rejects_an_inactive_ring_config() {
+    let mut env = Pool::initialized();
+    let ring_config = write_inactive_ring_config(&mut env, true, false);
+    let ix = ring_instruction(&env, true, &ring_config, transfer_ix_data(2, 2));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingNotActivated),
+    );
+}
+
+/// The activation check runs first, so a config that is both inactive and
+/// paused reports the governance reason rather than the ring's own pause.
+#[test]
+fn ring_transact_prioritizes_inactive_over_paused() {
+    let mut env = Pool::initialized();
+    let ring_config = write_inactive_ring_config(&mut env, true, true);
+    let ix = ring_instruction(&env, false, &ring_config, transfer_ix_data(2, 3));
+    expect_ix_rejection(
+        &mut env,
+        ix,
+        &[&ring_config],
+        Rejection::pool(ShieldedPoolError::RingNotActivated),
     );
 }
 

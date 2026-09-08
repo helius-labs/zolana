@@ -13,11 +13,10 @@ enum TreeMetadata {
 /// Drop the single `(state_root, state_root_index)` pair added a migration
 /// earlier.
 ///
-/// It could only answer for the newest root. The chain appends a root on every
-/// transaction with outputs, and photon serves proofs against whichever root it
-/// has indexed, so by request time the stored pair usually described a root the
-/// tree had already moved past -- leaving the index unanswerable a moment after
-/// each sync.
+/// It could only answer for the newest root. The chain retains one final root
+/// for each slot that updates the tree, while photon may serve proofs against
+/// any retained root it has indexed. A single pair therefore cannot resolve an
+/// older, still-valid proof root after the tree advances.
 ///
 /// The index now comes from an in-process cache of the whole root-history ring,
 /// refreshed from the tree account on a miss. Nothing reads these columns.

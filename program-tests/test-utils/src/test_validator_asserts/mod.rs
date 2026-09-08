@@ -23,8 +23,12 @@ use zolana_client::{
     ClientError, EncryptedUtxoMatch, MerkleProof, NonInclusionProof, Rpc, ShieldedTransaction,
     SolanaRpc,
 };
-use zolana_interface::{instruction::AssetDeposit, state::state_root_offset};
+use zolana_interface::{
+    instruction::{deposit_blinding, AssetDeposit},
+    state::state_root_offset,
+};
 use zolana_program_test::DepositOutput;
+use zolana_tree::TreeAccount;
 
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -36,22 +40,44 @@ pub fn to_address(pubkey: &Pubkey) -> Address {
     Address::new_from_array(pubkey.to_bytes())
 }
 
+/// What a settled proofless deposit must look like, tracked independently of
+/// the event it is compared against.
+pub struct ExpectedDeposit {
+    pub tree: [u8; 32],
+    /// Leaf index the single output must land at, read from the pre-deposit
+    /// tree snapshot via [`utxo_next_index_from`].
+    pub leaf_index: u64,
+    pub amount: u64,
+    pub asset: Address,
+}
+
+/// Leaf index the next appended output lands at, read from a tree-account
+/// snapshot. Deposit asserts take the pre-deposit snapshot, so their expected
+/// leaf index and blinding do not come from the event under test.
+#[track_caller]
+pub fn utxo_next_index_from(tree: &Pubkey, account: &Account) -> u64 {
+    let mut data = account.data.clone();
+    let mut tree_account = TreeAccount::from_bytes(&mut data, tree.to_bytes())
+        .unwrap_or_else(|error| panic!("load tree {tree}: {error:?}"));
+    tree_account.utxo_tree().next_index()
+}
+
 pub fn expected_deposit_view(
     data: &AssetDeposit,
-    expected_amount: u64,
-    expected_asset: Address,
+    expected: ExpectedDeposit,
     event: &DepositOutput,
 ) -> DepositOutput {
     DepositOutput {
         view_tag: data.view_tag,
         utxo_hash: event.utxo_hash,
-        output_tree: event.output_tree,
-        leaf_index: event.leaf_index,
+        output_tree: expected.tree,
+        leaf_index: expected.leaf_index,
         output: zolana_event::ProoflessOutput {
             owner: data.owner,
-            blinding: data.blinding,
-            asset: expected_asset.to_bytes(),
-            amount: expected_amount,
+            blinding: deposit_blinding(&expected.tree, expected.leaf_index)
+                .expect("expected deposit blinding"),
+            asset: expected.asset.to_bytes(),
+            amount: expected.amount,
             data_hash: data.utxo_data.as_ref().map(|p| p.data_hash),
             utxo_data: data.utxo_data.as_ref().map(|p| p.data.clone()),
             ring_program_id: None,

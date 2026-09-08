@@ -56,7 +56,7 @@ describe("Poseidon parity with Rust", () => {
     resetPoseidonForTests();
     try {
       const deposit = await createDeposit({ recipient, asset: SOL_MINT, amount: 1n });
-      expect(deposit.utxoHash).toHaveLength(32);
+      expect(deposit.data.recipientOwnerHash).toHaveLength(32);
     } finally {
       await initializePoseidon();
     }

@@ -51,7 +51,7 @@ pub fn litesvm_assert_protocol_config(
         "tree creation permissionless"
     );
     assert_eq!(
-        cfg.ring_creation_is_permissionless, 0,
+        cfg.ring_activation_is_permissionless, 0,
         "ring creation permissionless"
     );
 }

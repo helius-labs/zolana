@@ -81,7 +81,7 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	listFacts := c.checkListFacts(api, checker)
 
 	// 5. Require every applicable rule to pass.
-	c.evaluate(api, txContext, listFacts, ruleEnabled, inlineEnabled)
+	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
 
 	// 6. Bind the policy and supplied entry roots after the audit inputs.
 	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot)

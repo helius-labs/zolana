@@ -11,8 +11,8 @@ import type { Address, RequestContext } from "../interface/types.js";
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
-/** Size of a `RingConfig` account: 1 + 32 + 32 + 1 + 1 + 1. */
-const RING_CONFIG_SIZE = 68n;
+/** Size of a `RingConfig` account: 1 + 32 + 32 + 1 + 1 + 1 + 1. */
+const RING_CONFIG_SIZE = 69n;
 
 /** One ring the shielded pool has a config for. */
 export interface RegisteredRing {
@@ -24,6 +24,12 @@ export interface RegisteredRing {
   readonly ringAuthorityTransactIsEnabled: boolean;
   /** Every operational ring instruction is refused while this is set. */
   readonly paused: boolean;
+  /**
+   * Whether governance has admitted this ring. An unactivated ring refuses
+   * every operational instruction, so a caller choosing a deposit target
+   * should filter on this as deliberately as on `paused`.
+   */
+  readonly activated: boolean;
 }
 
 type RingRegistryReader = KitRpcAccess;
@@ -108,6 +114,7 @@ export async function listRegisteredRings(
         authority: config.authority,
         ringAuthorityTransactIsEnabled: config.ringAuthorityTransactIsEnabled,
         paused: config.paused,
+        activated: config.activated,
       }),
     );
   }

@@ -102,8 +102,12 @@ pub fn process_transact_ix(
         &input_tree_result,
     )?;
     // 9. Append new utxo hashes.
-    let tree_write =
-        apply_output_tree(transact_accounts.output_tree, &ix, input_tree_result.inputs)?;
+    let tree_write = apply_output_tree(
+        transact_accounts.output_tree,
+        &ix,
+        input_tree_result.inputs,
+        clock.slot,
+    )?;
 
     let resolved_interface_transfers =
         resolve_interface_transfers(&ix, &transact_accounts.settlements);

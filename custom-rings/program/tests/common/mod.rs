@@ -960,6 +960,7 @@ pub fn spp_ring_config_account() -> Account {
         program_id: Address::new_from_array(program_id().to_bytes()),
         ring_authority_transact_is_enabled: 0,
         paused: 0,
+        activated: 1,
         bump,
     };
     Account {

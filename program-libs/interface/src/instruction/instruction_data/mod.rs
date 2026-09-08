@@ -16,9 +16,10 @@ pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedPr
 #[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{
-    DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData, DepositIxDataRef,
-    EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry, RingDepositEntryRef,
-    RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef, MAX_DEPOSIT_ASSETS,
+    deposit_blinding, DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData,
+    DepositIxDataRef, EncryptedRingDepositData, EncryptedRingDepositDataRef, RingDepositEntry,
+    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, UtxoData, UtxoDataRef,
+    DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
@@ -26,7 +27,7 @@ pub use merge_transact::{
     MERGE_INPUT_COUNT,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
-pub use ring_config::{CreateRingConfigData, UpdateRingConfigData};
+pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{

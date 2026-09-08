@@ -20,8 +20,8 @@ pub enum PhotonApiError {
     UnexpectedError(String),
     #[error("Node is behind {0} slots")]
     StaleSlot(u64),
-    /// The index has a root the chain has already moved past, so it cannot name
-    /// the root-history slot a client would have to quote. Retryable.
+    /// The indexed root is no longer in the chain's root history, so Photon
+    /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
     StaleRoot(String),
 }

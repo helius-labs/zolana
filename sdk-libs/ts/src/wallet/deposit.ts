@@ -11,9 +11,7 @@ import type {
 } from "../interface/types.js";
 import { depositInstruction } from "../interface/instructions/index.js";
 import { initializePoseidon } from "../hasher/index.js";
-import { randomBlinding } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
-import { ownerUtxoHash } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
 import { resolveDepositSettlement } from "../flows/settlement.js";
@@ -35,14 +33,12 @@ export interface DepositParams {
 /** @internal */
 export class Deposit {
   readonly data: Omit<AssetDeposit, "asset">;
-  readonly utxoHash: Bytes32;
   readonly asset: Address;
   readonly settlement: DepositAsset;
 
   constructor(
     input: Readonly<{
       data: Omit<AssetDeposit, "asset">;
-      utxoHash: Bytes32;
       asset: Address;
       settlement: DepositAsset;
     }>,
@@ -51,10 +47,8 @@ export class Deposit {
       ...input.data,
       viewTag: new Uint8Array(input.data.viewTag) as Bytes32,
       recipientOwnerHash: new Uint8Array(input.data.recipientOwnerHash) as Bytes32,
-      blinding: new Uint8Array(input.data.blinding) as Bytes32,
       ...(input.data.memo === undefined ? {} : { memo: new Uint8Array(input.data.memo) }),
     });
-    this.utxoHash = new Uint8Array(input.utxoHash) as Bytes32;
     this.asset = input.asset;
     this.settlement = input.settlement;
   }
@@ -82,13 +76,11 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
       });
     }
     const recipientOwnerHash = params.recipient.ownerHash();
-    const blinding = randomBlinding();
     const data: Omit<AssetDeposit, "asset"> = {
       // Confidential rings key the owner tag off the signing key, and the
       // wallet sync reads it back that way. The viewing key is a different key.
       viewTag: params.recipient.confidentialViewTag(),
       recipientOwnerHash,
-      blinding,
       amount: params.amount,
       ...(params.memo === undefined ? {} : { memo: new Uint8Array(params.memo) }),
     };
@@ -110,14 +102,10 @@ export async function createDeposit(params: DepositParams): Promise<Deposit> {
           details: { mint: params.asset },
         }),
     );
+    // The blinding comes from the leaf index the output lands at, so read the
+    // UTXO hash from the event.
     return new Deposit({
       data,
-      utxoHash: ownerUtxoHash({
-        owner: recipientOwnerHash,
-        asset: params.asset,
-        amount: params.amount,
-        blinding,
-      }),
       asset: params.asset,
       settlement,
     });

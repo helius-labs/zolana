@@ -66,10 +66,10 @@ impl PhotonApi {
 
     /// Start the task that keeps the root-index ring current.
     ///
-    /// Without it the ring is only refreshed when a request misses, which is
-    /// every transfer, and that fetch is then the largest single cost of a
-    /// transfer. Callers that only serve reads of other methods can skip it; the
-    /// on-miss path still answers correctly, just slowly.
+    /// Without it the ring is only refreshed when a request asks for a newly
+    /// indexed root, and that account fetch is then the largest single cost of
+    /// the request. Callers that only serve reads of other methods can skip it;
+    /// the on-miss path still answers correctly, just slowly.
     pub fn spawn_root_index_refresher(&self) -> tokio::task::JoinHandle<()> {
         let cache = Arc::clone(&self.root_index_cache);
         let db = Arc::clone(&self.db_conn);

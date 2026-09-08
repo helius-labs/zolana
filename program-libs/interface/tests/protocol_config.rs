@@ -13,7 +13,7 @@ fn protocol_config() -> ProtocolConfig {
         ring_creation_authority: Address::new_from_array([4; 32]),
         fee_authority: Address::new_from_array([5; 32]),
         tree_creation_is_permissionless: 0,
-        ring_creation_is_permissionless: 0,
+        ring_activation_is_permissionless: 0,
         spl_interface_creation_is_permissionless: 1,
         next_tree_id: 0x0102,
     }

@@ -8,7 +8,6 @@ fn entry(seed: u8) -> DepositEntry {
         asset_index: 0,
         view_tag: [seed; 32],
         owner: [seed.wrapping_add(1); 32],
-        blinding: [seed.wrapping_add(2); 32],
         amount: u64::from(seed) + 1,
         utxo_data: Some(UtxoData {
             data_hash: [seed.wrapping_add(3); 32],
@@ -42,7 +41,6 @@ fn deposit_ref_borrows_variable_payloads() {
     assert_eq!(actual.asset_index, expected.asset_index);
     assert_eq!(actual.view_tag, &expected.view_tag);
     assert_eq!(actual.owner, &expected.owner);
-    assert_eq!(actual.blinding, &expected.blinding);
     assert_eq!(actual.amount, expected.amount);
 
     let actual_utxo = actual.utxo_data.unwrap();

@@ -2,6 +2,9 @@ use zolana_tree::nullifier_tree::constants::NUM_BATCHES;
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule};
 
 pub const STATE_HEIGHT: usize = 32;
+/// Maximum number of updated Solana slots whose final state-tree roots can
+/// coexist on chain. Slots without a tree update consume no history entry.
+pub const STATE_ROOT_HISTORY_CAPACITY: usize = zolana_tree::smt::ROOT_HISTORY_CAPACITY;
 
 // Production nullifier-tree parameters.
 pub const NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE: u64 = 25_000;
@@ -116,10 +119,11 @@ mod tests {
     }
 
     #[test]
-    fn tree_creation_takes_three_allocation_steps() {
-        assert_eq!(tree_account_size(), 30_344);
-        assert_eq!(tree_creation_step_count(), 3);
-        assert!(tree_account_size() > 2 * TREE_ALLOCATION_STEP);
-        assert!(tree_account_size() <= 3 * TREE_ALLOCATION_STEP);
+    fn tree_creation_takes_four_allocation_steps() {
+        assert_eq!(STATE_ROOT_HISTORY_CAPACITY, 500);
+        assert_eq!(tree_account_size(), 39_952);
+        assert_eq!(tree_creation_step_count(), 4);
+        assert!(tree_account_size() > 3 * TREE_ALLOCATION_STEP);
+        assert!(tree_account_size() <= 4 * TREE_ALLOCATION_STEP);
     }
 }

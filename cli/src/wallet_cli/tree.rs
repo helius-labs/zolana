@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use solana_keypair::{read_keypair_file, Keypair};
 use solana_signer::Signer;
 use zolana_client::{Rpc, SolanaRpc};
 use zolana_interface::{
@@ -31,20 +32,38 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     let protocol_config = match fetch_protocol_config(&rpc)? {
         Some(config) => config,
         None => {
+            let initialization_keypair = std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR")
+                .ok()
+                .map(|path| {
+                    read_keypair_file(&path).map_err(|error| {
+                        anyhow!("read SPP upgrade authority keypair {path}: {error}")
+                    })
+                })
+                .transpose()?;
+            let initialization_authority = initialization_keypair
+                .as_ref()
+                .map(Keypair::pubkey)
+                .unwrap_or(authority);
             let ix = CreateProtocolConfig {
-                authority,
+                fee_payer: authority,
+                initialization_authority,
                 protocol_authority: authority_address,
                 tree_creation_authority: authority_address,
                 tree_creation_is_permissionless: false,
                 forester_authority: authority_address,
                 ring_creation_authority: authority_address,
                 fee_authority: authority_address,
-                ring_creation_is_permissionless: false,
+                ring_activation_is_permissionless: false,
                 spl_interface_creation_is_permissionless: false,
             }
             .instruction();
-            let signature =
-                rpc.create_and_send_transaction(&[ix], authority_address, &[&material.funding])?;
+            let mut signers: Vec<&dyn Signer> = vec![&material.funding];
+            if let Some(initialization_keypair) = &initialization_keypair {
+                if initialization_keypair.pubkey() != authority {
+                    signers.push(initialization_keypair);
+                }
+            }
+            let signature = rpc.create_and_send_transaction(&[ix], authority_address, &signers)?;
             println!("ok create_protocol_config signature={signature}");
             fetch_protocol_config(&rpc)?
                 .ok_or_else(|| anyhow!("protocol config missing after creation"))?

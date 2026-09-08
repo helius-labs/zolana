@@ -62,6 +62,7 @@ fn tree_error_conversions_are_stable() {
         TreeError::NotWritable,
         TreeError::InvalidDiscriminator,
         TreeError::InvalidRootIndex,
+        TreeError::InvalidUpdateSlot,
         TreeError::Borrowed,
         TreeError::InvalidCapacity,
         TreeError::Hash,
