@@ -524,7 +524,7 @@ func assignRule(dst *policy.RuleWires, encoded [ruleEncLen]byte) {
 	dst.ListMask = encoded[29]
 	dst.GuardTag = encoded[28]
 	dst.Threshold = new(big.Int).SetBytes(encoded[20:28])
-	dst.AltListMask = encoded[19]
+	dst.OppositeModeListMask = encoded[19]
 }
 
 func assignListFact(dst *policy.ListFactWires, src *ListFact) {

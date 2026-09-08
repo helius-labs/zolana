@@ -47,7 +47,7 @@ func (c *CustomRingPolicyCircuit) evaluate(
 	}
 
 	// 3. Prepare shared inline matches and grouped output amounts.
-	limits := c.matchInlineAssets(api, txContext.outputs, inlineEnabled)
+	limits := c.resolveOutputAssetLimits(api, txContext.outputs, inlineEnabled)
 	totals := sumOutputs(api, txContext.outputs, liveOwner, liveAsset)
 
 	// 4. Match each rule's list and mode alternatives.
@@ -73,9 +73,9 @@ func (c *CustomRingPolicyCircuit) evaluate(
 
 			// 6. Check the amount exemption for the output's group.
 			amounts := guardAmounts{
-				subjectOutputTotal: api.Select(onAsset, totals[outputIndex].byAsset, totals[outputIndex].byOwner),
-				ownerAssetTotal:    totals[outputIndex].byOwnerAndAsset,
-				assetLimit:         limits[outputIndex],
+				subjectOutputTotal:    api.Select(onAsset, totals[outputIndex].byAsset, totals[outputIndex].byOwner),
+				ownerAssetOutputTotal: totals[outputIndex].byOwnerAndAsset,
+				assetLimit:            limits[outputIndex],
 			}
 			exempt := rule.amountExemption(api, amounts)
 
@@ -84,7 +84,7 @@ func (c *CustomRingPolicyCircuit) evaluate(
 			shared.AssertWhen(api, api.Mul(instanceEnabled, hasPerAssetGuard), limits[outputIndex].found)
 
 			// 8. Require the list condition or an amount exemption.
-			shared.AssertWhen(api, instanceEnabled, api.Or(satisfied, exempt))
+			assertSatisfiedOrExempt(api, instanceEnabled, satisfied, exempt)
 		}
 
 		// 9. Require a matching list fact for each sender without
@@ -97,9 +97,19 @@ func (c *CustomRingPolicyCircuit) evaluate(
 			}
 			instanceEnabled := api.Mul(onInput, liveSender[inputIndex])
 			satisfied := anyOf(api, matches[:])
-			shared.AssertWhen(api, instanceEnabled, satisfied)
+			assertSatisfied(api, instanceEnabled, satisfied)
 		}
 	}
+}
+
+// assertSatisfiedOrExempt permits an amount exemption for an enabled instance.
+func assertSatisfiedOrExempt(api frontend.API, instanceEnabled, satisfied, exempt frontend.Variable) {
+	assertSatisfied(api, instanceEnabled, api.Or(satisfied, exempt))
+}
+
+// assertSatisfied requires the condition only for an enabled rule instance.
+func assertSatisfied(api frontend.API, instanceEnabled, satisfied frontend.Variable) {
+	shared.AssertWhen(api, instanceEnabled, satisfied)
 }
 
 func anyOf(api frontend.API, terms []frontend.Variable) frontend.Variable {

@@ -75,7 +75,7 @@ func (c *amountBoundCircuit) Define(api frontend.API) error {
 		total = api.Add(total, amount)
 	}
 	api.ToBinary(c.Threshold, amountBits)
-	api.AssertIsEqual(atMostAggregated(api, total, c.Threshold), c.AtMost)
+	api.AssertIsEqual(outputTotalAtMost(api, total, c.Threshold), c.AtMost)
 	return nil
 }
 

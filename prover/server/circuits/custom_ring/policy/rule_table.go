@@ -20,8 +20,8 @@ type RuleWires struct {
 	// A zero ListMask selects inline assets, otherwise bit i selects list
 	// i+1 in Mode.
 	ListMask frontend.Variable
-	// AltListMask selects lists in the opposite mode.
-	AltListMask frontend.Variable
+	// OppositeModeListMask selects lists in the opposite mode.
+	OppositeModeListMask frontend.Variable `gnark:"AltListMask"`
 	// Amount guards waive coverage at or below the selected threshold.
 	GuardTag frontend.Variable
 	// Only GuardAboveAmount uses the scalar threshold.
@@ -77,7 +77,7 @@ func (w RuleWires) check(api frontend.API, checker frontend.Rangechecker, enable
 	checker.Check(w.GuardTag, 8)
 	checker.Check(w.Threshold, amountBits)
 	listBits := api.ToBinary(w.ListMask, NSources)
-	altBits := api.ToBinary(w.AltListMask, NSources)
+	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
 
 	// 2. Bind the decoded fields to Packed.
 	api.AssertIsEqual(w.Packed, api.Add(
@@ -86,10 +86,11 @@ func (w RuleWires) check(api frontend.API, checker frontend.Rangechecker, enable
 		api.Mul(w.ListMask, ruleWeights.listMask),
 		api.Mul(w.GuardTag, ruleWeights.guardTag),
 		api.Mul(w.Threshold, ruleWeights.threshold),
-		api.Mul(w.AltListMask, ruleWeights.altListMask),
+		api.Mul(w.OppositeModeListMask, ruleWeights.altListMask),
 	))
 
-	// 3. Check subjects and modes, allowing AltListMask only for Present.
+	// 3. Check subjects and modes, allowing OppositeModeListMask only for
+	// Present.
 	onOwner := api.IsZero(api.Sub(w.Subject, SubjectOutputOwner))
 	onAsset := api.IsZero(api.Sub(w.Subject, SubjectAsset))
 	onSender := api.IsZero(api.Sub(w.Subject, SubjectSender))
@@ -97,7 +98,7 @@ func (w RuleWires) check(api frontend.API, checker frontend.Rangechecker, enable
 	isPresent := api.IsZero(api.Sub(w.Mode, ModePresent))
 	isAbsent := api.IsZero(api.Sub(w.Mode, ModeAbsent))
 	shared.AssertWhen(api, enabled, api.Add(isPresent, isAbsent))
-	api.AssertIsEqual(api.Mul(enabled, isAbsent, w.AltListMask), 0)
+	api.AssertIsEqual(api.Mul(enabled, isAbsent, w.OppositeModeListMask), 0)
 
 	// 4. Require disjoint list alternatives with configured sources.
 	for i := range listBits {
@@ -110,7 +111,7 @@ func (w RuleWires) check(api frontend.API, checker frontend.Rangechecker, enable
 	inline := api.Mul(enabled, api.IsZero(w.ListMask))
 	shared.AssertWhen(api, inline, onAsset)
 	shared.AssertWhen(api, inline, isPresent)
-	api.AssertIsEqual(api.Mul(inline, w.AltListMask), 0)
+	api.AssertIsEqual(api.Mul(inline, w.OppositeModeListMask), 0)
 
 	// 6. Check guard tags, thresholds and permitted subjects.
 	always := api.IsZero(api.Sub(w.GuardTag, GuardAlways))
@@ -191,7 +192,7 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NI
 func (w RuleWires) matchListAndMode(api frontend.API, listFacts [NListFacts]listFact, onList [NListFacts][NSources]frontend.Variable) [NListFacts]frontend.Variable {
 	// 1. Decode the lists for each mode.
 	listBits := api.ToBinary(w.ListMask, NSources)
-	altBits := api.ToBinary(w.AltListMask, NSources)
+	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
 	altMode := api.Sub(ModePresent+ModeAbsent, w.Mode)
 
 	// 2. Match each enabled list fact to either list-and-mode alternative.

@@ -400,7 +400,7 @@ func TestCircuitRejectsTamperedWitness(t *testing.T) {
 				f := mixedFixture()
 				f.listFacts = []int{senderNotFrozen, allowedNotApproved}
 				c := buildAssignment(t, f)
-				c.Rules[0].ListMask, c.Rules[0].AltListMask = c.Rules[0].AltListMask, c.Rules[0].ListMask
+				c.Rules[0].ListMask, c.Rules[0].OppositeModeListMask = c.Rules[0].OppositeModeListMask, c.Rules[0].ListMask
 				return c
 			},
 		},
@@ -645,13 +645,13 @@ func (r rule) packed() *big.Int {
 
 func (r rule) wires() RuleWires {
 	return RuleWires{
-		Packed:      r.packed(),
-		Subject:     big.NewInt(r.subject),
-		Mode:        big.NewInt(r.mode),
-		ListMask:    big.NewInt(r.mask),
-		AltListMask: big.NewInt(r.altMask),
-		GuardTag:    big.NewInt(r.guardTag),
-		Threshold:   new(big.Int).SetUint64(r.threshold),
+		Packed:               r.packed(),
+		Subject:              big.NewInt(r.subject),
+		Mode:                 big.NewInt(r.mode),
+		ListMask:             big.NewInt(r.mask),
+		OppositeModeListMask: big.NewInt(r.altMask),
+		GuardTag:             big.NewInt(r.guardTag),
+		Threshold:            new(big.Int).SetUint64(r.threshold),
 	}
 }
 
