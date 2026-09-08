@@ -1,3 +1,6 @@
+// Authenticates enabled claims of active membership or absence at the
+// supplied tree roots for reuse across rules and transaction subjects.
+
 package policy
 
 import (

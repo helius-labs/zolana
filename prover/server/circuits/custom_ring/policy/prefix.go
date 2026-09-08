@@ -1,3 +1,6 @@
+// Keeps padded slots outside transaction and policy commitments through
+// prefix hashes and slot flags derived from a checked count.
+
 package policy
 
 import (

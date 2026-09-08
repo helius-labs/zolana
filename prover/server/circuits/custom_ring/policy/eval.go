@@ -1,3 +1,6 @@
+// Requires every enabled rule to pass for each relevant transaction
+// subject through a matching alternative or a permitted amount exemption.
+
 package policy
 
 import (
