@@ -116,6 +116,17 @@ func TestAddressSlotRingSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
+func TestAddressSlotRejectedWhenDummyPolicyDisabled(t *testing.T) {
+	assert := test.NewAssert(t)
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
+	assignment, _, _ := buildRingAddressAssignment(t)
+	assignment.AllowDummyInputs = spptest.Fe(0)
+	refreshPublicInputHash(t, assignment)
+
+	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+}
+
 func TestAddressSlotConfidentialSolves(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
