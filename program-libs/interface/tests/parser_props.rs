@@ -337,7 +337,7 @@ proptest! {
     fn deposit_length_corruptions_fail_cleanly(
         view_tag in any::<[u8; 32]>(),
         owner in any::<[u8; 32]>(),
-        blinding in any::<[u8; 32]>(),
+        envelope_seed in any::<[u8; 32]>(),
         amount in any::<u64>(),
         utxo_data in prop::option::of((any::<[u8; 32]>(), prop::collection::vec(any::<u8>(), 0..300))),
         memo in prop::option::of(prop::collection::vec(any::<u8>(), 0..300)),
@@ -351,7 +351,6 @@ proptest! {
             asset_index: 0,
             view_tag,
             owner,
-            blinding,
             amount,
             utxo_data: utxo_data.clone(),
             memo: memo.clone(),
@@ -370,8 +369,8 @@ proptest! {
                 data_hash: utxo_data.map(|data| data.data_hash),
                 ring_data_hash,
                 encrypted: EncryptedRingDepositData {
-                    tx_viewing_pk: [blinding[0]; 33],
-                    salt: [blinding[1]; 16],
+                    tx_viewing_pk: [envelope_seed[0]; 33],
+                    salt: [envelope_seed[1]; 16],
                     ciphertext: ring_data,
                 },
             }],

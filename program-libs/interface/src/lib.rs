@@ -57,11 +57,9 @@ pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
 
 /// The upgradeable BPF loader. `create_protocol_config` binds one-time protocol
-/// initialization to the program's deploy upgrade authority: when the program
-/// account is owned by this loader and its `ProgramData` names an upgrade
-/// authority, only that authority may create the protocol config (front-run
-/// protection). Non-upgradeable deployments (localnet `--bpf-program`) and an
-/// unset authority (test harnesses, immutable programs) skip the check.
+/// initialization to a real, nonzero deploy upgrade authority recorded by this
+/// loader. Non-upgradeable, immutable, zero-authority, and malformed deployment
+/// states fail closed.
 pub const BPF_LOADER_UPGRADEABLE_ID: [u8; 32] =
     pubkey_array!("BPFLoaderUpgradeab1e11111111111111111111111");
 

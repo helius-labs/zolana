@@ -25,9 +25,13 @@ the write paths, and `pause_tree` loads through
 
 ## State tree
 
-`smt::UtxoTreeLayout` appends output commitments one leaf at a time and
-keeps a cyclic root history of `smt::ROOT_HISTORY_CAPACITY` roots for
-validity proofs. Its height is pinned to `UTXO_TREE_HEIGHT`, and
+`smt::UtxoTreeLayout` appends output commitments one leaf at a time and keeps
+the final state root written in each observed Solana slot in a conventional
+cyclic history. The first write in a new slot advances the history cursor;
+later writes in that slot replace its earlier root. Thus history indices stay
+consecutive even if observed slot numbers skip. A regressing slot is rejected.
+The 500-root history covers about 100 seconds at the 200 ms target slot time
+under continuous updates. Its height is pinned to `UTXO_TREE_HEIGHT`, and
 `TreeAccount::init` rejects any other value.
 
 ## Nullifier tree

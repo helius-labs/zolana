@@ -19,6 +19,7 @@ import {
   Wallet,
   canonicalShape,
   createProofOutput,
+  depositBlinding,
   deriveBlinding,
   ownerUtxoHash,
   resolveShape,
@@ -443,6 +444,22 @@ describe("transaction core", () => {
       expect.objectContaining({ code: "TRANSACTION_INVALID_POSITION" }),
     );
     expect(ownerUtxoHash(scalar(1), seed)).toHaveLength(32);
+  });
+
+  it("derives the deposit blinding the shielded pool derives", () => {
+    // Pinned against the Rust `deposit_blinding_is_pinned` vector.
+    const tree = "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi" as Address;
+    expect(depositBlinding(tree, 7n)).toEqual(
+      Uint8Array.from([
+        0x00, 0x4d, 0x1e, 0x40, 0xd2, 0x14, 0x24, 0x11, 0xb3, 0x9e, 0x40, 0xc7, 0x63, 0xdb, 0x9d,
+        0xef, 0xb6, 0xca, 0x70, 0xab, 0xea, 0xad, 0x20, 0x67, 0x44, 0x43, 0xd3, 0x3f, 0x88, 0xbe,
+        0x67, 0x3a,
+      ]),
+    );
+    expect(depositBlinding(tree, 7n)).not.toEqual(depositBlinding(tree, 8n));
+    expect(() => depositBlinding(tree, -1n)).toThrow(
+      expect.objectContaining({ code: "TRANSACTION_INVALID_POSITION" }),
+    );
   });
 
   it("enforces asset uniqueness and computes wallet balance snapshots", () => {

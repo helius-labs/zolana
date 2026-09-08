@@ -26,6 +26,8 @@ pub enum TreeError {
     Borrowed,
     #[error("tree is full")]
     TreeIsFull,
+    #[error("state-tree update slot precedes the latest update slot")]
+    InvalidUpdateSlot,
     #[error("tree capacity metadata is inconsistent")]
     InvalidCapacity,
     #[error("fee arithmetic overflowed")]

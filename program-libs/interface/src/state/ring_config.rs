@@ -14,10 +14,13 @@ pub struct RingConfig {
     /// — e.g. as the UTXO's `ring_program_id` — never re-derived.
     pub program_id: Address,
     /// Whether ring-authority transact is enabled, encoded as 0/1 because bool
-    /// isn't `Pod`.
+    /// isn't `Pod`. Governance-owned: only `set_ring_activation` writes it,
+    /// because the rail moves UTXOs without owner signatures.
     pub ring_authority_transact_is_enabled: u8,
     /// Whether all operational ring instructions are paused, encoded as 0/1.
+    /// Ring-owned.
     pub paused: u8,
+    pub activated: u8,
     pub bump: u8,
 }
 
@@ -32,6 +35,10 @@ impl RingConfig {
         self.paused != 0
     }
 
+    pub fn is_activated(&self) -> bool {
+        self.activated != 0
+    }
+
     pub fn has_discriminator(&self) -> bool {
         self.discriminator == RING_CONFIG
     }
@@ -41,5 +48,5 @@ impl RingConfig {
         address_eq(&self.authority, authority)
     }
 }
-const _: () = assert!(RingConfig::SIZE == 68);
+const _: () = assert!(RingConfig::SIZE == 69);
 const _: () = assert!(core::mem::align_of::<RingConfig>() == 1);

@@ -80,6 +80,22 @@ pub fn validate_forester_authority(
     Ok(())
 }
 
+/// Require `authority_account` to be the stored ring-creation authority, which
+/// governs ring activation. The signer check stays in the processor
+/// (`next_signer`) so an unsigned authority reports
+/// `AccountError::InvalidSigner`.
+#[inline(always)]
+pub fn validate_ring_creation_authority(
+    config_account: &AccountView,
+    authority_account: &AccountView,
+) -> Result<(), ProgramError> {
+    let config = load_protocol_config(config_account)?;
+    config
+        .check_ring_creation_authority(authority_account.address())
+        .map_err(ShieldedPoolError::from)?;
+    Ok(())
+}
+
 /// Mutable counterpart of [`load_and_validate_protocol_authority`].
 #[inline(always)]
 pub fn load_and_validate_protocol_authority_mut<'a>(

@@ -105,7 +105,7 @@ impl RingHarness {
             ],
             // Permissionless ring creation lets the fixture's payer create the ring
             // config without the ring smart-account signing.
-            ring_creation_is_permissionless: true,
+            ring_activation_is_permissionless: true,
             fund_merge_vault: false,
         })?;
         Ok(Self {
@@ -123,9 +123,9 @@ impl RingHarness {
     /// into SPP. Stores the resulting `ring_auth` PDA in `self.ring_config`. The
     /// caller owns the authority keypair and is responsible for setting
     /// `self.ring_authority` if it wants to track it.
-    pub fn create_ring_config(&mut self, authority: &Address, enabled: bool) -> Result<Signature> {
+    pub fn create_ring_config(&mut self, authority: &Address) -> Result<Signature> {
         let (ring_auth, signature) =
-            self.create_ring_config_for(self.ring_program_id, authority, enabled)?;
+            self.create_ring_config_for(self.ring_program_id, authority)?;
         self.ring_config = Some(ring_auth);
         Ok(signature)
     }
@@ -134,14 +134,12 @@ impl RingHarness {
         &mut self,
         program_id: Pubkey,
         authority: &Address,
-        enabled: bool,
     ) -> Result<(Pubkey, Signature)> {
         let payer = self.payer.insecure_clone();
         let (ring_auth, _) = pda::ring_auth(&program_id);
         let data = CreateRingConfigData {
             program_id: program_id.to_bytes().into(),
             authority: *authority,
-            ring_authority_transact_is_enabled: enabled,
         };
         let ix = Instruction {
             program_id,

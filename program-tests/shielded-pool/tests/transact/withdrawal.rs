@@ -13,7 +13,7 @@
 //! Requires `cargo build-sbf -p shielded-pool-program` to have produced the
 //! `.so` binary.
 
-use shielded_pool_tests::support::transact::{proof_env, tree_roots, Pool};
+use shielded_pool_tests::support::transact::{current_tree_roots, proof_env, tree_roots, Pool};
 
 use borsh::BorshSerialize;
 use num_bigint::BigUint;
@@ -37,7 +37,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
-use zolana_program_test::{test_blinding, Rejection};
+use zolana_program_test::Rejection;
 use zolana_transaction::{
     instructions::transact::PrivateTxHash, Data, SppProofOutputUtxo, Utxo, SOL_MINT,
 };
@@ -61,9 +61,8 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     let tree = env.tree;
     let payer = env.rpc.payer.insecure_clone();
 
-    let withdrawal =
-        build_spl_withdrawal(&mut env.rpc, &env.authority, &tree, SPL_AMOUNT, [7u8; 32])
-            .expect("build SPL withdrawal");
+    let withdrawal = build_spl_withdrawal(&mut env.rpc, &env.authority, &tree, SPL_AMOUNT)
+        .expect("build SPL withdrawal");
     let vault = withdrawal.vault;
     let user_token = withdrawal.user_token;
     assert_eq!(env.rpc.token_balance(&user_token), Some(0));
@@ -132,27 +131,25 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). Fixed
-    // blinding / nullifier secret keep the run deterministic.
-    let blinding = test_blinding(7);
+    // The shielded UTXO is owned by the payer's Ed25519 key (eddsa rail). A
+    // fixed nullifier secret keeps the run deterministic.
     let nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
-    let utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let owner_pk_hash = utxo.owner.owner_proof_input_hash().expect("owner pk hash");
-    let owner_field = owner_hash(&utxo.owner, &nullifier_pk).expect("owner field");
+    let owner = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner.owner_proof_input_hash().expect("owner pk hash");
+    let owner_field = owner_hash(&owner, &nullifier_pk).expect("owner field");
 
     // Shield: deposit AMOUNT into the UTXO. The vault (cpi_authority) is funded.
     let event = env
         .rpc
-        .deposit_sol(&tree, &payer, AMOUNT, owner_field, blinding)
+        .deposit_sol(&tree, &payer, AMOUNT, owner_field)
         .expect("proofless deposit");
+    let utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, owner)
+        .expect("indexed deposit UTXO");
+    let blinding = utxo.blinding;
+    assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
 
     let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
     assert_eq!(
@@ -167,9 +164,9 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         .update_protocol_config(&env.authority, &next_authority)
         .expect("rotate protocol authorities after shielding");
 
-    // The UTXO is leaf 0; its inclusion proof is against the root AFTER the
-    // shield append (history index 1).
-    let (utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
+    // The UTXO is leaf 0; its inclusion proof is against the latest root after
+    // the shield append.
+    let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
 
     // State inclusion proof (height 32) for leaf 0.
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
@@ -239,8 +236,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(nullifier, 1),
-            eddsa_input_utxo(dummy_nullifier, 1),
+            eddsa_input_utxo(nullifier, utxo_root_index),
+            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
         ],
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
@@ -758,6 +755,7 @@ struct ShieldedPayer {
     spend_input: TransferInput,
     state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -773,6 +771,7 @@ struct TransferredRecipient {
     output_hash: [u8; 32],
     state_tree: MerkleTree<Poseidon>,
     nf_tree: IndexedMerkleTree<Poseidon, usize>,
+    utxo_root_index: u16,
     utxo_root: [u8; 32],
     nullifier_root: [u8; 32],
 }
@@ -793,28 +792,25 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
     let payer_bytes = payer.pubkey().to_bytes();
     let zero = [0u8; 32];
 
-    let payer_blinding = test_blinding(7);
     let payer_nullifier_key = NullifierKey::from_secret([9u8; 31]);
     let payer_nullifier_pk = payer_nullifier_key.pubkey().expect("payer nullifier pk");
-    let payer_utxo = Utxo {
-        owner: PublicKey::from_ed25519(&payer_bytes),
-        asset: SOL_MINT,
-        amount: AMOUNT,
-        blinding: payer_blinding,
-        ring_program_id: None,
-        data: Data::default(),
-    };
-    let payer_owner_pk_hash = payer_utxo
-        .owner
+    let payer_owner = PublicKey::from_ed25519(&payer_bytes);
+    let payer_owner_pk_hash = payer_owner
         .owner_proof_input_hash()
         .expect("payer owner pk hash");
     let payer_owner_field =
-        owner_hash(&payer_utxo.owner, &payer_nullifier_pk).expect("payer owner field");
+        owner_hash(&payer_owner, &payer_nullifier_pk).expect("payer owner field");
 
     let event = env
         .rpc
-        .deposit_sol(&tree, payer, AMOUNT, payer_owner_field, payer_blinding)
+        .deposit_sol(&tree, payer, AMOUNT, payer_owner_field)
         .expect("deposit");
+    let payer_utxo = env
+        .rpc
+        .indexed_deposit_utxo(&event, payer_owner)
+        .expect("indexed deposit UTXO");
+    let payer_blinding = payer_utxo.blinding;
+    assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
     let payer_utxo_hash = payer_utxo
         .hash(&payer_nullifier_pk, &zero, &zero)
         .expect("payer utxo hash");
@@ -824,7 +820,8 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
     state_tree
         .append(&payer_utxo_hash)
         .expect("append shield leaf");
-    let (shield_utxo_root, nullifier_root) = tree_roots(&env.rpc, &tree, 1);
+    let (shield_utxo_root_index, shield_utxo_root, nullifier_root) =
+        current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), shield_utxo_root, "shield root gate");
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
@@ -861,6 +858,7 @@ fn phase_shield_sol(env: &mut Pool, tree: Pubkey, payer: &Keypair) -> ShieldedPa
         spend_input: payer_spend_input,
         state_tree,
         nf_tree,
+        utxo_root_index: shield_utxo_root_index,
         utxo_root: shield_utxo_root,
         nullifier_root,
     }
@@ -884,6 +882,7 @@ fn phase_transfer_to_recipient(
         spend_input: payer_spend_input,
         mut state_tree,
         nf_tree,
+        utxo_root_index: shield_utxo_root_index,
         utxo_root: shield_utxo_root,
         nullifier_root,
     } = shield;
@@ -935,8 +934,8 @@ fn phase_transfer_to_recipient(
     let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(payer_nullifier, 1),
-            eddsa_input_utxo(transfer_dummy_nullifier, 1),
+            eddsa_input_utxo(payer_nullifier, shield_utxo_root_index),
+            eddsa_input_utxo(transfer_dummy_nullifier, shield_utxo_root_index),
         ],
         Vec::new(),
         inline_outputs(
@@ -1026,8 +1025,8 @@ fn phase_transfer_to_recipient(
     state_tree
         .append(&transfer_dummy_hash)
         .expect("append dummy leaf");
-    // init=0, post-deposit=1, post-transfer=2.
-    let (transfer_utxo_root, transfer_nullifier_root) = tree_roots(&env.rpc, &tree, 2);
+    let (transfer_utxo_root_index, transfer_utxo_root, transfer_nullifier_root) =
+        current_tree_roots(&env.rpc, &tree);
     assert_eq!(state_tree.root(), transfer_utxo_root, "transfer root gate");
     assert_eq!(transfer_nullifier_root, nullifier_root);
 
@@ -1040,6 +1039,7 @@ fn phase_transfer_to_recipient(
         output_hash: recipient_hash,
         state_tree,
         nf_tree,
+        utxo_root_index: transfer_utxo_root_index,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
     }
@@ -1062,6 +1062,7 @@ fn phase_withdraw_recipient_utxo(
         output_hash: recipient_hash,
         state_tree,
         nf_tree,
+        utxo_root_index: transfer_utxo_root_index,
         utxo_root: transfer_utxo_root,
         nullifier_root: transfer_nullifier_root,
     } = transfer;
@@ -1144,8 +1145,8 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, 2),
-            eddsa_input_utxo(withdraw_dummy_nullifier, 2),
+            eddsa_input_utxo(recipient_nullifier, transfer_utxo_root_index),
+            eddsa_input_utxo(withdraw_dummy_nullifier, transfer_utxo_root_index),
         ],
         vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,

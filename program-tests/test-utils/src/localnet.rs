@@ -3,7 +3,7 @@ use solana_address_lookup_table_interface::instruction::{
     create_lookup_table, extend_lookup_table,
 };
 use solana_instruction::Instruction;
-use solana_keypair::Keypair;
+use solana_keypair::{read_keypair_file, Keypair};
 use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -309,11 +309,17 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
     let rpc_port = std::env::var("ZOLANA_LOCALNET_RPC_PORT").unwrap_or_else(|_| "8899".to_owned());
     let photon_port =
         std::env::var("ZOLANA_LOCALNET_PHOTON_PORT").unwrap_or_else(|_| "8784".to_owned());
+    let shielded_pool_path = artifacts.path("target/deploy/shielded_pool_program.so");
+    let upgrade_authority = match std::env::var("ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR") {
+        Ok(path) => read_keypair_file(&path)
+            .unwrap_or_else(|error| panic!("read SPP upgrade authority keypair {path}: {error}"))
+            .pubkey()
+            .to_string(),
+        Err(_) => crate::smart_account::standard_accounts()
+            .protocol_vault
+            .to_string(),
+    };
     let mut programs = vec![
-        (
-            shielded_pool_id,
-            artifacts.path("target/deploy/shielded_pool_program.so"),
-        ),
         (
             user_registry_program_id().to_string(),
             artifacts.path("target/deploy/zolana_user_registry.so"),
@@ -329,7 +335,7 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
             .map(|(program_id, relative_path)| (program_id.clone(), artifacts.path(relative_path))),
     );
 
-    LocalnetValidator {
+    let validator = LocalnetValidator {
         cli_bin: cli,
         working_dir: artifacts.root(),
         rpc_port,
@@ -337,8 +343,12 @@ pub fn start_shielded_pool_localnet(label: &str, extra_programs: &[(String, &str
         ledger: isolated_temp_path(&format!("{label}-ledger")),
         account_dir: isolated_temp_path(&format!("{label}-smart-accounts")),
         programs,
-    }
-    .start();
+    };
+    validator.start_with_upgradeable_programs(&[UpgradeableProgram {
+        address: &shielded_pool_id,
+        path: &shielded_pool_path,
+        authority: &upgrade_authority,
+    }]);
 }
 
 #[track_caller]

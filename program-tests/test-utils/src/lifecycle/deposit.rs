@@ -33,7 +33,7 @@ impl LifecycleHarness {
             sender: payer.pubkey(),
             amount,
         }
-        .execute(&self.rpc, &payer, &payer)?;
+        .execute(&self.rpc, &self.indexer, &payer, &payer)?;
 
         let actor = self.actor_mut(name);
         actor.spendable.push(result.utxo);
@@ -80,7 +80,7 @@ impl LifecycleHarness {
             sender: user_token,
             amount,
         }
-        .execute(&self.rpc, &payer, &payer)?;
+        .execute(&self.rpc, &self.indexer, &payer, &payer)?;
 
         let actor = self.actor_mut(name);
         actor.spendable.push(result.utxo);

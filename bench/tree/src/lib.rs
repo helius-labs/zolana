@@ -1,6 +1,10 @@
 use borsh::BorshDeserialize;
 use light_program_profiler::profile;
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, Address, ProgramResult,
+};
 use zolana_tree::nullifier_tree::{
     layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
 };
@@ -63,7 +67,7 @@ pub fn process_instruction(
             let values: Vec<[u8; 32]> = (0..n).map(|i| derive_value(i as u64)).collect();
             let mut tree = TreeAccount::from_bytes(&mut store, pubkey)
                 .map_err(|_| ProgramError::InvalidAccountData)?;
-            bench_append(&mut tree, &values)
+            bench_append(&mut tree, &values, Clock::get()?.slot)
         }
         OP_NULLIFIER_INSERT => {
             let values: Vec<[u8; 32]> = (0..n).map(|i| derive_value(i as u64)).collect();
@@ -75,7 +79,7 @@ pub fn process_instruction(
             let values: Vec<[u8; 32]> = (0..n).map(|i| derive_value(i as u64)).collect();
             let mut tree = TreeAccount::from_bytes(&mut store, pubkey)
                 .map_err(|_| ProgramError::InvalidAccountData)?;
-            bench_append_batch(&mut tree, &values)
+            bench_append_batch(&mut tree, &values, Clock::get()?.slot)
         }
         OP_BATCH_UPDATE_NULLIFIER_TREE => {
             let ix = InstructionDataBatchNullifyInputs::try_from_slice(
@@ -111,19 +115,19 @@ fn bench_deserialize(bytes: &mut [u8], pubkey: [u8; 32]) -> ProgramResult {
 }
 
 #[profile]
-fn bench_append(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
+fn bench_append(tree: &mut TreeAccount<'_>, values: &[[u8; 32]], slot: u64) -> ProgramResult {
     for value in values {
         tree.utxo_tree()
-            .append(*value)
+            .append(*value, slot)
             .map_err(|_| ProgramError::InvalidAccountData)?;
     }
     Ok(())
 }
 
 #[profile]
-fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]]) -> ProgramResult {
+fn bench_append_batch(tree: &mut TreeAccount<'_>, values: &[[u8; 32]], slot: u64) -> ProgramResult {
     tree.utxo_tree()
-        .append_batch(values.iter())
+        .append_batch(values.iter(), slot)
         .map_err(|_| ProgramError::InvalidAccountData)?;
     Ok(())
 }

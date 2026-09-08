@@ -7,7 +7,6 @@ use zolana_interface::instruction::{
     AssetDeposit, Deposit, DepositAsset, Transact, TransactInterfaceTransferAccounts,
     TransactSolTransferAccounts,
 };
-use zolana_keypair::random_blinding;
 use zolana_transaction::{
     decrypt_transactions,
     instructions::{
@@ -62,7 +61,6 @@ fn main() -> Result<()> {
                 // SPL: }),
                 view_tag: sender_shielded_address.confidential_view_tag()?,
                 owner: sender_shielded_address.owner_hash()?,
-                blinding: random_blinding(),
                 amount: DEPOSIT_AMOUNT,
                 utxo_data: None,
                 memo: None,

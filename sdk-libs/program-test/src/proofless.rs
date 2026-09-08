@@ -4,6 +4,8 @@ use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_interface::instruction::{AssetDeposit, Deposit};
+use zolana_keypair::PublicKey;
+use zolana_transaction::Utxo;
 
 use zolana_event::general_event_from_indexed;
 
@@ -102,9 +104,20 @@ impl ZolanaProgramTest {
         depositor: &Keypair,
         lamports: u64,
         owner: [u8; 32],
-        blinding: [u8; 32],
     ) -> Result<DepositOutput, ProgramTestError> {
-        let deposit = Self::sol_shield_data(lamports, owner, blinding);
+        let deposit = Self::sol_shield_data(lamports, owner);
         self.deposit(tree, depositor, &deposit)
+    }
+
+    /// The spendable [`Utxo`] for a deposit this backend just sent, read back
+    /// from the test indexer. A proofless deposit's output is plaintext, so the
+    /// derived blinding comes with the indexed record; `owner` is the
+    /// recipient's shielded signing key, committed to only as a hash.
+    pub fn indexed_deposit_utxo(
+        &self,
+        deposit: &DepositOutput,
+        owner: PublicKey,
+    ) -> Result<Utxo, ProgramTestError> {
+        Ok(self.indexer().deposit_utxo(&deposit.utxo_hash, owner)?)
     }
 }

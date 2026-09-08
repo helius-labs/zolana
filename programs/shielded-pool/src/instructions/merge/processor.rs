@@ -107,6 +107,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
         Vec::new(),
+        clock.slot,
     )
 }
 
@@ -124,6 +125,7 @@ pub(crate) fn process_merge_core(
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
     output_data: Vec<u8>,
+    slot: u64,
 ) -> ProgramResult {
     let (input_tree_result, derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();
@@ -179,7 +181,7 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
-        apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs)?
+        apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs, slot)?
     };
 
     let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
@@ -226,10 +228,11 @@ fn apply_output_tree(
     ix: &MergeTransactIxDataRef<'_>,
     output_tree: [u8; 32],
     inputs: Vec<Input>,
+    slot: u64,
 ) -> Result<MergeTreeWrite, ProgramError> {
     let output_leaf_index = tree.utxo_tree().next_index();
     tree.utxo_tree()
-        .append(*ix.output_utxo_hash)
+        .append(*ix.output_utxo_hash, slot)
         .map_err(tree_error)?;
     Ok(MergeTreeWrite {
         inputs,

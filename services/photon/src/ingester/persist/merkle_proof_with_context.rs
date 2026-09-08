@@ -13,6 +13,8 @@ pub struct MerkleProofWithContext {
     pub leaf_index: u64,
     pub hash: Hash,
     pub merkle_tree: SerializablePubkey,
+    /// State proofs carry the completed block slot of the slot-final root;
+    /// nullifier proofs carry the nullifier tree's on-chain batch sequence.
     pub root_seq: Option<u64>,
 }
 

@@ -193,13 +193,13 @@ func (w RuleWires) matchListAndMode(api frontend.API, listFacts [NListFacts]list
 	// 1. Decode the lists for each mode.
 	listBits := api.ToBinary(w.ListMask, NSources)
 	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
-	altMode := api.Sub(ModePresent+ModeAbsent, w.Mode)
+	oppositeMode := api.Sub(ModePresent+ModeAbsent, w.Mode)
 
 	// 2. Match each enabled list fact to either list-and-mode alternative.
 	var matches [NListFacts]frontend.Variable
 	for i, fact := range listFacts {
 		primary := api.Mul(listMaskContains(api, listBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, w.Mode)))
-		alternative := api.Mul(listMaskContains(api, altBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, altMode)))
+		alternative := api.Mul(listMaskContains(api, altBits, onList[i][:]), api.IsZero(api.Sub(fact.mode, oppositeMode)))
 		matches[i] = api.Mul(fact.enabled, api.Or(primary, alternative))
 	}
 	return matches

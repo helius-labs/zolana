@@ -146,6 +146,7 @@ Operations 1-4 run against the default ring via [`transact`](#transact) (or [`de
 | 5 | pause_tree | Freeze writes to a Tree account |
 | 6 | set_tree_fees | Set a tree's fee schedule (insertion fee, append and close reimbursements) |
 | 7 | claim_tree_lamports | Claim a tree's lamports above its rent, fee balance, and nullifier PDA working capital |
+| 8 | set_ring_activation | Activate or deactivate a ring, and set its `ring_authority_transact_is_enabled` |
 
 ### Ring Creator
 
@@ -153,8 +154,8 @@ Operations performed by the owner of a policy ring's config.
 
 | # | Name | Description |
 | --- | --- | --- |
-| 1 | create_ring_config | Create a new active ring config PDA; sets `owner` and `ring_authority_transact_is_enabled` |
-| 2 | update_ring_config | Set `ring_authority_transact_is_enabled` and `paused`. A paused ring cannot authorize any ring operation; the owner can still update or rotate the config |
+| 1 | create_ring_config | Create the ring config PDA; sets `owner`. The config is inert until governance activates it, and no ring operation is authorized before then |
+| 2 | update_ring_config | Set `paused`. A paused ring cannot authorize any ring operation; the owner can still update or rotate the config |
 | 3 | update_ring_config_owner | Transfer ring config ownership |
 | 4 | ring_authority_transact | Prove correctness of a state transition by a ring authority (freeze, thaw, permanent-delegate transfer) |
 
@@ -572,8 +573,9 @@ struct Utxo {
     asset: Address,
     /// Amount in the smallest unit of `asset`.
     amount: u64,
-    /// Random bytes ensuring distinct UTXO hashes for equal
-    /// `(owner, asset, amount)` triples.
+    /// Ensures distinct UTXO hashes for equal `(owner, asset, amount)` triples.
+    /// The `transact` rails use fresh random bytes; `deposit` derives it from
+    /// the leaf index (see [Blinding](#blinding-derivation)).
     blinding: [u8; 31],
     /// Arbitrary data committed via `data_hash`; the application circuit/SDK
     /// interprets it.
@@ -597,7 +599,7 @@ owner_utxo_hash = Poseidon(owner, blinding)
 
 The SPP proof commits to `utxo_hash` for every input and output. `owner` is the `owner_hash` from [Shielded Address](#shielded-address). `asset` is Poseidon-encoded as `Poseidon(low, high)` before hashing; `ring_program_id` uses `pk_field` (see [Shielded Address](#shielded-address)). An absent `ring_program_id` is `0` (not `pk_field(0)`), so a UTXO without one keeps `ring_hash` over a `0` program field. `data_hash` enters `utxo_hash` directly and is `0` when absent.
 
-`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` and `blinding` in the clear and the program recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
+`owner` is a user `owner_hash`; there is no program ownership. A UTXO may hold `utxo_data`: `data_hash` is committed into `utxo_hash` unchecked, and the application circuit/SDK interprets it. `ring_hash` pairs `ring_data_hash` with the authorizing ring program, and a non-zero `ring_data_hash` requires a non-zero `ring_program_id`. `owner_utxo_hash` nests `owner` and `blinding`: it keeps the owner private on the `transact` rails, where the components stay in the proof and ciphertext. A `deposit` instead sends `owner` in the clear, and the program derives the `blinding` and recomputes `owner_utxo_hash`, so that rail does not hide the recipient.
 
 ## Nullifier
 
@@ -1200,13 +1202,13 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Account | Description |
 | --- | --- |
-| Tree account | PDA `[b"tree", tree_id]` with `tree_id: u16` taken from `protocol_config.next_tree_id`. Contains the nullifier tree (`zolana-tree`'s `nullifier_tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). The header also holds the fee schedule (`TreeFeeSchedule`) and `fee_balance` (collected insertion fees not yet paid out); the nullifier tree holds `close_before_index` (queue watermark below which nullifier PDAs may be closed). Lamports above `rent_minimum + fee_balance` fund nullifier PDAs. |
+| Tree account | PDA `[b"tree", tree_id]` with `tree_id: u16` taken from `protocol_config.next_tree_id`. Contains the nullifier tree (`zolana-tree`'s `nullifier_tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). The UTXO tree retains one final root for each of the latest 500 Solana slots that updated it in a dense cyclic history: the first update in a newer slot advances the cursor, while later updates in that slot overwrite the current entry. Slots without updates consume no entry. A root cannot be overwritten until 500 later slots update the tree: about 100 seconds at the 200 ms target slot time, and longer when updates are less frequent. The header also holds the fee schedule (`TreeFeeSchedule`) and `fee_balance` (collected insertion fees not yet paid out); the nullifier tree holds `close_before_index` (queue watermark below which nullifier PDAs may be closed). Lamports above `rent_minimum + fee_balance` fund nullifier PDAs. |
 | Nullifier PDA | `[b"nullifier", tree, nullifier]`, 10 bytes `{ queue_index: u64, tree_id: u16 }`. `queue_index` is the leaf index the nullifier takes in the nullifier tree and starts at 1 (leaf 0 is the init sentinel), so a zero record is never program-written and is rejected. Created by the inserting instruction and funded from the tree; rejects a second insertion of a pending nullifier. Closed by `close_nullifier_pdas` once `queue_index < close_before_index`, returning rent to the tree. See `program-libs/tree/nullifier_tree_spec.md`. |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
 | Protocol config | One global account per program; holds the role authorities and permissionless flags (see struct below). |
-| `ring_config` | SPP-owned account at the ring's `ring_auth` PDA (`[b"ring_auth"]` derived under the ring program), one per ring program. Holds `authority`, the ring `program_id`, `ring_authority_transact_is_enabled`, and `paused`. The ring program signs for it; SPP authorizes ring instructions by its signature plus owner, discriminator, and active-state checks, never re-deriving the address. See [Ring Accounts](#ring-accounts). |
+| `ring_config` | SPP-owned account at the ring's `ring_auth` PDA (`[b"ring_auth"]` derived under the ring program), one per ring program. Holds `authority`, the ring `program_id`, `activated`, `ring_authority_transact_is_enabled`, and `paused`. Anyone may create it, but it is inert until governance activates it. The ring program signs for it; SPP authorizes ring instructions by its signature plus owner, discriminator, and active-state checks, never re-deriving the address. See [Ring Accounts](#ring-accounts). |
 
 **Protocol config**
 
@@ -1219,11 +1221,14 @@ struct ProtocolConfig {
     tree_creation_is_permissionless: bool,
     /// Permitted to call `batch_update_nullifier_tree` (forester maintenance).
     forester_authority: Address,
-    /// Permitted to call `create_ring_config` unless `ring_creation_is_permissionless`.
+    /// Permitted to call `set_ring_activation`, which admits a ring and controls
+    /// its `ring_authority_transact_is_enabled`.
     ring_creation_authority: Address,
     /// Permitted to call `set_tree_fees` and `claim_tree_lamports`.
     fee_authority: Address,
-    ring_creation_is_permissionless: bool,
+    /// When set, a new `ring_config` is born activated; otherwise it is inert
+    /// until `set_ring_activation`.
+    ring_activation_is_permissionless: bool,
     /// When set, any signer may call `create_spl_interface`; otherwise it is
     /// gated by `protocol_authority`.
     spl_interface_creation_is_permissionless: bool,
@@ -1232,9 +1237,18 @@ struct ProtocolConfig {
 }
 ```
 
-When a `*_is_permissionless` flag is set, any signer may call the corresponding
-creation instruction; otherwise the transaction signer must equal the matching
-creation authority.
+When `tree_creation_is_permissionless` or
+`spl_interface_creation_is_permissionless` is set, any signer may call the
+corresponding creation instruction; otherwise the transaction signer must equal
+the matching creation authority.
+
+`create_ring_config` is unconditionally permissionless, so
+`ring_activation_is_permissionless` gates activation instead of creation: when it
+is set a new `ring_config` is born activated, and otherwise the config is inert
+until `ring_creation_authority` calls `set_ring_activation`. Ring creation carries
+no authority check because the config account is the candidate ring's own
+`ring_auth` PDA, so requiring governance to co-sign would put a governance
+signature in the same CPI chain as unaudited ring code.
 
 ### Authority Governance
 
@@ -1247,8 +1261,14 @@ All five authority fields store vault PDAs of [Squads smart accounts](https://gi
 | `protocol_authority` | Protocol authority | autonomous | 2-of-5 | — |
 | `forester_authority` | Forester | controlled | 1-of-N | Protocol authority vault |
 | `tree_creation_authority` | Tree creation | controlled | 1-of-N | Protocol authority vault |
-| `ring_creation_authority` | Ring creation | controlled | 1-of-N | Protocol authority vault |
+| `ring_creation_authority` | Ring activation | controlled | 1-of-N | Protocol authority vault |
 | `fee_authority` | Protocol authority (for now) | autonomous | 2-of-5 | — |
+
+`set_ring_activation` is reversible, so the 1-of-N ring activation account can
+deactivate a live ring, which freezes its users: ring UTXOs move only through
+ring instructions. This is a deliberate containment power for a misbehaving ring,
+and it sits at a lower threshold than `pause_tree`, which reserves the equivalent
+power over a tree for the 2-of-5 protocol authority.
 
 **Key management**
 
@@ -1256,13 +1276,15 @@ Signer changes on any smart account in the hierarchy require a 2-of-5 protocol a
 
 **Sync execution**
 
-Operators submit `execute_transaction_sync_v2` with a single key (`threshold = 1`, `time_lock = 0`). The smart account program validates the key and CPIs into SPP with the vault PDA as signer.
+Operators submit `execute_transaction_sync_v2` with as many member keys as the account's threshold (two for the protocol authority, one for a controlled account; `time_lock = 0`). The smart account program validates the keys and CPIs into SPP with the vault PDA as signer.
 
 ### Ring Accounts
 
 A ring program hosts exactly one ring, tied to SPP by a single account.
 
-**`ring_config`** — the ring's `ring_auth` PDA: an SPP-owned account at `[b"ring_auth"]` derived under the ring program, so the ring program (and only it) can sign for it via `invoke_signed(["ring_auth", bump])`. SPP authorizes a ring instruction (`ring_transact`, `ring_authority_transact`, `merge_ring`, `ring_deposit`) by requiring `ring_config` to sign, loading it by owner + discriminator, and requiring it to be unpaused; it does not re-derive the address or take a bump from instruction data. The `program_id` field is the ring program, read as the UTXO `ring_program_id`.
+**`ring_config`** — the ring's `ring_auth` PDA: an SPP-owned account at `[b"ring_auth"]` derived under the ring program, so the ring program (and only it) can sign for it via `invoke_signed(["ring_auth", bump])`. SPP authorizes a ring instruction (`ring_transact`, `ring_authority_transact`, `merge_ring`, `ring_deposit`) by requiring `ring_config` to sign, loading it by owner + discriminator, and requiring it to be activated and unpaused; it does not re-derive the address or take a bump from instruction data. The `program_id` field is the ring program, read as the UTXO `ring_program_id`.
+
+A ring's lifecycle has two phases with two different signers. **Creation** is permissionless and produces an inert config: only the ring's own `ring_auth` PDA signs, so a ring registers itself and pays its own rent. **Activation** is governance-only: `ring_creation_authority` calls `set_ring_activation` directly against SPP, with no ring program in the call chain. The two never share a transaction, which is what keeps a governance signature away from unaudited ring code.
 
 ```rust
 struct RingConfig {
@@ -1272,10 +1294,14 @@ struct RingConfig {
     authority: Address,
     /// The ring program; read as the UTXO `ring_program_id`.
     program_id: Address,
-    /// When false, SPP rejects `ring_authority_transact` for this ring.
+    /// Governance-owned. When false, SPP rejects `ring_authority_transact` for
+    /// this ring.
     ring_authority_transact_is_enabled: bool,
-    /// When true, SPP rejects every operational ring instruction.
+    /// Ring-owned. When true, SPP rejects every operational ring instruction.
     paused: bool,
+    /// Governance-owned. When false, SPP rejects every operational ring
+    /// instruction.
+    activated: bool,
     bump: u8,
 }
 ```
@@ -1286,31 +1312,32 @@ Usage by instruction:
 
 | Instruction | Behavior |
 | --- | --- |
-| `ring_transact`, `merge_ring`, `ring_deposit` | `ring_config` must sign and be unpaused. `ring_authority_transact_is_enabled` is not read. |
-| `ring_authority_transact` | `ring_config` must sign, be unpaused, and have `ring_authority_transact_is_enabled == true`; pause failure takes precedence over the enabled check. |
-| `create_ring_config` | `ring_config` (the `ring_auth` PDA) must sign its own creation; the derivation is checked here. Initializes `authority`, `program_id`, and `ring_authority_transact_is_enabled`, and initializes `paused` to false. |
-| `update_ring_config`, `update_ring_config_owner` | Signer must equal `ring_config.authority`. Both remain available while paused so the ring can be unpaused or its authority rotated. |
+| `ring_transact`, `merge_ring`, `ring_deposit` | `ring_config` must sign, be activated, and be unpaused. `ring_authority_transact_is_enabled` is not read. |
+| `ring_authority_transact` | `ring_config` must sign, be activated, be unpaused, and have `ring_authority_transact_is_enabled == true`. An inactive ring reports `RingNotActivated` ahead of any pause or enabled failure. |
+| `create_ring_config` | Permissionless. `ring_config` (the `ring_auth` PDA) must sign its own creation; the derivation is checked here. Initializes `authority` and `program_id` from instruction data, `activated` from `protocol_config.ring_activation_is_permissionless`, and both `ring_authority_transact_is_enabled` and `paused` to false. The payer is a rent payer only and is not checked against any authority. |
+| `set_ring_activation` | Signer must equal `protocol_config.ring_creation_authority`. Writes `activated` and `ring_authority_transact_is_enabled`, in either direction, and never touches `paused`. Available on a paused ring. |
+| `update_ring_config`, `update_ring_config_owner` | Signer must equal `ring_config.authority`. Both remain available while paused or inactive, so the ring can be unpaused or its authority rotated. `update_ring_config` writes only `paused`. |
 
 ## Instructions
 
 Tags 0–9 cover administration and maintenance, tag 10 is the internal event
 hook, tags 11–13 are default-ring operations, tags 14–17 are policy-ring
-operations, and tags 18–20 are maintenance and administration.
+operations, and tags 18–21 are maintenance and administration.
 
 | Instruction | Description |
 | --- | --- |
-| create_protocol_config | Tag 0; the transaction signer must equal the `protocol_authority` it writes; on an upgradeable loader-v3 deployment the signer must also be the program's deploy upgrade authority (read from the loader-v3 `ProgramData` account), so initialization cannot be front-run. The instruction takes the program account and its `ProgramData` account as trailing read-only inputs; non-upgradeable deployments and an unset or zeroed upgrade authority skip the binding. |
+| create_protocol_config | Tag 0; the fee payer and initialization authority are separate accounts. Initialization succeeds only when the program is a valid loader-v3 deployment whose matching `ProgramData` records a real, nonzero upgrade authority and that exact authority signs. Non-loader-v3, unset/immutable, zero, malformed, forged, and mismatched loader state fail closed. The initializer may name different final authorities in the payload, allowing the protocol Squads vault and role vaults to be installed directly; when the protocol vault already owns the loader, Squads supplies its single PDA signature through CPI. |
 | update_protocol_config | Tag 1; gated by `protocol_config.protocol_authority`; updates exactly one authority or flag per call; rotating `protocol_authority` requires the incoming authority to co-sign |
 | create_tree | Tag 2; gated by `protocol_config.tree_creation_authority` unless `tree_creation_is_permissionless`; called once per 10 KiB allocation step in one transaction. The first step requires `tree_id == protocol_config.next_tree_id` and increments it; the last step initializes the shared Tree account (nullifier tree + queue, UTXO tree) with the submitted `TreeFeeSchedule` and `fee_balance = 0`. |
 | pause_tree | Tag 3; gated by `protocol_config.protocol_authority`; can pause and unpause trees |
 | batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. Once a queue batch becomes reclaimable it advances `close_before_index`, releasing that batch's nullifier PDAs. Pays `min(append_reimbursement * num_update, fee_balance)` to `reimbursement_recipient` (must not be program-owned); a shortfall does not fail the update. |
 | create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_ring_config | Tag 7; creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer must equal `protocol_config.ring_creation_authority` unless `ring_creation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
-| update_ring_config | Tag 8; sets `ring_config.ring_authority_transact_is_enabled` and `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused. |
+| create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer only funds rent and is checked against no authority. The config is born inert unless `ring_activation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
+| update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
 | update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
 | emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
-| deposit | Tag 11; public deposit without a proof; the recipient `owner` and `blinding` are sent in the clear. See [`deposit`](#deposit). |
+| deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
@@ -1320,6 +1347,7 @@ operations, and tags 18–20 are maintenance and administration.
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
 | claim_tree_lamports | Tag 20; gated by `protocol_config.fee_authority`; works on paused trees. Moves every lamport above `rent_minimum + fee_balance + working_capital` to `recipient` (must not be program-owned), where working capital is `(NUM_BATCHES + 1) * input_queue_batch_size * nullifier_pda_rent` recomputed at the current rent. Fails with `NoClaimableTreeLamports` when nothing is above the reserve. Recovers lamports released by a rent reduction; `fee_balance` is never claimable. |
+| set_ring_activation | Tag 21; gated by `protocol_config.ring_creation_authority`; called directly against SPP with no ring program in the call chain. Sets `ring_config.activated` and `ring_config.ring_authority_transact_is_enabled` in either direction; deactivating a live ring freezes its users. Never writes `paused`. See [Ring Accounts](#ring-accounts). |
 
 ### `transact`
 
@@ -1573,7 +1601,7 @@ public-amount direction proven by the proof (`true` for a deposit).
 
 **Discriminator:** 11
 
-**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) and a fresh `blinding` in the clear, and the program recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
+**Description.** Public deposit without a proof; deposits dynamic amounts and assets, e.g. the output of a swap. The depositor sends the recipient `owner` (its `owner_hash` from [Shielded Address](#shielded-address)) in the clear, and the program derives the `blinding` (see [Blinding](#blinding-derivation)) and recomputes `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)). The depositor needs only the recipient's public [Shielded Address](#shielded-address), so a third party can deposit to a recipient it shares no secret with; the recipient is not hidden on this rail.
 
 One instruction is a batch: it carries a list of entries, each appending one output UTXO, and a list of settlement groups (`assets`) naming the assets those entries deposit — at most `MAX_DEPOSIT_ASSETS` (5). Entries naming the same asset are summed, so each asset settles with exactly one transfer regardless of how many outputs it funds, and the whole batch emits a single [`GeneralEvent`](#general-event). A single deposit is a batch of one.
 
@@ -1619,12 +1647,9 @@ struct DepositEntry {
     /// Recipient's 32-byte Ed25519 signing pubkey; the indexing tag for this
     /// output slot.
     view_tag: [u8; 32],
-    /// Recipient `owner_hash`; nested with `blinding` into the UTXO's
-    /// `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
+    /// Recipient `owner_hash`; nested with the derived `blinding` into the
+    /// UTXO's `owner_utxo_hash` (see [UTXO Hash](#utxo-hash)).
     owner: [u8; 32],
-    /// Fresh CSPRNG per deposit, sent in the clear; the recipient spends it
-    /// directly.
-    blinding: [u8; 31],
     /// Deposited amount of the asset `asset_index` selects.
     amount: u64,
     /// Data hash; authorized by the `payer` signer.
@@ -1644,9 +1669,20 @@ program, and the SPP program account. The rail is selected by the account
 count; surplus accounts are rejected.
 
 <a id="blinding-derivation"></a>
-**Blinding.** `blinding` is a fresh 31-byte CSPRNG value the depositor sends in
-the instruction data. It is not derived; the recipient reads it back from the
-[`GeneralEvent`](#general-event) to spend the note.
+**Blinding.** `blinding` is not in the instruction data. The program derives it
+from the tree and the leaf index the output lands at:
+
+```text
+blinding_i = Sha256BE("Deposit" || tree_account || u64_be(first_output_leaf_index + i))
+```
+
+`Sha256BE` zeroes the leading byte, keeping the result below the BN254 modulus.
+`(tree_account, leaf_index)` does not repeat, so no two deposits share a
+`blinding`, a `utxo_hash`, or a [nullifier](#nullifier); a depositor cannot make
+a recipient's UTXO unspendable by colliding with an existing one. The blinding is
+public on this rail: the recipient reads it back with the indexed UTXO. The leaf
+index is assigned at append, so the depositor cannot know the `utxo_hash` before
+the transaction executes.
 
 **Checks**
 
@@ -1655,7 +1691,7 @@ the instruction data. It is not derived; the recipient reads it back from the
 3. Read the accounts each `assets` entry names, validating each group as its kind requires. Two groups must not name the same asset: that would split one asset's settlement across two transfers and let an entry pick either.
 4. Every `asset_index` is within `assets`, and every declared asset is named by at least one entry; an unfunded group would otherwise pass validation without settling.
 5. `data_hash` and `utxo_data` are either both set or both absent; when set, the `payer` signer authorizes them. SPP commits the hash unchecked.
-6. Per entry, compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
+6. Per entry, derive its `blinding` from the tree and the leaf index the entry appends at (see [Blinding](#blinding-derivation)), compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
 7. Sum each asset's entry amounts; the sum must not overflow.
 8. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
 9. Emit one [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI, carrying every output.
@@ -1680,7 +1716,8 @@ GeneralEvent {
         // own pubkey.
         view_tag,
         utxo_hash,
-        // owner and blinding are public; the recipient spends from them directly.
+        // owner is public and blinding is derived; the recipient spends from
+        // them directly.
         // ring_data_hash and ring_data only set by ring_deposit.
         data: serialize(OutputData::Proofless(ProoflessOutput {
             owner,
@@ -1824,7 +1861,7 @@ groups and may span at most `MAX_DEPOSIT_ASSETS` assets.
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
 | 2 | payer |   | x | depositor |
-| 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs. See [Ring Accounts](#ring-accounts) |
+| 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs, and must be activated and unpaused. See [Ring Accounts](#ring-accounts) |
 
 **Instruction data**
 
@@ -1845,8 +1882,10 @@ struct RingDepositEntry {
 }
 ```
 
-Every entry's `blinding` is a fresh CSPRNG value sent in the clear, as in
-[`deposit`](#blinding-derivation).
+Unlike [`deposit`](#blinding-derivation), a ring entry publishes only
+`owner_utxo_hash`; the owner hash and blinding stay in the recipient ciphertext,
+so SPP cannot derive or check the blinding. The calling ring program authorizes
+the instruction and must use a fresh blinding per output.
 
 **Checks**
 
@@ -1941,7 +1980,7 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 | --- | --- | --- | --- | --- |
 | 1 | input_tree | x |   | supplies historical roots and receives the input nullifiers |
 | 2 | output_tree | x |   | receives the merged output commitment; may equal `input_tree` |
-| 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs. SPP reads its `program_id` and checks inputs/output `ring_program_id` against it. See [Ring Accounts](#ring-accounts) |
+| 3 | ring_config |   | x | the ring's `ring_auth` PDA; signs, and must be activated and unpaused. SPP reads its `program_id` and checks inputs/output `ring_program_id` against it. See [Ring Accounts](#ring-accounts) |
 | 4 | payer |   | x | fee payer |
 | 5 | system_program |   |   | canonical System Program |
 | 6 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
@@ -2110,7 +2149,7 @@ struct SubscribeToTagsRequest {
 
 ### `getMerkleProofs`
 
-Returns inclusion proofs for leaves against the given tree (UTXO tree, merge authority tree, etc.), plus the root + `root_seq` needed by the consuming instruction.
+Returns inclusion proofs for leaves against the given tree (UTXO tree, merge authority tree, etc.), plus the root's actual on-chain history index. `root_seq` is API ordering/freshness metadata and is not an instruction field.
 
 ```rust
 struct GetMerkleProofsRequest {
@@ -2130,19 +2169,21 @@ struct MerkleProof {
     path: Vec<[u8; 32]>,
     leaf_index: u64,
     root: [u8; 32],
-    /// Monotonic sequence number of the root. API-only — exposed so the client
-    /// can reason about freshness and ordering across requests.
+    /// Root ordering key. State-tree proofs use the completed Solana slot for
+    /// ordering and freshness; indexed-tree proofs use a monotonic update
+    /// sequence. API-only.
     root_seq: u64,
-    /// Position of the root in the circular root cache. Copy this
-    /// directly into the corresponding `*_root_index` field on the consuming
-    /// instruction.
+    /// Actual position of the root in the on-chain history. A state root's
+    /// position is not derivable from `root_seq`, because slots without an
+    /// update consume no entry. Copy it into the corresponding
+    /// `*_root_index` field.
     root_index: u16,
 }
 ```
 
 ### `getNonInclusionProofs`
 
-Returns non-inclusion proofs for leaves against the given tree (nullifier tree, merge authority tree, etc.), plus the root + `root_seq` for the consuming instruction.
+Returns non-inclusion proofs for leaves against the given tree (nullifier tree, merge authority tree, etc.), plus the root's actual on-chain history index. `root_seq` is API ordering/freshness metadata and is not an instruction field.
 
 ```rust
 struct GetNonInclusionProofsRequest {
@@ -2169,12 +2210,14 @@ struct NonInclusionProof {
     high_element: [u8; 32],
     high_element_index: u64,
     root: [u8; 32],
-    /// Monotonic sequence number of the root. API-only — exposed so the client
-    /// can reason about freshness and ordering across requests.
+    /// Root ordering key. State-tree proofs use the completed Solana slot for
+    /// ordering and freshness; indexed-tree proofs use a monotonic update
+    /// sequence. API-only.
     root_seq: u64,
-    /// Position of the root in the circular root cache. Copy this
-    /// directly into the corresponding `*_root_index` field on the consuming
-    /// instruction.
+    /// Actual position of the root in the on-chain history. A state root's
+    /// position is not derivable from `root_seq`, because slots without an
+    /// update consume no entry. Copy it into the corresponding
+    /// `*_root_index` field.
     root_index: u16,
 }
 ```

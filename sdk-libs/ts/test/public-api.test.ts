@@ -51,6 +51,7 @@ import {
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
+  STATE_ROOT_HISTORY_CAPACITY,
   STATE_ROOT_OFFSET,
   TREE_ACCOUNT_SIZE,
   TREE_ALLOCATION_STEP,
@@ -351,9 +352,10 @@ describe("address and instruction builders", () => {
       height: NULLIFIER_TREE_HEIGHT,
     });
     expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
-    expect(TREE_ACCOUNT_SIZE).toBe(30_344);
+    expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
+    expect(TREE_ACCOUNT_SIZE).toBe(39_952);
     expect(TREE_CREATION_STEP_COUNT).toBe(Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP));
-    expect(TREE_CREATION_STEP_COUNT).toBe(3);
+    expect(TREE_CREATION_STEP_COUNT).toBe(4);
     expect(STATE_ROOT_OFFSET).toBe(80);
 
     const payer = { address: OWNER } as TransactionSigner;
@@ -505,7 +507,6 @@ describe("address and instruction builders", () => {
           asset: DepositAsset.sol(),
           viewTag: new Uint8Array(32).fill(1) as Bytes32,
           recipientOwnerHash: new Uint8Array(32).fill(2) as Bytes32,
-          blinding: new Uint8Array(32).fill(3) as Bytes32,
           amount: 42n,
         },
       ],

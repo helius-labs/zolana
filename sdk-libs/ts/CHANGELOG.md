@@ -6,7 +6,8 @@ Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
 the one it spends from. Trees now derive from ids, carry their own fee
-schedules, and create spent-nullifier accounts. Wallet replay keeps merge
+schedules, and create spent-nullifier accounts, and governance controls ring
+activation separately from registration. Wallet replay keeps merge
 outputs when their inputs arrive in the same sync, and selection and approval
 text use UTXO terminology without changing version 3 snapshot keys.
 
@@ -48,6 +49,30 @@ Breaking
   custom client.
 - `customRingPublicInputHash` takes `policyHash`, `stateRoot`, and
   `nullifierRoot` → use `auditPublicInputHash` for the audit statement alone.
+- Ring registration is permissionless and produces a config that authorizes
+  nothing, and governance admits it separately with
+  `getSetRingActivationInstructionAsync` → a ring is live only after its
+  activation transaction lands, and the payer of the registration no longer
+  needs to be the pool's ring authority.
+- `RingConfigAccount` and `RegisteredRing` gain `activated`, and
+  `decodeRingConfig` reads a 69-byte account → a config account written before
+  this release no longer decodes, and a caller choosing a deposit target should
+  filter on `activated` as deliberately as on `paused`.
+- `getUpdateRingConfigInstructionAsync` no longer carries
+  `ringAuthorityTransactIsEnabled`, which only the pool's ring authority can
+  set → move that flag to `getSetRingActivationInstructionAsync`, which also
+  turns a ring on and off.
+- `ProtocolConfigAccount.ringCreationIsPermissionless` and the
+  `ProtocolConfigUpdate` field `ringCreationPermissionless` are
+  `ringActivationIsPermissionless` and `ringActivationPermissionless` → rename,
+  and read the flag as deciding whether a new ring is born activated rather
+  than who may register one.
+
+- State-tree root history retains one final root per updated slot in a dense
+  500-entry cyclic buffer. Its cursor, length, and capacity are native `u16`s,
+  and it stores the latest update slot as a `u64`, making pre-release
+  30,344-byte tree accounts incompatible → deploy fresh 39,952-byte trees
+  and reindex Photon as one coordinated upgrade.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the
   removed constant held.
@@ -81,6 +106,14 @@ Breaking
   to set tree fees and claim tree lamports, and update exhaustive matches.
 - `decodeProtocolConfig` reads a 166-byte account and returns `feeAuthority` and
   `nextTreeId` → a config account written before this release no longer decodes.
+- `DepositEntry` and `AssetDeposit` drop their `blinding` member and
+  `getDepositInstructionAsync` no longer encodes it → stop passing a blinding,
+  because the shielded pool now derives it from the tree and the leaf index the
+  output lands at, and an entry that still encodes one no longer decodes.
+- The `Deposit` a deposit builder returns drops its `utxoHash` member → read the
+  deposited UTXO from the indexer after the deposit lands, since the blinding,
+  and therefore the hash, depend on the leaf index assigned when the transaction
+  executes.
 
 Added
 
@@ -166,13 +199,18 @@ Added
   `memberOfAsset` derive a `Member`, `RingListNamespace` derives entry
   addresses and hashes, and a lineage whose spender carries no next version is
   `RING_ENTRY_LINEAGE_BROKEN`.
-- `ShieldedPoolError` adds codes 7029 to 7062: deposit and SPL interface
+- `getSetRingActivationInstructionAsync` admits a ring, contains one it no
+  longer trusts, and owns its authority-transact rail. The pool's ring authority
+  signs it directly, so no governance signature reaches the ring program.
+- `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
   `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,
-  `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`), and six
+  `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`,
+  `RingNotActivated`), and six
   `NonCanonical*` codes the program returns before touching any account when an
   instruction-data hash is not a canonical BN254 field element.
+- `InstructionTag.setRingActivation` (21).
 - `InstructionTag.closeNullifierPdas` (18), `InstructionTag.setTreeFees` (19),
   and `InstructionTag.claimTreeLamports` (20): the forester closes spent
   nullifier accounts, and the fee authority writes a tree's fee schedule and
@@ -190,15 +228,24 @@ Added
   accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
   the schedule alone, `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET` locate
   both in the account, `decodeTreeHeadRoots(account)` reads the tree's
-  `TreeHeadRoots` with their history indices and refuses an unwritten or zero
-  slot, the `UTXO_ROOT_HISTORY_*` and `NULLIFIER_ROOT_HISTORY_*` constants
-  locate both histories, and `CreateTreeData` names the create-tree payload.
+  `TreeHeadRoots` with their history indices and refuses malformed histories or
+  zero roots, the `UTXO_ROOT_HISTORY_*` and `NULLIFIER_ROOT_HISTORY_*` constants
+  locate both histories, `UTXO_SUBTREES_LEN_OFFSET` locates the stored tree
+  height, and `CreateTreeData` names the create-tree payload.
+- `depositBlinding(tree, leafIndex)` recomputes the blinding the shielded pool
+  derives for a deposit output, so a caller that does not want to trust an
+  indexer can verify a deposited UTXO against the tree and leaf index alone.
+  Reading the indexed UTXO remains the normal way to spend a deposit.
 
 Changed
 
 - `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE` is 25,000, so
-  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100, `TREE_ACCOUNT_SIZE` is 30,344,
-  `TREE_CREATION_STEP_COUNT` is 3 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` is 100. The state tree retains one
+  final root for each of the latest 500 slots that updated it, exported as
+  `STATE_ROOT_HISTORY_CAPACITY`. A root cannot be overwritten until 500 later
+  slots update the tree: about 100 seconds at the 200 ms target slot time, and
+  longer when slots contain no update. `TREE_ACCOUNT_SIZE` is 39,952,
+  `TREE_CREATION_STEP_COUNT` is 4 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
   `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
@@ -211,6 +258,10 @@ Fixed
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
+- A deposit could be given a blinding that already belonged to another deposit,
+  which produced a duplicate UTXO hash and nullifier and left the second UTXO
+  unspendable; the shielded pool now derives every deposit blinding from the
+  tree and the leaf index, so each deposit is unique.
 
 Dependencies
 

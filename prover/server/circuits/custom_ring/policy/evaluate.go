@@ -9,8 +9,8 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// evaluate requires every applicable rule to be satisfied or exempt.
-func (c *CustomRingPolicyCircuit) evaluate(
+// constrainRules requires every applicable rule to be satisfied or exempt.
+func (c *CustomRingPolicyCircuit) constrainRules(
 	api frontend.API,
 	txContext transactionContext,
 	listFacts [NListFacts]listFact,

@@ -1,7 +1,7 @@
 //! Post-instruction checks for a public SPL `deposit` deposit.
 
 use solana_pubkey::Pubkey;
-use zolana_interface::instruction::AssetDeposit;
+use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{SyncWalletAuthority, Wallet};
 
@@ -24,6 +24,10 @@ pub struct SplDepositAssertArgs<'a, A: ?Sized> {
     pub vault_before: u64,
     pub user_token_before: u64,
     pub root_before: [u8; 32],
+    /// Indexed-output count captured before the deposit, so the expected leaf
+    /// index (and the blinding derived from it) does not come from the event
+    /// under test.
+    pub indexed_outputs_before: usize,
     pub authority: &'a A,
 }
 
@@ -44,8 +48,10 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
         vault_before,
         user_token_before,
         root_before,
+        indexed_outputs_before,
         authority,
     } = args;
+    let expected_leaf_index = indexed_outputs_before as u64;
     assert_eq!(event.output.amount, expected_amount, "event amount");
     assert_eq!(
         event.output.asset,
@@ -54,7 +60,12 @@ pub fn litesvm_assert_spl_deposit<A: SyncWalletAuthority + ?Sized>(
     );
     assert_eq!(event.output.owner, data.owner, "owner");
     assert_eq!(event.view_tag, data.view_tag, "view tag");
-    assert_eq!(event.output.blinding, data.blinding, "blinding");
+    assert_eq!(event.leaf_index, expected_leaf_index, "leaf index");
+    assert_eq!(
+        event.output.blinding,
+        deposit_blinding(&tree.to_bytes(), expected_leaf_index).expect("expected deposit blinding"),
+        "blinding"
+    );
     assert_eq!(
         event.output.memo, data.memo,
         "event memo mirrors instruction data"

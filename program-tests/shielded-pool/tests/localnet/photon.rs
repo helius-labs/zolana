@@ -197,13 +197,6 @@ fn localnet_nullifier_params() -> zolana_tree::NullifierTreeInitParams {
     params
 }
 
-fn stress_blinding(index: u64) -> [u8; 32] {
-    let mut blinding = [0u8; 32];
-    blinding[1] = 0x51;
-    blinding[24..].copy_from_slice(&index.to_be_bytes());
-    blinding
-}
-
 fn wait_for<T>(
     label: impl AsRef<str>,
     mut poll: impl FnMut() -> Result<Option<T>, zolana_client::ClientError>,

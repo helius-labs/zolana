@@ -32,9 +32,10 @@ use zolana_interface::{
 use zolana_keypair::{ShieldedKeypair, ShieldedPda, SigningKey};
 use zolana_program_test::create_tree_instructions;
 use zolana_test_utils::{
-    localnet::LocalnetValidator,
+    localnet::{LocalnetValidator, UpgradeableProgram},
     smart_account::{self, StandardSigners},
     spl::{create_mint, create_token_account, mint_to},
+    test_validator_asserts::wait_for_indexed_utxo,
 };
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::asset_field, utxo::Blinding, AssetRegistry, SOL_MINT,
@@ -79,10 +80,9 @@ pub struct TestEnv {
     pub spl_mint: Address,
     pub assets: AssetRegistry,
     /// The blinding of the user's own funding UTXO shielded in `setup()`
-    /// (`USER_SPL_SHIELD` of `spl_mint`). Since the test itself created this
-    /// deposit, its full preimage is already known client-side -- no wallet
-    /// sync is needed to discover it, exactly like the pool/escrow UTXOs
-    /// tracked elsewhere in this harness.
+    /// (`USER_SPL_SHIELD` of `spl_mint`), read back from the indexer: SPP
+    /// derives it from the leaf index the output lands at, so it is not known
+    /// before the deposit executes.
     pub user_spl_blinding: Blinding,
 }
 
@@ -108,6 +108,9 @@ pub fn setup() -> Result<TestEnv> {
         .unwrap_or_else(|_| "/tmp/zolana-dynamic-swap-inline-smart-account-accounts".to_string());
     let ledger = std::env::var("ZOLANA_DYNAMIC_SWAP_LEDGER")
         .unwrap_or_else(|_| "/tmp/zolana-dynamic-swap-inline-test-ledger".to_string());
+    let protocol_vault = smart_account::standard_accounts()
+        .protocol_vault
+        .to_string();
     LocalnetValidator {
         cli_bin: cli,
         working_dir: root.to_string(),
@@ -117,12 +120,15 @@ pub fn setup() -> Result<TestEnv> {
         account_dir,
         programs: vec![
             (dynamic_swap_program_id, dynamic_swap_program_so),
-            (spp_program_id, spp_program_so),
             (user_registry_id, user_registry_so),
             (smart_account_id, smart_account_so),
         ],
     }
-    .start();
+    .start_with_upgradeable_programs(&[UpgradeableProgram {
+        address: &spp_program_id,
+        path: &spp_program_so,
+        authority: &protocol_vault,
+    }]);
 
     std::env::set_var(
         "ZOLANA_PROVER_KEYS_DIR",
@@ -180,14 +186,15 @@ pub fn setup() -> Result<TestEnv> {
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
 
     let create_config_ix = CreateProtocolConfig {
-        authority: accounts.protocol_vault,
+        fee_payer: payer.pubkey(),
+        initialization_authority: accounts.protocol_vault,
         protocol_authority: accounts.protocol_vault.to_bytes().into(),
         fee_authority: accounts.protocol_vault.to_bytes().into(),
         tree_creation_authority: accounts.tree_vault.to_bytes().into(),
         tree_creation_is_permissionless: false,
         forester_authority: accounts.forester_vault.to_bytes().into(),
         ring_creation_authority: accounts.ring_vault.to_bytes().into(),
-        ring_creation_is_permissionless: false,
+        ring_activation_is_permissionless: false,
         spl_interface_creation_is_permissionless: false,
     }
     .instruction();
@@ -294,8 +301,15 @@ pub fn setup() -> Result<TestEnv> {
         spl_token_program: Some(zolana_interface::pda::spl_token_program_id()),
         memo: None,
     })?;
-    user_deposit.send(&rpc, &payer, tree, &payer)?;
-    let user_spl_blinding = user_deposit.deposit.blinding;
+    let user_view_tag = user_deposit.view_tag();
+    let user_signature = user_deposit.send(&rpc, &payer, tree, &payer)?;
+    // A proofless deposit publishes its UTXO in the clear, so read it back from
+    // the indexer.
+    let user_spl_blinding = wait_for_indexed_utxo(&indexer, user_view_tag, user_signature)
+        .output_slot
+        .proofless_output()
+        .ok_or_else(|| anyhow!("indexed user deposit is not a proofless UTXO"))?
+        .blinding;
 
     // Register both parties in the user directory (keyed by their Solana
     // pubkeys). On settle, the caller resolves the recipient's shielded address

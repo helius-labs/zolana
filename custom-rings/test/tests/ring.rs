@@ -52,7 +52,7 @@ use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
     AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ProverClient, Rpc, ShieldedTransaction,
-    SolanaRpc,
+    SolanaRpc, ZolanaIndexer,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -83,11 +83,13 @@ use zolana_test_utils::{
     },
 };
 use zolana_transaction::{
+    decrypt_transactions,
     instructions::{
         transact::{ConfidentialTransfer, PreparedTransfer, SettlementTarget},
         types::SppProofInputUtxo,
     },
-    Data, KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID, SOL_MINT,
+    AssetRegistry, Data, KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_ASSET_ID,
+    SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -172,7 +174,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
     }
 
     // 2. The protocol config carries exactly the bootstrap settings the ring
-    //    flows depend on, `ring_creation_is_permissionless` above all: without
+    //    flows depend on, `ring_activation_is_permissionless` above all: without
     //    it the custom-ring program cannot register its `ring_auth` PDA as an
     //    SPP ring config with a plain payer.
     let accounts = smart_account::standard_accounts();
@@ -187,7 +189,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
             forester_authority: accounts.forester_vault,
             ring_creation_authority: accounts.ring_vault,
             tree_creation_is_permissionless: 0,
-            ring_creation_is_permissionless: 1,
+            ring_activation_is_permissionless: 1,
             spl_interface_creation_is_permissionless: 0,
             next_tree_id: 1,
         },
@@ -583,6 +585,8 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             program_id: ring_program,
             ring_authority_transact_is_enabled: 0,
             paused: 0,
+            // The fixture bootstraps with permissionless activation.
+            activated: 1,
             bump: ring_auth_bump,
         },
         "SPP ring config"
@@ -595,7 +599,6 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         instructions: &[UpdateRingConfig {
             authority,
             ring_config: ring_auth,
-            ring_authority_transact_is_enabled: false,
             paused: true,
         }
         .instruction()],
@@ -1172,7 +1175,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
     }
-    .send(rpc)?;
+    .send(rpc, indexer, &env.assets)?;
     let entry_input = deposited.spend();
     wait_for_merkle_proof(indexer, env.tree, entry_input.hash()?);
     let mut entry_transfer =
@@ -1378,7 +1381,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         asset: usdc_deposit(sender_usdc),
         amount: USDC_DEFAULT_DEPOSIT,
     }
-    .send(rpc)?;
+    .send(rpc, indexer, &env.assets)?;
     assert_eq!(
         token_amount(&fetch_account(rpc, &sender_usdc)?),
         USDC_FUNDING - USDC_DEFAULT_DEPOSIT,
@@ -1957,29 +1960,44 @@ struct DefaultRingDeposit<'a> {
 }
 
 impl<'a> DefaultRingDeposit<'a> {
-    fn send(self, rpc: &SolanaRpc) -> Result<Note<'a>> {
-        let blinding = random_blinding();
+    fn send(
+        self,
+        rpc: &SolanaRpc,
+        indexer: &ZolanaIndexer,
+        assets: &AssetRegistry,
+    ) -> Result<Note<'a>> {
         let address = self.depositor.shielded_address()?;
+        let view_tag = address.viewing_pubkey.x();
         let deposit = SppDeposit {
             tree: self.tree,
             depositor: self.depositor.pubkey(),
             deposits: vec![AssetDeposit {
                 asset: self.asset,
-                view_tag: address.viewing_pubkey.x(),
+                view_tag,
                 owner: address.owner_hash()?,
-                blinding,
                 amount: self.amount,
                 utxo_data: None,
                 memo: None,
             }],
         }
         .instruction()?;
-        send(rpc, self.depositor, &[deposit])?;
+        let signature = send(rpc, self.depositor, &[deposit])?;
+        // A proofless deposit publishes its UTXO in the clear, so read it back
+        // from the indexer.
+        let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
+        let mint = self.asset.mint();
+        let balances = decrypt_transactions(self.depositor, std::slice::from_ref(&indexed), assets)
+            .map_err(|e| anyhow!("decrypt deposit {signature}: {e:?}"))?;
+        let deposited = balances
+            .get_balance(mint)
+            .and_then(|balance| balance.utxos.first())
+            .ok_or_else(|| anyhow!("deposit {signature} not indexed for {mint}"))?;
+        assert_eq!(deposited.amount, self.amount, "deposited amount");
         Ok(Note {
             owner: self.depositor,
-            asset: self.asset.mint(),
+            asset: mint,
             amount: self.amount,
-            blinding,
+            blinding: deposited.blinding,
             ring_program_id: None,
         })
     }

@@ -472,6 +472,7 @@ fn write_fake_ring_config(
     rpc: &mut ZolanaProgramTest,
     address: Pubkey,
     discriminator: u8,
+    activated: bool,
     paused: bool,
 ) {
     let config = RingConfig {
@@ -480,6 +481,7 @@ fn write_fake_ring_config(
         program_id: zolana_program_test::RING_TEST_PROGRAM_ID.into(),
         ring_authority_transact_is_enabled: 1,
         paused: u8::from(paused),
+        activated: u8::from(activated),
         bump: 0,
     };
     write_ring_config_account(
@@ -514,7 +516,7 @@ fn merge_ring_rejects_a_ring_config_with_a_wrong_discriminator() {
     let (mut rpc, tree) = merge_env();
     // SPP-owned and correctly sized, but the discriminator byte is wrong.
     let fake = Keypair::new();
-    write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, false);
+    write_fake_ring_config(&mut rpc, fake.pubkey(), RING_CONFIG + 1, true, false);
 
     let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(91));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = fake.pubkey();
@@ -533,7 +535,13 @@ fn merge_ring_rejects_an_unsigned_payer() {
     // Valid signed ring config, so the payer signer check (third account) is
     // the branch that fires.
     let ring_config_signer = Keypair::new();
-    write_fake_ring_config(&mut rpc, ring_config_signer.pubkey(), RING_CONFIG, false);
+    write_fake_ring_config(
+        &mut rpc,
+        ring_config_signer.pubkey(),
+        RING_CONFIG,
+        true,
+        false,
+    );
 
     let outsider = Pubkey::new_unique();
     let mut ix = MergeRing {
@@ -563,7 +571,7 @@ fn merge_ring_rejects_an_unsigned_payer() {
 fn merge_ring_rejects_a_paused_ring_config() {
     let (mut rpc, tree) = merge_env();
     let ring_config = Keypair::new();
-    write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true);
+    write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, true, true);
 
     let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(94));
     ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
@@ -574,6 +582,27 @@ fn merge_ring_rejects_a_paused_ring_config() {
     rpc.last_transaction_trace()
         .expect("rejected transaction trace")
         .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+}
+
+/// INV-SET-RING-ACT-06: an inactive ring authorizes no ring merge, and the
+/// activation check runs ahead of the pause check.
+#[test]
+fn merge_ring_rejects_an_inactive_ring_config() {
+    let (mut rpc, tree) = merge_env();
+    for paused in [false, true] {
+        let ring_config = Keypair::new();
+        write_fake_ring_config(&mut rpc, ring_config.pubkey(), RING_CONFIG, false, paused);
+
+        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, merge_ix_data(true), fe(93));
+        ix.accounts.get_mut(2).expect("ring config meta").pubkey = ring_config.pubkey();
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
+            .expect_err("an inactive ring config must reject ring merge");
+        Rejection::pool(ShieldedPoolError::RingNotActivated).assert_litesvm(error);
+        rpc.last_transaction_trace()
+            .expect("rejected transaction trace")
+            .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+    }
 }
 
 #[test]
@@ -603,7 +632,7 @@ fn merge_ring_rejects_a_paused_tree() {
     } = Pool::initialized();
     rpc.load_ring_test_program()
         .expect("load ring test program");
-    rpc.create_ring_config(&authority, &authority.pubkey(), true)
+    rpc.create_activated_ring_config(&authority, &authority.pubkey(), &authority, true)
         .expect("create ring config");
     rpc.pause_tree(&authority, &tree, true).expect("pause tree");
 

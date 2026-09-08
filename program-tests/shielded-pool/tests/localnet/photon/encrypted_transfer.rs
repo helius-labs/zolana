@@ -45,21 +45,15 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     let sender_nullifier_key = NullifierKey::from_secret(*sender.nullifier_key.secret());
     let sender_nullifier_pk = sender_nullifier_key.pubkey()?;
 
-    // ---- shield two sender-owned UTXOs (reconstructable from fixed blindings) ----
+    // ---- shield two sender-owned UTXOs (read back from Photon, since a
+    // proofless deposit publishes them in the clear) ----
     let half = AMOUNT / 2;
-    let deposit_blindings: [[u8; 32]; 2] = [[7u8; 32], [8u8; 32]];
     let mut spends = Vec::new();
-    for blinding in deposit_blindings {
-        let utxo = Utxo {
-            owner: sender.signing_pubkey(),
-            asset: SOL_MINT,
-            amount: half,
-            blinding,
-            ring_program_id: None,
-            data: Data::default(),
-        };
-        let owner_field = owner_hash(&utxo.owner, &sender_nullifier_pk)?;
-        let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_field, blinding);
+    let sender_owner = sender.signing_pubkey();
+    let owner_field = owner_hash(&sender_owner, &sender_nullifier_pk)?;
+    for _ in 0..2 {
+        let shield_data = ZolanaProgramTest::sol_shield_data(half, owner_field);
+        let shield_view_tag = shield_data.view_tag;
         let shield_ix = Deposit {
             tree: tree_pubkey,
             depositor: payer.pubkey(),
@@ -67,7 +61,20 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         }
         .instruction()
         .map_err(|err| anyhow!("deposit instruction: {err}"))?;
-        send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
+        let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
+        let deposited = wait_for_indexed_utxo(&indexer, shield_view_tag, shield_sig)
+            .output_slot
+            .proofless_output()
+            .ok_or_else(|| anyhow!("indexed deposit output is not a proofless UTXO"))?;
+        let utxo = Utxo {
+            owner: sender_owner,
+            asset: Address::new_from_array(deposited.asset),
+            amount: deposited.amount,
+            blinding: deposited.blinding,
+            ring_program_id: None,
+            data: Data::default(),
+        };
+        assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, half));
         let utxo_hash = utxo.hash(&sender_nullifier_pk, &zero, &zero)?;
         wait_for_merkle_proof(&indexer, tree_address, utxo_hash);
         spends.push(SppProofInputUtxo::new(utxo, &sender));

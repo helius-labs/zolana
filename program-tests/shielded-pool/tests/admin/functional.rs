@@ -39,6 +39,7 @@ struct RingConfigState {
     authority: Pubkey,
     enabled: bool,
     paused: bool,
+    activated: bool,
     bump: u8,
 }
 
@@ -51,6 +52,7 @@ fn read_ring_config(rpc: &ZolanaProgramTest, address: &Pubkey) -> RingConfigStat
         authority: Pubkey::new_from_array(config.authority.to_bytes()),
         enabled: config.enabled(),
         paused: config.is_paused(),
+        activated: config.is_activated(),
         bump: config.bump,
     }
 }
@@ -77,16 +79,20 @@ fn protocol_config_creation_changes_only_the_config_and_fee_payer() {
         mollusk.process_and_validate_instruction(&instruction, &accounts, &[Check::success()]);
 
     let fee_payer = instruction.accounts.first().expect("fee payer meta").pubkey;
-    let config = instruction.accounts.get(1).expect("config meta").pubkey;
-    let system = instruction.accounts.get(2).expect("system meta").pubkey;
+    let config = instruction.accounts.get(2).expect("config meta").pubkey;
 
-    // The only account besides the config and the fee payer is byte-for-byte
-    // unchanged.
-    assert_eq!(
-        account_named(&result.resulting_accounts, &system),
-        account_named(&accounts, &system),
-        "system program account must be unchanged"
-    );
+    // Initialization only creates the config and transfers its rent from the
+    // fee payer. The initializer, system program, program and ProgramData are
+    // byte-for-byte unchanged.
+    for (address, before) in &accounts {
+        if *address != fee_payer && *address != config {
+            assert_eq!(
+                account_named(&result.resulting_accounts, address),
+                before,
+                "non-payer account {address} must be unchanged"
+            );
+        }
+    }
 
     // The fee payer only funds rent: data and owner unchanged, and the removed
     // lamports are exactly the created config account's balance.
@@ -182,7 +188,7 @@ fn tree_creation_changes_only_the_tree_account() {
 }
 
 #[test]
-fn tree_creation_completes_in_three_steps_and_advances_next_tree_id() {
+fn tree_creation_completes_in_four_steps_and_advances_next_tree_id() {
     let mut pool = Pool::initialized();
     let next_tree_id = zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id");
     assert_eq!(next_tree_id, 1);
@@ -195,14 +201,14 @@ fn tree_creation_completes_in_three_steps_and_advances_next_tree_id() {
             .expect("default tree fees"),
     };
     let steps = create.instructions();
-    assert_eq!(steps.len(), 3);
+    assert_eq!(steps.len(), 4);
 
-    let (partial, last) = steps.split_at(2);
+    let (partial, last) = steps.split_at(3);
     pool.rpc
         .create_and_send_default_payer_transaction(partial, &[&pool.authority])
-        .expect("first two allocation steps");
+        .expect("first three allocation steps");
     let tree = pool.rpc.account_data(&create.tree()).expect("partial tree");
-    assert_eq!(tree.len(), 2 * TREE_ALLOCATION_STEP);
+    assert_eq!(tree.len(), 3 * TREE_ALLOCATION_STEP);
     assert!(tree.iter().all(|byte| *byte == 0));
     assert_eq!(
         zolana_program_test::next_tree_id(&pool.rpc).expect("next tree id"),
@@ -335,14 +341,17 @@ fn ring_config_creation_initializes_complete_state() {
     let authority = Keypair::new();
 
     let ring_config = rpc
-        .create_ring_config(&payer, &authority.pubkey(), true)
+        .create_ring_config(&payer, &authority.pubkey())
         .expect("create ring config");
     assert_eq!(
         read_ring_config(&rpc, &ring_config),
         RingConfigState {
             authority: authority.pubkey(),
-            enabled: true,
+            // Governance-owned and off at creation.
+            enabled: false,
             paused: false,
+            // Born activated: this pool sets `ring_activation_is_permissionless`.
+            activated: true,
             bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
@@ -361,17 +370,22 @@ fn ring_config_update_changes_enabled_state() {
         .expect("fund payer");
     let authority = Keypair::new();
     let ring_config = rpc
-        .create_ring_config(&payer, &authority.pubkey(), true)
+        .create_ring_config(&payer, &authority.pubkey())
         .expect("create ring config");
 
-    rpc.update_ring_config(&authority, &ring_config, false, false)
-        .expect("disable ring authority transact");
+    // Only governance can move the authority-transact rail, in both directions.
+    rpc.set_ring_activation(&admin, &ring_config, true, true)
+        .expect("governance enables ring authority transact");
+    assert!(read_ring_config(&rpc, &ring_config).enabled);
+    rpc.set_ring_activation(&admin, &ring_config, true, false)
+        .expect("governance disables ring authority transact");
     assert_eq!(
         read_ring_config(&rpc, &ring_config),
         RingConfigState {
             authority: authority.pubkey(),
             enabled: false,
             paused: false,
+            activated: true,
             bump: pda::ring_auth(&Pubkey::new_from_array(RING_TEST_PROGRAM_ID)).1,
         }
     );
@@ -390,10 +404,8 @@ fn ring_config_owner_rotation_updates_authority() {
         .expect("fund payer");
     let authority = Keypair::new();
     let ring_config = rpc
-        .create_ring_config(&payer, &authority.pubkey(), true)
+        .create_ring_config(&payer, &authority.pubkey())
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false, false)
-        .expect("disable ring authority transact");
 
     let next = Keypair::new();
     rpc.update_ring_config_owner(&authority, &ring_config, &next)
@@ -417,15 +429,17 @@ fn new_ring_config_authority_can_update_config() {
         .expect("fund payer");
     let authority = Keypair::new();
     let ring_config = rpc
-        .create_ring_config(&payer, &authority.pubkey(), true)
+        .create_ring_config(&payer, &authority.pubkey())
         .expect("create ring config");
-    rpc.update_ring_config(&authority, &ring_config, false, false)
-        .expect("disable ring authority transact");
     let next = Keypair::new();
     rpc.update_ring_config_owner(&authority, &ring_config, &next)
         .expect("rotate ring config owner");
 
-    rpc.update_ring_config(&next, &ring_config, true, false)
-        .expect("new ring authority updates config");
-    assert!(read_ring_config(&rpc, &ring_config).enabled);
+    // `paused` is the only field the rotated-in authority can write.
+    rpc.update_ring_config(&next, &ring_config, true)
+        .expect("new ring authority pauses the ring");
+    assert!(read_ring_config(&rpc, &ring_config).paused);
+    rpc.update_ring_config(&next, &ring_config, false)
+        .expect("new ring authority unpauses the ring");
+    assert!(!read_ring_config(&rpc, &ring_config).paused);
 }

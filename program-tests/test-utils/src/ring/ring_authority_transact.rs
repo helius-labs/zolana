@@ -359,7 +359,9 @@ impl RingHarness {
         if self.ring_config.is_none() {
             self.create_enabled_ring_config()?;
         }
-        self.update_ring_config(false, false)?;
+        // The rail is governance-owned now, so disabling it goes through
+        // `set_ring_activation`; the ring itself cannot reach the flag.
+        self.set_ring_activation(true, false)?;
         self.ensure_fresh_actor(name)?;
         self.sync(name)?;
 

@@ -27,7 +27,9 @@ pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };
 pub use ring_authority_transact::RingAuthorityTransact;
-pub use ring_config::{CreateRingConfig, UpdateRingConfig, UpdateRingConfigOwner};
+pub use ring_config::{
+    CreateRingConfig, SetRingActivation, UpdateRingConfig, UpdateRingConfigOwner,
+};
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{

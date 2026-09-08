@@ -355,6 +355,7 @@ mod tests {
             program_id: RING,
             ring_authority_transact_is_enabled: 1,
             paused: 0,
+            activated: 1,
             bump: 3,
         };
         let bytes = bytemuck::bytes_of(&spp).to_vec();
