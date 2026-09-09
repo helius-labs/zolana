@@ -39,7 +39,8 @@ jobs:
           test "$#" -eq 1
           tarball="$1"
           printf '{"private":true,"type":"module"}\n' > "$tmp/package.json"
-          npm --prefix "$tmp" install "$tarball" "@solana/kit@^7" --ignore-scripts
+          kit_range="$(node -p "require('./sdk-libs/ts/package.json').peerDependencies['@solana/kit']")"
+          npm --prefix "$tmp" install "$tarball" "@solana/kit@$kit_range" --ignore-scripts
           cat > "$tmp/smoke.mts" <<'TS'
           import { createZolanaClient, type ZolanaClientConfig } from "@heliuslabs/zolana";
           const config: ZolanaClientConfig = {
