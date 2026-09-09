@@ -214,20 +214,20 @@ export type {
 export {
   CLOCK_SYSVAR,
   RENT_SYSVAR,
+  RingProgramBinary,
+  closeBufferInstruction,
   decodeRingProgramData,
   deployRingProgram,
   deployWithMaxDataLenInstruction,
   extendProgramInstruction,
   fetchRingProgramData,
   initializeBufferInstruction,
-  ringProgramBinary,
   setUpgradeAuthorityInstruction,
   upgradeInstruction,
   verifyRingProgram,
   writeBufferInstruction,
 } from "./program.js";
 export type {
-  RingProgramBinary,
   RingProgramData,
   RingProgramDeployClient,
   RingProgramDeployOutcome,

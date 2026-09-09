@@ -1,4 +1,11 @@
-import { AccountRole, generateKeyPairSigner, getAddressDecoder, type Address } from "@solana/kit";
+import {
+  AccountRole,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  generateKeyPairSigner,
+  getAddressDecoder,
+  getSolanaErrorFromJsonRpcError,
+  type Address,
+} from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
@@ -14,7 +21,8 @@ import {
   extendProgramInstruction,
   fetchRingProgramData,
   initializeBufferInstruction,
-  ringProgramBinary,
+  RingProgramBinary,
+  closeBufferInstruction,
   setUpgradeAuthorityInstruction,
   upgradeInstruction,
   verifyRingProgram,
@@ -32,6 +40,18 @@ const PROGRAM = addressOf(10);
 const AUTHORITY = addressOf(12);
 const PAYER = addressOf(11);
 const BUFFER = addressOf(13);
+
+/** The ELF magic over a byte pattern. */
+function elf(length: number, byte = (index: number) => index % 251): Uint8Array {
+  const bytes = Uint8Array.from({ length }, (_, index) => byte(index));
+  bytes.set([0x7f, 0x45, 0x4c, 0x46]);
+  return bytes;
+}
+
+/** Rust `UpgradeableLoaderState::Program`. */
+function programAccount(dataAddress: Address): Uint8Array {
+  return Uint8Array.of(2, 0, 0, 0, ...addressBytes(dataAddress));
+}
 
 /** Rust `UpgradeableLoaderState::ProgramData` followed by `bytes`, padded to `capacity`. */
 function programData(
@@ -72,11 +92,25 @@ describe("program data", () => {
     );
   });
 
-  it("verifies the deployed bytes and names a missing or different program", async () => {
-    const binary = ringProgramBinary(Uint8Array.from({ length: 40 }, (_, index) => index));
+  it("refuses a binary the loader would refuse and a structural copy", () => {
+    for (const bytes of [new Uint8Array(), elf(63), new Uint8Array(64)]) {
+      expect(() => RingProgramBinary.parse(bytes)).toThrow(
+        expect.objectContaining({ code: "RING_PROGRAM_BINARY_INVALID" }),
+      );
+    }
+    const binary = RingProgramBinary.parse(elf(64));
+    const copy = { bytes: binary.bytes, sha256: binary.sha256 };
+    const client = { getAccount: vi.fn(async () => undefined) };
+    // @ts-expect-error a structural copy is not a checked binary
+    void verifyRingProgram(client, PROGRAM, copy).catch(() => undefined);
+    expect(binary.sha256).toEqual(sha256(elf(64)));
+  });
+
+  it("verifies the deployed bytes and names a missing, different or occupied program", async () => {
+    const binary = RingProgramBinary.parse(elf(80));
     const dataAddress = await ringProgramDataAddress(PROGRAM);
     const accounts = new Map([
-      [PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, new Uint8Array(36))],
+      [PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programAccount(dataAddress))],
       [
         dataAddress,
         ownedAccount(
@@ -89,9 +123,18 @@ describe("program data", () => {
     await expect(verifyRingProgram(client, PROGRAM, binary)).resolves.toMatchObject({
       lastDeploySlot: 3n,
     });
-    const other = ringProgramBinary(new Uint8Array(40));
+    const other = RingProgramBinary.parse(elf(80, () => 0));
     await expect(verifyRingProgram(client, PROGRAM, other)).rejects.toMatchObject({
       code: "RING_PROGRAM_MISMATCH",
+    });
+    accounts.set(PROGRAM, ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programAccount(PAYER)));
+    await expect(fetchRingProgramData(client, PROGRAM)).rejects.toMatchObject({
+      code: "RING_PROGRAM_DATA_INVALID",
+    });
+    accounts.set(PROGRAM, ownedAccount(SYSTEM_PROGRAM, new Uint8Array()));
+    await expect(fetchRingProgramData(client, PROGRAM)).rejects.toMatchObject({
+      code: "RING_PROGRAM_ADDRESS_OCCUPIED",
+      details: { ringProgramId: PROGRAM, owner: SYSTEM_PROGRAM },
     });
     accounts.delete(PROGRAM);
     await expect(fetchRingProgramData(client, PROGRAM)).resolves.toBeUndefined();
@@ -176,6 +219,17 @@ describe("loader instructions", () => {
       newAuthority: PAYER,
     });
     expect(roles(handover)?.at(-1)).toEqual([PAYER, AccountRole.READONLY]);
+    const close = closeBufferInstruction({
+      buffer: BUFFER,
+      recipient: PAYER,
+      authority: AUTHORITY,
+    });
+    expect([...(close.data ?? [])]).toEqual([5, 0, 0, 0]);
+    expect(roles(close)).toEqual([
+      [BUFFER, AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+    ]);
   });
 
   it("matches solana-loader-v3-interface 6.1.0 checked extension", async () => {
@@ -198,9 +252,10 @@ describe("loader instructions", () => {
 });
 
 describe("deployment", () => {
-  const binary = ringProgramBinary(Uint8Array.from({ length: 3_000 }, (_, index) => index % 251));
+  const binary = RingProgramBinary.parse(elf(3_000));
   const BUFFER_RENT = 7n * (37n + 3_000n);
-  const DEPLOY_REQUIRED = 20_000_000n + BUFFER_RENT + 7n * 36n + 7n * (45n + 3_000n);
+  /** The deploy drains the buffer into the payer, the program data costs the difference. */
+  const DEPLOY_REQUIRED = 20_000_000n + BUFFER_RENT + 7n * 36n + 7n * (45n + 3_000n) - BUFFER_RENT;
 
   async function signers() {
     const [payer, authority, program, buffer] = await Promise.all([
@@ -209,7 +264,13 @@ describe("deployment", () => {
       generateKeyPairSigner(),
       generateKeyPairSigner(),
     ]);
-    return { payer, authority, program, buffer };
+    return {
+      payer,
+      authority,
+      program,
+      buffer,
+      programData: await ringProgramDataAddress(program.address),
+    };
   }
 
   interface ChainOptions {
@@ -225,15 +286,26 @@ describe("deployment", () => {
     readonly failFirstConfirmation?: boolean;
     readonly failFirstSend?: boolean;
     readonly rejectOnChain?: boolean;
+    readonly rejectInPreflight?: boolean;
     /** The first attempt lands after its confirmation timed out. */
     readonly landLate?: boolean;
+    /** The extend lands, its confirmation fails and the statuses never show it. */
+    readonly hideExtendLanding?: boolean;
+    /** Sends resolve only through their abort signal. */
+    readonly hangSends?: boolean;
+    readonly occupiedBy?: Address;
   }
 
-  /** The program exists once a send follows the buffer content read. */
+  /** The extend and then the program exist once a send follows the buffer content read. */
   function chain(keys: Awaited<ReturnType<typeof signers>>, options: ChainOptions = {}) {
     const sends: number[] = [];
     const rents: bigint[] = [];
+    const capacity = options.deployed?.capacity ?? options.deployed?.bytes.length ?? 0;
+    const needsExtend = options.deployed !== undefined && capacity < binary.bytes.length;
+    const grown = capacity + Math.max(binary.bytes.length - capacity, 10_240);
     let contentRead = 0;
+    let extended = false;
+    let hidden = false;
     let finished = false;
     let bufferCreated = options.buffer !== undefined;
     let inFlight = 0;
@@ -268,16 +340,34 @@ describe("deployment", () => {
         }),
       }),
       sendTransaction: (encoded: string) => ({
-        send: async () => {
+        send: async ({ abortSignal }: { abortSignal?: AbortSignal }) => {
           sendCalls += 1;
           if (options.failFirstSend && sendCalls === 1) throw new Error("connection reset");
+          if (options.rejectInPreflight) {
+            throw getSolanaErrorFromJsonRpcError({
+              code: SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+              message: "Transaction simulation failed",
+              data: { accounts: null, err: "AccountInUse", logs: [], unitsConsumed: 0n },
+            });
+          }
+          if (options.hangSends) {
+            await new Promise((_, reject) =>
+              abortSignal?.addEventListener("abort", () => reject(new Error("aborted"))),
+            );
+          }
           inFlight += 1;
           maxInFlight = Math.max(maxInFlight, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 1));
           inFlight -= 1;
           sends.push(Buffer.from(encoded, "base64").length);
+          const dropped =
+            options.rejectOnChain || (options.failFirstConfirmation && sendCalls === 1);
+          if (dropped) return "1".repeat(87);
           bufferCreated = true;
-          if (contentRead > 0) finished = true;
+          if (contentRead > 0) {
+            if (needsExtend && !extended) extended = true;
+            else finished = true;
+          }
           return "1".repeat(87);
         },
       }),
@@ -294,17 +384,32 @@ describe("deployment", () => {
           contentRead += 1;
           return ownedAccount(options.buffer?.owner ?? BPF_LOADER_UPGRADEABLE_ID, bufferData());
         }
+        if (account === keys.program.address && options.occupiedBy !== undefined) {
+          return ownedAccount(options.occupiedBy, new Uint8Array());
+        }
         const deployed = finished
-          ? { authority: keys.authority.address, bytes: binary.bytes }
-          : options.deployed;
+          ? {
+              authority: keys.authority.address,
+              bytes: binary.bytes,
+              capacity: extended ? grown : binary.bytes.length,
+            }
+          : extended && options.deployed !== undefined
+            ? { ...options.deployed, capacity: grown }
+            : options.deployed;
         if (deployed === undefined) return undefined;
         if (account === keys.program.address) {
-          return ownedAccount(BPF_LOADER_UPGRADEABLE_ID, new Uint8Array(36));
+          return ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programAccount(keys.programData));
         }
         return ownedAccount(BPF_LOADER_UPGRADEABLE_ID, programData({ slot: 3n, ...deployed }));
       }),
       confirmTransaction: vi.fn(async () => {
         confirmations += 1;
+        if (options.hideExtendLanding && extended && !hidden) {
+          hidden = true;
+          throw new ClientError("CLIENT_RPC", {
+            details: { method: "getSignatureStatuses", reason: "signature not confirmed" },
+          });
+        }
         if (options.rejectOnChain) {
           throw new ClientError("CLIENT_RPC", {
             details: { method: "getSignatureStatuses", reason: "transaction failed" },
@@ -383,9 +488,8 @@ describe("deployment", () => {
     await deployRingProgram(params(keys, fresh));
     const resumed = chain(keys, { buffer: { authority: keys.authority.address } });
     await deployRingProgram(params(keys, resumed));
-    expect(fresh.rents).toContain(37n + 3_000n);
-    expect(resumed.rents).not.toContain(37n + 3_000n);
     expect(resumed.sends.length).toBeGreaterThan(0);
+    expect(fresh.sends.length).toBe(resumed.sends.length + 1);
     const invalid: readonly NonNullable<ChainOptions["buffer"]>[] = [
       { authority: keys.payer.address },
       { authority: keys.authority.address, owner: keys.payer.address },
@@ -443,6 +547,64 @@ describe("deployment", () => {
     expect(roomy.rents).toEqual([37n + 3_000n]);
     expect(grown.sends.length).toBe(roomy.sends.length + 1);
     expect(grown.getAccount.mock.calls.length).toBeGreaterThan(roomy.getAccount.mock.calls.length);
+  });
+
+  it("stops at a transaction preflight refused without re-signing it", async () => {
+    const keys = await signers();
+    const refused = chain(keys, { rejectInPreflight: true });
+    await expect(deployRingProgram(params(keys, refused))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "CLIENT_RPC",
+    });
+    expect(refused.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    expect(refused.confirmTransaction).not.toHaveBeenCalled();
+  });
+
+  it("reads the chain instead of repeating an extend whose landing stayed hidden", async () => {
+    const keys = await signers();
+    const deployed = { authority: keys.authority.address, bytes: new Uint8Array(1_000) };
+    const hidden = chain(keys, { deployed, hideExtendLanding: true });
+    await expect(deployRingProgram(params(keys, hidden))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
+    const plain = chain(keys, { deployed });
+    await deployRingProgram(params(keys, plain));
+    expect(hidden.sends.length).toBe(plain.sends.length);
+    expect(hidden.confirmTransaction).toHaveBeenCalledTimes(plain.sends.length);
+  });
+
+  it("refuses an occupied address and bad options before any read or send", async () => {
+    const keys = await signers();
+    const occupied = chain(keys, { occupiedBy: SYSTEM_PROGRAM });
+    await expect(deployRingProgram(params(keys, occupied))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_PROGRAM_ADDRESS_OCCUPIED",
+      details: undefined,
+    });
+    expect(occupied.sends).toHaveLength(0);
+    for (const options of [{ concurrency: 0 }, { attempts: 0 }, { concurrency: 1.5 }]) {
+      const client = chain(keys);
+      await expect(
+        deployRingProgram({ ...params(keys, client), ...options }),
+      ).rejects.toMatchObject({
+        code: "RING_DEPLOY_PROGRAM",
+        causeCode: "RING_DEPLOY_OPTIONS_INVALID",
+      });
+      expect(client.getAccount).not.toHaveBeenCalled();
+    }
+  });
+
+  it("gives a stalled send the deadline and names the buffer it leaves behind", async () => {
+    const keys = await signers();
+    const stalled = chain(keys, { hangSends: true });
+    await expect(
+      deployRingProgram({ ...params(keys, stalled), attempts: 1 }, { timeoutMs: 20 }),
+    ).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "CLIENT_TIMEOUT",
+      details: { buffer: keys.buffer.address },
+    });
+    expect(stalled.sends).toHaveLength(0);
   });
 
   it("reports a present binary and refuses the wrong authority or keypair", async () => {

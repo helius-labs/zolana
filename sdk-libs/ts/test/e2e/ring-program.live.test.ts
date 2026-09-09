@@ -12,7 +12,7 @@ import {
   deployRingProgram,
   fetchRingProgramConfig,
   initSppRingConfigInstruction,
-  ringProgramBinary,
+  RingProgramBinary,
   verifyRingProgram,
 } from "../../src/ring/index.js";
 import { airdrop, requiredEnv, sendInstruction } from "./ring-live-helpers.js";
@@ -26,8 +26,8 @@ describe("ring program", () => {
       tree: address(requiredEnv("ZOLANA_TREE")),
     });
     // The registry binary first, the larger ring binary upgrades over it and extends the account.
-    const first = ringProgramBinary(await readFile(requiredEnv("USER_REGISTRY_PROGRAM_SO")));
-    const ring = ringProgramBinary(await readFile(requiredEnv("RING_PROGRAM_SO")));
+    const first = RingProgramBinary.parse(await readFile(requiredEnv("USER_REGISTRY_PROGRAM_SO")));
+    const ring = RingProgramBinary.parse(await readFile(requiredEnv("RING_PROGRAM_SO")));
     const operator = await generateKeyPairSigner();
     const program = await generateKeyPairSigner();
 
