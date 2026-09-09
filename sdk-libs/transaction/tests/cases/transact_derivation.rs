@@ -5,17 +5,15 @@ use zolana_hasher::{
     Hasher, Poseidon,
 };
 use zolana_interface::{
-    tree_slot::{
-        tree_id_field, tree_slots_hash_chain, TreeSlot, ZERO_TREE_SLOT_SUFFIX_CHAINS,
-    },
+    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot, ZERO_TREE_SLOT_SUFFIX_CHAINS},
     INPUT_TREES,
 };
 use zolana_keypair::NullifierKey;
 use zolana_transaction::{
     instructions::merge::merge_private_tx_blinding,
     utxo::{
-        derive_output_blinding_seed, derive_private_tx_blinding,
-        derive_transact_output_blinding, ProofInputUtxo,
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+        ProofInputUtxo,
     },
 };
 
@@ -99,7 +97,10 @@ pub(crate) fn owner_identities_match_shared_vectors() {
         section.p256_owner_identity
     );
     let input: [u8; 33] = array(&section.hash_bytes_33_input);
-    assert_eq!(hex::encode(hash_bytes(&input).unwrap()), section.hash_bytes_33);
+    assert_eq!(
+        hex::encode(hash_bytes(&input).unwrap()),
+        section.hash_bytes_33
+    );
 }
 
 pub(crate) fn blinding_seed_family_matches_shared_vectors() {
