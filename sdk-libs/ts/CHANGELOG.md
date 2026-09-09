@@ -160,8 +160,10 @@ Added
   ring has one.
 - `buildRuleTable`, `encodeRule` and `encodeRuleTable` compile a `RuleTable`
   and encode its rows, `ruleAlternatives` orders the lists a rule consults,
-  `listWriter` names who writes a list, and `encodeListEntry` writes an
-  entry's published bytes.
+  `listWriter` names who writes a list, `encodeListEntry` writes an
+  entry's published bytes, and a list id outside `LIST_IDS` is refused with
+  `RING_RULE_TABLE_INVALID` in a rule, a list write, an entry seed and a
+  source change.
 - `ringPolicyHash` computes the hash a policy config pins from a `RuleTable`,
   its source owners (`policySourceOwners`) and `RING_POLICY_VERSION`,
   `verifiedRuleTable` returns the stored table only when it reproduces that
@@ -171,9 +173,11 @@ Added
   and `buildRingSetPolicySourceTransaction` pin, replace and re-source a
   ring's rule table, `createRingPolicyInstruction`,
   `setRingPolicyRulesInstruction` and `setRingPolicySourceInstruction` build
-  the instructions with `RingSharedSource` curators, and a curator on another
-  entries tree or without the list is refused with
-  `RING_POLICY_SOURCE_INVALID` before the transaction is compiled.
+  the instructions with `RingSharedSource` curators, the create and rules
+  builders refuse an audit-only ring with `RING_POLICY_TIER_MISMATCH`, and a
+  curator on another entries tree, without the list, or named twice for one
+  list is refused with `RING_POLICY_SOURCE_INVALID` before the transaction is
+  compiled.
 - `deployRingProgram` deploys or upgrades a ring program with the given
   signers, resumes an interrupted upload from its buffer, reads the chain
   before it repeats a step whose confirmation was lost, reports a binary
