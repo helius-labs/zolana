@@ -53,7 +53,7 @@ def main() -> int:
         action="append",
         default=[],
         metavar="NAME",
-        help="key built from release assets, pinned but never served from the object store",
+        help="key built from release assets, recorded as its provenance",
     )
     args = parser.parse_args()
 
@@ -95,7 +95,7 @@ def main() -> int:
     # versions untouched. 16 hex chars (64 bits) is collision-safe across the
     # handful of key-set versions this project will ever have.
     canonical = json.dumps(
-        {name: entry["sha256"] for name, entry in keys.items() if "source" not in entry},
+        {name: entry["sha256"] for name, entry in keys.items()},
         sort_keys=True,
         separators=(",", ":"),
     ).encode()

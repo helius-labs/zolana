@@ -85,7 +85,7 @@ python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key
 # published CLIs keep working -- no overwrite and no CloudFront invalidation.
 lock_prefix="$(python3 -c "import json; print(json.load(open('prover/provingkeys/proving-keys.lock'))['prefix'])")"
 echo "==> uploading proving keys to s3://$bucket/$lock_prefix/ (immutable version folder)"
-aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key' --exclude 'custom_ring.key'
+aws s3 sync "$keys_dir/" "s3://$bucket/$lock_prefix/" --exclude '*' --include '*.key'
 
 cat <<EOF
 

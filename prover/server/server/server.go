@@ -1226,6 +1226,7 @@ func (handler proveHandler) customRingProof(buf []byte) (*common.Proof, *Error) 
 
 	proof, err := customring.ProveCustomRing(ps, &params)
 	if err != nil {
+		logging.Logger().Error().Err(err).Msg("custom ring proof failed")
 		return nil, provingError(errors.New("custom ring proof failed"))
 	}
 	return proof, nil
