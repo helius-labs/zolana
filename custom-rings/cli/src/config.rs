@@ -276,10 +276,9 @@ impl RingConfig {
 }
 
 pub fn redact_url(url: &str) -> String {
-    match url.split_once('?') {
-        Some((base, _)) => format!("{base}?…"),
-        None => url.to_owned(),
-    }
+    reqwest::Url::parse(url)
+        .map(|url| url.origin().ascii_serialization())
+        .unwrap_or_else(|_| "invalid URL".to_owned())
 }
 
 pub fn redact_text(text: &str) -> String {
@@ -491,7 +490,7 @@ ring_rpc = "http://127.0.0.1:8785"
     fn redaction_masks_query_strings_and_api_keys() {
         assert_eq!(
             redact_url("https://devnet.helius-rpc.com/?api-key=secret"),
-            "https://devnet.helius-rpc.com/?…"
+            "https://devnet.helius-rpc.com"
         );
         assert_eq!(redact_url("http://127.0.0.1:8899"), "http://127.0.0.1:8899");
         assert_eq!(
@@ -500,6 +499,21 @@ ring_rpc = "http://127.0.0.1:8785"
         );
         assert_eq!(redact_text("api-key=abc"), "api-key=…");
         assert_eq!(redact_text("no key here"), "no key here");
+    }
+
+    #[test]
+    fn url_display_removes_credentials_and_preserves_the_endpoint() {
+        for input in [
+            "https://alice:secret@rpc.example.com:8443/",
+            "https://rpc.example.com:8443/v2/secret",
+            "https://rpc.example.com:8443/?token=secret",
+            "https://rpc.example.com:8443?token=secret",
+            "https://rpc.example.com:8443/#secret",
+        ] {
+            assert_eq!(redact_url(input), "https://rpc.example.com:8443");
+        }
+        assert_eq!(redact_url("http://[::1]:8899/token"), "http://[::1]:8899");
+        assert_eq!(redact_url("invalid secret URL"), "invalid URL");
     }
 
     #[test]
