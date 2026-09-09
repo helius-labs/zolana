@@ -1154,7 +1154,10 @@ describe("ring lookup table", () => {
   const FEE_PAYER = getAddressDecoder().decode(new Uint8Array(32).fill(45));
   const TABLE = getAddressDecoder().decode(new Uint8Array(32).fill(46));
 
-  function lookupTableReads(tables: ReadonlyMap<Address, readonly Address[]>) {
+  function lookupTableReads(
+    tables: ReadonlyMap<Address, readonly Address[]>,
+    lastExtendedSlot = 99n,
+  ) {
     return solanaRpcReads({
       getSlot: () => ({ send: async () => 100n }),
       getAccountInfo: (account: Address) => ({
@@ -1163,7 +1166,7 @@ describe("ring lookup table", () => {
           if (addresses === undefined) return { context: { slot: 100n }, value: null };
           const data = getAddressLookupTableEncoder().encode({
             deactivationSlot: 0xffff_ffff_ffff_ffffn,
-            lastExtendedSlot: 100n,
+            lastExtendedSlot,
             lastExtendedSlotStartIndex: 0,
             authority: FEE_PAYER,
             addresses: [...addresses],
@@ -1264,5 +1267,23 @@ describe("ring lookup table", () => {
     await expect(
       fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
     ).resolves.toContain(accounts.policyAddress);
+  });
+
+  it("refuses a table extended in the current slot", async () => {
+    const accounts = await ringAccounts(ViewingKey.generate(), false);
+    const trees = { tree: ACTIVE_TREE, outputTree: ACTIVE_TREE, hasPolicy: false } as const;
+    const held = await ringLookupTableAddresses({ ringProgramId: RING, trees });
+    const client = ringTransferClient({
+      tree: ACTIVE_TREE,
+      getAccount: accounts.getAccount,
+      solanaRpc: lookupTableReads(new Map([[TABLE, held]]), 100n),
+    });
+
+    await expect(
+      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
+    ).rejects.toMatchObject({
+      code: "RING_LOOKUP_TABLE_NOT_READY",
+      details: { address: TABLE, lastExtendedSlot: "100", slot: "100" },
+    });
   });
 });
