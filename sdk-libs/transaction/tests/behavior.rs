@@ -83,6 +83,14 @@ fn asset_registry_and_blinding_rules_are_explicit() {
 }
 
 #[test]
+fn transact_derivations_match_shared_vectors() {
+    cases::transact_derivation::owner_identities_match_shared_vectors();
+    cases::transact_derivation::blinding_seed_family_matches_shared_vectors();
+    cases::transact_derivation::tree_slot_chain_matches_shared_vectors();
+    cases::transact_derivation::dummy_utxo_hash_matches_shared_vectors();
+}
+
+#[test]
 fn merge_recovery_derivations_match_circuit_vectors() {
     cases::merge_derivation::recovery_domains_are_the_ascii_tags();
     cases::merge_derivation::recovery_derivations_match_circuit_vectors();

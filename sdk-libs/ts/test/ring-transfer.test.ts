@@ -2,8 +2,10 @@ import { p256 } from "@noble/curves/nist.js";
 import { address, getAddressDecoder, getAddressEncoder, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
+import { treeAddress } from "../src/interface/pda/index.js";
 import { InstructionTag } from "../src/interface/program.js";
 import type { Bytes32, Signature } from "../src/interface/types.js";
+import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
   AUDIT_ENC_INFO,
   auditSharedSecret,
@@ -23,7 +25,7 @@ import {
 } from "../src/ring/audit.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import { StateDiscriminator } from "../src/interface/state.js";
-import { assemble, ownerSignerAddresses } from "../src/client/prover/assembly.js";
+import { assemble, ownerSignerAddresses, signerIdentity } from "../src/client/prover/assembly.js";
 import { ringAuditReader, ringTransferClient, transactionsPage } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { hashBytesBigInt } from "../src/client/internal.js";
@@ -44,6 +46,8 @@ import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
 import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
+/** Every input proves from tree 0, the id the builders default to; the ring is not a tree. */
+const TREE = treeAddress(0);
 
 function scalar(value: number): Bytes32 {
   const bytes = new Uint8Array(32);
@@ -145,7 +149,7 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
     salt: external.salt,
     outputSlots: external.outputs.map((output, index) => ({
       viewTag: external.resolvedOwnerTags[index] ?? scalar(0),
-      outputContext: { hash: output.utxoHash, tree: RING, leafIndex: BigInt(index) },
+      outputContext: { hash: output.utxoHash, tree: TREE, leafIndex: BigInt(index) },
       payload: output.data ?? new Uint8Array(),
     })),
     messages: external.messages,
@@ -342,7 +346,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
   return {
     state: {
       leaf: input.hash(),
-      merkleContext: { treeType: 0, tree: RING },
+      merkleContext: { treeType: 0, tree: TREE },
       path: Array.from({ length: 32 }, () => scalar(0)),
       leafIndex: 0n,
       root: scalar(3),
@@ -351,7 +355,7 @@ function spendProofFor(input: ProofInputUtxo): SpendProof {
     },
     nullifier: {
       leaf: input.nullifier(),
-      merkleContext: { treeType: 1, tree: RING },
+      merkleContext: { treeType: 1, tree: TREE },
       path: Array.from({ length: 40 }, () => scalar(0)),
       lowElement: scalar(4),
       lowElementIndex: 0n,
@@ -377,7 +381,11 @@ describe("ring witness", () => {
     proofInputs.outputs.forEach((output, index) => {
       const tag = tags[index];
       if (!tag) throw new Error("owner tag");
-      expect(published[index]).toBe(output.isDummy() ? hashBytesBigInt(tag) : 0n);
+      // A published tag is a Solana signer, so it enters as its tagged identity
+      // (`0x53 || pk`), not the bare hash of the tag bytes.
+      expect(published[index]).toBe(
+        output.isDummy() ? bytesToBigInt(solanaOwnerIdentity(tag)) : 0n,
+      );
     });
     expect(assembled.proverInputs.circuit).toBe("transferRing");
     expect(assembled.proverInputs.payload.ringProgramId).toBe(
@@ -403,9 +411,11 @@ describe("ring witness", () => {
     if (!input) throw new Error("input");
     const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
     const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
+    // Signers enter the chain as tagged Solana identities, `hash(0x53 || pk)`.
     const hashOf = (target: Address) =>
-      hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(target)));
+      bytesToBigInt(solanaOwnerIdentity(new Uint8Array(getAddressEncoder().encode(target))));
     expect(vector[0]).toBe(hashOf(payer));
+    expect(vector[0]).toBe(signerIdentity(payer));
     expect(vector[1]).toBe(hashOf(owner.address.solanaAddress()));
     expect(vector.slice(2).every((entry) => entry === 0n)).toBe(true);
     expect(ownerSignerAddresses(proofInputs.inputUtxos, payer)).toEqual([
@@ -414,7 +424,7 @@ describe("ring witness", () => {
   });
 
   it("refuses a tree the client does not prove from, before any fetch", async () => {
-    const client = ringTransferClient({ tree: RING });
+    const client = ringTransferClient();
     await expect(
       proveCustomRingTransfer({
         client,

@@ -21,6 +21,7 @@ import type {
   ProverInputs,
   TransferInput,
   TransferOutput,
+  TreeSlotFields,
 } from "./types.js";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -308,11 +309,14 @@ export class ProverClient {
   }
 }
 
+/** Mirrors Rust `MergeParametersJson`, key set included. */
 function mergeProverRequest(inputs: MergeInputs): Readonly<Record<string, unknown>> {
   return Object.freeze({
     circuitType: "merge",
     inputs: inputs.inputs.map(mergeInputJson),
     output: mergeOutputJson(inputs.output),
+    treeSlots: inputs.treeSlots.map(treeSlotJson),
+    outputTreeId: hex(inputs.outputTreeId),
     asset: hex(inputs.output.circuit.asset),
     ownerPkHash: hex(inputs.ownerPublicKeyHash),
     userNullifierPk: hex(inputs.userNullifierPublicKey),
@@ -339,8 +343,7 @@ function mergeInputJson(input: TransferInput): Readonly<Record<string, unknown>>
     nullifierNextValue: hex(input.nullifierNextValue),
     nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
     nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
-    utxoTreeRoot: hex(input.utxoTreeRoot),
-    nullifierTreeRoot: hex(input.nullifierTreeRoot),
+    treeSlot: hex(input.treeSlot),
     nullifier: hex(input.nullifier),
   });
 }
@@ -349,6 +352,15 @@ function mergeOutputJson(output: TransferOutput): Readonly<Record<string, unknow
   return Object.freeze({
     ringDataHash: hex(output.circuit.ringDataHash),
     hash: hex(output.hash),
+  });
+}
+
+/** Mirrors Rust `TreeSlotJson`. */
+function treeSlotJson(slot: TreeSlotFields): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    id: hex(slot.id),
+    utxoRoot: hex(slot.utxoRoot),
+    nullifierRoot: hex(slot.nullifierRoot),
   });
 }
 
@@ -375,6 +387,7 @@ export function customRingProofRequest(
   });
 }
 
+/** Mirrors Rust `TransferInputsJson`, key set and order included. */
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   return Object.freeze({
@@ -383,8 +396,11 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),
     outputs: payload.outputs.map(outputJson),
+    treeSlots: payload.treeSlots.map(treeSlotJson),
+    outputTreeId: hex(payload.outputTreeId),
     externalDataHash: hex(payload.externalDataHash),
     privateTxHash: hex(payload.privateTxHash),
+    blindingSeed: hex(payload.blindingSeed),
     publicAssets: payload.publicAssets.map(hex),
     publicAmounts: payload.publicAmounts.map(hex),
     ringProgramId: hex(payload.ringProgramId),
@@ -405,8 +421,7 @@ function inputJson(input: TransferInput): Readonly<Record<string, unknown>> {
     nullifierNextValue: hex(input.nullifierNextValue),
     nullifierLowPathElements: input.nullifierLowPathElements.map(hex),
     nullifierLowPathIndex: hex(input.nullifierLowPathIndex),
-    utxoTreeRoot: hex(input.utxoTreeRoot),
-    nullifierTreeRoot: hex(input.nullifierTreeRoot),
+    treeSlot: hex(input.treeSlot),
     nullifier: hex(input.nullifier),
     ownerPkHash: hex(input.ownerPublicKeyHash),
     nullifierSecret: hex(input.nullifierSecret),

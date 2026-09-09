@@ -11,6 +11,7 @@ pub(crate) mod plaintext_transfer;
 pub(crate) mod remote_authority;
 pub(crate) mod serialization;
 pub(crate) mod split;
+pub(crate) mod transact_derivation;
 pub(crate) mod transfer;
 pub(crate) mod utxo;
 pub(crate) mod utxo_encryption;

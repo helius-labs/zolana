@@ -7,9 +7,52 @@ schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
 builders take one nullifier account per input. Registering a ring and admitting
 it are now two separate steps with two different signers. Wallet replay keeps merge outputs when their inputs arrive in the same
-sync.
+sync. The proof system changed underneath: owner identities carry a signing
+algorithm tag, every UTXO commits to the tree it lives in, and one private
+blinding seed per proof derives every output blinding and the private
+transaction hash blinding.
 
 Breaking
+
+- `ShieldedPublicKey.ownerProofInputHash()` hashes a signing algorithm tag
+  ahead of the key, so every owner hash, compressed address, UTXO hash, and
+  nullifier differs from earlier releases → state and addresses produced before
+  this release no longer verify; derive addresses again and sync wallets from
+  an empty state.
+- `Utxo.hash`, `Utxo.proofInput`, `ProofOutputUtxo.hash`, and the object form of
+  `ownerUtxoHash` take the raw id of the tree the UTXO lives in, and
+  `ProofInputUtxo` carries `treeId` → pass `DEFAULT_TREE_ID` (0), the value
+  every builder, wallet, and client path defaults to.
+- `deriveBlinding` is removed; every transact output, padding included, is
+  blinded with `transactOutputBlinding(firstNullifier, outputBlindingSeed(firstNullifier, blindingSeed), slot)`
+  and the seed-disclosing bundles carry the derived output seed, so
+  `anonymousSenderUtxos`, `plaintextTransferUtxos`, `splitBundleUtxos`, and
+  their `*FromUtxos` counterparts take the transaction's first nullifier →
+  read `nullifiers[0]` of the indexed transaction and pass it along.
+- `privateTxHash` takes `blinding` and `addressNullifiers` (was
+  `addressHashes`), `createEncryptedTransaction` takes `outputTreeId` and
+  `privateTxBlinding`, and `SppProofInputs` requires `blindingSeed` and
+  `outputTreeId` while exposing `firstNullifier`, `outputBlindingSeed`,
+  `privateTxBlinding`, and `privateTxHash` → callers that hash a transaction
+  themselves supply the blinding; `messageHash` is unchanged in meaning.
+- `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
+  `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
+  argument, and `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
+  `inputTreeId`, `outputTreeId`, and the seed material the prover needs → an
+  input set spanning two trees is refused with
+  `TRANSACTION_INPUT_TREE_MISMATCH`.
+- A padding output's published owner tag names a non-payer input owner or a
+  real output's owner and is always inline, and a self-paid transfer with no
+  change and no recipient keeps a real zero-amount SOL change output → expect
+  `PreparedTransfer.outputs` to hold an owned zero-amount output in that case,
+  and `TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT` when a transfer would
+  otherwise name nobody.
+- `ZolanaClientConfig.treeId` selects the pool tree (default 0) and `tree`, when
+  given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
+  proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, every
+  input of an instruction carries one root position pair
+  (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
+  `outputTreeId`, and `blindingSeed` → run a prover from this release.
 
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - Ring registration is permissionless and produces a config that authorizes
@@ -113,6 +156,17 @@ Added
   derives for a deposit output, so a caller that does not want to trust an
   indexer can verify a deposited UTXO against the tree and leaf index alone.
   Reading the indexed UTXO remains the normal way to spend a deposit.
+- `solanaOwnerIdentity`, `p256OwnerIdentity`, `outputBlindingSeed`,
+  `transactOutputBlinding`, `privateTxBlinding`, `mergePrivateTxBlinding`,
+  `treeIdField`, `treeSlotHash`, `treeSlotsHashChain`, `inputTreeSlots`,
+  `INPUT_TREES`, and `DEFAULT_TREE_ID` expose the proof derivations a reader or
+  an integrating program recomputes.
+- `ClientError` adds `CLIENT_INPUT_TREE_ROOT_MISMATCH`,
+  `CLIENT_NULLIFIER_ROOT_MISMATCH`, `CLIENT_OUTPUT_BLINDING_MISMATCH`, and
+  `CLIENT_TREE_ID_MISMATCH`; `TransactionError` adds
+  `TRANSACTION_INPUT_TREE_MISMATCH`, `TRANSACTION_INVALID_TREE_ID`, and
+  `TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT`, all raised before a proof
+  request leaves the client.
 
 Changed
 

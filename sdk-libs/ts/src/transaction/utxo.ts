@@ -2,6 +2,7 @@ import { address } from "@solana/kit";
 
 import type { Address, Bytes31, Bytes32 } from "../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import { DEFAULT_TREE_ID, treeIdField } from "../interface/tree-slot.js";
 import { randomBlinding } from "../keypair/bytes.js";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
@@ -51,15 +52,27 @@ export function resolveRingProgramId(
   return ringProgramId;
 }
 
-export function deriveBlinding(seed: Bytes32, position: number): Blinding {
-  const checkedSeed = checked<Bytes32>(seed, 32, "blinding seed");
-  if (!Number.isInteger(position) || position < 0 || position > 0xff) {
-    throw new TransactionError("TRANSACTION_INVALID_POSITION", { position });
+// The transact blinding family lives with the key material, next to the merge
+// derivations; it is re-exported here because callers reach for it beside the
+// UTXO hash it feeds, the way Rust re-exports `zolana_program::derivation`.
+export {
+  outputBlindingSeed,
+  privateTxBlinding,
+  transactOutputBlinding,
+} from "../keypair/transact/index.js";
+
+/**
+ * The tree id an output or input is hashed under. The raw `u16` id enters the
+ * commitment as its own field, so equal UTXOs in different trees have distinct
+ * hashes and nullifiers. Mirrors the Rust `tree_id: u16` context parameter.
+ */
+export type TreeId = number;
+
+function checkedTreeId(treeId: TreeId): TreeId {
+  if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
+    throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId });
   }
-  const digest = sha256Bytes(Uint8Array.from([...checkedSeed.subarray(1), position]));
-  const blinding = new Uint8Array(32);
-  blinding.set(digest.subarray(1), 1);
-  return blinding as Blinding;
+  return treeId;
 }
 
 const DEPOSIT_BLINDING_DOMAIN = new TextEncoder().encode("Deposit");
@@ -87,17 +100,20 @@ export function depositBlinding(tree: Address, leafIndex: bigint): Blinding {
   return blinding as Blinding;
 }
 
+/** The body a UTXO commitment covers, plus the tree it is hashed under. */
+export interface UtxoCommitmentInput {
+  readonly owner: Bytes32;
+  readonly asset: Address;
+  readonly amount: bigint;
+  readonly blinding: Bytes32;
+  readonly treeId: TreeId;
+  readonly dataHash?: Bytes32;
+  readonly ringDataHash?: Bytes32;
+  readonly ringProgramId?: Address;
+}
+
 function commitmentFields(
-  input: Readonly<{
-    domain?: number;
-    owner: Bytes32;
-    asset: Address;
-    amount: bigint;
-    blinding: Bytes32;
-    dataHash?: Bytes32;
-    ringDataHash?: Bytes32;
-    ringProgramId?: Address;
-  }>,
+  input: UtxoCommitmentInput & { readonly domain?: number },
 ): readonly Bytes32[] {
   checkU64(input.amount, "amount");
   const ringDataHash = input.ringDataHash
@@ -116,6 +132,7 @@ function commitmentFields(
   ]);
   return [
     rightAlign(Uint8Array.of(input.domain ?? UTXO_DOMAIN)),
+    treeIdField(checkedTreeId(input.treeId)),
     hashBytes(decodeAddress(input.asset)) as Bytes32,
     rightAlign(bigintToU64(input.amount)),
     input.dataHash ? checked<Bytes32>(input.dataHash, 32, "data hash") : ZERO_32,
@@ -143,21 +160,17 @@ function bigintToU64(value: bigint): Uint8Array {
   return output;
 }
 
-function fullOwnerUtxoHash(
-  input: Readonly<{
-    owner: Bytes32;
-    asset: Address;
-    amount: bigint;
-    blinding: Bytes32;
-    dataHash?: Bytes32;
-    ringDataHash?: Bytes32;
-    ringProgramId?: Address;
-  }>,
-  dummy = false,
-): Bytes32 {
+/**
+ * `Poseidon(domain, tree_id, asset, amount, data_hash, ring_hash,
+ * owner_utxo_hash)`. A dummy keeps the domain tag, the tree id and the
+ * blinding and zeroes everything else, so it is indistinguishable from a real
+ * commitment while provably carrying nothing.
+ */
+function fullOwnerUtxoHash(input: UtxoCommitmentInput, dummy = false): Bytes32 {
   if (dummy) {
     return commitmentPoseidon([
       rightAlign(Uint8Array.of(DUMMY_DOMAIN)),
+      treeIdField(checkedTreeId(input.treeId)),
       ZERO_32,
       ZERO_32,
       ZERO_32,
@@ -169,29 +182,9 @@ function fullOwnerUtxoHash(
 }
 
 export function ownerUtxoHash(ownerHash: Bytes32, blinding: Bytes32): Bytes32;
+export function ownerUtxoHash(input: UtxoCommitmentInput): Bytes32;
 export function ownerUtxoHash(
-  input: Readonly<{
-    owner: Bytes32;
-    asset: Address;
-    amount: bigint;
-    blinding: Bytes32;
-    dataHash?: Bytes32;
-    ringDataHash?: Bytes32;
-    ringProgramId?: Address;
-  }>,
-): Bytes32;
-export function ownerUtxoHash(
-  ownerOrInput:
-    | Bytes32
-    | Readonly<{
-        owner: Bytes32;
-        asset: Address;
-        amount: bigint;
-        blinding: Bytes32;
-        dataHash?: Bytes32;
-        ringDataHash?: Bytes32;
-        ringProgramId?: Address;
-      }>,
+  ownerOrInput: Bytes32 | UtxoCommitmentInput,
   blinding?: Bytes32,
 ): Bytes32 {
   if (ownerOrInput instanceof Uint8Array) {
@@ -221,8 +214,10 @@ export class Utxo {
     if (input.ringProgramId !== undefined) this.ringProgramId = input.ringProgramId;
   }
 
+  /** The commitment of this UTXO in tree `treeId`, under the owner's nullifier public key. */
   proofInput(
     nullifierPublicKey: Bytes32,
+    treeId: TreeId,
     dataHash?: Bytes32,
     ringDataHash?: Bytes32,
   ): Readonly<{ hash(): Bytes32 }> {
@@ -230,11 +225,12 @@ export class Utxo {
       this.owner.ownerProofInputHash(),
       checked<Bytes32>(nullifierPublicKey, 32, "nullifier public key"),
     ]);
-    const input = {
+    const input: UtxoCommitmentInput = {
       owner,
       asset: this.asset,
       amount: this.amount,
       blinding: this.blinding,
+      treeId: checkedTreeId(treeId),
       ...(dataHash === undefined ? {} : { dataHash }),
       ...(ringDataHash === undefined ? {} : { ringDataHash }),
       ...(this.ringProgramId === undefined ? {} : { ringProgramId: this.ringProgramId }),
@@ -242,8 +238,13 @@ export class Utxo {
     return Object.freeze({ hash: (): Bytes32 => fullOwnerUtxoHash(input) });
   }
 
-  hash(nullifierPublicKey: Bytes32, dataHash?: Bytes32, ringDataHash?: Bytes32): Bytes32 {
-    return this.proofInput(nullifierPublicKey, dataHash, ringDataHash).hash();
+  hash(
+    nullifierPublicKey: Bytes32,
+    treeId: TreeId,
+    dataHash?: Bytes32,
+    ringDataHash?: Bytes32,
+  ): Bytes32 {
+    return this.proofInput(nullifierPublicKey, treeId, dataHash, ringDataHash).hash();
   }
 
   nullifier(utxoHash: Bytes32, nullifierKey: NullifierKey): Bytes32 {
@@ -254,6 +255,8 @@ export class Utxo {
 export class ProofInputUtxo {
   readonly utxo: Utxo;
   readonly nullifierKey: NullifierKey;
+  /** The tree the UTXO is spent from; every input of one proof shares it. */
+  readonly treeId: TreeId;
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
 
@@ -261,6 +264,8 @@ export class ProofInputUtxo {
     input: Readonly<{
       utxo: Utxo;
       nullifierKey: NullifierKey;
+      /** Defaults to `DEFAULT_TREE_ID`, the one live tree. */
+      treeId?: TreeId;
       dataHash?: Bytes32;
       ringDataHash?: Bytes32;
     }>,
@@ -268,6 +273,7 @@ export class ProofInputUtxo {
     if (!(input.utxo instanceof Utxo) || !(input.nullifierKey instanceof NullifierKey)) {
       throw new TransactionError("TRANSACTION_DESERIALIZE", { field: "proofInput" });
     }
+    this.treeId = checkedTreeId(input.treeId ?? DEFAULT_TREE_ID);
     this.utxo = new Utxo({
       owner: input.utxo.owner.isZero()
         ? ShieldedPublicKey.zeroed()
@@ -291,30 +297,47 @@ export class ProofInputUtxo {
     this.checkCanonicalDummy();
   }
 
-  static fromKeypair(utxo: Utxo, keypair: ShieldedKeypair): ProofInputUtxo {
+  static fromKeypair(
+    utxo: Utxo,
+    keypair: ShieldedKeypair,
+    treeId: TreeId = DEFAULT_TREE_ID,
+  ): ProofInputUtxo {
     const nullifierKey = keypair.nullifierKey();
     try {
-      return new ProofInputUtxo({ utxo, nullifierKey });
+      return new ProofInputUtxo({ utxo, nullifierKey, treeId });
     } finally {
       nullifierKey.destroy();
     }
   }
 
-  static dummy(blinding = randomBlinding()): ProofInputUtxo {
+  /** A padding slot: zero owner and body, hashed under `treeId` like a real input. */
+  static dummy(blinding = randomBlinding(), treeId: TreeId = DEFAULT_TREE_ID): ProofInputUtxo {
     const nullifierKey = NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
     try {
       return new ProofInputUtxo({
         utxo: new Utxo({
           owner: ShieldedPublicKey.zeroed(),
-          asset: address("11111111111111111111111111111111"),
+          asset: DUMMY_ASSET,
           amount: 0n,
           blinding: checked<Bytes32>(blinding, 32, "dummy blinding"),
         }),
         nullifierKey,
+        treeId,
       });
     } finally {
       nullifierKey.destroy();
     }
+  }
+
+  /** The same input hashed under another tree; the caller keeps ownership of `this`. */
+  withTreeId(treeId: TreeId): ProofInputUtxo {
+    return new ProofInputUtxo({
+      utxo: this.utxo,
+      nullifierKey: this.nullifierKey,
+      treeId,
+      ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
+      ...(this.ringDataHash === undefined ? {} : { ringDataHash: this.ringDataHash }),
+    });
   }
 
   isDummy(): boolean {
@@ -355,6 +378,7 @@ export class ProofInputUtxo {
         asset: this.utxo.asset,
         amount: this.utxo.amount,
         blinding: this.utxo.blinding,
+        treeId: this.treeId,
         ...(this.dataHash === undefined ? {} : { dataHash: this.dataHash }),
         ...(this.ringDataHash === undefined ? {} : { ringDataHash: this.ringDataHash }),
         ...(this.utxo.ringProgramId === undefined
@@ -404,7 +428,8 @@ export interface ProofOutputUtxo {
   readonly ownerTag?: Bytes32;
   readonly data: Data;
   ownerHash(): Bytes32;
-  hash(): Bytes32;
+  /** The commitment of this output in `outputTreeId`, the tree it is appended to. */
+  hash(outputTreeId: TreeId): Bytes32;
   isDummy(): boolean;
   withUtxoData(utxoData: Uint8Array, dataHash: Bytes32): ProofOutputUtxo;
   /**
@@ -464,13 +489,14 @@ export function createProofOutput(input: ProofOutputInit): ProofOutputUtxo {
     blinding,
     data,
     ownerHash,
-    hash(): Bytes32 {
+    hash(outputTreeId: TreeId): Bytes32 {
       return fullOwnerUtxoHash(
         {
           owner: ownerHash(),
           asset: input.asset,
           amount,
           blinding,
+          treeId: checkedTreeId(outputTreeId),
           ...(input.dataHash === undefined ? {} : { dataHash: input.dataHash }),
           ...(ringDataHash === undefined ? {} : { ringDataHash }),
           ...(input.ringProgramId === undefined ? {} : { ringProgramId: input.ringProgramId }),

@@ -9,15 +9,30 @@ import { Data } from "../data.js";
 import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
 import { checked, equal } from "../internal.js";
+import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
   createProofOutput,
-  deriveBlinding,
+  outputBlindingSeed,
+  transactOutputBlinding,
   type ProofOutputUtxo,
+  type TreeId,
 } from "../utxo.js";
 import { type AssetRegistry } from "../asset.js";
-import { SppProofInputs, createExternalData, type InputUtxoContext } from "./transact.js";
+import {
+  SppProofInputs,
+  createExternalData,
+  inputTreeId,
+  type InputUtxoContext,
+} from "./transact.js";
+
+function checkedTreeId(treeId: TreeId): TreeId {
+  if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
+    throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId });
+  }
+  return treeId;
+}
 
 /** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = MERGE_INPUT_COUNT;
@@ -38,6 +53,10 @@ export class PreparedMerge {
   readonly output: ProofOutputUtxo;
   readonly expiryUnixTs: bigint;
   readonly signingPublicKey: ShieldedPublicKey;
+  /** The tree every input is spent from. */
+  readonly inputTreeId: TreeId;
+  /** The tree the merged output is appended to. */
+  readonly outputTreeId: TreeId;
 
   constructor(
     input: Readonly<{
@@ -45,6 +64,7 @@ export class PreparedMerge {
       output: ProofOutputUtxo;
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
+      outputTreeId: TreeId;
     }>,
   ) {
     if (input.inputs.length !== MERGE_INPUTS) {
@@ -61,10 +81,17 @@ export class PreparedMerge {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
+    this.inputTreeId = inputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
     this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
     this.signingPublicKey = input.signingPublicKey;
+    this.outputTreeId = checkedTreeId(input.outputTreeId);
+  }
+
+  /** The merged output's commitment in `outputTreeId`. */
+  outputHash(): Bytes32 {
+    return this.output.hash(this.outputTreeId);
   }
 
   inputUtxoHashes(): readonly InputUtxoContext[] {
@@ -114,9 +141,15 @@ function realInputContexts(
 export class Merge {
   #prepared: PreparedMerge;
 
+  /**
+   * Consolidates up to eight inputs of one asset into one output. The output
+   * lands in `outputTreeId`, `DEFAULT_TREE_ID` unless given; mirrors Rust
+   * `Merge::new(.., output_tree_id)`.
+   */
   constructor(
     identity: ShieldedKeypair | Readonly<{ address: ShieldedAddress; nullifierKey: NullifierKey }>,
     inputs: readonly ProofInputUtxo[],
+    outputTreeId: TreeId = DEFAULT_TREE_ID,
   ) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
     if (inputs.length > MERGE_INPUTS) {
@@ -161,8 +194,10 @@ export class Merge {
           throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
         }
       });
+      // Dummies are hashed under the input tree like every real input.
+      const treeId = inputTreeId(inputs);
       const padded = [...inputs];
-      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy());
+      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, treeId));
       this.#prepared = new PreparedMerge({
         inputs: padded,
         output: createProofOutput({
@@ -173,6 +208,7 @@ export class Merge {
         }),
         expiryUnixTs: 0xffff_ffff_ffff_ffffn,
         signingPublicKey: owner,
+        outputTreeId: checkedTreeId(outputTreeId),
       });
     } finally {
       // Destroy only the fresh copy, a caller-held key stays the caller's.
@@ -190,6 +226,19 @@ export class Merge {
       output: this.#prepared.output,
       expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
       signingPublicKey: this.#prepared.signingPublicKey,
+      outputTreeId: this.#prepared.outputTreeId,
+    });
+    return this;
+  }
+
+  /** Mirrors Rust `with_output_tree_id`. */
+  withOutputTreeId(outputTreeId: TreeId): this {
+    this.#prepared = new PreparedMerge({
+      inputs: this.#prepared.inputs,
+      output: this.#prepared.output,
+      expiryUnixTs: this.#prepared.expiryUnixTs,
+      signingPublicKey: this.#prepared.signingPublicKey,
+      outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;
   }
@@ -202,7 +251,8 @@ export class ConfidentialSplit {
   readonly #numOutputs: number;
   readonly #perOutputAmount: bigint;
   readonly #payer: Address;
-  readonly #seed = randomBlinding();
+  readonly #blindingSeed = randomBlinding();
+  #outputTreeId: TreeId = DEFAULT_TREE_ID;
 
   constructor(
     input: Readonly<{
@@ -271,13 +321,23 @@ export class ConfidentialSplit {
     this.#payer = input.payer;
   }
 
+  /** Mirrors Rust `with_output_tree_id`; `DEFAULT_TREE_ID` unless set. */
+  withOutputTreeId(outputTreeId: TreeId): this {
+    this.#outputTreeId = checkedTreeId(outputTreeId);
+    return this;
+  }
+
   prepare(): PreparedSplit {
-    const outputs = Array.from({ length: 8 }, (_, index) =>
+    // All eight slots are self-owned real outputs, the unused ones at amount
+    // zero; every blinding derives from the first nullifier and the slot index.
+    const firstNullifier = this.#input.nullifier();
+    const outputSeed = outputBlindingSeed(firstNullifier, this.#blindingSeed);
+    const outputs = Array.from({ length: SPLIT_OUTPUT_SLOTS }, (_, index) =>
       createProofOutput({
         ownerAddress: this.#owner,
         asset: this.#asset,
         amount: index < this.#numOutputs ? this.#perOutputAmount : 0n,
-        blinding: deriveBlinding(this.#seed, index),
+        blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
       }),
     );
     return new PreparedSplit({
@@ -286,7 +346,8 @@ export class ConfidentialSplit {
       outputs,
       numOutputs: this.#numOutputs,
       perOutputAmount: this.#perOutputAmount,
-      blindingSeed: this.#seed,
+      blindingSeed: this.#blindingSeed,
+      outputTreeId: this.#outputTreeId,
       payer: this.#payer,
     });
   }
@@ -324,6 +385,9 @@ export class ConfidentialSplit {
   }
 }
 
+/** Output slots of the split circuit shape (1 in, 8 out). Mirrors Rust `SPLIT_OUTPUT_SLOTS`. */
+export const SPLIT_OUTPUT_SLOTS = 8;
+
 export class PreparedSplit {
   readonly owner: ShieldedAddress;
   readonly input: ProofInputUtxo;
@@ -332,7 +396,12 @@ export class PreparedSplit {
   readonly firstNullifier: Bytes32;
   readonly numOutputs: number;
   readonly perOutputAmount: bigint;
+  /** The private root seed; only the prover request may carry it. */
   readonly blindingSeed: Bytes32;
+  /** The tree the input is spent from. */
+  readonly inputTreeId: TreeId;
+  /** The tree the eight outputs are appended to. */
+  readonly outputTreeId: TreeId;
   readonly payer: Address;
 
   constructor(
@@ -343,29 +412,36 @@ export class PreparedSplit {
       numOutputs: number;
       perOutputAmount: bigint;
       blindingSeed: Bytes32;
+      outputTreeId: TreeId;
       payer: Address;
     }>,
   ) {
-    if (!Number.isInteger(input.numOutputs) || input.numOutputs < 2 || input.numOutputs > 8) {
+    if (
+      !Number.isInteger(input.numOutputs) ||
+      input.numOutputs < 2 ||
+      input.numOutputs > SPLIT_OUTPUT_SLOTS
+    ) {
       throw new TransactionError("TRANSACTION_SPLIT_INVALID_PART_COUNT", {
         numOutputs: input.numOutputs,
       });
     }
-    if (input.outputs.length !== 8) {
+    if (input.outputs.length !== SPLIT_OUTPUT_SLOTS) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
-        expected: 8,
+        expected: SPLIT_OUTPUT_SLOTS,
         actual: input.outputs.length,
       });
     }
     const perOutputAmount = checkedU64(input.perOutputAmount, "perOutputAmount");
     const blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
+    const firstNullifier = input.input.nullifier();
+    const outputSeed = outputBlindingSeed(firstNullifier, blindingSeed);
     input.outputs.forEach((output, index) => {
       const expectedAmount = index < input.numOutputs ? perOutputAmount : 0n;
       if (
         !equal(output.ownerHash(), input.owner.ownerHash()) ||
         output.asset !== input.input.utxo.asset ||
         output.amount !== expectedAmount ||
-        !equal(output.blinding, deriveBlinding(blindingSeed, index)) ||
+        !equal(output.blinding, transactOutputBlinding(firstNullifier, outputSeed, index)) ||
         output.ringProgramId !== undefined ||
         output.ringDataHash !== undefined ||
         output.dataHash !== undefined ||
@@ -378,13 +454,25 @@ export class PreparedSplit {
     this.input = input.input;
     this.asset = input.input.utxo.asset;
     this.outputs = Object.freeze([...input.outputs]);
-    this.firstNullifier = input.input.nullifier();
+    this.firstNullifier = firstNullifier;
     this.numOutputs = input.numOutputs;
     this.perOutputAmount = perOutputAmount;
     this.blindingSeed = blindingSeed;
+    this.inputTreeId = input.input.treeId;
+    this.outputTreeId = checkedTreeId(input.outputTreeId);
     this.payer = input.payer;
   }
 
+  /** The derived seed the bundle discloses; the root `blindingSeed` never leaves the prover path. */
+  outputBlindingSeed(): Bytes32 {
+    return outputBlindingSeed(this.firstNullifier, this.blindingSeed);
+  }
+
+  /**
+   * The bundle carries the derived output seed, never the root: all eight
+   * outputs are self-owned, and a reader recovers every blinding from the seed
+   * and the first nullifier.
+   */
   bundlePlaintext(
     assets: AssetRegistry,
   ): import("../serialization/codecs.js").SplitBundlePlaintext {
@@ -393,7 +481,7 @@ export class PreparedSplit {
       numOutputs: this.numOutputs,
       assetId: assets.assetId(this.input.utxo.asset),
       assetAmount: this.perOutputAmount,
-      blindingSeed: this.blindingSeed,
+      blindingSeed: this.outputBlindingSeed(),
       data: new Data(),
     };
   }
@@ -416,7 +504,7 @@ export class PreparedSplit {
   ): SppProofInputs {
     const tag = this.ownerViewTag();
     const outputs = this.outputs.map((output, index) => ({
-      utxoHash: output.hash(),
+      utxoHash: output.hash(this.outputTreeId),
       ownerTag: { kind: "inline" as const, value: tag },
       ...(index === 0 ? { data: new Uint8Array(input.payload.data) } : {}),
     }));
@@ -431,6 +519,8 @@ export class PreparedSplit {
         resolvedOwnerTags: this.outputs.map(() => tag),
         messages: [],
       }),
+      blindingSeed: this.blindingSeed,
+      outputTreeId: this.outputTreeId,
     });
   }
 }

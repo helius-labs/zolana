@@ -8,6 +8,7 @@ import {
   authorizedPrivateTransactionMaterial,
   type AuthorizedPrivateTransactionMaterial,
 } from "../src/client/ports.js";
+import { treeAddress } from "../src/interface/pda/index.js";
 import { type Bytes32 } from "../src/interface/types.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
 import { Data, KeypairWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
@@ -21,7 +22,8 @@ import {
 import { createSplit, createTransfer, createWithdrawal } from "../src/wallet/actions.js";
 import { authorizePrivateTransaction } from "../src/wallet/private-transaction.js";
 
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+/** The wallet and the client build against tree id 0, so the address is that id's PDA. */
+const TREE = treeAddress(0);
 const SPL_MINT = address("So11111111111111111111111111111111111111112");
 const RING = address("9EwHno8C1T1vVGjasGnDH1GubiEu8qbgLX9qDjBshFhz");
 const RECIPIENT = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
@@ -196,11 +198,15 @@ describe("authorized transaction binding", () => {
     const coherent: AuthorizedPrivateTransactionMaterial = Object.freeze({
       ...material,
       intent: Object.freeze({ ...intent, recipient }),
+      // The clone keeps the seed and output tree, so it stays coherent with the
+      // derived output blindings and hashes; only the recipient moved.
       proofInputs: new SppProofInputs({
         payer: material.proofInputs.payer,
         inputUtxos: material.proofInputs.inputUtxos,
         outputs,
         externalData: material.proofInputs.externalData,
+        blindingSeed: material.proofInputs.blindingSeed,
+        outputTreeId: material.proofInputs.outputTreeId,
       }),
     });
     expect(() => checkAuthorizedBinding(coherent, mismatch)).not.toThrow();

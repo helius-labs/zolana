@@ -24,6 +24,11 @@ const TSPP_COIN_TYPE = 1392955331;
 
 const walletCore = await initWasm();
 
+// The key material is BIP44 output and never changes. `ownerHash` and
+// `compressedAddressHash` are the tagged identities: the owner proof input is
+// `hashBytes(SOLANA_OWNER_TAG || ed25519 pk)`, so both digests were recomputed
+// with the SDK when the tag was introduced. Rust derives the same two values
+// structurally in sdk-libs/keypair/tests/seed_based_keypair.rs.
 const GOLDEN = [
   {
     account: 0,
@@ -33,8 +38,8 @@ const GOLDEN = [
     nullifierPubkey: "070a4386ec323b299c7d7b9faf744e001b545974ac02fd148b537a4528ab8474",
     viewingSecret: "1694bc1c8a456511d0364e26c71409b4912c5b2ff56bed3fc9c706e066496a54",
     viewingPubkey: "03170ee9cf7a6f1ad811bd2019d386f67ce337458e0bf585c3cad7ddac85373e32",
-    ownerHash: "203c8faa665e74ed4f6e46a11242f040373a20099f8d84fbd4318b11569b6282",
-    compressedAddressHash: "0e10fc15c05a214c7534f47aee3f7dd933bde474a44a8f21110f1034a459ca8f",
+    ownerHash: "06385c1c29400b46f21e0198c9f993663f8ee0475620734df093bdd1e4bae73b",
+    compressedAddressHash: "0be057850ea4e8239c67b2d66e6524447acf0f0ca734ab492d519592678173c1",
   },
   {
     account: 1,
@@ -44,8 +49,8 @@ const GOLDEN = [
     nullifierPubkey: "1053061c5b9c4fc75b26b72d83d88d62f80e397cea6f36c07e25c9d8645106fc",
     viewingSecret: "60a8c80b23007c79c1dcf1821446dc77e6fcd2bb3e747ddca629784adaf8fa18",
     viewingPubkey: "03bb3b5ea4e0a873297d1f80e2ee1ebfabf472129debca75fced4753a95769fe27",
-    ownerHash: "1576686c1b4584c1e97410005cb3fa8b63a96be36e82199f8f8df2d925e17349",
-    compressedAddressHash: "23d94f383599e298bf78215f3bf976e2629b3f180816bcc956fcf9ea15fa6e2f",
+    ownerHash: "0fab761c5b882064cb84cdaed9809753d94cfb358375fc9b9f443750119edc86",
+    compressedAddressHash: "2917df75fb88bd858e8a006ff7e0afbc6860b2c7e461a4e509b1793175ba0256",
   },
 ] as const;
 

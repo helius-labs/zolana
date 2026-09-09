@@ -5,6 +5,7 @@ import { P256PublicKey, type ShieldedPublicKey } from "../../keypair/public-key.
 import type { ShieldedKeypair, ViewingKeyLike } from "../../keypair/shielded.js";
 
 import { initializePoseidon } from "../../hasher/index.js";
+import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { TransactionError } from "../error.js";
 import { copy, decodeAddress, equal } from "../internal.js";
 import { SENDER_SLOT_COUNT } from "../instructions/transact.js";
@@ -49,6 +50,22 @@ import {
 } from "./state.js";
 
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
+
+/**
+ * The tree id synced UTXOs are hashed under. A UTXO that lives in another tree
+ * fails the recompute-and-compare against the indexed leaf and is never
+ * stored, so a wrong id cannot admit a foreign commitment.
+ *
+ * TODO(tree-id): resolve the tree id from the tree account.
+ */
+const SYNC_TREE_ID = DEFAULT_TREE_ID;
+
+/** The nullifier every seed-disclosing bundle of `tx` derives its blindings from. */
+function firstNullifierOf(tx: IndexedShieldedTransaction): Bytes32 {
+  const firstNullifier = tx.nullifiers[0];
+  if (firstNullifier === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  return firstNullifier;
+}
 
 interface DecryptTransactionsConfig {
   /** Recorded as `Wallet.lastSynced` once the sync commits, as `Wallet::sync` records `synced_at`. */
@@ -331,7 +348,7 @@ class SyncPass {
    * transaction.
    */
   #storeInTx(utxo: Utxo, tx: IndexedShieldedTransaction): void {
-    const hash = utxo.hash(this.#nullifierPublicKey);
+    const hash = utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID);
     const slot = tx.outputSlots.find((candidate) => equal(candidate.outputContext.hash, hash));
     if (slot === undefined) {
       this.undecryptableCandidates++;
@@ -349,7 +366,12 @@ class SyncPass {
   ): boolean {
     let stored = false;
     for (const utxo of utxos) {
-      if (!equal(utxo.hash(this.#nullifierPublicKey, dataHash, ringDataHash), outputContext.hash)) {
+      if (
+        !equal(
+          utxo.hash(this.#nullifierPublicKey, SYNC_TREE_ID, dataHash, ringDataHash),
+          outputContext.hash,
+        )
+      ) {
         this.undecryptableCandidates++;
         continue;
       }
@@ -595,7 +617,7 @@ class SyncPass {
           const candidate = confidentialUtxo(plaintext, this.#owner, this.#assets);
           if (
             this.#isSelf(recipientKey) &&
-            equal(candidate.hash(this.#nullifierPublicKey), slot.outputContext.hash)
+            equal(candidate.hash(this.#nullifierPublicKey, SYNC_TREE_ID), slot.outputContext.hash)
           ) {
             change.push(candidate);
             return;
@@ -705,7 +727,12 @@ class SyncPass {
     if (frame.encoding === "plaintext" && frame.scheme === EncryptedScheme.plaintextTransfer) {
       let utxos: readonly Utxo[];
       try {
-        utxos = plaintextTransferUtxos(decodePlaintextTransfer(body), this.#assets, SOL_MINT);
+        utxos = plaintextTransferUtxos(
+          decodePlaintextTransfer(body),
+          this.#assets,
+          SOL_MINT,
+          firstNullifierOf(tx),
+        );
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -798,7 +825,7 @@ class SyncPass {
       try {
         const plaintext = decodeAnonymousSender(this.#decryptFor(key, tx, body, site.slot));
         recipients = plaintext.recipientViewingPublicKeys;
-        change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT);
+        change = anonymousSenderUtxos(plaintext, this.#assets, SOL_MINT, firstNullifierOf(tx));
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);
         return;
@@ -828,6 +855,7 @@ class SyncPass {
         utxos = splitBundleUtxos(
           decodeSplitBundle(key.decryptUtxo(body, txViewingPublicKey, salt, site.slot)),
           this.#assets,
+          firstNullifierOf(tx),
         );
       } catch (error) {
         this.#recordUndecryptable(error, siteKey);

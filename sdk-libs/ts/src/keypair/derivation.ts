@@ -78,6 +78,13 @@ export const DOM_SEP_NONCE = 0x544d_534e;
 export const DOMAIN_MERGE_OUTPUT_BLINDING_V1 = 0x544d_4f42;
 export const DOMAIN_MERGE_DUMMY_NULLIFIER = 0x544d_444e;
 
+/** `"TXOS"`: the seed every transact output blinding derives from. */
+export const DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1 = 0x5458_4f53;
+/** `"TXOB"`: one transact output blinding per output slot. */
+export const DOMAIN_TRANSACT_OUTPUT_BLINDING_V1 = 0x5458_4f42;
+/** `"TXPB"`: the blinding that keeps the private transaction hash unguessable. */
+export const DOMAIN_PRIVATE_TX_BLINDING_V1 = 0x5458_5042;
+
 const P256_ORDER =
   115_792_089_210_356_248_762_697_446_949_407_573_529_996_955_224_135_760_342_422_259_061_068_512_044_369n;
 

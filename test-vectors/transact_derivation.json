@@ -1,0 +1,40 @@
+{
+  "description": "Cross-language vectors for the tree-slot, tagged-identity and blinding-seed circuit contract. Rust reads it from sdk-libs/transaction/tests/cases/transact_derivation.rs, TypeScript from sdk-libs/ts/test/transact-derivation-vectors.test.ts. Small integers are right-aligned big-endian field elements.",
+  "owner_identity": {
+    "solana_pubkey": "00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",
+    "solana_owner_identity": "092acb76568e6c3dd177e9b6931e87c2a2b656bfacb7296942a5908129462f4c",
+    "p256_x": "3ed113b7883b4c590638379db0c21cda16742ed0255048bf433391d374bc21d1",
+    "p256_owner_identity": "091a0af1bf6d4a489b056f0ccf5d03627c3d77d253363719a056e46b30a7a0ba",
+    "hash_bytes_33_input": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021",
+    "hash_bytes_33": "2bdc37610f3b12c5cda2602b29fee491cd83354925c45fbf16db875ac27d7dbf"
+  },
+  "blinding_seed": {
+    "first_nullifier": 7,
+    "blinding_seed": 42,
+    "output_blinding_seed": "06bca316066630056539772e0d19f5d9453331f9dda2f0d08ee0632b6b512de3",
+    "private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610",
+    "output_index": 3,
+    "output_blinding": "06261540e857febb5f8d59eb742ad3d4d8200ff38ccbf2ea16cd1e0a9085e881",
+    "merge_nullifier_secret": 42,
+    "merge_private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610"
+  },
+  "tree_slots": {
+    "tree_id": 3,
+    "tree_id_field": "0000000000000000000000000000000000000000000000000000000000000003",
+    "utxo_root": 11,
+    "nullifier_root": 13,
+    "slot_hash": "20a4148465cc806c693e1851e3948b5b175cef38edc042b15298167038ab846a",
+    "single_tree_chain": "0ba743e3b22562f4ca3fb64a6d486deef2e7e1ec68bfea36a29b0bdc63a30692",
+    "zero_suffix_chains": [
+      "0bc188d27dcceadc1dcfb6af0a7af08fe2864eecec96c5ae7cee6db31ba599aa",
+      "0bb8c4e79b87e21962d496cfc7bbe6726a8d1ab8ed987416de3c54333b1f651e",
+      "0d996690abbda0b8aac106d15fa1c0f1e39810ee2b90ed5911b796fc2b23eedb",
+      "0b62216e4dd6db08ea73f29cf070f7a78af91417395f45bc7ec98e5a4d934641"
+    ]
+  },
+  "dummy_utxo_hash": {
+    "tree_id": 0,
+    "blinding": 7,
+    "hash": "0bcdb815bb39d89bf9fabc897beab1b8c15fffee38fa9e9519db1d316614c351"
+  }
+}
