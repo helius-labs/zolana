@@ -85,8 +85,8 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_confidential_2_3":   {constraints: 54031, public: 2},
 	"transfer_ring_2_3":           {constraints: 54136, public: 2},
 	"transfer_ring_authority_2_2": {constraints: 50574, public: 2},
-	"transfer_p256_ring_2_3":      {constraints: 245645, public: 2},
-	"custom_ring":                 {constraints: 334375, public: 2},
+	"transfer_p256_ring_2_3":      {constraints: 199260, public: 2},
+	"custom_ring":                 {constraints: 212757, public: 2},
 	"merge_8_1":                   {constraints: 180470, public: 2},
 	"merge_ring_8_1":              {constraints: 180740, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
@@ -112,7 +112,7 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 			t.Errorf(
 				"circuit %s changed (constraints %d->%d, public %d->%d).\n"+
 					"Circuit changes require a key rotation: run "+
-					"prover/server/scripts/rotate_proving_keys.sh <new-tag>, then "+
+					"prover/server/scripts/rotate_proving_keys.sh [keys_dir], then "+
 					"update expectedFingerprints (UPDATE_FINGERPRINTS=1 prints the values).",
 				name, want.constraints, have.constraints, want.public, have.public,
 			)

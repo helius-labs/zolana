@@ -581,15 +581,12 @@ export function decodePlaintextTransfer(
       solData: readData(reader),
     };
   });
-  const recipientSlots = Array.from(
-    { length: reader.u8() },
-    (): TransferPlaintextRecipient => ({
-      ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
-      assetId: reader.u64(),
-      amount: reader.u64(),
-      data: readData(reader),
-    }),
-  );
+  const recipientSlots = Array.from({ length: reader.u8() }, (): TransferPlaintextRecipient => ({
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
+    assetId: reader.u64(),
+    amount: reader.u64(),
+    data: readData(reader),
+  }));
   reader.exact();
   return {
     typePrefix,
