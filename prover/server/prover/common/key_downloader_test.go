@@ -279,19 +279,19 @@ func TestEnsureProvingKeyNotInManifestMissingErrors(t *testing.T) {
 	}
 }
 
-func TestEnsureProvingKeySourcedKeyIsFetched(t *testing.T) {
+func TestEnsureProvingKeyWithSourceIsFetched(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "sourced.key")
+	keyPath := filepath.Join(dir, "custom_ring.key")
 	body := []byte("body")
 	entry := entryFor(body)
 	entry.Source = "release"
 
 	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
-		"sourced.key": entry,
+		"custom_ring.key": entry,
 	}})
 
 	server := newCountingServer()
-	server.setBody("/proving-keys/sourced.key", body)
+	server.setBody("/proving-keys/custom_ring.key", body)
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
@@ -299,7 +299,7 @@ func TestEnsureProvingKeySourcedKeyIsFetched(t *testing.T) {
 	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
 		t.Fatalf("EnsureProvingKey() error = %v", err)
 	}
-	if got := server.requests("/proving-keys/sourced.key"); got != 1 {
+	if got := server.requests("/proving-keys/custom_ring.key"); got != 1 {
 		t.Fatalf("requests = %d, want one download", got)
 	}
 	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
