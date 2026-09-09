@@ -11,6 +11,7 @@ use zolana_account_checks::AccountIterator;
 use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Hasher, Poseidon};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_interface::instruction::tag::TRANSACT;
+use zolana_interface::state::tree::read_tree_id;
 
 use crate::error::CompressionError;
 
@@ -82,23 +83,40 @@ impl<'a> TransitionAccounts<'a> {
     }
 }
 
+/// Raw id of a pool tree, read from its account. Every UTXO commitment folds it
+/// in as the second Poseidon element, so the program must use the same id the
+/// circuit was proven against rather than assuming one.
+pub fn tree_id(tree: &AccountView) -> Result<u16, ProgramError> {
+    let data = tree
+        .try_borrow()
+        .map_err(|_| CompressionError::InvalidAccounts)?;
+    read_tree_id(&data).ok_or_else(|| CompressionError::InvalidTree.into())
+}
+
+/// `private_tx_hash` is blinded: the last preimage element is a private value
+/// derived from the blinding seed, without which an observer could test
+/// candidate input UTXO hashes against the published hash. `address_nullifier`
+/// is the address slot's public nullifier, the compressed address; `0` when the
+/// input slot is a spend.
 pub fn private_tx_hash(
     input_hash: [u8; 32],
     output_hash: [u8; 32],
-    address_hash: [u8; 32],
+    address_nullifier: [u8; 32],
     external_data_hash: &[u8; 32],
+    private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
     let input_chain =
         create_hash_chain_from_slice(&[input_hash]).map_err(|_| CompressionError::HashingFailed)?;
     let output_chain = create_hash_chain_from_slice(&[output_hash])
         .map_err(|_| CompressionError::HashingFailed)?;
-    let address_chain = create_hash_chain_from_slice(&[address_hash])
+    let address_chain = create_hash_chain_from_slice(&[address_nullifier])
         .map_err(|_| CompressionError::HashingFailed)?;
     Poseidon::hashv(&[
         &input_chain,
         &output_chain,
         &address_chain,
         external_data_hash,
+        private_tx_blinding,
     ])
     .map_err(|_| CompressionError::HashingFailed.into())
 }

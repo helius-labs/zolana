@@ -1,6 +1,7 @@
 package merge_test
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/consensys/gnark/test"
 
 	merge "zolana/prover/circuits/spp_merge"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	"zolana/prover/prover-test/spp/protocol"
 )
 
@@ -53,18 +55,11 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 			want: "nullifier count mismatch",
 		},
 		{
-			name: "utxo root count",
+			name: "tree slot count",
 			mutate: func(c *merge.Circuit) {
-				c.UtxoTreeRoots = c.UtxoTreeRoots[:len(c.UtxoTreeRoots)-1]
+				c.TreeSlots = c.TreeSlots[:len(c.TreeSlots)-1]
 			},
-			want: "utxo tree root count mismatch",
-		},
-		{
-			name: "nullifier root count",
-			mutate: func(c *merge.Circuit) {
-				c.NullifierTreeRoots = c.NullifierTreeRoots[:len(c.NullifierTreeRoots)-1]
-			},
-			want: "nullifier tree root count mismatch",
+			want: "tree slot count mismatch",
 		},
 		{
 			name: "state path height",
@@ -142,6 +137,53 @@ func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
 	a.Inputs[0].Amount = big.NewInt(999)
 	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected value-conservation failure, got solved")
+	}
+}
+
+func TestMergeCircuitBindsBothRootsToTreeSlot(t *testing.T) {
+	for slot := 1; slot < mergeshared.InputTrees; slot++ {
+		t.Run(fmt.Sprintf("slot_%d", slot), func(t *testing.T) {
+			f := buildMergeFixture(t, mergeFixtureOptions{inputSlot: slot})
+			if f.public.TreeSlots[slot].NullifierRoot.(*big.Int).Cmp(f.public.TreeSlots[0].NullifierRoot.(*big.Int)) == 0 {
+				t.Fatal("expected distinct nullifier roots across slots")
+			}
+			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+				t.Fatalf("expected multi-tree merge to solve: %v", err)
+			}
+			f.public.TreeSlots[slot].NullifierRoot = f.public.TreeSlots[0].NullifierRoot
+			refreshDefaultPublicInputHash(t, f)
+			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("accepted a nullifier root from another tree slot")
+			}
+		})
+	}
+}
+
+func TestMergePublicInputHashBindsEveryNullifierRoot(t *testing.T) {
+	f := buildMergeFixture(t, mergeFixtureOptions{})
+	if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("baseline witness does not solve: %v", err)
+	}
+	for slot := range f.public.TreeSlots {
+		t.Run(fmt.Sprintf("slot_%d", slot), func(t *testing.T) {
+			original := f.public.TreeSlots[slot].NullifierRoot
+			f.public.TreeSlots[slot].NullifierRoot = big.NewInt(42)
+			refreshDefaultPublicInputHash(t, f)
+			f.public.TreeSlots[slot].NullifierRoot = original
+			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+				t.Fatal("accepted a public input hash computed from a different nullifier root")
+			}
+		})
+	}
+}
+
+// An input hashed under slot 1 cannot claim slot 0: the slot's tree id enters
+// the utxo hash and the leaf is under another root.
+func TestMergeCircuitRejectsWrongSlot(t *testing.T) {
+	a := buildDefaultWitness(t, mergeFixtureOptions{inputSlot: 1})
+	a.Inputs[1].TreeSlot = big.NewInt(0)
+	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("expected tree slot binding failure, got solved")
 	}
 }
 

@@ -1901,8 +1901,10 @@ mod tests {
         };
         let nullifier_key = &keypair.nullifier_key;
         let nullifier_pubkey = nullifier_key.pubkey().expect("nullifier pubkey");
+        // TODO(tree-id): resolve the tree id from the tree account.
+        let tree_id = 0;
         let hash = utxo
-            .hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32])
+            .hash(&nullifier_pubkey, &[0u8; 32], &[0u8; 32], tree_id)
             .expect("utxo hash");
         let nullifier = utxo.nullifier(&hash, nullifier_key).expect("nullifier");
         wallet.utxos.push(WalletUtxo {
@@ -1915,6 +1917,7 @@ mod tests {
             nullifier,
             data_hash: None,
             ring_data_hash: None,
+            tree_id,
             spent: false,
         });
         wallet

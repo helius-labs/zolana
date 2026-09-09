@@ -16,6 +16,9 @@ pub struct TreeWrite {
     pub inputs: Vec<Input>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
+    /// Raw id of `output_tree`; every output is hashed under it, so the proof
+    /// commits to it as a public input.
+    pub output_tree_id: u16,
 }
 
 #[inline(never)]

@@ -1,17 +1,21 @@
 use zolana_keypair::{PublicKey, ShieldedKeypair};
 use zolana_transaction::{
     data::{Data, DataRecord},
-    serialization::plaintext::{
-        TransferPlaintextRecipient, TransferPlaintextSender, TransferPlaintextSplChange,
-        TransferPlaintextUtxos,
+    serialization::{
+        plaintext::{
+            PlaintextTransfer, TransferPlaintextRecipient, TransferPlaintextSender,
+            TransferPlaintextSplChange, TransferPlaintextUtxos,
+        },
+        OwnerCx, UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::derive_transact_output_blinding,
     Address, AssetRegistry, TransactionError, TRANSFER_PLAINTEXT,
 };
 
 use crate::TransactionWorld;
 
 const SEED: [u8; 32] = [1u8; 32];
+const FIRST_NULLIFIER: [u8; 32] = [4u8; 32];
 
 pub(crate) fn registry() -> AssetRegistry {
     AssetRegistry::new([(2u64, Address::new_from_array([9u8; 32]))]).unwrap()
@@ -66,12 +70,15 @@ pub(crate) fn sequential_blindings(world: &mut TransactionWorld) {
         .plaintext_transfer
         .clone()
         .unwrap()
-        .into_utxos(&registry(), None)
+        .into_utxos(&FIRST_NULLIFIER, &registry(), None)
         .unwrap();
     assert_eq!(outputs.len(), 4);
     for (i, utxo) in outputs.iter().enumerate() {
-        let position = u8::try_from(i).unwrap();
-        assert_eq!(utxo.blinding, derive_blinding(&SEED, position));
+        let slot = u32::try_from(i).unwrap();
+        assert_eq!(
+            utxo.blinding,
+            derive_transact_output_blinding(&FIRST_NULLIFIER, &SEED, slot).unwrap()
+        );
     }
 }
 
@@ -80,7 +87,7 @@ pub(crate) fn sender_indexed(world: &mut TransactionWorld, name: String) {
         .plaintext_transfer
         .clone()
         .unwrap()
-        .into_indexed_utxos(&registry(), None)
+        .into_indexed_utxos(&FIRST_NULLIFIER, &registry(), None)
         .unwrap();
     let tag = owner_tag(world.kp(&name));
     assert_eq!(indexed.first().expect("spl change present").0, tag);
@@ -92,7 +99,7 @@ pub(crate) fn recipient_indexed(world: &mut TransactionWorld, idx: usize, name: 
         .plaintext_transfer
         .clone()
         .unwrap()
-        .into_indexed_utxos(&registry(), None)
+        .into_indexed_utxos(&FIRST_NULLIFIER, &registry(), None)
         .unwrap();
     let tag = owner_tag(world.kp(&name));
     let entry = indexed.get(2 + idx).expect("recipient output present");
@@ -104,7 +111,7 @@ pub(crate) fn output_amounts(world: &mut TransactionWorld, a: u64, b: u64, c: u6
         .plaintext_transfer
         .clone()
         .unwrap()
-        .into_utxos(&registry(), None)
+        .into_utxos(&FIRST_NULLIFIER, &registry(), None)
         .unwrap();
     let amounts: Vec<u64> = outputs.iter().map(|utxo| utxo.amount).collect();
     assert_eq!(amounts, vec![a, b, c, d]);
@@ -135,8 +142,32 @@ pub(crate) fn sender_data_without_output(world: &mut TransactionWorld, name: Str
         recipient_slots: vec![],
     };
     assert_eq!(
-        utxos.into_utxos(&registry(), None).unwrap_err(),
+        utxos
+            .into_utxos(&FIRST_NULLIFIER, &registry(), None)
+            .unwrap_err(),
         TransactionError::DataWithoutOutput
+    );
+}
+
+/// Decoding cannot derive a blinding without the transaction's first nullifier,
+/// so a context that omits it is refused rather than falling back to a value the
+/// circuit would never have accepted.
+pub(crate) fn decode_without_first_nullifier_rejected(world: &mut TransactionWorld) {
+    let plaintext = world.plaintext_transfer.clone().unwrap();
+    let assets = registry();
+    let owner_cx = OwnerCx {
+        owner: plaintext
+            .sender
+            .as_ref()
+            .expect("sender bundle present")
+            .owner_pubkey,
+        assets: &assets,
+        ring_program_id: None,
+        first_nullifier: None,
+    };
+    assert_eq!(
+        PlaintextTransfer::into_utxos(plaintext, &owner_cx).unwrap_err(),
+        TransactionError::MissingFirstNullifier
     );
 }
 
@@ -153,8 +184,13 @@ pub(crate) fn ed25519_recipient_indexed() {
             data: Data::default(),
         }],
     };
-    let indexed = utxos.into_indexed_utxos(&registry(), None).unwrap();
+    let indexed = utxos
+        .into_indexed_utxos(&FIRST_NULLIFIER, &registry(), None)
+        .unwrap();
     let entry = indexed.first().expect("recipient output present");
     assert_eq!(entry.0, raw);
-    assert_eq!(entry.1.blinding, derive_blinding(&SEED, 2));
+    assert_eq!(
+        entry.1.blinding,
+        derive_transact_output_blinding(&FIRST_NULLIFIER, &SEED, 2).unwrap()
+    );
 }

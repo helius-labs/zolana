@@ -14,7 +14,7 @@ use solana_signer::Signer;
 use zolana_client::{
     ProverClient, PublicInputs, PublicTransfers, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
@@ -39,11 +39,13 @@ use zolana_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
     transact::{
-        build_spl_withdrawal, build_transfer_prover_inputs, dummy_input, dummy_transfer_output,
-        eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
-        nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-        public_sol_field, real_output, set_output_owner_tags, sol_public_slots, spend_input,
-        transfer_output, SpendInputArgs, TransferProverInputsArgs,
+        build_spl_withdrawal, build_transfer_prover_inputs, derive_test_transfer_output_blindings,
+        dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
+        inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        pack_transact_proof, prove_and_verify_transfer, public_sol_field, real_output,
+        set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
+        test_private_tx_blinding, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+        TEST_BLINDING_SEED,
     },
 };
 
@@ -101,14 +103,15 @@ fn snapshot_account(pt: &ZolanaProgramTest, key: &Pubkey) -> (Pubkey, Account) {
     (mollusk_key, account)
 }
 
-fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey) {
+fn bench_setup() -> (ZolanaProgramTest, Keypair, Pubkey, u16) {
     std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
     let Pool {
         rpc,
         authority,
         tree,
+        tree_id,
     } = Pool::initialized();
-    (rpc, authority, tree)
+    (rpc, authority, tree, tree_id)
 }
 
 fn deposit_sol_accounts(
@@ -336,7 +339,7 @@ fn transact_accounts(
 }
 
 fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
-    let (mut pt, _authority, tree) = bench_setup();
+    let (mut pt, _authority, tree, _tree_id) = bench_setup();
     let depositor = Keypair::new();
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
@@ -373,7 +376,7 @@ fn bench_deposit_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBench
 /// output) for the marginal cost of a batch entry: the batch appends once and
 /// settles once regardless of entry count.
 fn bench_deposit_sol_batch(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
-    let (mut pt, _authority, tree) = bench_setup();
+    let (mut pt, _authority, tree, _tree_id) = bench_setup();
     let depositor = Keypair::new();
     pt.airdrop(&depositor.pubkey(), 1_000_000_000)
         .expect("airdrop depositor");
@@ -416,7 +419,7 @@ fn bench_deposit_spl(
     token_program_account: &(Pubkey, Account),
     bench: &mut CuBenchmark,
 ) {
-    let (mut pt, authority, tree) = bench_setup();
+    let (mut pt, authority, tree, _tree_id) = bench_setup();
 
     let mint = pt.create_mint().expect("create_mint");
     pt.ensure_asset_counter(&authority)
@@ -473,22 +476,22 @@ fn bench_transfer_shape(
     n_outputs: usize,
     bench: &mut CuBenchmark,
 ) {
-    let (pt, _authority, tree) = bench_setup();
+    let (pt, _authority, tree, tree_id) = bench_setup();
     spawn_workspace_prover();
 
     let payer = pt.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
-    let roots = tree_roots(&pt, &tree, 0);
-    let (utxo_root, nullifier_root) = roots;
+    let (utxo_root, nullifier_root) = tree_roots(&pt, &tree, 0);
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let zero = [0u8; 32];
 
     let nf_tree = nullifier_tree().expect("indexed nullifier tree");
-    let owner_hash = hash_bytes(&payer_bytes).expect("owner hash");
+    let owner_hash = solana_owner_identity(&payer_bytes).expect("owner identity");
     let mut inputs = Vec::with_capacity(n_inputs);
     let mut nullifiers = Vec::with_capacity(n_inputs);
     for index in 0..n_inputs {
         let (input, nullifier) =
-            dummy_input(&[index as u8 + 31; 31], &nf_tree, roots).expect("dummy input");
+            dummy_input(&[index as u8 + 31; 31], &nf_tree, tree_id).expect("dummy input");
         inputs.push(input);
         nullifiers.push(nullifier);
     }
@@ -497,14 +500,16 @@ fn bench_transfer_shape(
     let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
     let owner = PublicKey::from_ed25519(&payer_bytes);
     let real = real_output(owner, nullifier_pk, SOL_MINT, 0, [23u8; 31]);
-    let real_hash = real.hash().expect("real output hash");
-    let mut outputs = vec![transfer_output(&real).expect("real transfer output")];
-    let mut output_hashes = vec![real_hash];
+    let mut outputs = vec![transfer_output(&real, tree_id).expect("real transfer output")];
     for index in 1..n_outputs {
-        let (output, hash) = dummy_transfer_output(&[index as u8; 31]).expect("dummy output");
+        let (output, _) = dummy_transfer_output(&[index as u8; 31], tree_id).expect("dummy output");
         outputs.push(output);
-        output_hashes.push(hash);
     }
+    let output_hashes = derive_test_transfer_output_blindings(
+        nullifiers.first().expect("transfer shape has an input"),
+        &mut outputs,
+    )
+    .expect("derive output blindings");
 
     // Real outputs tag by owner; dummy slots reuse the payer's tag (both rules
     // on `set_output_owner_tags`).
@@ -526,15 +531,23 @@ fn bench_transfer_shape(
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &nullifier_pks);
     let external_data_hash =
         external_data_hash(&transact_ix_data, &[]).expect("external data hash");
-    let mut private_outputs = vec![real_hash];
+    let mut private_outputs = vec![output_hashes[0]];
     private_outputs.extend(std::iter::repeat_n(zero, n_outputs - 1));
-    let private_tx =
-        PrivateTxHash::new(&vec![zero; n_inputs], &private_outputs, &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding =
+        test_private_tx_blinding(nullifiers.first().expect("transfer shape has an input"))
+            .expect("private tx blinding");
+    let private_tx = PrivateTxHash::new(
+        &vec![zero; n_inputs],
+        &private_outputs,
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
     // The signer run the proof binds: the payer owns every input here, so the
     // unique run is just the payer hash, zero-padded to the n_inputs + 1
-    // circuit width. The program derives the same value with `hash_bytes`.
+    // circuit width. The program derives the same value with
+    // `solana_owner_identity`.
     let mut signer_pk_hashes = vec![owner_hash];
     signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
 
@@ -542,8 +555,8 @@ fn bench_transfer_shape(
     let public_input_hash = PublicInputs {
         nullifiers: &nullifiers,
         output_hashes: &output_hashes,
-        utxo_roots: &vec![utxo_root; n_inputs],
-        nullifier_tree_roots: &vec![nullifier_root; n_inputs],
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
         public_transfers: &PublicTransfers {
@@ -560,6 +573,9 @@ fn bench_transfer_shape(
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs,
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        blinding_seed: TEST_BLINDING_SEED,
         external_data_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -596,7 +612,7 @@ fn bench_transfer_shape(
 // (2,3) eddsa SOL withdrawal: shield one real UTXO, then spend it to withdraw the
 // full amount to an external account. Mirrors `shield_withdraw::shield_then_withdraw_sol`.
 fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
-    let (mut pt, _authority, tree) = bench_setup();
+    let (mut pt, _authority, tree, tree_id) = bench_setup();
     spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000_000_000;
@@ -618,7 +634,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         .expect("indexed deposit UTXO");
     let blinding = utxo.blinding;
     assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, AMOUNT));
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("utxo hash");
     assert_eq!(utxo_hash, event.utxo_hash);
 
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&pt, &tree);
@@ -639,16 +657,16 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non inclusion proof");
 
-    let roots = (utxo_root, nullifier_root);
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let (dummy_spend_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
     let payer_spend_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
@@ -661,10 +679,11 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
 
     let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
         .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
+        .map(|blinding| dummy_transfer_output(blinding, tree_id).expect("dummy output"))
         .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
     let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
 
     // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).
@@ -686,10 +705,15 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     }];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
-    let private_tx =
-        PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_data_hash)
-            .hash()
-            .expect("private tx hash");
+    let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[zero, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
     let public_sol_field = public_sol_field(Some(-(AMOUNT as i64)));
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(public_sol_field);
     // Both inputs are the payer's, so the unique signer run is one entry,
@@ -699,8 +723,8 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let public_input_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
-        utxo_roots: &[utxo_root, utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_data_hash,
         public_transfers: &PublicTransfers {
@@ -717,6 +741,9 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![payer_spend_input, dummy_spend_input],
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        blinding_seed: TEST_BLINDING_SEED,
         external_data_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -763,7 +790,7 @@ fn bench_withdrawal_spl(
     token_program_account: &(Pubkey, Account),
     bench: &mut CuBenchmark,
 ) {
-    let (mut pt, authority, tree) = bench_setup();
+    let (mut pt, authority, tree, _tree_id) = bench_setup();
     spawn_workspace_prover();
 
     const AMOUNT: u64 = 1_000;

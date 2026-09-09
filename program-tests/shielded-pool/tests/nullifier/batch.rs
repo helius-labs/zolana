@@ -17,6 +17,7 @@ fn forester_env() -> (ZolanaProgramTest, Keypair, Pubkey) {
         rpc,
         authority,
         tree,
+        ..
     } = Pool::initialized();
     (rpc, authority, tree)
 }

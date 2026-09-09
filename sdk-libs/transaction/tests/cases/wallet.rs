@@ -11,7 +11,7 @@ use zolana_transaction::{
 };
 
 use super::transfer::{build_anonymous_transfer, RecipientSpec};
-use crate::TransactionWorld;
+use crate::{cases::TEST_TREE_ID, TransactionWorld};
 
 enum TagKind {
     Bootstrap,
@@ -44,7 +44,9 @@ fn record_transfer(
     let first_nullifier = match &input {
         Some(utxo) => {
             let nullifier_pk = sender_kp.nullifier_key.pubkey().unwrap();
-            let hash = utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+            let hash = utxo
+                .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
+                .unwrap();
             utxo.nullifier(&hash, &sender_kp.nullifier_key).unwrap()
         }
         None => [seq; 32],
@@ -186,7 +188,9 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
 
     let owner_kp = world.fresh_keypair(&owner);
     let nullifier_pk = owner_kp.nullifier_key.pubkey().unwrap();
-    let hash = input.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+    let hash = input
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
+        .unwrap();
     let first_nullifier = input.nullifier(&hash, &owner_kp.nullifier_key).unwrap();
     let bundle = SplitBundlePlaintext {
         owner_pubkey: owner_kp.signing_pubkey(),
@@ -196,7 +200,10 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
         blinding_seed: [seq; 32],
         data: Data::default(),
     };
-    let outputs = bundle.clone().into_utxos(&assets, None).unwrap();
+    let outputs = bundle
+        .clone()
+        .into_utxos(&first_nullifier, &assets, None)
+        .unwrap();
 
     let salt = random_salt();
     let tx = owner_kp
@@ -208,6 +215,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
         owner: owner_kp.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: Some(first_nullifier),
     };
     let sender_view_tag = owner_kp.get_sender_view_tag(tx_count).unwrap();
     let ciphertext = Split::encode(
@@ -219,7 +227,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
             recipient_pubkey: owner_kp.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [seq; 32],
+            blinding_seed: bundle.blinding_seed,
         },
     )
     .unwrap();
@@ -228,7 +236,7 @@ pub(crate) fn recorded_split(world: &mut TransactionWorld, owner: String, parts:
     let mut output_slots = Vec::with_capacity(outputs.len());
     for (i, output) in outputs.iter().enumerate() {
         let hash = output
-            .hash(&owner_nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .hash(&owner_nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
             .unwrap();
         if i == 0 {
             output_slots.push(OutputSlot {

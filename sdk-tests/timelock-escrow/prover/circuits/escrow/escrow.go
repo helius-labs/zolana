@@ -13,11 +13,16 @@ type Circuit struct {
 
 	Terms escrowterms.EscrowTerms
 
-	EscrowUtxo spp.UtxoCircuitFields
-	Change     spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	EscrowUtxo       spp.UtxoCircuitFields
+	EscrowUtxoTreeID frontend.Variable
+	Change           spp.UtxoCircuitFields
+	ChangeTreeID     frontend.Variable
 
-	SourceInputHash  frontend.Variable
-	ExternalDataHash frontend.Variable
+	SourceInputHash   frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -29,6 +34,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		ChangeOutputUtxoHash: changeOutputUtxoHash,
 		EscrowOutputUtxoHash: escrowOutputUtxoHash,
 		ExternalDataHash:     c.ExternalDataHash,
+		PrivateTxBlinding:    c.PrivateTxBlinding,
 		PrivateTxHash:        c.PrivateTxHash,
 	}.Check(api)
 
@@ -40,6 +46,7 @@ type privateTxHashInputs struct {
 	ChangeOutputUtxoHash frontend.Variable
 	EscrowOutputUtxoHash frontend.Variable
 	ExternalDataHash     frontend.Variable
+	PrivateTxBlinding    frontend.Variable
 	PrivateTxHash        frontend.Variable
 }
 
@@ -48,7 +55,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.ChangeOutputUtxoHash, t.EscrowOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -58,7 +72,7 @@ func (c *Circuit) checkEscrowOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.EscrowUtxo.RingProgramID, 0)
 	api.AssertIsEqual(c.EscrowUtxo.DataHash, c.Terms.DataHash(api))
 	api.AssertIsDifferent(c.EscrowUtxo.Amount, 0)
-	return spp.UtxoHashCircuit(api, c.EscrowUtxo)
+	return spp.UtxoHashCircuit(api, c.EscrowUtxo, c.EscrowUtxoTreeID)
 }
 
 func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
@@ -68,5 +82,5 @@ func (c *Circuit) checkChangeOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.Change.DataHash, 0)
 	api.AssertIsEqual(c.Change.Asset, c.EscrowUtxo.Asset)
 	api.AssertIsEqual(c.Change.Owner, c.Terms.OwnerHash)
-	return spp.UtxoHashCircuit(api, c.Change)
+	return spp.UtxoHashCircuit(api, c.Change, c.ChangeTreeID)
 }

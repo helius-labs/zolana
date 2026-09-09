@@ -154,9 +154,12 @@ pub(crate) fn split_bundle_round_trips(world: &mut TransactionWorld, name: Strin
         data: Data::default(),
     };
     let bytes = bundle.serialize().unwrap();
+    // 34 B owner pubkey + 1 B count + 8 B asset id + 8 B amount + 32 B seed +
+    // 1 B empty data: the seed, not eight blindings, keeps the bundle small.
+    assert_eq!(bytes.len(), 84);
     assert_eq!(SplitBundlePlaintext::deserialize(&bytes).unwrap(), bundle);
 
-    let blindings = bundle.output_blindings();
+    let blindings = bundle.output_blindings(&[11u8; 32]).unwrap();
     assert_eq!(blindings.len(), 8);
     let mut seen = HashSet::new();
     for blinding in blindings {

@@ -111,7 +111,9 @@ fn fresh_sync_resolves_merge_dependencies() {
         output_slots: vec![OutputSlot {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
-                hash: output.hash(&nullifier_pk, &[0; 32], &[0; 32]).unwrap(),
+                hash: output
+                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
+                    .unwrap(),
                 tree: Address::default(),
                 leaf_index: 2,
             },
@@ -148,7 +150,7 @@ fn fresh_sync_resolves_merge_dependencies() {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
                 hash: chained_output
-                    .hash(&nullifier_pk, &[0; 32], &[0; 32])
+                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
                     .unwrap(),
                 tree: Address::default(),
                 leaf_index: 3,

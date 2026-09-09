@@ -25,3 +25,13 @@ impl EscrowTermsProofInput {
             .collect()
     }
 }
+
+/// The witness keys one `escrowterms.EscrowTerms` prefix must produce, spelled
+/// out from the Go field names for the exact-key-set tests.
+#[cfg(test)]
+pub(crate) fn expected_escrow_terms_witness_keys(prefix: &str) -> Vec<String> {
+    ["OwnerHash", "Unlock"]
+        .iter()
+        .map(|suffix| format!("{prefix}_{suffix}"))
+        .collect()
+}

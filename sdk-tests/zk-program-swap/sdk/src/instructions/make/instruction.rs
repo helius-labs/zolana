@@ -89,8 +89,8 @@ mod tests {
     use zolana_transaction::{
         instructions::{
             transact::{
-                encrypt_transaction_data, get_transaction_viewing_key, ExternalData, PrivateTxHash,
-                Shape, SppProofInputs, SppProofOutputUtxo,
+                encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+                ExternalData, PrivateTxHash, Shape, SppProofInputs, SppProofOutputUtxo,
             },
             types::SppProofInputUtxo,
         },
@@ -99,6 +99,9 @@ mod tests {
     };
 
     use super::*;
+
+    // TODO(tree-id): resolve the tree id from the tree account.
+    const OUTPUT_TREE_ID: u16 = 0;
 
     fn data_hash_bytes(byte: u8) -> [u8; 32] {
         let mut out = [byte; 32];
@@ -143,10 +146,17 @@ mod tests {
             .expect("market maker address");
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
-        let order_utxo_hash = order_utxo.hash().expect("order hash");
         let change_amount = input_amount - order_utxo_amount;
         let change =
             SppProofOutputUtxo::new(SOL_MINT, change_amount, owner_address).expect("change output");
+        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+        let mut transaction_outputs = vec![change, order_utxo];
+        let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+            .expect("derive output blindings");
+        let [change, order_utxo]: [_; 2] = transaction_outputs
+            .try_into()
+            .expect("make transaction has two outputs");
+        let order_utxo_hash = order_utxo.hash(OUTPUT_TREE_ID).expect("order hash");
         let marker_message = OrderMarker {
             order_utxo_hash,
             maker_pubkey: Pubkey::default(),
@@ -159,13 +169,16 @@ mod tests {
             maker_pubkey: Pubkey::default().to_bytes(),
         })
         .expect("marker bytes");
-        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
         let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded =
-            encrypt_transaction_data(&[change, order_utxo], &assets, &transaction_viewing_key)
-                .expect("encode slots");
+        let encoded = encrypt_transaction_data(
+            &[change, order_utxo],
+            &assets,
+            &transaction_viewing_key,
+            OUTPUT_TREE_ID,
+        )
+        .expect("encode slots");
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -179,7 +192,9 @@ mod tests {
             encoded.output_utxos,
             external_data,
             Address::default(),
-        );
+        )
+        .with_blinding_seed(blinding_seed)
+        .with_output_tree_id(OUTPUT_TREE_ID);
 
         assert_eq!(
             spp_proof_inputs.check_shape().expect("shape"),
@@ -196,7 +211,7 @@ mod tests {
         let order_output_utxo = spp_proof_inputs.output_utxos.get(1).expect("order output");
         assert!(!order_output_utxo.is_dummy());
 
-        let change_hash = change.hash().expect("change hash");
+        let change_hash = change.hash(OUTPUT_TREE_ID).expect("change hash");
         let output_hashes: Vec<[u8; 32]> = spp_proof_inputs
             .external_data
             .outputs
@@ -231,6 +246,9 @@ mod tests {
             &[source_input_hash, [0u8; 32]],
             &[change_hash, order_utxo_hash],
             &external_data_hash,
+            &spp_proof_inputs
+                .private_tx_blinding()
+                .expect("private tx blinding"),
         )
         .hash()
         .expect("private tx hash");
@@ -275,8 +293,15 @@ mod tests {
             .expect("market maker address");
         let owner_address = owner_keypair.shielded_address().expect("owner address");
 
-        let order_utxo_hash = order_utxo.hash().expect("order hash");
         let change = SppProofOutputUtxo::new(SOL_MINT, 0, owner_address).expect("change output");
+        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+        let mut transaction_outputs = vec![change, order_utxo];
+        let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+            .expect("derive output blindings");
+        let [change, order_utxo]: [_; 2] = transaction_outputs
+            .try_into()
+            .expect("make transaction has two outputs");
+        let order_utxo_hash = order_utxo.hash(OUTPUT_TREE_ID).expect("order hash");
         let marker_message = OrderMarker {
             order_utxo_hash,
             maker_pubkey: Pubkey::default(),
@@ -284,13 +309,16 @@ mod tests {
         }
         .message()
         .expect("marker message");
-        let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
         let transaction_viewing_key = get_transaction_viewing_key(&owner_keypair, &input_utxos)
             .expect("transaction viewing key");
 
-        let encoded =
-            encrypt_transaction_data(&[change, order_utxo], &assets, &transaction_viewing_key)
-                .expect("encode slots");
+        let encoded = encrypt_transaction_data(
+            &[change, order_utxo],
+            &assets,
+            &transaction_viewing_key,
+            OUTPUT_TREE_ID,
+        )
+        .expect("encode slots");
 
         let external_data = ExternalData::new(
             *transaction_viewing_key.pubkey().as_bytes(),
@@ -304,7 +332,9 @@ mod tests {
             encoded.output_utxos,
             external_data,
             Address::default(),
-        );
+        )
+        .with_blinding_seed(blinding_seed)
+        .with_output_tree_id(OUTPUT_TREE_ID);
 
         let change = spp_proof_inputs
             .output_utxos
@@ -323,10 +353,13 @@ mod tests {
         let expected = PrivateTxHash::new(
             &[source_input_hash, [0u8; 32]],
             &[
-                change.hash().expect("change hash"),
-                order_output_utxo.hash().expect("order hash"),
+                change.hash(OUTPUT_TREE_ID).expect("change hash"),
+                order_output_utxo.hash(OUTPUT_TREE_ID).expect("order hash"),
             ],
             &external_data_hash,
+            &spp_proof_inputs
+                .private_tx_blinding()
+                .expect("private tx blinding"),
         )
         .hash()
         .expect("private tx hash");

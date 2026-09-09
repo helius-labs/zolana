@@ -14,7 +14,7 @@ pub use ffi::{preload, prove, setup, CircuitId, WitnessMap};
 pub use make::MakeProofInputs;
 pub use order_terms::{OrderTermsProofInput, TAKE_MODE_DERIVED, TAKE_MODE_VERIFIABLE};
 pub use proof::{OrderProof, ProofError};
-pub use take::{TakeProofInputs, DESTINATION_BLINDING_DOMAIN};
+pub use take::TakeProofInputs;
 pub use take_verifiable_encryption::{TakeVerifiableEncryptionProofInputs, TAKE_ENC_KDF_DOMAIN};
 pub use zolana_transaction::ProofInputUtxo;
 

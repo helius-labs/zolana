@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	customring "zolana/prover/circuits/spp_transaction/custom"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover-test/spp/spptest"
 )
 
 func TestBuildProofAssignmentRejectsOverCapacityArity(t *testing.T) {
@@ -511,25 +513,96 @@ func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
 	}
 }
 
-func TestProofRootIndices(t *testing.T) {
-	got, err := proofRootIndices(nil, 2, "utxo_tree_root_index")
+func TestProofUtxoRootIndices(t *testing.T) {
+	got, err := proofUtxoRootIndices(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != 0 || got[1] != 0 {
-		t.Fatalf("default root indices = %v", got)
+	if got != [protocol.InputTrees]uint16{} {
+		t.Fatalf("default root indices = %v, want all zero", got)
 	}
 
-	got, err = proofRootIndices([]uint16{3, 4}, 2, "utxo_tree_root_index")
+	// One index per tree slot, in slot order.
+	slotIndices := [protocol.InputTrees]uint16{3, 4, 5, 6, 7}
+	got, err = proofUtxoRootIndices(slotIndices[:])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0] != 3 || got[1] != 4 {
-		t.Fatalf("root indices = %v", got)
+	if got != slotIndices {
+		t.Fatalf("root indices = %v, want %v", got, slotIndices)
 	}
 
-	_, err = proofRootIndices([]uint16{1}, 2, "utxo_tree_root_index")
-	if err == nil || !strings.Contains(err.Error(), "length 1 does not match input count 2") {
+	// A per-input length is no longer accepted: the indices are per tree slot.
+	_, err = proofUtxoRootIndices([]uint16{1, 2})
+	if err == nil || !strings.Contains(err.Error(), "length 2 does not match the 5 tree slots") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestBuildProofAssignmentBindsTreeIDs pins that the request's tree ids reach
+// both the utxo hashes and the published slots: inputs are hashed under
+// input_tree_id, only slot 0 is populated, and every input selects it.
+func TestBuildProofAssignmentBindsTreeIDs(t *testing.T) {
+	const inputTreeID, outputTreeID = 7, 11
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
+	tx, payerHash, err := benchmarkTransaction(shape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx.InputTreeID = inputTreeID
+	tx.OutputTreeID = outputTreeID
+	for i := range tx.Inputs {
+		refreshStateEntry(t, &tx, i)
+	}
+
+	built, err := buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	if err != nil {
+		t.Fatalf("build assignment: %v", err)
+	}
+	slots := built.publicInputs.TreeSlots
+	if len(slots) != protocol.InputTrees {
+		t.Fatalf("tree slots = %d, want %d", len(slots), protocol.InputTrees)
+	}
+	if slots[0].ID.Cmp(big.NewInt(inputTreeID)) != 0 {
+		t.Fatalf("slot 0 id = %s, want %d", slots[0].ID, inputTreeID)
+	}
+	if slots[0].UtxoRoot.Sign() == 0 || slots[0].NullifierRoot.Sign() == 0 {
+		t.Fatal("slot 0 must publish both roots: the circuit refuses to select a zero-rooted slot")
+	}
+	for i, slot := range slots[1:] {
+		if slot.ID.Sign() != 0 || slot.UtxoRoot.Sign() != 0 || slot.NullifierRoot.Sign() != 0 {
+			t.Fatalf("unused slot %d must be all zero, got %+v", i+1, slot)
+		}
+	}
+	if built.publicInputs.OutputTreeID.Cmp(big.NewInt(outputTreeID)) != 0 {
+		t.Fatalf("output tree id = %s, want %d", built.publicInputs.OutputTreeID, outputTreeID)
+	}
+	witness, ok := built.witness.(*customring.CustomRingEddsaOnlyCircuit)
+	if !ok {
+		t.Fatalf("witness type = %T", built.witness)
+	}
+	for i, input := range witness.Private.Inputs {
+		if spptest.AsBigInt(input.TreeSlot).Sign() != 0 {
+			t.Fatalf("input %d selects slot %v, want the single populated slot 0", i, input.TreeSlot)
+		}
+	}
+	solveAssignment(t, shape, built)
+}
+
+// A state entry hashed under the wrong tree id must not prove: the builder
+// rebinds the input hash to input_tree_id, so the leaf lookup misses.
+func TestBuildProofAssignmentRejectsStateEntryFromAnotherTree(t *testing.T) {
+	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	tx, payerHash, err := benchmarkTransaction(shape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// benchmarkTransaction hashed the state entry under tree 0; moving the
+	// transaction to tree 7 without rehashing must be rejected.
+	tx.InputTreeID = 7
+
+	_, err = buildProofAssignment(shape, tx, payerHash, proofBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "is not present in state_entries") {
 		t.Fatalf("error = %v", err)
 	}
 }

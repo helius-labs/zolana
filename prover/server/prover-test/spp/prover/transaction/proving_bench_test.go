@@ -85,7 +85,7 @@ func benchmarkTransaction(shape protocol.Shape) (ProofTransactionRequest, *big.I
 			RingDataHash:  big.NewInt(0),
 			RingProgramID: big.NewInt(0),
 		}
-		hash, err := protocol.UtxoHash(utxo)
+		hash, err := protocol.UtxoHash(utxo, big.NewInt(int64(tx.InputTreeID)))
 		if err != nil {
 			return ProofTransactionRequest{}, nil, err
 		}

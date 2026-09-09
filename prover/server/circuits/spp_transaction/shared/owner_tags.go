@@ -57,26 +57,26 @@ func AssertPublishedOutputOwners(
 	return nil
 }
 
-// AssertMaskedDummyOutputTags allows an anonymous (zero) dummy marker. When a
-// dummy opts into the confidential marker, its published identity must name a
-// real transaction participant. This preserves attribution safety for marked
-// dummies while keeping the anonymous and confidential schemes separated.
+// AssertMaskedDummyOutputTags constrains the published tag of every dummy
+// output. Zero is always allowed: a real policy-ring output publishes zero, so
+// a zero dummy hides among them. A non-zero tag must repeat an identity this
+// transaction already publishes: an entry of publicIdentities or a real
+// output's published owner. Every entry of publicIdentities must itself be a
+// public input, which is what makes a dummy tag unable to disclose a private
+// identity such as a policy-ring recipient or the shared P256 owner during a
+// ring spend. See AssertDummyTags for why the payer is not a nameable identity.
 func AssertMaskedDummyOutputTags(
 	api frontend.API,
 	outputs []UtxoCircuitFields,
-	ownerPkHashes []frontend.Variable,
 	publishedOwnerPkHashes []frontend.Variable,
-	signers Signers,
+	publicIdentities Signers,
 ) error {
-	if err := ValidateLength("output owner pk hash", len(ownerPkHashes), len(outputs)); err != nil {
-		return err
-	}
 	if err := ValidateLength("published output owner pk hash", len(publishedOwnerPkHashes), len(outputs)); err != nil {
 		return err
 	}
-	participants := append(Signers(nil), signers...)
+	participants := append(Signers(nil), publicIdentities...)
 	for i, utxo := range outputs {
-		participants = append(participants, api.Mul(utxo.isUtxo(api), ownerPkHashes[i]))
+		participants = append(participants, api.Mul(utxo.isUtxo(api), publishedOwnerPkHashes[i]))
 	}
 	for i, utxo := range outputs {
 		isPublished := api.Sub(1, api.IsZero(publishedOwnerPkHashes[i]))
@@ -90,14 +90,19 @@ func AssertMaskedDummyOutputTags(
 }
 
 // AssertDummyTags constrains every dummy slot's public owner tag to name a
-// transaction participant: a real input signer or a real output owner. A pad
-// slot must be
-// indistinguishable from a real one, so its tag stays a free choice — but an
-// unconstrained tag lets the prover attribute the transaction to a third
-// party (a victim's pk_field in a dummy input reads as their spend, in a
-// dummy output as a payment to them). Self-attribution is always available
-// (change and recipient outputs look exactly like this), so the constraint
-// costs no privacy. Rails that publish no tags for a side pass nil.
+// transaction participant: an owner signer other than the payer, or a real
+// output owner. A pad slot must be indistinguishable from a real one, so its
+// tag stays a free choice — but an unconstrained tag lets the prover attribute
+// the transaction to a third party (a victim's pk_field in a dummy input reads
+// as their spend, in a dummy output as a payment to them). Self-attribution is
+// always available (change and recipient outputs look exactly like this), so
+// the constraint costs no privacy. The payer is excluded because a fee sponsor
+// signs without taking part in the shielded transfer and must not be shown as
+// a recipient; a self-paying owner is still nameable through the tag of its
+// own change output, and a wallet that pads a self-paid transaction without
+// change emits a zero-amount change output instead of a dummy. Callers pass
+// the signer vector without the payer; rails that publish no tags for a side
+// pass nil.
 func AssertDummyTags(
 	api frontend.API,
 	inputs []Input,

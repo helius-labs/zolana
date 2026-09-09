@@ -17,17 +17,17 @@ import (
 // 7. Input nullifiers are distinct and balances are preserved.
 
 type CustomRingAuthorityPublic struct {
-	Nullifiers         []frontend.Variable
-	OutputHashes       []frontend.Variable
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
-	PrivateTxHash      frontend.Variable
-	ExternalDataHash   frontend.Variable
-	PublicAssets       [shared.NPublicSlots]frontend.Variable
-	PublicAmounts      [shared.NPublicSlots]frontend.Variable
-	RingProgramID      frontend.Variable
-	SignerPkHashes     []frontend.Variable
-	AllowDummyInputs   frontend.Variable
+	Nullifiers       []frontend.Variable
+	OutputHashes     []frontend.Variable
+	TreeSlots        []shared.TreeSlot
+	OutputTreeID     frontend.Variable
+	PrivateTxHash    frontend.Variable
+	ExternalDataHash frontend.Variable
+	PublicAssets     [shared.NPublicSlots]frontend.Variable
+	PublicAmounts    [shared.NPublicSlots]frontend.Variable
+	RingProgramID    frontend.Variable
+	SignerPkHashes   []frontend.Variable
+	AllowDummyInputs frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -36,6 +36,7 @@ type CustomRingAuthorityPrivate struct {
 	Inputs             []shared.Input
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
+	BlindingSeed       frontend.Variable
 }
 
 type CustomRingAuthorityCircuit struct {
@@ -51,11 +52,10 @@ func NewCustomRingAuthorityCircuit(shape shared.Shape) (*CustomRingAuthorityCirc
 	return &CustomRingAuthorityCircuit{
 		Shape: shape,
 		Public: CustomRingAuthorityPublic{
-			Nullifiers:         make([]frontend.Variable, shape.NInputs),
-			OutputHashes:       make([]frontend.Variable, shape.NOutputs),
-			UtxoTreeRoots:      make([]frontend.Variable, shape.NInputs),
-			NullifierTreeRoots: make([]frontend.Variable, shape.NInputs),
-			SignerPkHashes:     make([]frontend.Variable, 1),
+			Nullifiers:     make([]frontend.Variable, shape.NInputs),
+			OutputHashes:   make([]frontend.Variable, shape.NOutputs),
+			TreeSlots:      shared.NewTreeSlots(),
+			SignerPkHashes: make([]frontend.Variable, 1),
 		},
 		Private: CustomRingAuthorityPrivate{
 			Inputs:             shared.NewInputs(shape.NInputs),
@@ -67,21 +67,22 @@ func NewCustomRingAuthorityCircuit(shape shared.Shape) (*CustomRingAuthorityCirc
 
 func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
-		Shape:              c.Shape,
-		Nullifiers:         c.Public.Nullifiers,
-		OutputHashes:       c.Public.OutputHashes,
-		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
-		NullifierTreeRoots: c.Public.NullifierTreeRoots,
-		Inputs:             c.Private.Inputs,
-		Outputs:            c.Private.Outputs,
-		PrivateTxHash:      c.Public.PrivateTxHash,
-		ExternalDataHash:   c.Public.ExternalDataHash,
-		PublicAssets:       c.Public.PublicAssets,
-		PublicAmounts:      c.Public.PublicAmounts,
-		RingProgramID:      c.Public.RingProgramID,
-		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:   c.Public.AllowDummyInputs,
-		PublicInputHash:    c.Public.PublicInputHash,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		TreeSlots:         c.Public.TreeSlots,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		BlindingSeed:      c.Private.BlindingSeed,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     c.Public.RingProgramID,
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		PublicInputHash:   c.Public.PublicInputHash,
 	}
 }
 

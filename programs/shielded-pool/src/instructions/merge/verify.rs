@@ -2,7 +2,8 @@ use pinocchio::{error::ProgramError, ProgramResult};
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::instruction_data::merge_transact::{MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
+    tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
     verifying_keys::{merge_8_1, merge_ring_8_1},
 };
 
@@ -14,7 +15,8 @@ use crate::instructions::verifier;
 /// owner-identity fields. The variant also selects the verifying key.
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
-    /// registry record -- `pk_field(owner_p256)`. Verified against `merge_8_1`.
+    /// registry record -- the tagged owner identity of the registered key.
+    /// Verified against `merge_8_1`.
     Registry { signing_pk_field: [u8; 32] },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
@@ -26,12 +28,15 @@ pub enum MergeOwnerBinding {
     },
 }
 
-/// Derived public inputs the program resolves from the tree (and, for the default
-/// merge, the registry), folded into the merge public-input hash alongside the
-/// instruction fields.
+/// Derived public inputs the program resolves from the trees (and, for the
+/// default merge, the registry), folded into the merge public-input hash
+/// alongside the instruction fields.
 pub struct MergeProofInputs {
-    pub utxo_roots: [[u8; 32]; MERGE_INPUT_COUNT],
-    pub nullifier_tree_roots: [[u8; 32]; MERGE_INPUT_COUNT],
+    /// Tree slot 0: `input_tree`'s id and the roots every input references.
+    /// The circuit's remaining `INPUT_TREES - 1` slots stay all zero.
+    pub tree_slot: TreeSlot,
+    /// `tree_id_field` of the tree the merged output is appended to.
+    pub output_tree_id: [u8; 32],
     pub external_data_hash: [u8; 32],
     pub allow_dummy_inputs: [u8; 32],
     pub owner_binding: MergeOwnerBinding,
@@ -74,25 +79,23 @@ impl<'a> MergeProof<'a> {
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
-    /// (`prover/server/circuits/spp_merge/{default,ring}.go`).
+    /// (`prover/server/circuits/spp_merge/{default,ring}.go`, prefix from
+    /// `spp_merge/shared/transaction.go` `CommonPublicInputs.Prefix`).
     ///
-    /// Both variants share the same 7 leading elements (including the
-    /// proof-wide dummy-input policy);
-    /// the default merge then folds the owner's signing `pk_field` (bound from
-    /// the user registry), while the policy-ring merge omits owner identity (no
-    /// registry to bind it against) and appends the output `ring_data_hash` and
-    /// `ring_program_id`.
+    /// Both variants share the same 7 leading elements (nullifier chain, output
+    /// hash, tree slot chain, output tree id, private tx hash, external data
+    /// hash, dummy-input policy); the default merge then folds the owner's
+    /// signing identity (bound from the user registry), while the policy-ring
+    /// merge omits owner identity (no registry to bind it against) and appends
+    /// the output `ring_data_hash` and `ring_program_id`.
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
-        let nullifiers = create_hash_chain_from_slice(&self.ix.nullifiers)?;
-        let utxo_roots = create_hash_chain_from_slice(&self.derived.utxo_roots)?;
-        let nullifier_tree_roots =
-            create_hash_chain_from_slice(&self.derived.nullifier_tree_roots)?;
-
+        // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
+        // slot hash folded onto the precomputed four-slot zero suffix.
         let prefix = [
-            nullifiers,
+            create_hash_chain_from_slice(&self.ix.nullifiers)?,
             *self.ix.output_utxo_hash,
-            utxo_roots,
-            nullifier_tree_roots,
+            populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
+            self.derived.output_tree_id,
             *self.ix.private_tx_hash,
             self.derived.external_data_hash,
             self.derived.allow_dummy_inputs,

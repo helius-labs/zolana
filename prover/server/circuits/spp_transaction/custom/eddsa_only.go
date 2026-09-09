@@ -19,10 +19,11 @@ type CustomRingEddsaOnlyPublic struct {
 	Nullifiers []frontend.Variable
 	// New output UTXO hashes.
 	OutputHashes []frontend.Variable
-	// UTXO tree roots to prove inclusion of real input UTXOs.
-	UtxoTreeRoots []frontend.Variable
-	// Nullifier tree roots to prove non-inclusion of input nullifiers.
-	NullifierTreeRoots []frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []shared.TreeSlot
+	// Raw u16 id of the output tree.
+	OutputTreeID frontend.Variable
 	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
@@ -52,6 +53,7 @@ type CustomRingEddsaOnlyPrivate struct {
 	Outputs             []shared.UtxoCircuitFields
 	OutputOwnerPkHashes []frontend.Variable
 	OutputNullifierPks  []frontend.Variable
+	BlindingSeed        frontend.Variable
 }
 
 type CustomRingEddsaOnlyCircuit struct {
@@ -69,8 +71,7 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 		Public: CustomRingEddsaOnlyPublic{
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
-			UtxoTreeRoots:                make([]frontend.Variable, shape.NInputs),
-			NullifierTreeRoots:           make([]frontend.Variable, shape.NInputs),
+			TreeSlots:                    shared.NewTreeSlots(),
 			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
@@ -86,21 +87,22 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 
 func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
-		Shape:              c.Shape,
-		Nullifiers:         c.Public.Nullifiers,
-		OutputHashes:       c.Public.OutputHashes,
-		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
-		NullifierTreeRoots: c.Public.NullifierTreeRoots,
-		Inputs:             c.Private.Inputs,
-		Outputs:            c.Private.Outputs,
-		PrivateTxHash:      c.Public.PrivateTxHash,
-		ExternalDataHash:   c.Public.ExternalDataHash,
-		PublicAssets:       c.Public.PublicAssets,
-		PublicAmounts:      c.Public.PublicAmounts,
-		RingProgramID:      c.Public.RingProgramID,
-		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:   c.Public.AllowDummyInputs,
-		PublicInputHash:    c.Public.PublicInputHash,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		TreeSlots:         c.Public.TreeSlots,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		BlindingSeed:      c.Private.BlindingSeed,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     c.Public.RingProgramID,
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.HashChain(api, c.Public.PublishedOutputOwnerPkHashes),
 		},
@@ -151,9 +153,8 @@ func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	if err := shared.AssertMaskedDummyOutputTags(
 		api,
 		tx.Outputs,
-		c.Private.OutputOwnerPkHashes,
 		c.Public.PublishedOutputOwnerPkHashes,
-		authorized,
+		authorized.WithoutPayer(),
 	); err != nil {
 		return err
 	}

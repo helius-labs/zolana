@@ -79,7 +79,7 @@ impl LifecycleHarness {
 
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
             .collect();
         let mut transfer =
             ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
@@ -170,8 +170,9 @@ impl LifecycleHarness {
 
         // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
         let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let tree_id = self.tree_id;
         for input in &inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if let Some(utxo) = self
                 .actor_mut(from)
                 .expected

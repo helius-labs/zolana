@@ -21,9 +21,9 @@ func mustHash(t *testing.T, value *big.Int, err error) *big.Int {
 	return value
 }
 
-func mustUtxoHash(t *testing.T, utxo Utxo) *big.Int {
+func mustUtxoHash(t *testing.T, utxo Utxo, treeID *big.Int) *big.Int {
 	t.Helper()
-	value, err := UtxoHash(utxo)
+	value, err := UtxoHash(utxo, treeID)
 	return mustHash(t, value, err)
 }
 
@@ -51,15 +51,21 @@ func mustSolanaPkField(t *testing.T, pubkey [32]byte) *big.Int {
 	return mustHash(t, value, err)
 }
 
+func mustHashBytes(t *testing.T, bytes []byte) *big.Int {
+	t.Helper()
+	value, err := HashBytes(bytes)
+	return mustHash(t, value, err)
+}
+
 func mustNullifier(t *testing.T, utxoHash, blinding, secret *big.Int) *big.Int {
 	t.Helper()
 	value, err := Nullifier(utxoHash, blinding, secret)
 	return mustHash(t, value, err)
 }
 
-func mustNullifierFromSecret(t *testing.T, utxo Utxo, secret *big.Int) *big.Int {
+func mustNullifierFromSecret(t *testing.T, utxo Utxo, treeID, secret *big.Int) *big.Int {
 	t.Helper()
-	value, err := NullifierFromSecret(utxo, secret)
+	value, err := NullifierFromSecret(utxo, treeID, secret)
 	return mustHash(t, value, err)
 }
 
@@ -69,9 +75,9 @@ func mustHashChain(t *testing.T, inputs []*big.Int) *big.Int {
 	return mustHash(t, value, err)
 }
 
-func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash *big.Int) *big.Int {
+func mustPrivateTxHash(t *testing.T, inputs, outputs, addresses []*big.Int, externalDataHash, blinding *big.Int) *big.Int {
 	t.Helper()
-	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash)
+	value, err := PrivateTxHash(inputs, outputs, addresses, externalDataHash, blinding)
 	return mustHash(t, value, err)
 }
 
@@ -87,27 +93,49 @@ func TestUtxoHashUsesSpecFieldOrder(t *testing.T) {
 		RingProgramID: fe(8),
 	}
 
-	got := mustUtxoHash(t, utxo)
+	got := mustUtxoHash(t, utxo, fe(9))
 	ownerUtxoHash := mustPoseidon(t, 3, []*big.Int{fe(2), fe(5)})
 	ringHash := mustPoseidon(t, 3, []*big.Int{fe(7), fe(8)})
-	want := mustPoseidon(t, 7, []*big.Int{
-		fe(1), fe(3), fe(4), fe(6), ringHash, ownerUtxoHash,
+	// The tree id sits second, directly after the domain tag.
+	want := mustPoseidon(t, 8, []*big.Int{
+		fe(1), fe(9), fe(3), fe(4), fe(6), ringHash, ownerUtxoHash,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("utxo hash mismatch: got %s want %s", got, want)
 	}
 
-	swapped := mustPoseidon(t, 7, []*big.Int{
-		fe(1), fe(4), fe(3), fe(6), ringHash, ownerUtxoHash,
+	swapped := mustPoseidon(t, 8, []*big.Int{
+		fe(1), fe(9), fe(4), fe(3), fe(6), ringHash, ownerUtxoHash,
 	})
 	if got.Cmp(swapped) == 0 {
 		t.Fatal("utxo hash did not change when asset_id and asset_amount were swapped")
 	}
 }
 
+// A utxo body is not bound to one tree: the tree that holds it supplies the id.
+// Hashing the same body under two ids must give unrelated commitments, so a
+// leaf proven under one tree's root cannot be replayed under another's.
+func TestUtxoHashBindsTheTreeID(t *testing.T) {
+	utxo := sampleUtxo(30)
+
+	first := mustUtxoHash(t, utxo, fe(7))
+	second := mustUtxoHash(t, utxo, fe(11))
+	if first.Cmp(second) == 0 {
+		t.Fatal("utxo hash did not change with the tree id")
+	}
+
+	if _, err := UtxoHash(utxo, nil); err == nil {
+		t.Fatal("expected a nil tree id to fail")
+	}
+	if _, err := NullifierFromSecret(utxo, nil, fe(99)); err == nil {
+		t.Fatal("expected a nil tree id to fail the nullifier derivation")
+	}
+}
+
 func TestNullifierMatchesSpecFormula(t *testing.T) {
 	utxo := sampleUtxo(10)
-	utxoHash := mustUtxoHash(t, utxo)
+	treeID := fe(7)
+	utxoHash := mustUtxoHash(t, utxo, treeID)
 	secret := fe(99)
 
 	nullifierPk := mustNullifierPk(t, secret)
@@ -126,9 +154,14 @@ func TestNullifierMatchesSpecFormula(t *testing.T) {
 		t.Fatalf("nullifier outside the tree domain: %s", nullifier)
 	}
 
-	other := mustNullifierFromSecret(t, utxo, fe(100))
+	other := mustNullifierFromSecret(t, utxo, treeID, fe(100))
 	if nullifier.Cmp(other) == 0 {
 		t.Fatal("nullifier did not change when nullifier secret changed")
+	}
+
+	otherTree := mustNullifierFromSecret(t, utxo, fe(8), secret)
+	if nullifier.Cmp(otherTree) == 0 {
+		t.Fatal("nullifier did not change when the tree id changed")
 	}
 }
 
@@ -142,16 +175,81 @@ func TestOwnerHashMatchesSpecFormula(t *testing.T) {
 	}
 }
 
+// A Solana owner identity is tagged: the same 32 bytes read as a P256
+// x-coordinate or as an untagged viewing commitment must land elsewhere.
 func TestSolanaPkFieldMatchesSpecFormula(t *testing.T) {
 	var pubkey [32]byte
 	for i := range pubkey {
 		pubkey[i] = byte(i + 1)
 	}
 	got := mustSolanaPkField(t, pubkey)
-	wantValue, wantErr := HashBytes(pubkey[:])
-	want := mustHash(t, wantValue, wantErr)
+	want := mustHashBytes(t, append([]byte{SolanaOwnerTag}, pubkey[:]...))
 	if got.Cmp(want) != 0 {
 		t.Fatalf("solana pk hash mismatch: got %s want %s", got, want)
+	}
+	if untagged := mustHashBytes(t, pubkey[:]); got.Cmp(untagged) == 0 {
+		t.Fatal("solana owner identity equals the untagged byte hash")
+	}
+	if p256Tagged := mustHashBytes(t, append([]byte{P256OwnerTag}, pubkey[:]...)); got.Cmp(p256Tagged) == 0 {
+		t.Fatal("solana owner identity equals the P256-tagged byte hash")
+	}
+}
+
+// The P256 owner identity drops the parity byte and tags the x-coordinate, so
+// it cannot collide with a Solana key of the same bytes nor with the untagged
+// viewing-key commitment over the same x.
+func TestOwnerPkFieldIsTaggedP256X(t *testing.T) {
+	priv, err := p256key.PrivateKeyFromScalar(big.NewInt(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compressed := elliptic.MarshalCompressed(elliptic.P256(), priv.PublicKey.X, priv.PublicKey.Y)
+	got, err := OwnerPkField(compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var x [32]byte
+	priv.PublicKey.X.FillBytes(x[:])
+	want := mustHashBytes(t, append([]byte{P256OwnerTag}, x[:]...))
+	if got.Cmp(want) != 0 {
+		t.Fatalf("P256 owner identity mismatch: got %s want %s", got, want)
+	}
+	if untagged := mustHashBytes(t, x[:]); got.Cmp(untagged) == 0 {
+		t.Fatal("P256 owner identity equals the untagged x hash")
+	}
+	if solanaTagged := mustHashBytes(t, append([]byte{SolanaOwnerTag}, x[:]...)); got.Cmp(solanaTagged) == 0 {
+		t.Fatal("P256 owner identity equals the Solana-tagged x hash")
+	}
+	if got.Cmp(mustSolanaPkField(t, x)) == 0 {
+		t.Fatal("P256 owner identity equals the Solana identity of the same bytes")
+	}
+}
+
+// An asset is not an identity: mints stay untagged, so the asset field of a
+// mint and the owner identity of the same address are different values.
+func TestAssetFieldIsUntagged(t *testing.T) {
+	var mint [32]byte
+	for i := range mint {
+		mint[i] = byte(0xa0 + i)
+	}
+	got, err := AssetField(mint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := mustHashBytes(t, mint[:]); got.Cmp(want) != 0 {
+		t.Fatalf("asset field mismatch: got %s want %s", got, want)
+	}
+	if got.Cmp(mustSolanaPkField(t, mint)) == 0 {
+		t.Fatal("asset field equals the Solana owner identity of the same address")
+	}
+	// SOL is the default address encoded like any other mint.
+	zeroAsset, err := AssetField([32]byte{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if SolAsset().Cmp(zeroAsset) != 0 {
+		t.Fatalf("SolAsset mismatch: got %s want %s", SolAsset(), zeroAsset)
 	}
 }
 
@@ -206,21 +304,66 @@ func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	outputs := []*big.Int{fe(21), fe(22)}
 	addresses := []*big.Int{fe(41), fe(42)}
 	externalDataHash := fe(31)
+	blinding := fe(32)
 
 	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
 	// external_data_hash (tested in the prover's external_data tests).
-	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash)
+	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, blinding)
 	inputChain := mustHashChain(t, inputs)
 	outputChain := mustHashChain(t, outputs)
 	addressChain := mustHashChain(t, addresses)
-	want := mustPoseidon(t, 5, []*big.Int{
+	want := mustPoseidon(t, 6, []*big.Int{
 		inputChain,
 		outputChain,
 		addressChain,
 		externalDataHash,
+		blinding,
 	})
 	if got.Cmp(want) != 0 {
 		t.Fatalf("private tx hash mismatch: got %s want %s", got, want)
+	}
+}
+
+func TestPrivateTxHashChangesWithBlinding(t *testing.T) {
+	inputs := []*big.Int{fe(11), fe(12)}
+	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(41), fe(42)}
+	externalDataHash := fe(31)
+
+	first := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(32))
+	second := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(33))
+	if first.Cmp(second) == 0 {
+		t.Fatal("private tx hash did not change with the blinding")
+	}
+}
+
+// TestPrivateTxHashBlindingBreaksCandidateOracle pins the vulnerability the
+// blinding closes. Every other preimage element is public or computable, so
+// without the blinding an observer walks the state tree and asks "is this the
+// commitment that was spent?" one Poseidon call at a time, then reads the
+// matching nullifier out of the same transaction.
+func TestPrivateTxHashBlindingBreaksCandidateOracle(t *testing.T) {
+	candidates := []*big.Int{fe(11), fe(13)}
+	inputs := []*big.Int{candidates[0], fe(0)}
+	outputs := []*big.Int{fe(21), fe(22)}
+	addresses := []*big.Int{fe(0), fe(0)}
+	externalDataHash := fe(31)
+
+	published := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, fe(32))
+	outputChain := mustHashChain(t, outputs)
+	addressChain := mustHashChain(t, addresses)
+	for i, candidate := range candidates {
+		// The pre-blinding formula, which the attacker can evaluate from public
+		// data alone once a candidate input is guessed.
+		guess := mustPoseidon(t, 5, []*big.Int{
+			mustHashChain(t, []*big.Int{candidate, fe(0)}),
+			outputChain,
+			addressChain,
+			externalDataHash,
+		})
+		if published.Cmp(guess) == 0 {
+			t.Fatalf("candidate %d reproduced the private transaction hash without the blinding", i)
+		}
 	}
 }
 
@@ -231,7 +374,7 @@ func TestHashRejectsInvalidFieldElements(t *testing.T) {
 	if _, err := HashChain([]*big.Int{new(big.Int).Set(poseidon.Modulus)}); err == nil {
 		t.Fatal("expected modulus-sized hash-chain input to fail")
 	}
-	if _, err := UtxoHash(Utxo{}); err == nil {
+	if _, err := UtxoHash(Utxo{}, fe(7)); err == nil {
 		t.Fatal("expected nil utxo fields to fail")
 	}
 }

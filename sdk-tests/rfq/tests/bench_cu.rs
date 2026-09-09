@@ -33,7 +33,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::{InputUtxoContext, SppProofInputUtxo},
@@ -88,6 +88,10 @@ fn system_owned_account(lamports: u64) -> Account {
     }
 }
 
+/// Raw id of the fixture tree. `build_tree_fixture` initializes the account with
+/// this id, and every UTXO commitment folds it in.
+const BENCH_TREE_ID: u16 = 0;
+
 fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
@@ -97,7 +101,7 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             tree.to_bytes(),
-            0,
+            BENCH_TREE_ID,
             nullifier_tree_params(),
             default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
                 .expect("default tree fees"),
@@ -376,8 +380,8 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         data: Data::default(),
     };
 
-    let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker);
-    let taker_spend = SppProofInputUtxo::new(taker_usdc_utxo, &taker);
+    let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker).in_tree(BENCH_TREE_ID);
+    let taker_spend = SppProofInputUtxo::new(taker_usdc_utxo, &taker).in_tree(BENCH_TREE_ID);
     let input_utxos = vec![maker_spend, taker_spend];
 
     let sol_to_taker =
@@ -390,12 +394,16 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         .insert(USDC_ASSET_ID, usdc_mint)
         .expect("register usdc");
 
+    let mut transaction_outputs = vec![sol_to_taker, usdc_to_maker];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive output blindings");
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("transaction viewing key");
     let encoded = encrypt_transaction_data(
-        &[sol_to_taker, usdc_to_maker],
+        &transaction_outputs,
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode settlement slots");
 
@@ -412,7 +420,9 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()

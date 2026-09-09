@@ -61,10 +61,13 @@ fn confidential_ciphertext(
     Ok(message)
 }
 
+/// Encrypts every output to its own owner and publishes its commitment under
+/// `output_tree_id`, the raw id of the tree the transaction appends to.
 pub fn encrypt_transaction_data(
     outputs: &[SppProofOutputUtxo],
     assets: &AssetRegistry,
     transaction_viewing_key: &ViewingKey,
+    output_tree_id: u16,
 ) -> Result<EncryptedTransactionData, TransactionError> {
     let salt = random_salt();
     let mut output_utxos = Vec::with_capacity(outputs.len());
@@ -84,7 +87,7 @@ pub fn encrypt_transaction_data(
             slot_index as u32,
         )?;
         transact_outputs.push(TransactOutput {
-            utxo_hash: output.hash()?,
+            utxo_hash: output.hash(output_tree_id)?,
             owner_tag: OwnerTag::Inline(ciphertext.view_tag),
             data: Some(ciphertext.data),
         });

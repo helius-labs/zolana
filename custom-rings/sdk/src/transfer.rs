@@ -386,6 +386,8 @@ impl StagedTransfer {
         let ring_result = RingTransferProver {
             inputs,
             outputs: self.proof_inputs.output_utxos.clone(),
+            blinding_seed: self.proof_inputs.blinding_seed,
+            output_tree_id: self.proof_inputs.output_tree_id,
             external_data: self.proof_inputs.external_data.clone(),
             public_transfers: self.proof_inputs.public_transfers()?,
             signer_pk_hashes: self
@@ -747,6 +749,7 @@ impl<I> RingSpendInputs<'_, I> {
                     nullifier_key: spend.nullifier_key.clone(),
                     data_hash: spend.data_hash,
                     ring_data_hash: spend.ring_data_hash,
+                    tree_id: spend.tree_id,
                     proof,
                     nullifier_proof,
                 })
@@ -765,18 +768,17 @@ struct RingEddsaInstructionData<'a> {
 impl RingEddsaInstructionData<'_> {
     fn assemble(self) -> Result<TransactIxData, TransferError> {
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
+        // SPP resolves both roots from one `input_tree`, so every input slot --
+        // dummies included -- carries the same pair of root indexes.
         let inputs: Vec<InputUtxo> = self
             .result
             .nullifiers
             .iter()
-            .zip(self.result.input_root_indices.iter())
-            .map(
-                |(nullifier_hash, &(utxo_tree_root_index, nullifier_tree_root_index))| InputUtxo {
-                    nullifier_hash: *nullifier_hash,
-                    nullifier_tree_root_index,
-                    utxo_tree_root_index,
-                },
-            )
+            .map(|nullifier_hash| InputUtxo {
+                nullifier_hash: *nullifier_hash,
+                nullifier_tree_root_index: self.result.nullifier_tree_root_index,
+                utxo_tree_root_index: self.result.utxo_tree_root_index,
+            })
             .collect();
         if inputs.len() != n_inputs {
             return Err(TransferError::IncompleteInputSet);
@@ -841,6 +843,8 @@ mod tests {
             nullifier_key: owner.nullifier_key.clone(),
             data_hash: Some([7u8; 32]),
             ring_data_hash: Some([8u8; 32]),
+            // TODO(tree-id): resolve the tree id from the tree account.
+            tree_id: 0,
         }];
         let merkle = MerkleProof {
             leaf: [2u8; 32],

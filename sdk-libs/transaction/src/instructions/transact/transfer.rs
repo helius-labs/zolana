@@ -13,7 +13,9 @@ use zolana_keypair::{
 use super::{
     shape::{resolve_shape, Shape},
     slots::encode_confidential_slots,
-    spp_proof_inputs::{first_nullifier, inputs_require_p256, SppProofInputs},
+    spp_proof_inputs::{
+        assign_output_blindings, first_nullifier, inputs_require_p256, SppProofInputs,
+    },
     ExternalData, SettlementTransfer, SppProofOutputUtxo,
 };
 use crate::{
@@ -24,13 +26,9 @@ use crate::{
         confidential::{Confidential, ConfidentialEncode, ConfidentialOutputPlaintext},
         UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     AssetRegistry, SOL_ASSET_ID, SOL_MINT,
 };
-
-const SPL_CHANGE_POSITION: u8 = 0;
-const SOL_CHANGE_POSITION: u8 = 1;
-const RECIPIENT_POSITION_BASE: u8 = 2;
 
 /// Fixed number of leading sender-owned output slots in a transfer: SPL change at
 /// slot 0, SOL change at slot 1. Recipients always start at slot 2.
@@ -40,7 +38,14 @@ pub struct PreparedTransfer {
     pub owner: ShieldedAddress,
     pub inputs: Vec<SppProofInputUtxo>,
     pub outputs: Vec<SppProofOutputUtxo>,
+    /// The transaction's private random root seed; every derived blinding
+    /// comes from it and [`Self::first_nullifier`].
+    pub blinding_seed: [u8; 32],
     pub first_nullifier: [u8; 32],
+    /// Raw id of the one tree every input, padding included, is hashed under.
+    pub input_tree_id: u16,
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
     pub shape: Shape,
     pub payer: Address,
     pub interface_transfers: Vec<SettlementTransfer>,
@@ -89,7 +94,12 @@ pub struct ConfidentialTransfer {
     pub recipients: Vec<Recipient>,
     pub public_transfers: Vec<PublicTransferRequest>,
     pub payer: Address,
+    /// The transaction's private random root seed. See
+    /// [`SppProofInputs::blinding_seed`].
     pub blinding_seed: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub output_tree_id: u16,
     pub shape: Option<Shape>,
     change_layout: ChangeLayout,
     /// Binds the change and every later `send` to one ring.
@@ -124,6 +134,7 @@ impl ConfidentialTransfer {
             public_transfers: Vec::new(),
             payer,
             blinding_seed: random_blinding(),
+            output_tree_id: 0,
             shape: None,
             change_layout: ChangeLayout::Padded,
             ring_program_id: None,
@@ -134,6 +145,15 @@ impl ConfidentialTransfer {
     #[must_use]
     pub fn with_ring_program_id(mut self, ring_program_id: Address) -> Self {
         self.ring_program_id = Some(ring_program_id);
+        self
+    }
+
+    /// Appends every output to the tree with the raw id `output_tree_id`. The
+    /// id is hashed into each output commitment, so it must match the tree the
+    /// transaction writes to.
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
         self
     }
 
@@ -298,6 +318,9 @@ impl ConfidentialTransfer {
         for transfer in &self.public_transfers {
             validate_settlement_target(transfer.asset, transfer.target)?;
         }
+        // One input tree per transaction: the prover hashes every slot, padding
+        // included, under a single tree id.
+        let input_tree_id = input_tree_id(&self.inputs)?;
         let spl_asset = self.spl_asset()?;
         let public_sol = self.public_amount(&SOL_MINT)?;
         let public_spl = match spl_asset {
@@ -311,7 +334,15 @@ impl ConfidentialTransfer {
         };
 
         let spl_change_asset = spl_asset.filter(|_| spl_change > 0);
-        let has_sol_change = sol_change > 0;
+        // Every dummy slot's published tag must name a participant the circuit
+        // already sees. A self-paid transfer that keeps no change and pays no
+        // shielded recipient has none, so it emits its SOL change slot as a real
+        // zero-amount output owned by the sender rather than as padding: the
+        // sender then names itself, exactly like an ordinary change output.
+        let names_a_participant = named_input_owner_tag(&self.inputs, &self.payer)?.is_some()
+            || spl_change_asset.is_some()
+            || !self.recipients.is_empty();
+        let has_sol_change = sol_change > 0 || !names_a_participant;
         let output_layout = match self.change_layout {
             ChangeLayout::Padded => PreparedOutputLayout::BothChanges,
             ChangeLayout::Compact => match (spl_change_asset.is_some(), has_sol_change) {
@@ -322,21 +353,18 @@ impl ConfidentialTransfer {
             },
         };
 
-        // Change blindings stay bound to their fixed positions, so a compact
-        // transfer commits to the same values a padded one would.
+        let first_nullifier = first_nullifier(&self.inputs)?;
         let mut outputs = Vec::new();
         match spl_change_asset {
             Some(asset) => outputs.push(SppProofOutputUtxo {
                 owner_address: Some(self.owner),
                 asset,
                 amount: spl_change,
-                blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
                 ring_program_id: self.ring_program_id,
                 ..Default::default()
             }),
             None if self.change_layout == ChangeLayout::Padded => {
                 outputs.push(SppProofOutputUtxo {
-                    blinding: derive_blinding(&self.blinding_seed, SPL_CHANGE_POSITION),
                     owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                     ..Default::default()
                 })
@@ -348,25 +376,21 @@ impl ConfidentialTransfer {
                 owner_address: Some(self.owner),
                 asset: SOL_MINT,
                 amount: sol_change,
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 ring_program_id: self.ring_program_id,
                 ..Default::default()
             });
         } else if self.change_layout == ChangeLayout::Padded {
             outputs.push(SppProofOutputUtxo {
-                blinding: derive_blinding(&self.blinding_seed, SOL_CHANGE_POSITION),
                 owner_tag: Some(self.owner.signing_pubkey.confidential_view_tag()?),
                 ..Default::default()
             });
         }
 
-        for (i, recipient) in self.recipients.iter().enumerate() {
-            let position = RECIPIENT_POSITION_BASE + i as u8;
+        for recipient in &self.recipients {
             outputs.push(SppProofOutputUtxo {
                 owner_address: Some(recipient.address),
                 asset: recipient.asset,
                 amount: recipient.amount,
-                blinding: derive_blinding(&self.blinding_seed, position),
                 ring_program_id: match recipient.ring {
                     RecipientRing::OfTransfer => self.ring_program_id,
                     RecipientRing::Default => None,
@@ -375,8 +399,14 @@ impl ConfidentialTransfer {
             });
         }
 
+        // The circuit recomputes every output blinding from the first nullifier,
+        // the derived seed, and the slot's final physical index, so a compact
+        // transfer's change blindings differ from a padded one's.
+        let output_blinding_seed =
+            derive_output_blinding_seed(&first_nullifier, &self.blinding_seed)?;
+        assign_output_blindings(&mut outputs, &first_nullifier, &output_blinding_seed)?;
+
         let shape = resolve_shape(self.shape, self.inputs.len(), outputs.len())?;
-        let first_nullifier = first_nullifier(&self.inputs)?;
         let interface_transfers = self
             .public_transfers
             .iter()
@@ -388,7 +418,10 @@ impl ConfidentialTransfer {
             owner: self.owner,
             inputs: self.inputs,
             outputs,
+            blinding_seed: self.blinding_seed,
             first_nullifier,
+            input_tree_id,
+            output_tree_id: self.output_tree_id,
             shape,
             payer: self.payer,
             interface_transfers,
@@ -510,6 +543,13 @@ impl PreparedTransfer {
         self.change_layout
     }
 
+    /// Seed every physical output blinding derives from. The layouts that
+    /// describe several slots from one payload (the anonymous Sender bundle,
+    /// the plaintext transfer) disclose this instead of the blinding seed.
+    pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
+        derive_output_blinding_seed(&self.first_nullifier, &self.blinding_seed)
+    }
+
     pub fn finalize(
         self,
         tx_viewing_pk: P256Pubkey,
@@ -526,10 +566,15 @@ impl PreparedTransfer {
         slots: Vec<Option<MessageData>>,
         allow_p256_sender: bool,
     ) -> Result<SppProofInputs, TransactionError> {
+        let output_blinding_seed = self.output_blinding_seed()?;
         let PreparedTransfer {
             owner,
             mut inputs,
             mut outputs,
+            blinding_seed,
+            first_nullifier,
+            input_tree_id,
+            output_tree_id,
             shape,
             payer,
             interface_transfers,
@@ -544,30 +589,34 @@ impl PreparedTransfer {
         let (sender_tag, sender_resolved) =
             sender_owner_tag(&owner.signing_pubkey, &payer, allow_p256_sender)?;
 
-        // Dummy slots must name a participant already bound to real transaction
-        // content. The transaction author is not necessarily an input owner and
-        // may have no real change output, so use the first real input signer.
-        let dummy_owner_tag = inputs
-            .iter()
-            .find(|input| !input.is_dummy())
-            .ok_or(TransactionError::NoInputs)?
-            .utxo
-            .owner
-            .confidential_view_tag()?;
+        let dummy_owner_tag = dummy_owner_tag(&inputs, &outputs, &payer)?;
         for output in outputs.iter_mut().filter(|output| output.is_dummy()) {
             output.owner_tag = Some(dummy_owner_tag);
         }
 
         let dummy_recipient_count = shape.n_outputs().saturating_sub(outputs.len());
         for _ in 0..dummy_recipient_count {
+            let output_index =
+                u32::try_from(outputs.len()).map_err(|_| TransactionError::TooManyOutputs)?;
             outputs.push(SppProofOutputUtxo {
-                blinding: random_blinding(),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &output_blinding_seed,
+                    output_index,
+                )?,
                 owner_tag: Some(dummy_owner_tag),
                 ..Default::default()
             });
         }
+        // Every dummy is hashed under the input tree's id, both here for the
+        // nullifier the client requests a non-inclusion witness for and in the
+        // prover, which rehashes the slot under the single input tree. A dummy
+        // under any other id would request a witness for a different value.
+        for spend in inputs.iter_mut().filter(|spend| spend.is_dummy()) {
+            spend.tree_id = input_tree_id;
+        }
         while inputs.len() < shape.n_inputs() {
-            inputs.push(SppProofInputUtxo::new_dummy());
+            inputs.push(SppProofInputUtxo::new_dummy().in_tree(input_tree_id));
         }
 
         // Length-matched random ciphertext for every position without a real
@@ -586,7 +635,7 @@ impl PreparedTransfer {
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
         for (position, output) in outputs.iter().enumerate() {
-            let utxo_hash = output.hash()?;
+            let utxo_hash = output.hash(output_tree_id)?;
             let slot = slots.get(position).and_then(|slot| slot.as_ref());
             let (owner_tag, resolved, data) = if output.is_dummy() {
                 (
@@ -637,6 +686,8 @@ impl PreparedTransfer {
         Ok(SppProofInputs {
             input_utxos: inputs,
             output_utxos: outputs,
+            blinding_seed,
+            output_tree_id,
             external_data,
             payer,
         })
@@ -677,6 +728,64 @@ fn sender_owner_tag(
         }
     };
     Ok((tag, resolved))
+}
+
+/// The id of the one tree every real input is spent from. Dummies are ignored:
+/// `finalize` rehomes every dummy to this id, so a caller-supplied dummy never
+/// decides it.
+fn input_tree_id(inputs: &[SppProofInputUtxo]) -> Result<u16, TransactionError> {
+    let mut real = inputs
+        .iter()
+        .enumerate()
+        .filter(|(_, spend)| !spend.is_dummy());
+    let (_, first) = real.next().ok_or(TransactionError::NoInputs)?;
+    for (index, spend) in real {
+        if spend.tree_id != first.tree_id {
+            return Err(TransactionError::InputTreeMismatch { index });
+        }
+    }
+    Ok(first.tree_id)
+}
+
+/// View tag of the first real input owner that is not the fee payer, if any.
+/// A fee sponsor signs without taking part in the shielded transfer, so the
+/// circuit refuses to let a padding slot name it.
+fn named_input_owner_tag(
+    inputs: &[SppProofInputUtxo],
+    payer: &Address,
+) -> Result<Option<[u8; 32]>, TransactionError> {
+    let payer_bytes = payer.to_bytes();
+    for spend in inputs.iter().filter(|spend| !spend.is_dummy()) {
+        let tag = spend.utxo.owner.confidential_view_tag()?;
+        if tag != payer_bytes {
+            return Ok(Some(tag));
+        }
+    }
+    Ok(None)
+}
+
+/// The published owner tag of every padding slot. A pad must be
+/// indistinguishable from a real slot, so the circuit lets it name any
+/// participant it already sees -- an owner signer other than the fee payer, or
+/// a real output's owner -- and nothing else, so a pad can never attribute the
+/// transaction to a third party. Self-attribution is always available, which is
+/// why [`ConfidentialTransfer::prepare`] keeps a real zero-amount change output
+/// for a self-paid transfer that would otherwise name nobody.
+fn dummy_owner_tag(
+    inputs: &[SppProofInputUtxo],
+    outputs: &[SppProofOutputUtxo],
+    payer: &Address,
+) -> Result<[u8; 32], TransactionError> {
+    if let Some(tag) = named_input_owner_tag(inputs, payer)? {
+        return Ok(tag);
+    }
+    outputs
+        .iter()
+        .filter_map(|output| output.owner_address)
+        .map(|address| address.signing_pubkey.confidential_view_tag())
+        .next()
+        .transpose()?
+        .ok_or(TransactionError::NoDummyOwnerTagParticipant)
 }
 
 /// Random `len` bytes for a dummy output slot.
@@ -836,6 +945,197 @@ mod tests {
         assert_eq!(prepared.outputs.len(), 1);
         assert_eq!(prepared.outputs[0].amount, 10);
         assert_eq!(prepared.output_layout.sender_output_count(), 0);
+    }
+
+    fn ed25519_input(keypair: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
+        SppProofInputUtxo::new(
+            crate::Utxo {
+                owner: keypair.signing_pubkey(),
+                asset: SOL_MINT,
+                amount,
+                blinding: random_blinding(),
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            keypair,
+        )
+    }
+
+    fn ed25519_address(keypair: &ShieldedKeypair) -> Address {
+        Address::new_from_array(keypair.signing_pubkey().as_ed25519().unwrap())
+    }
+
+    /// A padding slot may name an owner signer other than the fee payer, so the
+    /// payer-owned input is skipped and the next real input owner is used.
+    #[test]
+    fn dummy_tag_skips_the_payer_and_names_the_next_input_owner() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let other = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1), ed25519_input(&other, 1)];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &[], &payer).unwrap(),
+            other.signing_pubkey().confidential_view_tag().unwrap()
+        );
+    }
+
+    /// With every input owned by the fee payer, the tag falls back to the first
+    /// real output's owner -- self-attribution through the sender's own change.
+    #[test]
+    fn dummy_tag_falls_back_to_the_first_real_output_owner() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1)];
+        let outputs = vec![
+            SppProofOutputUtxo::default(),
+            SppProofOutputUtxo {
+                owner_address: Some(recipient.shielded_address().unwrap()),
+                ..Default::default()
+            },
+        ];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &outputs, &payer).unwrap(),
+            recipient.signing_pubkey().confidential_view_tag().unwrap()
+        );
+    }
+
+    /// Padding is hashed under the input tree's id. The prover rehashes every
+    /// dummy under that id, so the nullifiers the client fetches non-inclusion
+    /// witnesses for must already be derived under it.
+    #[test]
+    fn padding_dummies_take_the_input_tree_id() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![ed25519_input(&sender, 10).in_tree(7)],
+            ed25519_address(&sender),
+        )
+        .with_shape(Shape::IN2_OUT3);
+        transfer
+            .send(&recipient.shielded_address().unwrap(), SOL_MINT, 4)
+            .unwrap();
+
+        let proof_inputs = transfer.sign(&sender, &AssetRegistry::default()).unwrap();
+
+        let dummies: Vec<_> = proof_inputs
+            .input_utxos
+            .iter()
+            .filter(|spend| spend.is_dummy())
+            .collect();
+        let tree_ids: Vec<u16> = dummies.iter().map(|spend| spend.tree_id).collect();
+        assert_eq!(tree_ids, vec![7]);
+        let expected: Vec<_> = dummies
+            .iter()
+            .map(|spend| {
+                let mut under_input_tree = SppProofInputUtxo::new_dummy().in_tree(7);
+                under_input_tree.utxo.blinding = spend.utxo.blinding;
+                under_input_tree.nullifier().unwrap()
+            })
+            .collect();
+        assert_eq!(proof_inputs.dummy_nullifiers().unwrap(), expected);
+    }
+
+    /// A dummy the caller passes in carries whatever tree id it was built with;
+    /// `finalize` rehomes it to the input tree like the padding it adds.
+    #[test]
+    fn caller_supplied_dummies_are_rehomed_to_the_input_tree() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let recipient = ShieldedKeypair::new_ed25519().unwrap();
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![
+                ed25519_input(&sender, 10).in_tree(7),
+                SppProofInputUtxo::new_dummy(),
+            ],
+            ed25519_address(&sender),
+        )
+        .with_shape(Shape::IN2_OUT3);
+        transfer
+            .send(&recipient.shielded_address().unwrap(), SOL_MINT, 4)
+            .unwrap();
+
+        let proof_inputs = transfer.sign(&sender, &AssetRegistry::default()).unwrap();
+
+        let tree_ids: Vec<u16> = proof_inputs
+            .input_utxos
+            .iter()
+            .map(|spend| spend.tree_id)
+            .collect();
+        assert_eq!(tree_ids, vec![7, 7]);
+    }
+
+    #[test]
+    fn prepare_rejects_inputs_from_different_trees() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![
+                ed25519_input(&sender, 10),
+                ed25519_input(&sender, 10).in_tree(1),
+            ],
+            ed25519_address(&sender),
+        );
+
+        assert!(matches!(
+            transfer.prepare(),
+            Err(TransactionError::InputTreeMismatch { index: 1 })
+        ));
+    }
+
+    #[test]
+    fn dummy_tag_rejects_a_transaction_with_no_nameable_participant() {
+        let payer_owner = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&payer_owner);
+        let inputs = vec![ed25519_input(&payer_owner, 1)];
+
+        assert_eq!(
+            dummy_owner_tag(&inputs, &[SppProofOutputUtxo::default()], &payer),
+            Err(TransactionError::NoDummyOwnerTagParticipant)
+        );
+    }
+
+    /// A self-paid transfer that keeps no change and pays no shielded recipient
+    /// would leave every padding slot without a nameable participant, so
+    /// `prepare` emits the SOL change slot as a real zero-amount output owned by
+    /// the sender instead of as padding.
+    #[test]
+    fn self_paid_full_withdrawal_keeps_a_named_zero_change_output() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let payer = ed25519_address(&sender);
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            vec![ed25519_input(&sender, 10)],
+            payer,
+        )
+        .with_compact_change();
+        transfer
+            .withdraw(
+                SOL_MINT,
+                10,
+                SettlementTarget::Sol {
+                    user_sol_account: payer,
+                },
+            )
+            .unwrap();
+
+        let prepared = transfer.prepare().unwrap();
+        let change = prepared.outputs.first().expect("change output");
+        assert_eq!(prepared.outputs.len(), 1);
+        assert!(!change.is_dummy());
+        assert_eq!(change.amount, 0);
+        assert_eq!(change.asset, SOL_MINT);
+        assert_eq!(
+            change.owner_address.map(|address| address.signing_pubkey),
+            Some(sender.signing_pubkey())
+        );
+        assert_eq!(
+            dummy_owner_tag(&prepared.inputs, &prepared.outputs, &payer).unwrap(),
+            sender.signing_pubkey().confidential_view_tag().unwrap()
+        );
     }
 
     #[test]

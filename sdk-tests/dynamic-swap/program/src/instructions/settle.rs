@@ -34,7 +34,7 @@ pub struct SettleIxData {
 }
 
 /// `escrow_settle`'s public-input hash: `Poseidon(PrivateTxHash, ExecutionPrice,
-/// OrderInHash, ReservationInHash, AuthorityOwnerHash)`. `MaxPrice` and the
+/// OrderInHash, ReservationInHash, AuthorityOwnerHash, FirstNullifier)`. `MaxPrice` and the
 /// recipient owner-hash are deliberately absent -- both are private circuit
 /// witnesses bound to the order UTXO's data hash (pinned by `OrderInHash`), which
 /// is what keeps the settle-vs-refund outcome and the payout destination hidden.
@@ -46,6 +46,7 @@ pub struct SettlePublicInput<'a> {
     pub order_in_hash: &'a [u8; 32],
     pub reservation_in_hash: &'a [u8; 32],
     pub authority_owner_hash: &'a [u8; 32],
+    pub first_nullifier: &'a [u8; 32],
 }
 
 impl SettlePublicInput<'_> {
@@ -56,6 +57,7 @@ impl SettlePublicInput<'_> {
             self.order_in_hash.as_slice(),
             self.reservation_in_hash.as_slice(),
             self.authority_owner_hash.as_slice(),
+            self.first_nullifier.as_slice(),
         ])
         .map_err(|_| DynamicSwapError::HashingFailed.into())
     }
@@ -119,6 +121,11 @@ pub fn process_settle_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
             order_in_hash: &escrow.escrow_utxo_hash,
             reservation_in_hash: &escrow.reservation_utxo_hash,
             authority_owner_hash: &pair.authority_owner_hash,
+            first_nullifier: &transact
+                .inputs
+                .first()
+                .ok_or(DynamicSwapError::InvalidInstructionData)?
+                .nullifier_hash,
         }
         .hash()?,
         &crate::verifying_keys::escrow_settle::VERIFYINGKEY,

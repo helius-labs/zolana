@@ -34,7 +34,11 @@
   },
   "solana_pk_hash": {
     "pubkey": "0x00112233445566778899aabbccddeeff102132435465768798a9babbdcddedef",
-    "hash": "0x28ac1aecb191931940d8ada16699fb3409be58f85c895de0f1fd27db21c83bfa"
+    "hash": "0x092acb76568e6c3dd177e9b6931e87c2a2b656bfacb7296942a5908129462f4c"
+  },
+  "p256_owner_pk_hash": {
+    "compressed_pubkey": "0x023ed113b7883b4c590638379db0c21cda16742ed0255048bf433391d374bc21d1",
+    "hash": "0x091a0af1bf6d4a489b056f0ccf5d03627c3d77d253363719a056e46b30a7a0ba"
   },
   "negative_u64": [
     {
