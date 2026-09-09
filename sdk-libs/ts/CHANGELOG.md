@@ -175,18 +175,26 @@ Added
   entries tree or without the list is refused with
   `RING_POLICY_SOURCE_INVALID` before the transaction is compiled.
 - `deployRingProgram` deploys or upgrades a ring program with the given
-  signers, resumes an interrupted upload from its buffer, reports a binary
-  already on chain as `present`, and refuses a foreign or renounced upgrade
-  authority with `RING_PROGRAM_AUTHORITY_MISMATCH` or `RING_PROGRAM_IMMUTABLE`,
-  a short payer with `RING_PROGRAM_UNDERFUNDED`, a wrong program keypair on a
-  first deploy with `RING_PROGRAM_KEYPAIR_INVALID`, a foreign or corrupt buffer
-  with `RING_PROGRAM_BUFFER_INVALID`, and a program that stays unusable with
-  `RING_PROGRAM_NOT_USABLE`.
-- `ringProgramBinary` hashes a program binary, `fetchRingProgramData` reads a
-  deployed program's upgrade authority, capacity and deploy slot as
-  `RingProgramData`, `verifyRingProgram` refuses a missing or different
-  deployed binary with `RING_PROGRAM_NOT_DEPLOYED` or `RING_PROGRAM_MISMATCH`,
-  and `setUpgradeAuthorityInstruction` hands the program over or renounces it.
+  signers, resumes an interrupted upload from its buffer, reads the chain
+  before it repeats a step whose confirmation was lost, reports a binary
+  already on chain as `present`, names the buffer a failed deploy leaves in
+  the `RING_DEPLOY_PROGRAM` details, and refuses a foreign or renounced
+  upgrade authority with `RING_PROGRAM_AUTHORITY_MISMATCH` or
+  `RING_PROGRAM_IMMUTABLE`, an address another program owns with
+  `RING_PROGRAM_ADDRESS_OCCUPIED`, a short payer with
+  `RING_PROGRAM_UNDERFUNDED`, a wrong program keypair on a first deploy with
+  `RING_PROGRAM_KEYPAIR_INVALID`, a foreign or corrupt buffer with
+  `RING_PROGRAM_BUFFER_INVALID`, a `concurrency` or `attempts` that is not a
+  positive integer with `RING_DEPLOY_OPTIONS_INVALID`, and a program that
+  stays unusable with `RING_PROGRAM_NOT_USABLE`.
+- `RingProgramBinary.parse` checks and hashes a program binary and refuses
+  one without an ELF header with `RING_PROGRAM_BINARY_INVALID`,
+  `fetchRingProgramData` reads a deployed program's upgrade authority,
+  capacity and deploy slot as `RingProgramData`, `verifyRingProgram` refuses
+  a missing or different deployed binary with `RING_PROGRAM_NOT_DEPLOYED` or
+  `RING_PROGRAM_MISMATCH`, `setUpgradeAuthorityInstruction` hands the program
+  over or renounces it, and `closeBufferInstruction` reclaims a buffer's
+  rent.
 - `buildRingListWriteTransaction` adds or clears one list entry as a
   `RingListWrite`, or reports an entry already in that state, and refuses a
   curator-served list with `RING_LIST_SHARED` and a payer the list does not
