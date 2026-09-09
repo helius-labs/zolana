@@ -11,6 +11,7 @@ sync.
 
 Breaking
 
+- `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - Ring registration is permissionless and produces a config that authorizes
   nothing, and governance admits it separately with
   `getSetRingActivationInstructionAsync` → a ring is live only after its
@@ -135,6 +136,12 @@ Fixed
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the
   tree and the leaf index, so each deposit is unique.
+
+Dependencies
+
+- `@solana-program/address-lookup-table` ^0.14.1 (was ^0.13.0).
+- `@solana-program/compute-budget` ^0.18.1 (was ^0.17.0).
+- `@solana-program/token` ^0.16.1 (was ^0.15.0).
 
 ## 0.1.5-alpha — 2026-09-01
 
