@@ -16,15 +16,19 @@ import (
 	"zolana/prover/prover-test/spp/protocol"
 )
 
-// TestMergeCircuitCompiles is a smoke test: it confirms the 8-in / 1-out merge
-// circuit compiles to R1CS.
+// TestMergeCircuitCompiles is a smoke test: every supported merge input count
+// must compile to R1CS, since each one needs its own proving key.
 func TestMergeCircuitCompiles(t *testing.T) {
-	circuit := merge.NewMergeCircuit()
-	cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
-	if err != nil {
-		t.Fatalf("compile merge circuit: %v", err)
+	for _, numInputs := range mergeshared.SupportedInputCounts {
+		t.Run(fmt.Sprintf("%d_inputs", numInputs), func(t *testing.T) {
+			circuit := merge.NewMergeCircuit(numInputs)
+			cs, err := frontend.Compile(ecc.BN254.ScalarField(), r1cs.NewBuilder, circuit, frontend.WithCompressThreshold(300))
+			if err != nil {
+				t.Fatalf("compile merge circuit: %v", err)
+			}
+			t.Logf("merge %dx1 R1CS constraints: %d", numInputs, cs.GetNbConstraints())
+		})
 	}
-	t.Logf("merge 8x1 R1CS constraints: %d", cs.GetNbConstraints())
 }
 
 func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
@@ -38,7 +42,7 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 			mutate: func(c *merge.Circuit) {
 				c.NumInputs--
 			},
-			want: "NumInputs must be",
+			want: "unsupported input count",
 		},
 		{
 			name: "input count",
@@ -81,7 +85,7 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			circuit := merge.NewMergeCircuit()
+			circuit := merge.NewMergeCircuit(defaultFixtureInputs)
 			tc.mutate(circuit)
 			_, err := frontend.Compile(
 				ecc.BN254.ScalarField(),
@@ -103,14 +107,14 @@ func TestMergeCircuitRejectsMalformedLayout(t *testing.T) {
 // the gnark test engine.
 func TestMergeCircuitProves(t *testing.T) {
 	assignment := buildValidWitness(t)
-	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("merge witness not solved: %v", err)
 	}
 }
 
 func TestMergeCircuitProvesEddsaOwner(t *testing.T) {
 	assignment := buildWitness(t, true)
-	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err != nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("eddsa merge witness not solved: %v", err)
 	}
 }
@@ -119,7 +123,7 @@ func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
 	assignment := buildDefaultWitness(t, mergeFixtureOptions{
 		allowDummyInputs: big.NewInt(0),
 	})
-	if err := test.IsSolved(merge.NewMergeCircuit(), assignment, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), assignment, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected dummy-input policy failure, got solved")
 	}
 }
@@ -127,7 +131,7 @@ func TestMergeCircuitRejectsDummyInputsWhenPolicyDisabled(t *testing.T) {
 func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
 	a := buildWitness(t, true)
 	a.OwnerPkHash = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected eddsa ownership-uniformity failure, got solved")
 	}
 }
@@ -135,7 +139,7 @@ func TestMergeCircuitRejectsEddsaOwnerMismatch(t *testing.T) {
 func TestMergeCircuitRejectsBadValueConservation(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Inputs[0].Amount = big.NewInt(999)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected value-conservation failure, got solved")
 	}
 }
@@ -147,12 +151,12 @@ func TestMergeCircuitBindsBothRootsToTreeSlot(t *testing.T) {
 			if f.public.TreeSlots[slot].NullifierRoot.(*big.Int).Cmp(f.public.TreeSlots[0].NullifierRoot.(*big.Int)) == 0 {
 				t.Fatal("expected distinct nullifier roots across slots")
 			}
-			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+			if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
 				t.Fatalf("expected multi-tree merge to solve: %v", err)
 			}
 			f.public.TreeSlots[slot].NullifierRoot = f.public.TreeSlots[0].NullifierRoot
 			refreshDefaultPublicInputHash(t, f)
-			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+			if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("accepted a nullifier root from another tree slot")
 			}
 		})
@@ -161,7 +165,7 @@ func TestMergeCircuitBindsBothRootsToTreeSlot(t *testing.T) {
 
 func TestMergePublicInputHashBindsEveryNullifierRoot(t *testing.T) {
 	f := buildMergeFixture(t, mergeFixtureOptions{})
-	if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err != nil {
 		t.Fatalf("baseline witness does not solve: %v", err)
 	}
 	for slot := range f.public.TreeSlots {
@@ -170,7 +174,7 @@ func TestMergePublicInputHashBindsEveryNullifierRoot(t *testing.T) {
 			f.public.TreeSlots[slot].NullifierRoot = big.NewInt(42)
 			refreshDefaultPublicInputHash(t, f)
 			f.public.TreeSlots[slot].NullifierRoot = original
-			if err := test.IsSolved(merge.NewMergeCircuit(), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
+			if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), f.defaultCircuit(), ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("accepted a public input hash computed from a different nullifier root")
 			}
 		})
@@ -182,7 +186,7 @@ func TestMergePublicInputHashBindsEveryNullifierRoot(t *testing.T) {
 func TestMergeCircuitRejectsWrongSlot(t *testing.T) {
 	a := buildDefaultWitness(t, mergeFixtureOptions{inputSlot: 1})
 	a.Inputs[1].TreeSlot = big.NewInt(0)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected tree slot binding failure, got solved")
 	}
 }
@@ -190,7 +194,7 @@ func TestMergeCircuitRejectsWrongSlot(t *testing.T) {
 func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
 	a := buildValidWitness(t)
 	a.ExternalDataHash = big.NewInt(0xDEAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected public-input-hash failure, got solved")
 	}
 }
@@ -198,7 +202,7 @@ func TestMergeCircuitRejectsTamperedPublicInput(t *testing.T) {
 func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Asset = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected asset-uniformity failure, got solved")
 	}
 }
@@ -207,7 +211,7 @@ func TestMergeCircuitRejectsWrongAsset(t *testing.T) {
 // consistent asset-zero merge so only the real-output asset invariant rejects it.
 func TestMergeCircuitRejectsZeroAsset(t *testing.T) {
 	a := buildDefaultWitness(t, mergeFixtureOptions{asset: big.NewInt(0)})
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected zero-asset failure, got solved")
 	}
 }
@@ -215,7 +219,7 @@ func TestMergeCircuitRejectsZeroAsset(t *testing.T) {
 func TestMergeCircuitRejectsWrongOwner(t *testing.T) {
 	a := buildValidWitness(t)
 	a.OwnerPkHash = big.NewInt(0xBADBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected ownership-uniformity failure, got solved")
 	}
 }
@@ -223,7 +227,7 @@ func TestMergeCircuitRejectsWrongOwner(t *testing.T) {
 func TestMergeCircuitRejectsInvalidDomain(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Inputs[0].Domain = big.NewInt(protocol.AddressDomain)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected domain-partition failure, got solved")
 	}
 }
@@ -250,7 +254,7 @@ func TestMergeCircuitRejectsNonzeroDefaultRingData(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			a := buildDefaultWitness(t, tc.options)
-			if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+			if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 				t.Fatal("expected default-ring data assertion to fail, got solved")
 			}
 		})
@@ -260,7 +264,7 @@ func TestMergeCircuitRejectsNonzeroDefaultRingData(t *testing.T) {
 func TestMergeCircuitRejectsNonzeroDummyRingData(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Inputs[2].RingDataHash = big.NewInt(1)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected canonical-dummy failure, got solved")
 	}
 }
@@ -268,7 +272,7 @@ func TestMergeCircuitRejectsNonzeroDummyRingData(t *testing.T) {
 func TestMergeCircuitRejectsBadDummyNonInclusionProof(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Inputs[2].NullifierLowPathElements[0] = big.NewInt(1)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected dummy nullifier non-inclusion failure, got solved")
 	}
 }
@@ -277,7 +281,7 @@ func TestMergeCircuitRejectsWrongPublishedOwnerHash(t *testing.T) {
 	a := buildDefaultWitness(t, mergeFixtureOptions{
 		userSigningPkHash: big.NewInt(0xBADBAD),
 	})
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected published owner-hash binding to fail, got solved")
 	}
 }
@@ -288,7 +292,7 @@ func TestMergeCircuitRejectsWrongPublishedOwnerHash(t *testing.T) {
 func TestMergeCircuitRejectsDummySlotZero(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Inputs[0].Domain = big.NewInt(protocol.DummyDomain)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected slot-zero-real failure, got solved")
 	}
 }
@@ -297,7 +301,7 @@ func TestMergeCircuitRejectsDummySlotZero(t *testing.T) {
 func TestMergeCircuitRejectsWrongFirstNullifier(t *testing.T) {
 	a := buildValidWitness(t)
 	a.Nullifiers[0] = big.NewInt(0xBAD)
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected first-nullifier binding to fail, got solved")
 	}
 }
@@ -308,7 +312,7 @@ func TestMergeCircuitRejectsWrongFirstNullifier(t *testing.T) {
 // double-counted in the output.
 func TestMergeCircuitRejectsDuplicateRealInput(t *testing.T) {
 	a := buildDefaultWitness(t, mergeFixtureOptions{duplicateFirstInput: true})
-	if err := test.IsSolved(merge.NewMergeCircuit(), a, ecc.BN254.ScalarField()); err == nil {
+	if err := test.IsSolved(merge.NewMergeCircuit(defaultFixtureInputs), a, ecc.BN254.ScalarField()); err == nil {
 		t.Fatal("expected nullifier-distinctness failure, got solved")
 	}
 }

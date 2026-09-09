@@ -66,10 +66,10 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	customRing, err := customring.R1CSCustomRing()
 	add("custom_ring", customRing, err)
 
-	merged, err := mergeprover.R1CSMerge()
+	merged, err := mergeprover.R1CSMerge(8)
 	add("merge_8_1", merged, err)
 
-	mergedRing, err := mergeprover.R1CSMergeRing()
+	mergedRing, err := mergeprover.R1CSMergeRing(8)
 	add("merge_ring_8_1", mergedRing, err)
 
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)

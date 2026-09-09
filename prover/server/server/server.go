@@ -1179,7 +1179,13 @@ func (handler proveHandler) mergeProof(buf []byte) (*common.Proof, *Error) {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	// Merge parameters carry no shape field; the declared input count is the
+	// shape. Validate it before a key lookup so an unsupported count fails as a
+	// bad request rather than a missing key.
+	if err := params.ValidateShape(); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(common.MergeCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("merge: %w", err))
 	}
@@ -1200,7 +1206,10 @@ func (handler proveHandler) mergeRingProof(buf []byte) (*common.Proof, *Error) {
 		return nil, malformedBodyError(err)
 	}
 
-	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	if err := params.ValidateShape(); err != nil {
+		return nil, malformedBodyError(err)
+	}
+	ps, err := handler.keyManager.GetTransferSystem(common.MergeRingCircuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
 	if err != nil {
 		return nil, provingError(fmt.Errorf("merge-ring: %w", err))
 	}

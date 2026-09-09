@@ -13,9 +13,17 @@
       "size": 57953107,
       "source": "release"
     },
+    "merge_36_1.key": {
+      "sha256": "ffc7be825c4fb89ce13a2f5a7017a38a0bbe97d1b8907ed679e8696b352eaf73",
+      "size": 243658878
+    },
     "merge_8_1.key": {
       "sha256": "4c54b72998e54736d212b4b5848ee00ea1365c0bdf035a8d0b5836e05dcabc6d",
       "size": 56192257
+    },
+    "merge_ring_36_1.key": {
+      "sha256": "733c1b40af003c69babb6be6842d9c872a573d9256a09c9c509052c2a0ab94c1",
+      "size": 243473400
     },
     "merge_ring_8_1.key": {
       "sha256": "e3661f87fa954e5084118bef906a980744904c95765b0f3120bcc692a8326546",
@@ -40,6 +48,10 @@
     "transfer_confidential_2_3.key": {
       "sha256": "fdc1745486bd6357ed7cf38e3fab03d122d33e0b8a99aa304e87f2c46eaf8c94",
       "size": 17373883
+    },
+    "transfer_confidential_36_2.key": {
+      "sha256": "e6e2826d7ed992779b2b78d29c647c085105eef0cc7325612dbf146c29ffa94c",
+      "size": 252269453
     },
     "transfer_confidential_3_3.key": {
       "sha256": "0c19d3c7555cc3c94570f11c43da99f95379f2760fcbc15a8a345cf92e09f318",
@@ -81,6 +93,10 @@
       "sha256": "cdd0a5477e369d42f16e3d523b61e4d698f59638d33644abca21c1c6519ceb4c",
       "size": 62112319
     },
+    "transfer_p256_ring_36_2.key": {
+      "sha256": "4db4d17f68407814092bf6827b2735db2ca507b3e2d4524b987834cebb2324d4",
+      "size": 302576901
+    },
     "transfer_p256_ring_3_3.key": {
       "sha256": "18759b0904db414230ca3b435aa759184368b7a1a176b99eed8f3aff08e544da",
       "size": 68441212
@@ -121,6 +137,10 @@
       "sha256": "3784606a0eedbb2ef7823c5f089f86b7c55a9211ec1ac5fb22854ae6bb453ecc",
       "size": 17392056
     },
+    "transfer_ring_36_2.key": {
+      "sha256": "139877a3d4b4acff3f5be19f3669e9554c2439301495bd0128eb056f7e2af039",
+      "size": 252353940
+    },
     "transfer_ring_3_3.key": {
       "sha256": "3734a2f9b0c2ecde2b85ac864014ebc138b304153192dbac146a3528b8a3acbd",
       "size": 25467423
@@ -158,5 +178,5 @@
       "size": 31281774
     }
   },
-  "prefix": "proving-keys/32307f4d62111c19"
+  "prefix": "proving-keys/dce3f5309390f875"
 }

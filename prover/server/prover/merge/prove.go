@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/big"
 
-	mergecircuit "zolana/prover/circuits/spp_merge"
+	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
 
@@ -13,12 +13,17 @@ import (
 	"github.com/consensys/gnark/frontend"
 )
 
-// ValidateShape checks the parameter arity matches the fixed 8-in/1-out merge
-// shape, the Merkle path heights, and the tree slot layout before witness
-// assignment.
+// ValidateShape checks the parameter arity is a supported merge shape, and the
+// Merkle path heights and tree slot layout are right, before witness
+// assignment. Merge parameters carry no explicit shape: the input count is the
+// declared one, so this is where a caller's count is accepted or rejected.
 func (p *MergeParameters) ValidateShape() error {
-	if len(p.Inputs) != mergecircuit.MergeInputs {
-		return fmt.Errorf("merge: wrong number of inputs: got %d, expected %d", len(p.Inputs), mergecircuit.MergeInputs)
+	if !mergeshared.IsSupportedInputCount(len(p.Inputs)) {
+		return fmt.Errorf(
+			"merge: unsupported number of inputs: got %d, expected one of %v",
+			len(p.Inputs),
+			mergeshared.SupportedInputCounts,
+		)
 	}
 	inputSlots := make([]*big.Int, len(p.Inputs))
 	for i := range p.Inputs {
@@ -47,6 +52,15 @@ func ProveMerge(ps *common.TransferProofSystem, params *MergeParameters) (*commo
 	}
 	if err := params.ValidateShape(); err != nil {
 		return nil, err
+	}
+	// The witness is allocated from the parameter count, so a proof system for
+	// another shape would only surface as gnark's opaque witness-size error.
+	if got := uint32(len(params.Inputs)); got != ps.NInputs {
+		return nil, fmt.Errorf(
+			"merge: proof system is %d-in but the request has %d inputs",
+			ps.NInputs,
+			got,
+		)
 	}
 	assignment, err := params.CreateWitness()
 	if err != nil {

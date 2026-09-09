@@ -24,7 +24,7 @@ func (p *MergeParameters) CreateWitness() (frontend.Circuit, error) {
 }
 
 func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) {
-	circuit := mergecircuit.NewMergeCircuit()
+	circuit := mergecircuit.NewMergeCircuit(len(p.Inputs))
 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
@@ -54,7 +54,7 @@ func (p *MergeParameters) createDefaultWitness() (*mergecircuit.Circuit, error) 
 }
 
 func (p *MergeParameters) createRingWitness() (*mergecircuit.RingCircuit, error) {
-	circuit := mergecircuit.NewMergeRingCircuit()
+	circuit := mergecircuit.NewMergeRingCircuit(len(p.Inputs))
 
 	circuit.OwnerPkHash = p.OwnerPkHash
 	circuit.UserNullifierPk = p.UserNullifierPk
