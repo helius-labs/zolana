@@ -277,6 +277,9 @@ Breaking
 
 Added
 
+- `buildRegistrationTransaction({ feePayer })` lets an account other than
+  the owner pay the transaction fee; the owner still signs, and on a first
+  registration still funds the record's rent.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
