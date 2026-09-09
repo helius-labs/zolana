@@ -195,6 +195,12 @@ if (registration !== undefined) {
 }
 ```
 
+`feePayer` is optional and defaults to `owner`. A sponsor pays the transaction
+fee only. The owner still signs, and a first registration still funds the
+record's rent from the owner, so the transaction needs two signatures.
+Onboarding an owner with zero SOL needs a separate payer account on the
+program.
+
 `buildRegistrationTransaction` returns `undefined` when that owner is already
 registered with the same keys. A recipient that never submitted this
 transaction fails a transfer with `WALLET_RECIPIENT_NOT_REGISTERED`.
