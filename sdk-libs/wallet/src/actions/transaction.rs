@@ -126,6 +126,9 @@ struct UnsignedSpendInput {
     nullifier: [u8; 32],
     data_hash: Option<[u8; 32]>,
     ring_data_hash: Option<[u8; 32]>,
+    /// Raw id of the tree this UTXO is spent from; it is hashed into the
+    /// commitment, so it must match the id the wallet observed.
+    tree_id: u16,
 }
 
 #[derive(Clone)]
@@ -493,6 +496,7 @@ fn select_split_utxo(
             nullifier: candidate.nullifier,
             data_hash: candidate.data_hash,
             ring_data_hash: candidate.ring_data_hash,
+            tree_id: candidate.tree_id,
         },
         amount / parts_u64,
     ))
@@ -649,6 +653,7 @@ fn select_bounded_inputs(
             nullifier: entry.nullifier,
             data_hash: entry.data_hash,
             ring_data_hash: entry.ring_data_hash,
+            tree_id: entry.tree_id,
         });
         available += entry.utxo.amount;
         if available >= amount {
@@ -678,6 +683,7 @@ fn spend_proof_inputs(
             nullifier_key: nullifier_key.clone(),
             data_hash: input.data_hash,
             ring_data_hash: input.ring_data_hash,
+            tree_id: input.tree_id,
         })
         .collect()
 }
@@ -705,7 +711,7 @@ pub fn is_plain_utxo(entry: &WalletUtxo) -> bool {
 /// so `Merge::new` can reject a non-plain utxo by hash rather than silently
 /// mismatching the tree commitment.
 fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofInputUtxo {
-    let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair);
+    let mut spend = SppProofInputUtxo::new(entry.utxo.clone(), keypair).in_tree(entry.tree_id);
     if let Some(data_hash) = entry.data_hash {
         spend = spend.with_data_hash(data_hash);
     }
@@ -1199,6 +1205,7 @@ fn select_inputs(
             nullifier: entry.nullifier,
             data_hash: entry.data_hash,
             ring_data_hash: entry.ring_data_hash,
+            tree_id: entry.tree_id,
         });
         available = available
             .checked_add(entry.utxo.amount)
@@ -1279,6 +1286,10 @@ mod tests {
         wallet_with_asset(keypair, SOL_MINT, amount)
     }
 
+    /// Test fixtures live in the first localnet tree.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    const TEST_TREE_ID: u16 = 0;
+
     fn ed25519_keypair(seed: u8) -> ShieldedKeypair {
         ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[seed; 32]))
             .expect("Ed25519 keypair")
@@ -1307,7 +1318,7 @@ mod tests {
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
         let hash = utxo
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
             .expect("utxo hash");
         let nullifier = utxo
             .nullifier(&hash, &keypair.nullifier_key)
@@ -1322,6 +1333,7 @@ mod tests {
             nullifier,
             data_hash: None,
             ring_data_hash: None,
+            tree_id: TEST_TREE_ID,
             spent: false,
         });
         wallet
@@ -1898,7 +1910,7 @@ mod tests {
         let entry = wallet.utxos.first().expect("wallet utxo");
         let hash = entry
             .utxo
-            .hash(&nullifier_pubkey, &data_hash, &[0u8; 32])
+            .hash(&nullifier_pubkey, &data_hash, &[0u8; 32], TEST_TREE_ID)
             .unwrap();
         let nullifier = entry.utxo.nullifier(&hash, &sender.nullifier_key).unwrap();
         {
@@ -2159,7 +2171,7 @@ mod tests {
         };
         let nullifier_pk = keypair.nullifier_key.pubkey().expect("nullifier pubkey");
         let hash = utxo
-            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32])
+            .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
             .expect("utxo hash");
         let nullifier = utxo
             .nullifier(&hash, &keypair.nullifier_key)
@@ -2174,6 +2186,7 @@ mod tests {
             nullifier,
             data_hash: None,
             ring_data_hash: None,
+            tree_id: TEST_TREE_ID,
             spent: false,
         });
         hash

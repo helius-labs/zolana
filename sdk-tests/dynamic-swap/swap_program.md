@@ -14,6 +14,21 @@
 | 3 | create_escrow | 5 | Creates a user escrow account for a swap order and prices it at creation. One IN2_OUT3 `escrow_open` proof spends the taker's source UTXO and the maker's funding UTXO (bound to the pair's destination asset), producing the order UTXO, the reservation UTXO (`order_amount * max_price` of the destination asset), and the maker's change. Stores the escrow UTXO hash (the PDA seed), the reservation hash, `owner`, `created_at`, and `execution_price` (the pair `price`; a zero price is rejected). `max_price` is a private witness committed in the order UTXO's data hash, not stored. The payout destination is not stored or caller-supplied either: it is the taker itself, bound in-circuit to the source UTXO's owner and committed into the order UTXO's data hash, so it stays confidential. The order and reservation UTXOs are owned by the pair's `escrow_authority` PDA, and the escrowed asset is bound to the pair's source asset. | pair account | user escrow account (created) | Both the maker (pair authority, funds and signs its own funding UTXO) and the owner (taker, signs its own source UTXO) sign |
 | 4 | settle | 8 | Resolves one escrow and closes it -- settle or price-refund -- in a single permissionless instruction with an identical account list, IN2_OUT3 shape, and verifying key for both outcomes. If `execution_price <= max_price` (private) it settles: the taker receives `order_amount * execution_price` of the destination asset, the maker receives the escrowed source asset and the unspent reservation. Otherwise it refunds: the taker receives the full order amount back in the source asset, the maker receives the whole reservation. The payout destination (the taker) is not stored on-chain; it is the private in-circuit recipient bound to the order UTXO's data hash. The proof derives the outcome from the public `execution_price` and the private `max_price`, so the outcome is not observable. `rent_recipient` must be the escrow's `owner`. | pair account, user escrow account | user escrow account (closed) | Permissionless: only whoever holds the order/reservation witnesses can build a valid proof, and all destinations are fixed by the proof |
 
+## Settlement recovery
+
+Settlement and price-refund use `blinding_seed = Poseidon("DSTX", order_blinding,
+reservation_blinding)`, with `DSTX` encoded as its 32-bit ASCII integer. The escrow
+creator retains both openings; the settler reconstructs them from the escrow note.
+The circuit derives the private transaction blinding and all three output
+blindings using SPP's derivations under that seed and the first published
+nullifier. Output slots are recipient `0`, maker counter-asset `1`, maker source `2`.
+Recipients can therefore reconstruct payouts without trusting settlement ciphertexts.
+
+The native program reads the first nullifier from SPP input 0 and includes it in
+`Poseidon(private_tx_hash, execution_price, order_hash, reservation_hash,
+authority_owner_hash, first_nullifier)`. The circuit binds the same value, so the
+settler cannot substitute a nullifier to defeat recovery.
+
 ## Future Work
 
 1. allow more input utxos to create escrow

@@ -12,6 +12,10 @@ use zolana_transaction::{instructions::merge::merge_output_blinding, Data, Utxo}
 
 use crate::{harness::MergeRingHarness, prover_bootstrap::start_prover, test_indexer::TestIndexer};
 
+/// Test fixtures live in the first localnet tree.
+// TODO(tree-id): resolve the tree id from the tree account.
+const TEST_TREE_ID: u16 = 0;
+
 /// Fixed test ring program id; every input and the merged output carry it and the
 /// proof binds it as the shared `ring_program_id`.
 fn ring_program() -> Address {
@@ -54,7 +58,7 @@ impl MergeRingHarness {
                 data: Data::default(),
             };
             let utxo_hash = utxo
-                .hash(&nullifier_pk, &[0u8; 32], &ring_data_hash)
+                .hash(&nullifier_pk, &[0u8; 32], &ring_data_hash, TEST_TREE_ID)
                 .expect("utxo hash");
             indexer.add_utxo(utxo_hash);
             inputs.push(SppProofInputUtxo::new(utxo, &sender).with_ring_data_hash(ring_data_hash));
@@ -118,7 +122,9 @@ impl MergeRingHarness {
             "owner reconstructs the merged ring output blinding",
         );
         assert_eq!(
-            expected_output.hash().expect("reconstructed utxo hash"),
+            expected_output
+                .hash(TEST_TREE_ID)
+                .expect("reconstructed utxo hash"),
             result.output_hash,
             "owner reconstructs the merged ring output from the first nullifier",
         );

@@ -415,14 +415,22 @@ export function createInputUtxo(
 export interface PrivateTxHashInput {
   readonly inputHashes: readonly Bytes32[];
   readonly outputHashes: readonly Bytes32[];
-  /** One per input slot; omitted means a chain of zeros of the same length. */
+  /**
+   * One per input slot: the public nullifier of each address slot, which is
+   * the compressed address, and zero for spends and padding. Omitted means a
+   * chain of zeros of the same length.
+   *
+   * TODO(private-tx-hash-port): the field keeps its historical name until the
+   * TS transaction port aligns this hash with the circuit (blinding element,
+   * tree ids); rename it to `addressNullifiers` there with a CHANGELOG entry.
+   */
   readonly addressHashes?: readonly Bytes32[];
   readonly externalDataHash: Bytes32;
 }
 
 /**
- * The circuit reads one address hash per input slot, so a set of a different
- * length would silently shift the address chain rather than fail.
+ * The circuit reads one address nullifier per input slot, so a set of a
+ * different length would silently shift the address chain rather than fail.
  */
 export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
   if (

@@ -23,7 +23,7 @@ impl AccountUtxo {
             owner: PublicKey::from_pda(&self.pda),
             asset: SOL_MINT,
             amount: 0,
-            blinding: self.state.blinding(),
+            blinding: self.state.blinding,
             ring_program_id: None,
             data: Data::new(vec![DataRecord::UtxoData(
                 self.state.to_vec().map_err(err)?,
@@ -35,7 +35,7 @@ impl AccountUtxo {
         Ok(SppProofOutputUtxo {
             asset: SOL_MINT,
             amount: 0,
-            blinding: self.state.blinding(),
+            blinding: self.state.blinding,
             data_hash: Some(self.state.data_hash().map_err(err)?),
             owner_address: Some(pda_shielded_address(&self.pda)?),
             owner_tag: Some(self.pda.to_bytes()),

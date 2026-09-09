@@ -3,31 +3,74 @@ use zolana_hasher::{
     primitives::{hash_bytes, right_align},
     Hasher, Poseidon,
 };
+use zolana_interface::tree_slot::tree_id_field;
 pub use zolana_interface::{DUMMY_DOMAIN, UTXO_DOMAIN};
-use zolana_keypair::{hash::sha256_be, NullifierKey, PublicKey};
+use zolana_keypair::{NullifierKey, PublicKey};
 
 use crate::{
     data::Data, error::TransactionError, serialization::confidential::ConfidentialOutputPlaintext,
     AssetRegistry,
 };
 
-/// A UTXO blinding: a 32-byte big-endian BN254 field element. Generators
-/// (random values, `derive_blinding`) right-align 31 bytes so the value is
-/// always below the field modulus; the merge output blinding is a Poseidon
-/// output, which is a field element by construction.
+/// A UTXO blinding: a 32-byte big-endian BN254 field element. Poseidon-derived
+/// blindings use the full field width; random values right-align 31 bytes to
+/// stay below the field modulus.
 pub type Blinding = [u8; 32];
 
-/// Derives the output blinding for `position` from a 32-byte seed. The
-/// preimage uses the seed's low 31 bytes, so a right-aligned 31-byte seed
-/// yields the same values as the legacy 31-byte representation.
-pub fn derive_blinding(seed: &Blinding, position: u8) -> Blinding {
-    let mut preimage = [0u8; 32];
-    preimage[..31].copy_from_slice(&seed[1..]);
-    preimage[31] = position;
-    let digest = sha256_be(&preimage);
-    let mut out = [0u8; 32];
-    out[1..].copy_from_slice(&digest[1..]);
-    out
+// The blinding seed derivations live in `zolana_program::derivation` so
+// programs can recompute them on-chain; this module keeps the SDK entry points
+// and maps the hasher error into `TransactionError`.
+pub use zolana_program::derivation::{
+    DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
+    DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
+};
+
+/// `Poseidon(TXOS, first_nullifier, blinding_seed)`: the seed every physical output
+/// blinding of one transaction comes from. `blinding_seed` is the transaction's
+/// private random root seed. The derived output seed is disclosed to the reader
+/// of an anonymous Sender bundle, a plaintext transfer, or a split bundle, which
+/// is why it is domain-separated from [`derive_private_tx_blinding`].
+pub fn derive_output_blinding_seed(
+    first_nullifier: &[u8; 32],
+    blinding_seed: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    Ok(zolana_program::derive_output_blinding_seed(
+        first_nullifier,
+        blinding_seed,
+    )?)
+}
+
+/// `Poseidon(TXPB, first_nullifier, secret)`: the final `private_tx_hash`
+/// preimage element. It is never published: every other preimage element is
+/// public or computable, so a known blinding would let an observer test
+/// candidate input UTXO hashes against the published hash. `secret` is the
+/// blinding seed on the transact rails and the owner's nullifier secret on
+/// the merge rails.
+pub fn derive_private_tx_blinding(
+    first_nullifier: &[u8; 32],
+    secret: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    Ok(zolana_program::derive_private_tx_blinding(
+        first_nullifier,
+        secret,
+    )?)
+}
+
+/// `Poseidon(TXOB, first_nullifier, seed, output_index)`: the final blinding of
+/// one physical SPP transaction output slot. The first nullifier makes the
+/// derivation unique across accepted transactions, while `output_index` makes
+/// every slot unique within one transaction. Only the final result is shared
+/// with the output recipient.
+pub fn derive_transact_output_blinding(
+    first_nullifier: &[u8; 32],
+    seed: &Blinding,
+    output_index: u32,
+) -> Result<Blinding, TransactionError> {
+    Ok(zolana_program::derive_transact_output_blinding(
+        first_nullifier,
+        seed,
+        output_index,
+    )?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +122,11 @@ pub fn owner_utxo_hash(
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct ProofInputUtxo {
     pub domain: [u8; 32],
+    /// The raw `u16` id of the tree holding this UTXO, right-aligned. This is
+    /// transaction context rather than a UTXO body field: an input is hashed
+    /// under the id of the tree it is spent from, an output under the id of the
+    /// tree it is appended to.
+    pub tree_id: [u8; 32],
     pub owner_hash: [u8; 32],
     pub asset: [u8; 32],
     pub amount: [u8; 32],
@@ -94,9 +142,11 @@ impl ProofInputUtxo {
         asset: &Address,
         amount: u64,
         blinding: &Blinding,
+        tree_id: u16,
     ) -> Result<Self, TransactionError> {
         Ok(Self {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
+            tree_id: tree_id_field(tree_id),
             owner_hash,
             asset: hash_bytes(asset.as_array())?,
             amount: right_align(&amount.to_be_bytes()),
@@ -109,10 +159,12 @@ impl ProofInputUtxo {
 
     /// Padding (dummy) slot: the circuit requires every field except the domain
     /// tag and blinding to be zero, so dummy hashes are indistinguishable from
-    /// real ones while the slot provably carries nothing.
-    pub fn new_dummy(blinding: &Blinding) -> Self {
+    /// real ones while the slot provably carries nothing. The tree id is not a
+    /// UTXO field, so a dummy is hashed under its slot's tree id like any other.
+    pub fn new_dummy(blinding: &Blinding, tree_id: u16) -> Self {
         Self {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
+            tree_id: tree_id_field(tree_id),
             blinding: right_align(blinding),
             ..Default::default()
         }
@@ -138,6 +190,7 @@ impl ProofInputUtxo {
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, &self.blinding])?;
         Ok(Poseidon::hashv(&[
             &self.domain,
+            &self.tree_id,
             &self.asset,
             &self.amount,
             &self.data_hash,
@@ -153,11 +206,18 @@ impl Utxo {
         nullifier_pk: &[u8; 32],
         data_hash: &[u8; 32],
         ring_data_hash: &[u8; 32],
+        tree_id: u16,
     ) -> Result<ProofInputUtxo, TransactionError> {
         let owner_hash = zolana_keypair::hash::owner_hash(&self.owner, nullifier_pk)?;
-        ProofInputUtxo::new(owner_hash, &self.asset, self.amount, &self.blinding)?
-            .with_data_hash(*data_hash)
-            .with_ring(*ring_data_hash, &self.ring_program_id)
+        ProofInputUtxo::new(
+            owner_hash,
+            &self.asset,
+            self.amount,
+            &self.blinding,
+            tree_id,
+        )?
+        .with_data_hash(*data_hash)
+        .with_ring(*ring_data_hash, &self.ring_program_id)
     }
 
     pub fn hash(
@@ -165,8 +225,9 @@ impl Utxo {
         nullifier_pk: &[u8; 32],
         data_hash: &[u8; 32],
         ring_data_hash: &[u8; 32],
+        tree_id: u16,
     ) -> Result<[u8; 32], TransactionError> {
-        self.proof_input(nullifier_pk, data_hash, ring_data_hash)?
+        self.proof_input(nullifier_pk, data_hash, ring_data_hash, tree_id)?
             .hash()
     }
 

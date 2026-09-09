@@ -175,23 +175,24 @@ func buildRingAuthorityAssignmentWithAddressInput(
 	makeAddressSlot(t, assignment, addressIndex, addressOwnerPkHash(t), spptest.Fe(int64(0xABCDEF+addressIndex)))
 
 	inputHashes := make([]*big.Int, shape.NInputs)
-	addressHashes := make([]*big.Int, shape.NInputs)
+	addressNullifiers := make([]*big.Int, shape.NInputs)
 	for i := range assignment.Inputs {
-		utxoHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo))
+		utxoHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[i].Utxo), assignment.inputTreeID(i))
 		if i == addressIndex {
-			addressHashes[i] = utxoHash
+			addressNullifiers[i] = spptest.AsBigInt(assignment.Inputs[i].Nullifier)
 			inputHashes[i] = big.NewInt(0)
 		} else {
 			inputHashes[i] = utxoHash
-			addressHashes[i] = big.NewInt(0)
+			addressNullifiers[i] = big.NewInt(0)
 		}
 	}
 	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
 		t,
 		inputHashes,
 		spptest.ToBigInts(assignment.OutputHashes()),
-		addressHashes,
+		addressNullifiers,
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
 	)
 	refreshRingAuthorityPublicInputHash(t, assignment)
 	return assignment

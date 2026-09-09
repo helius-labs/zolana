@@ -19,15 +19,18 @@ use zolana_interface::{
         CreateProtocolConfig,
     },
     state::{default_tree_fees, nullifier_tree_params},
+    tree_slot::TreeSlot,
+    INPUT_TREES,
 };
 use zolana_program_test::{
     create_tree_instructions, index_events, parsed_instruction_from_compiled, IndexedEvent,
     IndexedTransaction, TestIndexer,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
-    inline_outputs, new_transact_ix_data, output_owner_pk_hashes, prove_and_verify_transfer,
-    set_output_owner_tags, sol_public_slots, TransferProverInputsArgs,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
+    prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -36,6 +39,9 @@ pub struct LocalnetPool {
     pub payer: Keypair,
     pub authority: Keypair,
     pub tree: Pubkey,
+    /// The raw id [`Self::tree`] was created with. Every UTXO commitment in the
+    /// cycle is hashed under it.
+    pub tree_id: u16,
 }
 
 /// Fund the standard payer and authority, then create a protocol config and
@@ -65,10 +71,12 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
             &[&payer, &authority],
         )?,
     );
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
     Ok(LocalnetPool {
         payer,
         authority,
         tree: create_tree.tree,
+        tree_id,
     })
 }
 
@@ -107,10 +115,12 @@ pub fn initialize_indexed_pool(
         &[&payer, &authority],
     )?;
     print_signature("create_tree", &create_tree_tx.signature);
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(rpc, &create_tree.tree)?;
     Ok(LocalnetPool {
         payer,
         authority,
         tree: create_tree.tree,
+        tree_id,
     })
 }
 
@@ -269,17 +279,24 @@ fn field_bytes(value: &num_bigint::BigUint) -> [u8; 32] {
 /// merkle/non-inclusion proofs and assemble the spend inputs their own way
 /// (local `TestIndexer` mirrors or a Photon indexer); this helper owns
 /// everything from instruction-data assembly through prover submission. The
-/// per-slot nullifiers and (UTXO, nullifier) roots the proof binds are read
-/// back off `spend_inputs`, so callers pass no parallel vectors for them.
+/// per-slot nullifiers are read back off `spend_inputs`, so callers pass no
+/// parallel vector for them.
 pub struct SolTransferWitnessArgs {
     /// Witness inputs in slot order (real spend input first, then dummies).
     pub spend_inputs: Vec<TransferInput>,
     /// UTXO-tree root index the eddsa input slots bind to.
     pub root_index: u16,
-    /// Output utxo hashes and their owner view tags, per output slot.
-    pub output_hashes: Vec<[u8; 32]>,
+    /// The proof's public tree slots; SPP proves against one input tree, so
+    /// only slot 0 is populated ([`single_tree_slots`]).
+    pub tree_slots: [TreeSlot; INPUT_TREES],
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
+    /// Owner view tags, per output slot.
     pub view_tags: Vec<[u8; 32]>,
-    /// Witness outputs before `set_output_owner_tags` stamps the confidential tags.
+    /// Witness outputs before `set_output_owner_tags` stamps the confidential
+    /// tags. Their blindings are placeholders: the helper re-derives every
+    /// output blinding from the first nullifier and [`TEST_BLINDING_SEED`] and
+    /// returns the resulting hashes and blindings in [`SolTransferWitness`].
     pub outputs: Vec<TransferOutput>,
     /// Per-output nullifier pubkeys (zero for dummies, whose owner is unconstrained).
     pub output_nullifier_pks: [[u8; 32]; 3],
@@ -287,38 +304,65 @@ pub struct SolTransferWitnessArgs {
     pub interface_transfers: Vec<InterfaceTransfer>,
     /// Resolved interface transfers bound into the external-data hash.
     pub resolved_transfers: Vec<ResolvedInterfaceTransfer>,
-    /// Private-tx-hash input/output leaves (zero-padded to the circuit shape).
+    /// Private-tx-hash input leaves (zero-padded to the circuit shape). The
+    /// output leaves are derived: a real output contributes its hash, a dummy
+    /// contributes zero.
     pub private_tx_inputs: [[u8; 32]; 2],
-    pub private_tx_outputs: [[u8; 32]; 3],
     /// Public SOL movement field (zero when no SOL enters or leaves).
     pub public_sol_amount: [u8; 32],
-    /// `hash_bytes` of the fee payer's address: the sole unique signer-run
-    /// element for these flows (owner == payer), zero-padded to width 3.
+    /// `solana_owner_identity` of the fee payer's address: the sole unique
+    /// signer-run element for these flows (owner == payer), zero-padded to
+    /// width 3.
     pub payer_pubkey_hash: [u8; 32],
     /// Label for hashing/prover error contexts ("transfer", "withdraw").
     pub label: &'static str,
 }
 
+/// A proven SOL-rail `transact` payload plus the output commitments it
+/// appends. Callers mirror `output_hashes` into their local state tree and
+/// spend a real output later with its entry of `output_blindings`; the
+/// placeholder blindings they built the outputs with are not what landed
+/// on chain.
+pub struct SolTransferWitness {
+    pub ix_data: TransactIxData,
+    /// Per-slot output utxo hashes under the derived blindings.
+    pub output_hashes: Vec<[u8; 32]>,
+    /// Per-slot derived output blindings.
+    pub output_blindings: Vec<[u8; 32]>,
+}
+
 /// Assemble a proven two-input/three-output `transact` instruction payload for
-/// the SOL rail: build the instruction data from the declared inputs/outputs,
-/// stamp witness owner tags, hash external data and public inputs, then prove
-/// and locally verify the witness. Both localnet SOL cycles (`TestIndexer` and
-/// Photon) share this; they differ only in how `spend_inputs` were fetched.
-pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<TransactIxData> {
+/// the SOL rail: derive the output blindings, build the instruction data from
+/// the declared inputs/outputs, stamp witness owner tags, hash external data
+/// and public inputs, then prove and locally verify the witness. Both localnet
+/// SOL cycles (`TestIndexer` and Photon) share this; they differ only in how
+/// `spend_inputs` were fetched.
+pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<SolTransferWitness> {
     let nullifiers: Vec<[u8; 32]> = args
         .spend_inputs
         .iter()
         .map(|input| field_bytes(&input.nullifier))
         .collect();
-    let utxo_roots: Vec<[u8; 32]> = args
-        .spend_inputs
+    let first_nullifier = nullifiers
+        .first()
+        .ok_or_else(|| anyhow!("{} witness has no spend input", args.label))?;
+    let output_hashes = derive_test_transfer_output_blindings(first_nullifier, &mut args.outputs)?;
+    let output_blindings: Vec<[u8; 32]> = args
+        .outputs
         .iter()
-        .map(|input| field_bytes(&input.utxo_tree_root))
+        .map(|output| output.utxo.blinding)
         .collect();
-    let nullifier_roots: Vec<[u8; 32]> = args
-        .spend_inputs
+    let private_tx_outputs: Vec<[u8; 32]> = args
+        .outputs
         .iter()
-        .map(|input| field_bytes(&input.nullifier_tree_root))
+        .zip(&output_hashes)
+        .map(|(output, hash)| {
+            if output.is_dummy == 0u8.into() {
+                *hash
+            } else {
+                [0u8; 32]
+            }
+        })
         .collect();
     let mut ix_data = new_transact_ix_data(
         nullifiers
@@ -326,7 +370,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
             .map(|nullifier| eddsa_input_utxo(*nullifier, args.root_index))
             .collect(),
         args.interface_transfers,
-        inline_outputs(&args.output_hashes, &args.view_tags),
+        inline_outputs(&output_hashes, &args.view_tags),
     );
     let owner_pk_hashes = output_owner_pk_hashes(&ix_data.outputs)
         .map_err(|err| anyhow!("{} output owner pk hashes: {err}", args.label))?;
@@ -336,19 +380,21 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
         &args.output_nullifier_pks,
     );
     let external_hash = external_data_hash(&ix_data, &args.resolved_transfers)?;
+    let private_tx_blinding = test_private_tx_blinding(first_nullifier)?;
     let private_tx = PrivateTxHash::new(
         &args.private_tx_inputs,
-        &args.private_tx_outputs,
+        &private_tx_outputs,
         &external_hash,
+        &private_tx_blinding,
     )
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
     let signer_hashes = [args.payer_pubkey_hash, [0u8; 32], [0u8; 32]];
     let public_input = PublicInputs {
         nullifiers: &nullifiers,
-        output_hashes: &args.output_hashes,
-        utxo_roots: &utxo_roots,
-        nullifier_tree_roots: &nullifier_roots,
+        output_hashes: &output_hashes,
+        tree_slots: &args.tree_slots,
+        output_tree_id: args.output_tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_hash,
         public_transfers: &PublicTransfers {
@@ -364,6 +410,9 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: args.spend_inputs,
         outputs: args.outputs,
+        tree_slots: args.tree_slots,
+        output_tree_id: args.output_tree_id,
+        blinding_seed: TEST_BLINDING_SEED,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
         public_slot_assets,
@@ -373,22 +422,11 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<Tr
     });
     ix_data.proof = prove_and_verify_transfer(&prover_inputs, public_input, args.label)?;
     ix_data.private_tx_hash = private_tx;
-    Ok(ix_data)
-}
-
-/// Build one dummy witness output per blinding, returning the outputs and
-/// their utxo hashes in matching order. Used for all-dummy output sets (a full
-/// withdrawal whose value leaves through the public SOL slot).
-pub fn dummy_witness_outputs(
-    blindings: &[[u8; 31]],
-) -> Result<(Vec<TransferOutput>, Vec<[u8; 32]>)> {
-    let pairs = blindings
-        .iter()
-        .map(|blinding| {
-            dummy_transfer_output(blinding).map_err(|err| anyhow!("dummy output: {err}"))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(pairs.into_iter().unzip())
+    Ok(SolTransferWitness {
+        ix_data,
+        output_hashes,
+        output_blindings,
+    })
 }
 
 #[cfg(test)]

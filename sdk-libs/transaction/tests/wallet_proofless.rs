@@ -1,4 +1,8 @@
 use zolana_event::{encode_output_data, ProoflessOutput};
+
+/// Raw id of the tree this test hashes UTXOs under.
+const TEST_TREE_ID: u16 = 0;
+
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{
     Address, AssetRegistry, KeypairWalletAuthority, OutputContext, OutputSlot, ProofInputUtxo,
@@ -9,7 +13,7 @@ fn self_consistent_deposit(keypair: &ShieldedKeypair, amount: u64) -> ShieldedTr
     let blinding = [9u8; 32];
     let data_hash = [14u8; 32];
     let owner = keypair.owner_hash().expect("owner hash");
-    let utxo_hash = ProofInputUtxo::new(owner, &SOL_MINT, amount, &blinding)
+    let utxo_hash = ProofInputUtxo::new(owner, &SOL_MINT, amount, &blinding, TEST_TREE_ID)
         .expect("proof input utxo")
         .with_data_hash(data_hash)
         .hash()

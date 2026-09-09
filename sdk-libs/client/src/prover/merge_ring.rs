@@ -43,6 +43,8 @@ pub struct MergeRingProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
+    /// Raw id of the tree the merged output is appended to.
+    pub output_tree_id: u16,
     /// Ring program every input and the output are owned by. Its `pk_field`
     /// (`program_id_proof_input_hash(&Some(ring))` == on-chain `solana_pk_hash(ring)`) is the
     /// final public-input element and the value SPP binds from `ring_config`.
@@ -74,6 +76,7 @@ impl MergeRingProver {
             expiry_unix_ts: self.expiry_unix_ts,
             signing_pubkey: self.signing_pubkey,
             nullifier_key: self.nullifier_key,
+            output_tree_id: self.output_tree_id,
         }
         .common(zolana_interface::instruction::tag::RING_MERGE_TRANSACT)?;
 
@@ -122,6 +125,7 @@ impl TryFrom<MergeRingWitness> for MergeRingProver {
             expiry_unix_ts,
             signing_pubkey,
             ring_program_id,
+            output_tree_id,
         } = prepared;
 
         let spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
@@ -132,6 +136,7 @@ impl TryFrom<MergeRingWitness> for MergeRingProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
+            output_tree_id,
             ring_program_id,
         })
     }

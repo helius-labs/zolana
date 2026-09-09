@@ -50,10 +50,15 @@ func isLessBounded(api frontend.API, x, y frontend.Variable, k int) frontend.Var
 
 // IsLessLimbs returns 1 iff a < b: the high limbs decide, the low limbs break
 // the tie. The two terms are disjoint, so the sum is boolean.
+//
+// Each bounded comparison is sized by the wider of the two limbs, so the
+// isLessBounded precondition (both operands < 2^k) holds even if the operands
+// were decomposed at different widths; sizing from a alone would let a wider b
+// break it.
 func IsLessLimbs(api frontend.API, a, b fieldLimbs) frontend.Variable {
-	hiLess := isLessBounded(api, a.hi, b.hi, a.hiBits)
+	hiLess := isLessBounded(api, a.hi, b.hi, max(a.hiBits, b.hiBits))
 	hiEqual := api.IsZero(api.Sub(a.hi, b.hi))
-	loLess := isLessBounded(api, a.lo, b.lo, a.loBits)
+	loLess := isLessBounded(api, a.lo, b.lo, max(a.loBits, b.loBits))
 	return api.Add(hiLess, api.Mul(hiEqual, loLess))
 }
 

@@ -254,7 +254,7 @@ func expectSplAsset(t *testing.T, got *big.Int, mintHex string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := protocol.SolanaPkField(mint)
+	want, err := protocol.AssetField(mint)
 	if err != nil {
 		t.Fatal(err)
 	}

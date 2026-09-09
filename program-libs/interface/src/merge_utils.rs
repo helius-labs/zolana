@@ -1,7 +1,10 @@
 //! Canonical `no_std`-compatible fixed-length byte commitments shared by the
 //! merge program, SDK, and circuits.
 
-use zolana_hasher::{primitives::hash_bytes, HasherError};
+use zolana_hasher::{
+    primitives::{hash_bytes, p256_owner_identity},
+    HasherError,
+};
 
 const P256_PUBKEY_LEN: usize = 33;
 
@@ -21,12 +24,13 @@ pub fn pk_field_compressed(compressed: &[u8; P256_PUBKEY_LEN]) -> Result<[u8; 32
     hash_bytes(compressed)
 }
 
-/// Owner-identity proof-input hash of the 32-byte x-coordinate. SEC1 parity is
-/// validated but intentionally excluded from the owner tag.
+/// Owner identity of a SEC1-compressed P256 key:
+/// [`p256_owner_identity`] over its 32-byte x-coordinate. SEC1 parity is
+/// validated but intentionally excluded from the identity.
 pub fn owner_proof_input_hash_compressed(
     compressed: &[u8; P256_PUBKEY_LEN],
 ) -> Result<[u8; 32], HasherError> {
-    hash_bytes(&parse_compressed(compressed)?)
+    p256_owner_identity(&parse_compressed(compressed)?)
 }
 
 /// Fixed-length ciphertext proof-input hash.
@@ -67,6 +71,21 @@ mod tests {
         assert_eq!(
             owner_proof_input_hash_compressed(&even).unwrap(),
             owner_proof_input_hash_compressed(&odd).unwrap()
+        );
+    }
+
+    #[test]
+    fn owner_hash_is_the_tagged_p256_identity_of_the_x_coordinate() {
+        let key = sec1(0x02);
+        let mut x = [0u8; 32];
+        x.copy_from_slice(&key[1..]);
+        assert_eq!(
+            owner_proof_input_hash_compressed(&key).unwrap(),
+            p256_owner_identity(&x).unwrap()
+        );
+        assert_ne!(
+            owner_proof_input_hash_compressed(&key).unwrap(),
+            hash_bytes(&x).unwrap()
         );
     }
 }

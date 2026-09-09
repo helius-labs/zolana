@@ -163,7 +163,7 @@ prefix; it is a bare address and signs only inside the CPI.
 `maker_address` is the committed destination for both outcomes: take pays the destination output
 there, cancel returns the source output there. Either way the maker recovers the bought output from
 the order UTXO blinding it already holds: `take_verifiable_encryption` proves a ciphertext keyed from
-it, and `take` fixes the destination blinding to `Poseidon(order_utxo_blinding, DOMAIN)`.
+it, and `take` derives the blinding seed from the order blinding and reconstructs the payout using the first published nullifier.
 Cancel requires the maker: it signs the cancel transaction, and the cancel
 proof checks `hash_bytes` of the signer's pubkey against the order's
 `maker_owner_hash`. The refund can only land at `maker_address`.
@@ -414,7 +414,8 @@ against the committed terms, matching the 2-in/2-out transact (order UTXO + dest
 source + destination-to-maker out). The program enforces `now <= expiry` against the Clock;
 the circuit only reveals `expiry` and checks it equals the committed term.
 
-- **Public inputs:** `Poseidon(private_tx_hash, expiry)`.
+- **Public inputs:** `Poseidon(private_tx_hash, expiry, first_nullifier)`. The program reads
+  `first_nullifier` from the first SPP input, so it cannot be substituted by the prover.
 - **Private inputs:** the order UTXO hash preimage (order terms, `source_amount`,
   `order_utxo_blinding`), the maker's compressed viewing pubkey (feeding `maker_address`), the taker's
   destination-side input UTXO, and the two output UTXO hash preimages.
@@ -425,9 +426,12 @@ the circuit only reveals `expiry` and checks it equals the committed term.
     committed in `private_tx_hash` are `destination_output == (destination_asset_id,
     destination_amount, maker_owner_hash)` and `source_output == (source_asset_id, source_amount)`
     owned by the destination-side input's owner, so the taker pays itself the source funds.
-  - The `destination_output` blinding is fixed to the low 248 bits (31 bytes) of
-    `Poseidon(order_utxo_blinding, DOMAIN)`, so the maker recovers and spends it from the order UTXO
-    blinding alone.
+  - `blinding_seed = Poseidon("SWTX", order_utxo_blinding)`, where `SWTX` is the ASCII
+    tag as a 32-bit integer. Both the private transaction blinding and both output
+    blindings must follow SPP's blinding seed derivations under this seed and
+    the first published nullifier. Output slots are source `0`, maker destination `1`.
+    The maker reconstructs its payout from the order opening and that nullifier,
+    even if the taker omits or corrupts every settlement ciphertext.
   - `destination_amount > 0` (64-bit range-checked); the order UTXO amount is nonzero.
 
 ### Take verifiable encryption circuit

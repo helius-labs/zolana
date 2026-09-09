@@ -1677,6 +1677,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
  "zolana-transaction",
 ]
 
@@ -11288,6 +11289,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "zolana-program"
+version = "0.1.0"
+dependencies = [
+ "zolana-hasher",
+]
+
+[[package]]
 name = "zolana-program-test"
 version = "0.23.0"
 dependencies = [
@@ -11463,6 +11471,7 @@ dependencies = [
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
+ "zolana-program",
 ]
 
 [[package]]

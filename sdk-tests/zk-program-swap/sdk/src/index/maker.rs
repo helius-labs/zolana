@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     err,
+    shared::INDEXED_TREE_ID,
     state::{OrderTerms, OrderUtxo},
 };
 
@@ -67,7 +68,7 @@ pub fn scan_maker(
         let Ok(order_utxo_hash) = order
             .order_utxo
             .output_utxo(taker_viewing_pubkey)
-            .and_then(|output| output.hash().map_err(err))
+            .and_then(|output| output.hash(INDEXED_TREE_ID).map_err(err))
         else {
             continue;
         };

@@ -2,6 +2,7 @@ package transfereddsaonly
 
 import (
 	"fmt"
+	"math/big"
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
@@ -18,6 +19,7 @@ func (p *TransferParameters) ValidateShape() error {
 	if len(p.Outputs) != int(p.NOutputs) {
 		return fmt.Errorf("wrong number of outputs: %d, expected: %d", len(p.Outputs), p.NOutputs)
 	}
+	inputSlots := make([]*big.Int, len(p.Inputs))
 	for i := range p.Inputs {
 		if got := len(p.Inputs[i].StatePathElements); got != txcircuit.StateTreeHeight {
 			return fmt.Errorf("input %d: wrong state path length: got %d, expected %d", i, got, txcircuit.StateTreeHeight)
@@ -25,6 +27,15 @@ func (p *TransferParameters) ValidateShape() error {
 		if got := len(p.Inputs[i].NullifierLowPathElements); got != txcircuit.NullifierTreeHeight {
 			return fmt.Errorf("input %d: wrong nullifier path length: got %d, expected %d", i, got, txcircuit.NullifierTreeHeight)
 		}
+		inputSlots[i] = p.Inputs[i].TreeSlot
+	}
+	// The circuit only fails an out-of-range or unused slot inside
+	// SelectTreeSlot, as an opaque proving error; reject it as a request error.
+	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, txcircuit.InputTrees); err != nil {
+		return err
+	}
+	if p.OutputTreeID == nil {
+		return fmt.Errorf("spp: outputTreeId is required")
 	}
 	return nil
 }

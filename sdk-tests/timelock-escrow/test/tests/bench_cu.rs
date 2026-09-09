@@ -43,7 +43,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
@@ -95,6 +95,10 @@ fn system_owned_account(lamports: u64) -> Account {
     }
 }
 
+/// Raw id of the fixture tree. `build_tree_fixture` initializes the account with
+/// this id, and every UTXO commitment folds it in.
+const BENCH_TREE_ID: u16 = 0;
+
 fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
@@ -104,7 +108,7 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             tree.to_bytes(),
-            0,
+            BENCH_TREE_ID,
             nullifier_tree_params(),
             default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
                 .expect("default tree fees"),
@@ -388,8 +392,8 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         ring_program_id: None,
         data: Data::default(),
     };
-    let spend = SppProofInputUtxo::new(input_utxo, &creator);
-    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+    let spend = SppProofInputUtxo::new(input_utxo, &creator).in_tree(BENCH_TREE_ID);
+    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy().in_tree(BENCH_TREE_ID)];
 
     let escrow_utxo = EscrowUtxo {
         terms: EscrowTerms {
@@ -411,6 +415,12 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         u64::try_from(leftover).expect("insufficient shielded balance for escrow bench");
     let change = SppProofOutputUtxo::new(escrow_asset, change_amount, creator_address)
         .expect("change output");
+    let mut transaction_outputs = vec![change, escrow_output_utxo];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive escrow output blindings");
+    let [change, escrow_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("escrow transaction has two outputs");
 
     let transaction_viewing_key = get_transaction_viewing_key(&creator, &input_utxos)
         .expect("escrow transaction viewing key");
@@ -418,6 +428,7 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         &[change.clone(), escrow_output_utxo],
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode escrow slots");
 
@@ -433,7 +444,9 @@ fn bench_escrow(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -517,10 +530,16 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         asset: SOL_MINT,
         amount: LOCK_AMOUNT,
     };
-    let source_output = escrow_utxo.source_output(creator_address, random_blinding());
+    let mut source_output = escrow_utxo.source_output(creator_address, random_blinding());
 
-    let escrow_input_utxo = escrow_utxo.to_input_utxo().expect("escrow spend");
+    let escrow_input_utxo = escrow_utxo
+        .to_input_utxo()
+        .expect("escrow spend")
+        .in_tree(BENCH_TREE_ID);
     let input_utxos = vec![escrow_input_utxo];
+    let blinding_seed =
+        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
+            .expect("derive withdraw output blinding");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
@@ -530,6 +549,7 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         std::slice::from_ref(&source_output),
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode withdraw slots");
 
@@ -546,7 +566,9 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -574,6 +596,11 @@ fn bench_withdraw(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmar
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs
+            .private_tx_blinding()
+            .expect("private tx blinding"),
+        input_tree_id: BENCH_TREE_ID,
+        output_tree_id: BENCH_TREE_ID,
     };
 
     let prover = ProverClient::local();

@@ -55,8 +55,9 @@ fn hash_and_owner_vectors_are_stable() {
     cases::hashing::pubkey_field_golden(
         &mut world,
         "g".into(),
-        // Re-pinned to PR164's `owner_proof_input_hash` derivation.
-        "0f4bf7083f874501d5a318701d2b677b3bed1dd709817e16198255bd1ce45ec3".into(),
+        // Re-pinned to the algorithm-tagged owner identity
+        // `p256_owner_identity(x) = hash_bytes_33(0x50 || x)`.
+        "0bc5d9feb792a3d6e0639ff0123b4e12f379fcbfeab4afd3d16c4c87c16dd8ce".into(),
     );
     cases::hashing::pubkey_field_stable(&mut world, "g".into());
     cases::common::random_shielded_keypair(&mut world, "alice".into());

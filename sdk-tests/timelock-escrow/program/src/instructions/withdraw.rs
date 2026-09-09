@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
@@ -63,8 +63,9 @@ pub fn process_withdraw_ix(accounts: &mut [AccountView], data: &[u8]) -> Program
     // The creator signs the withdraw; the withdraw proof recomputes the
     // escrow's committed owner_hash from this pubkey (owner_pk_field), so only
     // the creator can withdraw and the creator knows the refund blinding it
-    // chose.
-    let owner_pk_field = hash_bytes(iter.next_signer("creator")?.address().as_array())
+    // chose. The identity is tagged as a Solana key, like the owner hash the
+    // escrow terms commit.
+    let owner_pk_field = solana_owner_identity(iter.next_signer("creator")?.address().as_array())
         .map_err(TimelockEscrowError::from)?;
 
     let WithdrawIxData {

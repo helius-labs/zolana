@@ -1,5 +1,6 @@
 //! Local-validator proofless deposit test.
 
+use anyhow::anyhow;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
@@ -14,11 +15,12 @@ use zolana_interface::{
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_program_test::{
-    rpc_state_root, single_deposit_view, DepositOutput, TestIndexer, ZolanaProgramTest,
-    RING_TEST_PROGRAM_ID,
+    ring_deposit_output_from_event, rpc_state_root, single_deposit_view, TestIndexer,
+    ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
 use zolana_transaction::{
-    AssetRegistry, KeypairWalletAuthority, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
+    derive_output_blinding_seed, utxo::derive_transact_output_blinding, AssetRegistry,
+    KeypairWalletAuthority, ShieldedTransaction, SyncWalletAuthority, Wallet, DEFAULT_TAG_WINDOW,
 };
 
 use shielded_pool_tests::support::localnet::{
@@ -46,6 +48,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
         payer,
         authority,
         tree,
+        tree_id: _tree_id,
     } = initialize_indexed_pool(&mut rpc, &mut indexer, program_id)?;
     let depositor = Keypair::new();
     print_signature(
@@ -82,7 +85,8 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     assert_wallet_discovers(
         &mut direct_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &direct_keypair),
-        &direct_view,
+        direct_view.to_shielded_transaction(Signature::default()),
+        direct_view.utxo_hash,
     )?;
 
     // A ring deposit is authorized by the ring's `ring_config` (its `ring_auth`
@@ -132,11 +136,15 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let ring_keypair = ShieldedKeypair::new_p256()?;
     let mut ring_recipient =
         Wallet::new(ring_keypair.shielded_address()?, AssetRegistry::default())?;
+    // Ring deposits have no input nullifier; use a fixture for the shared derivations.
+    let fixture_first_nullifier = [7u8; 32];
+    let output_blinding_seed = derive_output_blinding_seed(&fixture_first_nullifier, &[5u8; 32])?;
+    let blinding =
+        derive_transact_output_blinding(&fixture_first_nullifier, &output_blinding_seed, 0)?;
     let mut ring_data = ZolanaProgramTest::wallet_ring_sol_shield_data(
         DEPOSIT_LAMPORTS,
         &ring_recipient.identity,
-        &[5u8; 32],
-        0,
+        blinding,
     )?;
     ring_data.ring_data_hash = [5u8; 32];
     let ring_root_before = rpc_state_root(&rpc, &tree)?;
@@ -159,12 +167,23 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     print_signature("ring_deposit", &ring_tx.signature);
     let ring_root_after = rpc_state_root(&rpc, &tree)?;
     assert_ne!(ring_root_after, ring_root_before);
-    let ring_view = single_deposit_view(&ring_tx.events)?;
+    // A ring deposit publishes its output under the owner-hidden encrypted
+    // encoding, not the plaintext one a direct deposit uses.
+    let ring_view = match ring_tx.events.as_slice() {
+        [event] => ring_deposit_output_from_event(event)?,
+        events => {
+            return Err(anyhow!(
+                "expected exactly one ring deposit event, got {}",
+                events.len()
+            ))
+        }
+    };
     assert_eq!(ring_root_after, indexer.root());
     assert_wallet_discovers(
         &mut ring_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &ring_keypair),
-        &ring_view,
+        ring_view.to_shielded_transaction(Signature::default()),
+        ring_view.utxo_hash,
     )?;
 
     println!("localnet proofless deposit test passed via {rpc_url}");
@@ -174,18 +193,14 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
 fn assert_wallet_discovers<A: SyncWalletAuthority + ?Sized>(
     wallet: &mut Wallet,
     authority: &A,
-    view: &DepositOutput,
+    transaction: ShieldedTransaction,
+    utxo_hash: [u8; 32],
 ) -> TestResult {
-    wallet.sync(
-        authority,
-        &[view.to_shielded_transaction(Signature::default())],
-        0,
-        DEFAULT_TAG_WINDOW,
-    )?;
+    wallet.sync(authority, &[transaction], 0, DEFAULT_TAG_WINDOW)?;
     assert_eq!(wallet.utxos.len(), 1);
     assert_eq!(
         wallet.utxos.first().expect("one utxo").output_context.hash,
-        view.utxo_hash
+        utxo_hash
     );
     Ok(())
 }

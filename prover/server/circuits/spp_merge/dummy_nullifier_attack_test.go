@@ -11,6 +11,7 @@ import (
 	merge "zolana/prover/circuits/spp_merge"
 	mergeshared "zolana/prover/circuits/spp_merge/shared"
 	"zolana/prover/prover-test/poseidon"
+	"zolana/prover/prover-test/spp/spptest"
 )
 
 // Regression tests for INV-MERGE-16 (pre-PR164): the old spp_merge circuit left
@@ -40,8 +41,8 @@ func refreshDefaultPublicInputHash(t *testing.T, f *mergeWitnessFixture) {
 	f.publicInputHash = hashChain(t, []*big.Int{
 		hashChain(t, asBigInts(f.public.Nullifiers)),
 		f.public.OutputHash.(*big.Int),
-		hashChain(t, asBigInts(f.public.UtxoTreeRoots)),
-		hashChain(t, asBigInts(f.public.NullifierTreeRoots)),
+		spptest.MustTreeSlotsHashChain(t, publicTreeSlots(f.public.TreeSlots)),
+		f.public.OutputTreeID.(*big.Int),
 		f.public.PrivateTxHash.(*big.Int),
 		f.public.ExternalDataHash.(*big.Int),
 		f.public.AllowDummyInputs.(*big.Int),

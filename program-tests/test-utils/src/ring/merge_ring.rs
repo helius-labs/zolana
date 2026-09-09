@@ -5,7 +5,7 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::merge_ring::MergeRingProver, MergeProver, ProverClient, SpendProof, TransferSpendInput,
+    prover::merge_ring::MergeRingProver, MergeProver, ProverClient, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -14,22 +14,111 @@ use zolana_interface::{
         MergeRing,
     },
 };
-use zolana_keypair::random_blinding;
+use zolana_keypair::{random_blinding, ShieldedKeypair};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
     Data, SppProofOutputUtxo, Utxo,
 };
 
-use super::{MergeRingRecord, RingHarness, SECOND_RING_TEST_PROGRAM_ID};
+use super::{MergeRingRecord, RingHarness, SpendSlot, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
     localnet::{pack_merge_proof, send_transaction, ZERO},
     nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
-        wait_for_merkle_proof, wait_for_non_inclusion_proof, MergeRingAssertArgs,
+        wait_for_merkle_proof, MergeRingAssertArgs,
     },
 };
+
+/// One actor's padded 8-slot merge input set: the real spends first, then
+/// dummies whose deterministic nullifiers derive from the first real one.
+struct MergeRingSpendInputs {
+    spend_inputs: Vec<TransferSpendInput>,
+    /// Sum of the real input amounts, the merged output's amount.
+    total: u64,
+    first_nullifier: [u8; 32],
+}
+
+impl RingHarness {
+    /// Build the padded merge inputs of `inputs`, fetching every state proof and
+    /// every non-inclusion proof from one indexer snapshot each
+    /// ([`RingHarness::fetch_slot_proofs`]). The proof's root indices flow
+    /// through `MergeProofResult` (real slots from the SpendProofs, dummy slots
+    /// mirroring the first real input). The ring is stamped on each real input
+    /// by `MergeRingProver::build`, so the SpendProofs are taken against the
+    /// UTXO hash carrying that ring. The harness runs one tree, so every input
+    /// is hashed under it.
+    fn merge_ring_spend_inputs(
+        &self,
+        keypair: &ShieldedKeypair,
+        inputs: &[Utxo],
+        asset: Address,
+    ) -> Result<MergeRingSpendInputs> {
+        let nullifier_pk = keypair.nullifier_key.pubkey()?;
+        let tree_id = self.tree_id;
+        let mut total: u64 = 0;
+        let mut slots = Vec::with_capacity(MERGE_INPUT_COUNT);
+        for utxo in inputs {
+            total = total
+                .checked_add(utxo.amount)
+                .ok_or_else(|| anyhow!("merge input amounts overflow"))?;
+            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
+            let nullifier = keypair
+                .nullifier_key
+                .nullifier(&utxo_hash, &utxo.blinding)?;
+            slots.push(SpendSlot {
+                utxo_hash: Some(utxo_hash),
+                nullifier,
+            });
+        }
+        let first_nullifier = slots
+            .first()
+            .map(|slot| slot.nullifier)
+            .ok_or_else(|| anyhow!("a merge needs at least one real input"))?;
+        // Pad to the 8-input shape with dummies. A dummy mirrors the first real
+        // input's UTXO root but carries a non-inclusion proof for its own
+        // deterministic nullifier.
+        for slot in inputs.len()..MERGE_INPUT_COUNT {
+            slots.push(SpendSlot {
+                utxo_hash: None,
+                nullifier: merge_dummy_nullifier(
+                    &keypair.nullifier_key,
+                    &first_nullifier,
+                    slot as u8,
+                )?,
+            });
+        }
+
+        let owner = keypair.signing_pubkey();
+        let spend_inputs = self
+            .fetch_slot_proofs(&slots)?
+            .into_iter()
+            .enumerate()
+            .map(|(slot, (proof, nullifier_proof))| TransferSpendInput {
+                utxo: inputs.get(slot).cloned().unwrap_or_else(|| Utxo {
+                    owner,
+                    asset,
+                    amount: 0,
+                    blinding: random_blinding(),
+                    ring_program_id: None,
+                    data: Data::default(),
+                }),
+                nullifier_key: keypair.nullifier_key.clone(),
+                data_hash: None,
+                ring_data_hash: None,
+                tree_id,
+                proof,
+                nullifier_proof,
+            })
+            .collect();
+        Ok(MergeRingSpendInputs {
+            spend_inputs,
+            total,
+            first_nullifier,
+        })
+    }
+}
 
 /// Behavioral switches for [`RingHarness::merge_ring_inner`]: the happy path
 /// uses the defaults; each rejection scenario flips exactly the flags it needs.
@@ -171,67 +260,13 @@ impl RingHarness {
             taken
         };
 
-        // Per-input SpendProof, fetched exactly as the transfer path does. The
-        // proof's root indices flow through `MergeProofResult` (real slots from
-        // the SpendProofs, dummy slots mirroring the first real input). The ring is
-        // stamped on each real input by `MergeRingProver::build`, so the
-        // SpendProofs must be taken against the UTXO hash carrying that ring.
-        let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
-        let mut total: u64 = 0;
-        for utxo in &inputs {
-            total += utxo.amount;
-            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            let nullifier = keypair
-                .nullifier_key
-                .nullifier(&utxo_hash, &utxo.blinding)?;
-            let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
-            let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-            spend_inputs.push(TransferSpendInput {
-                utxo: utxo.clone(),
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                proof: Some(SpendProof {
-                    state,
-                    nullifier: nf,
-                }),
-                nullifier_proof: None,
-            });
-        }
-
-        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let first_nullifier = keypair
-            .nullifier_key
-            .nullifier(&first_hash, &inputs[0].blinding)?;
-
-        // Pad to the 8-input shape with dummies. A dummy mirrors the first real
-        // input's UTXO root but carries a non-inclusion proof for its own
-        // deterministic nullifier.
+        let MergeRingSpendInputs {
+            spend_inputs,
+            total,
+            first_nullifier,
+        } = self.merge_ring_spend_inputs(&keypair, &inputs, asset)?;
+        let tree_id = self.tree_id;
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
-            let slot = spend_inputs.len();
-            let dummy_nullifier =
-                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
-            let dummy_nullifier_proof =
-                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
-            let utxo = Utxo {
-                owner,
-                asset,
-                amount: 0,
-                blinding: random_blinding(),
-                ring_program_id: None,
-                data: Data::default(),
-            };
-            spend_inputs.push(TransferSpendInput {
-                utxo,
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                proof: None,
-                nullifier_proof: Some(dummy_nullifier_proof),
-            });
-        }
 
         // The single consolidated ring-owned output is reconstructed from the
         // first real input and its published nullifier.
@@ -262,6 +297,7 @@ impl RingHarness {
                 expiry_unix_ts,
                 signing_pubkey: owner,
                 nullifier_key: keypair.nullifier_key.clone(),
+                output_tree_id: tree_id,
             }
             .build()?;
             let proof = ProverClient::local().prove_merge(&result.inputs)?;
@@ -278,6 +314,7 @@ impl RingHarness {
                 signing_pubkey: owner,
                 nullifier_key: keypair.nullifier_key.clone(),
                 ring_program_id: ring,
+                output_tree_id: tree_id,
             }
             .build()?;
             let proof = ProverClient::local().prove_merge_ring(&result.inputs)?;
@@ -431,59 +468,13 @@ impl RingHarness {
             taken
         };
 
-        let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
-        let mut total: u64 = 0;
-        for utxo in &inputs {
-            total += utxo.amount;
-            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            let nullifier = keypair
-                .nullifier_key
-                .nullifier(&utxo_hash, &utxo.blinding)?;
-            let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
-            let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-            spend_inputs.push(TransferSpendInput {
-                utxo: utxo.clone(),
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                proof: Some(SpendProof {
-                    state,
-                    nullifier: nf,
-                }),
-                nullifier_proof: None,
-            });
-        }
-
-        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let first_nullifier = keypair
-            .nullifier_key
-            .nullifier(&first_hash, &inputs[0].blinding)?;
-
+        let MergeRingSpendInputs {
+            spend_inputs,
+            total,
+            first_nullifier,
+        } = self.merge_ring_spend_inputs(&keypair, &inputs, asset)?;
+        let tree_id = self.tree_id;
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
-            let slot = spend_inputs.len();
-            let dummy_nullifier =
-                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
-            let dummy_nullifier_proof =
-                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
-            let utxo = Utxo {
-                owner,
-                asset,
-                amount: 0,
-                blinding: random_blinding(),
-                ring_program_id: None,
-                data: Data::default(),
-            };
-            spend_inputs.push(TransferSpendInput {
-                utxo,
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                proof: None,
-                nullifier_proof: Some(dummy_nullifier_proof),
-            });
-        }
 
         let output = SppProofOutputUtxo {
             owner_address: Some(keypair.shielded_address()?),
@@ -504,6 +495,7 @@ impl RingHarness {
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
             ring_program_id: ring,
+            output_tree_id: tree_id,
         }
         .build()?;
 

@@ -108,12 +108,14 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     };
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
-
-    // Loaded before hashing: each entry's blinding comes from the leaf index it
-    // lands at.
+    // Loaded before hashing: every entry is hashed under the id of the tree it
+    // is appended to, and its blinding comes from the leaf index it lands at.
+    // The tree stays borrowed while the entries are hashed; nothing in the loop
+    // touches the tree account.
     let mut tree =
         TreeAccount::from_account_view_mut(parsed.tree, &crate::ID, TREE_ACCOUNT_DISCRIMINATOR)
             .map_err(ShieldedPoolError::from)?;
+    let tree_id = tree.tree_id_array();
     let first_output_leaf_index = tree.utxo_tree().next_index();
 
     let mut asset_sums: ArrayMap<u8, u64, MAX_DEPOSIT_ASSETS> = ArrayMap::new();
@@ -164,6 +166,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         let ring_hash = hash_with_program_id(ring_data_hash, &ring_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
+            tree_id.as_slice(),
             group.asset_field.as_slice(),
             field_from_u64(amount).as_slice(),
             data_hash.as_slice(),

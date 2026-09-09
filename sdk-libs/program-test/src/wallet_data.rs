@@ -1,28 +1,9 @@
 use solana_pubkey::Pubkey;
 use zolana_interface::instruction::{AssetDeposit, DepositAsset, DepositSplAccounts};
 use zolana_keypair::shielded::ShieldedAddress;
-use zolana_transaction::{derive_blinding, TransactionError};
+use zolana_transaction::TransactionError;
 
 use crate::{ProgramTestError, ZolanaProgramTest};
-
-pub(crate) struct WalletShieldFields {
-    pub view_tag: [u8; 32],
-    pub owner: [u8; 32],
-    pub blinding: [u8; 32],
-}
-
-pub(crate) fn wallet_shield_fields(
-    recipient: &ShieldedAddress,
-    blinding_seed: &[u8; 32],
-    position: u8,
-) -> Result<WalletShieldFields, ProgramTestError> {
-    let (view_tag, owner) = wallet_shield_identity(recipient)?;
-    Ok(WalletShieldFields {
-        view_tag,
-        owner,
-        blinding: derive_blinding(blinding_seed, position),
-    })
-}
 
 /// The public recipient material a proofless deposit contains. The blinding is
 /// derived, so the plain `deposit` rail needs nothing else.

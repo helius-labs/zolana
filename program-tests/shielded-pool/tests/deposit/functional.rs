@@ -20,8 +20,9 @@ use zolana_test_utils::litesvm_asserts::{
     SolDepositOracle,
 };
 use zolana_transaction::{
-    derive_blinding, owner_utxo_hash, serialization::RingDepositPlaintext, AssetRegistry, Data,
-    KeypairWalletAuthority, Utxo, Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
+    derive_output_blinding_seed, owner_utxo_hash, serialization::RingDepositPlaintext,
+    utxo::derive_transact_output_blinding, AssetRegistry, Data, KeypairWalletAuthority, Utxo,
+    Wallet, DEFAULT_TAG_WINDOW, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -30,6 +31,10 @@ use shielded_pool_tests::support::{
     mollusk::deposit_fixture,
     transact::tree_progress,
 };
+
+// Ring deposits have no input nullifier. This fixture exercises the shared
+// transaction blinding derivations when constructing their private preimages.
+const FIXTURE_FIRST_NULLIFIER: [u8; 32] = [7u8; 32];
 
 #[test]
 fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
@@ -336,13 +341,13 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     let zero = [0u8; 32];
     assert_eq!(
         event.utxo_hash,
-        utxo.hash(&nullifier_pk, &data_hash, &zero)
+        utxo.hash(&nullifier_pk, &data_hash, &zero, pool.tree_id)
             .expect("hash with data"),
         "on-chain utxo hash must commit the supplied data_hash"
     );
     assert_ne!(
         event.utxo_hash,
-        utxo.hash(&nullifier_pk, &zero, &zero)
+        utxo.hash(&nullifier_pk, &zero, &zero, pool.tree_id)
             .expect("hash without data"),
         "the data-carrying arm must produce a different commitment than the plain arm"
     );
@@ -458,13 +463,14 @@ fn ring_sol_deposit_settles_and_indexes_the_exact_output() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
-    let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(
-        600_000_000,
-        &recipient.identity,
-        &[5u8; 32],
-        0,
-    )
-    .expect("ring SOL deposit data");
+    let output_blinding_seed = derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &[5u8; 32])
+        .expect("output blinding seed");
+    let blinding =
+        derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
+            .expect("output blinding");
+    let mut data =
+        ZolanaProgramTest::wallet_ring_sol_shield_data(600_000_000, &recipient.identity, blinding)
+            .expect("ring SOL deposit data");
     data.ring_data_hash = [5u8; 32];
     let root_before = pool.rpc.state_root(&tree).expect("root");
     let depositor_before = pool
@@ -595,6 +601,7 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
         .expect("create ring config");
 
     let tree = pool.tree;
+    let tree_id = pool.tree_id;
     let depositor = pool.funded_signer(2_000_000_000);
     let recipient_key = ShieldedKeypair::new_p256().expect("recipient keypair");
     let recipient = recipient_key
@@ -607,18 +614,21 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
 
     let mut deposits = Vec::with_capacity(AMOUNTS.len());
     let mut expected_outputs = Vec::with_capacity(AMOUNTS.len());
+    let output_blinding_seed =
+        derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &BLINDING_SEED)
+            .expect("output blinding seed");
     for (offset, amount) in AMOUNTS.into_iter().enumerate() {
         let position = u8::try_from(offset).expect("small ring deposit batch");
-        let blinding = derive_blinding(&BLINDING_SEED, position);
+        let blinding = derive_transact_output_blinding(
+            &FIXTURE_FIRST_NULLIFIER,
+            &output_blinding_seed,
+            u32::from(position),
+        )
+        .expect("output blinding");
         let ring_data_hash = [position.checked_add(1).expect("ring-data seed"); 32];
         let ring_data = vec![position, position.checked_add(10).expect("ring-data byte")];
-        let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(
-            amount,
-            &recipient,
-            &BLINDING_SEED,
-            position,
-        )
-        .expect("ring deposit data");
+        let mut data = ZolanaProgramTest::wallet_ring_sol_shield_data(amount, &recipient, blinding)
+            .expect("ring deposit data");
         data.ring_data_hash = ring_data_hash;
         data.encrypted = RingDepositPlaintext {
             blinding,
@@ -638,7 +648,12 @@ fn ring_deposit_batch_binds_distinct_ring_data_per_entry() {
             data: Data::default(),
         };
         let utxo_hash = expected_utxo
-            .hash(&recipient.nullifier_pubkey, &[0u8; 32], &ring_data_hash)
+            .hash(
+                &recipient.nullifier_pubkey,
+                &[0u8; 32],
+                &ring_data_hash,
+                tree_id,
+            )
             .expect("ring-bound UTXO hash");
         expected_outputs.push(RingDepositOutput {
             view_tag: data.view_tag,
@@ -712,13 +727,17 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
         AssetRegistry::default(),
     )
     .expect("recipient wallet");
+    let output_blinding_seed = derive_output_blinding_seed(&FIXTURE_FIRST_NULLIFIER, &[9u8; 32])
+        .expect("output blinding seed");
+    let blinding =
+        derive_transact_output_blinding(&FIXTURE_FIRST_NULLIFIER, &output_blinding_seed, 0)
+            .expect("output blinding");
     let mut data = ZolanaProgramTest::wallet_ring_spl_shield_data(
         350_000,
         mint,
         user_token,
         &recipient.identity,
-        &[9u8; 32],
-        0,
+        blinding,
     )
     .expect("ring SPL deposit data");
     data.ring_data_hash = [9u8; 32];

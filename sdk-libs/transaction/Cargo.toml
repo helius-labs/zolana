@@ -11,6 +11,7 @@ zolana-interface = { workspace = true }
 zolana-event = { workspace = true, features = ["program-test"] }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-program = { workspace = true }
 async-trait = { workspace = true }
 borsh = { workspace = true }
 thiserror = { workspace = true }

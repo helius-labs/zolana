@@ -173,6 +173,11 @@ impl<'a> TreeAccount<'a> {
         core::mem::offset_of!(SppTreeLayout, utxo) + smt::ROOT_OFFSET
     }
 
+    /// Byte offset of the little-endian `u16` tree id within the account.
+    pub const fn tree_id_offset() -> usize {
+        core::mem::offset_of!(SppTreeLayout, tree_id)
+    }
+
     pub fn init(
         bytes: &'a mut [u8],
         discriminator: u8,
@@ -360,6 +365,16 @@ impl<'a> TreeAccount<'a> {
 
     pub fn tree_id(&self) -> u16 {
         self.layout().tree_id
+    }
+
+    /// The tree id as the 32-byte field element UTXOs and tree slots are hashed
+    /// under: the raw `u16` right-aligned big-endian, twin of
+    /// `zolana_interface::tree_slot::tree_id_field` (the interface depends on
+    /// this crate, so the two-byte alignment is spelled out here).
+    pub fn tree_id_array(&self) -> [u8; 32] {
+        let mut field = [0u8; 32];
+        field[30..].copy_from_slice(&self.tree_id().to_be_bytes());
+        field
     }
 
     pub fn state(&self) -> u8 {
