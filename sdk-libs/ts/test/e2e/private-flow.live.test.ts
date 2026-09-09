@@ -298,7 +298,7 @@ function fetchUrl(input: URL | RequestInfo): string {
   return input instanceof Request ? input.url : input.toString();
 }
 
-describe.sequential("live SDK lifecycle", () => {
+describe("live SDK lifecycle", { concurrent: false }, () => {
   let harness: LiveHarness;
 
   beforeAll(async () => {

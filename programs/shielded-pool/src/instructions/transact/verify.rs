@@ -486,7 +486,13 @@ pub fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
         value.into_bigint().0
     };
     let mut out = [0u8; 32];
-    for (target, limb) in out.chunks_exact_mut(8).rev().zip(limbs.iter()) {
+    for (target, limb) in out
+        .as_chunks_mut::<8>()
+        .0
+        .iter_mut()
+        .rev()
+        .zip(limbs.iter())
+    {
         target.copy_from_slice(&limb.to_be_bytes());
     }
     Ok(out)
