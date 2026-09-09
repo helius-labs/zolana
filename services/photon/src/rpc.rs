@@ -147,15 +147,20 @@ impl RpcClient {
                 json!([program_id.to_string(), account_config()]),
             )
             .await?;
-        accounts
-            .into_iter()
-            .map(|item| {
-                let pubkey = Pubkey::from_str(&item.pubkey).map_err(|error| {
-                    RpcError::InvalidAccount(format!("invalid pubkey {}: {error}", item.pubkey))
-                })?;
-                Ok((pubkey, item.account.decode()?))
-            })
-            .collect()
+        decode_program_accounts(accounts)
+    }
+
+    pub async fn get_spl_asset_registry_accounts(
+        &self,
+        program_id: &Pubkey,
+    ) -> Result<Vec<(Pubkey, Account)>, RpcError> {
+        let accounts: Vec<ProgramAccount> = self
+            .call(
+                "getProgramAccounts",
+                spl_asset_registry_gpa_params(program_id),
+            )
+            .await?;
+        decode_program_accounts(accounts)
     }
 
     async fn call<T>(&self, method: &'static str, params: Value) -> Result<T, RpcError>
@@ -219,11 +224,39 @@ impl EncodedAccount {
     }
 }
 
+fn decode_program_accounts(
+    accounts: Vec<ProgramAccount>,
+) -> Result<Vec<(Pubkey, Account)>, RpcError> {
+    accounts
+        .into_iter()
+        .map(|item| {
+            let pubkey = Pubkey::from_str(&item.pubkey).map_err(|error| {
+                RpcError::InvalidAccount(format!("invalid pubkey {}: {error}", item.pubkey))
+            })?;
+            Ok((pubkey, item.account.decode()?))
+        })
+        .collect()
+}
+
 fn account_config() -> Value {
     json!({
         "commitment": "confirmed",
         "encoding": "base64",
     })
+}
+
+fn spl_asset_registry_gpa_params(program_id: &Pubkey) -> Value {
+    json!([
+        program_id.to_string(),
+        {
+            "commitment": "confirmed",
+            "encoding": "base64",
+            "filters": [
+                { "dataSize": 48 },
+                { "memcmp": { "offset": 0, "bytes": "BQ==", "encoding": "base64" } }
+            ]
+        }
+    ])
 }
 
 fn block_params(slot: u64, transaction_details: TransactionDetails) -> Value {
@@ -345,5 +378,60 @@ mod tests {
                 "transactionDetails": "full",
             }])
         );
+    }
+
+    #[test]
+    fn get_spl_asset_registry_accounts_request_matches_wire_format() {
+        let program = Pubkey::from([9; 32]);
+        assert_eq!(
+            spl_asset_registry_gpa_params(&program),
+            json!([
+                program.to_string(),
+                {
+                    "commitment": "confirmed",
+                    "encoding": "base64",
+                    "filters": [
+                        { "dataSize": 48 },
+                        { "memcmp": { "offset": 0, "bytes": "BQ==", "encoding": "base64" } }
+                    ]
+                }
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn get_spl_asset_registry_accounts_decodes_one_account() {
+        let owner = Pubkey::from([3; 32]);
+        let pubkey = Pubkey::from([4; 32]);
+        let data = BASE64.encode([5u8; 48]);
+        let body = format!(
+            r#"{{"jsonrpc":"2.0","id":1,"result":[{{"pubkey":"{pubkey}","account":{{"lamports":1,"data":["{data}","base64"],"owner":"{owner}","executable":false,"rentEpoch":0}}}}]}}"#,
+        );
+        let (url, server) = serve_once("200 OK", &body);
+        let accounts = RpcClient::new(url)
+            .get_spl_asset_registry_accounts(&Pubkey::from([9; 32]))
+            .await
+            .unwrap();
+        server.join().unwrap();
+
+        assert_eq!(accounts.len(), 1);
+        assert_eq!(accounts[0].0, pubkey);
+        assert_eq!(accounts[0].1.data, vec![5u8; 48]);
+        assert_eq!(accounts[0].1.owner, owner);
+    }
+
+    #[tokio::test]
+    async fn get_spl_asset_registry_accounts_preserves_method_not_found() {
+        let (url, server) = serve_once(
+            "200 OK",
+            r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#,
+        );
+        let error = RpcClient::new(url)
+            .get_spl_asset_registry_accounts(&Pubkey::from([9; 32]))
+            .await
+            .unwrap_err();
+        server.join().unwrap();
+
+        assert_eq!(error.response_code(), Some(-32601));
     }
 }

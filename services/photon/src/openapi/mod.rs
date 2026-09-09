@@ -9,11 +9,12 @@ use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByTagsRequest,
-    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
-    GetShieldedTransactionsByTagsResponse, Hash, IndexedShieldedTransaction, Limit, MerkleContext,
-    MerkleProof, NonInclusionProof, NullifierQueueElement, RingsMessage, RingsOutputContext,
-    RingsOutputSlot, SerializablePubkey, SerializableSignature, ShieldedTransaction,
+    GetNullifierQueueElementsResponse, GetRegisteredAssetsRequest, GetRegisteredAssetsResponse,
+    GetRingsByTagsRequest, GetShieldedTransactionsBySignatureRequest,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
+    IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
+    NullifierQueueElement, RegisteredAsset, RingsMessage, RingsOutputContext, RingsOutputSlot,
+    SerializablePubkey, SerializableSignature, ShieldedTransaction,
 };
 
 use crate::common::relative_project_path;
@@ -68,6 +69,9 @@ const RINGS_API_TEST_SPEC_FILE: &str = "rings.test.yaml";
     NonInclusionProof,
     GetNullifierQueueElementsRequest,
     GetNullifierQueueElementsResponse,
+    GetRegisteredAssetsRequest,
+    RegisteredAsset,
+    GetRegisteredAssetsResponse,
     NullifierQueueElement,
 )))]
 struct ApiDoc;

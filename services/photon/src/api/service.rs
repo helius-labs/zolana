@@ -8,14 +8,15 @@ use utoipa::PartialSchema;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetRegisteredAssets, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
     },
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
-    GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, RpcMethod,
+    GetNullifierQueueElementsResponse, GetRegisteredAssetsResponse, GetRingsByNullifiersRequest,
+    GetRingsByTagsRequest, GetShieldedTransactionsByNullifiersResponse,
+    GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse,
+    GetShieldedTransactionsByTagsResponse, RpcMethod,
 };
 
 use super::{
@@ -25,8 +26,9 @@ use super::{
         get_indexer_slot::get_indexer_slot,
         rings::{
             get_encrypted_utxos_by_tags, get_merkle_proofs, get_non_inclusion_proofs,
-            get_nullifier_queue_elements, get_shielded_transactions_by_nullifiers,
-            get_shielded_transactions_by_signature, get_shielded_transactions_by_tags,
+            get_nullifier_queue_elements, get_registered_assets,
+            get_shielded_transactions_by_nullifiers, get_shielded_transactions_by_signature,
+            get_shielded_transactions_by_tags,
         },
     },
 };
@@ -155,6 +157,12 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_registered_assets(
+        &self,
+    ) -> Result<GetRegisteredAssetsResponse, PhotonApiError> {
+        get_registered_assets(self.db_conn.as_ref(), &self.rpc_client).await
+    }
+
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             method_api_spec::<GetEncryptedUtxosByTags>(),
@@ -164,6 +172,7 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            method_api_spec::<GetRegisteredAssets>(),
         ]
     }
 }
