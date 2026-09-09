@@ -53,10 +53,17 @@ set; it does not build the CLI, Photon, or deployable Solana programs. For SBF
 programs and tests, install the additional tools listed below.
 
 Dependency updates retain the Solana/SBF compatibility constraints in
-`Cargo.toml`. Keep gnark 0.15.0 and gnark-crypto 0.20.1 aligned across all Go
-modules: upgrading to gnark 0.16.3 changes circuit fingerprints and requires a
-coordinated proving-key rotation. `just prover-server-test` checks the committed
-fingerprints; do not refresh them merely to accept a dependency update.
+`Cargo.toml`. All Go prover modules use gnark 0.16.3 and gnark-crypto 0.21.0.
+Circuit-changing upgrades require rotating the proving keys, embedded Rust
+verifying keys, key checksums, and circuit fingerprints together. The core
+rotation workflow is `prover/server/scripts/rotate_proving_keys.sh`; example
+keys use the `regen-swap-keys`, `regen-dynamic-swap-keys`, and `regen-escrow-keys`
+recipes and fresh key releases. `just prover-server-test` checks the committed
+fingerprints; do not refresh them without rotating the matching keys.
+A rotated key set requires deploying the matching on-chain programs and prover
+artifacts together; proofs from the previous key set will not verify against
+the new programs. Keep old key releases and object-store prefixes available
+for clients still using the previous programs.
 
 ## Common entry points
 

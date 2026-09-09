@@ -4,8 +4,8 @@ go 1.27.1
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/consensys/gnark v0.15.0
-	github.com/consensys/gnark-crypto v0.20.1
+	github.com/consensys/gnark v0.16.3
+	github.com/consensys/gnark-crypto v0.21.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/handlers v1.5.2
 	github.com/iden3/go-iden3-crypto v0.0.17

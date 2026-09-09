@@ -247,7 +247,7 @@ ring-rpc-derived:
 # here and in tools/rings-test-deploy.sh, custom-ring-keys.CHECKSUM, the key
 # sha256 below and in proving-keys.lock, verifying_key.rs with its fingerprint
 # test, the vk hash in prove_test.go and the circuit fingerprint test.
-custom-ring-keys-tag := "custom-ring-keys-v2"
+custom-ring-keys-tag := "custom-ring-keys-v4"
 
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
@@ -273,7 +273,7 @@ ensure-custom-ring-prover-key: build-prover-server
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
         --output prover/server/proving-keys/custom_ring.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249" ]]
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "f42e87d8402dbbe6104288b6471ecaca28f3a1e8bcd99418138dedcccb64af86" ]]
     verify_dir="$(mktemp -d)"
     trap 'rm -rf "$verify_dir"' EXIT
     target/prover-server export-vk \
@@ -638,14 +638,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v4"
+swap-keys-tag := "swap-keys-v7"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v4"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v8"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -768,7 +768,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v2"
+escrow-keys-tag := "escrow-keys-v4"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
@@ -1471,7 +1471,7 @@ build-localnet-archives dir="target/nextest-archives": build-programs build-cli 
 # address-append), the committed verifying keys in both crates, and
 # proving-keys.lock. groth16 setup is non-deterministic, so the
 # nullifier-tree vkeys are regenerated with the keys -- commit both
-# together. Mirrors scripts/rotate_proving_keys.sh minus the fingerprint refresh
+# together. Mirrors prover/server/scripts/rotate_proving_keys.sh minus the fingerprint refresh
 # and the S3 upload (publish-spp-keys).
 build-spp-keys:
     #!/usr/bin/env bash
@@ -1501,12 +1501,12 @@ build-spp-keys:
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir"
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
 # CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
-# is scripts/rotate_proving_keys.sh.
+# is prover/server/scripts/rotate_proving_keys.sh.
 publish-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
