@@ -37,10 +37,10 @@ Breaking
   themselves supply the blinding; `messageHash` is unchanged in meaning.
 - `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
   `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
-  argument, and `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
-  `inputTreeId`, `outputTreeId`, and the seed material the prover needs → an
-  input set spanning two trees is refused with
-  `TRANSACTION_INPUT_TREE_MISMATCH`.
+  argument, `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
+  `inputTreeId` and `outputTreeId`, and `PreparedTransfer` and `PreparedSplit`
+  expose the seed material the prover needs → an input set spanning two trees
+  is refused with `TRANSACTION_INPUT_TREE_MISMATCH`.
 - A padding output's published owner tag names a non-payer input owner or a
   real output's owner and is always inline, and a self-paid transfer with no
   change and no recipient keeps a real zero-amount SOL change output → expect
@@ -49,8 +49,9 @@ Breaking
   otherwise name nobody.
 - `ZolanaClientConfig.treeId` selects the pool tree (default 0) and `tree`, when
   given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
-  proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, every
-  input of an instruction carries one root position pair
+  proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, a merge
+  is refused with the same code when its output tree is not its input tree,
+  every input of an instruction carries one root position pair
   (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
   `outputTreeId`, and `blindingSeed` → run a prover from this release.
 

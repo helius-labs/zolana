@@ -13,6 +13,7 @@ import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
   ProofInputUtxo,
+  checkedTreeId,
   createProofOutput,
   outputBlindingSeed,
   transactOutputBlinding,
@@ -26,13 +27,6 @@ import {
   inputTreeId,
   type InputUtxoContext,
 } from "./transact.js";
-
-function checkedTreeId(treeId: TreeId): TreeId {
-  if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
-    throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId });
-  }
-  return treeId;
-}
 
 /** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
 export const MERGE_INPUTS = MERGE_INPUT_COUNT;

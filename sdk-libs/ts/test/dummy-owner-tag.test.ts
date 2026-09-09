@@ -38,14 +38,21 @@ function inlineTag(value: Bytes32): OwnerTag {
   return { kind: "inline", value };
 }
 
-/** Published owner tags at the positions of `signed`'s dummy outputs. */
+/**
+ * Published owner tags at the positions of `signed`'s dummy outputs. The prover
+ * reads a dummy's tag from the output itself and folds it into the owner hash
+ * chain the program recomputes from the published tags, so the two must agree
+ * on every dummy, the ones `prepare` emitted included.
+ */
 function dummyTags(signed: SppProofInputs): readonly OwnerTag[] {
   const tags = signed.outputs.flatMap((output, index) =>
-    output.isDummy() ? [signed.externalData.outputs[index]?.ownerTag] : [],
+    output.isDummy() ? [{ published: signed.externalData.outputs[index]?.ownerTag, output }] : [],
   );
-  return tags.map((tag) => {
-    if (tag === undefined) throw new Error("dummy output without a published slot");
-    return tag;
+  return tags.map(({ published, output }) => {
+    if (published === undefined) throw new Error("dummy output without a published slot");
+    expect(published.kind).toBe("inline");
+    if (published.kind === "inline") expect(output.ownerTag).toEqual(published.value);
+    return published;
   });
 }
 
@@ -149,6 +156,13 @@ describe("dummy output owner tags", () => {
     const preparedPadded = padded.prepare();
     expect(preparedPadded.outputs.map((output) => output.isDummy())).toEqual([true, true, false]);
     const signedPadded = padded.sign(sender, new AssetRegistry());
+    // `prepare` tagged both change slots with the sender, who is the payer
+    // here; a pad may not name the payer, so the proof-side outputs must be
+    // retagged to the recipient exactly like the published slots.
+    expect(signedPadded.outputs.slice(0, 2).map((output) => output.ownerTag)).toEqual([
+      recipientTag,
+      recipientTag,
+    ]);
     const tags = dummyTags(signedPadded);
     expect(tags.length).toBeGreaterThanOrEqual(2);
     for (const tag of tags) expect(tag).toEqual(inlineTag(recipientTag));

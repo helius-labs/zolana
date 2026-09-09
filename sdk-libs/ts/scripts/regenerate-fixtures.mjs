@@ -12,7 +12,7 @@ import {
   outputBlindingSeed,
   transactOutputBlinding,
 } from "../dist/keypair/index.js";
-import { AssetRegistry, Data, SOL_MINT } from "../dist/transaction/index.js";
+import { Data, SOL_MINT } from "../dist/transaction/index.js";
 import {
   EncryptedScheme,
   decodeAnonymousRecipient,
@@ -262,11 +262,6 @@ const serialization = readJson("transaction/serialization-v1.json");
     encodeProofless(decodeProofless(prooflessBytes)),
   );
 
-  // The registry is unused by the encoders above; it is constructed so a
-  // fixture consumer resolving asset id 1 gets the same SOL mint the test does.
-  if (new AssetRegistry().resolve(1n) !== SOL_MINT) {
-    throw new Error("asset id 1 must resolve to the SOL mint");
-  }
   writeJson("transaction/serialization-v1.json", serialization);
 }
 

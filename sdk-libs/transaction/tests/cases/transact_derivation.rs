@@ -45,6 +45,8 @@ struct BlindingSeed {
     private_tx_blinding: String,
     output_index: u32,
     output_blinding: String,
+    /// `TXOB` over the derived output seed, the form the circuit checks for every slot.
+    output_blinding_derived: String,
     merge_nullifier_secret: u8,
     merge_private_tx_blinding: String,
 }
@@ -104,9 +106,14 @@ pub(crate) fn blinding_seed_family_matches_shared_vectors() {
     let section = vectors().blinding_seed;
     let first_nullifier = small(section.first_nullifier);
     let blinding_seed = small(section.blinding_seed);
+    let output_seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap();
+    assert_eq!(hex::encode(output_seed), section.output_blinding_seed);
     assert_eq!(
-        hex::encode(derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap()),
-        section.output_blinding_seed
+        hex::encode(
+            derive_transact_output_blinding(&first_nullifier, &output_seed, section.output_index)
+                .unwrap()
+        ),
+        section.output_blinding_derived
     );
     assert_eq!(
         hex::encode(derive_private_tx_blinding(&first_nullifier, &blinding_seed).unwrap()),

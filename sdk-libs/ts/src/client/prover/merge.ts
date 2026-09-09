@@ -112,6 +112,21 @@ function assembleMergeUnchecked(
   tree: Address,
 ): MergeAssembly {
   validateMergeMaterial(prepared, material);
+  // The submit tree must be the tree the inputs are hashed under, or the proof
+  // and the instruction would name different trees.
+  if (treeAddress(prepared.inputTreeId) !== tree) {
+    throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
+      details: { proofTree: treeAddress(prepared.inputTreeId), submitTree: tree },
+    });
+  }
+  // The merge instruction appends its output to the same tree it spends from,
+  // so an output hashed under another tree would prove a commitment the
+  // instruction's output tree rejects.
+  if (prepared.outputTreeId !== prepared.inputTreeId) {
+    throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
+      details: { expected: prepared.inputTreeId, actual: prepared.outputTreeId },
+    });
+  }
   const realInputs = prepared.inputs.filter((input) => !input.isDummy());
   if (proofs.length !== realInputs.length) {
     throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
@@ -129,14 +144,6 @@ function assembleMergeUnchecked(
       },
     });
   }
-  // The submit tree must be the tree the inputs are hashed under, or the proof
-  // and the instruction would name different trees.
-  if (treeAddress(prepared.inputTreeId) !== tree) {
-    throw new ClientError("CLIENT_MERGE_TREE_MISMATCH", {
-      details: { proofTree: treeAddress(prepared.inputTreeId), submitTree: tree },
-    });
-  }
-
   const inputs: TransferInput[] = [];
   const inputHashes: bigint[] = [];
   const nullifiers: Bytes32[] = [];
@@ -256,18 +263,18 @@ function assembleMergeUnchecked(
   );
   const treeSlots = inputTreeSlots(inputTree.slot);
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
-  // The seven-element prefix is folded first, then the rail's tail is appended
-  // to the folded value: `HashChain([HashChain(prefix), signing_pk_field])`.
-  const prefix = hashChain([
-    hashChain(nullifiers.map(bytesToBigInt)),
-    bytesToBigInt(outputHash),
-    bytesToBigInt(treeSlotsHashChain(treeSlots)),
-    outputTreeIdField,
-    bytesToBigInt(privateTxHash),
-    bytesToBigInt(externalDataHash),
-    1n,
-  ]);
-  const publicInputHash = bigintToBytes(hashChain([prefix, ownerPublicKeyHash])) as Bytes32;
+  const publicInputHash = bigintToBytes(
+    hashChain([
+      hashChain(nullifiers.map(bytesToBigInt)),
+      bytesToBigInt(outputHash),
+      bytesToBigInt(treeSlotsHashChain(treeSlots)),
+      outputTreeIdField,
+      bytesToBigInt(privateTxHash),
+      bytesToBigInt(externalDataHash),
+      1n,
+      ownerPublicKeyHash,
+    ]),
+  ) as Bytes32;
   const proverInputs: MergeInputs = Object.freeze({
     inputs: Object.freeze(inputs),
     output,

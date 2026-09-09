@@ -15,6 +15,7 @@
     "private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610",
     "output_index": 3,
     "output_blinding": "06261540e857febb5f8d59eb742ad3d4d8200ff38ccbf2ea16cd1e0a9085e881",
+    "output_blinding_derived": "1735b0f211d078a56d38a598af8f71aa1b1d74b65092792c291b345c55f5a96a",
     "merge_nullifier_secret": 42,
     "merge_private_tx_blinding": "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610"
   },

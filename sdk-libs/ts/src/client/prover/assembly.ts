@@ -9,7 +9,6 @@ import type {
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
-  INPUT_TREES,
   inputTreeSlots,
   treeIdField,
   treeSlotsHashChain,
@@ -395,7 +394,11 @@ export function assembleSlots(
     }
     validateSpendProof(input, proof, proofIndex - 1);
     if (inputTree === undefined) {
-      if (proof.state.merkleContext.tree !== expectedTree) {
+      // The first real spend anchors the tree; both of its proofs must name it.
+      if (
+        proof.state.merkleContext.tree !== expectedTree ||
+        proof.nullifier.merkleContext.tree !== expectedTree
+      ) {
         throw new ClientError("CLIENT_PROOF_TREE_MISMATCH", { details: { index } });
       }
       inputTree = Object.freeze({
@@ -687,5 +690,3 @@ function copyProof(proof: TransactProof): TransactProof {
     c: new Uint8Array(proof.c) as never,
   });
 }
-
-export { INPUT_TREES };

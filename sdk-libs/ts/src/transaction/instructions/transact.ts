@@ -40,6 +40,7 @@ import { EncryptedScheme, encodeOutputData, encryptConfidential } from "../seria
 import {
   ProofInputUtxo,
   Utxo,
+  checkedTreeId,
   createProofOutput,
   outputBlindingSeed,
   privateTxBlinding,
@@ -567,14 +568,7 @@ export class SppProofInputs {
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
     this.blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
-    if (
-      !Number.isInteger(input.outputTreeId) ||
-      input.outputTreeId < 0 ||
-      input.outputTreeId > 0xffff
-    ) {
-      throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId: input.outputTreeId });
-    }
-    this.outputTreeId = input.outputTreeId;
+    this.outputTreeId = checkedTreeId(input.outputTreeId);
     this.checkShape();
   }
 
@@ -771,10 +765,7 @@ export class ConfidentialTransfer {
    * Mirrors Rust `with_output_tree_id`.
    */
   withOutputTreeId(outputTreeId: TreeId): this {
-    if (!Number.isInteger(outputTreeId) || outputTreeId < 0 || outputTreeId > 0xffff) {
-      throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId: outputTreeId });
-    }
-    this.#outputTreeId = outputTreeId;
+    this.#outputTreeId = checkedTreeId(outputTreeId);
     return this;
   }
 
@@ -1076,8 +1067,15 @@ function finalizeTransfer(
   const padTag = dummyOwnerTag(prepared.inputs, prepared.outputs, prepared.payer);
   const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
+  // `prepare` tags its zero-value change slots with the sender, but the pad tag
+  // may name someone else (a self-paying sender that keeps no change names the
+  // recipient). The prover folds the tag it reads from the output into the
+  // owner chain the program recomputes from the published tags, so every dummy
+  // carries the tag its slot publishes. Mirrors Rust `finalize`.
   const outputUtxos = [
-    ...prepared.outputs,
+    ...prepared.outputs.map((output) =>
+      output.isDummy() ? retagDummyOutput(output, padTag) : output,
+    ),
     ...Array.from({ length: padCount }, (_, offset) =>
       createProofOutput({
         asset: ZERO_ADDRESS,
@@ -1162,6 +1160,20 @@ function finalizeTransfer(
     externalData,
     blindingSeed: prepared.blindingSeed,
     outputTreeId: prepared.outputTreeId,
+  });
+}
+
+/** The same dummy slot under `ownerTag`; a dummy has no owner address, so only the tag changes. */
+function retagDummyOutput(output: ProofOutputUtxo, ownerTag: Bytes32): ProofOutputUtxo {
+  return createProofOutput({
+    asset: output.asset,
+    amount: output.amount,
+    blinding: output.blinding,
+    data: output.data,
+    ...(output.dataHash === undefined ? {} : { dataHash: output.dataHash }),
+    ...(output.ringDataHash === undefined ? {} : { ringDataHash: output.ringDataHash }),
+    ...(output.ringProgramId === undefined ? {} : { ringProgramId: output.ringProgramId }),
+    ownerTag,
   });
 }
 

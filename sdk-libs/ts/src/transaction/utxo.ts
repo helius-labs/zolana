@@ -68,7 +68,8 @@ export {
  */
 export type TreeId = number;
 
-function checkedTreeId(treeId: TreeId): TreeId {
+/** The one range check every tree id passes: a `u16`, the width the tree account stores. */
+export function checkedTreeId(treeId: TreeId): TreeId {
   if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
     throw new TransactionError("TRANSACTION_INVALID_TREE_ID", { treeId });
   }

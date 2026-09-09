@@ -64,8 +64,12 @@ describe("shared transact derivation vectors (test-vectors/transact_derivation.j
     const outputSeed = outputBlindingSeed(firstNullifier, blindingSeed);
     expect(hex(outputSeed)).toBe(section.output_blinding_seed);
     expect(hex(privateTxBlinding(firstNullifier, blindingSeed))).toBe(section.private_tx_blinding);
-    // The circuit applies TXOB to the derived seed; the pinned vector feeds the
-    // root value directly, so both spellings are covered.
+    // The circuit applies TXOB to the derived seed, which is what a client
+    // sends and a bundle reader recomputes; the root-seed form pins the
+    // primitive itself.
+    expect(hex(transactOutputBlinding(firstNullifier, outputSeed, section.output_index))).toBe(
+      section.output_blinding_derived,
+    );
     expect(hex(transactOutputBlinding(firstNullifier, blindingSeed, section.output_index))).toBe(
       section.output_blinding,
     );
