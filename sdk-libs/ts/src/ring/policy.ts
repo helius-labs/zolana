@@ -58,7 +58,13 @@ export function listSet(bits: number): readonly ListId[] {
 }
 
 function listBit(id: ListId): number {
-  return 1 << (id - 1);
+  return 1 << (checkedListId(id) - 1);
+}
+
+/** A byte outside `LIST_IDS` never reaches a mask, a seed or the wire. */
+export function checkedListId(id: ListId): ListId {
+  if (listIdFromByte(id) === undefined) throw ruleTableInvalid("UnknownList");
+  return id;
 }
 
 function listBits(ids: readonly ListId[]): number {
@@ -464,7 +470,7 @@ export type ListWriter = "authority" | "member";
 
 /** Mirrors Rust `ListId::writer`. */
 export function listWriter(listId: ListId): ListWriter {
-  switch (listId) {
+  switch (checkedListId(listId)) {
     case ListId.ringViewing:
     case ListId.recovery:
     case ListId.escrow:
@@ -598,7 +604,7 @@ export function solAssetField(): Bytes32 {
 
 /** Mirrors Rust `entry_seed`. */
 export function entrySeed(input: Readonly<{ listId: ListId; member: Member }>): Bytes32 {
-  return poseidon([POLICY_ADDRESS_DOMAIN, fieldU8(input.listId), input.member]);
+  return poseidon([POLICY_ADDRESS_DOMAIN, fieldU8(checkedListId(input.listId)), input.member]);
 }
 
 /** The nullifier secret is zero for every entry. */

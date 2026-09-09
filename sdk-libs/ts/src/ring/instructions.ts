@@ -36,6 +36,7 @@ import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
 import {
   encodeRuleTable,
+  checkedListId,
   referencedLists,
   type ListEntry,
   type ListId,
@@ -318,7 +319,7 @@ export async function setRingPolicySourceInstruction(
     ],
     data: Uint8Array.of(
       RingProgramTag.setPolicySource,
-      input.listId,
+      checkedListId(input.listId),
       curatorPolicyConfig === undefined ? 0 : 1,
     ),
   };
@@ -409,12 +410,19 @@ async function policyTableBody(
 ): Promise<Readonly<{ data: Uint8Array; curatorPolicyConfigs: readonly Address[] }>> {
   const referenced = referencedLists(input.table.rules);
   const shared = input.sharedSources ?? [];
+  const seen = new Set<ListId>();
   for (const source of shared) {
-    if (!referenced.includes(source.listId)) {
+    const reason = !referenced.includes(source.listId)
+      ? "UnreferencedList"
+      : seen.has(source.listId)
+        ? "DuplicateList"
+        : undefined;
+    if (reason !== undefined) {
       throw new RingError("RING_POLICY_SOURCE_INVALID", {
-        details: { reason: "UnreferencedList", listId: source.listId },
+        details: { reason, listId: source.listId },
       });
     }
+    seen.add(source.listId);
   }
   const curators: Address[] = [];
   const writer = new Writer().u8(referenced.length, "sources.length");

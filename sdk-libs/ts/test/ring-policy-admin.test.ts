@@ -1,4 +1,9 @@
-import { AccountRole, getAddressDecoder, type Address } from "@solana/kit";
+import {
+  AccountRole,
+  getAddressDecoder,
+  getProgramDerivedAddress,
+  type Address,
+} from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { initializePoseidon } from "../src/hasher/index.js";
@@ -32,6 +37,7 @@ import {
   ownedAccount,
   policyConfigPda,
   ringPolicyConfigData,
+  ringProgramConfigData,
 } from "./helpers/ring-accounts.js";
 
 await initializePoseidon();
@@ -231,19 +237,73 @@ describe("policy admin instructions", () => {
     });
     expect([...(curated.data ?? [])]).toEqual([10, ListId.block, 1]);
   });
+
+  it("refuses a list id outside the table and a list sourced twice", async () => {
+    const unknown = 33 as ListId;
+    await expect(
+      setRingPolicySourceInstruction({
+        ringProgramId: RING,
+        authority: AUTHORITY,
+        listId: unknown,
+        source: { kind: "own" },
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_RULE_TABLE_INVALID",
+      details: { reason: "UnknownList" },
+    });
+    await expect(
+      createRingPolicyInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        entriesTree: ENTRIES_TREE,
+        table: BLOCK_ONLY,
+        sharedSources: [
+          { listId: ListId.block, curatorRingProgramId: CURATOR_A },
+          { listId: ListId.block, curatorRingProgramId: CURATOR_B },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "RING_POLICY_SOURCE_INVALID",
+      details: { reason: "DuplicateList", listId: ListId.block },
+    });
+  });
 });
 
 describe("policy admin transactions", () => {
   /** The curator pins `BLOCK_ONLY` from its own namespace over `entriesTree`, the ring pins `TABLE` when `own` is set. */
-  async function chain(input: Readonly<{ entriesTree: Address; own?: boolean }>) {
-    const [[curatorPolicy, curatorBump], curatorNamespace, [ownPolicy, ownBump], ownNamespace] =
-      await Promise.all([
-        policyConfigPda(CURATOR_A),
-        ringPolicyNamespaceAddress(CURATOR_A),
-        policyConfigPda(RING),
-        ringPolicyNamespaceAddress(RING),
-      ]);
+  async function chain(
+    input: Readonly<{ entriesTree: Address; own?: boolean; hasPolicy?: boolean }>,
+  ) {
+    const [
+      [config, configBump],
+      [curatorPolicy, curatorBump],
+      curatorNamespace,
+      [ownPolicy, ownBump],
+      ownNamespace,
+    ] = await Promise.all([
+      getProgramDerivedAddress({
+        programAddress: RING,
+        seeds: [new TextEncoder().encode("config")],
+      }),
+      policyConfigPda(CURATOR_A),
+      ringPolicyNamespaceAddress(CURATOR_A),
+      policyConfigPda(RING),
+      ringPolicyNamespaceAddress(RING),
+    ]);
     const accounts = new Map([
+      [
+        config,
+        ownedAccount(
+          RING,
+          ringProgramConfigData({
+            authority: AUTHORITY,
+            auditorPublicKey: new Uint8Array(33).fill(2),
+            bump: configBump,
+            hasPolicy: input.hasPolicy ?? true,
+          }),
+        ),
+      ],
       [
         curatorPolicy,
         ownedAccount(
@@ -331,6 +391,36 @@ describe("policy admin transactions", () => {
       ).rejects.toMatchObject({ code: "RING_BUILD_POLICY", causeCode: cause });
       expect(client.getLatestBlockhash).not.toHaveBeenCalled();
     }
+  });
+
+  it("refuses an audit-only ring before the curator or the blockhash", async () => {
+    const client = await chain({ entriesTree: ENTRIES_TREE, own: true, hasPolicy: false });
+    const shared = { listId: ListId.block, curatorRingProgramId: CURATOR_A };
+    await expect(
+      buildRingCreatePolicyTransaction({
+        client,
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        entriesTree: ENTRIES_TREE,
+        table: BLOCK_ONLY,
+        sharedSources: [shared],
+      }),
+    ).rejects.toMatchObject({ code: "RING_BUILD_POLICY", causeCode: "RING_POLICY_TIER_MISMATCH" });
+    await expect(
+      buildRingSetPolicyRulesTransaction({
+        client,
+        ringProgramId: RING,
+        authority: AUTHORITY,
+        table: BLOCK_ONLY,
+        sharedSources: [shared],
+      }),
+    ).rejects.toMatchObject({ code: "RING_BUILD_POLICY", causeCode: "RING_POLICY_TIER_MISMATCH" });
+    expect(client.getAccount).not.toHaveBeenCalledWith(
+      await ringPolicyConfigAddress(CURATOR_A),
+      undefined,
+    );
+    expect(client.getLatestBlockhash).not.toHaveBeenCalled();
   });
 
   it("set rules and set source read the ring's own tree and referenced lists", async () => {

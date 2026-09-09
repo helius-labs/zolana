@@ -3,7 +3,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { Address, RequestContext, Transaction } from "../interface/types.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
-import { fetchRingPolicyConfig } from "./config.js";
+import { fetchRingPolicyConfig, fetchRingProgramConfig } from "./config.js";
 import { wrapRingError, RingError } from "./error.js";
 import {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
@@ -41,6 +41,7 @@ export async function buildRingCreatePolicyTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    await checkTier(params, context);
     const instruction = await createRingPolicyInstruction(params);
     await checkCurators(params, params.entriesTree, params.sharedSources ?? [], context);
     const lifetime = await params.client.getLatestBlockhash(context);
@@ -68,6 +69,7 @@ export async function buildRingSetPolicyRulesTransaction(
   context?: RequestContext,
 ): Promise<Transaction> {
   try {
+    await checkTier(params, context);
     const instruction = await setRingPolicyRulesInstruction(params);
     const own = await fetchRingPolicyConfig(params.client, params.ringProgramId, context);
     await checkCurators(params, own.entriesTree, params.sharedSources ?? [], context);
@@ -124,6 +126,16 @@ export async function buildRingSetPolicySourceTransaction(
     });
   } catch (cause) {
     throw wrapRingError("RING_BUILD_POLICY", cause);
+  }
+}
+
+/** Mirrors the CLI `TierDrift` check, an audit-only ring never reads a policy. */
+async function checkTier(params: RingPolicyAdminParams, context: RequestContext | undefined) {
+  const config = await fetchRingProgramConfig(params.client, params.ringProgramId, context);
+  if (!config.hasPolicy) {
+    throw new RingError("RING_POLICY_TIER_MISMATCH", {
+      details: { ringProgramId: params.ringProgramId },
+    });
   }
 }
 

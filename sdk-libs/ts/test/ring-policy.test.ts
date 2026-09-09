@@ -22,6 +22,7 @@ import {
   encodeListEntry,
   encodeRule,
   encodeRuleTable,
+  entrySeed,
   listSet,
   listWriter,
   memberOfAsset,
@@ -881,5 +882,25 @@ describe("list entry encoding", () => {
       "authority",
       "member",
     ]);
+  });
+
+  it("refuses a list id outside the table before a mask, a seed or a writer", () => {
+    const unknown = 33 as ListId;
+    const refused = expect.objectContaining({
+      code: "RING_RULE_TABLE_INVALID",
+      details: { reason: "UnknownList" },
+    });
+    const rule: Rule = {
+      subject: "outputOwner",
+      source: { kind: "lists", present: [unknown], absent: [] },
+      guard: { kind: "always" },
+    };
+    expect(() => encodeRule(rule)).toThrow(refused);
+    expect(() => ruleAlternatives(rule)).toThrow(refused);
+    expect(() => buildRuleTable({ rules: [rule] })).toThrow(refused);
+    expect(() => listWriter(unknown)).toThrow(refused);
+    expect(() => entrySeed({ listId: unknown, member: memberOfAsset(ASSET_MINT) })).toThrow(
+      refused,
+    );
   });
 });
