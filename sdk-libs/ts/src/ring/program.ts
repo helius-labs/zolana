@@ -67,7 +67,7 @@ const LoaderTag = Object.freeze({
   deployWithMaxDataLen: 2,
   upgrade: 3,
   setAuthority: 4,
-  extendProgram: 6,
+  extendProgramChecked: 9,
 } as const);
 
 export interface RingProgramBinary {
@@ -238,18 +238,24 @@ export async function setUpgradeAuthorityInstruction(
 }
 
 export async function extendProgramInstruction(
-  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; additionalBytes: number }>,
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    additionalBytes: number;
+  }>,
 ): Promise<Instruction> {
   return {
     programAddress: BPF_LOADER_UPGRADEABLE_ID,
     accounts: [
       meta(await ringProgramDataAddress(input.ringProgramId), false, true),
       meta(input.ringProgramId, false, true),
+      meta(input.authority, true, true),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.payer, true, true),
     ],
     data: new Writer()
-      .u32(LoaderTag.extendProgram, "tag")
+      .u32(LoaderTag.extendProgramChecked, "tag")
       .u32(input.additionalBytes, "additionalBytes")
       .finish(),
   };
@@ -370,6 +376,7 @@ export async function deployRingProgram(
               await extendProgramInstruction({
                 ringProgramId: params.ringProgramId,
                 payer: params.payer,
+                authority: params.authority,
                 additionalBytes: growth(existing, length),
               }),
             ),

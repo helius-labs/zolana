@@ -52,14 +52,18 @@ describe("ring program", () => {
       }),
     ).resolves.toMatchObject({ kind: "present" });
 
+    expect(ring.bytes.length).toBeGreaterThan(deployed.programData.capacity);
+    const upgradePayer = await generateKeyPairSigner();
+    for (const _ of [1, 2, 3]) await airdrop(client, upgradePayer.address);
     const upgraded = await deployRingProgram({
       client,
       ringProgramId: program.address,
       binary: ring,
-      payer: operator,
+      payer: upgradePayer,
       authority: operator,
     });
     expect(upgraded.kind).toBe("upgraded");
+    expect(upgraded.programData.upgradeAuthority).toBe(operator.address);
     expect(upgraded.programData.capacity).toBeGreaterThanOrEqual(ring.bytes.length);
     await verifyRingProgram(client, program.address, ring);
 
