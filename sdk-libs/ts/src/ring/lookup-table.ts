@@ -6,6 +6,7 @@ import {
 } from "@solana-program/address-lookup-table";
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
+import { runKitRpc } from "../client/kit.js";
 import type { BlockhashProvider, ChainReader, KitRpcAccess, TreeContext } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
@@ -21,7 +22,7 @@ import {
 export interface RingLookupTable {
   readonly transaction: Transaction;
   readonly address: Address;
-  /** The table is usable from the slot after this one. */
+  /** The finalized slot the address derives from. */
   readonly slot: bigint;
 }
 
@@ -47,7 +48,9 @@ export async function buildRingLookupTableTransaction(
     const [addresses, slot, lifetime] = await Promise.all([
       ringLookupTableAddresses({ ringProgramId: input.ringProgramId, trees }),
       // The create instruction checks the slot against SlotHashes, so it must be finalized.
-      input.client.solanaRpc.getSlot({ commitment: "finalized" }).send(),
+      runKitRpc("getSlot", context, (abortSignal) =>
+        input.client.solanaRpc.getSlot({ commitment: "finalized" }).send({ abortSignal }),
+      ),
       input.client.getLatestBlockhash(context),
     ]);
     const recentSlot = BigInt(slot);
@@ -79,6 +82,7 @@ export async function buildRingLookupTableTransaction(
   }
 }
 
+/** Addresses extended in the current slot are not usable yet, the transfer would fail in flight. */
 export async function fetchRingLookupTable(
   input: Readonly<{
     client: RingLookupTableReader;
@@ -86,15 +90,27 @@ export async function fetchRingLookupTable(
     address: Address;
     trees: RingTransactTrees;
   }>,
+  context?: RequestContext,
 ): Promise<readonly Address[]> {
-  const [table, required] = await Promise.all([
-    fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
-      commitment: input.client.commitment,
-    }),
+  const [table, slot, required] = await Promise.all([
+    runKitRpc("getAccountInfo", context, (abortSignal) =>
+      fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
+        abortSignal,
+        commitment: input.client.commitment,
+      }),
+    ),
+    runKitRpc("getSlot", context, (abortSignal) =>
+      input.client.solanaRpc.getSlot({ commitment: input.client.commitment }).send({ abortSignal }),
+    ),
     ringLookupTableAddresses({ ringProgramId: input.ringProgramId, trees: input.trees }),
   ]);
   if (!table.exists) {
     throw new RingError("RING_LOOKUP_TABLE_NOT_FOUND", { details: { address: input.address } });
+  }
+  if (slot <= table.data.lastExtendedSlot) {
+    throw new RingError("RING_LOOKUP_TABLE_NOT_READY", {
+      details: { address: input.address, lastExtendedSlot: table.data.lastExtendedSlot, slot },
+    });
   }
   const held = new Set<string>(table.data.addresses);
   const missing = required.filter((address) => !held.has(address));

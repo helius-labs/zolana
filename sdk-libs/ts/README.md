@@ -318,16 +318,41 @@ The auditor key lives in a Ring RPC. The Ring authority grants view access.
 Helius can host that RPC; the authority can host it itself. The forester is
 shared with the default Ring.
 
-This first iteration supports confidential transactions only. Anonymous
-transfers that would use a relayer are not supported. Later iterations add
-allowlists, blocklists, and rule-based config on the Ring config account.
-The deploy process is expected to stay the same.
+Rings support confidential transactions only. Anonymous transfers that
+would use a relayer are not supported. A Ring is audit-only or carries a
+policy, a rule table over lists of members kept in the Ring's own entries
+tree. The tier is fixed when the Ring config is created.
+
+Set a Ring up in this order.
+
+1. `deployRingProgram` deploys or upgrades the Ring program from a
+   `RingProgramBinary` and returns once the program is usable,
+   `verifyRingProgram` checks the deployed bytes.
+2. `createRingConfigInstruction` stores the auditor key and the tier.
+3. A policy Ring pins its rule table with `buildRingCreatePolicyTransaction`
+   over its entries tree.
+4. `initSppRingConfigInstruction` registers the Ring with the pool, a policy
+   Ring only after its policy exists.
+5. On a permissioned pool the governance authority activates the Ring with
+   `getSetRingActivationInstructionAsync` from `@heliuslabs/zolana/instructions`.
+6. `buildRingLookupTableTransaction` creates the transfer lookup table. It is
+   usable from the slot after its extension, `fetchRingLookupTable` refuses
+   it before then with `RING_LOOKUP_TABLE_NOT_READY`.
+7. `buildRingListWriteTransaction` fills the lists and
+   `grantReadAccessInstruction` admits readers.
 
 Build exact Ring entries, in-ring transfers, shielded exits, and public
 withdrawals with `buildRingEntryTransaction`, `buildRingTransferTransaction`,
 `buildRingExitTransaction`, and `buildRingWithdrawalTransaction`. `RingRpc`
 reads decrypted Ring transactions for a granted reader. The same surface is
 available from `@heliuslabs/zolana/ring`.
+
+A deploy that fails after its buffer exists names the buffer in the
+`RING_DEPLOY_PROGRAM` error details. Pass the same buffer keypair again to
+resume, or reclaim its rent with `closeBufferInstruction`.
+
+The deploy path is tested on Agave 4.0.2. The shipped Ring binaries are
+SBPF v0 and do not load on Agave 4.1.2.
 
 ## Public API
 

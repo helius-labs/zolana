@@ -36,10 +36,12 @@ Breaking
 - `buildRingLookupTableTransaction` reads the tier and a policy ring's entries
   tree from the chain, accepts `outputTree`, and needs `getAccount` on
   `RingLookupTableClient`, `fetchRingLookupTable` and
-  `ringLookupTableAddresses` take the trees as `RingTransactTrees` → rebuild a
-  policy ring's table, one built by an earlier version is refused with
-  `RING_LOOKUP_TABLE_INCOMPLETE`, and pass a `ProvenRingTransfer` as the
-  `trees` of the fetch.
+  `ringLookupTableAddresses` take the trees as `RingTransactTrees`, and the
+  fetch refuses a table extended in the current slot with
+  `RING_LOOKUP_TABLE_NOT_READY` → rebuild a policy ring's table, one built by
+  an earlier version is refused with `RING_LOOKUP_TABLE_INCOMPLETE`, pass a
+  `ProvenRingTransfer` as the `trees` of the fetch, and wait one slot after
+  the extension before the first transfer.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
   gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
