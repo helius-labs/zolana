@@ -13,6 +13,8 @@ text use UTXO terminology without changing version 3 snapshot keys.
 
 Breaking
 
+- `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
+  the upgrade `authority` alongside `payer`.
 - Policy rule tables now carry one `inlineLimit` per inline asset and policy
   prover requests carry the padded `inlineLimits` fields → recreate policy
   config accounts and include the limits in custom prover integrations.

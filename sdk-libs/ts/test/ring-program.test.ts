@@ -102,11 +102,11 @@ describe("program data", () => {
 });
 
 describe("loader instructions", () => {
+  const roles = (instruction: { accounts?: readonly { address: Address; role: AccountRole }[] }) =>
+    instruction.accounts?.map((meta) => [meta.address, meta.role]);
+
   it("encode the bincode tags and account orders of the upgradeable loader", async () => {
     const dataAddress = await ringProgramDataAddress(PROGRAM);
-    const roles = (instruction: {
-      accounts?: readonly { address: Address; role: AccountRole }[];
-    }) => instruction.accounts?.map((meta) => [meta.address, meta.role]);
     const initialize = initializeBufferInstruction({ buffer: BUFFER, authority: AUTHORITY });
     expect(initialize.programAddress).toBe(BPF_LOADER_UPGRADEABLE_ID);
     expect([...(initialize.data ?? [])]).toEqual([0, 0, 0, 0]);
@@ -176,15 +176,21 @@ describe("loader instructions", () => {
       newAuthority: PAYER,
     });
     expect(roles(handover)?.at(-1)).toEqual([PAYER, AccountRole.READONLY]);
+  });
+
+  it("matches solana-loader-v3-interface 6.1.0 checked extension", async () => {
+    const dataAddress = await ringProgramDataAddress(PROGRAM);
     const extend = await extendProgramInstruction({
       ringProgramId: PROGRAM,
       payer: PAYER,
+      authority: AUTHORITY,
       additionalBytes: 10_240,
     });
-    expect([...(extend.data ?? [])]).toEqual([6, 0, 0, 0, 0, 0x28, 0, 0]);
+    expect([...(extend.data ?? [])]).toEqual([9, 0, 0, 0, 0, 0x28, 0, 0]);
     expect(roles(extend)).toEqual([
       [dataAddress, AccountRole.WRITABLE],
       [PROGRAM, AccountRole.WRITABLE],
+      [AUTHORITY, AccountRole.WRITABLE_SIGNER],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
     ]);
