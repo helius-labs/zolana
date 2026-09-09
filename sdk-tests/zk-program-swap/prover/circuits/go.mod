@@ -3,8 +3,8 @@ module circuits
 go 1.27.1
 
 require (
-	github.com/consensys/gnark v0.15.0
-	github.com/consensys/gnark-crypto v0.20.1
+	github.com/consensys/gnark v0.16.3
+	github.com/consensys/gnark-crypto v0.21.0
 	zolana/prover v0.0.0
 )
 
