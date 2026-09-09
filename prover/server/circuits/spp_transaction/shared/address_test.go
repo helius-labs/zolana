@@ -28,7 +28,7 @@ func makeAddressSlot(t testing.TB, assignment *testAssignment, idx int, ownerPkH
 
 // setAddressSlot rewrites in as an address slot: owner hash over ownerPkHash
 // and the nullifier pk of the zero nullifier secret, every non-seed field
-// pinned to zero. ownerTag is the slot's private owner identity: the pk field
+// set to zero. ownerTag is the slot's private owner identity: the pk field
 // itself for a Solana owner, zero for the shared P256 owner.
 func setAddressSlot(t testing.TB, in *testInput, ownerPkHash, ownerTag, seed *big.Int) {
 	t.Helper()
@@ -65,8 +65,8 @@ func finalizeAddressAssignment(t testing.TB, assignment *testAssignment, require
 		} else {
 			inputHashes[i] = big.NewInt(0)
 		}
-		// An address slot enters the chain by its nullifier, the compressed
-		// address, not by its UTXO hash.
+		// An address slot enters the private tx hash by its nullifier, the
+		// compressed address, not by its UTXO hash.
 		if domain == AddressDomain {
 			addressNullifiers[i] = spptest.AsBigInt(in.Nullifier)
 		} else {

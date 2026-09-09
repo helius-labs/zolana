@@ -121,9 +121,10 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	// Assert that all input and output UTXOs are in the default ring.
 	shared.AssertInDefaultRing(api, tx.Inputs, tx.Outputs)
 	// Enforce confidentiality:
-	// 1. Input UTXOs pubkeys are part of public inputs.
+	// 1. Input owners are private and each must be in the public signer vector.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. All dummy UTXO tags must be a real transaction participant.
+	// 3. Every dummy tag names an owner signer other than the payer or a real
+	//    output owner.
 
 	// 1.
 	authorized := shared.Signers(c.Public.SignerPkHashes)
@@ -145,8 +146,7 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 
 	// An output containing program data must be owned by an authorized signer.
 	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
-	// 3. Every dummy tag must name an owner signer other than the payer or a real
-	// output owner.
+	// 3.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,

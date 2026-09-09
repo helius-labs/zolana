@@ -77,7 +77,7 @@ func (c *utxoHashPinCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// The in-circuit utxo hash equals the seven-field native preimage, and the tree
+// The circuit's utxo hash equals the seven-field native preimage, and the tree
 // id is part of it.
 func TestUtxoHashCircuitBindsTreeID(t *testing.T) {
 	assert := test.NewAssert(t)
@@ -116,7 +116,8 @@ func TestCircuitRejectsOutOfRangeTreeSlot(t *testing.T) {
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// Publishing another output tree id breaks the output hash binding.
+// Publishing another output tree id changes the output hash preimage, so the
+// published output hashes no longer match.
 func TestCircuitRejectsOutputTreeIDMismatch(t *testing.T) {
 	assert := test.NewAssert(t)
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}

@@ -106,7 +106,7 @@ func TestCustomRingEddsaOnlyAcceptsZeroDummyOutputTag(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer signs but never serves as a dummy marker: a fee sponsor must not
+// The payer signs but is not a dummy marker: a fee payer must not
 // be shown as a ring recipient by a transaction it only paid for.
 func TestCustomRingEddsaOnlyRejectsDummyOutputPayerTag(t *testing.T) {
 	assert := test.NewAssert(t)

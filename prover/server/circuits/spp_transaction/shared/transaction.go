@@ -34,7 +34,7 @@ import (
 // Transaction is the transaction every variant proves, over one variant's
 // already-allocated witness. It runs no signer, ring, or owner-tag check: the
 // variant asserts those and resolves who signed, then hands the results to
-// Constrain. What is left is shared by all five variants.
+// Constrain. What is left is shared by all four variants.
 //
 // It is deliberately not a gnark circuit struct: the witness schema stays the
 // per-variant Public/Private structs, whose field paths are the keys the host

@@ -80,7 +80,7 @@ func rewriteInputAsP256(
 
 // rewriteInputAsP256WithIdentity marks the input as P256-owned (zero owner
 // tag) and derives its UTXO owner from an explicit identity, so a test can
-// supply a wrongly derived identity the in-circuit owner must not reproduce.
+// supply a wrongly derived identity the circuit's owner must not reproduce.
 func rewriteInputAsP256WithIdentity(
 	t testing.TB,
 	assignment *testAssignment,
@@ -185,9 +185,9 @@ func refreshCustomRingP256PublicInputHashWithOwner(
 	)
 }
 
-// defaultP256OwnerPkHash mirrors the public field the circuit binds: the P256
+// defaultP256OwnerPkHash mirrors the public field the circuit constrains: the P256
 // identity while a spent default-ring UTXO belongs to it, zero otherwise.
-// Address slots never publish the identity.
+// Address slots do not publish the identity.
 func defaultP256OwnerPkHash(assignment *testAssignment, p256PkHash *big.Int) *big.Int {
 	for _, input := range assignment.Inputs {
 		domain := spptest.AsBigInt(input.Utxo.Domain).Int64()
@@ -339,7 +339,7 @@ func TestCustomRingP256RejectsRingSpendWithDefaultP256Input(t *testing.T) {
 	)
 }
 
-// Two default-ring P256 inputs publish the owner once, which is the sanctioned
+// Two default-ring P256 inputs publish the owner once, which is the allowed
 // confidential default-ring spend.
 func TestCustomRingP256AcceptsTwoDefaultP256Inputs(t *testing.T) {
 	assert := test.NewAssert(t)
@@ -432,8 +432,8 @@ func p256OwnerPkHash(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey) *big.Int {
 	return spptest.MustHash(t, identity, err)
 }
 
-// hashP256X hashes the owner's 32-byte big-endian x-coordinate behind the
-// given tag bytes. It builds the identities the circuit must refuse: no tag is
+// hashP256X hashes the owner's 32-byte big-endian x-coordinate prefixed with
+// the given tag bytes. It builds the identities the circuit must refuse: no tag is
 // the untagged hash_bytes_32(x), and protocol.SolanaOwnerTag is an SVM signer
 // identity over the same bytes.
 func hashP256X(t testing.TB, ownerPrivateKey *ecdsa.PrivateKey, tag ...byte) *big.Int {
@@ -544,7 +544,7 @@ func TestCustomRingP256AcceptsDummyOutputNamingPublishedP256Owner(t *testing.T) 
 }
 
 // makeP256AddressSlot turns input idx into an address slot owned by the shared
-// P256 owner. The zero owner tag selects the P256 key; the owner hash binds
+// P256 owner. The zero owner tag selects the P256 key; the owner hash is over
 // its pk field.
 func makeP256AddressSlot(
 	t testing.TB,
@@ -559,7 +559,7 @@ func makeP256AddressSlot(
 
 // p256AddressAssignment spends a P256 UTXO in input 0 and creates a P256
 // address in input 1, both owned by the same key. inRing places the spend in
-// the policy ring; the address always sits in the default ring.
+// the policy ring; the address sits in the default ring.
 func p256AddressAssignment(t testing.TB, inRing bool) (*testAssignment, p256Authorization) {
 	t.Helper()
 	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
@@ -619,7 +619,7 @@ func claimingPublishedP256Owner(
 }
 
 // A ring P256 spender may create an address in the same proof. The address
-// always carries ring id 0, but it spends nothing, so it neither counts as a
+// has ring id 0, but it spends nothing, so it neither counts as a
 // default-ring input nor publishes the shared identity.
 func TestCustomRingP256AcceptsAddressDuringRingSpend(t *testing.T) {
 	assert := test.NewAssert(t)

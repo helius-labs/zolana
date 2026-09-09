@@ -8,8 +8,8 @@ import (
 
 // Domain separators (32-bit ASCII tags) for the values a transact proof
 // derives from its private random BlindingSeed and the first published nullifier.
-// Mirror the constants in prover-test/spp/protocol/utxo.go and
-// sdk-libs/transaction/src/utxo.rs.
+// Mirror the constants in prover/server/prover-test/spp/protocol/utxo.go and
+// sdk-libs/transaction/src/utxo.rs, both relative to the repository root.
 //
 // A nullifier enters the nullifier tree once, so each child is unique to one
 // accepted transaction even if a client reuses a seed. The two children are

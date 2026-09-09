@@ -65,7 +65,7 @@ func pinAssignment(t testing.TB, slots []TreeSlot, slot int) *treeSlotPinCircuit
 	}
 }
 
-// The in-circuit chain equals the host's right chain over per-slot hashes, and
+// The circuit's chain equals the host's right chain over per-slot hashes, and
 // selection returns every populated slot.
 func TestTreeSlotChainAndSelectionMatchHost(t *testing.T) {
 	assert := test.NewAssert(t)

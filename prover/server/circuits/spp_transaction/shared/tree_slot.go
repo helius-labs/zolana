@@ -7,8 +7,8 @@ import (
 )
 
 // TreeSlot is one tree account inputs may be spent from: its raw u16 id and
-// the UTXO and nullifier roots SPP resolved for it. The three values travel
-// together because an input's private slot must select all of them at once,
+// the UTXO and nullifier roots SPP resolved for it. The three values form one
+// slot because an input's private slot index must select all of them at once,
 // so a UTXO cannot be hashed under one tree and proven against another's
 // roots. An unused slot is all zero.
 type TreeSlot struct {
@@ -41,8 +41,8 @@ func TreeSlotsHashChain(api frontend.API, slots []TreeSlot) frontend.Variable {
 }
 
 // SelectTreeSlot returns slots[slot] for a private slot index. It asserts that
-// exactly one slot matches and that the selected slot publishes both roots, so
-// an input can neither prove under two trees nor under an unused slot.
+// the index names one of the slots, rejecting an out-of-range index, and that
+// the selected slot publishes both roots, rejecting an unused slot.
 func SelectTreeSlot(api frontend.API, slot frontend.Variable, slots []TreeSlot) TreeSlot {
 	var hits frontend.Variable = 0
 	selected := TreeSlot{ID: 0, UtxoRoot: 0, NullifierRoot: 0}

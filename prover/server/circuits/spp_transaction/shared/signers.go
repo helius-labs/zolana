@@ -15,9 +15,9 @@ func (s Signers) Contains(api frontend.API, identity frontend.Variable) frontend
 	return api.Mul(api.IsZero(prod), api.Sub(1, api.IsZero(identity)))
 }
 
-// WithoutPayer drops the payer, leaving the deduplicated owner signers and the
-// zero padding. The signer vector always carries the payer first, so it is
-// never empty.
+// WithoutPayer drops the payer, leaving the owner signers and the zero padding.
+// The host builds the vector with the payer first and the owner signers
+// deduplicated; the circuit checks neither.
 func (s Signers) WithoutPayer() Signers {
 	return s[1:]
 }
@@ -105,11 +105,11 @@ func P256Signers(
 // Publishing the identity without a ring P256 input is allowed; moving a
 // default-ring P256 UTXO into the ring names the depositor, not a ring spender.
 //
-// Address slots count as neither. An address always carries RingProgramID 0
+// Address slots count as neither. An address has RingProgramID 0
 // (checkAddress), so treating it as a default-ring input would publish the
 // identity of a ring spender who creates an address in the same proof and
 // would forbid that combination. Creating an address spends nothing, so it
-// never forces the identity into public data; a P256 address-only proof
+// does not force the identity into public data; a P256 address-only proof
 // publishes zero.
 func AssertDefaultP256Owner(
 	api frontend.API,

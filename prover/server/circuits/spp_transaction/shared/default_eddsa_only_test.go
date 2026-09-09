@@ -224,7 +224,7 @@ func TestDefaultRingEddsaOnlyDummyOutputSignerTagSolves(t *testing.T) {
 	assert.SolvingSucceeded(circuit, asDefaultRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
 
-// The payer signs but is not a nameable dummy identity: a fee sponsor must not
+// The payer signs but is not a nameable dummy identity: a fee payer must not
 // be shown as a recipient by a transaction it only paid for.
 func TestDefaultRingEddsaOnlyRejectsDummyOutputPayerHashTag(t *testing.T) {
 	assert := test.NewAssert(t)

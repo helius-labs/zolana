@@ -79,7 +79,7 @@ func maskedDummyTagAssignment(realRingProgramID, realPublished, dummyPublished i
 // A dummy's non-zero published tag may only repeat a value the transaction
 // already publishes: a listed public identity or a real output's published
 // owner. A policy-ring recipient publishes zero, so their identity is not
-// nameable, and neither is an outsider. Zero always passes.
+// nameable, and neither is an outsider. Zero passes.
 func TestMaskedDummyOutputTagsRepeatOnlyPublishedIdentities(t *testing.T) {
 	assert := test.NewAssert(t)
 	circuit := &maskedDummyTagCircuit{}
