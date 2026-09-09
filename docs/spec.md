@@ -35,6 +35,7 @@
 - [UTXO](#utxo)
   - [UTXO Hash](#utxo-hash)
   - [Nullifier](#nullifier)
+  - [Blinding Seed](#blinding-seed)
   - [Output Blinding](#output-blinding)
 - [Output UTXO Serialization](#output-utxo-serialization)
   - [UTXO Data](#utxo-data)
@@ -155,7 +156,7 @@ Operations performed by the owner of a policy ring's config.
 
 | # | Name | Description |
 | --- | --- | --- |
-| 1 | create_ring_config | Create the ring config PDA; sets `owner`. The config is inert until governance activates it, and no ring operation is authorized before then |
+| 1 | create_ring_config | Create the ring config PDA and set its owner; activation follows [Ring Accounts](#ring-accounts) |
 | 2 | update_ring_config | Set `paused`. A paused ring cannot authorize any ring operation; the owner can still update or rotate the config |
 | 3 | update_ring_config_owner | Transfer ring config ownership |
 | 4 | ring_authority_transact | Prove correctness of a state transition by a ring authority (freeze, thaw, permanent-delegate transfer) |
@@ -255,8 +256,7 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
 
-- `[u8; 32]` — a 32-byte value: a Poseidon or SHA-256 digest, a BN254 field element, an owner pubkey, or a view tag.
-- `[u8; 32]` — also a blinding: a Poseidon or SHA-256 output, derived per [Output Blinding](#output-blinding), [Blinding](#blinding-derivation) for a deposit, or `merge_output_blinding`.
+- `[u8; 32]` — a Poseidon or SHA-256 digest, a BN254 field element (including blindings), an owner pubkey, or a view tag.
 
 Hashing conventions:
 
@@ -295,8 +295,8 @@ Ring program id (32 B, untagged; `0` when absent):
 Owner identities are algorithm-tagged so a P256 x-coordinate and a Solana key
 with the same bytes have distinct identities. The tags avoid the SEC1 prefixes
 `0x02`, `0x03`, and `0x04`, so an owner identity cannot equal a viewing-key
-commitment. The `RingP256` proof computes the P256 identity
-(`gadget.P256OwnerIdentity`); SPP hashes Solana identities.
+commitment. The `RingP256` proof computes the P256 identity; SPP hashes Solana
+identities.
 
 ## Owner Hash
 
@@ -621,64 +621,52 @@ nullifier    := Poseidon(utxo_hash, utxo_blinding, nullifier_secret)
 nullifier_secret - must be committed in the owner hash, which enters `utxo_hash` via `owner_utxo_hash`.
 utxo_blinding - must be committed as the `blinding` in `owner_utxo_hash`.
 
-## Transaction Secret
+## Blinding Seed
 
-A `transact` proof has one private random value, `tx_secret`. The output
-blinding seed, each output blinding, and the private tx blinding derive from it
-and the transaction's first published nullifier, `nullifier_0`:
+Clients sample a private random field element, `blinding_seed`, for each `transact`
+proof. The circuit derives the following values using the transaction's first
+published nullifier, `nullifier_0`:
 
 ```
-output_blinding_seed = Poseidon("TXOS", nullifier_0, tx_secret)
+output_blinding_seed = Poseidon("TXOS", nullifier_0, blinding_seed)
 blinding_i           = Poseidon("TXOB", nullifier_0, output_blinding_seed, i)
-private_tx_blinding  = Poseidon("TXPB", nullifier_0, tx_secret)
+private_tx_blinding  = Poseidon("TXPB", nullifier_0, blinding_seed)
 ```
 
-Each four-letter tag is its ASCII bytes read as a 32-bit integer. A nullifier
-enters the nullifier tree once, so each child is unique to one accepted
-transaction even if a client reuses `tx_secret`. The two children reach
-different parties: `output_blinding_seed` is disclosed to the reader of an
-anonymous Sender bundle, a plaintext transfer, or a split bundle,
-`private_tx_blinding` to a policy or third-party co-prover. Recovering `tx_secret` from either child means
-inverting Poseidon, so a holder of one child cannot compute the other.
+Each four-letter tag is its ASCII bytes read as a big-endian 32-bit integer.
+Domain separation allows `output_blinding_seed` to be disclosed without revealing
+`private_tx_blinding`. This relies on an unpredictable `blinding_seed` kept private:
+the circuit enforces the derivations, but cannot enforce entropy or secrecy.
 
 ## Output Blinding
 
-The `transact` circuits recompute the blinding of every output slot, padding
-dummies included, so a sender cannot choose one:
+Every `transact` output, including padding dummies, must use `blinding_i` from
+[Blinding Seed](#blinding-seed). `i` is its final zero-based slot index
+after padding; individual blindings are not free proof inputs.
 
-```
-blinding_i = Poseidon("TXOB", nullifier_0, output_blinding_seed, i)
-```
+A nullifier can be consumed only once. Under collision resistance, binding the
+derivation to `nullifier_0` and `i` prevents repeated output commitments across
+accepted transactions and slots, even if a client reuses `blinding_seed`.
 
-`nullifier_0` is the transaction's first published nullifier. `i` is the output's
-final slot index after padding, counting from zero. `output_blinding_seed` is the
-[Transaction Secret](#transaction-secret) child above.
+The [confidential](#transfer-2) layout carries the derived blinding. Anonymous
+[sender](#sender), [plaintext transfer](#plaintext-transfer), and
+[split](#utxo-split) bundles serialize the derived `output_blinding_seed` as
+`blinding_seed`; readers derive each slot from it and `nullifier_0`.
 
-A nullifier enters the nullifier tree once, so a blinding derived from
-`nullifier_0` is unique to one accepted transaction, and two accepted
-transactions cannot commit the same output `utxo_hash`.
-
-A recipient needs the blinding to spend. The [confidential](#transfer-2) layout
-includes the derived blinding. The layouts that describe several slots from one
-payload (the anonymous [Sender](#sender) bundle, the
-[plaintext transfer](#plaintext-transfer), and the [split](#utxo-split) bundle)
-disclose `output_blinding_seed` instead, and their reader re-derives each slot.
-
-Two rails do not use this derivation. A [`deposit`](#deposit) has no proof; the
-program derives `blinding` from the tree and the leaf index the output lands at
-(see [Blinding](#blinding-derivation)). [Merge](#merge) proves a different
-circuit and takes its output blinding from the owner's nullifier secret
-(`merge_output_blinding`, see [Methods](#methods)).
+Other rails have their own rules: [`deposit`](#blinding-derivation) derives the
+blinding from the tree and leaf index; [`ring_deposit`](#ring_deposit) delegates
+freshness to the ring; [merge](#merge) uses `merge_output_blinding` under the
+owner's nullifier secret.
 
 ## Empty UTXO
 
 Fixed-size circuits pad unused output slots with empty UTXOs, most often a
-sender's absent SPL or SOL change. Every field is zero except `blinding`:
+sender's absent SPL or SOL change. The domain is `DummyDomain = 1`; every body
+field is zero except the derived [blinding](#output-blinding):
 
 ```
 owner = asset = amount = 0
 utxo_data = ring_data = ring_program_id = None
-blinding = per [Output Blinding](#output-blinding)
 ```
 
 `owner = 0` leaves the output permanently unspendable: spending it later requires
@@ -688,10 +676,7 @@ like a real output, and an owner who knows the seed can reconstruct it. The send
 ciphertext also stays fixed-size (amounts are fixed-width), so neither the output
 hash nor the ciphertext reveals whether the sender kept change.
 
-`owner = 0` is exactly the dummy-output condition, so an empty change output is a
-dummy: it contributes `0` to the output hash chain. Padding slots beyond the
-sender's change and recipients are dummies too, and the circuit derives their
-blindings from the same seed and their slot index.
+Empty change and padding outputs contribute `0` to the output hash chain.
 
 The confidential default ring reveals recipients but dummy utxos also carry cipher texts so that these are indistinguishable from real outputs.
 
@@ -762,7 +747,7 @@ Fields packed in declaration order. Byte vectors are prefixed with a `u16_le` le
 #### Recipient
 
 ```rust
-/// 48 B plaintext for confidential transfers with an empty `data` field.
+/// 49 B plaintext for confidential transfers with an empty `data` field.
 /// Anonymous transfers additionally carry `owner_pubkey: PublicKey` (34 B) and
 /// `sender_pubkey: P256Pubkey` (33 B) before `asset_id`. Each populated data
 /// record adds `3 + len` bytes. See [UTXO Data](#utxo-data).
@@ -782,14 +767,12 @@ struct TransferRecipientPlaintext {
 
 #### Sender
 
-The sender change bundle encodes two outputs (SPL change + SOL change). It
-publishes the seed rather than the blindings, and each output takes the blinding
-[Output Blinding](#output-blinding) gives its slot: `0` for the SPL output, `1`
-for the SOL output. The bundle cannot say that a change slot was dropped, so
-those two indices are also the outputs' physical slots.
+The sender change bundle encodes SPL and SOL change at physical output slots
+`0` and `1`. Both positions are retained when either is empty. The reader uses
+the bundle's seed and `nullifier_0` to derive their [blindings](#output-blinding).
 
 ```rust
-/// 57 B plaintext for confidential transfers with both `data` fields empty
+/// 58 B plaintext for confidential transfers with both `data` fields empty
 /// (fixed, independent of recipient count). Anonymous transfers additionally
 /// carry `owner_pubkey: PublicKey` (34 B) before `spl_asset_id` and
 /// `recipient_viewing_pks: Vec<P256Pubkey>` (1 + 33·R B) after `blinding_seed`.
@@ -824,7 +807,7 @@ shared by every slot. Fields are packed in declaration order; byte vectors are
 prefixed with a `u16_le` length, every other vector with a `u8` count.
 
 ```rust
-/// `sender_ciphertext` is a 57-byte plaintext for confidential transfers (when
+/// `sender_ciphertext` is a 58-byte plaintext for confidential transfers (when
 /// `data` fields are empty). Each populated data record grows its ciphertext by
 /// `3 + len` bytes. See [UTXO Data](#utxo-data).
 struct TransferEncryptedUtxos {
@@ -844,7 +827,7 @@ struct TransferEncryptedUtxos {
 #### Recipient slot
 
 ```rust
-/// `ciphertext` is a 48-byte recipient plaintext for confidential transfers
+/// `ciphertext` is a 49-byte recipient plaintext for confidential transfers
 /// (plus `3 + len` per populated data record).
 struct RecipientSlot {
     /// Recipient's signing pubkey — the indexing tag. The confidential proof
@@ -878,16 +861,16 @@ owner tag.
 random bytes of the same length), so an encrypted transfer's on-instruction size
 grows with `R`. The table below gives the size as a function of the slot count `R`.
 
-Total: `110 + 82·R` bytes. Example with a single recipient slot: `R = 1`, total `192`.
+Total: `111 + 83·R` bytes. Example with a single recipient slot: `R = 1`, total `194`.
 
 Blob size by slot count:
 
 | R | Bytes |
 | --- | --- |
-| 1 | 192 |
-| 2 | 274 |
-| 4 | 438 |
-| 8 | 766 |
+| 1 | 194 |
+| 2 | 277 |
+| 4 | 443 |
+| 8 | 775 |
 
 Sizes assume confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes (u8 tag + u16_le len + payload) to its plaintext and the same to the ciphertext.
 
@@ -898,7 +881,7 @@ The [Transfer](#transfer-2) layout without encryption: `tx_viewing_pk`, `salt`, 
 A plaintext transfer differs from the encrypted transfer only in that amounts and asset are public; both reveal recipients. Payloads are public, so dummy slots hide nothing: only the sender bundle and real recipient outputs carry `data`.
 
 ```rust
-/// Total size: `96 + 51·R` bytes with both change outputs and every `data`
+/// Total size: `97 + 51·R` bytes with both change outputs and every `data`
 /// field empty; each populated data record adds `3 + len` bytes. See
 /// [UTXO Data](#utxo-data).
 struct TransferPlaintextUtxos {
@@ -934,13 +917,9 @@ A split commits eight owner-bound outputs. Slots `0..M` have the requested amoun
 slots `M..8` have amount zero. All share owner, asset, and owner tag. The wallet
 tracks slots `0..M`.
 
-The ciphertext encodes owner, asset, amount, `M`, and the derived
-`output_blinding_seed`. A split's slot index is its physical output index, so the
-reader re-derives `blinding_i` for every `i < M` from `nullifier_0` and the seed
-per [Output Blinding](#output-blinding). All eight outputs are self-owned and the
-bundle is encrypted to the owner's own viewing key, so disclosing the seed reveals
-nothing to another party, and one 32-byte field keeps the transaction under the
-size limit at every `M`.
+The ciphertext encodes owner, asset, amount, `M`, and `output_blinding_seed`.
+The owner decrypts the bundle and derives each tracked slot's blinding from the
+seed, `nullifier_0`, and physical index `i < M` (see [Output Blinding](#output-blinding)).
 
 ### Plaintext Layout
 
@@ -957,8 +936,7 @@ struct SplitBundlePlaintext {
     asset_id: u64,
     /// Shared across all M outputs.
     asset_amount: u64,
-    /// The derived `output_blinding_seed`, never `tx_secret`. The wallet
-    /// derives `blinding_i` for `i < M`.
+    /// The derived `output_blinding_seed`; see [Output Blinding](#output-blinding).
     blinding_seed: [u8; 32],
     /// Empty (plain outputs).
     data: Data,
@@ -1010,49 +988,51 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 
 **Public Inputs**
 
+The single public signal is `public_input_hash = HashChain(fields)`. The table
+lists `fields` in preimage order; variant-only fields are omitted for other
+variants. `HashChain` folds left to right; `RightHashChain` folds right to left.
+
 | Input | Source |
 | --- | --- |
-| nullifiers | derived by the proof from spent input UTXOs |
-| output_utxo_hashes | instruction data (`outputs[i].utxo_hash`) |
-| tree_slots (`INPUT_TREES = 5`) | one slot per tree inputs may be spent from: `(tree_id, utxo_tree_root, nullifier_tree_root)`. The circuit publishes five slots; SPP spends from a single `input_tree`, so it fills slot 0 with that account's raw `u16` id and the two roots the per-input `utxo_tree_root_index` / `nullifier_tree_root_index` resolve (every input must reference the same pair), and leaves slots 1..4 all zero. Inputs pick their slot privately. See [Tree Slot Chain](#tree-slot-chain) |
-| output_tree_id | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
-| private_tx_hash | instruction data |
-| external_data_hash | instruction data. SPP recomputes it from the instruction and checks it matches this public input. It is its own public input, not just an input to `private_tx_hash`, because SPP cannot recompute `private_tx_hash`: that hash covers the input UTXO hashes, which are private. Without it a proof could be reused with a different instruction (different encrypted outputs, settlement accounts, or public-leg amounts). |
-| public_assets (`N_PUBLIC_SLOTS = 3`) | Public proof slots are uniform `(asset, amount)` pairs, entering the public-input hash interleaved as `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. The SDK derives and SPP recomputes the slots: resolve every settlement leg's asset, add deposits and subtract withdrawals in `i128`, drop zero-net groups, and emit the remaining distinct assets in first-appearance order. SOL uses `hash_bytes_32(Address::default())`; SPL uses `hash_bytes_32(mint)` derived from the validated vault. Unused slots are `(0, 0)`. |
-| public_amounts (`N_PUBLIC_SLOTS = 3`) | Signed-field encodings of the three aggregated proof movements. Each net magnitude must fit `u64`; deposits encode the magnitude directly and withdrawals encode its negation in the BN254 field. |
-| ring_program_id | single `pk_field` of the policy ring authorizing the transaction's UTXOs; `0` (non-ring / default transact) — instruction data |
-| payer_pubkey_hash | the tagged Solana identity `owner_proof_input_hash(payer) = hash_bytes_33(0x53 || payer)`, derived by SPP from the `payer` account |
-| signer_pk_hashes | Payer first, then first-occurrence-deduplicated Ed25519 owner signers, then zero padding to `N_inputs + 1`; folded as a fixed-width right hash chain. |
-| P256 message and default-owner hashes (`RingP256` only) | Immediately after `private_tx_hash`: `hash_bytes_32(SHA-256(private_tx_hash))`, followed by `default_p256_owner_pk_hash`. The latter is the tagged P256 identity `hash_bytes_33(0x50 || p256_x)` iff a spent P256 UTXO has `ring_program_id = 0`, otherwise `0`. A ring P256 spend is anonymous, so the same proof may neither spend a default-ring P256 UTXO nor publish an output owner tag equal to the shared identity. Address slots never force it: an address always has `ring_program_id = 0`, and counting it would publish the identity of a ring P256 spender who creates an address in the same proof. A proof whose only P256 slots are addresses publishes `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit conditionally binds it to the shared P256 key. |
-| published output owner hash chain (owner-signed variants) | Fixed-width per-output vector folded into a final hash-chain field. `ConfidentialEddsa` publishes every resolved owner tag. `RingEddsa` and `RingP256` publish the tagged Solana identity `hash_bytes_33(0x53 || fetch_tag)` only where the output ciphertext is structurally `OutputDataEncoding::Encrypted` with confidential scheme byte `3`; other slots contribute `0`. `RingAuthority` omits this field. |
+| `HashChain(nullifiers)` | published nullifiers for every input slot, including padding and addresses |
+| `HashChain(output_utxo_hashes)` | instruction data (`outputs[i].utxo_hash`), including dummy outputs |
+| `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain) |
+| `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
+| `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
+| P256 message hash (`RingP256` only) | `hash_bytes_32(SHA-256(private_tx_hash))`, derived by SPP |
+| `default_p256_owner_pk_hash` (`RingP256` only) | `hash_bytes_33(0x50 || p256_x)` when a spent P256 UTXO belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit binds it to the shared P256 key. Address slots do not force publication. |
+| `external_data_hash` | recomputed by SPP from the instruction and settlement accounts. Bound separately because SPP cannot recompute the private transaction hash. |
+| public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
+| `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
+| signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to `N_inputs + 1`. `RingAuthority` uses only the payer (width 1). |
+| `allow_dummy_inputs` | boolean derived by SPP from the input tree's remaining capacity; see [Input slots](#input-slots) |
+| published output owner hash chain (owner-signed variants) | `HashChain` over per-output tagged Solana identities. `ConfidentialEddsa` binds every resolved owner tag. `RingEddsa` and `RingP256` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
+
+A `RingP256` proof spending a policy-ring P256 UTXO must keep the shared identity
+private: it cannot also spend a default-ring P256 UTXO or publish an output owner
+hash equal to that identity. Address slots count as neither kind of spend.
 
 <a id="tree-slot-chain"></a>
-**Tree slot chain.** The slots enter the public-input hash as one element:
+**Tree slot chain.** Each of the `INPUT_TREES = 5` slots is
+`(tree_id, utxo_tree_root, nullifier_tree_root)`:
 
 ```
 tree_slot_hash_k = Poseidon(tree_id_k, utxo_tree_root_k, nullifier_tree_root_k)
 tree_slot_chain  = RightHashChain(tree_slot_hash_0, ..., tree_slot_hash_4)
 ```
 
-`RightHashChain` is the right-to-left fold the signer transcript uses. Unused
-slots are all zero and sit at the end, so their suffix of the chain is a
-constant SPP precomputes; a transaction over one tree costs SPP one slot hash
-and one chain step. An input's private `tree_slot` selects one slot for its UTXO
-hash, inclusion, and nullifier non-inclusion checks; the proof rejects a slot
-whose UTXO root or nullifier root is zero, so an unused slot cannot be selected.
-
-The rows are in preimage order: every variant shares the rows through
-`payer_pubkey_hash`, and the ones a variant does not publish are omitted from the
-tail rather than zeroed.
-
-See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
+SPP fills slot 0 from `input_tree` and requires every input to reference the same
+pair of root indexes. Slots 1..4 are all zero. Each input privately selects one
+slot for hashing, inclusion, and non-inclusion; either selected root being zero
+is rejected. The unused suffix of the chain can be precomputed.
 
 **Private Inputs (per input UTXO)**
 
 | Input | Description |
 | --- | --- |
-| owner proof input | Private per-slot identity. Ed25519 identities must occur in the public signer vector. On `RingP256`, zero selects the shared P256 owner while non-zero selects an Ed25519 signer. A spent default-ring P256 UTXO additionally forces the conditional public owner hash described above; an address slot does not. |
-| `nullifier_secret` | the input owner's secret (see [Nullifier Key](#nullifier-key)); recomputes the input's `nullifier_pk` and [nullifier](#nullifier) |
+| owner proof input | Per-slot identity. Owner-signed variants bind Ed25519 identities to the public signer vector; on `RingP256`, zero selects the shared P256 owner. `RingAuthority` uses a witnessed identity without an owner-signature check. |
+| `domain` | selects a spent UTXO, padding, or address; see [Input slots](#input-slots) |
+| `nullifier_secret` | the owner's secret for a spent UTXO (see [Nullifier Key](#nullifier-key)); zero for padding and addresses |
 | `blinding`, `asset`, `amount`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `utxo_hash`; `blinding` combines with the recomputed `owner_hash` into `owner_utxo_hash`, and also feeds the nullifier formula |
 | `tree_slot` | the tree slot the input is spent from; selects the aligned `tree_ids[tree_slot]`, `utxo_tree_roots[tree_slot]`, and `nullifier_tree_roots[tree_slot]` for hashing, inclusion, and non-inclusion, and must be in range |
 | `utxo_merkle_path` | path proving `utxo_hash` is a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]` |
@@ -1061,14 +1041,14 @@ See [UTXO Hash](#utxo-hash) and [Nullifier](#nullifier).
 
 | Input | Description |
 | --- | --- |
-| `owner` | Recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`. Owner-signed circuits witness the actual owner identity and nullifier pubkey and recompute `owner_hash`. A real default-ring output must equal its published per-slot owner hash; a real policy-ring output must publish zero. A dummy may publish zero, or may publish a real participant identity to camouflage a confidential slot. |
+| `owner` | Recipient's `owner_hash`; combined with `blinding` into `owner_utxo_hash`. Owner-signed circuits witness the owner identity and nullifier pubkey; binding and published-tag rules are checked below. |
 | `asset`, `amount`, `blinding`, `data_hash`, `ring_data_hash`, `ring_program_id` | UTXO body fields used to recompute `output_utxo_hashes[i]` |
 
 **Private Inputs (per transaction)**
 
 | Input | Description |
 | --- | --- |
-| `tx_secret` | Fresh random field element, see [Transaction Secret](#transaction-secret). The circuit derives `output_blinding_seed`, each output `blinding_i`, and `private_tx_blinding` (the final `private_tx_hash` preimage element) from it and `nullifier_0`; none of them is a public input or instruction data. `private_tx_blinding` is shared with the policy or third-party proofs over the same transaction. |
+| `blinding_seed` | Random root for the [blinding derivations](#blinding-seed). |
 
 **external_data_hash**
 
@@ -1132,23 +1112,63 @@ intermediary cannot replace either value while reusing the proof.
 
 | Check | Description |
 | --- | --- |
-| Owner hash binding (per input) | The recomputed `owner_hash` (see [Shielded Address](#shielded-address)) must equal the input's `owner`, the value hashed into `utxo_hash` for the inclusion check. |
-| UTXO Ownership | Each spent input UTXO binds to an Ed25519 owner-key hash from the signer run. SPP folds the payer-first, first-occurrence-deduplicated owner-signer accounts into a fixed-width public-input chain, and the circuit binds each input owner to a chain element. See [UTXO Ownership Check](#utxo-ownership-check). |
-| Inclusion | Each spent input UTXO must be a leaf of the UTXO tree at `utxo_tree_roots[tree_slot]`, hashed under `tree_ids[tree_slot]`. |
-| Nullifier secret binding (per input) | The input's `nullifier_pk` (see [Nullifier Key](#nullifier-key)) is recomputed from its `nullifier_secret` witness and enters the input's recomputed [owner hash](#shielded-address). |
-| Nullifiers | Public nullifier per input equals the input's [nullifier](#nullifier). |
-| Nullifier non-inclusion | Each input nullifier must NOT exist in the nullifier tree at `nullifier_tree_roots[tree_slot]` before the transaction. |
-| Output UTXOs | Output UTXO hashes must be well formed, hashed under `output_tree_id` with the derived `blinding_i`, and match `output_utxo_hashes[i]`. The proof hashes output `owner` into `output_utxo_hashes[i]` without unpacking it. |
-| Output owner tag | `ConfidentialEddsa` binds every output tag. Owner-signed ring circuits use the ciphertext scheme as a public marker: confidential-encrypted slots contribute the resolved tag hash, all other encodings contribute zero. The circuit requires every real default-ring output to be marked and bound to its actual owner, and every real policy-ring output to be unmarked. Dummy outputs may use zero; a non-zero dummy marker must identify a real signer or real output owner. `RingAuthority` publishes no output-owner chain. |
-| Balance Conservation | For each active asset, inputs plus public deposits must equal outputs plus public withdrawals. Public proof slots are the checked, non-zero net amounts aggregated from settlement legs by resolved asset. An idle slot has amount and asset pinned to `0`; the circuit retains its pairwise-distinct-asset constraint over active slots. |
-| Private transaction hash | `private_tx_hash = Poseidon(input utxo hash chain, output utxo hash chain, address nullifier chain, external data hash, private_tx_blinding)`. Dummy inputs and outputs contribute `0` to the input and output chains, so the hash covers only real state; their real hashes still enter the public `output_utxo_hashes` and nullifier inputs. The address chain contains each address slot's nullifier, which is its compressed address (`0` elsewhere): the nullifier is already public, so a ZK program proof can name the account the transaction creates without learning anything an observer does not, and the owner signature over `private_tx_hash` covers the address itself rather than a preimage component of it. Every other preimage element is public or computable, so without the blinding an observer could test candidate UTXO hashes against the published value and link a spent commitment to the nullifier the same transaction publishes; the circuit derives the blinding from `tx_secret` ([Transaction Secret](#transaction-secret)), so a prover cannot pick one an observer knows. The Ed25519 account signatures and the circuit's owner bindings jointly authorize this value. SPP, policy, and third-party proofs all take `private_tx_hash` as a public input and share the same blinding, so every circuit proves statements about the same transaction data. |
-| UTXO data | There is no program ownership: every real input takes the owner-signature path. `utxo_data` may sit on any UTXO; `data_hash` enters `utxo_hash` unchecked, so the owner signature over `private_tx_hash` authorizes any output that sets it. Ring programs additionally authorize spends of their ring (`ring_program_id`) via a PDA signer; policy proofs are checked by the ring program before CPI into SPP. |
-| Dummy input or output | ZK circuits are fixed size; dummy UTXOs allow a transaction to use fewer real inputs or outputs. A dummy has `owner = 0` (an input's owner key, an output's `owner_hash`): permanently unspendable, so a real spend never has it. Ownership, inclusion, nullifier-secret-binding, nullifier, and balance checks are skipped for dummy UTXOs. The fixed shape is public — SPP inserts every input nullifier into the nullifier tree and appends every output hash to the UTXO tree — so a dummy's nullifier and `utxo_hash` must be indistinguishable from a real UTXO's and pairwise distinct, hiding the real input and output counts. A dummy output is an [empty UTXO](#empty-utxo) whose `blinding` is derived like a real output's ([Output Blinding](#output-blinding)); its output entry carries a random tag and random recipient-length `data` (see [Output slot mapping](#output-slot-mapping)). A dummy input derives its [nullifier](#nullifier) over a random `blinding` with `nullifier_secret = 0`, the blinding being its sole source of unpredictability.<br>The proof carries one boolean public-input-hash component, `allow_dummy_inputs`, for the whole proof. SPP derives it from the pre-transaction tree state as `nullifier_leaves_remaining >= state_leaves_remaining`, counting nullifiers already reserved in the queue. A real spend consumes a nullifier leaf for a UTXO leaf that already exists; a padding dummy and an address slot each insert a nullifier without spending one. **Input** slots that are not real spends, dummy and address alike, are constrained by this boolean; outputs are unaffected. Equality permits them, while strictly fewer remaining nullifier leaves requires each input slot to be a real spend. Clients assume `true` for the height-40 nullifier tree; SPP's derived value is authoritative at verification.<br>An input dummy with a non-zero `data_hash` is instead an **address slot**: an owner-signed account whose nullifier is its address. It sets `owner = owner_hash` rather than `0`, pins `amount` and the non-seed fields to `0`, and derives and constrains its nullifier (over the owner's `nullifier_secret`) like a real spend; SPP inserts it, so the nullifier tree enforces uniqueness. Unlike a padding dummy, it contributes its nullifier, the address itself, to the `private_tx_hash` address chain, so the owner signature covers it.<br>A padding dummy input's public `nullifier` and `utxo_tree_root` / `nullifier_tree_root` are **not** covered by the owner signature: the checks above are skipped and it contributes `0` to `private_tx_hash`, so the signed digest `SHA-256(private_tx_hash)` excludes them. The sender fixes them when signing; they are part of the signed transaction, and SPP still inserts the nullifier and reads each root by index. This holds because the sender builds the whole proof witness; no untrusted party sits between signing and proving. A re-prover can at most swap one random dummy nullifier for another (every real input, output, amount, and recipient stays signed); the worst case is a self-reverting duplicate-nullifier insertion, which cannot change real state. |
+| Owner hash binding | Every real input and address binds its `owner` to `Poseidon(owner proof input, Poseidon(nullifier_secret))`. See [Input slots](#input-slots). |
+| UTXO Ownership | Owner-signed variants require an authorized Ed25519 signer or the verified shared P256 key for each real input and address. `RingAuthority` uses the ring's authorization. See [UTXO Ownership Check](#utxo-ownership-check). |
+| Inclusion | Each spent input UTXO must be a leaf at `utxo_tree_roots[tree_slot]`, hashed under `tree_ids[tree_slot]`. Padding and address inputs skip inclusion. |
+| Nullifiers | Every input's public nullifier equals its derived [nullifier](#nullifier), including padding and addresses; all input nullifiers must differ. |
+| Nullifier non-inclusion | Every input nullifier must be strictly bracketed by its low leaf at `nullifier_tree_roots[tree_slot]`, including padding and addresses. |
+| Output UTXOs | Every output hash uses `output_tree_id` and the derived `blinding_i`, and matches `output_utxo_hashes[i]`. Owner-signed variants recompute `owner_hash` from the recipient identity and nullifier pubkey; `RingAuthority` commits `owner` directly. |
+| Output owner tag | `ConfidentialEddsa` binds every output tag. Owner-signed ring circuits require real default-ring outputs to carry a confidential marker bound to their owner identity, and real policy-ring outputs to publish zero. A dummy's nonzero marker must identify a real signer or real output owner. `RingAuthority` omits the owner chain. |
+| Balance Conservation | For each active asset, inputs plus public deposits equal outputs plus public withdrawals. Public slots contain distinct assets with nonzero net movements; unused slots are `(0, 0)`. |
+| Private transaction hash | Matches the [derived hash](#private-transaction-hash). |
+| UTXO data | `data_hash` enters `utxo_hash` unchecked. An output with nonzero `data_hash` requires its owner to be authorized by the circuit. Application and ring proofs interpret the data before CPI into SPP. |
+| Dummy and address policy | Input domains and the capacity gate follow [Input slots](#input-slots). Dummy outputs are [empty UTXOs](#empty-utxo) with derived blindings. |
+
+<a id="input-slots"></a>
+**Input slots.** The domain selects exactly one kind:
+
+| Kind | Domain | Constraints |
+| --- | --- | --- |
+| Spent UTXO | `UtxoDomain = 3` | Nonzero asset; owner and nullifier-secret binding; inclusion and balance checks. |
+| Padding | `DummyDomain = 1` | All body fields and `nullifier_secret` are zero except the random `blinding`. Ownership and inclusion are skipped. |
+| Address | `AddressDomain = 2` | `owner = Poseidon(owner_proof_input_hash(signing_pk), Poseidon(0))`; `blinding` is the address seed. Asset, amount, data hash, ring fields, and `nullifier_secret` are zero. The owner authorizes creation; inclusion is skipped. `RingAuthority` disallows addresses. |
+
+SPP inserts every nullifier; an address slot's nullifier is the compressed
+address. Random padding blindings hide the real input count.
+
+SPP derives `allow_dummy_inputs` from the pre-transaction tree state as
+`nullifier_leaves_remaining >= state_leaves_remaining`, counting queued
+nullifiers. Padding and addresses consume nullifier capacity without spending
+an existing UTXO, so `false` requires every input to be a real spend. Outputs are
+unaffected. Clients assume `true` for the height-40 nullifier tree; SPP's value
+is authoritative at verification.
+
+<a id="private-transaction-hash"></a>
+**Private transaction hash.**
+
+```
+private_tx_hash = Poseidon(input_utxo_hash_chain, output_utxo_hash_chain,
+                           address_nullifier_chain, external_data_hash,
+                           private_tx_blinding)
+```
+
+Each chain retains the physical slot order: input and output chains use real
+UTXO hashes and `0` elsewhere; the address chain uses address nullifiers and `0`
+elsewhere. This lets application proofs bind the compressed addresses they create.
+SPP, policy, and third-party proofs share `private_tx_hash` and its blinding.
+
+A secret `private_tx_blinding` prevents observers testing candidate input hashes
+against the published transaction hash (see [Blinding Seed](#blinding-seed)).
+
+Padding contributes zero to the input chain, but `nullifier_0` is still bound
+through the blinding derivations. Other padding nullifiers and the input roots
+are outside `private_tx_hash`; the Solana transaction signatures bind the full
+instruction independently.
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
 1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by the owner-signer accounts in first-occurrence order (a repeated account signs once). Every owner-signer account must be a transaction signer, and the unique run must fit the fixed `MAX_SIGNERS = MAX_INPUTS + 1` width.
-2. SPP folds the run — `hash_bytes` of each signer address, zero-padded to `n_inputs + 1` — into a right-folded public-input chain. The circuit binds each spent UTXO owner to a chain element. The nullifier-secret binding is still checked by the proof.
+2. SPP folds the run — `owner_proof_input_hash` of each signer address, zero-padded to `n_inputs + 1` — into a right-folded public-input chain. The circuit binds each Ed25519 input owner to a chain element and separately verifies shared P256 ownership on `RingP256`.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -1186,12 +1206,10 @@ proving keys together; an old proving key and new verifying key, or the reverse,
 are incompatible. Merge and proofless-deposit artifacts do not rotate unless
 their own circuits change.
 
-Adding `private_tx_blinding` changes every circuit that recomputes
-`private_tx_hash`, and adding `tree_id` changes every circuit that recomputes a
-`utxo_hash`. Transfer, merge, policy, and third-party proving and verifying keys
-MUST therefore be regenerated together from that circuit revision. Circuits that
-only carry `private_tx_hash` or a `utxo_hash` as an opaque public input do not
-recompute it and MUST NOT rotate.
+Changes to `private_tx_hash` and `utxo_hash` also require regenerating keys for
+every merge, policy, and third-party circuit that recomputes those hashes.
+Circuits that only carry them as opaque public inputs need no key change for
+these derivations.
 
 | Circuit | Use | Shape | Variants |
 | --- | --- | --- | --- |
@@ -1232,12 +1250,12 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 | --- | --- |
 | `HashChain(nullifiers)` | per-slot nullifiers, derived by the proof (real slots) and by `merge_dummy_nullifier` (padding slots); published in instruction data |
 | `output_utxo_hash` | instruction data |
-| `tree_slot_chain` | the [Tree Slot Chain](#tree-slot-chain) over the `INPUT_TREES = 5` slots `(tree_id, utxo_tree_root, nullifier_tree_root)`, filled by SPP as for `transact`: slot 0 from `input_tree` with the roots the per-input indexes resolve, slots 1..4 all zero |
+| `tree_slot_chain` | the [Tree Slot Chain](#tree-slot-chain), resolved from `input_tree` as for `transact` |
 | `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
 | `private_tx_hash` | instruction data; covers every input hash, the output hash, the external-data hash, and `private_tx_blinding` |
 | `external_data_hash` | instruction data, recomputed by SPP from the instruction and matched against this public input |
 | `allow_dummy_inputs` | one boolean for the whole proof, derived by SPP from the tree (`nullifier_leaves_remaining >= state_leaves_remaining`); when false every slot must be real |
-| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)` | the tagged owner identity, derived by SPP from the registry record by the rail `eddsa_owner` selects: `hash_bytes_33(0x50 || owner_p256.x)` for a P256 owner, `hash_bytes_33(0x53 || owner)` over the registry account's ed25519 owner for a Solana owner. The circuit asserts it equals its witnessed `owner_pk_hash`, so a proof built against another owner's record fails verification. |
+| variant tail — default merge: `owner_proof_input_hash(user_signing_pk)` | registry signing identity: `owner` when `eddsa_owner` is true, otherwise `owner_p256`; must equal the witnessed `owner_pk_hash` |
 | variant tail — policy-ring merge: `output_ring_data_hash`, `ring_program_id` | `ring_program_id` comes from the signing `ring_config` account; `output_ring_data_hash` is the ring data the calling ring program selected. The circuit asserts it against the output UTXO's `ring_data_hash`. |
 
 **Private Inputs (per input slot)**
@@ -1254,11 +1272,10 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Input | Description |
 | --- | --- |
-| `owner_pk_hash` | the rail-selected owner hash witness: a Solana (ed25519) owner supplies the precomputed tagged Solana identity `owner_proof_input_hash(owner)`; a P256 owner the tagged P256 identity over the compressed key's x-coordinate. The default circuit asserts it equals the public `owner_proof_input_hash(user_signing_pk)`; the ring circuit carries no registry binding. Merge verifies no signature on either rail; ownership rests on the shared `nullifier_secret` and the owner-preserving output. |
+| `owner_pk_hash` | `owner_proof_input_hash(signing_pk)`. The default circuit binds it to the registry identity; the ring circuit has no registry binding. Neither verifies an owner signature. |
 | `user_nullifier_pk` | shared owner's nullifier commitment; constrained to `Poseidon(nullifier_secret)` |
-| `nullifier_secret` | wallet's symmetric nullifier secret; supplied with the merge proof inputs. Also seeds `merge_output_blinding` and `merge_dummy_nullifier`, so only the owner can run those derivations. |
+| `nullifier_secret` | owner's symmetric nullifier secret; also seeds the output blinding and dummy nullifiers |
 | `asset` | the single merged asset, shared by every real input and the output |
-| `private_tx_blinding` | derived as `Poseidon("TXPB", first_nullifier, nullifier_secret)`; the owner's nullifier secret stands in for `tx_secret`. Omitted from instruction data. |
 
 **Checks**
 
@@ -1277,7 +1294,7 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 | Input cleanliness — `data_hash` | for each non-dummy input: `data_hash = 0`. UTXOs with `utxo_data` set are not mergeable. Applies to both rails. |
 | Input/output ring fields | for `merge_transact`: real inputs and the output carry `ring_program_id = 0` and `ring_data_hash = 0`. For `merge_ring`: `ring_program_id != 0`, every real input shares it with the CPI caller, and the output's `ring_data_hash` equals the instruction's `output_ring_data_hash`. |
 | Deterministic output | the output blinding is `merge_output_blinding(nullifier_secret, first_nullifier)`; the recomputed output hash, under `output_tree_id`, equals the public `output_utxo_hash`, with `owner = userOwnerHash` and `data_hash = 0`. No ciphertext exists to bind. |
-| Private transaction hash | `private_tx_hash` covers every input hash, the output hash, the external-data hash, and `private_tx_blinding`, so the proof cannot be replayed with different state and public candidate hashes cannot reproduce the published value. |
+| Private transaction hash | Matches the [shared derivation](#private-transaction-hash), with zero address slots and `private_tx_blinding = Poseidon("TXPB", first_nullifier, nullifier_secret)`. |
 | Owner binding (default rail) | `user_signing_pk_hash == owner_pk_hash`, so the proof verifies only against the registry-record owner identity SPP folds in. |
 
 **Circuit shape**
@@ -1292,13 +1309,13 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 
 | Account | Description |
 | --- | --- |
-| Tree account | PDA `[b"tree", tree_id]` with `tree_id: u16` taken from `protocol_config.next_tree_id`. Contains the nullifier tree (`zolana-tree`'s `nullifier_tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). The UTXO tree retains one final root for each of the latest 500 Solana slots that updated it in a dense cyclic history: the first update in a newer slot advances the cursor, while later updates in that slot overwrite the current entry. Slots without updates consume no entry. A root cannot be overwritten until 500 later slots update the tree: about 100 seconds at the 200 ms target slot time, and longer when updates are less frequent. The header also holds the fee schedule (`TreeFeeSchedule`) and `fee_balance` (collected insertion fees not yet paid out); the nullifier tree holds `close_before_index` (queue watermark below which nullifier PDAs may be closed). Lamports above `rent_minimum + fee_balance` fund nullifier PDAs. |
+| Tree account | PDA `[b"tree", tree_id]` with `tree_id: u16` taken from `protocol_config.next_tree_id`. Contains the nullifier tree (`zolana-tree`'s `nullifier_tree`, H=40), nullifier queue, and UTXO tree (sparse Merkle tree, H=32). UTXO root history retains the final root of the latest 500 slots with updates: the first update in a new slot advances the cyclic cursor; later updates overwrite that entry; idle slots consume none. The header holds `TreeFeeSchedule` and `fee_balance`; the nullifier tree holds `close_before_index`, below which nullifier PDAs may be closed. Lamports above `rent_minimum + fee_balance` fund nullifier PDAs. |
 | Nullifier PDA | `[b"nullifier", tree, nullifier]`, 10 bytes `{ queue_index: u64, tree_id: u16 }`. `queue_index` is the leaf index the nullifier takes in the nullifier tree and starts at 1 (leaf 0 is the init sentinel), so a zero record is never program-written and is rejected. Created by the inserting instruction and funded from the tree; rejects a second insertion of a pending nullifier. Closed by `close_nullifier_pdas` once `queue_index < close_before_index`, returning rent to the tree. See `program-libs/tree/nullifier_tree_spec.md`. |
 | SPL interface vault | Per-mint SPL / Token-22 vault holding all shielded SPL tokens. |
 | Asset registry | PDA derived from the mint, set at `create_spl_interface` time. Stores the `asset_id: u64` assigned to that mint (used as the compact asset identifier inside UTXOs and ciphertexts). `asset_id = 1` is reserved for native SOL and has no `Asset registry` entry; SPL mints get `asset_id ≥ 2`. |
 | Asset counter | One global account per program, holding the monotonic `next_asset_id: u64`. Initialized to `2` (since `1` is reserved for SOL) and incremented on each `create_spl_interface`. |
 | Protocol config | One global account per program; holds the role authorities and permissionless flags (see struct below). |
-| `ring_config` | SPP-owned account at the ring's `ring_auth` PDA (`[b"ring_auth"]` derived under the ring program), one per ring program. Holds `authority`, the ring `program_id`, `activated`, `ring_authority_transact_is_enabled`, and `paused`. Anyone may create it, but it is inert until governance activates it. The ring program signs for it; SPP authorizes ring instructions by its signature plus owner, discriminator, and active-state checks, never re-deriving the address. See [Ring Accounts](#ring-accounts). |
+| `ring_config` | SPP-owned account at the ring's `ring_auth` PDA (`[b"ring_auth"]` derived under the ring program), one per ring program. Stores the ring program, authority, and activation/pause flags. See [Ring Accounts](#ring-accounts). |
 
 **Protocol config**
 
@@ -1332,13 +1349,8 @@ When `tree_creation_is_permissionless` or
 corresponding creation instruction; otherwise the transaction signer must equal
 the matching creation authority.
 
-`create_ring_config` is unconditionally permissionless, so
-`ring_activation_is_permissionless` gates activation instead of creation: when it
-is set a new `ring_config` is born activated, and otherwise the config is inert
-until `ring_creation_authority` calls `set_ring_activation`. Ring creation carries
-no authority check because the config account is the candidate ring's own
-`ring_auth` PDA, so requiring governance to co-sign would put a governance
-signature in the same CPI chain as unaudited ring code.
+Ring creation is always permissionless; `ring_activation_is_permissionless`
+sets the config's initial activation state. See [Ring Accounts](#ring-accounts).
 
 ### Authority Governance
 
@@ -1374,7 +1386,14 @@ A ring program hosts exactly one ring, tied to SPP by a single account.
 
 **`ring_config`** — the ring's `ring_auth` PDA: an SPP-owned account at `[b"ring_auth"]` derived under the ring program, so the ring program (and only it) can sign for it via `invoke_signed(["ring_auth", bump])`. SPP authorizes a ring instruction (`ring_transact`, `ring_authority_transact`, `merge_ring`, `ring_deposit`) by requiring `ring_config` to sign, loading it by owner + discriminator, and requiring it to be activated and unpaused; it does not re-derive the address or take a bump from instruction data. The `program_id` field is the ring program, read as the UTXO `ring_program_id`.
 
-A ring's lifecycle has two phases with two different signers. **Creation** is permissionless and produces an inert config: only the ring's own `ring_auth` PDA signs, so a ring registers itself and pays its own rent. **Activation** is governance-only: `ring_creation_authority` calls `set_ring_activation` directly against SPP, with no ring program in the call chain. The two never share a transaction, which is what keeps a governance signature away from unaudited ring code.
+Creation requires the ring's `ring_auth` PDA and a rent payer to sign. The config
+starts activated only when `ring_activation_is_permissionless` is set; otherwise
+governance activates it through `set_ring_activation`.
+
+Governance must submit activation separately from ring creation and call SPP
+without invoking the ring program, keeping its signature away from unaudited
+ring code. This is an operational requirement; SPP checks the authority signer
+but does not enforce transaction or call-chain separation.
 
 ```rust
 struct RingConfig {
@@ -1396,15 +1415,13 @@ struct RingConfig {
 }
 ```
 
-The `[b"ring_auth"]` derivation is checked once, at `create_ring_config` (canonical `find_program_address`, storing `bump`); later ring instructions identify it by owner + discriminator only. Security relies on the ring program being the signer.
-
 Usage by instruction:
 
 | Instruction | Behavior |
 | --- | --- |
 | `ring_transact`, `merge_ring`, `ring_deposit` | `ring_config` must sign, be activated, and be unpaused. `ring_authority_transact_is_enabled` is not read. |
 | `ring_authority_transact` | `ring_config` must sign, be activated, be unpaused, and have `ring_authority_transact_is_enabled == true`. An inactive ring reports `RingNotActivated` ahead of any pause or enabled failure. |
-| `create_ring_config` | Permissionless. `ring_config` (the `ring_auth` PDA) must sign its own creation; the derivation is checked here. Initializes `authority` and `program_id` from instruction data, `activated` from `protocol_config.ring_activation_is_permissionless`, and both `ring_authority_transact_is_enabled` and `paused` to false. The payer is a rent payer only and is not checked against any authority. |
+| `create_ring_config` | Permissionless. Checks the canonical `ring_auth` PDA derivation and stores its bump. Initializes `authority` and `program_id` from instruction data, `activated` from `protocol_config.ring_activation_is_permissionless`, and both `ring_authority_transact_is_enabled` and `paused` to false. |
 | `set_ring_activation` | Signer must equal `protocol_config.ring_creation_authority`. Writes `activated` and `ring_authority_transact_is_enabled`, in either direction, and never touches `paused`. Available on a paused ring. |
 | `update_ring_config`, `update_ring_config_owner` | Signer must equal `ring_config.authority`. Both remain available while paused or inactive, so the ring can be unpaused or its authority rotated. `update_ring_config` writes only `paused`. |
 
@@ -1423,7 +1440,7 @@ operations, and tags 18–21 are maintenance and administration.
 | batch_update_nullifier_tree | Tag 4; gated by `protocol_config.forester_authority`; inserts queued nullifiers into the nullifier tree via a batch ZKP and emits the batch address-append event. Once a queue batch becomes reclaimable it advances `close_before_index`, releasing that batch's nullifier PDAs. Pays `min(append_reimbursement * num_update, fee_balance)` to `reimbursement_recipient` (must not be program-owned); a shortfall does not fail the update. |
 | create_asset_counter | Tag 5; gated by `protocol_config.protocol_authority`; creates the singleton `Asset counter` PDA with `next_asset_id = 2`. |
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
-| create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config` (the `ring_auth` PDA), which must sign its own creation; the payer only funds rent and is checked against no authority. The config is born inert unless `ring_activation_is_permissionless`. See [Ring Accounts](#ring-accounts). |
+| create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
 | update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
 | update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
 | emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
@@ -1437,7 +1454,7 @@ operations, and tags 18–21 are maintenance and administration.
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
 | claim_tree_lamports | Tag 20; gated by `protocol_config.fee_authority`; works on paused trees. Moves every lamport above `rent_minimum + fee_balance + working_capital` to `recipient` (must not be program-owned), where working capital is `(NUM_BATCHES + 1) * input_queue_batch_size * nullifier_pda_rent` recomputed at the current rent. Fails with `NoClaimableTreeLamports` when nothing is above the reserve. Recovers lamports released by a rent reduction; `fee_balance` is never claimable. |
-| set_ring_activation | Tag 21; gated by `protocol_config.ring_creation_authority`; called directly against SPP with no ring program in the call chain. Sets `ring_config.activated` and `ring_config.ring_authority_transact_is_enabled` in either direction; deactivating a live ring freezes its users. Never writes `paused`. See [Ring Accounts](#ring-accounts). |
+| set_ring_activation | Tag 21; gated by `protocol_config.ring_creation_authority`; sets `ring_config.activated` and `ring_config.ring_authority_transact_is_enabled`. See [Ring Accounts](#ring-accounts). |
 
 ### `transact`
 
@@ -1493,10 +1510,7 @@ struct InputUtxo {
     /// Index into `input_tree`'s UTXO-tree root cache.
     utxo_tree_root_index: u16,
 }
-// Both indexes are per input on the wire, but SPP spends from one `input_tree`:
-// every input must repeat input 0's pair (`InputTreeRootIndexMismatch`
-// otherwise). The roots they resolve fill tree slot 0; an input's tree slot is
-// a private proof input.
+// Every input repeats input 0's root-index pair; see Checks.
 // Spend authorization is not a per-input field: it comes from the
 // owner-signer run in the accounts array (see UTXO Ownership Check).
 
@@ -1631,7 +1645,7 @@ one proof slot does not remove their individual account metas.
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. Every input repeats `inputs[0]`'s `utxo_tree_root_index` and `nullifier_tree_root_index` (else `InputTreeRootIndexMismatch`), and both reference non-stale roots in `input_tree`. SPP fills tree slot 0 with `input_tree`'s `tree_id` and the two resolved roots, and zeroes slots 1..4.
+5. Every input repeats `inputs[0]`'s `utxo_tree_root_index` and `nullifier_tree_root_index` (else `InputTreeRootIndexMismatch`), and both reference non-stale roots in `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 6. Both tree accounts permit their respective writes: nullifier insertion in `input_tree` and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
@@ -1639,7 +1653,7 @@ one proof slot does not remove their individual account metas.
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
 12. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
-13. `utxo_data` needs no special authorization: the transaction owner signature over `private_tx_hash` covers any output that sets it, and spending an input that holds it uses the normal owner-signed path. SPP enforces no program ownership.
+13. An output with nonzero `data_hash` requires its owner to be authorized by the circuit. Spending an input with `utxo_data` uses the normal owner-signed path; SPP enforces no program ownership.
 
 **Event**
 
@@ -2001,7 +2015,7 @@ the instruction and must use a fresh blinding per output.
 
 **Discriminator:** 13
 
-**Description.** Consolidates the 8 input slots of the fixed 8-in/1-out merge shape -- all of a single owner and a single asset, with dummy slots (distinct in-window nullifiers) padding a shorter merge -- into one output UTXO of the same owner, asset, and total amount. Permitted whenever the owner's registry record has `merging_enabled == true`; any account may run the merge (there is no per-user authority and no signer check beyond paying fees). SPP nullifies the inputs and appends the output to the UTXO tree. The output carries no ciphertext: its blinding is derived deterministically from the owner's nullifier secret and the first input nullifier (`merge_output_blinding`), and the emitted event tags the output with the owner signing pubkey like every confidential default-ring output — see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag). The wallet reconstructs the merged output on sync without decryption.
+**Description.** Consolidates eight input slots of one owner and asset into one output of the same owner, asset, and total amount; dummy slots pad shorter merges. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
 
 **Accounts**
 
@@ -2049,11 +2063,11 @@ struct MergeTransactIxData {
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts`.
-2. Every `utxo_tree_root_index[i]` equals `utxo_tree_root_index[0]` and every `nullifier_tree_root_index[i]` equals `nullifier_tree_root_index[0]` (else `InputTreeRootIndexMismatch`); both reference non-stale roots in `input_tree`. The resolved roots fill tree slot 0 with `input_tree`'s `tree_id`, and slots 1..4 stay zero.
+2. Every `utxo_tree_root_index[i]` equals `utxo_tree_root_index[0]` and every `nullifier_tree_root_index[i]` equals `nullifier_tree_root_index[0]` (else `InputTreeRootIndexMismatch`); both reference non-stale roots in `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
-5. SPP loads `user_record` (registry-owned, valid `UserRecord`) and derives the tagged owner identity `owner_proof_input_hash(user_signing_pk)` by the `eddsa_owner` rail — from `owner_p256` (P256) or from the registry account `owner` (ed25519) — and folds it into the proof's public-input hash as the owner binding, so the proof verifies only for the registered owner. No viewing key is involved: the merge checks no encryption. The emitted [`GeneralEvent`](#general-event) tags the output with the owner signing pubkey — the confidential [default-ring](#default-ring) owner-pubkey tag, the P256 x-coordinate or the full ed25519 key, rail-selected like the owner identity — and the wallet reconstructs the output deterministically on sync (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
-6. Proof verifies against public inputs: a 128-byte vanilla Groth16 proof over the public-input hash (nullifiers, `output_utxo_hash`, the [Tree Slot Chain](#tree-slot-chain), `output_tree_id`, `private_tx_hash`, `external_data_hash`, `allow_dummy_inputs`, the owner identity `owner_proof_input_hash(user_signing_pk)`). There is no `ciphertext_hash`.
+5. SPP loads a registry-owned, valid `UserRecord` and binds the proof to its rail-selected signing identity, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
+6. The 128-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
 
@@ -2448,7 +2462,7 @@ A merge service consolidates a user's fragmented UTXOs into fewer larger ones by
 
 **Identity.** A merge service is a Solana account (Ed25519). It signs its own `merge_transact` transactions as the fee payer, so the Solana runtime verifies the signature; SPP does not check the signer against any registered authority.
 
-**Authorization.** There is no per-user merge authority. The owner enables merging by setting `merging_enabled = true` on their [registry record](#registry). Once enabled, any caller may submit `merge_transact` for that owner; SPP only checks `merging_enabled == true` (else `MergeDisabled`) and binds the merge to the registry record's rail-selected signing identity `owner_proof_input_hash(user_signing_pk)` (`owner_p256`, or the ed25519 `owner` when `eddsa_owner` is set) through the proof. In a policy ring, [`merge_ring`](#merge_ring) applies instead: the ring program authorizes the merge (no registry check) and the output is indexed by the first input's published nullifier rather than the owner pubkey tag.
+**Authorization.** The owner opts into [`merge_transact`](#merge_transact) through the registry's `merging_enabled` flag. Any caller may then submit a proof bound to that record's signing identity. For [`merge_ring`](#merge_ring), the ring program authorizes the merge without a registry check.
 
 **Scope.** The merge service consolidates UTXOs in both default and policy rings if the ring program exposes a merge instruction. In policy rings the ring program authorizes the merge (see [`merge_ring`](#merge_ring)); the registry `merging_enabled` flag applies only to default-ring `merge_transact`.
 UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they are subject to program logic.
@@ -2463,7 +2477,7 @@ UTXOs with `utxo_data` set (non-zero `data_hash`) cannot be merged since they ar
 
 **Sync.** After each `merge_transact`, the emitted event tags the merged output with the owner signing pubkey, so it surfaces in the wallet's default-ring owner-pubkey scan. The wallet recognizes the merge by its first published nullifier (one of its own spent inputs') and reconstructs the output deterministically — no ciphertext is fetched or decrypted (see [First Time Sync Wallet](#first-time-sync-wallet)).
 
-**Threat model.** The merge service cannot change ownership, encrypt incorrectly, or destroy value; it can leak private information out-of-protocol or refuse to process a transaction. There is no encryption to get wrong: the output is derived deterministically from the owner's nullifier secret and the proof binds the owner identity to the registry record's rail-selected signing `owner_proof_input_hash` (see Checks). A merge is value-preserving: it only reconsolidates the user's own same-owner, same-asset UTXOs into one output owned by that same user. Even though any caller may submit `merge_transact` once the owner has enabled merging, a caller cannot build the merge proof without the user's decrypted input UTXOs and `nullifier_secret`, which only the user provides. A caller the user never feeds therefore cannot act on that user's UTXOs, so safety does not depend on an explicit per-service authorization.
+**Threat model.** The [merge proof](#merge-proof---merge-zk-proof) preserves ownership and value and derives the output deterministically. A service can disclose private information or refuse to process transactions. Building a proof requires the decrypted input UTXOs and the owner's `nullifier_secret`; enabling merging alone does not give a caller those inputs.
 
 ## Registry
 
