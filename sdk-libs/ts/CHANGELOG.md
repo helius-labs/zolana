@@ -79,6 +79,9 @@ Breaking
 
 Added
 
+- `buildRegistrationTransaction({ feePayer })` lets an account other than
+  the owner pay the transaction fee; the owner still signs, and on a first
+  registration still funds the record's rent.
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.

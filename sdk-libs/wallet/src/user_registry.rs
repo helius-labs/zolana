@@ -171,6 +171,12 @@ pub fn register_if_absent<R: Rpc>(
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
 ///
+/// `fee_payer` is the transaction fee payer. `None` uses `owner`. A sponsor
+/// covers the fee only: the owner still signs, and a first registration still
+/// funds the record's rent from the owner, so the transaction needs two
+/// signatures. Onboarding an owner with zero SOL needs a separate payer
+/// account on the program.
+///
 /// Returns `Ok(None)` when the on-chain record already matches `address`.
 pub async fn build_registration_transaction<R: AsyncRpc>(
     rpc: &R,
@@ -196,6 +202,12 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
 ///
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
+///
+/// `fee_payer` is the transaction fee payer. `None` uses `owner`. A sponsor
+/// covers the fee only: the owner still signs, and a first registration still
+/// funds the record's rent from the owner, so the transaction needs two
+/// signatures. Onboarding an owner with zero SOL needs a separate payer
+/// account on the program.
 pub fn build_registration_transaction_sync<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
