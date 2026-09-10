@@ -1,10 +1,104 @@
+use serde::{Deserialize, Serialize};
 use zolana_hasher::{
     hash_chain::{
         create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
         create_two_inputs_hash_chain,
     },
-    HasherError,
+    Hasher, HasherError, Poseidon,
 };
+
+/// Shared cross-language known-answer vectors for the 4-input fold.
+///
+/// `test-vectors/hash_chain_4.json` pins the fold formula for every
+/// implementation (Rust here, Go under `prover/server`, TypeScript in
+/// `sdk-libs/ts`). Regenerate it with the ignored printer and commit the
+/// output:
+///
+/// ```bash
+/// cargo test -p zolana-hasher --test hash_chain print_hash_chain_4_vectors -- --ignored --nocapture
+/// ```
+const HASH_CHAIN_4_VECTORS_JSON: &str = include_str!("../../../test-vectors/hash_chain_4.json");
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct HashChain4Vectors {
+    description: String,
+    vectors: Vec<HashChain4Vector>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct HashChain4Vector {
+    name: String,
+    inputs: Vec<String>,
+    output: String,
+}
+
+fn field(value: u32) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[28..].copy_from_slice(&value.to_be_bytes());
+    out
+}
+
+fn fold_hash_chain_4(inputs: &[[u8; 32]]) -> [u8; 32] {
+    let Some((first, rest)) = inputs.split_first() else {
+        return [0u8; 32];
+    };
+    let zero = [0u8; 32];
+    rest.chunks(3).fold(*first, |chain, group| {
+        let g0 = group.first().expect("chunks are non-empty");
+        let g1 = group.get(1).unwrap_or(&zero);
+        let g2 = group.get(2).unwrap_or(&zero);
+        Poseidon::hashv(&[&chain, g0, g1, g2]).unwrap()
+    })
+}
+
+fn hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vector {
+    HashChain4Vector {
+        name: name.to_string(),
+        inputs: inputs.iter().map(hex::encode).collect(),
+        output: hex::encode(fold_hash_chain_4(inputs)),
+    }
+}
+
+fn compute_hash_chain_4_vectors() -> HashChain4Vectors {
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36]
+        .iter()
+        .map(|&len| {
+            let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
+            hash_chain_4_vector(&format!("len_{len}"), &inputs)
+        })
+        .collect();
+    vectors.push(hash_chain_4_vector(
+        "zero_element_in_the_middle",
+        &[field(1), field(0), field(3), field(4), field(5)],
+    ));
+    HashChain4Vectors {
+        description: "Known-answer vectors for hash_chain_4, the 4-input Poseidon fold over \
+                      32-byte big-endian BN254 field elements: L == 0 -> 0, L == 1 -> e[0], \
+                      otherwise h = e[0] and for each group of up to 3 following elements \
+                      h = Poseidon(h, g[0], g[1] or 0, g[2] or 0). A partial trailing group \
+                      is zero-padded; the 4-input permutation is used for every step. The \
+                      len_<L> entries fold e[i] = i + 1; zero_element_in_the_middle shows a \
+                      zero element is positional and distinct from padding. Produced by \
+                      program-libs/hasher/tests/hash_chain.rs print_hash_chain_4_vectors."
+            .to_string(),
+        vectors,
+    }
+}
+
+#[test]
+fn committed_hash_chain_4_vectors_match() {
+    let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
+    assert_eq!(committed, compute_hash_chain_4_vectors());
+}
+
+#[test]
+#[ignore = "regenerates test-vectors/hash_chain_4.json; run with --nocapture and commit the output"]
+fn print_hash_chain_4_vectors() {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&compute_hash_chain_4_vectors()).unwrap()
+    );
+}
 
 /// Tests for `create_hash_chain_from_slice` function:
 /// Functional tests:
