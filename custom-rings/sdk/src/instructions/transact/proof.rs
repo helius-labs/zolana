@@ -185,7 +185,7 @@ impl PendingCustomRingProof {
                 inputs: witness.inputs,
                 outputs: witness.outputs,
                 // SPP folds a zero address slot per input into `private_tx_hash`.
-                address_chain: zolana_hasher::hash_chain::create_hash_chain_from_slice(&vec![
+                address_chain: zolana_hasher::hash_chain::create_hash_chain_4_from_slice(&vec![
                 [0u8; 32];
                 witness.n_in
                     as usize

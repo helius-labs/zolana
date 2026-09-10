@@ -8,7 +8,7 @@ use pinocchio::{
 };
 use solana_address::address;
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Hasher, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_interface::instruction::tag::TRANSACT;
 use zolana_interface::state::tree::read_tree_id;
@@ -105,11 +105,11 @@ pub fn private_tx_hash(
     external_data_hash: &[u8; 32],
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
-    let input_chain =
-        create_hash_chain_from_slice(&[input_hash]).map_err(|_| CompressionError::HashingFailed)?;
-    let output_chain = create_hash_chain_from_slice(&[output_hash])
+    let input_chain = create_hash_chain_4_from_slice(&[input_hash])
         .map_err(|_| CompressionError::HashingFailed)?;
-    let address_chain = create_hash_chain_from_slice(&[address_nullifier])
+    let output_chain = create_hash_chain_4_from_slice(&[output_hash])
+        .map_err(|_| CompressionError::HashingFailed)?;
+    let address_chain = create_hash_chain_4_from_slice(&[address_nullifier])
         .map_err(|_| CompressionError::HashingFailed)?;
     Poseidon::hashv(&[
         &input_chain,

@@ -1,4 +1,4 @@
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, primitives::hash_bytes};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, primitives::hash_bytes};
 use zolana_keypair::hash::{owner_hash, poseidon};
 use zolana_transaction::{
     data::Data,
@@ -105,8 +105,8 @@ pub(crate) fn utxo_hash_nesting(world: &mut TransactionWorld, name: String) {
     assert_eq!(actual, from_helper);
 }
 
-/// `private_tx_hash = Poseidon(HashChain(inputs), HashChain(outputs),
-/// HashChain(addresses), external_data_hash, private_tx_blinding)`. The
+/// `private_tx_hash = Poseidon(hash_chain_4(inputs), hash_chain_4(outputs),
+/// hash_chain_4(addresses), external_data_hash, private_tx_blinding)`. The
 /// blinding is the fifth element and is never published, so an observer cannot
 /// test candidate input commitments against the published hash.
 pub(crate) fn private_tx_hash_is_blinded() {
@@ -127,9 +127,9 @@ pub(crate) fn private_tx_hash_is_blinded() {
     // Address slots are unused here, so the address chain folds the same number
     // of zero elements as there are inputs.
     let expected = poseidon(&[
-        &create_hash_chain_from_slice(&input_hashes).expect("input chain"),
-        &create_hash_chain_from_slice(&output_hashes).expect("output chain"),
-        &create_hash_chain_from_slice(&[[0u8; 32]; 2]).expect("address chain"),
+        &create_hash_chain_4_from_slice(&input_hashes).expect("input chain"),
+        &create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
+        &create_hash_chain_4_from_slice(&[[0u8; 32]; 2]).expect("address chain"),
         &external_data_hash,
         &blinding,
     ])
