@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8113 range is reserved for this program and is collision-free
+/// The 8100..8141 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -43,14 +43,56 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
-    #[error("read access record already exists")]
-    ReadAccessRecordAlreadyExists = 8116,
-    #[error("read access record account is invalid")]
+    #[error("read access entry already exists")]
+    ReadAccessEntryAlreadyExists = 8116,
+    #[error("read access entry account is invalid")]
     InvalidReadAccessRecord = 8117,
     #[error("reader key cannot authorize reads")]
     InvalidReaderKey = 8118,
     #[error("output data must use confidential framing")]
     UnsupportedOutputScheme = 8119,
+    #[error("policy config account is already initialized")]
+    PolicyConfigAlreadyInitialized = 8120,
+    #[error("policy config account is not initialized")]
+    PolicyConfigNotInitialized = 8121,
+    #[error("policy config account is not the canonical policy PDA")]
+    InvalidPolicyConfigPda = 8122,
+    // 8123 retired.
+    #[error("policy member is invalid")]
+    InvalidPolicyMember = 8124,
+    #[error("signer may not mutate entries of the list")]
+    UnauthorizedNamespaceSigner = 8125,
+    #[error("list is unknown")]
+    InvalidListId = 8126,
+    #[error("entry state is unknown")]
+    InvalidEntryState = 8127,
+    // 8128 retired, an empty policy table is valid.
+    #[error("entry mutations must use the default tree")]
+    InvalidPolicyTree = 8129,
+    #[error("entry version overflows")]
+    EntryVersionOverflow = 8130,
+    #[error("entries account is not the canonical namespace PDA")]
+    InvalidNamespacePda = 8131,
+    #[error("entries tree account is not a shielded pool tree")]
+    InvalidEntriesTree = 8132,
+    #[error("policy root index is outside the window the statement admits")]
+    StalePolicyRoot = 8133,
+    #[error("policy sources do not match the lists the compiled table references")]
+    InvalidSource = 8134,
+    #[error("curator policy config account is not a canonical initialized policy config")]
+    InvalidCuratorPolicyConfig = 8135,
+    #[error("curator entries live in a different tree")]
+    CuratorTreeMismatch = 8136,
+    #[error("curator has no source for the list")]
+    CuratorSourceMissing = 8137,
+    #[error("the list is served by a curator's entries, mutate it on the curator ring")]
+    ForeignSource = 8138,
+    #[error("entry content does not fit the list")]
+    InvalidEntryContent = 8139,
+    #[error("policy rules do not decode to a table the circuit enforces")]
+    InvalidPolicyRules = 8140,
+    #[error("policy generation overflows")]
+    PolicyGenerationOverflow = 8141,
 }
 
 impl From<CustomRingError> for ProgramError {

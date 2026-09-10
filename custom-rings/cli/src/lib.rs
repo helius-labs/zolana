@@ -1,6 +1,7 @@
 //! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
 pub mod authority;
+pub mod catalogue;
 pub mod config;
 pub mod deploy;
 pub mod error;
@@ -8,9 +9,12 @@ pub mod file;
 pub mod fund;
 pub mod init;
 pub mod keys;
+pub mod list;
 pub mod localnet;
+pub mod merge;
 pub mod new;
 pub mod pipeline;
+pub mod policy;
 pub mod probe;
 pub mod reader;
 pub mod release;
@@ -19,6 +23,8 @@ pub mod status;
 pub mod step;
 pub mod tool;
 pub mod transact;
+pub mod ui;
+pub mod wizard;
 
 use std::path::{Path, PathBuf};
 
@@ -36,7 +42,10 @@ pub use crate::{
     error::CliError,
     fund::FundError,
     init::InitError,
+    list::MemberArg,
+    policy::ListName,
     ring_rpc::{RingRpcClient, Trust},
+    ui::{line, Ask},
 };
 
 /// What localnet tops the authority up to.
@@ -57,6 +66,9 @@ pub struct Cli {
     /// Cluster for one command instead of the one ring.toml records.
     #[arg(long, global = true, env = "RING_TARGET")]
     pub target: Option<Target>,
+    /// A curator catalogue file or URL instead of the bundled one.
+    #[arg(long, global = true, env = "RING_CATALOGUE")]
+    pub catalogue: Option<String>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -77,14 +89,16 @@ pub enum Command {
     Localnet(LocalnetArgs),
     /// Deploy the released program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
-    /// Create the config with the auditor key and register the ring with SPP.
+    /// Create the config with the auditor key, pin the policy and register the ring with SPP.
     Init(InitArgs),
     /// Deploy, init, check the ring rpc, grant the authority and transact.
-    Pipeline,
+    Pipeline(DeployArgs),
     /// Two ring deposits and one custom-ring transfer, read back from the ring RPC.
     Transact(TransactArgs),
     /// Deposit an amount and send all of it to a shielded address inside the ring.
     Transfer(TransferArgs),
+    /// Consolidate existing notes of one asset into one note.
+    Merge(MergeArgs),
     /// Confirm the ring RPC in `ring.toml` is up and holds the ring's auditor key.
     RpcCheck,
     /// Transfer or renounce the program's upgrade authority.
@@ -93,15 +107,71 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Read and mutate the ring's policy entries.
+    #[command(subcommand)]
+    List(ListCommand),
+    /// Read, check and replace the pinned rule table.
+    #[command(subcommand)]
+    Policy(PolicyCommand),
     /// Print the local auditor key's public key, or create the key file.
     AuditorKey(AuditorKeyArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ListCommand {
+    /// Claim or reactivate the member's entry of the list.
+    Add {
+        #[arg(value_enum)]
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
+    },
+    /// Clear the member's entry, leaving the address claimed.
+    Clear {
+        #[arg(value_enum)]
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
+    },
+    /// Print the member's live entry.
+    Show {
+        #[arg(value_enum)]
+        list_id: ListName,
+        #[command(flatten)]
+        member: MemberArg,
+    },
+    /// Point the list at the ring's own namespace or a curator ring's.
+    SetSource {
+        #[arg(value_enum)]
+        list_id: ListName,
+        /// Curator ring program id or catalogue name.
+        #[arg(long, conflicts_with = "own", required_unless_present = "own")]
+        curator: Option<String>,
+        /// The ring's own entries.
+        #[arg(long)]
+        own: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PolicyCommand {
+    /// The pinned rows, hash, generation, tree and sources.
+    Show,
+    /// Compare ring.toml with the chain, exits non-zero on a difference.
+    Check,
+    /// Replace the pinned table with ring.toml under the upgrade authority.
+    Set {
+        /// Confirms the replacement, proofs built against the old table are refused from now on.
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ReaderCommand {
     /// A base58 Solana key or the 66-hex P-256 key of a passkey.
     Grant { reader: ReaderKey },
-    /// Close the reader's record, the rent returns to the authority.
+    /// Close the reader's entry, the rent returns to the authority.
     Revoke { reader: ReaderKey },
 }
 
@@ -124,6 +194,10 @@ pub enum AuthorityCommand {
     },
     /// Hand the ring config authority to another keypair, both keys sign.
     TransferConfig { new_authority_keypair: PathBuf },
+    /// Stop every deposit, transfer and merge of the ring.
+    Pause,
+    /// Open the ring again after a pause.
+    Resume,
     /// Make the program immutable, irreversible.
     Renounce {
         /// Confirms the irreversible step.
@@ -137,8 +211,8 @@ pub enum AuthorityCommand {
 
 #[derive(Debug, Args)]
 pub struct NewArgs {
-    /// Ring name in kebab-case, also the directory name.
-    pub name: String,
+    /// Ring name in kebab-case, also the directory name, asked when absent.
+    pub name: Option<String>,
     /// Parent directory the ring is created in.
     #[arg(long, default_value = ".")]
     pub dest: PathBuf,
@@ -148,6 +222,9 @@ pub struct NewArgs {
     /// Recorded in ring.toml, `~` stays literal for other machines.
     #[arg(long, default_value = new::DEFAULT_AUTHORITY_KEYPAIR)]
     pub authority_keypair: String,
+    /// A `ring.toml` or any toml file with a `[policy]` table, replaces the policy questions.
+    #[arg(long)]
+    pub policy_from: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -206,6 +283,26 @@ pub struct TransferArgs {
     pub amount: u64,
 }
 
+#[derive(Debug, Args)]
+pub struct MergeArgs {
+    /// Mint to merge; SOL when omitted.
+    #[arg(long)]
+    pub mint: Option<Address>,
+    /// Maximum number of notes to merge, from 2 through 8.
+    #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
+    pub count: usize,
+}
+
+fn parse_merge_count(value: &str) -> Result<usize, String> {
+    let count = value
+        .parse::<usize>()
+        .map_err(|_| "count must be an integer from 2 through 8".to_owned())?;
+    (2..=8)
+        .contains(&count)
+        .then_some(count)
+        .ok_or_else(|| "count must be from 2 through 8".to_owned())
+}
+
 // The pipeline runs each step with the answers its command defaults to.
 
 impl Default for DeployArgs {
@@ -241,6 +338,16 @@ pub struct Context {
     pub config: RingConfig,
     pub ring: CustomRing,
     pub rpc: SolanaRpc,
+    pub ask: Box<dyn Ask>,
+    /// The `--catalogue` override, `None` for the bundled file.
+    pub catalogue: Option<String>,
+}
+
+pub struct Session {
+    pub config_path: PathBuf,
+    pub config: RingConfig,
+    pub ask: Box<dyn Ask>,
+    pub catalogue: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -256,21 +363,31 @@ pub enum ContextError {
     Client(Box<ClientError>),
 }
 
-impl Context {
-    pub fn load(config_path: PathBuf, mut config: RingConfig) -> Self {
+impl Session {
+    pub fn load(self) -> Context {
+        let Self {
+            config_path,
+            mut config,
+            ask,
+            catalogue,
+        } = self;
         let project_root = ProjectRoot::for_config(&config_path);
         config.resolve_keypair_paths(&project_root);
         let ring = CustomRing::new(config.program_id);
         let rpc = SolanaRpc::new(config.urls().rpc.clone());
-        Self {
+        Context {
             config_path,
             project_root,
             config,
             ring,
             rpc,
+            ask,
+            catalogue,
         }
     }
+}
 
+impl Context {
     /// For a step that only pays fees and small rent.
     pub fn funded_authority(&mut self) -> Result<Keypair, ContextError> {
         self.authority_funded_for(fund::MIN_AUTHORITY_BALANCE)
@@ -298,7 +415,9 @@ impl Context {
                     )?;
                 }
             }
-            Target::Devnet => fund::wait_for_balance(&self.rpc, authority.pubkey(), required)?,
+            Target::Devnet => {
+                fund::wait_for_balance(&self.rpc, self.ask.as_mut(), authority.pubkey(), required)?
+            }
         }
         Ok(())
     }
@@ -366,15 +485,12 @@ pub fn parse_and_run() -> Result<(), CliError> {
     run(Cli::parse())
 }
 
-/// The aligned label of every status line.
-pub(crate) fn line(label: &str, value: impl std::fmt::Display) {
-    println!("{label:<12}{value}");
-}
-
 /// `New` runs before any ring.toml exists, `Target` and `Url` before any RPC client.
 pub fn run(cli: Cli) -> Result<(), CliError> {
+    let silent = matches!(&cli.command, Command::New(args) if args.silent);
+    let mut ask = ui::ask_for(silent);
     if let Command::New(args) = cli.command {
-        return Ok(new::run(args)?);
+        return Ok(new::run(args, ask.as_mut(), cli.catalogue.as_deref())?);
     }
     let mut config = RingConfig::load(&cli.config)?;
     match cli.command {
@@ -413,7 +529,13 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         );
         return Ok(());
     }
-    let mut ctx = Context::load(cli.config, config);
+    let mut ctx = Session {
+        config_path: cli.config,
+        config,
+        ask,
+        catalogue: cli.catalogue,
+    }
+    .load();
     match cli.command {
         Command::Status => status::run(&ctx),
         Command::Deploy(args) => {
@@ -421,12 +543,15 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
             deploy::run(&mut ctx, args)?;
         }
         Command::Init(args) => init::run(&mut ctx, args)?,
-        Command::Pipeline => pipeline::run(&mut ctx)?,
+        Command::Pipeline(args) => pipeline::run(&mut ctx, args)?,
         Command::Transact(args) => transact::run(&mut ctx, args)?,
         Command::Transfer(args) => transact::run_transfer(&mut ctx, args)?,
+        Command::Merge(args) => merge::run(&mut ctx, args)?,
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
-        Command::Authority(command) => authority::run(&ctx, command)?,
+        Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
+        Command::List(command) => list::run(&mut ctx, command)?,
+        Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
         // Handled before the context loads.
         Command::New(_)
@@ -440,7 +565,74 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
+    use clap::{CommandFactory, Parser, ValueEnum};
+    use zolana_ring_policy::{ListId, Writer};
+
     use super::*;
+
+    #[test]
+    fn the_list_arg_names_every_authority_written_list() {
+        let arms: Vec<ListId> = ListName::value_variants()
+            .iter()
+            .map(|arm| arm.id())
+            .collect();
+        let authority_written: Vec<ListId> = ListId::ALL
+            .into_iter()
+            .filter(|list_id| matches!(list_id.writer(), Writer::Authority))
+            .collect();
+        assert_eq!(arms, authority_written);
+        for name in ListName::value_variants() {
+            assert_eq!(
+                ListName::from_str(name.as_str(), false).expect("parses"),
+                *name
+            );
+        }
+    }
+
+    #[test]
+    fn the_command_tree_is_well_formed() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn merge_takes_an_optional_mint_and_a_bounded_count() {
+        let mint = Address::new_from_array([7; 32]);
+        let Command::Merge(args) = Cli::try_parse_from([
+            "zolana-ring",
+            "merge",
+            "--mint",
+            &mint.to_string(),
+            "--count",
+            "4",
+        ])
+        .expect("merge parses")
+        .command
+        else {
+            panic!("merge");
+        };
+        assert_eq!(args.mint, Some(mint));
+        assert_eq!(args.count, 4);
+        assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "9"]).is_err());
+    }
+
+    #[test]
+    fn the_pipeline_init_arguments_are_the_command_defaults() {
+        let pipeline = InitArgs::default();
+        let Command::Init(command) = Cli::try_parse_from(["zolana-ring", "init"])
+            .expect("parses")
+            .command
+        else {
+            panic!("init");
+        };
+        assert_eq!(command.auditor_pubkey_file, pipeline.auditor_pubkey_file);
+        assert_eq!(command.trust_ring_rpc, pipeline.trust_ring_rpc);
+        assert_eq!(command.local_auditor, pipeline.local_auditor);
+        assert_eq!(
+            ProjectRoot::for_config(Path::new("ring/ring.toml"))
+                .resolve(&pipeline.auditor_pubkey_file),
+            Path::new("ring/keys/auditor.key.pub")
+        );
+    }
 
     #[test]
     fn explicit_config_roots_local_key_output() {
@@ -473,6 +665,7 @@ ring_rpc = "r"
         run(Cli {
             config: config_path,
             target: None,
+            catalogue: None,
             command: Command::AuditorKey(AuditorKeyArgs {
                 key_file: PathBuf::from(AUDITOR_KEY_FILE),
                 create: true,

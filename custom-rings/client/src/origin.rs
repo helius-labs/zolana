@@ -79,7 +79,7 @@ fn ring_instructions_in(
     groups: &[InstructionGroup],
     ring: Address,
 ) -> Result<Vec<&ParsedInstruction>, OriginError> {
-    let pool = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    let answers = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
     let mut found = Vec::new();
     for group in groups {
         let mut callers = vec![group.outer.program_id];
@@ -90,7 +90,7 @@ fn ring_instructions_in(
                 .and_then(|height| height.checked_sub(2))
                 .filter(|depth| *depth < callers.len())
                 .ok_or(OriginError::InvalidStackHeight(height))?;
-            if inner.program_id == pool && callers[parent_depth] == ring {
+            if inner.program_id == answers && callers[parent_depth] == ring {
                 found.push(inner);
             }
             callers.truncate(parent_depth + 1);
@@ -112,7 +112,7 @@ fn ring_withdrawals_of(
         let Some(transfers) = interface_transfers(instruction)? else {
             continue;
         };
-        let total: usize = transfers.iter().map(|t| settlement_width(*t)).sum();
+        let total: usize = transfers.iter().map(|t| t.settlement_account_count()).sum();
         let start = instruction
             .accounts
             .len()
@@ -120,7 +120,7 @@ fn ring_withdrawals_of(
             .ok_or(OriginError::SettlementAccounts)?;
         let mut settlement = &instruction.accounts[start..];
         for transfer in transfers {
-            let (group, rest) = settlement.split_at(settlement_width(transfer));
+            let (group, rest) = settlement.split_at(transfer.settlement_account_count());
             settlement = rest;
             match transfer {
                 InterfaceTransfer::SolWithdrawal { amount } => {
@@ -154,22 +154,12 @@ fn ring_withdrawals_of(
 fn interface_transfers(
     instruction: &ParsedInstruction,
 ) -> Result<Option<Vec<InterfaceTransfer>>, OriginError> {
-    let Some((&tag::RING_TRANSACT, payload)) = instruction.data.split_first() else {
+    let Some((&tag::RING_TRANSACT, content)) = instruction.data.split_first() else {
         return Ok(None);
     };
-    let data = TransactIxData::deserialize(payload)
+    let data = TransactIxData::deserialize(content)
         .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
     Ok(Some(data.interface_transfers))
-}
-
-/// Settlement accounts appended per interface transfer, mirroring
-/// `append_interface_transfer_accounts`.
-const fn settlement_width(transfer: InterfaceTransfer) -> usize {
-    if transfer.is_spl() {
-        5
-    } else {
-        2
-    }
 }
 
 #[cfg(feature = "solana-rpc")]

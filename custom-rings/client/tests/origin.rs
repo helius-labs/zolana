@@ -132,12 +132,12 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
 /// transaction and no RPC.
 #[test]
 fn withdrawals_read_from_instruction_groups_without_a_transaction() {
-    let mut pool = instruction(POOL, 2);
-    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
-    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let mut answers = instruction(POOL, 2);
+    answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    answers.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
         outer: instruction(RING, 1),
-        inner: vec![pool],
+        inner: vec![answers],
     }];
 
     assert_eq!(
@@ -152,12 +152,12 @@ fn withdrawals_read_from_instruction_groups_without_a_transaction() {
 
 #[test]
 fn withdrawals_of_a_ring_that_did_not_sign_are_not_reported() {
-    let mut pool = instruction(POOL, 2);
-    pool.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
-    pool.accounts = vec![Address::default(), SOL, RECIPIENT];
+    let mut answers = instruction(POOL, 2);
+    answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
+    answers.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
         outer: instruction(OTHER, 1),
-        inner: vec![pool],
+        inner: vec![answers],
     }];
 
     assert!(ring_withdrawals_in(&groups, RING).expect("walk").is_empty());

@@ -25,15 +25,20 @@ groth16-solana = { workspace = true, features = ["bsb22"] }
 pinocchio = { workspace = true, features = ["cpi"] }
 pinocchio-system = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
+solana-msg = { workspace = true, default-features = false }
 solana-curve25519 = { workspace = true }
 solana-program-error = { workspace = true }
 thiserror = { workspace = true }
 wincode = { workspace = true }
 zolana-account-checks = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-ring-policy = { workspace = true }
+zolana-tree = { workspace = true }
 
 [dev-dependencies]
+zolana-tree = { workspace = true }
 curve25519-dalek = "4.1"
+zolana-ring-policy = { workspace = true }
 ed25519-dalek = { workspace = true }
 hex = { workspace = true }
 mollusk-svm = { workspace = true }
@@ -49,3 +54,9 @@ check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
 ]
+
+[[test]]
+name = "policy"
+
+[[test]]
+name = "policy_sources"

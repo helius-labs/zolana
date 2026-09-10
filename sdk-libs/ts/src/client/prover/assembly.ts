@@ -7,6 +7,7 @@ import type {
   TransactProof,
 } from "../../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
+import { selectSppShape } from "../../interface/shape.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   inputTreeSlots,
@@ -39,9 +40,11 @@ import {
   rightHashChain,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
+import { RING_INPUT_SLOTS, RING_OUTPUT_SLOTS } from "./types.js";
 import type {
   AssembledTransfer,
   CircuitUtxo,
+  CustomRingOpening,
   Field,
   InputRootIndexes,
   ProverInputs,
@@ -154,19 +157,19 @@ function assembleUnchecked(
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
   const treeSlots = inputTreeSlots(inputTree.slot);
   const outputTreeIdField = bytesToBigInt(treeIdField(outputTreeId));
-  const publicInputHash = hashChain([
-    hashChain(nullifiers.map(bytesToBigInt)),
-    hashChain(outputHashes),
-    bytesToBigInt(treeSlotsHashChain(treeSlots)),
-    outputTreeIdField,
+  const publicInputHash = transferPublicInputHash({
+    nullifiers: nullifiers.map(bytesToBigInt),
+    outputHashes,
+    treeSlots,
+    outputTreeId,
     privateTxHash,
     externalDataHash,
-    ...publicSlots,
+    publicSlots,
     ringProgramId,
-    rightHashChain(signerPublicKeyHashes),
+    signerPublicKeyHashes,
     allowDummyInputs,
-    hashChain(outputOwnerFields),
-  ]);
+    publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
+  });
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
     outputs: Object.freeze(transferOutputs),
@@ -260,6 +263,7 @@ function assembleUnchecked(
       ),
     ),
   });
+  // Slot 0 is always a real spend, its roots are the pair a ring statement binds.
   return Object.freeze({
     instructionData,
     proverInputs,
@@ -268,6 +272,12 @@ function assembleUnchecked(
     outputHashes: Object.freeze(outputHashes.map((hash) => bigintToBytes(hash) as Bytes32)),
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
     rootIndexes,
+    roots: Object.freeze({
+      stateRoot: inputTree.slot.utxoRoot,
+      stateRootIndex: inputTree.utxoRootIndex,
+      nullifierRoot: inputTree.slot.nullifierRoot,
+      nullifierRootIndex: inputTree.nullifierRootIndex,
+    }),
     withProof(proof: TransactProof): TransactInstructionData {
       return Object.freeze({ ...instructionData, proof: copyProof(proof) });
     },
@@ -438,6 +448,37 @@ export function assembleSlots(
   });
 }
 
+/** Mirrors Rust `PublicInputs::hash`, the signer chain folds from the right. */
+export function transferPublicInputHash(
+  input: Readonly<{
+    nullifiers: readonly bigint[];
+    outputHashes: readonly bigint[];
+    treeSlots: readonly TreeSlot[];
+    outputTreeId: TreeId;
+    privateTxHash: bigint;
+    externalDataHash: bigint;
+    publicSlots: readonly bigint[];
+    ringProgramId: bigint;
+    signerPublicKeyHashes: readonly bigint[];
+    allowDummyInputs: bigint;
+    publishedOutputOwnerPublicKeyHashes: readonly bigint[];
+  }>,
+): bigint {
+  return hashChain([
+    hashChain(input.nullifiers),
+    hashChain(input.outputHashes),
+    bytesToBigInt(treeSlotsHashChain(input.treeSlots)),
+    bytesToBigInt(treeIdField(input.outputTreeId)),
+    input.privateTxHash,
+    input.externalDataHash,
+    ...input.publicSlots,
+    input.ringProgramId,
+    rightHashChain(input.signerPublicKeyHashes),
+    input.allowDummyInputs,
+    hashChain(input.publishedOutputOwnerPublicKeyHashes),
+  ]);
+}
+
 function checkNullifierRoot(
   inputTree: InputTree,
   proof: NonInclusionProof,
@@ -471,7 +512,6 @@ export function createRealInput(
   ownerPublicKeyHash: bigint,
 ): TransferInput {
   return Object.freeze({
-    utxo: input,
     circuit: inputCircuitUtxo(input),
     isDummy: asField(0n),
     statePathElements: Object.freeze(
@@ -497,7 +537,6 @@ export function createDummyTransferInput(
   nullifier = input.nullifier(),
 ): TransferInput {
   return Object.freeze({
-    utxo: input,
     circuit: inputCircuitUtxo(input, true),
     isDummy: asField(1n),
     statePathElements: Object.freeze(Array.from({ length: STATE_TREE_HEIGHT }, () => asField(0n))),
@@ -528,7 +567,6 @@ export function createOutput(output: ProofOutputUtxo, outputTreeId: TreeId): Tra
       )
     : bytesToBigInt(solanaOwnerIdentity(output.ownerTag ?? new Uint8Array(32)));
   return Object.freeze({
-    utxo: output,
     circuit: outputCircuitUtxo(output),
     isDummy: asField(output.isDummy() ? 1n : 0n),
     hash: asField(bytesField(output.hash(outputTreeId), "output hash")),
@@ -589,6 +627,119 @@ function outputCircuitUtxo(output: ProofOutputUtxo): CircuitUtxo {
     ringProgramId: asField(
       dummy ? 0n : output.ringProgramId ? hashBytesBigInt(addressBytes(output.ringProgramId)) : 0n,
     ),
+  });
+}
+
+export interface RingOpenings {
+  readonly nIn: number;
+  readonly nOut: number;
+  readonly inputs: readonly CustomRingOpening[];
+  readonly outputs: readonly CustomRingOpening[];
+}
+
+/**
+ * Mirrors Rust `CustomRingWitnessInput`, a dummy slot is the DUMMY-domain
+ * all-zero opening and a slot past the shape stays fully zero.
+ */
+export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
+  if (!(proofInputs instanceof SppProofInputs)) {
+    throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  }
+  if (
+    proofInputs.inputUtxos.length > RING_INPUT_SLOTS ||
+    proofInputs.outputs.length > RING_OUTPUT_SLOTS
+  ) {
+    throw new ClientError("CLIENT_PROVER_INPUT");
+  }
+  const inputTreeId = treeIdField(proofInputs.inputTreeId());
+  const outputTreeId = treeIdField(proofInputs.outputTreeId);
+  const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
+    const input = proofInputs.inputUtxos[index];
+    return input === undefined ? zeroOpening(0) : inputOpening(input, inputTreeId);
+  });
+  const outputs = Array.from({ length: RING_OUTPUT_SLOTS }, (_, index) => {
+    const output = proofInputs.outputs[index];
+    return output === undefined ? zeroOpening(0) : outputOpening(output, outputTreeId);
+  });
+  return Object.freeze({
+    nIn: proofInputs.inputUtxos.length,
+    nOut: proofInputs.outputs.length,
+    inputs: Object.freeze(inputs),
+    outputs: Object.freeze(outputs),
+  });
+}
+
+function inputOpening(input: ProofInputUtxo, treeId: Bytes32): CustomRingOpening {
+  if (input.isDummy()) return zeroOpening(DUMMY_DOMAIN);
+  const utxo = inputCircuitUtxo(input);
+  return Object.freeze({
+    domain: openingField(BigInt(UTXO_DOMAIN)),
+    treeId,
+    ownerPkHash: input.utxo.owner.ownerProofInputHash(),
+    nullifierPk: input.nullifierKey.publicKey(),
+    asset: openingField(utxo.asset),
+    amount: openingField(utxo.amount),
+    blinding: openingField(utxo.blinding),
+    dataHash: openingField(utxo.dataHash),
+    ringDataHash: openingField(utxo.ringDataHash),
+    ringProgramId: openingField(utxo.ringProgramId),
+  });
+}
+
+/** Rust keys a dummy output on its absent owner address, never on the owner tag. */
+function outputOpening(output: ProofOutputUtxo, treeId: Bytes32): CustomRingOpening {
+  const owner = output.ownerAddress;
+  if (owner === undefined) return zeroOpening(DUMMY_DOMAIN);
+  const utxo = outputCircuitUtxo(output);
+  return Object.freeze({
+    domain: openingField(BigInt(UTXO_DOMAIN)),
+    treeId,
+    ownerPkHash: owner.signingPublicKey.ownerProofInputHash(),
+    nullifierPk: owner.nullifierPublicKey,
+    asset: openingField(utxo.asset),
+    amount: openingField(utxo.amount),
+    blinding: openingField(utxo.blinding),
+    dataHash: openingField(utxo.dataHash),
+    ringDataHash: openingField(utxo.ringDataHash),
+    ringProgramId: openingField(utxo.ringProgramId),
+  });
+}
+
+function zeroOpening(domain: number): CustomRingOpening {
+  return Object.freeze({
+    domain: openingField(BigInt(domain)),
+    treeId: openingField(0n),
+    ownerPkHash: openingField(0n),
+    nullifierPk: openingField(0n),
+    asset: openingField(0n),
+    amount: openingField(0n),
+    blinding: openingField(0n),
+    dataHash: openingField(0n),
+    ringDataHash: openingField(0n),
+    ringProgramId: openingField(0n),
+  });
+}
+
+function openingField(value: bigint): Bytes32 {
+  return bigintToBytes(value) as Bytes32;
+}
+
+/** Refuses a shape or a path length the prover does not take. */
+export function checkedProverInputs(inputs: TransferInputs): ProverInputs {
+  try {
+    selectSppShape(inputs.inputs.length, inputs.outputs.length);
+  } catch {
+    throw new ClientError("CLIENT_PROVER_INPUT");
+  }
+  const malformed = inputs.inputs.some(
+    (input) =>
+      input.statePathElements.length !== STATE_TREE_HEIGHT ||
+      input.nullifierLowPathElements.length !== NULLIFIER_TREE_HEIGHT,
+  );
+  if (malformed) throw new ClientError("CLIENT_PROVER_INPUT");
+  return Object.freeze({
+    circuit: inputs.ringProgramId === 0n ? "transfer" : "transferRing",
+    payload: inputs,
   });
 }
 

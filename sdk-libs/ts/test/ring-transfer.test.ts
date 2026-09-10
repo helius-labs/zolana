@@ -1,13 +1,35 @@
 import { p256 } from "@noble/curves/nist.js";
-import { address, getAddressDecoder, getAddressEncoder, type Address } from "@solana/kit";
+import {
+  ADDRESS_LOOKUP_TABLE_PROGRAM_ADDRESS,
+  getAddressLookupTableEncoder,
+  getExtendLookupTableInstructionDataDecoder,
+} from "@solana-program/address-lookup-table";
+import {
+  address,
+  getAddressDecoder,
+  getAddressEncoder,
+  getBase64Decoder,
+  getCompiledTransactionMessageDecoder,
+  getProgramDerivedAddress,
+  type Address,
+} from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
 
 import { treeAddress } from "../src/interface/pda/index.js";
-import { InstructionTag } from "../src/interface/program.js";
-import type { Bytes32, Signature } from "../src/interface/types.js";
+import { InstructionTag, SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
+import { StateDiscriminator } from "../src/interface/state.js";
+import type {
+  Bytes16,
+  Bytes32,
+  Bytes33,
+  Bytes64,
+  Signature,
+  TransactInstructionData,
+} from "../src/interface/types.js";
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
 import {
   AUDIT_ENC_INFO,
+  auditPublicInputHash,
   auditSharedSecret,
   auditorViewTag,
   parseAuditorMessage,
@@ -23,31 +45,69 @@ import {
   auditorMessage,
   recoverTransactionViewingKey,
 } from "../src/ring/audit.js";
-import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
-import { StateDiscriminator } from "../src/interface/state.js";
-import { assemble, ownerSignerAddresses, signerIdentity } from "../src/client/prover/assembly.js";
-import { ringAuditReader, ringTransferClient, transactionsPage } from "./helpers/clients.js";
-import type { SpendProof } from "../src/client/rpc.js";
-import { hashBytesBigInt } from "../src/client/internal.js";
 import {
-  frameDummyOutputs,
+  assemble,
+  ownerSignerAddresses,
+  ringOpenings,
+  signerIdentity,
+} from "../src/client/prover/assembly.js";
+import type {
+  CustomRingBaseProofRequest,
+  CustomRingPolicyProofRequest,
+} from "../src/client/prover/types.js";
+import {
+  ringAuditReader,
+  ringTransferClient,
+  solanaRpcReads,
+  transactionsPage,
+} from "./helpers/clients.js";
+import type { SpendProof } from "../src/client/rpc.js";
+import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
+import { hashBytes } from "../src/hasher/index.js";
+import { ringLookupTableAddresses } from "../src/ring/instructions.js";
+import {
+  buildRingLookupTableTransaction,
+  fetchRingLookupTable,
+  type RingLookupTable,
+} from "../src/ring/lookup-table.js";
+import {
   checkRingMembership,
+  frameDummyOutputs,
   proveCustomRingTransfer,
+  ringAddressChain,
+  type CustomRingTransferParams,
 } from "../src/ring/transfer.js";
 import {
+  ListId,
+  buildRuleTable,
+  encodeRuleTable,
+  memberOfTag,
+  ringNamespaceOwnerHash,
+  type Rule,
+} from "../src/ring/policy.js";
+import { ringPolicyNamespaceAddress } from "../src/ring/config.js";
+import { ownSources, ownedAccount, ringPolicyConfigData } from "./helpers/ring-accounts.js";
+import { entryProofReads, lineage } from "./helpers/ring-entries.js";
+import { treeAccount } from "./helpers/tree-account.js";
+import {
   ConfidentialTransfer,
+  SppProofInputs,
+  privateTxHash,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
-  type SppProofInputs,
 } from "../src/transaction/instructions/transact.js";
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
-import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
+import { ProofInputUtxo, Utxo, createProofOutput } from "../src/transaction/utxo.js";
 import { AssetRegistry, SOL_MINT } from "../src/transaction/asset.js";
-import { KeypairWalletAuthority } from "../src/transaction/wallet/authority.js";
+import {
+  KeypairWalletAuthority,
+  type WalletAuthority,
+} from "../src/transaction/wallet/authority.js";
 
 const RING = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 /** Every input proves from tree 0, the id the builders default to; the ring is not a tree. */
 const TREE = treeAddress(0);
+const ACTIVE_TREE = TREE;
 
 function scalar(value: number): Bytes32 {
   const bytes = new Uint8Array(32);
@@ -155,6 +215,88 @@ function indexed(proofInputs: SppProofInputs): IndexedShieldedTransaction {
     messages: external.messages,
     nullifiers: proofInputs.inputUtxos.map((input) => input.nullifier()),
     proofless: false,
+  };
+}
+
+function spendSession(authority: WalletAuthority): CustomRingTransferParams["session"] {
+  return {
+    encryptCustomRingTransfer: (request) =>
+      authority.withSpendSession((session) => session.encryptCustomRingTransfer(request)),
+  };
+}
+
+/** The ring's config and, for a policy ring, a policy config over `ACTIVE_TREE` pinning `rules` sourced from the ring's own namespace. */
+async function ringAccounts(auditor: ViewingKey, hasPolicy: boolean, rules: readonly Rule[] = []) {
+  const encoder = new TextEncoder();
+  const pda = (seed: string) =>
+    getProgramDerivedAddress({ programAddress: RING, seeds: [encoder.encode(seed)] });
+  const [configAddress, configBump] = await pda("config");
+  const [policyAddress, policyBump] = await pda("policy");
+  const table = buildRuleTable({ rules });
+  const sources = ownSources(table, await ringPolicyNamespaceAddress(RING));
+  const read: Address[] = [];
+  const getAccount = async (account: Address) => {
+    read.push(account);
+    if (account === ACTIVE_TREE) {
+      return ownedAccount(
+        SHIELDED_POOL_PROGRAM_ID,
+        treeAccount({ stateCursor: 7, written: 8, nullifierCursor: 9n }),
+      );
+    }
+    if (account === configAddress) {
+      return {
+        owner: RING,
+        lamports: 1n,
+        data: Uint8Array.from([
+          1,
+          ...new Uint8Array(32),
+          ...auditor.publicKey().toBytes(),
+          configBump,
+          hasPolicy ? 1 : 0,
+        ]),
+      };
+    }
+    if (hasPolicy && account === policyAddress) {
+      return {
+        owner: RING,
+        lamports: 1n,
+        data: ringPolicyConfigData({
+          table,
+          sources,
+          entriesTree: ACTIVE_TREE,
+          bump: policyBump,
+          generation: 0,
+        }),
+      };
+    }
+    return undefined;
+  };
+  return { getAccount, read, policyAddress, policy: encodeRuleTable(table) };
+}
+
+const SPP_ROOTS = {
+  stateRoot: scalar(92),
+  stateRootIndex: 4,
+  nullifierRoot: scalar(93),
+  nullifierRootIndex: 5,
+};
+
+function ringInstructionData(txHash: Bytes32): TransactInstructionData {
+  return {
+    expiryUnixTs: 0n,
+    privateTxHash: txHash,
+    circuit: { kind: "ringEddsa", inputs: 2, outputs: 3, publicAssetSlots: 3 },
+    txViewingPk: new Uint8Array(33) as Bytes33,
+    salt: new Uint8Array(16) as Bytes16,
+    proof: {
+      a: new Uint8Array(32) as Bytes32,
+      b: new Uint8Array(64) as Bytes64,
+      c: new Uint8Array(32) as Bytes32,
+    },
+    inputs: [],
+    interfaceTransfers: [],
+    outputs: [],
+    messages: [],
   };
 }
 
@@ -392,6 +534,100 @@ describe("ring witness", () => {
       hashBytesBigInt(new Uint8Array(getAddressEncoder().encode(RING))),
     );
     expect(assembled.instructionData.circuit.kind).toBe("ringEddsa");
+    // The first input's roots and indices, the pair a ring statement binds.
+    expect(assembled.roots).toEqual({
+      stateRoot: scalar(3),
+      stateRootIndex: 4,
+      nullifierRoot: scalar(6),
+      nullifierRootIndex: 7,
+    });
+  });
+});
+
+describe("ring openings", () => {
+  const zeroOpening = (domain: number) => ({
+    domain: scalar(domain),
+    treeId: scalar(0),
+    ownerPkHash: scalar(0),
+    nullifierPk: scalar(0),
+    asset: scalar(0),
+    amount: scalar(0),
+    blinding: scalar(0),
+    dataHash: scalar(0),
+    ringDataHash: scalar(0),
+    ringProgramId: scalar(0),
+  });
+
+  it("opens every slot like Rust `CustomRingWitnessInput`", async () => {
+    // Change 5, recipient 4, other 1 fill the (2, 3) shape with one dummy input.
+    const { proofInputs, recipient } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    const openings = ringOpenings(proofInputs);
+    expect(openings.nIn).toBe(2);
+    expect(openings.nOut).toBe(3);
+
+    const spend = proofInputs.inputUtxos[0];
+    if (!spend) throw new Error("input");
+    expect(openings.inputs[0]).toEqual({
+      domain: scalar(3),
+      treeId: scalar(0),
+      ownerPkHash: spend.utxo.owner.ownerProofInputHash(),
+      nullifierPk: spend.nullifierKey.publicKey(),
+      asset: hashBytes(new Uint8Array(getAddressEncoder().encode(SOL_MINT))),
+      amount: scalar(10),
+      blinding: scalar(6),
+      dataHash: scalar(0),
+      ringDataHash: scalar(0),
+      ringProgramId: hashBytes(new Uint8Array(getAddressEncoder().encode(RING))),
+    });
+    // A dummy slot is the DUMMY-domain all-zero opening, its blinding included.
+    expect(openings.inputs[1]).toEqual(zeroOpening(1));
+    expect(openings.inputs.slice(2)).toEqual([zeroOpening(0), zeroOpening(0), zeroOpening(0)]);
+
+    const change = openings.outputs[0];
+    const paid = openings.outputs[1];
+    if (!change || !paid) throw new Error("outputs");
+    expect(change.domain).toEqual(scalar(3));
+    expect(change.amount).toEqual(scalar(5));
+    expect(paid.amount).toEqual(scalar(4));
+    expect(paid.ownerPkHash).toEqual(recipient.address.signingPublicKey.ownerProofInputHash());
+    expect(paid.nullifierPk).toEqual(recipient.address.nullifierPublicKey);
+    expect(openings.outputs[3]).toEqual(zeroOpening(0));
+  });
+
+  it("opens an owner-tagged slot without an address as a dummy, like Rust", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    const outputs = [...proofInputs.outputs];
+    outputs[2] = createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: scalar(9),
+      ownerTag: scalar(7),
+    });
+    const swapped = new SppProofInputs({
+      payer: proofInputs.payer,
+      inputUtxos: proofInputs.inputUtxos,
+      outputs,
+      externalData: proofInputs.externalData,
+      blindingSeed: proofInputs.blindingSeed,
+      outputTreeId: proofInputs.outputTreeId,
+    });
+    // Never the `solanaOwnerIdentity(ownerTag)` fallback the SPP owner field publishes.
+    expect(ringOpenings(swapped).outputs[2]).toEqual(zeroOpening(1));
+  });
+
+  it("refuses a transfer wider than the ring slots", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n, 1n, 1n]);
+    expect(proofInputs.outputs).toHaveLength(8);
+    expect(() => ringOpenings(proofInputs)).toThrow("CLIENT_PROVER_INPUT");
+  });
+
+  it("derives the namespace owner hash the Go policy fixture pins", () => {
+    const namespacePda = getAddressDecoder().decode(new Uint8Array(32).fill(0x11));
+    expect(ringNamespaceOwnerHash(namespacePda)).toEqual(
+      Uint8Array.from(
+        Buffer.from("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196", "hex"),
+      ),
+    );
   });
 
   it("assembles a foreign fee payer with the owner as an appended signer", async () => {
@@ -430,12 +666,7 @@ describe("ring witness", () => {
         client,
         ringProgramId: RING,
         prepared: {} as PreparedTransfer,
-        session: {
-          encryptCustomRingTransfer: (request) =>
-            actor(3).authority.withSpendSession((session) =>
-              session.encryptCustomRingTransfer(request),
-            ),
-        },
+        session: spendSession(actor(3).authority),
         assets: new AssetRegistry(),
         tree: actor(8).address.solanaAddress(),
       }),
@@ -668,5 +899,412 @@ describe("ring audit", () => {
       ciphertext,
     });
     expect(recovered.publicKey().toBytes()).toEqual(viewingKey.publicKey().toBytes());
+  });
+});
+
+describe("ring proof folded fields", () => {
+  function assertFoldedFields(proofInputs: SppProofInputs, nIn: number): void {
+    const externalDataHash = proofInputs.externalData.hash();
+    const addressChain = ringAddressChain(nIn);
+    expect(addressChain).toEqual(bigintToBytes(hashChain(Array.from({ length: nIn }, () => 0n))));
+
+    const inputHashes = proofInputs.inputUtxos.map((input) =>
+      input.isDummy() ? (new Uint8Array(32) as Bytes32) : input.hash(),
+    );
+    const outputHashes = proofInputs.outputs.map((output) =>
+      output.isDummy() ? (new Uint8Array(32) as Bytes32) : output.hash(proofInputs.outputTreeId),
+    );
+    const blinding = proofInputs.privateTxBlinding();
+    const canonical = privateTxHash({ inputHashes, outputHashes, externalDataHash, blinding });
+    const reconstructed = bigintToBytes(
+      poseidon([
+        hashChain(inputHashes.map(bytesToBigInt)),
+        hashChain(outputHashes.map(bytesToBigInt)),
+        bytesToBigInt(addressChain),
+        bytesToBigInt(externalDataHash),
+        bytesToBigInt(blinding),
+      ]),
+    );
+    expect(reconstructed).toEqual(canonical);
+  }
+
+  it("folds the real external-data hash and the zero address chain for one input", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate());
+    expect(proofInputs.inputUtxos).toHaveLength(1);
+    assertFoldedFields(proofInputs, 1);
+    // hashChain([0]) == 0.
+    expect(ringAddressChain(1)).toEqual(new Uint8Array(32));
+  });
+
+  it("folds a nonzero address chain for a multi-input transfer", async () => {
+    const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
+    expect(proofInputs.inputUtxos).toHaveLength(2);
+    assertFoldedFields(proofInputs, 2);
+    // hashChain([0, 0]) == Poseidon(0, 0) != 0.
+    expect(ringAddressChain(2)).not.toEqual(new Uint8Array(32));
+    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain([0n, 0n])));
+  });
+
+  it("sends the finalized SPP external hash and address chain to the custom prover", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const accounts = await ringAccounts(ViewingKey.generate(), true);
+    const txHash = scalar(91);
+    const data = ringInstructionData(txHash);
+    let finalized: SppProofInputs | undefined;
+    const proveRingTransact = vi.fn(async (proofInputs: SppProofInputs) => {
+      finalized = proofInputs;
+      return { data, roots: SPP_ROOTS };
+    });
+    let request: CustomRingPolicyProofRequest | undefined;
+    const proveCustomRingPolicy = vi.fn(async (input: CustomRingPolicyProofRequest) => {
+      request = input;
+      return new Uint8Array(192);
+    });
+    const base = {
+      client: ringTransferClient({
+        tree: RING,
+        getAccount: accounts.getAccount,
+        proveRingTransact,
+        proveCustomRingPolicy,
+      }),
+      ringProgramId: RING,
+      prepared,
+      session: spendSession(sender.authority),
+      assets: new AssetRegistry(),
+      tree: RING,
+      outputTree: ACTIVE_TREE,
+    } as const;
+    // An empty table reads both roots from the entries tree head.
+    const proven = await proveCustomRingTransfer(base);
+    const entriesStateRoot = new Uint8Array(32).fill(0x17);
+    const entriesNullifierRoot = new Uint8Array(32).fill(0x28);
+
+    expect(finalized).toBeDefined();
+    expect(request).toBeDefined();
+    expect(request?.externalDataHash).toEqual(finalized?.externalData.hash());
+    expect(request?.addressChain).toEqual(ringAddressChain(finalized?.inputUtxos.length ?? 0));
+    expect(request?.privateTxHash).toEqual(txHash);
+    expect(request?.stateRoot).toEqual(entriesStateRoot);
+    expect(request?.nullifierRoot).toEqual(entriesNullifierRoot);
+    expect(proven).toMatchObject({ hasPolicy: true, entriesTree: ACTIVE_TREE });
+    expect(proven.tree).toBe(RING);
+    expect(proven.outputTree).toBe(ACTIVE_TREE);
+    expect(proven.stateRootIndex).toBe(7);
+    expect(proven.nullifierRootIndex).toBe(8);
+    expect(proven.ownerSigners).toEqual([]);
+  });
+
+  const requireAllow: Rule = {
+    subject: "outputOwner",
+    source: { kind: "lists", present: [ListId.allow], absent: [] },
+    guard: { kind: "always" },
+  };
+
+  /** Every party enrolled in allow under the ring's own namespace. */
+  async function allowEntries(parties: readonly ReturnType<typeof actor>[]) {
+    const namespace = await ringPolicyNamespaceAddress(RING);
+    return parties.map((party) =>
+      lineage({
+        namespace,
+        tree: ACTIVE_TREE,
+        listId: ListId.allow,
+        member: memberOfTag(party.address.confidentialViewTag()),
+        states: ["active"],
+      }),
+    );
+  }
+
+  it("resolves the answers a rules-bearing table needs before the SPP proof", async () => {
+    const { prepared, sender, recipient } = preparedTransfer(4n, [1n]);
+    const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
+    const entries = await allowEntries([sender, recipient, actor(5)]);
+    const reads = entryProofReads({
+      tree: ACTIVE_TREE,
+      spenders: entries.flatMap((entry) => entry.spenders),
+      stateRoots: [{ value: scalar(94), index: 3 }],
+      nullifierRoots: [{ value: scalar(95), index: 4 }],
+    });
+    const order: string[] = [];
+    const lineages = reads.getShieldedTransactionsByNullifiers.getMockImplementation();
+    reads.getShieldedTransactionsByNullifiers.mockImplementation(async (request) => {
+      order.push("lineage");
+      if (lineages === undefined) throw new Error("unreachable");
+      return lineages(request);
+    });
+    const proveRingTransact = vi.fn(async () => {
+      order.push("spp");
+      return { data: ringInstructionData(scalar(91)), roots: SPP_ROOTS };
+    });
+    let request: CustomRingPolicyProofRequest | undefined;
+    const proveCustomRingPolicy = vi.fn(async (input: CustomRingPolicyProofRequest) => {
+      request = input;
+      return new Uint8Array(192);
+    });
+    const proven = await proveCustomRingTransfer({
+      client: ringTransferClient({
+        tree: RING,
+        getAccount: accounts.getAccount,
+        proveRingTransact,
+        proveCustomRingPolicy,
+        getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
+        getMerkleProofs: reads.getMerkleProofs,
+        getNonInclusionProofs: reads.getNonInclusionProofs,
+      }),
+      ringProgramId: RING,
+      prepared,
+      session: spendSession(sender.authority),
+      assets: new AssetRegistry(),
+      tree: RING,
+      outputTree: ACTIVE_TREE,
+    });
+    expect(order[0]).toBe("lineage");
+    expect(order.at(-1)).toBe("spp");
+    const enabled = request?.answers.filter((answer) => answer.enabled) ?? [];
+    expect(enabled).toHaveLength(3);
+    expect(enabled.every((answer) => answer.mode === 1 && answer.absentBranch === 2)).toBe(true);
+    expect(request?.stateRoot).toEqual(scalar(94));
+    expect(request?.nullifierRoot).toEqual(scalar(95));
+    expect(proven.stateRootIndex).toBe(3);
+    expect(proven.nullifierRootIndex).toBe(4);
+    expect(reads.getMerkleProofs).toHaveBeenCalledTimes(1);
+    expect(reads.getNonInclusionProofs).toHaveBeenCalledTimes(1);
+    // The account rows travel verbatim.
+    const policy = accounts.policy;
+    expect(request?.policyLen).toBe(1);
+    expect(request?.rules.slice(0, 1)).toEqual(policy.rules);
+    expect(request?.rules.slice(1).every((row) => row.every((byte) => byte === 0))).toBe(true);
+    expect(request?.inlineCount).toBe(0);
+    expect(request?.sources.map((slot) => slot.listId)).toEqual([
+      ListId.allow,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+    ]);
+  });
+
+  it("refuses a transfer no entry admits before any prover call", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const accounts = await ringAccounts(ViewingKey.generate(), true, [requireAllow]);
+    const reads = entryProofReads({ tree: ACTIVE_TREE });
+    const proveRingTransact = vi.fn(async () => ({
+      data: ringInstructionData(scalar(91)),
+      roots: SPP_ROOTS,
+    }));
+    await expect(
+      proveCustomRingTransfer({
+        client: ringTransferClient({
+          tree: RING,
+          getAccount: accounts.getAccount,
+          proveRingTransact,
+          getShieldedTransactionsByNullifiers: reads.getShieldedTransactionsByNullifiers,
+          getMerkleProofs: reads.getMerkleProofs,
+          getNonInclusionProofs: reads.getNonInclusionProofs,
+        }),
+        ringProgramId: RING,
+        prepared,
+        session: spendSession(sender.authority),
+        assets: new AssetRegistry(),
+        tree: RING,
+        outputTree: ACTIVE_TREE,
+      }),
+    ).rejects.toMatchObject({ code: "RING_POLICY_RULE_UNSATISFIED", details: { ruleIndex: 0 } });
+    expect(proveRingTransact).not.toHaveBeenCalled();
+    expect(reads.getMerkleProofs).not.toHaveBeenCalled();
+    expect(reads.getNonInclusionProofs).not.toHaveBeenCalled();
+  });
+
+  it("proves the audit statement alone for a no-policy ring like Rust `finish_audit`", async () => {
+    const { prepared, sender } = preparedTransfer(4n, [1n]);
+    const auditor = ViewingKey.generate();
+    const accounts = await ringAccounts(auditor, false);
+    const txHash = scalar(91);
+    const data = ringInstructionData(txHash);
+    let finalized: SppProofInputs | undefined;
+    let request: CustomRingBaseProofRequest | undefined;
+
+    const proven = await proveCustomRingTransfer({
+      client: ringTransferClient({
+        tree: RING,
+        getAccount: accounts.getAccount,
+        proveRingTransact: async (proofInputs) => {
+          finalized = proofInputs;
+          return { data, roots: SPP_ROOTS };
+        },
+        proveCustomRingBase: async (input) => {
+          request = input;
+          return new Uint8Array(192);
+        },
+      }),
+      ringProgramId: RING,
+      prepared,
+      session: spendSession(sender.authority),
+      assets: new AssetRegistry(),
+      tree: RING,
+      outputTree: ACTIVE_TREE,
+    });
+
+    if (finalized === undefined) throw new Error("finalized");
+    const message = finalized.externalData.messages[0];
+    if (message === undefined) throw new Error("auditor message");
+    // The policy config account is never read for an audit-only ring.
+    expect(accounts.read).not.toContain(accounts.policyAddress);
+    expect(request?.privateTxHash).toEqual(txHash);
+    expect(request?.auditorPublicKey).toEqual(auditor.publicKey().toUncompressed());
+    expect(request?.publicInputHash).toEqual(
+      auditPublicInputHash({
+        privateTxHash: txHash,
+        txViewingPublicKey: finalized.externalData.txViewingPublicKey,
+        auditorPublicKey: auditor.publicKey(),
+        message: parseAuditorMessage(message.data),
+      }),
+    );
+    expect(proven).toMatchObject({ hasPolicy: false });
+    expect(proven).not.toHaveProperty("entriesTree");
+    expect(proven.stateRootIndex).toBe(0);
+    expect(proven.nullifierRootIndex).toBe(0);
+    expect(proven.tree).toBe(RING);
+    expect(proven.outputTree).toBe(ACTIVE_TREE);
+  });
+});
+
+describe("ring lookup table", () => {
+  const FEE_PAYER = getAddressDecoder().decode(new Uint8Array(32).fill(45));
+  const TABLE = getAddressDecoder().decode(new Uint8Array(32).fill(46));
+
+  function lookupTableReads(
+    tables: ReadonlyMap<Address, readonly Address[]>,
+    lastExtendedSlot = 99n,
+  ) {
+    return solanaRpcReads({
+      getSlot: () => ({ send: async () => 100n }),
+      getAccountInfo: (account: Address) => ({
+        send: async () => {
+          const addresses = tables.get(account);
+          if (addresses === undefined) return { context: { slot: 100n }, value: null };
+          const data = getAddressLookupTableEncoder().encode({
+            deactivationSlot: 0xffff_ffff_ffff_ffffn,
+            lastExtendedSlot,
+            lastExtendedSlotStartIndex: 0,
+            authority: FEE_PAYER,
+            addresses: [...addresses],
+          });
+          return {
+            context: { slot: 100n },
+            value: {
+              data: [getBase64Decoder().decode(data), "base64"],
+              executable: false,
+              lamports: 1n,
+              owner: ADDRESS_LOOKUP_TABLE_PROGRAM_ADDRESS,
+              rentEpoch: 0n,
+              space: BigInt(data.length),
+            },
+          };
+        },
+      }),
+    });
+  }
+
+  function extendedAddresses(table: RingLookupTable): readonly Address[] {
+    const message = getCompiledTransactionMessageDecoder().decode(table.transaction.messageBytes);
+    const extend = "instructions" in message ? message.instructions[1] : undefined;
+    if (extend?.data === undefined) throw new Error("no extend instruction");
+    return getExtendLookupTableInstructionDataDecoder().decode(extend.data).addresses;
+  }
+
+  it("builds a policy ring's table from its own accounts and the fetch accepts the same trees", async () => {
+    const accounts = await ringAccounts(ViewingKey.generate(), true);
+    const tables = new Map<Address, readonly Address[]>();
+    const client = ringTransferClient({
+      tree: RING,
+      getAccount: accounts.getAccount,
+      solanaRpc: lookupTableReads(tables),
+    });
+
+    const table = await buildRingLookupTableTransaction({
+      client,
+      ringProgramId: RING,
+      feePayer: FEE_PAYER,
+      outputTree: ACTIVE_TREE,
+    });
+    tables.set(table.address, extendedAddresses(table));
+
+    expect(accounts.read).toContain(accounts.policyAddress);
+    const held = await fetchRingLookupTable({
+      client,
+      ringProgramId: RING,
+      address: table.address,
+      trees: { tree: RING, outputTree: ACTIVE_TREE, hasPolicy: true, entriesTree: ACTIVE_TREE },
+    });
+    expect(held).toContain(accounts.policyAddress);
+    expect(held).toContain(ACTIVE_TREE);
+  });
+
+  it("builds an audit-only ring's table without the policy accounts", async () => {
+    const accounts = await ringAccounts(ViewingKey.generate(), false);
+    const client = ringTransferClient({
+      tree: RING,
+      getAccount: accounts.getAccount,
+      solanaRpc: lookupTableReads(new Map()),
+    });
+
+    const table = await buildRingLookupTableTransaction({
+      client,
+      ringProgramId: RING,
+      feePayer: FEE_PAYER,
+    });
+
+    expect(accounts.read).not.toContain(accounts.policyAddress);
+    expect(extendedAddresses(table)).not.toContain(accounts.policyAddress);
+  });
+
+  it("refuses a tree-only table for a policy ring", async () => {
+    const accounts = await ringAccounts(ViewingKey.generate(), true);
+    const treeOnly = await ringLookupTableAddresses({
+      ringProgramId: RING,
+      trees: { tree: ACTIVE_TREE, outputTree: ACTIVE_TREE, hasPolicy: false },
+    });
+    const tables = new Map<Address, readonly Address[]>([[TABLE, treeOnly]]);
+    const client = ringTransferClient({
+      tree: ACTIVE_TREE,
+      getAccount: accounts.getAccount,
+      solanaRpc: lookupTableReads(tables),
+    });
+    const trees = {
+      tree: ACTIVE_TREE,
+      outputTree: ACTIVE_TREE,
+      hasPolicy: true,
+      entriesTree: ACTIVE_TREE,
+    };
+
+    await expect(
+      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
+    ).rejects.toMatchObject({ code: "RING_LOOKUP_TABLE_INCOMPLETE", details: { address: TABLE } });
+
+    tables.set(TABLE, [...treeOnly, accounts.policyAddress]);
+    await expect(
+      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
+    ).resolves.toContain(accounts.policyAddress);
+  });
+
+  it("refuses a table extended in the current slot", async () => {
+    const accounts = await ringAccounts(ViewingKey.generate(), false);
+    const trees = { tree: ACTIVE_TREE, outputTree: ACTIVE_TREE, hasPolicy: false } as const;
+    const held = await ringLookupTableAddresses({ ringProgramId: RING, trees });
+    const client = ringTransferClient({
+      tree: ACTIVE_TREE,
+      getAccount: accounts.getAccount,
+      solanaRpc: lookupTableReads(new Map([[TABLE, held]]), 100n),
+    });
+
+    await expect(
+      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
+    ).rejects.toMatchObject({
+      code: "RING_LOOKUP_TABLE_NOT_READY",
+      details: { address: TABLE, lastExtendedSlot: "100", slot: "100" },
+    });
   });
 });

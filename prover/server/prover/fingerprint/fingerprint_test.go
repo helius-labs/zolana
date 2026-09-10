@@ -63,8 +63,11 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	p256Ring, err := eddsaprover.R1CSP256Transfer(2, 3)
 	add("transfer_p256_ring_2_3", p256Ring, err)
 
-	customRing, err := customring.R1CSCustomRing()
-	add("custom_ring", customRing, err)
+	customRing, err := customring.R1CSPolicy()
+	add("custom_ring_policy", customRing, err)
+
+	audit, err := customring.R1CSBase()
+	add("custom_ring_base", audit, err)
 
 	merged, err := mergeprover.R1CSMerge(8)
 	add("merge_8_1", merged, err)
@@ -86,7 +89,8 @@ var expectedFingerprints = map[string]fingerprint{
 	"transfer_ring_2_3":           {constraints: 57528, public: 2},
 	"transfer_ring_authority_2_2": {constraints: 53650, public: 2},
 	"transfer_p256_ring_2_3":      {constraints: 202670, public: 2},
-	"custom_ring":                 {constraints: 212757, public: 2},
+	"custom_ring_policy":          {constraints: 483579, public: 2},
+	"custom_ring_base":            {constraints: 213042, public: 2},
 	"merge_8_1":                   {constraints: 180124, public: 2},
 	"merge_ring_8_1":              {constraints: 180394, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
@@ -102,6 +106,11 @@ func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {
 		t.Skip("UPDATE_FINGERPRINTS=1: printed current fingerprints; paste into expectedFingerprints")
 	}
 
+	for name := range got {
+		if _, ok := expectedFingerprints[name]; !ok {
+			t.Errorf("circuit %s has no pinned fingerprint", name)
+		}
+	}
 	for name, want := range expectedFingerprints {
 		have, ok := got[name]
 		if !ok {

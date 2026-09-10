@@ -1,7 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Output},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -30,6 +30,12 @@ pub struct Options {
     lock_path: PathBuf,
     upload: bool,
     prerelease: bool,
+}
+
+struct ReleaseUpload<'a> {
+    options: &'a Options,
+    assets: &'a [PathBuf],
+    target: &'a str,
 }
 
 /// Which assets a release carries, each set has its own lock and cli.
@@ -106,13 +112,26 @@ impl ReleaseSet {
         }
     }
 
-    /// `(package, bin, asset stem)` of every cli the set ships.
-    fn cli_binaries(self) -> &'static [(&'static str, &'static str, &'static str)] {
+    fn cli_binaries(self) -> &'static [CliBinary] {
         match self {
-            Self::Localnet => &[("zolana-cli", "zolana", "zolana")],
-            Self::CustomRings => &[("custom-ring-cli", "zolana-ring", "zolana-ring")],
+            Self::Localnet => &[CliBinary {
+                package: "zolana-cli",
+                bin: "zolana",
+                asset_stem: "zolana",
+            }],
+            Self::CustomRings => &[CliBinary {
+                package: "custom-ring-cli",
+                bin: "zolana-ring",
+                asset_stem: "zolana-ring",
+            }],
         }
     }
+}
+
+struct CliBinary {
+    package: &'static str,
+    bin: &'static str,
+    asset_stem: &'static str,
 }
 
 struct ProgramSource {
@@ -139,8 +158,33 @@ const PROGRAM_SOURCES: [ProgramSource; 3] = [
     },
 ];
 
-/// The prover key the custom-rings set ships, the same file the prover lock pins.
-const RING_PROVING_KEY_SOURCE: &str = "prover/server/proving-keys/custom_ring.key";
+const PROVING_KEYS_DIR: &str = "prover/server/proving-keys";
+const PROVING_KEYS_LOCK: &str = "prover/server/prover/provingkeys/proving-keys.lock";
+
+struct RingKeySource {
+    section: &'static str,
+    prover_file: &'static str,
+    asset_stem: &'static str,
+}
+
+impl RingKeySource {
+    fn asset(&self, tag: &str) -> String {
+        format!("{}-{tag}.key", self.asset_stem)
+    }
+}
+
+const RING_KEY_SOURCES: [RingKeySource; 2] = [
+    RingKeySource {
+        section: "proving_key",
+        prover_file: "custom_ring_policy.key",
+        asset_stem: "custom-ring-policy-key",
+    },
+    RingKeySource {
+        section: "audit_key",
+        prover_file: "custom_ring_base.key",
+        asset_stem: "custom-ring-base-key",
+    },
+];
 
 /// Deployed per ring under its own id, shipped by the custom-rings set alone.
 const RING_PROGRAM_SOURCE: ProgramSource = ProgramSource {
@@ -169,7 +213,12 @@ pub fn run(options: Options) -> Result<()> {
     assets.extend(cli_assets);
 
     if options.upload {
-        upload_release(&options, &assets, &git_head()?)?;
+        ReleaseUpload {
+            options: &options,
+            assets: &assets,
+            target: &git_head()?,
+        }
+        .run()?;
         warn_if_lockfile_uncommitted(&options.lock_path, &options.tag)?;
     } else {
         println!(
@@ -233,19 +282,34 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-/// The ring program, the prover's ring key and the ring rpc, the ring cli
-/// embeds the lock and is uploaded next to them.
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
     let repo = repo_root()?;
-    let key_source = repo.join(RING_PROVING_KEY_SOURCE);
-    require_file(
-        &key_source,
-        "run `just ensure-custom-ring-prover-key` first",
-    )?;
-    let key_asset = format!("custom-ring-key-{}.key", options.tag);
-    let key_staged = stage_file(&key_source, &staging.join(&key_asset))?;
+    let mut lock = json!({
+        "release_tag": options.tag,
+        "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
+    });
+    let prover_lock = read_json(&repo.join(PROVING_KEYS_LOCK))?;
+    for source in &RING_KEY_SOURCES {
+        let key_source = repo.join(PROVING_KEYS_DIR).join(source.prover_file);
+        require_file(&key_source, "run `just ensure-custom-ring-live-keys` first")?;
+        let asset = source.asset(&options.tag);
+        let staged = stage_file(&key_source, &staging.join(&asset))?;
+        let pinned = pinned_sha256(&prover_lock, source.prover_file)?;
+        if staged.sha256 != pinned {
+            bail!(
+                "{} hashes to {}, {PROVING_KEYS_LOCK} pins {pinned}, run `just regen-custom-ring-keys` to rotate both",
+                source.prover_file,
+                staged.sha256
+            );
+        }
+        lock[source.section] = json!({
+            "asset": asset,
+            "size": staged.size,
+            "sha256": staged.sha256,
+        });
+    }
     let mut binaries = Vec::new();
     for (os, arch) in release_targets(host) {
         let asset = format!("ring-rpc-{os}-{arch}-{}", options.tag);
@@ -259,16 +323,21 @@ fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> R
         )?;
         binaries.push(binary_json("ring_rpc", os, arch, &asset, &path)?);
     }
-    Ok(json!({
-        "release_tag": options.tag,
-        "ring_program": stage_program(&RING_PROGRAM_SOURCE, &path, &options.tag, staging)?,
-        "proving_key": {
-            "asset": key_asset,
-            "size": key_staged.size,
-            "sha256": key_staged.sha256,
-        },
-        "binaries": binaries,
-    }))
+    lock["binaries"] = json!(binaries);
+    Ok(lock)
+}
+
+fn read_json(path: &Path) -> Result<Value> {
+    let contents =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn pinned_sha256(prover_lock: &Value, file: &str) -> Result<String> {
+    prover_lock["keys"][file]["sha256"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("{PROVING_KEYS_LOCK} pins no {file}"))
 }
 
 fn stage_program(source: &ProgramSource, path: &Path, tag: &str, staging: &Path) -> Result<Value> {
@@ -325,10 +394,10 @@ fn build_cli_binaries(
     let repo = repo_root()?;
     let mut assets = Vec::new();
     for (os, arch) in release_targets(host) {
-        for (package, bin, stem) in options.set.cli_binaries() {
-            let asset = format!("{stem}-{os}-{arch}-{}", options.tag);
+        for cli in options.set.cli_binaries() {
+            let asset = format!("{}-{os}-{arch}-{}", cli.asset_stem, options.tag);
             let path = staging.join(&asset);
-            build_rust_binary(&repo, package, bin, &path, (os, arch) == host)?;
+            build_rust_binary(&repo, cli.package, cli.bin, &path, (os, arch) == host)?;
             assets.push(path);
         }
     }
@@ -507,6 +576,9 @@ fn git_head() -> Result<String> {
 /// Build the initialized account set fully in-process with LiteSVM. No maintainer
 /// keypairs and no running validator are needed: every authority is generated
 /// here.
+/// Public on purpose, the localnet protocol authority is nobody's secret.
+const LOCALNET_SNAPSHOT_AUTHORITY_SEED: [u8; 32] = *b"zolana localnet snapshot authori";
+
 pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
     let shielded_so = deploy_dir.join("shielded_pool_program.so");
     require_file(&shielded_so, "run `just build-programs` first")?;
@@ -515,7 +587,8 @@ pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path)
     let mut test = ZolanaProgramTest::with_program_path(&shielded_so)
         .map_err(|e| anyhow!("failed to boot litesvm: {e:?}"))?;
 
-    let authority = Keypair::new();
+    // A fixed localnet authority, the bundle hashes the same on every build.
+    let authority = Keypair::new_from_array(LOCALNET_SNAPSHOT_AUTHORITY_SEED);
     test.create_protocol_config_permissionless(&authority)
         .map_err(|e| anyhow!("create_protocol_config failed: {e:?}"))?;
     test.create_asset_counter(&authority)
@@ -597,7 +670,7 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in ["ring_program", "proving_key", "accounts"] {
+    for key in ["ring_program", "proving_key", "audit_key", "accounts"] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -640,40 +713,99 @@ fn existing_surfpool_fields(lock_path: &Path) -> (String, String) {
     }
 }
 
-fn upload_release(options: &Options, assets: &[PathBuf], target: &str) -> Result<()> {
-    let tag = options.tag.as_str();
-    // Delete any existing release + tag so the re-publish is clean and the tag is
-    // recreated at the released commit. Best-effort: ignore "not found".
-    let _ = Command::new("gh")
-        .args(["release", "delete", tag, "--yes", "--cleanup-tag"])
-        .status();
+impl ReleaseUpload<'_> {
+    fn run(self) -> Result<()> {
+        let existing = release_target(&self.options.tag)?;
+        let args = self.args(existing.as_deref())?;
+        let status = Command::new("gh")
+            .args(&args)
+            .status()
+            .context("failed to publish release assets")?;
+        if !status.success() {
+            bail!("release upload failed with status {status}");
+        }
+        println!(
+            "published {} assets to release {} at {}",
+            self.assets.len(),
+            self.options.tag,
+            self.target
+        );
+        Ok(())
+    }
 
-    let mut args = vec![
-        "release".to_string(),
-        "create".to_string(),
-        tag.to_string(),
-        "--target".to_string(),
-        target.to_string(),
-        "--title".to_string(),
-        options.set.title(tag),
-        "--notes".to_string(),
-        options.set.notes(tag),
-    ];
-    if options.prerelease {
-        args.push("--prerelease".to_string());
+    fn args(&self, existing: Option<&str>) -> Result<Vec<String>> {
+        let tag = &self.options.tag;
+        let mut args = match existing {
+            Some(target) if target == self.target => {
+                vec!["release".to_string(), "upload".to_string(), tag.clone()]
+            }
+            Some(target) => {
+                bail!(
+                    "release {tag} targets {target}, choose a new tag for {}",
+                    self.target
+                )
+            }
+            None => {
+                let mut args = vec![
+                    "release".to_string(),
+                    "create".to_string(),
+                    tag.clone(),
+                    "--target".to_string(),
+                    self.target.to_string(),
+                    "--title".to_string(),
+                    self.options.set.title(tag),
+                    "--notes".to_string(),
+                    self.options.set.notes(tag),
+                ];
+                if self.options.prerelease {
+                    args.push("--prerelease".to_string());
+                }
+                args
+            }
+        };
+        for asset in self.assets {
+            args.push(path_str(asset)?);
+        }
+        Ok(args)
     }
-    for asset in assets {
-        args.push(path_str(asset)?);
+}
+
+fn release_target(tag: &str) -> Result<Option<String>> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            "--include",
+            &format!("repos/{{owner}}/{{repo}}/releases/tags/{tag}"),
+        ])
+        .output()
+        .context("failed to query release")?;
+    decode_release_target(output)
+}
+
+fn decode_release_target(output: Output) -> Result<Option<String>> {
+    let response = std::str::from_utf8(&output.stdout).context("invalid release response")?;
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .or_else(|| response.split_once("\n\n"))
+        .ok_or_else(|| anyhow!("release lookup returned no HTTP response"))?;
+    let status = headers
+        .lines()
+        .next()
+        .and_then(|line| line.strip_prefix("HTTP/"))
+        .and_then(|line| line.split_whitespace().nth(1))
+        .ok_or_else(|| anyhow!("release lookup returned no HTTP status"))?;
+    match status {
+        "404" if !output.status.success() => Ok(None),
+        "200" if output.status.success() => {
+            let release: Value = serde_json::from_str(body).context("invalid release JSON")?;
+            let target = release["target_commitish"]
+                .as_str()
+                .filter(|target| !target.trim().is_empty())
+                .ok_or_else(|| anyhow!("release response has no target commit"))?;
+            Ok(Some(target.to_string()))
+        }
+        _ => bail!("release lookup failed with HTTP status {status}"),
     }
-    let status = Command::new("gh")
-        .args(&args)
-        .status()
-        .context("failed to run gh release create")?;
-    if !status.success() {
-        bail!("gh release create failed with status {status}");
-    }
-    println!("published release {tag} at {target}");
-    Ok(())
 }
 
 fn current_platform() -> Result<(&'static str, &'static str)> {
@@ -690,24 +822,57 @@ fn current_platform() -> Result<(&'static str, &'static str)> {
     Ok((os, arch))
 }
 
+/// Fixed times, owners and order, the bundle hashes the same on every build.
 fn tar_gz(source_dir: &Path, archive: &Path) -> Result<()> {
-    // COPYFILE_DISABLE stops macOS bsdtar from adding AppleDouble (._*) sidecars;
-    // the excludes drop any that already exist. Without this, GNU tar on Linux
-    // would materialize them and the validator would choke parsing them as
-    // account JSON. The CLI extractor excludes them too (defense in depth).
-    let status = Command::new("tar")
-        .env("COPYFILE_DISABLE", "1")
-        .args(["--exclude=._*", "--exclude=.DS_Store", "-czf"])
-        .arg(archive)
-        .arg("-C")
-        .arg(source_dir)
-        .arg(".")
-        .status()
-        .with_context(|| format!("failed to tar {}", source_dir.display()))?;
-    if !status.success() {
-        bail!("tar failed for {}", source_dir.display());
+    let file = fs::File::create(archive)
+        .with_context(|| format!("failed to create {}", archive.display()))?;
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+        file,
+        flate2::Compression::default(),
+    ));
+    for relative in snapshot_files(source_dir, Path::new(""))? {
+        let data = fs::read(source_dir.join(&relative))
+            .with_context(|| format!("failed to read {}", relative.display()))?;
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(0);
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, &relative, data.as_slice())
+            .with_context(|| format!("failed to archive {}", relative.display()))?;
     }
+    builder
+        .into_inner()
+        .and_then(flate2::write::GzEncoder::finish)
+        .with_context(|| format!("failed to finish {}", archive.display()))?;
     Ok(())
+}
+
+/// Sorted relative paths, without the macOS sidecars the validator cannot parse.
+fn snapshot_files(root: &Path, relative: &Path) -> Result<Vec<PathBuf>> {
+    let dir = root.join(relative);
+    let mut entries = fs::read_dir(&dir)
+        .with_context(|| format!("failed to read {}", dir.display()))?
+        .collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(fs::DirEntry::file_name);
+    let mut files = Vec::new();
+    for entry in entries {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("._") || name == ".DS_Store" {
+            continue;
+        }
+        let path = relative.join(name.as_ref());
+        if entry.file_type()?.is_dir() {
+            files.extend(snapshot_files(root, &path)?);
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(files)
 }
 
 fn reset_dir(dir: &Path) -> Result<()> {
@@ -747,16 +912,16 @@ fn print_help() {
     println!("prover; Docker for the linux Rust binaries). Regenerates");
     println!("cli/release-artifacts.lock; the CLI binary is built last so it embeds the");
     println!("final lockfile (and is therefore uploaded but not a lockfile entry).");
-    println!("With --custom-rings the set is the ring program, its prover key, the ring rpc");
-    println!("and the zolana-ring cli.");
+    println!("With --custom-rings the set is the ring program, its two prover keys, the ring");
+    println!("rpc and the zolana-ring cli.");
     println!();
     println!("Requires: go, cargo, and docker (for the linux-x64 photon build).");
     println!();
     println!("Options:");
     println!(
-        "  --custom-rings          Release the ring program, its prover key, the ring rpc and"
+        "  --custom-rings          Release the ring program, its two prover keys, the ring rpc"
     );
-    println!("                          the zolana-ring cli only,");
+    println!("                          and the zolana-ring cli only,");
     println!("                          regenerating custom-rings/cli/release-artifacts.lock");
     println!("  --deploy-dir <dir>      Program .so directory (default target/deploy)");
     println!("  --staging-dir <dir>     Asset staging dir (default target/release-staging)");
@@ -770,6 +935,126 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn release_upload_preserves_the_other_bundle_and_existing_assets() {
+        for set in [ReleaseSet::Localnet, ReleaseSet::CustomRings] {
+            let options = Options {
+                tag: "v1".to_string(),
+                set,
+                deploy_dir: PathBuf::new(),
+                staging_dir: PathBuf::new(),
+                lock_path: PathBuf::new(),
+                upload: true,
+                prerelease: true,
+            };
+            let assets = [PathBuf::from("/stage/bundle")];
+            let upload = ReleaseUpload {
+                options: &options,
+                assets: &assets,
+                target: "released-commit",
+            };
+            assert_eq!(
+                upload.args(Some("released-commit")).unwrap(),
+                ["release", "upload", "v1", "/stage/bundle"]
+            );
+            assert!(upload.args(Some("other-commit")).is_err());
+            let create = upload.args(None).unwrap();
+            assert_eq!(
+                &create[..5],
+                ["release", "create", "v1", "--target", "released-commit"]
+            );
+            assert!(create.iter().any(|arg| arg == "--prerelease"));
+            assert_eq!(create.last().unwrap(), "/stage/bundle");
+            for forbidden in ["delete", "--clobber", "--cleanup-tag"] {
+                assert!(!create.iter().any(|arg| arg == forbidden));
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn release_lookup_accepts_only_a_target_or_an_http_not_found() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let response = |text: &str, exit_code| Output {
+            status: std::process::ExitStatus::from_raw(exit_code),
+            stdout: text.as_bytes().to_vec(),
+            stderr: Vec::new(),
+        };
+        assert_eq!(
+            decode_release_target(response(
+                "HTTP/2.0 200 OK\nContent-Type: application/json\r\n\r\n{\"target_commitish\":\"commit\"}",
+                0,
+            ))
+            .unwrap(),
+            Some("commit".to_string())
+        );
+        assert_eq!(
+            decode_release_target(response("HTTP/2.0 404 Not Found\n\n{}", 256)).unwrap(),
+            None
+        );
+        for text in [
+            "",
+            "release not found",
+            "HTTP/2.0 403 Forbidden\n\n{}",
+            "HTTP/2.0 429 Too Many Requests\n\n{}",
+            "HTTP/2.0 500 Internal Server Error\n\n{}",
+            "HTTP/2.0 200 OK\n\n{\"target_commitish\":\"commit\"}",
+        ] {
+            assert!(
+                decode_release_target(response(text, 256)).is_err(),
+                "{text:?}"
+            );
+        }
+        for body in [
+            "{}",
+            "{",
+            "{\"target_commitish\":null}",
+            "{\"target_commitish\":\"\"}",
+        ] {
+            assert!(
+                decode_release_target(response(&format!("HTTP/2.0 200 OK\n\n{body}"), 0)).is_err(),
+                "{body:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_snapshot_bundle_hashes_the_same_on_every_build() {
+        let root = std::env::temp_dir().join(format!("snapshot-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("accounts");
+        fs::create_dir_all(dir.join("nested")).unwrap();
+        fs::write(dir.join("b.json"), b"{}").unwrap();
+        fs::write(dir.join("a.json"), b"[]").unwrap();
+        fs::write(dir.join("nested/c.json"), b"1").unwrap();
+        fs::write(dir.join("._a.json"), b"sidecar").unwrap();
+        let first = root.join("first.tar.gz");
+        tar_gz(&dir, &first).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(dir.join("a.json"), b"[]").unwrap();
+        let second = root.join("second.tar.gz");
+        tar_gz(&dir, &second).unwrap();
+        assert_eq!(fs::read(&first).unwrap(), fs::read(&second).unwrap());
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(
+            fs::File::open(&first).unwrap(),
+        ));
+        let names: Vec<String> = archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, ["a.json", "b.json", "nested/c.json"]);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn sha256_hex_matches_known_vector() {
@@ -833,16 +1118,16 @@ mod tests {
         }
     }
 
-    /// The ring cli reads `release_tag`, `ring_program`, `proving_key` and `binaries`.
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
         let lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
-            "proving_key": {"asset": "custom-ring-key-v1.key", "size": 1, "sha256": "x"},
+            "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
+            "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for section in ["ring_program", "proving_key"] {
+        for section in ["ring_program", "proving_key", "audit_key"] {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
@@ -851,7 +1136,8 @@ mod tests {
             staged_asset_paths(Path::new("/stage"), &lock),
             vec![
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
-                PathBuf::from("/stage/custom-ring-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-base-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );
