@@ -34,7 +34,7 @@ use zolana_interface::{
     SPL_TOKEN_ACCOUNT_STATE_OFFSET,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
+use zolana_test_utils::transact::{fe, inline_output, input_utxo};
 
 /// SOL-withdrawal-shaped (negative public amount) transact data with a zeroed
 /// proof: the payer/settlement account checks under test fire during account
@@ -47,7 +47,7 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: vec![eddsa_input_utxo(fe(201), 0), eddsa_input_utxo(fe(202), 0)],
+        inputs: vec![input_utxo(fe(201)), input_utxo(fe(202))],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: 1_000_000_000,
         }],
@@ -59,6 +59,8 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
             inline_output([6u8; 32], [6u8; 32]),
         ],
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

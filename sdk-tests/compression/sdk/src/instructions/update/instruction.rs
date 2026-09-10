@@ -42,8 +42,8 @@ impl Update {
             version,
             old_blinding,
             new_value,
-            nullifier_tree_root_index: input.nullifier_tree_root_index,
-            utxo_tree_root_index: input.utxo_tree_root_index,
+            nullifier_tree_root_index: spp_proof.nullifier_tree_root_index,
+            utxo_tree_root_index: spp_proof.utxo_tree_root_index,
             proof: spp_proof.proof,
         })
         .map_err(err)?;

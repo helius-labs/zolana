@@ -26,7 +26,7 @@ use zolana_test_utils::{
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
         tree_fees_from,
     },
-    transact::{eddsa_input_utxo, fe, inline_output},
+    transact::{fe, inline_output, input_utxo},
 };
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
@@ -47,7 +47,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
@@ -55,6 +55,8 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

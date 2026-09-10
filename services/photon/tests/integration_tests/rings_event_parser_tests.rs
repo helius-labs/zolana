@@ -2059,8 +2059,6 @@ fn transact_source_data(
             .iter()
             .map(|input| InputUtxo {
                 nullifier_hash: input.nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
         interface_transfers,
@@ -2068,6 +2066,8 @@ fn transact_source_data(
         ring_data_hash: None,
         outputs,
         messages: expected.messages.clone(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let mut source_data = vec![source_tag];
     source_data.extend_from_slice(&ix.serialize().expect("serialize transact"));
@@ -2168,8 +2168,8 @@ fn merge_transaction_info() -> TransactionInfo {
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
             .collect(),
-        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let mut source_data = vec![tag::MERGE_TRANSACT];
     source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));

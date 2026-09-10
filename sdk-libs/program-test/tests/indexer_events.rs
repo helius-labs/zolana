@@ -97,8 +97,6 @@ fn sample_transact_instruction_data() -> Vec<u8> {
             .iter()
             .map(|input| InputUtxo {
                 nullifier_hash: input.nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -114,6 +112,8 @@ fn sample_transact_instruction_data() -> Vec<u8> {
             })
             .collect(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let mut data = vec![zolana_event::tag::TRANSACT];
     data.extend_from_slice(&ix.serialize().expect("serialize transact"));

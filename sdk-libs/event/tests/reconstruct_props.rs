@@ -35,13 +35,7 @@ fn pubkey() -> impl Strategy<Value = Pubkey> {
 }
 
 fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-    (any::<[u8; 32]>(), any::<u16>(), any::<u16>()).prop_map(
-        |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index)| InputUtxo {
-            nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        },
-    )
+    any::<[u8; 32]>().prop_map(|nullifier_hash| InputUtxo { nullifier_hash })
 }
 
 /// `OwnerTag::Account` indexes stay inside an account list of `account_count`.

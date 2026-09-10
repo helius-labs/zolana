@@ -177,6 +177,8 @@ fn ring_transact_bytes(interface_transfers: Vec<InterfaceTransfer>) -> Vec<u8> {
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let mut encoded = vec![tag::RING_TRANSACT];
     encoded.extend_from_slice(&data.serialize().expect("serialize"));

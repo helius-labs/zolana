@@ -34,7 +34,7 @@ use zolana_interface::{
     N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
-use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
+use zolana_test_utils::transact::{fe, inline_output, input_utxo};
 
 /// A pure shielded transfer (no settlement accounts) with `n_in` inputs bound
 /// to the signing payer and `n_out` inline outputs. The proof defaults to the
@@ -47,7 +47,9 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
@@ -206,9 +208,7 @@ fn transact_rejects_a_stale_nullifier_root_index() {
     // Root-history indices are caller-supplied; a zeroed (never-written)
     // history slot must be rejected, not treated as a valid root.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
-        input.nullifier_tree_root_index = 7;
-    }
+    data.nullifier_tree_root_index = 7;
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
 }
 
@@ -218,45 +218,8 @@ fn transact_rejects_a_stale_utxo_root_index() {
     // INV-XC-09: the UTXO root history is symmetric to the nullifier root
     // history; an out-of-bounds or zeroed slot must map to StaleNullifierRoot.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
-        input.utxo_tree_root_index = 7;
-    }
+    data.utxo_tree_root_index = 7;
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
-}
-
-#[test]
-fn transact_rejects_inputs_that_reference_different_utxo_root_indexes() {
-    let mut env = Pool::initialized();
-    // SPP resolves both roots from the single `input_tree`, so the proof binds
-    // one tree slot; an input that names a different UTXO root index than
-    // input 0 would be proven against a root the instruction never resolved.
-    let mut data = transfer_ix_data(2, 3);
-    data.inputs
-        .get_mut(1)
-        .expect("second input")
-        .utxo_tree_root_index = 1;
-    expect_rejection(
-        &mut env,
-        data,
-        ShieldedPoolError::InputTreeRootIndexMismatch,
-    );
-}
-
-#[test]
-fn transact_rejects_inputs_that_reference_different_nullifier_root_indexes() {
-    let mut env = Pool::initialized();
-    // Symmetric to the UTXO root index: every input shares `input_tree`'s one
-    // nullifier root.
-    let mut data = transfer_ix_data(2, 3);
-    data.inputs
-        .get_mut(1)
-        .expect("second input")
-        .nullifier_tree_root_index = 1;
-    expect_rejection(
-        &mut env,
-        data,
-        ShieldedPoolError::InputTreeRootIndexMismatch,
-    );
 }
 
 #[test]

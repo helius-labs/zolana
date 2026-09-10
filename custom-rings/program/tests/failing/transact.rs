@@ -75,6 +75,8 @@ fn transact(messages: Vec<MessageData>) -> TransactIxData {
         ring_data_hash: None,
         outputs: Vec::new(),
         messages,
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

@@ -1158,15 +1158,11 @@ fn assemble_ix_data(
         ));
     }
 
-    // SPP resolves both roots from the single `input_tree`, so every slot
-    // references the same pair.
     let (utxo_tree_root_index, nullifier_tree_root_index) = root_indices;
     let inputs: Vec<InputUtxo> = nullifiers
         .iter()
         .map(|nullifier_hash| InputUtxo {
             nullifier_hash: *nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
         })
         .collect();
 
@@ -1192,6 +1188,8 @@ fn assemble_ix_data(
         private_tx_hash,
         circuit,
         inputs,
+        utxo_tree_root_index,
+        nullifier_tree_root_index,
         interface_transfers: external
             .interface_transfers
             .iter()

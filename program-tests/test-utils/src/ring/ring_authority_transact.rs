@@ -299,11 +299,7 @@ impl RingHarness {
             .nullifiers
             .first()
             .ok_or_else(|| anyhow!("ring-authority witness produced no nullifier"))?;
-        let inputs = vec![InputUtxo {
-            nullifier_hash,
-            nullifier_tree_root_index: result.nullifier_tree_root_index,
-            utxo_tree_root_index: result.utxo_tree_root_index,
-        }];
+        let inputs = vec![InputUtxo { nullifier_hash }];
 
         let ix_data = TransactIxData {
             proof: pack_transact_proof(&proof)?,
@@ -315,6 +311,8 @@ impl RingHarness {
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
             inputs,
+            utxo_tree_root_index: result.utxo_tree_root_index,
+            nullifier_tree_root_index: result.nullifier_tree_root_index,
             interface_transfers: external_data
                 .interface_transfers
                 .iter()

@@ -95,8 +95,8 @@ impl MergeProofResult {
             proof,
             output_utxo_hash: self.output_hash,
             nullifiers: self.nullifiers.clone(),
-            utxo_tree_root_index: vec![self.utxo_tree_root_index; self.nullifiers.len()],
-            nullifier_tree_root_index: vec![self.nullifier_tree_root_index; self.nullifiers.len()],
+            utxo_tree_root_index: self.utxo_tree_root_index,
+            nullifier_tree_root_index: self.nullifier_tree_root_index,
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
         }

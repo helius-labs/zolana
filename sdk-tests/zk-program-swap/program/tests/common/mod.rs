@@ -92,6 +92,8 @@ pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
             },
         ],
         messages,
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

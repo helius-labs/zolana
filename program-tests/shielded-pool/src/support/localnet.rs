@@ -25,8 +25,8 @@ use zolana_program_test::{
     IndexedTransaction, TestIndexer,
 };
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, external_data_hash, fe,
+    inline_outputs, input_utxo, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
     LegAccounts, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
@@ -366,8 +366,9 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     let mut ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, args.root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        args.root_index,
         args.interface_transfers,
         inline_outputs(&output_hashes, &args.view_tags),
     );

@@ -95,7 +95,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_stale_nullifier_root_index`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced root-history slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
+  - Statement: each of these instructions returns Err whenever its `utxo_tree_root_index` or `nullifier_tree_root_index` (one pair per instruction, shared by every input) is out of range of the root history, or the referenced root-history slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
   - Severity: Critical (spending against a pre-nullification root)
@@ -329,7 +329,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` units `rejects_retired_field_bearing_payload`, `rejects_retired_owner_tag_discriminant`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly 3 fields (nullifier, two root indices) and `RingP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
+  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly one field (the 32-byte nullifier hash; the root-index pair sits once per instruction after `inputs`) and `RingP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs` (decoder tests), `program-libs/interface/src/verifying_keys/circuit.rs` (`RingP256ProofData`, `FixedOptionOwnerTag`)
   - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
   - Severity: Medium

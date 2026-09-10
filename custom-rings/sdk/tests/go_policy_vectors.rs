@@ -362,5 +362,7 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }

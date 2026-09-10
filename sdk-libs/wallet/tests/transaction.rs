@@ -496,12 +496,8 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let dummy = ix.inputs.get(1).expect("dummy input");
     assert_eq!(real.nullifier_hash, first_nullifier);
     assert_ne!(dummy.nullifier_hash, first_nullifier);
-    // One input tree: every input, the dummy included, references the fetched
-    // root indexes of that tree.
-    for input in &ix.inputs {
-        assert_eq!(input.utxo_tree_root_index, 5);
-        assert_eq!(input.nullifier_tree_root_index, 5);
-    }
+    assert_eq!(ix.utxo_tree_root_index, 5);
+    assert_eq!(ix.nullifier_tree_root_index, 5);
 
     // A pure transfer moves no public value.
     assert!(ix.interface_transfers.is_empty());

@@ -18,13 +18,13 @@ use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
-use zolana_program::TransactExternalData;
+use zolana_program::{TransactExternalData, TransactInputs};
 use zolana_ring_policy::{
     entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
     ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
@@ -303,7 +303,7 @@ impl<'a> MutationAccounts<'a> {
 
 pub(crate) struct EntryTransition {
     pub entry: ListEntry,
-    pub input: InputUtxo,
+    pub inputs: TransactInputs,
     pub input_hash: [u8; 32],
     /// The address a claim inserts, zero for a spend.
     pub address_nullifier: [u8; 32],
@@ -348,7 +348,7 @@ impl EntryTransition {
             private_tx_hash,
             CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
             self.proof,
-            vec![self.input],
+            self.inputs,
         ))
     }
 }

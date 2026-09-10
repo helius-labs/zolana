@@ -22,8 +22,6 @@ const OWNER_ACCOUNT_INDEX: u8 = 6;
 fn input(nullifier_byte: u8) -> InputUtxo {
     InputUtxo {
         nullifier_hash: [nullifier_byte; 32],
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index: 0,
     }
 }
 

@@ -9,7 +9,9 @@ use zolana_interface::{
     },
     SOL_INTERFACE,
 };
-use zolana_program::{ExternalDataHashError, SettlementAccounts, TransactExternalData};
+use zolana_program::{
+    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
+};
 
 const TRANSACT_TAG: [u8; 1] = [tag::TRANSACT];
 
@@ -69,9 +71,9 @@ fn ix_data() -> TransactIxData {
         proof: proof(),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 2,
-            utxo_tree_root_index: 3,
         }],
+        utxo_tree_root_index: 3,
+        nullifier_tree_root_index: 2,
     }
 }
 
@@ -117,7 +119,11 @@ fn into_ix_data_round_trips_through_from() {
         owned.private_tx_hash,
         owned.circuit,
         owned.proof,
-        owned.inputs.clone(),
+        TransactInputs {
+            inputs: owned.inputs.clone(),
+            utxo_tree_root_index: owned.utxo_tree_root_index,
+            nullifier_tree_root_index: owned.nullifier_tree_root_index,
+        },
     );
     assert_eq!(rebuilt, owned);
     assert_eq!(TransactExternalData::from(&rebuilt), external);

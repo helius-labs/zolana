@@ -76,8 +76,6 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
         salt: [0u8; 16],
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
         }],
         interface_transfers: Vec::new(),
         data_hash: None,
@@ -88,6 +86,8 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
             data: None,
         }],
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
     .serialize()
     .expect("transact payload serialization is infallible")

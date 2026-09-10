@@ -184,12 +184,8 @@ pub fn set_output_owner_tags(
     }
 }
 
-pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> InputUtxo {
-    InputUtxo {
-        nullifier_hash,
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index,
-    }
+pub fn input_utxo(nullifier_hash: [u8; 32]) -> InputUtxo {
+    InputUtxo { nullifier_hash }
 }
 
 /// The proof's public tree slots. SPP proves against exactly one input tree, so
@@ -209,6 +205,7 @@ pub fn single_tree_slots(
 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
+    utxo_tree_root_index: u16,
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
@@ -223,6 +220,8 @@ pub fn new_transact_ix_data(
         private_tx_hash: [0u8; 32],
         circuit,
         inputs,
+        utxo_tree_root_index,
+        nullifier_tree_root_index: 0,
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -793,10 +792,8 @@ pub fn build_spl_withdrawal(
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
     let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SplWithdrawal {
             amount,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,

@@ -621,6 +621,8 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
             view_tag: [64; 32],
             data: vec![65; 65],
         }],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
@@ -723,13 +725,9 @@ fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
     transact.inputs = vec![
         InputUtxo {
             nullifier_hash: [71; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
         },
         InputUtxo {
             nullifier_hash: [72; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
         },
     ];
 

@@ -10,7 +10,7 @@ use zolana_interface::{
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_program::TransactExternalData;
+use zolana_program::{TransactExternalData, TransactInputs};
 
 use crate::{
     error::CompressionError,
@@ -101,11 +101,11 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         private_tx,
         CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
         proof,
-        vec![InputUtxo {
-            nullifier_hash,
-            nullifier_tree_root_index,
+        TransactInputs {
+            inputs: vec![InputUtxo { nullifier_hash }],
             utxo_tree_root_index,
-        }],
+            nullifier_tree_root_index,
+        },
     );
     let transact_bytes = transact
         .serialize()

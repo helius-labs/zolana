@@ -10,6 +10,13 @@ use zolana_interface::instruction::instruction_data::transact::{
 
 pub type SettlementAccounts = [[u8; 32]; 2];
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactInputs {
+    pub inputs: Vec<InputUtxo>,
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
+}
+
 #[derive(Debug)]
 pub enum ExternalDataHashError {
     Serialize(wincode::Error),
@@ -129,7 +136,7 @@ impl TransactExternalData {
         private_tx_hash: [u8; 32],
         circuit: CircuitId,
         proof: TransactProof,
-        inputs: Vec<InputUtxo>,
+        inputs: TransactInputs,
     ) -> TransactIxData {
         TransactIxData {
             expiry_unix_ts: self.expiry_unix_ts,
@@ -143,7 +150,9 @@ impl TransactExternalData {
             private_tx_hash,
             circuit,
             proof,
-            inputs,
+            inputs: inputs.inputs,
+            utxo_tree_root_index: inputs.utxo_tree_root_index,
+            nullifier_tree_root_index: inputs.nullifier_tree_root_index,
         }
     }
 }

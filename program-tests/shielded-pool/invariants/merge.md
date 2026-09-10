@@ -83,9 +83,9 @@ nullifiers.
 ### Instruction Data Validation
 
 - [x] **INV-MERGE-06: a supported merge shape is enforced at parse time**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (7, 9, 35, 37 inputs and disagreeing vector lengths), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (36 inputs parse and reach verification)
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (7, 9, 35, 37 inputs), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (36 inputs parse and reach verification)
   - Kind: precondition
-  - Statement: `merge_transact` returns Err unless `nullifiers`, `utxo_tree_root_index` and `nullifier_tree_root_index` agree on one length and that length is in `MERGE_SUPPORTED_INPUT_COUNTS` (8 or 36). The shape is the instruction's own declared input count, not a constant the program assumes.
+  - Statement: `merge_transact` returns Err unless `nullifiers.len()` is in `MERGE_SUPPORTED_INPUT_COUNTS` (8 or 36). The shape is the instruction's own declared input count, not a constant the program assumes; the instruction carries one `utxo_tree_root_index` / `nullifier_tree_root_index` pair for every input.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs:106-115` (`fn validate_shape`), `programs/shielded-pool/src/instructions/merge/processor.rs:31-32`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High

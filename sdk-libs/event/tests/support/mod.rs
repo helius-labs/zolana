@@ -34,6 +34,8 @@ pub fn transact_ix(
         salt: SALT,
         proof: TransactProof::zeroed(),
         inputs,
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -52,8 +54,8 @@ pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x40 + u8::try_from(i).expect("test shape"); 32])
             .collect(),
-        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

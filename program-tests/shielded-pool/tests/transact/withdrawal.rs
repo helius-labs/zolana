@@ -41,12 +41,12 @@ use zolana_transaction::{
 
 use zolana_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
-    derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
-    output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field, real_output,
-    set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots, spend_input, spl_leg,
-    spl_public_slots, test_private_tx_blinding, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, external_data_hash,
+    fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    prove_and_verify_transfer, public_sol_field, real_output, set_output_owner_tags,
+    single_tree_slots, sol_leg, sol_public_slots, spend_input, spl_leg, spl_public_slots,
+    test_private_tx_blinding, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    TEST_BLINDING_SEED,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -247,10 +247,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -449,10 +447,8 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifiers[0], 0),
-            eddsa_input_utxo(nullifiers[1], 0),
-        ],
+        vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
+        0,
         vec![InterfaceTransfer::SolDeposit { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -651,10 +647,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifiers[0], 0),
-            eddsa_input_utxo(nullifiers[1], 0),
-        ],
+        vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
+        0,
         vec![InterfaceTransfer::SplDeposit {
             amount: SPL_AMOUNT,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
@@ -984,9 +978,10 @@ fn phase_transfer_to_recipient(
     let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(payer_nullifier, shield_utxo_root_index),
-            eddsa_input_utxo(transfer_dummy_nullifier, shield_utxo_root_index),
+            input_utxo(payer_nullifier),
+            input_utxo(transfer_dummy_nullifier),
         ],
+        shield_utxo_root_index,
         Vec::new(),
         inline_outputs(&transfer_output_hashes, &transfer_view_tags),
     );
@@ -1198,9 +1193,10 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, transfer_utxo_root_index),
-            eddsa_input_utxo(withdraw_dummy_nullifier, transfer_utxo_root_index),
+            input_utxo(recipient_nullifier),
+            input_utxo(withdraw_dummy_nullifier),
         ],
+        transfer_utxo_root_index,
         vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],

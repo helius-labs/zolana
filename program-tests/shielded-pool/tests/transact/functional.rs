@@ -55,9 +55,9 @@ use zolana_test_utils::nullifier_pda::{
 };
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
-    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
+    dummy_input, dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs,
+    input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, pack_transact_proof,
+    set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
     test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
@@ -184,8 +184,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &vec![input_owner_bytes; n_outputs]),
     );
@@ -440,8 +441,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );

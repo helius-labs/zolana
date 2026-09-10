@@ -27,10 +27,10 @@ use zolana_keypair::{hash::sha256, pubkey::PublicKey, NullifierKey, ShieldedKeyp
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
-    inline_outputs, new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof,
-    set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs, input_utxo,
+    new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof, set_output_owner_tags,
+    single_tree_slots, sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, SyncWalletAuthority};
 
@@ -191,8 +191,9 @@ impl RealRingTransact {
         let mut transact_ix_data = new_transact_ix_data(
             nullifiers
                 .iter()
-                .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+                .map(|nullifier| input_utxo(*nullifier))
                 .collect(),
+            utxo_root_index,
             Vec::new(),
             inline_outputs(&output_hashes, &vec![payer_bytes; n_outputs]),
         );

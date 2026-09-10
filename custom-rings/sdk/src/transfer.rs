@@ -1049,16 +1049,12 @@ struct RingEddsaInstructionData<'a> {
 impl RingEddsaInstructionData<'_> {
     fn assemble(self) -> Result<TransactIxData, TransferError> {
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
-        // SPP resolves both roots from one `input_tree`, so every input slot --
-        // dummies included -- carries the same pair of root indexes.
         let inputs: Vec<InputUtxo> = self
             .result
             .nullifiers
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: self.result.nullifier_tree_root_index,
-                utxo_tree_root_index: self.result.utxo_tree_root_index,
             })
             .collect();
         if inputs.len() != n_inputs {
@@ -1076,6 +1072,8 @@ impl RingEddsaInstructionData<'_> {
                 N_PUBLIC_SLOTS as u8,
             ),
             inputs,
+            utxo_tree_root_index: self.result.utxo_tree_root_index,
+            nullifier_tree_root_index: self.result.nullifier_tree_root_index,
             interface_transfers: external
                 .interface_transfers
                 .iter()

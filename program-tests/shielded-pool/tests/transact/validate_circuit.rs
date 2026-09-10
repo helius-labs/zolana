@@ -27,8 +27,6 @@ fn validate(
         inputs: (0..actual_inputs)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -42,6 +40,8 @@ fn validate(
             })
             .collect(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let bytes = ix.serialize().unwrap();
     let borrowed = TransactIxDataRef::from_bytes(&bytes).unwrap();

@@ -17,7 +17,7 @@ use zolana_interface::{
     pda, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
+use zolana_test_utils::transact::{fe, inline_output, input_utxo};
 
 /// Two-input/three-output transact data with a zeroed proof carrying the
 /// given interface transfers: the validation failures under test fire before
@@ -30,7 +30,7 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: vec![eddsa_input_utxo(fe(101), 0), eddsa_input_utxo(fe(102), 0)],
+        inputs: vec![input_utxo(fe(101)), input_utxo(fe(102))],
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -40,6 +40,8 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
             inline_output([3u8; 32], [3u8; 32]),
         ],
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

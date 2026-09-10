@@ -272,14 +272,10 @@ pub fn assemble_with_dummy_policy(
         });
     }
 
-    // SPP resolves one `input_tree` per instruction, so every input (dummies
-    // included) references the same pair of root indexes.
     let inputs = nullifiers
         .iter()
         .map(|nullifier_hash| InputUtxo {
             nullifier_hash: *nullifier_hash,
-            nullifier_tree_root_index: result.nullifier_tree_root_index,
-            utxo_tree_root_index: result.utxo_tree_root_index,
         })
         .collect();
 
@@ -289,6 +285,8 @@ pub fn assemble_with_dummy_policy(
         private_tx_hash: private_tx,
         circuit: circuit_id,
         inputs,
+        utxo_tree_root_index: result.utxo_tree_root_index,
+        nullifier_tree_root_index: result.nullifier_tree_root_index,
         interface_transfers,
         data_hash,
         ring_data_hash,

@@ -28,7 +28,7 @@ use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
+    dummy_transfer_output, external_data_hash, fe, inline_outputs, input_utxo,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
     real_output, set_output_owner_tags, single_tree_slots, sol_leg, spend_input, spl_leg,
     test_private_tx_blinding, transfer_output, LegAccounts, SpendInputArgs,
@@ -323,10 +323,8 @@ fn prove_spend(
         .map(|(hash, is_private)| if is_private { *hash } else { [0u8; 32] })
         .collect();
     let mut ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(note.nullifier, note.root_index),
-            eddsa_input_utxo(note.dummy_nullifier, note.root_index),
-        ],
+        vec![input_utxo(note.nullifier), input_utxo(note.dummy_nullifier)],
+        note.root_index,
         interface_transfers,
         inline_outputs(&output_hashes, &view_tags),
     );

@@ -22,8 +22,8 @@ use zolana_test_utils::{
     },
     transact::{
         build_transfer_prover_inputs, change_and_dummy_outputs,
-        derive_test_transfer_output_blindings, dummy_input, eddsa_input_utxo, external_data_hash,
-        fe, inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        derive_test_transfer_output_blindings, dummy_input, external_data_hash, fe, inline_outputs,
+        input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
         prove_and_verify_transfer, set_output_owner_tags, single_tree_slots, sol_public_slots,
         spend_input, test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs,
         TEST_BLINDING_SEED,
@@ -111,10 +111,8 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .expect("derive output blindings");
 
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );

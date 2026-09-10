@@ -211,8 +211,6 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
         inputs: (1..=circuit.num_inputs())
             .map(|tag| InputUtxo {
                 nullifier_hash: small_fe(tag),
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
         interface_transfers: vec![],
@@ -226,6 +224,8 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
             })
             .collect(),
         messages: vec![],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

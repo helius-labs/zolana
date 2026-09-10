@@ -499,8 +499,6 @@ fn tx_size(args: Vec<String>) {
         let inputs = (0..n)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect();
         let outputs: Vec<TransactOutput> = outputs_spec
@@ -528,6 +526,8 @@ fn tx_size(args: Vec<String>) {
             salt: [0u8; 16],
             outputs,
             messages: vec![],
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         }
     };
 
@@ -920,8 +920,8 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-            nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;

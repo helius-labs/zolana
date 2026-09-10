@@ -34,8 +34,8 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
         eddsa_owner,
         private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
-        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
@@ -44,8 +44,6 @@ const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 4] = [7, 9, 35, 37];
 fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     let mut data = merge_ix_data(true);
     data.nullifiers = (1..=input_count as u64).map(fe).collect();
-    data.utxo_tree_root_index = vec![0; input_count];
-    data.nullifier_tree_root_index = vec![0; input_count];
     data
 }
 
@@ -146,14 +144,6 @@ fn merge_rejects_a_wrong_input_count_shape() {
             .unwrap_or_else(|| panic!("a {input_count}-input merge must be rejected"));
         Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
     }
-
-    let mut data = merge_ix_data(true);
-    data.utxo_tree_root_index.pop();
-    let ix = merge_instruction(&rpc, &tree, record, data);
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("disagreeing vector lengths must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
 }
 
 #[test]
@@ -171,40 +161,6 @@ fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
         .at(1)
         .assert_litesvm(error);
-}
-
-#[test]
-fn merge_rejects_inputs_that_reference_different_root_indexes() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
-
-    // SPP resolves both roots from the single `input_tree`, so the proof binds
-    // one tree slot and every input must name the same pair of root indexes.
-    for data in [
-        {
-            let mut data = merge_ix_data(true);
-            *data
-                .utxo_tree_root_index
-                .last_mut()
-                .expect("merge utxo root indexes") = 1;
-            data
-        },
-        {
-            let mut data = merge_ix_data(true);
-            *data
-                .nullifier_tree_root_index
-                .last_mut()
-                .expect("merge nullifier root indexes") = 1;
-            data
-        },
-    ] {
-        let ix = merge_instruction(&rpc, &tree, record, data);
-        let error = rpc
-            .create_and_send_default_payer_transaction(&[ix], &[])
-            .expect_err("a merge with mixed root indexes must be rejected");
-        Rejection::pool(ShieldedPoolError::InputTreeRootIndexMismatch).assert_litesvm(error);
-    }
 }
 
 #[test]

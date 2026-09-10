@@ -64,6 +64,8 @@ fn transact_data() -> TransactIxData {
                 data
             },
         }],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
