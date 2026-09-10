@@ -11,6 +11,7 @@
 export type ProverKind = "remote" | "wasm" | "native";
 
 export type StepName =
+  | "proof-request"
   | "poseidon-init"
   | "fund"
   | "key-fetch"
@@ -31,6 +32,8 @@ export interface Measurement {
   /** Bytes moved, for steps whose cost is dominated by transfer size. */
   readonly bytes?: number;
   readonly note?: string;
+  /** Circuit shape read from the actual prover request. */
+  readonly shape?: string;
 }
 
 export interface RunResult {

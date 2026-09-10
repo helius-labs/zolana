@@ -83,7 +83,11 @@ export function App(): React.ReactElement {
 
   /** Boots the wasm instance. Idempotent, so the button can be hit twice. */
   const startWasm = useCallback(async (): Promise<WasmProver> => {
-    if (wasmRef.current !== undefined) return wasmRef.current;
+    if (wasmRef.current !== undefined) {
+      await wasmRef.current.start(() => new ProverWorker());
+      setActiveThreads(wasmRef.current.threads);
+      return wasmRef.current;
+    }
     setStatus("starting");
     const instance = new WasmProver({
       wasmUrl: `${config.wasmBaseUrl}/zolana-prover.wasm`,

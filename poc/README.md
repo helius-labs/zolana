@@ -65,6 +65,10 @@ isolation (COOP/COEP headers). The Vite server supplies these headers.
 Only one circuit shape stays deserialized at a time to bound memory use;
 downloaded key bytes remain cached and are checked against the pinned digest.
 Every generated proof is locally verified before the SDK receives it.
+The injected fetch honors request cancellation and deadlines. Cancelling queued
+work leaves active proving alone; cancelling active work terminates the runtime
+and rejects its outstanding requests. A later request starts a fresh worker and
+reloads its key. Worker failures use the same cleanup and restart path.
 
 ## Running the web app
 
@@ -124,7 +128,10 @@ just poc-web              # reads the same ports the stack bound
 ```
 
 Click **Run shield → transfer → unshield**. It sweeps note counts 1–5; each maps
-to the shape its transfer leg lands on. Results stream into the table with
+to the shape its transfer leg lands on. Each transfer spends enough to require
+all of that run's equal notes and keeps half a note for the withdrawal. The table
+labels the actual transfer shape observed in the prover request, including padding.
+Results stream into the table with
 per-step timings, and **Export CSV** dumps them.
 
 `poc-keys` needs the keys present locally (`just build-prover-server` fetches
@@ -274,3 +281,15 @@ Not yet exercised:
   step itself is verified above)
 - per-shape proving times beyond 2x3
 - the native module: `poc/native/MOPRO.md` specifies it; it is not built
+
+## Regression checks
+
+```sh
+just poc-check
+```
+
+`npm run poc:test` runs the core regressions without building Go Wasm and is also
+part of TypeScript CI.
+
+The core tests cover worker recovery, request cancellation, actual request-shape
+reporting, and selection of every requested note count with the SDK selector.

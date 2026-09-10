@@ -14,6 +14,7 @@ import type { Measurement, RunResult, StepName } from "@zolana/poc-core";
 import { formatBytes, formatMs, proveMs } from "@zolana/poc-core";
 
 const STEP_LABELS: Readonly<Record<StepName, string>> = {
+  "proof-request": "Circuit shape",
   "poseidon-init": "Poseidon init",
   fund: "Fund actors",
   "key-fetch": "Key fetch",
@@ -39,7 +40,7 @@ function StepRows({ measurements }: { measurements: readonly Measurement[] }): R
           <td className="num">
             {measurement.bytes === undefined ? "" : formatBytes(measurement.bytes)}
           </td>
-          <td className="note">{measurement.note ?? ""}</td>
+          <td className="note">{measurement.note ?? measurement.shape ?? ""}</td>
         </tr>
       ))}
     </>

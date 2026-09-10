@@ -18,7 +18,7 @@
 // `globalThis.Go` is assigned before init() runs.
 import "./vendor/wasm_exec.js";
 
-import type { WorkerRequest, WorkerResponse } from "./wasm-prover.js";
+import type { WorkerRequest, WorkerResponse, WorkerFatal } from "./wasm-prover.js";
 
 /** The API `cmd/prover-wasm` installs on `globalThis`. */
 interface ZolanaProverApi {
@@ -45,8 +45,12 @@ async function init(wasmUrl: string, threads: number): Promise<void> {
     throw new Error("Threads must be an integer between 0 and 64");
   }
   if (threads > 0) {
-    if (!globalThis.crossOriginIsolated) throw new Error("Threaded proving requires cross-origin isolation. Use the Vite server with COOP/COEP headers.");
-    const kernelUrl = new URL("./accelerator/gnark_kernel.js", new URL(wasmUrl, self.location.href)).href;
+    if (!globalThis.crossOriginIsolated)
+      throw new Error(
+        "Threaded proving requires cross-origin isolation. Use the Vite server with COOP/COEP headers.",
+      );
+    const kernelUrl = new URL("./accelerator/gnark_kernel.js", new URL(wasmUrl, self.location.href))
+      .href;
     const kernel = await import(/* @vite-ignore */ kernelUrl);
     await kernel.default();
     await kernel.initThreadPool(threads);
@@ -54,7 +58,9 @@ async function init(wasmUrl: string, threads: number): Promise<void> {
     activeThreads = threads;
   }
 
-  const ready = new Promise<void>((resolve) => {
+  let rejectReady: (error: Error) => void = () => {};
+  const ready = new Promise<void>((resolve, reject) => {
+    rejectReady = reject;
     (globalThis as unknown as { __zolanaProverReady: () => void }).__zolanaProverReady = resolve;
   });
 
@@ -72,10 +78,14 @@ async function init(wasmUrl: string, threads: number): Promise<void> {
 
   // Deliberately not awaited: the Go main blocks forever to keep its exported
   // callbacks alive, so this promise only settles when the instance dies.
-  void go.run(instance).catch((error: unknown) => {
-    console.error("zolana prover instance exited", error);
+  const exited = (reason: unknown) => {
     api = undefined;
-  });
+    const error = reason instanceof Error ? reason : new Error("Zolana prover runtime exited");
+    rejectReady(error);
+    const response: WorkerFatal = { fatal: true, error: error.message };
+    self.postMessage(response);
+  };
+  void go.run(instance).then(() => exited(undefined), exited);
 
   await ready;
   if (typeof __zolanaProver === "undefined") {
@@ -125,24 +135,26 @@ let queue = Promise.resolve();
 self.addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   const started = performance.now();
-  queue = queue.then(() => handle(request)).then(
-    (value) => {
-      const response: WorkerResponse = {
-        id: request.id,
-        ok: true,
-        value,
-        ms: performance.now() - started,
-      };
-      self.postMessage(response);
-    },
-    (error: unknown) => {
-      const response: WorkerResponse = {
-        id: request.id,
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-        ms: performance.now() - started,
-      };
-      self.postMessage(response);
-    },
-  );
+  queue = queue
+    .then(() => handle(request))
+    .then(
+      (value) => {
+        const response: WorkerResponse = {
+          id: request.id,
+          ok: true,
+          value,
+          ms: performance.now() - started,
+        };
+        self.postMessage(response);
+      },
+      (error: unknown) => {
+        const response: WorkerResponse = {
+          id: request.id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+          ms: performance.now() - started,
+        };
+        self.postMessage(response);
+      },
+    );
 });

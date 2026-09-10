@@ -24,7 +24,8 @@ mkdir -p "$out_dir" "$shim_dir"
 out_dir="$(cd "$out_dir" && pwd)"
 shim_dir="$(cd "$shim_dir" && pwd)"
 
-goroot="$(go env GOROOT)"
+# Resolve the module-selected toolchain before choosing its runtime shim.
+goroot="$(cd "$server_dir" && go env GOROOT)"
 # Go moved the wasm support files from misc/wasm to lib/wasm in 1.24.
 shim=""
 for candidate in "$goroot/lib/wasm/wasm_exec.js" "$goroot/misc/wasm/wasm_exec.js"; do
@@ -43,7 +44,8 @@ cd "$server_dir"
 GOOS=js GOARCH=wasm go build -trimpath -ldflags="-s -w" \
     -o "$out_dir/zolana-prover.wasm" ./cmd/prover-wasm/
 
-cp "$shim" "$shim_dir/wasm_exec.js"
+# Downloaded Go toolchains keep source files read-only; keep rebuilds writable.
+install -m 644 "$shim" "$shim_dir/wasm_exec.js"
 
 printf 'go: %s\nwasm: %s\nshim source: %s\n' \
     "$(go version)" \
