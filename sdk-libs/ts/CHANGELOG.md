@@ -59,6 +59,9 @@ Breaking
   every input of an instruction carries one root position pair
   (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
   `outputTreeId`, and `blindingSeed` → run a prover from this release.
+- `TREE_ACCOUNT_SIZE` is 40,080 and `StateDiscriminator.treeAccount` is 2, so
+  a tree account created by an earlier release is not read as a tree → create
+  the pool tree with this release.
 - `externalDataHash` takes the transact fields as the instruction encodes
   them (`ExternalDataHashInput` extends the new `TransactExternalData`), with
   `outputs` carrying their `OwnerTag`, one `resolvedOwnerTags` entry per

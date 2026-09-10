@@ -6,8 +6,8 @@ use zolana_tree::{
         constants::NULLIFIER_TREE_ZKP_BATCHES,
         layout::{NullifierTreeLayout, RootHistory},
     },
-    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout,
-    TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
+    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeError, TreeFeeSchedule,
+    UtxoTreeLayout, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
 };
 
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
@@ -47,6 +47,33 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(NullifierLayout, batches), 3_280);
     assert_eq!(size_of::<NullifierBatch>(), 9_824);
     assert_eq!(offset_of!(NullifierBatch, start_index), 48);
+}
+
+/// The previous layout had no pending-value buffers and was 39,952 bytes. Such
+/// an account must not load as the current layout.
+#[test]
+fn previous_layout_size_is_rejected() {
+    let mut bytes = vec![0u8; 39_952];
+    assert!(matches!(
+        TreeAccount::from_bytes(&mut bytes, [2u8; 32]),
+        Err(TreeError::Deserialize)
+    ));
+    assert!(matches!(
+        TreeAccount::init(
+            &mut bytes,
+            7,
+            UTXO_TREE_HEIGHT as u8,
+            [2u8; 32],
+            1,
+            NullifierTreeInitParams::default(),
+            TreeFeeSchedule {
+                fee_per_nullifier: 0,
+                append_reimbursement: 0,
+                close_reimbursement: 0,
+            },
+        ),
+        Err(TreeError::InvalidBufferSize)
+    ));
 }
 
 #[test]
