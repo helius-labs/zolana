@@ -1,4 +1,45 @@
-use zolana_event::{decode_output_data, EventDecodeError, GeneralEvent, ProoflessOutput};
+use borsh::BorshDeserialize;
+use zolana_event::{
+    EncryptedRingDepositOutput, GeneralEvent, OutputDataEncoding, ProoflessOutput,
+    ENCRYPTED_RING_DEPOSIT_SCHEME,
+};
+
+use crate::EventDecodeError;
+
+/// Inverse of [`zolana_event::encode_output_data`]: a proofless deposit output payload.
+pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
+    let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
+    else {
+        return Err(EventDecodeError::InvalidOutputData);
+    };
+    let (&scheme, body) = blob
+        .split_first()
+        .ok_or(EventDecodeError::InvalidOutputData)?;
+    if scheme != 0 {
+        return Err(EventDecodeError::InvalidOutputData);
+    }
+    ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
+}
+
+/// Inverse of [`zolana_event::encode_encrypted_ring_deposit_output`].
+pub fn decode_encrypted_ring_deposit_output_data(
+    data: &[u8],
+) -> Result<EncryptedRingDepositOutput, EventDecodeError> {
+    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data)
+        .map_err(|_| EventDecodeError::InvalidOutputData)?
+    else {
+        return Err(EventDecodeError::InvalidOutputData);
+    };
+    let (&scheme, body) = blob
+        .split_first()
+        .ok_or(EventDecodeError::InvalidOutputData)?;
+    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
+        return Err(EventDecodeError::InvalidOutputData);
+    }
+    EncryptedRingDepositOutput::try_from_slice(body)
+        .map_err(|_| EventDecodeError::InvalidOutputData)
+}
 
 pub fn proofless_output(event: &GeneralEvent) -> Result<ProoflessOutput, EventDecodeError> {
     let output = event

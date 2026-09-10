@@ -5,11 +5,11 @@
 
 use borsh::BorshSerialize;
 use zolana_event::{
-    decode_output_data, encode_output_data, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, OutputDataEncoding, ProoflessOutput,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
-    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    encode_output_data, is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
+    OutputDataEncoding, ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
+use zolana_event_parser::decode_output_data;
 
 /// The encoding `encode_output_data` replaced: serialize the scheme byte plus the
 /// output into one `Vec`, then let derived borsh wrap that `Vec` in the enum.

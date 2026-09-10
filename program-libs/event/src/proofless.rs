@@ -1,7 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 
-use crate::EventDecodeError;
-
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessOutput {
     pub owner: [u8; 32],
@@ -208,39 +206,4 @@ pub fn encode_encrypted_ring_deposit_output_ref(
         .expect("shielded-pool output data serialization is infallible");
     borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
         .expect("shielded-pool output data serialization is infallible")
-}
-
-/// Inverse of [`encode_output_data`]: a proofless deposit output payload.
-pub fn decode_output_data(data: &[u8]) -> Result<ProoflessOutput, EventDecodeError> {
-    let OutputDataEncoding::Plaintext(blob) = OutputDataEncoding::try_from_slice(data)
-        .map_err(|_| EventDecodeError::InvalidOutputData)?
-    else {
-        return Err(EventDecodeError::InvalidOutputData);
-    };
-    let (&scheme, body) = blob
-        .split_first()
-        .ok_or(EventDecodeError::InvalidOutputData)?;
-    if scheme != 0 {
-        return Err(EventDecodeError::InvalidOutputData);
-    }
-    ProoflessOutput::try_from_slice(body).map_err(|_| EventDecodeError::InvalidOutputData)
-}
-
-/// Inverse of [`encode_encrypted_ring_deposit_output`].
-pub fn decode_encrypted_ring_deposit_output_data(
-    data: &[u8],
-) -> Result<EncryptedRingDepositOutput, EventDecodeError> {
-    let OutputDataEncoding::Encrypted(blob) = OutputDataEncoding::try_from_slice(data)
-        .map_err(|_| EventDecodeError::InvalidOutputData)?
-    else {
-        return Err(EventDecodeError::InvalidOutputData);
-    };
-    let (&scheme, body) = blob
-        .split_first()
-        .ok_or(EventDecodeError::InvalidOutputData)?;
-    if scheme != ENCRYPTED_RING_DEPOSIT_SCHEME {
-        return Err(EventDecodeError::InvalidOutputData);
-    }
-    EncryptedRingDepositOutput::try_from_slice(body)
-        .map_err(|_| EventDecodeError::InvalidOutputData)
 }

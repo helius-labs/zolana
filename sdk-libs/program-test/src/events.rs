@@ -3,12 +3,12 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
-    EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, EventKind, GeneralEvent,
+    ProoflessOutput,
 };
 use zolana_event_parser::{
-    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_outputs,
+    decode_encrypted_ring_deposit_output_data, event_kind_from_indexed, general_event_from_indexed,
+    indexed_events_from_instruction_groups, proofless_outputs,
 };
 pub use zolana_event_parser::{IndexedEvent, InstructionGroup, ParsedInstruction};
 use zolana_transaction::ShieldedTransaction;

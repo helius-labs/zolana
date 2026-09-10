@@ -9,6 +9,7 @@ autotests = false
 
 [dependencies]
 zolana-client = { workspace = true, features = ["indexer-api"] }
+zolana-event-parser = { workspace = true }
 zolana-interface = { workspace = true, features = ["solana"] }
 zolana-user-registry-interface = { workspace = true, features = ["solana"] }
 zolana-keypair = { workspace = true }

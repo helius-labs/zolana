@@ -11458,6 +11458,7 @@ dependencies = [
  "tokio",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",

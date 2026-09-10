@@ -7,8 +7,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 pub use output_data::MessageData;
 pub use output_utxo::OutputUtxo;
 pub use proofless::{
-    confidential_encrypted_output_body, decode_encrypted_ring_deposit_output_data,
-    decode_output_data, encode_encrypted_ring_deposit_output,
+    confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
     encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
     encode_verifiably_encrypted, is_confidential_encrypted_output,
     ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
@@ -100,35 +99,6 @@ pub struct MergeEvent {
     /// (user-record state) for `merge_transact`, the first nullifier for
     /// `merge_ring`.
     pub output_view_tag: [u8; 32],
-}
-
-/// Why an emitted event or output payload could not be decoded or rebuilt.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EventDecodeError {
-    MissingInstructionTag,
-    InvalidInstructionTag(u8),
-    InvalidPayload,
-    InvalidEventKind(u8),
-    InvalidOutputData,
-    MissingOutput,
-    MissingDepositSplTransfer,
-    /// The emitting instruction's data did not parse as the instruction the
-    /// event kind belongs to.
-    InvalidSourceInstructionData,
-    /// The emitting instruction's tag cannot produce this event kind.
-    UnsupportedSourceInstruction(u8),
-    /// An output's `OwnerTag::Account` index points past the emitting
-    /// instruction's account list.
-    OutputOwnerAccountMissing(u8),
-    /// The event names more input trees than the instruction data can assign
-    /// inputs to.
-    UnsupportedInputTreeCount(usize),
-    /// `spl_transfers` and the instruction's interface transfers differ in length.
-    SplTransferCountMismatch,
-    /// The event kind carries no [`GeneralEvent`] view (nullifier-tree updates).
-    NotAGeneralEvent,
-    /// Queue sequence or leaf index arithmetic overflowed.
-    IndexOverflow,
 }
 
 /// A cascade of `num_update` nullifier-tree zkp batch updates applied in one

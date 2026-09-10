@@ -6,8 +6,8 @@
 
 use borsh::BorshDeserialize;
 use zolana_event::{
-    tag, EventDecodeError, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent,
-    MessageData, OutputUtxo, TransactEvent,
+    tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
+    TransactEvent,
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
@@ -15,7 +15,7 @@ use zolana_interface::instruction::instruction_data::{
     transact::{OwnerTag, TransactIxDataRef},
 };
 
-use crate::instruction::ParsedInstruction;
+use crate::{instruction::ParsedInstruction, EventDecodeError};
 
 /// Rebuild the [`GeneralEvent`] of one `EMIT_EVENT` self-CPI. `source` is the
 /// instruction that emitted it (its data and account list are the second input

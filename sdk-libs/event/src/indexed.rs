@@ -1,9 +1,10 @@
 use solana_pubkey::Pubkey;
-use zolana_event::{tag, EventDecodeError, EventKind, GeneralEvent};
+use zolana_event::{tag, EventKind, GeneralEvent};
 
 use crate::{
     instruction::{InstructionGroup, ParsedInstruction},
     reconstruct::reconstruct_general_event,
+    EventDecodeError,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

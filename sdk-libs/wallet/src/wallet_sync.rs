@@ -8,11 +8,8 @@ use std::{
 use solana_address::Address;
 
 use zolana_client::timing;
-use zolana_interface::{
-    event::{decode_encrypted_ring_deposit_output_data, decode_output_data},
-    state::SplAssetRegistry,
-    SHIELDED_POOL_PROGRAM_ID,
-};
+use zolana_event_parser::{decode_encrypted_ring_deposit_output_data, decode_output_data};
+use zolana_interface::{state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::viewing_key::ViewTag;
 use zolana_transaction::{
     AssetBalance, CursorStream, OutputContext, OutputSlot, PrivateTransaction, ShieldedTransaction,
