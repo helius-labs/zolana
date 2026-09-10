@@ -186,6 +186,14 @@ Breaking
   write 64 more bytes and a hand-built 64-byte `b` is refused → pass the
   `compressProof` result through unchanged, it now keeps the point the prover
   returned; `toCustomRingProof()` still compresses `b`.
+- `TransferInputs.publicInputHash`, the public-input hash of a merge proof, and
+  the `publicInputHash` of `ringEntryTransitionInputs` fold their nullifier
+  list, output hash list, output owner list, and the public-input list itself
+  three elements per Poseidon call (was one), and the signer slots of a shape
+  are the payer plus one per input up to the transaction address budget
+  (unchanged for every shape this package builds) → run a program and prover
+  from this release, a proof or public-input hash produced by an earlier
+  release no longer verifies.
 
 Added
 
