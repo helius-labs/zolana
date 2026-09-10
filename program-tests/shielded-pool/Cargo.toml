@@ -55,6 +55,8 @@ zolana-tree = { workspace = true }
 mollusk-svm = { workspace = true }
 
 [dev-dependencies]
+agave-feature-set = "4.2"
+litesvm = { workspace = true }
 wincode = { workspace = true }
 borsh = { workspace = true }
 bytemuck = { workspace = true }

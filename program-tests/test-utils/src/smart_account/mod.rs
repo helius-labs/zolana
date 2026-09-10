@@ -13,6 +13,7 @@
 use std::{fs, path::Path};
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use solana_account::Account;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 pub mod roles;
@@ -32,19 +33,31 @@ const PROGRAM_CONFIG_DISCRIMINATOR_END: usize = 8;
 const PROGRAM_CONFIG_TREASURY_START: usize = 64;
 const PROGRAM_CONFIG_TREASURY_END: usize = 96;
 
-/// Write the pre-initialized Squads `ProgramConfig` account used by localnet
-/// tests that load the smart-account program from a fixture account directory.
-pub fn write_program_config_fixture(account_dir: impl AsRef<Path>) {
-    let (pda, _) = program_config_pda();
-
+/// Pre-initialized Squads `ProgramConfig` shared by LiteSVM and localnet tests.
+pub fn program_config_fixture() -> Account {
     let mut data = [0u8; PROGRAM_CONFIG_ACCOUNT_LEN];
     data[..PROGRAM_CONFIG_DISCRIMINATOR_END].copy_from_slice(&PROGRAM_CONFIG_ACCOUNT_DISCRIMINATOR);
     data[PROGRAM_CONFIG_TREASURY_START..PROGRAM_CONFIG_TREASURY_END]
         .copy_from_slice(&treasury_pda().to_bytes());
-    let encoded = STANDARD.encode(data);
+    Account {
+        lamports: 1_000_000,
+        data: data.to_vec(),
+        owner: SMART_ACCOUNT_PROGRAM_ID,
+        executable: false,
+        rent_epoch: u64::MAX,
+    }
+}
+
+/// Write the pre-initialized Squads `ProgramConfig` account used by localnet
+/// tests that load the smart-account program from a fixture account directory.
+pub fn write_program_config_fixture(account_dir: impl AsRef<Path>) {
+    let (pda, _) = program_config_pda();
+    let account = program_config_fixture();
+    let encoded = STANDARD.encode(&account.data);
+    let lamports = account.lamports;
 
     let json = format!(
-        r#"{{"pubkey":"{pda}","account":{{"lamports":1000000,"data":["{encoded}","base64"],"owner":"{SMART_ACCOUNT_PROGRAM_ID}","executable":false,"rentEpoch":18446744073709551615}}}}"#,
+        r#"{{"pubkey":"{pda}","account":{{"lamports":{lamports},"data":["{encoded}","base64"],"owner":"{SMART_ACCOUNT_PROGRAM_ID}","executable":false,"rentEpoch":18446744073709551615}}}}"#,
     );
 
     let account_dir = account_dir.as_ref();

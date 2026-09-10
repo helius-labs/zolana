@@ -87,7 +87,7 @@ test-tree:
 # Depends on build-programs so the litesvm tests load a fresh .so and actually
 # run (without it `program_test()` finds no .so and the suite skips). Builds
 # the prover server and zolana CLI because transact tests spawn a local prover.
-test-shielded-pool: build-programs build-prover-server build-cli
+test-shielded-pool: build-programs build-prover-server build-cli ensure-smart-account
     cargo nextest run -p zolana-interface --features solana
     cargo nextest run -p shielded-pool-program --lib --tests
     # Proof-backed binaries spawn a shared prover server on a fixed port; run
@@ -100,7 +100,7 @@ test-shielded-pool: build-programs build-prover-server build-cli
 # Fast SBF-backed state and failure tests. No proof server or local validator.
 # The proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
-test-program-fast: build-programs
+test-program-fast: build-programs ensure-smart-account
     cargo nextest run -p zolana-interface --features solana
     cargo nextest run -p shielded-pool-program --lib --tests
     cargo nextest run -p zolana-user-registry --tests
@@ -110,7 +110,7 @@ test-program-fast: build-programs
 
 # Run one shielded-pool intent-level binary, for example:
 # `just test-shielded-pool-case deposit_model`.
-test-shielded-pool-case case: build-programs
+test-shielded-pool-case case: build-programs ensure-smart-account
     cargo nextest run -p shielded-pool-tests --test {{case}}
 
 # Account-aware Mollusk failures and property mutations for SPP and swap.
@@ -562,7 +562,7 @@ test-client-async-transfer-queue: build-prover-server build-cli
 
 # Program integration tests backed by LiteSVM. Transact tests spawn the prover
 # through the zolana CLI.
-test-programs: build-programs build-prover-server build-cli
+test-programs: build-programs build-prover-server build-cli ensure-smart-account
     cargo nextest run -p shielded-pool-tests --features proofs --test-threads 1
 
 # Proving-key-independent interface, program, and LiteSVM proofless tests.
@@ -570,7 +570,7 @@ test-programs: build-programs build-prover-server build-cli
 # and ring config (including the fixture program's signed CPI into SPP); the
 # proof-backed binaries are gated behind the `proofs` feature, so the plain
 # package run is hermetic by construction.
-test-proofless-programs: build-programs
+test-proofless-programs: build-programs ensure-smart-account
     cargo test -p zolana-interface --features solana
     cargo test -p shielded-pool-program --lib --tests
     cargo nextest run -p shielded-pool-tests
