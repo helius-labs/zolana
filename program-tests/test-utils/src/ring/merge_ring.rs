@@ -10,7 +10,7 @@ use zolana_client::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+        instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
         MergeRing,
     },
 };
@@ -58,7 +58,7 @@ impl RingHarness {
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
         let tree_id = self.tree_id;
         let mut total: u64 = 0;
-        let mut slots = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut slots = Vec::with_capacity(MERGE_DEFAULT_INPUT_COUNT);
         for utxo in inputs {
             total = total
                 .checked_add(utxo.amount)
@@ -79,7 +79,7 @@ impl RingHarness {
         // Pad to the 8-input shape with dummies. A dummy mirrors the first real
         // input's UTXO root but carries a non-inclusion proof for its own
         // deterministic nullifier.
-        for slot in inputs.len()..MERGE_INPUT_COUNT {
+        for slot in inputs.len()..MERGE_DEFAULT_INPUT_COUNT {
             slots.push(SpendSlot {
                 utxo_hash: None,
                 nullifier: merge_dummy_nullifier(

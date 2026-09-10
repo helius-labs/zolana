@@ -35,3 +35,16 @@ fn eddsa_merge_proofs_cover_minimum_middle_and_full_shapes() {
         .prove_and_verify_merge();
     }
 }
+
+#[test]
+#[serial_test::serial]
+fn merge_proofs_cover_the_wide_shape() {
+    for eddsa in [false, true] {
+        for real_inputs in [9, 36] {
+            MergeHarness {
+                plan: MergePlan { real_inputs, eddsa },
+            }
+            .prove_and_verify_merge();
+        }
+    }
+}

@@ -10,7 +10,7 @@ use zolana_interface::{
     event::{EventKind, Input},
     instruction::{
         instruction_data::merge_transact::{
-            MergeExternalDataHash, MergeTransactIxDataRef, MERGE_INPUT_COUNT,
+            MergeExternalDataHash, MergeTransactIxDataRef, MAX_MERGE_INPUTS,
         },
         tag::MERGE_TRANSACT,
     },
@@ -37,7 +37,7 @@ pub(crate) struct MergeCoreAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
 }
 
 pub(crate) fn validate_field_elements(ix: &MergeTransactIxDataRef<'_>) -> ProgramResult {
@@ -69,7 +69,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     let clock = Clock::get()?;
     check_not_expired(ix.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeTransactAccounts::validate_and_parse(accounts)?;
+    let merge_accounts = MergeTransactAccounts::validate_and_parse(accounts, ix.nullifiers.len())?;
 
     let pk_fields = load_user_record(merge_accounts.user_record, ix.eddsa_owner)?;
 
@@ -142,7 +142,7 @@ pub(crate) fn process_merge_core(
         };
         let inputs = apply_input_tree(&mut tree, ix, input_tree, &mut derived)?;
         let forester_fee = tree
-            .credit_insertion_fee(MERGE_INPUT_COUNT as u64)
+            .credit_insertion_fee(ix.nullifiers.len() as u64)
             .map_err(tree_error)?;
         (
             InputTreeResult {
@@ -188,8 +188,8 @@ pub(crate) fn process_merge_core(
 }
 
 /// Resolve `input_tree`'s roots into the proof's tree slot and insert every
-/// nullifier into its queue. `from_bytes` already enforced the fixed
-/// `MERGE_INPUT_COUNT` shape. The circuit publishes `INPUT_TREES` slots, but
+/// nullifier into its queue. `from_bytes` already enforced a supported merge
+/// shape. The circuit publishes `INPUT_TREES` slots, but
 /// SPP spends from one `input_tree`, so every input must reference the same
 /// pair of root indexes (`InputTreeRootIndexMismatch` otherwise): the roots
 /// they resolve to fill slot 0 and the remaining slots stay zero.
@@ -224,7 +224,7 @@ fn apply_input_tree(
             .map_err(tree_error)?,
     };
 
-    let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
+    let mut inputs = Vec::with_capacity(ix.nullifiers.len());
     for nullifier in &ix.nullifiers {
         let queue_index = tree
             .nullifier_tree()

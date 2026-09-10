@@ -6,7 +6,7 @@ use solana_pubkey::Pubkey;
 use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
 use zolana_event_parser::ParsedInstruction;
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+    instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
     TransactIxData, TransactOutput, TransactProof,
 };
@@ -49,11 +49,11 @@ pub fn merge_ix(output_utxo_hash: [u8; 32]) -> MergeTransactIxData {
         output_utxo_hash,
         eddsa_owner: true,
         private_tx_hash: [7u8; 32],
-        nullifiers: (0..MERGE_INPUT_COUNT)
+        nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x40 + u8::try_from(i).expect("test shape"); 32])
             .collect(),
-        utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
     }
 }
 

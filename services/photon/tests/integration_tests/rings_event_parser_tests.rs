@@ -66,7 +66,7 @@ use zolana_indexer_api::{
     GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
 use zolana_interface::instruction::{
-    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+    instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
     TransactOutput, TransactProof,
 };
@@ -253,7 +253,7 @@ fn parses_merge_event_with_photon_parser() {
     assert!(!rings_tx.proofless);
     assert_eq!(
         rings_tx.nullifiers,
-        (0..MERGE_INPUT_COUNT)
+        (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| expected_nullifier(
                 i16::try_from(i).expect("shape"),
                 30 + u64::try_from(i).expect("shape"),
@@ -2165,11 +2165,11 @@ fn merge_transaction_info() -> TransactionInfo {
         output_utxo_hash: [0x66; 32],
         eddsa_owner: true,
         private_tx_hash: [0; 32],
-        nullifiers: (0..MERGE_INPUT_COUNT)
+        nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
             .collect(),
-        utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
     };
     let mut source_data = vec![tag::MERGE_TRANSACT];
     source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));

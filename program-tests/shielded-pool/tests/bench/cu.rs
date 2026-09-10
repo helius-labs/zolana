@@ -30,9 +30,15 @@ use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 use shielded_pool_tests::support::{
     fixtures::Pool,
+    merge::RealMergeProof,
     mollusk,
+    ring::{RealRingTransact, RingRail},
     transact::{current_tree_roots, tree_roots},
 };
+use zolana_interface::{
+    instruction::instruction_data::merge_transact::MERGE_SUPPORTED_INPUT_COUNTS, pda, shape::Shape,
+};
+use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
@@ -186,8 +192,12 @@ fn bench_cu_deposit() {
         description:
             "Compute unit profiling for feasible shielded-pool instruction families, replayed \
              under mollusk from litesvm-built account state: protocol creation, tree pause, \
-             proof-free SOL/SPL shields, all ten Groth16-proven EdDSA transact shapes (including \
-             the 1x8 split shape), and SOL/SPL withdrawals. This target is a pure benchmark: no \
+             proof-free SOL/SPL shields, all eleven Groth16-proven EdDSA transact shapes \
+             (including the 1x8 split shape and the 36x2 consolidation shape), the 36x2 \
+             consolidation shape on both `ring_transact` rails (EdDSA, and P256 whose BSB22 \
+             commitment adds a Pedersen proof-of-knowledge pairing to verification), both \
+             supported `merge_transact` shapes, and SOL/SPL withdrawals. This target is a pure \
+             benchmark: no \
              CI workflow runs the profiling build, so no CU ceilings are enforced here -- a \
              ceiling that never runs would be unfalsifiable. Regression ceilings live in the \
              fast cross_cutting_cu_budget suite, which pins every proofless instruction family \
@@ -224,8 +234,21 @@ fn bench_cu_deposit() {
         (5, 3),
         (5, 4),
         (1, 8),
+        (36, 2),
     ] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
+    }
+    for rail in [RingRail::Eddsa, RingRail::P256] {
+        bench_ring_transfer_shape(
+            &mut mollusk,
+            &program_id,
+            rail,
+            Shape::IN36_OUT2,
+            &mut bench,
+        );
+    }
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
+        bench_merge_shape(&mut mollusk, &program_id, input_count, &mut bench);
     }
     bench_withdrawal_sol(&mut mollusk, &program_id, &mut bench);
     bench_withdrawal_spl(
@@ -283,7 +306,6 @@ fn transact_accounts(
     program_id: &Pubkey,
     token_program_account: Option<&(Pubkey, Account)>,
 ) -> Vec<(Pubkey, Account)> {
-    let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
     let data = TransactIxData::deserialize(ix.data.get(1..).expect("tagged transact data"))
         .expect("transact instruction data");
     let input_tree = ix.accounts.get(1).expect("input tree meta").pubkey;
@@ -292,7 +314,26 @@ fn transact_accounts(
         .iter()
         .map(|input| input.nullifier_hash)
         .collect();
-    let nullifier_pdas = nullifier_pda_addresses(&input_tree, &nullifiers);
+    nullifier_spend_accounts(
+        pt,
+        ix,
+        program_id,
+        input_tree,
+        &nullifiers,
+        token_program_account,
+    )
+}
+
+fn nullifier_spend_accounts(
+    pt: &ZolanaProgramTest,
+    ix: &Instruction,
+    program_id: &Pubkey,
+    input_tree: Pubkey,
+    nullifiers: &[[u8; 32]],
+    token_program_account: Option<&(Pubkey, Account)>,
+) -> Vec<(Pubkey, Account)> {
+    let token_program = Pubkey::new_from_array(SPL_TOKEN_PROGRAM_ID);
+    let nullifier_pdas = nullifier_pda_addresses(&input_tree, nullifiers);
     let tree_rent = pt
         .svm
         .minimum_balance_for_rent_exemption(tree_account_size());
@@ -608,6 +649,77 @@ fn bench_transfer_shape(
 
     let entries = take_profiling_entries();
     let name = format!("transfer eddsa {n_inputs}x{n_outputs}");
+    assert!(!entries.is_empty(), "no profiling entries for '{name}'");
+    bench.add_from_entries(&name, entries);
+}
+
+fn bench_ring_transfer_shape(
+    mollusk: &mut Mollusk,
+    program_id: &Pubkey,
+    rail: RingRail,
+    shape: Shape,
+    bench: &mut CuBenchmark,
+) {
+    std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
+    let mut pool = Pool::initialized();
+    spawn_workspace_prover();
+
+    let ring_program = Pubkey::new_from_array(RING_TEST_PROGRAM_ID);
+    let proof = RealRingTransact {
+        rail,
+        n_inputs: shape.n_inputs(),
+        n_outputs: shape.n_outputs(),
+        ring_config: pda::ring_auth(&ring_program).0,
+    }
+    .build(&mut pool);
+    let ix = proof.instruction(pool.rpc.payer.pubkey(), pool.tree);
+
+    mollusk.warp_to_slot(pool.rpc.svm.get_sysvar::<Clock>().slot);
+    let accounts = transact_accounts(&pool.rpc, &ix, program_id, None);
+    let mollusk_ix = to_mollusk_instruction(&ix);
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    let name = format!(
+        "transfer {} {}x{}",
+        rail.label(),
+        shape.n_inputs(),
+        shape.n_outputs()
+    );
+    assert!(!entries.is_empty(), "no profiling entries for '{name}'");
+    bench.add_from_entries(&name, entries);
+}
+
+fn bench_merge_shape(
+    mollusk: &mut Mollusk,
+    program_id: &Pubkey,
+    input_count: usize,
+    bench: &mut CuBenchmark,
+) {
+    std::env::set_var("SHIELDED_POOL_PROGRAM_PATH", PLAIN_PROGRAM_PATH);
+    let mut pool = Pool::initialized();
+    spawn_workspace_prover();
+
+    let merge = RealMergeProof {
+        input_count,
+        real_input_count: 1,
+    }
+    .build(&mut pool);
+    let ix = merge.instruction(&pool);
+    mollusk.warp_to_slot(pool.rpc.svm.get_sysvar::<Clock>().slot);
+    let accounts = nullifier_spend_accounts(
+        &pool.rpc,
+        &ix,
+        program_id,
+        pool.tree,
+        &merge.nullifiers,
+        None,
+    );
+    let mollusk_ix = to_mollusk_instruction(&ix);
+    mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
+
+    let entries = take_profiling_entries();
+    let name = format!("merge {input_count}x1");
     assert!(!entries.is_empty(), "no profiling entries for '{name}'");
     bench.add_from_entries(&name, entries);
 }

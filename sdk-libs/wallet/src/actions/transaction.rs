@@ -8,7 +8,7 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::{Shape, SPP_SUPPORTED_SHAPES},
+    shape::{Shape, SPP_AUTO_SHAPES},
     MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
@@ -16,7 +16,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge::{Merge, PreparedMerge, MERGE_DEFAULT_INPUT_COUNT},
         transact::{
             ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SettlementTarget, SppProofInputs,
@@ -622,7 +622,7 @@ fn select_bounded_inputs(
     if amount == 0 {
         return Err(ClientError::ZeroSpendAmount);
     }
-    let max_inputs = SPP_SUPPORTED_SHAPES
+    let max_inputs = SPP_AUTO_SHAPES
         .iter()
         .map(|shape| shape.n_inputs())
         .max()
@@ -722,7 +722,7 @@ fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofI
 }
 
 /// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
-/// [`MERGE_INPUTS`] of the smallest plain utxos of `asset` (ascending, dust
+/// [`MERGE_DEFAULT_INPUT_COUNT`] of the smallest plain utxos of `asset` (ascending, dust
 /// first). `Some(hashes)` takes exactly the named utxos: 2..=8 distinct, unspent
 /// utxos of `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to
 /// reject with a precise reason.
@@ -747,7 +747,7 @@ fn select_merge_inputs(
                 .collect();
             // Smallest first: a sweep clears dust and leaves large utxos intact.
             candidates.sort_by_key(|entry| entry.utxo.amount);
-            candidates.truncate(MERGE_INPUTS);
+            candidates.truncate(MERGE_DEFAULT_INPUT_COUNT);
             if candidates.len() < 2 {
                 return Err(ClientError::NothingToMerge { asset });
             }
@@ -757,10 +757,10 @@ fn select_merge_inputs(
                 .collect())
         }
         Some(hashes) => {
-            if hashes.len() > MERGE_INPUTS {
+            if hashes.len() > MERGE_DEFAULT_INPUT_COUNT {
                 return Err(ClientError::TooManyInputs {
                     got: hashes.len(),
-                    max: MERGE_INPUTS,
+                    max: MERGE_DEFAULT_INPUT_COUNT,
                 });
             }
             if hashes.len() < 2 {
@@ -2220,7 +2220,7 @@ mod tests {
         let selected =
             select_merge_inputs(&wallet, Address::default(), SOL_MINT, &keypair, None).unwrap();
 
-        assert_eq!(selected.len(), MERGE_INPUTS);
+        assert_eq!(selected.len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(amounts(&selected), vec![10, 20, 30, 40, 50, 60, 70, 80]);
     }
 
@@ -2322,7 +2322,7 @@ mod tests {
             error,
             ClientError::TooManyInputs {
                 got: 9,
-                max: MERGE_INPUTS
+                max: MERGE_DEFAULT_INPUT_COUNT
             }
         ));
     }
@@ -2935,7 +2935,7 @@ mod tests {
         assert_eq!(created.num_inputs, 3);
         assert_eq!(created.merged_amount, 60);
         assert_eq!(created.tree, Address::default());
-        assert_eq!(created.prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(created.prepared.inputs.len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(created.prepared.output.amount, 60);
     }
 }

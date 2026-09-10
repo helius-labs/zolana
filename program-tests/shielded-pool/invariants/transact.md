@@ -117,10 +117,10 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-09: more than 5 inputs is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports`
+- [x] **INV-TRANSACT-09: an input count with no circuit is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (six inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_consolidation_shape`, `ring_transact_accepts_the_consolidation_shape` and `ring_p256_transact_accepts_the_consolidation_shape` (36 inputs, real proofs)
   - Kind: precondition
-  - Statement: every instruction with strictly more than `MAX_INPUTS` (5) inputs returns Err before proof verification.
+  - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The supported counts are 1 to 5 plus the 36-input consolidation shape (`Shape::IN36_OUT2`), so six inputs is rejected while thirty-six is accepted; `MAX_INPUTS` (36) sizes the program's buffers and is not itself the check.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:53-56` (`fn check_input_signers`), `transact/tree.rs:25-29` (`fn apply_input_tree`), `verify.rs:20` (`MAX_INPUTS`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Medium

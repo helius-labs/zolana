@@ -12,14 +12,14 @@
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
-use shielded_pool_tests::support::transact::{
-    current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool,
+use shielded_pool_tests::support::{
+    ring::{RealRingTransact, RingRail},
+    transact::{current_tree_roots, proof_env, tree_progress, write_ring_config_account, Pool},
 };
 
 use num_bigint::BigUint;
 
 use groth16_solana::groth16::Groth16Verifier;
-use shielded_pool_program::testing::MAX_SIGNERS;
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::AccountMeta;
@@ -41,8 +41,10 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
+    shape::Shape,
     state::{discriminator::RING_CONFIG, RingConfig},
     tree_slot::{tree_id_field, tree_slots_hash_chain},
+    verifying_keys::RingP256ProofData,
     NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
@@ -55,23 +57,29 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
     dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
     inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, prove_and_verify_transfer, set_output_owner_tags, single_tree_slots,
-    sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    pack_transact_proof, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
+    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
 
-/// Build a valid (2,3) eddsa-rail `transact` instruction data with a real proof:
-/// one real zero-value input (a proofless SOL deposit the payer just made --
-/// PR164 requires at least one real input for the dummy-participant gate) plus
-/// one dummy input, and three dummy outputs, bound to the on-chain roots and
-/// the payer. Shared by the positive and negative scenarios.
+/// Build valid eddsa-rail `transact` instruction data with a real proof at
+/// `n_inputs x n_outputs`: one real zero-value input (a proofless SOL deposit
+/// the payer just made -- PR164 requires at least one real input for the
+/// dummy-participant gate) plus dummy inputs, and a real zero-amount change
+/// output plus dummy outputs, bound to the on-chain roots and the payer. Shared
+/// by the positive and negative scenarios.
 fn build_valid_transact_ix_for_owner_with_discriminator(
     env: &mut Pool,
     input_owner: Pubkey,
     discriminator: u8,
+    n_inputs: usize,
+    n_outputs: usize,
 ) -> TransactIxData {
+    assert!(
+        n_inputs > 0 && n_outputs > 0,
+        "shape needs a real slot each"
+    );
     let payer = env.rpc.payer.insecure_clone();
     let payer_bytes = payer.pubkey().to_bytes();
     let input_owner_bytes = input_owner.to_bytes();
@@ -119,8 +127,17 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         .expect("non-inclusion proof");
 
     let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
-    let (dummy_input_1, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
+    let mut dummy_inputs = Vec::with_capacity(n_inputs - 1);
+    let mut dummy_nullifiers = Vec::with_capacity(n_inputs - 1);
+    for offset in 0..n_inputs - 1 {
+        let seed = 2u8
+            .checked_add(u8::try_from(offset).expect("supported input count"))
+            .expect("dummy-input seed");
+        let (input, dummy_nullifier) =
+            dummy_input(&[seed; 31], &nf_tree, tree_id).expect("dummy input");
+        dummy_inputs.push(input);
+        dummy_nullifiers.push(dummy_nullifier);
+    }
     let real_input = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
@@ -144,45 +161,62 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let change_nullifier_pk = change_nullifier_key
         .pubkey()
         .expect("change output nullifier pubkey");
+    let dummy_output_blindings: Vec<[u8; 31]> = (0..n_outputs - 1)
+        .map(|offset| {
+            [2u8.checked_add(u8::try_from(offset).expect("supported output count"))
+                .expect("dummy-output seed"); 31]
+        })
+        .collect();
     let mut outputs: Vec<TransferOutput> = change_and_dummy_outputs(
         owner_public_key,
         change_nullifier_pk,
         [1u8; 31],
-        &[[2u8; 31], [3u8; 31]],
+        &dummy_output_blindings,
         tree_id,
     )
     .expect("change and dummy outputs");
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
 
+    let nullifiers: Vec<[u8; 32]> = std::iter::once(nullifier)
+        .chain(dummy_nullifiers.iter().copied())
+        .collect();
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        nullifiers
+            .iter()
+            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+            .collect(),
         Vec::new(),
-        inline_outputs(&output_hashes, &[input_owner_bytes; 3]),
+        inline_outputs(&output_hashes, &vec![input_owner_bytes; n_outputs]),
     );
 
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(
-        &mut outputs,
-        &owner_pk_hashes,
-        &[change_nullifier_pk, zero, zero],
-    );
+    let mut output_nullifier_pks = vec![zero; n_outputs];
+    if let Some(change) = output_nullifier_pks.first_mut() {
+        *change = change_nullifier_pk;
+    }
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &output_nullifier_pks);
 
     let external_data_hash =
         external_data_hash_for_discriminator(&transact_ix_data, discriminator, &[])
             .expect("ring external data hash");
 
     // The real input and the real change output contribute their utxo hashes to
-    // private_tx_hash; the dummy input and the two dummy outputs contribute zero.
+    // private_tx_hash; every dummy input and dummy output contributes zero.
     let change_output_hash = *output_hashes.first().expect("change output hash");
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
+    let mut private_input_hashes = vec![zero; n_inputs];
+    if let Some(real) = private_input_hashes.first_mut() {
+        *real = utxo_hash;
+    }
+    let mut private_output_hashes = vec![zero; n_outputs];
+    if let Some(change) = private_output_hashes.first_mut() {
+        *change = change_output_hash;
+    }
     let private_tx = PrivateTxHash::new(
-        &[utxo_hash, zero],
-        &[change_output_hash, zero, zero],
+        &private_input_hashes,
+        &private_output_hashes,
         &external_data_hash,
         &private_tx_blinding,
     )
@@ -194,14 +228,18 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     let owner_signer_hash =
         solana_owner_identity(&input_owner_bytes).expect("input owner identity");
-    let signer_hashes = if input_owner_bytes == payer_bytes {
-        [payer_hash, zero, zero]
-    } else {
-        [payer_hash, owner_signer_hash, zero]
-    };
+    let mut signer_hashes = vec![zero; n_inputs + 1];
+    if let Some(first) = signer_hashes.first_mut() {
+        *first = payer_hash;
+    }
+    if input_owner_bytes != payer_bytes {
+        if let Some(second) = signer_hashes.get_mut(1) {
+            *second = owner_signer_hash;
+        }
+    }
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
-        nullifiers: &[nullifier, dummy_nullifier],
+        nullifiers: &nullifiers,
         output_hashes: &output_hashes,
         tree_slots: &tree_slots,
         output_tree_id: tree_id,
@@ -219,8 +257,11 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     .hash()
     .expect("public input hash");
 
+    let mut prover_input_list = Vec::with_capacity(n_inputs);
+    prover_input_list.push(real_input);
+    prover_input_list.extend(dummy_inputs);
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
-        inputs: vec![real_input, dummy_input_1],
+        inputs: prover_input_list,
         outputs,
         tree_slots,
         output_tree_id: tree_id,
@@ -229,18 +270,30 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         private_tx_hash: private_tx,
         public_slot_assets,
         public_slot_amounts,
-        signer_pk_hashes: signer_hashes.to_vec(),
+        signer_pk_hashes: signer_hashes,
         public_input_hash,
     });
-    transact_ix_data.proof =
-        prove_and_verify_transfer(&prover_inputs, public_input_hash, "transact")
-            .expect("prove transact");
+    let proof = ProverClient::local()
+        .prove_transfer(&prover_inputs)
+        .expect("prove transact");
+    {
+        let public_inputs = [public_input_hash];
+        let verifying_key = transact_ix_data
+            .circuit
+            .verifying_key()
+            .expect("supported confidential verifying key");
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .expect("construct transact verifier")
+            .verify()
+            .expect("transact proof verifies locally");
+    }
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack transact proof");
     transact_ix_data.private_tx_hash = private_tx;
     transact_ix_data
 }
 
 fn build_valid_transact_ix_for_owner(env: &mut Pool, input_owner: Pubkey) -> TransactIxData {
-    build_valid_transact_ix_for_owner_with_discriminator(env, input_owner, tag::TRANSACT)
+    build_valid_transact_ix_for_owner_with_discriminator(env, input_owner, tag::TRANSACT, 2, 3)
 }
 
 fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
@@ -1078,8 +1131,13 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
 
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
-    let mut transact_ix_data =
-        build_valid_transact_ix_for_owner_with_discriminator(&mut env, payer, tag::RING_TRANSACT);
+    let mut transact_ix_data = build_valid_transact_ix_for_owner_with_discriminator(
+        &mut env,
+        payer,
+        tag::RING_TRANSACT,
+        2,
+        3,
+    );
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
@@ -1271,14 +1329,190 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 }
 
 #[test]
-fn transact_rejects_an_overrunning_owner_signer_run() {
+fn transact_accepts_the_consolidation_shape() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree;
+    let shape = Shape::IN36_OUT2;
+    let transact_ix_data = build_valid_transact_ix_for_owner_with_discriminator(
+        &mut env,
+        payer,
+        tag::TRANSACT,
+        shape.n_inputs(),
+        shape.n_outputs(),
+    );
+    assert_eq!(
+        transact_ix_data.circuit,
+        CircuitId::ConfidentialEddsa(36, 2, N_PUBLIC_SLOTS as u8)
+    );
+    let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let (fees, fee_balance_before) = tree_fees(&env.rpc, &tree).expect("tree fees");
+
+    let ix = Transact {
+        payer,
+        input_tree: tree,
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+    assert_eq!(ix.accounts.len(), 5 + shape.n_inputs());
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    env.rpc
+        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .expect("consolidation-shape transact with a valid proof");
+
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (
+            utxo_next_before + shape.n_outputs() as u64,
+            nullifier_next_before + shape.n_inputs() as u64
+        ),
+        "two outputs appended and 36 nullifiers queued"
+    );
+    let forester_fee = fees.fee_per_nullifier * shape.n_inputs() as u64;
+    assert_eq!(
+        tree_fees(&env.rpc, &tree).expect("tree fees"),
+        (fees, fee_balance_before + forester_fee),
+        "transact credits one insertion fee per input"
+    );
+    let trace = env
+        .rpc
+        .last_transaction_trace()
+        .expect("consolidation transact trace");
+    println!(
+        "transact confidential eddsa 36x2: {} CU",
+        trace.compute_units_consumed
+    );
+    assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
+}
+
+#[test]
+fn ring_transact_accepts_the_consolidation_shape() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree;
+    let ring = Pubkey::new_from_array(zolana_program_test::RING_TEST_PROGRAM_ID);
+    let shape = Shape::IN36_OUT2;
+    let transact_ix_data =
+        build_valid_ring_ix::<false>(&mut env, ring, shape.n_inputs(), shape.n_outputs());
+    assert_eq!(
+        transact_ix_data.circuit,
+        CircuitId::RingEddsa(36, 2, N_PUBLIC_SLOTS as u8)
+    );
+    let expected_nullifiers: Vec<[u8; 32]> = transact_ix_data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let mut ix = Transact {
+        payer,
+        input_tree: tree,
+        output_tree: tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+    *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
+
+    let ring_config = write_signed_ring_config(&mut env, ring, false);
+    ix.accounts
+        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    env.rpc
+        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .expect("consolidation-shape ring transact");
+
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (
+            utxo_next_before + shape.n_outputs() as u64,
+            nullifier_next_before + shape.n_inputs() as u64
+        ),
+        "two outputs appended and 36 nullifiers queued"
+    );
+    let trace = env
+        .rpc
+        .last_transaction_trace()
+        .expect("consolidation ring transact trace");
+    println!(
+        "transact ring eddsa 36x2: {} CU",
+        trace.compute_units_consumed
+    );
+    assert_nullifier_pdas(&env.rpc, &tree, &expected_nullifiers).expect("nullifier PDAs");
+}
+
+#[test]
+fn ring_p256_transact_accepts_the_consolidation_shape() {
+    let mut env = proof_env();
+
+    let payer = env.rpc.payer.pubkey();
+    let tree = env.tree;
+    let shape = Shape::IN36_OUT2;
+    let ring_config = Keypair::new();
+    let proof = RealRingTransact {
+        rail: RingRail::P256,
+        n_inputs: shape.n_inputs(),
+        n_outputs: shape.n_outputs(),
+        ring_config: ring_config.pubkey(),
+    }
+    .build(&mut env);
+    assert!(matches!(
+        proof.data.circuit,
+        CircuitId::RingP256(
+            36,
+            2,
+            _,
+            RingP256ProofData {
+                default_owner_tag: Some(_),
+                ..
+            }
+        )
+    ));
+    let ix = proof.instruction(payer, tree);
+    let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    env.rpc
+        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .expect("consolidation-shape P256 ring transact");
+
+    assert_eq!(
+        tree_progress(&env.rpc, &tree),
+        (
+            utxo_next_before + shape.n_outputs() as u64,
+            nullifier_next_before + shape.n_inputs() as u64
+        ),
+        "two outputs appended and 36 nullifiers queued"
+    );
+    let trace = env
+        .rpc
+        .last_transaction_trace()
+        .expect("consolidation P256 ring transact trace");
+    println!(
+        "transact ring p256 36x2: {} CU",
+        trace.compute_units_consumed
+    );
+    assert_nullifier_pdas(&env.rpc, &tree, &proof.nullifiers).expect("nullifier PDAs");
+}
+
+#[test]
+fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     let mut env = proof_env();
 
     let payer = env.rpc.payer.pubkey();
     let transact_ix_data = build_valid_transact_ix(&mut env);
-    // The signer run is payer-first and deduplicated into a fixed-width
-    // MAX_SIGNERS array; one more unique signer than fits must be rejected.
-    let extra_signers: Vec<Keypair> = (0..MAX_SIGNERS).map(|_| Keypair::new()).collect();
+    let inputs = transact_ix_data.inputs.len();
+    let extra_signers: Vec<Keypair> = (0..=inputs).map(|_| Keypair::new()).collect();
     for signer in &extra_signers {
         env.rpc
             .airdrop(&signer.pubkey(), 1_000_000)
@@ -1301,7 +1535,7 @@ fn transact_rejects_an_overrunning_owner_signer_run() {
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &signer_refs)
-        .expect_err("an owner-signer run wider than MAX_SIGNERS must be rejected");
+        .expect_err("an owner-signer run longer than the input count must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()

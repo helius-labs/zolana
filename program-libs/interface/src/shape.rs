@@ -45,6 +45,10 @@ impl Shape {
         n_inputs: 1,
         n_outputs: 8,
     };
+    pub const IN36_OUT2: Self = Self {
+        n_inputs: 36,
+        n_outputs: 2,
+    };
 
     pub const fn new(n_inputs: usize, n_outputs: usize) -> Self {
         Self {
@@ -62,10 +66,46 @@ impl Shape {
     }
 }
 
+pub const fn max_inputs(mut shapes: &[Shape]) -> usize {
+    let mut max = 0;
+    while let Some((shape, rest)) = shapes.split_first() {
+        if shape.n_inputs > max {
+            max = shape.n_inputs;
+        }
+        shapes = rest;
+    }
+    max
+}
+
+pub const fn max_outputs(mut shapes: &[Shape]) -> usize {
+    let mut max = 0;
+    while let Some((shape, rest)) = shapes.split_first() {
+        if shape.n_outputs > max {
+            max = shape.n_outputs;
+        }
+        shapes = rest;
+    }
+    max
+}
+
 /// Shapes the SPP prover has keys for. Slot-signed transactions declare their
 /// exact shape (they do not pad), so they validate against this full set rather
 /// than the fixed padded-transfer shape ([`Shape::IN2_OUT3`]).
-pub const SPP_SUPPORTED_SHAPES: [Shape; 10] = [
+pub const SPP_SUPPORTED_SHAPES: [Shape; 11] = [
+    Shape::IN1_OUT1,
+    Shape::IN1_OUT2,
+    Shape::IN2_OUT2,
+    Shape::IN2_OUT3,
+    Shape::IN3_OUT3,
+    Shape::IN4_OUT3,
+    Shape::IN4_OUT4,
+    Shape::IN5_OUT3,
+    Shape::IN5_OUT4,
+    Shape::IN1_OUT8,
+    Shape::IN36_OUT2,
+];
+
+pub const SPP_AUTO_SHAPES: [Shape; 10] = [
     Shape::IN1_OUT1,
     Shape::IN1_OUT2,
     Shape::IN2_OUT2,

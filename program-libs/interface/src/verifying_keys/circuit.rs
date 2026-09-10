@@ -211,6 +211,7 @@ impl CircuitId {
                     | (4, 4)
                     | (5, 3)
                     | (5, 4)
+                    | (36, 2)
             ),
             Self::RingAuthority(..) => {
                 matches!((n_inputs, n_outputs), (1, 1) | (2, 2) | (3, 3) | (4, 4))
@@ -255,6 +256,9 @@ impl CircuitId {
             Self::ConfidentialEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_confidential_5_4::VERIFYINGKEY
             }
+            Self::ConfidentialEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => {
+                &transfer_confidential_36_2::VERIFYINGKEY
+            }
             Self::RingEddsa(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_1::VERIFYINGKEY,
             Self::RingEddsa(1, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_2::VERIFYINGKEY,
             Self::RingEddsa(1, 8, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_1_8::VERIFYINGKEY,
@@ -265,6 +269,7 @@ impl CircuitId {
             Self::RingEddsa(4, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_4_4::VERIFYINGKEY,
             Self::RingEddsa(5, 3, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_3::VERIFYINGKEY,
             Self::RingEddsa(5, 4, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_5_4::VERIFYINGKEY,
+            Self::RingEddsa(36, 2, CURRENT_PUBLIC_ASSET_SLOTS) => &transfer_ring_36_2::VERIFYINGKEY,
             Self::RingP256(1, 1, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
                 &transfer_p256_ring_1_1::VERIFYINGKEY
             }
@@ -294,6 +299,9 @@ impl CircuitId {
             }
             Self::RingP256(5, 4, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
                 &transfer_p256_ring_5_4::VERIFYINGKEY
+            }
+            Self::RingP256(36, 2, CURRENT_PUBLIC_ASSET_SLOTS, _) => {
+                &transfer_p256_ring_36_2::VERIFYINGKEY
             }
             Self::RingAuthority(1, 1, CURRENT_PUBLIC_ASSET_SLOTS) => {
                 &transfer_ring_authority_1_1::VERIFYINGKEY

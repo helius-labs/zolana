@@ -2,7 +2,9 @@
 
 use std::{collections::BTreeMap, path::Path};
 
-use custom_ring_sdk::{CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment, MERGE_INPUTS};
+use custom_ring_sdk::{
+    CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment, MAX_MERGE_INPUTS,
+};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
@@ -36,7 +38,7 @@ pub enum MergeError {
     Client(Box<ClientError>),
     #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
-    #[error("merge count must be from 2 through {MERGE_INPUTS}, got {0}")]
+    #[error("merge count must be from 2 through {MAX_MERGE_INPUTS}, got {0}")]
     Count(usize),
     #[error("found only {found} mergeable notes for mint {mint} in ring {ring}")]
     InsufficientNotes {
@@ -53,7 +55,7 @@ pub enum MergeError {
 }
 
 pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
-    if !(2..=MERGE_INPUTS).contains(&args.count) {
+    if !(2..=MAX_MERGE_INPUTS).contains(&args.count) {
         return Err(MergeError::Count(args.count));
     }
 
@@ -291,7 +293,7 @@ mod tests {
         .expect("wallet");
         wallet.utxos.push(note(&owner, ring, pda::tree(0), 10, 1));
 
-        assert!(select_candidates(&wallet, ring, SOL_MINT, MERGE_INPUTS).is_none());
+        assert!(select_candidates(&wallet, ring, SOL_MINT, MAX_MERGE_INPUTS).is_none());
         assert_eq!(largest_candidate_group(&wallet, ring, SOL_MINT), 1);
     }
 }

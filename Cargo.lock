@@ -6524,6 +6524,7 @@ dependencies = [
  "light-program-profiler",
  "mollusk-svm",
  "num-bigint 0.4.8",
+ "p256",
  "pinocchio 0.11.2",
  "proptest",
  "serde",

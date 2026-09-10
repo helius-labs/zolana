@@ -6,15 +6,12 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signer::Signer;
 use zolana_client::{MergeProver, ProverClient, SpendProof, TransferSpendInput};
-use zolana_interface::{
-    error::ShieldedPoolError,
-    instruction::{instruction_data::merge_transact::MERGE_INPUT_COUNT, MergeTransact},
-};
+use zolana_interface::{error::ShieldedPoolError, instruction::MergeTransact};
 use zolana_keypair::random_blinding;
 use zolana_program_test::Rejection;
 use zolana_smart_account_client::execute_sync_ix;
 use zolana_transaction::{
-    instructions::merge::{merge_dummy_nullifier, merge_output_blinding},
+    instructions::merge::{merge_dummy_nullifier, merge_output_blinding, merge_padded_input_count},
     Data, OutputContext, SppProofOutputUtxo, Utxo, WalletUtxo,
 };
 use zolana_user_registry_interface::{
@@ -114,10 +111,12 @@ impl LifecycleHarness {
         // from ONE indexer call each: fetching them a leaf at a time lets the tree
         // advance between calls and the client rejects the witness with
         // `InputTreeRootMismatch` / `NullifierRootMismatch`.
+        let input_count = merge_padded_input_count(inputs.len())
+            .ok_or_else(|| anyhow!("{count} inputs exceed the widest merge shape"))?;
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
         let mut total: u64 = 0;
         let mut utxo_hashes = Vec::with_capacity(inputs.len());
-        let mut nullifiers = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut nullifiers = Vec::with_capacity(input_count);
         for utxo in &inputs {
             total += utxo.amount;
             let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
@@ -132,10 +131,10 @@ impl LifecycleHarness {
             .first()
             .ok_or_else(|| anyhow!("{name} merge needs at least one input"))?;
 
-        // Pad to the 8-input shape with dummies. A dummy mirrors the first real
+        // Pad to the smallest supported shape with dummies. A dummy mirrors the first real
         // input's UTXO root but carries a non-inclusion proof for its own
         // deterministic nullifier.
-        for slot in inputs.len()..MERGE_INPUT_COUNT {
+        for slot in inputs.len()..input_count {
             nullifiers.push(merge_dummy_nullifier(
                 &keypair.nullifier_key,
                 &first_nullifier,
@@ -148,7 +147,7 @@ impl LifecycleHarness {
             wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
 
         let owner = keypair.signing_pubkey();
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
+        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(input_count);
         for (slot, nullifier_proof) in nullifier_proofs.into_iter().enumerate() {
             let real = inputs.get(slot).zip(state_proofs.get(slot));
             let (utxo, proof, nullifier_proof) = match real {
@@ -246,8 +245,7 @@ impl LifecycleHarness {
         // A successful merge collects the tree's insertion fee from the inner payer:
         // fee_per_nullifier per inserted nullifier, transferred into the tree. The
         // tree then funds one nullifier PDA per inserted nullifier.
-        let forester_fee =
-            forester_fee_for_inputs(&tree_before, &self.tree, MERGE_INPUT_COUNT as u64)?;
+        let forester_fee = forester_fee_for_inputs(&tree_before, &self.tree, input_count as u64)?;
         let payer_after = fetch_account(&self.rpc, &self.merge_vault)?;
         assert_eq!(
             payer_before.lamports - payer_after.lamports,
@@ -258,12 +256,12 @@ impl LifecycleHarness {
         let tree_after = fetch_account(&self.rpc, &self.tree)?;
         assert_eq!(
             tree_before.lamports - tree_after.lamports,
-            MERGE_INPUT_COUNT as u64 * nullifier_pda_rent - forester_fee,
+            input_count as u64 * nullifier_pda_rent - forester_fee,
             "merge forester fee must accrue to the tree net of the nullifier PDA rent it funds"
         );
         assert_eq!(
             result.nullifiers.len(),
-            MERGE_INPUT_COUNT,
+            input_count,
             "merge queues one nullifier per input slot"
         );
         assert_nullifier_pdas(&self.rpc, &self.tree, &result.nullifiers)?;

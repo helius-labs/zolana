@@ -557,8 +557,10 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
 #[test]
 fn transact_rejects_more_inputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT-09: six inputs overflow the MAX_INPUTS = 5 proof-input
-    // buffer before any tree write or proof check.
+    // INV-TRANSACT-09: no circuit has six inputs -- the supported counts jump
+    // from five to the 36-input consolidation shape -- so `is_supported()`
+    // rejects this in `validate_circuit_type`, before any tree write or proof
+    // check.
     let data = transfer_ix_data(6, 3);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }

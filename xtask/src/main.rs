@@ -418,7 +418,7 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
-    use zolana_interface::instruction::instruction_data::MERGE_INPUT_COUNT;
+    use zolana_interface::instruction::instruction_data::MERGE_DEFAULT_INPUT_COUNT;
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -910,7 +910,7 @@ fn tx_size(args: Vec<String>) {
         use zolana_interface::instruction::{
             instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
         };
-        let nullifiers = (0..MERGE_INPUT_COUNT)
+        let nullifiers = (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
@@ -920,8 +920,8 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-            nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+            utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+            nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;

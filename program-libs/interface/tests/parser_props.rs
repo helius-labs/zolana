@@ -17,7 +17,10 @@ use zolana_interface::instruction::instruction_data::{
         UtxoData,
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    merge_transact::{
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+        MERGE_SUPPORTED_INPUT_COUNTS,
+    },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof,
@@ -145,9 +148,9 @@ mod strategies {
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
+            prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -310,13 +313,14 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the 8-in/1-out shape; every
-    /// other nullifier or root-index element count is rejected.
+    /// The merge view decoder accepts exactly the supported input counts, and
+    /// only when the three per-input vectors agree on that count.
     #[test]
-    fn merge_shape_guard_accepts_exactly_the_documented_shape(
+    fn merge_shape_guard_accepts_exactly_the_supported_shapes(
         owned in strategies::merge_ix_data(),
-        nullifier_count in 0usize..=12,
-        root_count in 0usize..=12,
+        nullifier_count in 0usize..=40,
+        root_count in 0usize..=40,
+        agreed_count in 0usize..=40,
     ) {
         let bytes = owned.serialize().expect("serialize merge ix");
         prop_assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_ok());
@@ -326,7 +330,7 @@ proptest! {
         let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_INPUT_COUNT
+            nullifier_count == MERGE_DEFAULT_INPUT_COUNT
         );
 
         let mut wrong_roots = owned.clone();
@@ -334,7 +338,17 @@ proptest! {
         let bytes = wrong_roots.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_INPUT_COUNT
+            root_count == MERGE_DEFAULT_INPUT_COUNT
+        );
+
+        let mut agreed = owned.clone();
+        agreed.nullifiers = vec![[7u8; 32]; agreed_count];
+        agreed.utxo_tree_root_index = vec![1u16; agreed_count];
+        agreed.nullifier_tree_root_index = vec![3u16; agreed_count];
+        let bytes = agreed.serialize().expect("serialize merge ix");
+        prop_assert_eq!(
+            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&agreed_count)
         );
     }
 
