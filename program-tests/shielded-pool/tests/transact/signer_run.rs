@@ -126,10 +126,10 @@ fn consolidation_ix_bytes() -> Vec<u8> {
         inputs: (1..=circuit.num_inputs())
             .map(|tag| InputUtxo {
                 nullifier_hash: small_fe(tag),
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
         interface_transfers: vec![],
         data_hash: None,
         ring_data_hash: None,
