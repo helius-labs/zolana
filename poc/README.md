@@ -12,6 +12,15 @@ to produce `MoproWasmBindings`. Until the web build helper is released, install
 the CLI from that checkout and explicitly patch the generated app's `mopro-ffi`
 dependency to the same local checkout, as shown in the setup instructions.
 The CLI leaves generated apps on the standard crates.io dependency.
+This demo needs the experimental kernel. Before building the Mopro web bindings,
+add this to the generated app's root `Cargo.toml`:
+
+```toml
+[package.metadata.mopro.gnark]
+experimental-accelerator = true
+```
+
+Default Mopro builds omit the gnark accelerator.
 This demo adapts the Go bridge to
 Zolana's gnark 0.15 keys and reuses the built Rust kernel.
 
