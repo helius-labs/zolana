@@ -1051,7 +1051,6 @@ fn withdrawal_target(
     Ok((
         SettlementTarget::Spl {
             user_spl_token: Address::new_from_array(user_spl_token.to_bytes()),
-            spl_token_interface: Address::new_from_array(vault.to_bytes()),
         },
         TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
             mint,

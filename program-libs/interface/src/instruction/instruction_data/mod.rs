@@ -31,7 +31,7 @@ pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingCon
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    fetch_tag, validate_interface_transfers, CircuitId, ExternalDataPreimage, InputUtxo,
+    InterfaceTransfer, MessageData, OutputDataRef, OutputUtxo, OwnerTag, ResolvedOutput,
+    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
 };

@@ -234,7 +234,7 @@ Status of the audit findings against the current (post-PR164) tree:
   `parses_batch_update_from_emitted_event`,
   `records_event_root_not_instruction_root` (INV-BATCH-NULL-07).
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
-  PR164 (bound in `ExternalDataHash` -- INV-XC-16).
+  PR164 (bound in the `external_data_hash` preimage, now `ExternalDataPreimage` -- INV-XC-16).
 - F-06 merge viewing-key canonicality: MOOT (the vulnerable flow is gone.
   PR164 merge outputs are ciphertext-free: `prover/server/circuits/spp_merge`
   contains no encryption or KDF over a recipient key, and the merge output is

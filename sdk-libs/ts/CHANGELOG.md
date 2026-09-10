@@ -59,6 +59,20 @@ Breaking
   every input of an instruction carries one root position pair
   (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
   `outputTreeId`, and `blindingSeed` → run a prover from this release.
+- `externalDataHash` takes the transact fields as the instruction encodes
+  them (`ExternalDataHashInput` extends the new `TransactExternalData`), with
+  `outputs` carrying their `OwnerTag`, one `resolvedOwnerTags` entry per
+  output, and one `settlementAccounts` pair `{ asset, user }` per interface
+  transfer (the new `SettlementAccounts` type), the `ResolvedInterfaceTransfer`
+  and `ResolvedOutput` types are
+  gone, and `transactInstruction` lays its data out as `expiryUnixTs`,
+  `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`, `ringDataHash`,
+  `outputs`, `messages`, then `privateTxHash`, `circuit`, `proof`, `inputs`,
+  and an `spl` `SettlementTransfer` no longer carries `splTokenInterface`
+  → pass `SOL_INTERFACE` and the user's SOL account for a SOL leg, the mint
+  and the token account for an SPL leg, drop `splTokenInterface` from SPL
+  legs, read transact payloads in the new order, and run a program and prover
+  from this release.
 
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass

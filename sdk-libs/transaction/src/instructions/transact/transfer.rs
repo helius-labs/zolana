@@ -71,13 +71,8 @@ pub enum RecipientRing {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SettlementTarget {
-    Sol {
-        user_sol_account: Address,
-    },
-    Spl {
-        user_spl_token: Address,
-        spl_token_interface: Address,
-    },
+    Sol { user_sol_account: Address },
+    Spl { user_spl_token: Address },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -509,15 +504,11 @@ impl PublicTransferRequest {
                 amount: self.amount,
                 user_sol_account,
             }),
-            SettlementTarget::Spl {
-                user_spl_token,
-                spl_token_interface,
-            } => Ok(SettlementTransfer::Spl {
+            SettlementTarget::Spl { user_spl_token } => Ok(SettlementTransfer::Spl {
                 mint: self.asset,
                 is_deposit: self.is_deposit,
                 amount: self.amount,
                 user_spl_token,
-                spl_token_interface,
             }),
         }
     }
@@ -1197,7 +1188,6 @@ mod tests {
                 1,
                 SettlementTarget::Spl {
                     user_spl_token: Address::default(),
-                    spl_token_interface: Address::default(),
                 },
             ),
             Err(TransactionError::SettlementTargetMismatch { asset: SOL_MINT })

@@ -10,7 +10,9 @@ use zolana_interface::{
     error::ShieldedPoolError,
     event::EventKind,
     instruction::{
-        instruction_data::transact::{CircuitId, ExternalDataHash, TransactIxDataRef},
+        instruction_data::transact::{
+            CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
+        },
         tag::InstructionTag,
     },
     N_PUBLIC_SLOTS,
@@ -19,12 +21,13 @@ use zolana_interface::{
 use super::{
     account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
-    interface_transfer::{resolve_interface_transfers, settle_interface_transfers},
+    interface_transfer::settle_interface_transfers,
     tree::{apply_input_tree, apply_output_tree},
 };
 use crate::instructions::{
     event::emit_event,
     nullifier_pda::create_nullifier_pdas,
+    settlement::Settlement,
     shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
@@ -41,7 +44,7 @@ pub fn process_transact_ix(
     instruction: InstructionTag,
 ) -> ProgramResult {
     // 1. Deserialize instruction data.
-    let ix = TransactIxDataRef::from_bytes(data)
+    let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
     // 2. Validate declared circuit type.
     validate_circuit_type(&ix, instruction)?;
@@ -110,24 +113,14 @@ pub fn process_transact_ix(
     )?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
-    let resolved_interface_transfers =
-        resolve_interface_transfers(&ix, &transact_accounts.settlements);
-
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: instruction as u8,
-        expiry_unix_ts: ix.expiry_unix_ts,
-        interface_transfers: &resolved_interface_transfers,
-        data_hash: ix.data_hash,
-        ring_data_hash: ix.ring_data_hash,
-        tx_viewing_pk: ix.tx_viewing_pk,
-        salt: ix.salt,
-        outputs: &resolved_outputs,
-        messages: &ix.messages,
-    }
-    .hash()
-    .map_err(caused_by(
-        ShieldedPoolError::TransactProofVerificationFailed,
-    ))?;
+    let tag = [instruction as u8];
+    let external_data_hash = hash_external_data(
+        &tag,
+        external_data_prefix,
+        &ix,
+        &transact_accounts.settlements,
+        &resolved_outputs,
+    )?;
     proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
@@ -137,6 +130,31 @@ pub fn process_transact_ix(
 
     let event = build_transact_event(tree_write)?;
     emit_event(EventKind::Transact, &event)
+}
+
+#[inline(never)]
+fn hash_external_data<'a>(
+    tag: &'a [u8; 1],
+    external_data_prefix: &'a [u8],
+    ix: &TransactIxDataRef<'_>,
+    settlements: &'a [Settlement<'a>],
+    resolved_outputs: &'a [ResolvedOutput<'_>],
+) -> Result<[u8; 32], ProgramError> {
+    let mut preimage = ExternalDataPreimage::new(tag, external_data_prefix);
+    for settlement in settlements {
+        let [asset, user] = settlement.committed_accounts();
+        preimage
+            .push_settlement(asset.address().as_array(), user.address().as_array())
+            .map_err(caused_by(ShieldedPoolError::TooManyExternalDataHashSlices))?;
+    }
+    for (output, resolved) in ix.outputs.iter().zip(resolved_outputs) {
+        preimage
+            .push_owner_tag(&output.owner_tag, &resolved.owner_tag)
+            .map_err(caused_by(ShieldedPoolError::TooManyExternalDataHashSlices))?;
+    }
+    preimage
+        .finish()
+        .map_err(caused_by(ShieldedPoolError::TooManyExternalDataHashSlices))
 }
 
 /// Checks:
@@ -188,4 +206,118 @@ pub fn validate_circuit_type(
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_hasher::{sha256::Sha256BE, Hasher};
+    use zolana_interface::instruction::instruction_data::transact::{
+        OwnerTag, TransactIxData, TransactOutput, TransactProof,
+    };
+
+    const ACCOUNT_OWNER_INDEX: u8 = 3;
+    const SECOND_ACCOUNT_OWNER_INDEX: u8 = 4;
+
+    fn serialized_ix(owner_tags: &[OwnerTag]) -> Vec<u8> {
+        let outputs = owner_tags
+            .iter()
+            .enumerate()
+            .map(|(i, owner_tag)| TransactOutput {
+                utxo_hash: core::array::from_fn(|j| (i + j) as u8),
+                owner_tag: *owner_tag,
+                data: (i % 2 == 0).then(|| vec![0xaa; 16]),
+            })
+            .collect();
+        TransactIxData {
+            expiry_unix_ts: 1_234_567_890,
+            tx_viewing_pk: core::array::from_fn(|i| 0x90 + i as u8),
+            salt: core::array::from_fn(|i| 0xf0 + i as u8),
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: Some([7u8; 32]),
+            outputs,
+            messages: Vec::new(),
+            private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
+            proof: TransactProof::zeroed(),
+            inputs: Vec::new(),
+        }
+        .serialize()
+        .unwrap()
+    }
+
+    fn resolve<'a>(
+        ix: &TransactIxDataRef<'a>,
+        owners: [(u8, [u8; 32]); 2],
+    ) -> Vec<ResolvedOutput<'a>> {
+        ix.outputs
+            .iter()
+            .map(|output| {
+                output
+                    .into_resolved(|index| {
+                        owners
+                            .iter()
+                            .find(|(owner_index, _)| *owner_index == index)
+                            .map(|(_, owner)| *owner)
+                    })
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inline_owner_tags_hash_only_tag_and_prefix() {
+        let inline_owner: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let bytes = serialized_ix(&[
+            OwnerTag::Inline(inline_owner),
+            OwnerTag::Inline(inline_owner),
+        ]);
+        let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+        let resolved = resolve(
+            &ix,
+            [
+                (ACCOUNT_OWNER_INDEX, [0u8; 32]),
+                (SECOND_ACCOUNT_OWNER_INDEX, [0u8; 32]),
+            ],
+        );
+        let tag = [InstructionTag::Transact as u8];
+
+        let got = hash_external_data(&tag, prefix, &ix, &[], &resolved).unwrap();
+
+        assert_eq!(got, Sha256BE::hashv(&[&tag, prefix]).unwrap());
+    }
+
+    #[test]
+    fn account_owner_tags_append_resolved_addresses_in_output_order() {
+        let inline_owner: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let first_owner: [u8; 32] = core::array::from_fn(|i| 0x30 + i as u8);
+        let second_owner: [u8; 32] = core::array::from_fn(|i| 0x50 + i as u8);
+        let bytes = serialized_ix(&[
+            OwnerTag::Account(SECOND_ACCOUNT_OWNER_INDEX),
+            OwnerTag::Inline(inline_owner),
+            OwnerTag::Account(ACCOUNT_OWNER_INDEX),
+        ]);
+        let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+        let resolved = resolve(
+            &ix,
+            [
+                (ACCOUNT_OWNER_INDEX, first_owner),
+                (SECOND_ACCOUNT_OWNER_INDEX, second_owner),
+            ],
+        );
+        let tag = [InstructionTag::RingTransact as u8];
+
+        let got = hash_external_data(&tag, prefix, &ix, &[], &resolved).unwrap();
+
+        assert_eq!(
+            got,
+            Sha256BE::hashv(&[&tag, prefix, &second_owner, &first_owner]).unwrap()
+        );
+        assert_ne!(
+            got,
+            Sha256BE::hashv(&[&tag, prefix, &first_owner, &second_owner]).unwrap()
+        );
+        assert_ne!(got, Sha256BE::hashv(&[&tag, prefix]).unwrap());
+    }
 }

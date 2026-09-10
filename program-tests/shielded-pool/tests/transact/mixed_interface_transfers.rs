@@ -15,9 +15,7 @@ use zolana_event_parser::general_event_from_indexed;
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
@@ -32,8 +30,9 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
     dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe, inline_outputs,
     new_transact_ix_data, nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer,
-    real_output, set_output_owner_tags, single_tree_slots, spend_input, test_private_tx_blinding,
-    transfer_output, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    real_output, set_output_owner_tags, single_tree_slots, sol_leg, spend_input, spl_leg,
+    test_private_tx_blinding, transfer_output, LegAccounts, SpendInputArgs,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{
     instructions::transact::{spp_proof_inputs::signed_to_field, PrivateTxHash},
@@ -294,7 +293,7 @@ fn prove_spend(
     env: &Pool,
     note: SpendNote,
     interface_transfers: Vec<InterfaceTransfer>,
-    resolved_transfers: &[ResolvedInterfaceTransfer],
+    resolved_transfers: &[LegAccounts],
     public_movements: impl IntoIterator<Item = ([u8; 32], i64)>,
     mut witness_outputs: Vec<WitnessOutput>,
 ) -> TransactIxData {
@@ -418,16 +417,7 @@ fn sol_split_case(reorder_recipients: bool) {
             amount: relayer_amount,
         },
     ];
-    let resolved_transfers = [
-        ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: user_amount,
-            recipient: user.to_bytes(),
-        },
-        ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: relayer_amount,
-            recipient: relayer.to_bytes(),
-        },
-    ];
+    let resolved_transfers = [sol_leg(&user), sol_leg(&relayer)];
     let data = prove_spend(
         &env,
         note,
@@ -562,18 +552,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
             spl_interface_bump,
         },
     ];
-    let resolved_transfers = [
-        ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: first_amount,
-            user_token_account: first_token.to_bytes(),
-            spl_interface: vault.to_bytes(),
-        },
-        ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: second_amount,
-            user_token_account: second_token.to_bytes(),
-            spl_interface: vault.to_bytes(),
-        },
-    ];
+    let resolved_transfers = [spl_leg(&mint, &first_token), spl_leg(&mint, &second_token)];
     let data = prove_spend(
         &env,
         note,
@@ -709,20 +688,9 @@ fn three_distinct_assets_support_opposite_public_directions() {
         },
     ];
     let resolved_transfers = [
-        ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: SPL_SPLIT_TOTAL,
-            user_token_account: withdraw_token.to_bytes(),
-            spl_interface: withdraw_vault.to_bytes(),
-        },
-        ResolvedInterfaceTransfer::SolDeposit {
-            amount: sol_deposit_amount,
-            recipient: payer.pubkey().to_bytes(),
-        },
-        ResolvedInterfaceTransfer::SplDeposit {
-            amount: spl_deposit_amount,
-            user_token_account: deposit_token.to_bytes(),
-            spl_interface: deposit_vault.to_bytes(),
-        },
+        spl_leg(&withdraw_mint, &withdraw_token),
+        sol_leg(&payer.pubkey()),
+        spl_leg(&deposit_mint, &deposit_token),
     ];
     let withdraw_field = zolana_hasher::primitives::hash_bytes(&withdraw_mint.to_bytes())
         .expect("withdraw mint field");

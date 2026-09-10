@@ -8,14 +8,13 @@ pub use builders::*;
 pub use instruction_data::{
     deposit_blinding, fetch_tag, validate_interface_transfers, CircuitId, CreateProtocolConfigData,
     CreateRingConfigData, DepositAssetKind, DepositEntry, DepositEntryRef, DepositIxData,
-    DepositIxDataRef, EncryptedRingDepositData, EncryptedRingDepositDataRef, InputUtxo,
-    InterfaceTransfer, MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef,
+    DepositIxDataRef, EncryptedRingDepositData, EncryptedRingDepositDataRef, ExternalDataPreimage,
+    InputUtxo, InterfaceTransfer, MergeExternalDataHash, MergeRingIxData, MergeRingIxDataRef,
     MergeTransactIxData, MergeTransactIxDataRef, MessageData, OutputDataRef, OutputUtxo, OwnerTag,
-    PauseTreeData, ResolvedInterfaceTransfer, ResolvedOutput, RingDepositEntry,
-    RingDepositEntryRef, RingDepositIxData, RingDepositIxDataRef, SetRingActivationData,
-    TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
-    UpdateProtocolConfigData, UpdateRingConfigData, UtxoData, UtxoDataRef, DEPOSIT_BLINDING_DOMAIN,
-    MAX_DEPOSIT_ASSETS,
+    PauseTreeData, ResolvedOutput, RingDepositEntry, RingDepositEntryRef, RingDepositIxData,
+    RingDepositIxDataRef, SetRingActivationData, TransactIxData, TransactIxDataRef, TransactOutput,
+    TransactOutputRef, TransactProof, UpdateProtocolConfigData, UpdateRingConfigData, UtxoData,
+    UtxoDataRef, DEPOSIT_BLINDING_DOMAIN, MAX_DEPOSIT_ASSETS,
 };
 #[cfg(feature = "tree")]
 pub use instruction_data::{

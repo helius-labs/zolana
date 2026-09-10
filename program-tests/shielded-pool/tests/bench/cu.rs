@@ -7,20 +7,18 @@ use light_program_profiler::{
 use mollusk_svm::{program::loader_keys::LOADER_V3, result::Check, Mollusk};
 use num_bigint::BigUint;
 use solana_account::Account;
+use solana_clock::Clock;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{
-    ProverClient, PublicInputs, PublicTransfers, TransferOutput, STATE_TREE_HEIGHT,
-};
+use zolana_client::{ProverClient, PublicInputs, PublicTransfers, STATE_TREE_HEIGHT};
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactIxData,
-        TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactIxData, TransactSolTransferAccounts,
     },
     state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
@@ -39,13 +37,13 @@ use zolana_test_utils::{
     nullifier_pda::nullifier_pda_addresses,
     prover::spawn_workspace_prover,
     transact::{
-        build_spl_withdrawal, build_transfer_prover_inputs, derive_test_transfer_output_blindings,
-        dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash, fe,
-        inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-        pack_transact_proof, prove_and_verify_transfer, public_sol_field, real_output,
-        set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-        test_private_tx_blinding, transfer_output, SpendInputArgs, TransferProverInputsArgs,
-        TEST_BLINDING_SEED,
+        build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
+        derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
+        eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
+        nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
+        public_sol_field, real_output, set_output_owner_tags, single_tree_slots, sol_leg,
+        sol_public_slots, spend_input, test_private_tx_blinding, transfer_output, SpendInputArgs,
+        TransferProverInputsArgs, TEST_BLINDING_SEED,
     },
 };
 
@@ -229,8 +227,13 @@ fn bench_cu_deposit() {
     ] {
         bench_transfer_shape(&mollusk, &program_id, n_inputs, n_outputs, &mut bench);
     }
-    bench_withdrawal_sol(&mollusk, &program_id, &mut bench);
-    bench_withdrawal_spl(&mollusk, &program_id, &token_program_account, &mut bench);
+    bench_withdrawal_sol(&mut mollusk, &program_id, &mut bench);
+    bench_withdrawal_spl(
+        &mut mollusk,
+        &program_id,
+        &token_program_account,
+        &mut bench,
+    );
 
     bench.generate().expect("write CU_BENCHMARK.md");
 }
@@ -611,7 +614,7 @@ fn bench_transfer_shape(
 
 // (2,3) eddsa SOL withdrawal: shield one real UTXO, then spend it to withdraw the
 // full amount to an external account. Mirrors `shield_withdraw::shield_then_withdraw_sol`.
-fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
+fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut CuBenchmark) {
     let (mut pt, _authority, tree, tree_id) = bench_setup();
     spawn_workspace_prover();
 
@@ -677,16 +680,22 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     pt.airdrop(&recipient, 1_000_000)
         .expect("airdrop recipient");
 
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding, tree_id).expect("dummy output"))
-        .collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
+    let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let change_nullifier_pk = change_nullifier_key
+        .pubkey()
+        .expect("change output nullifier pubkey");
+    let mut outputs = change_and_dummy_outputs(
+        utxo.owner,
+        change_nullifier_pk,
+        [1u8; 31],
+        &[[2u8; 31], [3u8; 31]],
+        tree_id,
+    )
+    .expect("change and dummy outputs");
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
+    let change_output_hash = *output_hashes.first().expect("change output hash");
 
-    // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
-    // `set_output_owner_tags`).
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
         vec![
@@ -698,17 +707,18 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     );
     let owner_pk_hashes =
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
-    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[zero, zero, zero]);
-    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
-        amount: AMOUNT,
-        recipient: recipient.to_bytes(),
-    }];
+    set_output_owner_tags(
+        &mut outputs,
+        &owner_pk_hashes,
+        &[change_nullifier_pk, zero, zero],
+    );
+    let resolved_transfers = [sol_leg(&recipient)];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
         &[utxo_hash, zero],
-        &[zero, zero, zero],
+        &[change_output_hash, zero, zero],
         &external_data_hash,
         &private_tx_blinding,
     )
@@ -768,6 +778,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
     }
     .instruction();
 
+    mollusk.warp_to_slot(pt.svm.get_sysvar::<Clock>().slot);
     let accounts = transact_accounts(&pt, &ix, program_id, None);
     let mollusk_ix = to_mollusk_instruction(&ix);
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);
@@ -785,7 +796,7 @@ fn bench_withdrawal_sol(mollusk: &Mollusk, program_id: &Pubkey, bench: &mut CuBe
 // the user's token account (the program signs the vault->user transfer with its
 // `cpi_authority` PDA).
 fn bench_withdrawal_spl(
-    mollusk: &Mollusk,
+    mollusk: &mut Mollusk,
     program_id: &Pubkey,
     token_program_account: &(Pubkey, Account),
     bench: &mut CuBenchmark,
@@ -798,6 +809,7 @@ fn bench_withdrawal_spl(
         build_spl_withdrawal(&mut pt, &authority, &tree, AMOUNT).expect("build SPL withdrawal");
     let ix = withdrawal.instruction;
 
+    mollusk.warp_to_slot(pt.svm.get_sysvar::<Clock>().slot);
     let accounts = transact_accounts(&pt, &ix, program_id, Some(token_program_account));
     let mollusk_ix = to_mollusk_instruction(&ix);
     mollusk.process_and_validate_instruction(&mollusk_ix, &accounts, &[Check::success()]);

@@ -8,9 +8,9 @@
 //! same commit.
 //!
 //! The vectors' `external_data_hash` entry is NOT consumed: it pins the Go
-//! prover-test's own preimage helper (with `sender_view_tag`), which has no
-//! Rust mirror — the interface's `ExternalDataHash` covers a different,
-//! spec-level preimage and carries its own injectivity tests.
+//! prover-test's own preimage helper (with `sender_view_tag`), whose Rust
+//! counterpart is the interface's `ExternalDataPreimage` with its own parity
+//! vector and injectivity tests.
 
 use std::{fs, path::Path};
 

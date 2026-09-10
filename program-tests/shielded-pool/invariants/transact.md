@@ -127,7 +127,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-10: owner-tag account index out of range is rejected**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `fetch_tag_resolves_every_variant`
+  - Covered by: `program-libs/interface/tests/transact.rs` `fetch_tag_resolves_every_variant`
   - Kind: precondition
   - Statement: every output whose `OwnerTag::Account(i)` references an index with no account in the transaction makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/transact/event.rs:27-32` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:225-235` (`fn fetch_tag`)
@@ -166,7 +166,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative per dimension; harness: mollusk unit
 
 - [x] **INV-TRANSACT-36: interface-transfer wire limits**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization_and_hashing`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
+  - Covered by: `program-libs/interface/tests/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization`, `external_data_preimage_rejects_slice_overflow`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
   - Kind: precondition
   - Statement: more than `MAX_INTERFACE_TRANSFERS` (255) legs returns 7035; any leg with amount 0 returns 7036.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:77-87` (`fn validate_interface_transfers`), called from `programs/shielded-pool/src/instructions/transact/account.rs:48`
@@ -212,11 +212,11 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-TRANSACT-17: settlement addresses are bound into external_data_hash**
+- [ ] **INV-TRANSACT-17: settlement addresses are included in external_data_hash**
   - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_public_amount` (recipient+amount tampering fails with 7008, but the settlement-address binding is not isolated from the amount binding)
   - Kind: postcondition
-  - Statement: the recomputed `external_data_hash` public input covers the resolved `interface_transfers` list — the SOL recipient address per SOL leg, and the user token account and vault addresses per SPL leg (the list is empty for a pure shielded transfer); substituting any settlement account after proving makes proof verification fail.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`fn process_transact_ix`, `external_data_hash` construction), `transact/interface_transfer.rs:111-143` (`fn resolve_interface_transfers`)
+  - Statement: the recomputed `external_data_hash` public input appends, after the serialized instruction-data prefix, exactly two addresses per `interface_transfers` leg in leg order: the `sol_interface` PDA and the recipient address for a SOL leg, the mint and the user token account for an SPL leg. The leg's kind, direction, and amount are in the `InterfaceTransfer` encoding in the prefix. Substituting a settlement account after proving makes proof verification fail. The per-mint `spl_interface` PDA is not hashed; it is derived from the mint.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`, `push_settlement` per leg), `settlement/mod.rs` (`fn Settlement::committed_accounts`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (withdrawal redirection)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)

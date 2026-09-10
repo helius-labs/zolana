@@ -32,7 +32,7 @@ pub const MAX_INPUTS: usize = 5;
 
 pub const MAX_SIGNERS: usize = MAX_INPUTS + 1;
 
-pub const MAX_OUTPUTS: usize = 8;
+pub use zolana_interface::MAX_OUTPUTS;
 
 const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 

@@ -543,10 +543,7 @@ fn phase_unshield(
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
-        resolved_transfers: vec![ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: TRANSFER_AMOUNT,
-            recipient: public_recipient.to_bytes(),
-        }],
+        resolved_transfers: vec![sol_leg(&public_recipient)],
         private_tx_inputs: [recipient_hash, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
         payer_pubkey_hash: solana_owner_identity(&recipient_bytes)?,

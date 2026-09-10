@@ -13,9 +13,7 @@ use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput
 use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         CreateProtocolConfig,
     },
     state::{default_tree_fees, nullifier_tree_params},
@@ -30,7 +28,7 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    LegAccounts, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -302,8 +300,9 @@ pub struct SolTransferWitnessArgs {
     pub output_nullifier_pks: [[u8; 32]; 3],
     /// Declared interface transfers (empty for a pure shielded transfer).
     pub interface_transfers: Vec<InterfaceTransfer>,
-    /// Resolved interface transfers bound into the external-data hash.
-    pub resolved_transfers: Vec<ResolvedInterfaceTransfer>,
+    /// Settlement account pairs bound into the external-data hash, one per
+    /// interface transfer.
+    pub resolved_transfers: Vec<LegAccounts>,
     /// Private-tx-hash input leaves (zero-padded to the circuit shape). The
     /// output leaves are derived: a real output contributes its hash, a dummy
     /// contributes zero.

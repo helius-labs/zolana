@@ -126,13 +126,9 @@ impl RingWithdrawal {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
             Self::Spl {
-                mint,
-                recipient_token,
+                recipient_token, ..
             } => SettlementTarget::Spl {
                 user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
-                spl_token_interface: Address::new_from_array(
-                    zolana_interface::pda::spl_interface(mint).to_bytes(),
-                ),
             },
         }
     }

@@ -6,7 +6,7 @@
 //! UTXOs or merkle proofs, but they carry distinct non-zero nullifiers plus the
 //! real on-chain tree roots and the payer's owner hash. The proof is therefore
 //! bound to exactly what the program reconstructs on-chain: the `external_data`
-//! hash (via the shared [`ExternalDataHash`] from the interface crate), the
+//! hash (via the shared `ExternalDataPreimage` from the interface crate), the
 //! payer pubkey hash, the per-input owner hashes, the tree roots, and the
 //! nullifier/output hash chains.
 //!
@@ -38,9 +38,7 @@ use zolana_hasher::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, ExternalDataHash, InterfaceTransfer, OwnerTag, TransactIxData,
-        },
+        instruction_data::transact::{CircuitId, InterfaceTransfer, OwnerTag, TransactIxData},
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
@@ -55,10 +53,11 @@ use zolana_test_utils::nullifier_pda::{
 };
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
-    dummy_input, dummy_transfer_output, eddsa_input_utxo, fe, inline_outputs, new_transact_ix_data,
-    nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-    resolve_outputs, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
+    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    pack_transact_proof, prove_and_verify_transfer, set_output_owner_tags, single_tree_slots,
+    sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -173,7 +172,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
         &[change_nullifier_pk, zero, zero],
     );
 
-    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
+    let external_data_hash =
+        external_data_hash_for_discriminator(&transact_ix_data, discriminator, &[])
+            .expect("ring external data hash");
 
     // The real input and the real change output contribute their utxo hashes to
     // private_tx_hash; the dummy input and the two dummy outputs contribute zero.
@@ -266,29 +267,6 @@ fn write_signed_ring_config(env: &mut Pool, ring_program: Pubkey, enabled: bool)
         bytemuck::bytes_of(&config).to_vec(),
     );
     ring_config
-}
-
-/// The ring-rail `ExternalDataHash` for a pure shielded transfer: identical to
-/// the confidential one except for the instruction discriminator, which the
-/// program folds from the tag it dispatched on.
-fn external_data_hash_for_discriminator(
-    transact_ix_data: &TransactIxData,
-    discriminator: u8,
-) -> [u8; 32] {
-    let resolved = resolve_outputs(transact_ix_data).expect("resolve outputs");
-    ExternalDataHash {
-        spp_instruction_discriminator: discriminator,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-        salt: &transact_ix_data.salt,
-        outputs: &resolved,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()
-    .expect("ring external data hash")
 }
 
 /// Build valid ring-rail instruction data with a real proof bound to the ring
@@ -432,7 +410,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     } else {
         tag::RING_TRANSACT
     };
-    let external_data_hash = external_data_hash_for_discriminator(&transact_ix_data, discriminator);
+    let external_data_hash =
+        external_data_hash_for_discriminator(&transact_ix_data, discriminator, &[])
+            .expect("ring external data hash");
     let private_input_hashes: Vec<[u8; 32]> = std::iter::once(utxo_hash)
         .chain(std::iter::repeat_n(zero, usize::from(n_inputs) - 1))
         .collect();

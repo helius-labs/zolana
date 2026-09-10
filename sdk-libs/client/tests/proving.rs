@@ -117,7 +117,6 @@ impl TransferHarness {
                 },
                 Asset::Spl => SettlementTarget::Spl {
                     user_spl_token: Address::new_from_array([8u8; 32]),
-                    spl_token_interface: Address::new_from_array([9u8; 32]),
                 },
             };
             transfer
@@ -365,7 +364,6 @@ impl OutputAssertions<'_> {
                 is_deposit: false,
                 amount: w.amount,
                 user_spl_token: Address::new_from_array([8u8; 32]),
-                spl_token_interface: Address::new_from_array([9u8; 32]),
             }],
             None => Vec::new(),
         };

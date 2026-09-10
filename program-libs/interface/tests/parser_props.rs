@@ -237,6 +237,36 @@ proptest! {
         }
     }
 
+    /// The external-data prefix aliases exactly the instruction's head, even
+    /// when the instruction starts partway through a larger buffer.
+    #[test]
+    fn transact_external_data_prefix_is_the_instruction_head(
+        owned in strategies::transact_ix_data(),
+        leading in prop::collection::vec(any::<u8>(), 0..64),
+    ) {
+        let bytes = owned.serialize().expect("serialize transact ix");
+        let inputs_len: usize = owned
+            .inputs
+            .iter()
+            .map(|input| wincode::serialize(input).expect("serialize input").len())
+            .sum();
+        let tail_len = owned.private_tx_hash.len()
+            + wincode::serialize(&owned.circuit).expect("serialize circuit").len()
+            + wincode::serialize(&owned.proof).expect("serialize proof").len()
+            + 1
+            + inputs_len;
+        let prefix = bytes.get(..bytes.len() - tail_len).expect("prefix in bytes");
+        let start = leading.len();
+        let mut buffer = leading;
+        buffer.extend_from_slice(&bytes);
+        let data = buffer.get(start..).expect("instruction in buffer");
+        let (view, parsed_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
+            .expect("parse valid encoding");
+        prop_assert_eq!(parsed_prefix, prefix);
+        prop_assert!(core::ptr::eq(parsed_prefix.as_ptr(), data.as_ptr()));
+        assert_ref_matches_owned(&view, &owned)?;
+    }
+
     /// Truncating or extending a valid `transact` encoding never panics, and
     /// the exact-length owned decoder rejects both length changes.
     #[test]
@@ -254,14 +284,14 @@ proptest! {
             let cut_at = cut.index(bytes.len());
             let truncated = bytes.get(..cut_at).unwrap_or_default();
             prop_assert!(TransactIxData::deserialize(truncated).is_err());
-            let _ = TransactIxDataRef::from_bytes(truncated);
+            prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(truncated).is_err());
         }
 
         // A trailing byte violates the exact-length contract of `deserialize`.
         let mut extended = bytes.clone();
         extended.push(trailing);
         prop_assert!(TransactIxData::deserialize(&extended).is_err());
-        let _ = TransactIxDataRef::from_bytes(&extended);
+        prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(&extended).is_err());
 
         // A flipped byte may decode to a different message or fail; it must
         // never panic.

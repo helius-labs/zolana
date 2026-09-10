@@ -47,6 +47,9 @@ pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
 /// on-chain parser reject values above this bound.
 pub const MAX_INTERFACE_TRANSFERS: usize = 32;
 
+/// Maximum number of outputs any supported transact circuit shape publishes.
+pub const MAX_OUTPUTS: usize = 8;
+
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The
 /// prover mirrors this as `SolAsset()` (Go `circuits/spp_transaction/shared`).
