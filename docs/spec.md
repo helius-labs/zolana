@@ -252,8 +252,8 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
-| `SPPProof` | `[u8; 128]` | Vanilla compressed Groth16 proof. |
-| `TransactProof` | struct | A 128-byte vanilla Groth16 proof (`a`, `b`, `c`). |
+| `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
+| `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
 | `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
@@ -1238,7 +1238,7 @@ derivations.
 
 ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_8_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_8_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
 
-The proof is a 128-byte vanilla Groth16 `a || b || c` over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
+The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 
 **Requirement.** No signing or viewing secret witness. `nullifier_secret` is required.
 
@@ -2069,8 +2069,9 @@ the instruction and must use a fresh blinding per output.
 struct MergeTransactIxData {
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    /// Vanilla Groth16 proof: `a(32) || b(64) || c(32)` — 128 bytes on the
-    /// wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes). The merge
+    /// Vanilla Groth16 proof: `a(32) || b(128) || c(32)` — 192 bytes. `a` and
+    /// `c` are compressed G1 points, `b` is the raw big-endian G2 point so the
+    /// program skips the G2 decompression syscall. The merge
     /// circuit carries no P256 gadget, so there is no BSB22 commitment.
     proof: MergeProof,
     /// One output UTXO hash; appended to the UTXO tree.
@@ -2101,7 +2102,7 @@ struct MergeTransactIxData {
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
-6. The 128-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
+6. The 192-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
 9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
@@ -2376,7 +2377,7 @@ Generates SPP proofs server-side for clients that opt into server-side proving i
 
 ### `generateSppProof`
 
-Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`ring_transact`](#ring_transact) instruction.
+Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the Groth16 proof (`a`, `c` compressed, `b` raw) for the [`transact`](#transact) or [`ring_transact`](#ring_transact) instruction.
 
 ```rust
 struct GenerateSppProofRequest {
