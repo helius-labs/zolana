@@ -10,7 +10,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
-use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
@@ -257,7 +257,7 @@ fn fetch_indexed_events(
 /// Whether a message contains a shielded-pool instruction that can emit events.
 pub fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
     message.instructions.iter().any(|instruction| {
-        parsed_instruction_from_compiled(&message.account_keys, instruction, Some(1))
+        parsed_instruction_from_compiled(&message.account_keys, instruction, 1)
             .is_ok_and(|instruction| instruction_may_emit_events(program_id, &instruction))
     })
 }

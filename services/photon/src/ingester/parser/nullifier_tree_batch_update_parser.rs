@@ -22,7 +22,7 @@ pub fn parse_nullifier_tree_batch_updates(
         return Ok(None);
     }
 
-    let groups = to_rings_instruction_groups(&tx.instruction_groups);
+    let groups = to_rings_instruction_groups(&tx.instruction_groups)?;
     let event_sites = find_event_sites(&groups, pda::shielded_pool_program_id(), |source| {
         source == tag::BATCH_UPDATE_NULLIFIER_TREE
     })?;
@@ -111,7 +111,7 @@ mod tests {
     use crate::ingester::typedefs::block_info::{Instruction, InstructionGroup};
     use borsh::BorshSerialize;
     use solana_signature::Signature;
-    use zolana_event::{encode_event_instruction_with, tag as event_tag};
+    use zolana_event::{encode_event_instruction, tag as event_tag};
 
     fn tree() -> Pubkey {
         Pubkey::new_from_array([7; 32])
@@ -147,7 +147,7 @@ mod tests {
         );
         let emit = instruction(
             pda::shielded_pool_program_id(),
-            encode_event_instruction_with(EventKind::NullifierTreeUpdate, event),
+            encode_event_instruction(EventKind::NullifierTreeUpdate, event),
             2,
         );
         TransactionInfo {

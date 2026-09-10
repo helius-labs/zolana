@@ -80,7 +80,18 @@ impl<'a> TransactAccounts<'a> {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
         let (owner_signers, settlement_accounts) = remaining.split_at_mut(signer_count);
-        // 3. Check transfer settlement accounts.
+        // 3. Check transfer settlement accounts: exactly one group per leg, sized
+        //    by the shared layout the event parser also reads.
+        let settlement_account_count = ix
+            .interface_transfers
+            .iter()
+            .try_fold(0usize, |total, transfer| {
+                total.checked_add(transfer.settlement_account_count())
+            })
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        if settlement_accounts.len() != settlement_account_count {
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
+        }
         let mut iter = AccountIterator::new(settlement_accounts);
         let mut settlements = ArrayVec::new();
         for transfer in &ix.interface_transfers {
@@ -159,9 +170,6 @@ impl<'a> TransactAccounts<'a> {
             settlements
                 .try_push(settlement)
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
-        }
-        if !iter.iterator_is_empty() {
-            return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
 
         Ok(Box::new(Self {

@@ -9,17 +9,18 @@ pub use output_utxo::OutputUtxo;
 pub use proofless::{
     confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
     encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
-    encode_verifiably_encrypted, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
-    EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
-    ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
-    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
+    EncryptedRingDepositData, EncryptedRingDepositDataRef, EncryptedRingDepositOutput,
+    EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput, ProoflessOutputRef,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
-/// `GeneralEvent`, emitted via the `emit_event` self-CPI by state-changing
-/// instructions (spec: General Event). It records the queue sequence numbers and
-/// leaf indices assigned at execution, which are absent from instruction data,
-/// so an indexer can reconstruct nullifier insertions and UTXO appends.
+/// The indexer-facing view of one state-changing instruction (spec: General
+/// Event). `deposit` emits it verbatim via the `emit_event` self-CPI; `transact`
+/// and `merge` emit only [`TransactEvent`] / [`MergeEvent`] and an indexer
+/// rebuilds this view from that body plus the emitting instruction's data and
+/// account list (`zolana-event-parser`).
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct GeneralEvent {
     pub inputs: Vec<Input>,
@@ -59,6 +60,44 @@ pub struct SplTransfer {
     pub asset: Option<[u8; 32]>,
 }
 
+/// One input tree spent by a `transact`/`merge`: the tree and the queue sequence
+/// number assigned to its first spent input. Every later input of that tree takes
+/// `first_input_queue_seq + position`: queue inserts are sequential within one
+/// instruction. SPP spends from a single `input_tree` today, so the emitting
+/// instruction writes one entry; the `Vec` keeps the layout stable if inputs
+/// later span several trees.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct InputTreeSequence {
+    pub tree: [u8; 32],
+    pub first_input_queue_seq: u64,
+}
+
+/// Body of [`EventKind::Transact`]: the trees and the values assigned at
+/// execution. An indexer rebuilds the rest of the [`GeneralEvent`] from the
+/// `transact` instruction data (nullifiers, outputs, messages, `tx_viewing_pk`,
+/// `salt`, interface transfers) and its account list (owner tags, settlement
+/// mints).
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct TransactEvent {
+    pub input_trees: Vec<InputTreeSequence>,
+    pub output_tree: [u8; 32],
+    /// Leaf index of `outputs[0]`; later outputs append sequentially.
+    pub first_output_leaf_index: u64,
+}
+
+/// Body of [`EventKind::Merge`]. The output commitment, the nullifiers and a
+/// ring merge's output `ring_data_hash` come from the instruction data.
+#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+pub struct MergeEvent {
+    pub input_trees: Vec<InputTreeSequence>,
+    pub output_tree: [u8; 32],
+    pub output_leaf_index: u64,
+    /// Owner-indexing tag of the merged output: the registered signing view tag
+    /// (user-record state) for `merge_transact`, the first nullifier for
+    /// `merge_ring`.
+    pub output_view_tag: [u8; 32],
+}
+
 /// A cascade of `num_update` nullifier-tree zkp batch updates applied in one
 /// instruction. `new_root` is the final root; the intermediate roots live in
 /// the tree's `root_history` at indices `first_root_index .. first_root_index +
@@ -90,8 +129,11 @@ pub struct NullifierTreeUpdateEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum EventKind {
+    /// Body is a full [`GeneralEvent`].
     Deposit = 1,
+    /// Body is a [`TransactEvent`].
     Transact = 2,
+    /// Body is a [`MergeEvent`].
     Merge = 3,
     /// Nullifier-tree batch update. Body is a
     /// [`NullifierTreeUpdateEvent`] (one cascade event per update), not a
@@ -111,34 +153,11 @@ impl EventKind {
     }
 }
 
-pub fn encode_event_instruction(kind: EventKind, event: GeneralEvent) -> Vec<u8> {
-    encode_event_instruction_with(kind, &event)
-}
-
-/// Encode an `EMIT_EVENT` instruction for an event whose body is not a
-/// [`GeneralEvent`] (e.g. a batch append event). Layout mirrors
-/// [`encode_event_instruction`]: `[EMIT_EVENT, kind, borsh(payload)]`.
-pub fn encode_event_instruction_with<T: BorshSerialize>(kind: EventKind, payload: &T) -> Vec<u8> {
+/// Encode an `EMIT_EVENT` instruction: `[EMIT_EVENT, kind, borsh(body)]`. The
+/// body type is the one [`EventKind`] documents for `kind`.
+pub fn encode_event_instruction<T: BorshSerialize>(kind: EventKind, body: &T) -> Vec<u8> {
     let mut data = vec![tag::EMIT_EVENT, kind as u8];
-    payload
-        .serialize(&mut data)
+    body.serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
     data
 }
-
-pub fn encode_event_payload(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {
-    let mut data = vec![kind as u8];
-    event
-        .serialize(&mut data)
-        .expect("shielded-pool event serialization is infallible");
-    data
-}
-
-// Decode and indexer-reconstruction helpers used by indexers (the in-repo
-// `program-test` harness and Photon) and by wallet deposit discovery, but never
-// by the on-chain program, which only emits events.
-#[cfg(feature = "program-test")]
-pub mod program_test;
-
-#[cfg(feature = "program-test")]
-pub use program_test::*;

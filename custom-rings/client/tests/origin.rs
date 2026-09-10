@@ -3,7 +3,8 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::tag;
+use zolana_event_parser::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
@@ -22,16 +23,16 @@ const CPI_AUTHORITY: Address = Address::new_from_array(SHIELDED_POOL_CPI_AUTHORI
 const MINT: Address = Address::new_from_array([4u8; 32]);
 const TOKEN_ACCOUNT: Address = Address::new_from_array([5u8; 32]);
 
-fn instruction(program_id: Address, stack_height: Option<u32>) -> ParsedInstruction {
+fn instruction(program_id: Address, stack_height: u32) -> ParsedInstruction {
     ParsedInstruction::new(program_id, Vec::new(), Vec::new(), stack_height)
 }
 
 fn group(outer: Address, inner: &[(Address, u32)]) -> InstructionGroup {
     InstructionGroup {
-        outer: instruction(outer, Some(1)),
+        outer: instruction(outer, 1),
         inner: inner
             .iter()
-            .map(|(program_id, height)| instruction(*program_id, Some(*height)))
+            .map(|(program_id, height)| instruction(*program_id, *height))
             .collect(),
     }
 }
@@ -63,15 +64,7 @@ fn ring_nested_under_another_program_still_signs_for_the_pool() {
 }
 
 #[test]
-fn malformed_stack_heights_are_errors() {
-    let groups = [InstructionGroup {
-        outer: instruction(RING, Some(1)),
-        inner: vec![instruction(POOL, None)],
-    }];
-    assert!(matches!(
-        ring_invoked_in(&groups, RING),
-        Err(OriginError::MissingStackHeight)
-    ));
+fn stack_height_without_a_parent_is_an_error() {
     let groups = [group(RING, &[(POOL, 4)])];
     assert!(matches!(
         ring_invoked_in(&groups, RING),
@@ -139,11 +132,11 @@ fn v0_transactions_resolve_program_ids_from_loaded_addresses() {
 /// transaction and no RPC.
 #[test]
 fn withdrawals_read_from_instruction_groups_without_a_transaction() {
-    let mut answers = instruction(POOL, Some(2));
+    let mut answers = instruction(POOL, 2);
     answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
     answers.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
-        outer: instruction(RING, Some(1)),
+        outer: instruction(RING, 1),
         inner: vec![answers],
     }];
 
@@ -159,11 +152,11 @@ fn withdrawals_read_from_instruction_groups_without_a_transaction() {
 
 #[test]
 fn withdrawals_of_a_ring_that_did_not_sign_are_not_reported() {
-    let mut answers = instruction(POOL, Some(2));
+    let mut answers = instruction(POOL, 2);
     answers.data = ring_transact_bytes(vec![InterfaceTransfer::SolWithdrawal { amount: 77 }]);
     answers.accounts = vec![Address::default(), SOL, RECIPIENT];
     let groups = [InstructionGroup {
-        outer: instruction(OTHER, Some(1)),
+        outer: instruction(OTHER, 1),
         inner: vec![answers],
     }];
 

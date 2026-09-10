@@ -1,0 +1,17 @@
+[package]
+name = "zolana-event-parser"
+version = "0.1.0"
+description = "Locate shielded-pool events in a transaction and rebuild the indexer-facing GeneralEvent from the emitting instruction."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+borsh = { workspace = true }
+solana-pubkey = { workspace = true }
+zolana-event = { workspace = true }
+zolana-interface = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

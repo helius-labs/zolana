@@ -919,8 +919,9 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     // The builder appends owner signers after the SPP and System Program
     // accounts (index 5). Bind both proof inputs to the input owner and flip
     // its meta to unsigned: the loader's signer-run scan ends at the first
-    // non-signer, so the flipped account becomes an unparsable leftover and
-    // the instruction fails closed with InvalidTransactShape.
+    // non-signer, so the flipped account falls into the settlement region,
+    // which then holds one account more than the interface transfers require,
+    // and the instruction fails closed with InvalidSettlementAccounts.
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let owner_signer_index = 5 + transact_ix_data.inputs.len();
     let mut ix = Transact {
@@ -941,7 +942,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
         .expect_err("unsigned Ed25519 input owner must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidTransactShape).assert_litesvm(error);
+    Rejection::pool(ShieldedPoolError::InvalidSettlementAccounts).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("unsigned owner transaction trace")

@@ -23,7 +23,7 @@ use super::{
     tree::{apply_input_tree, apply_output_tree},
 };
 use crate::instructions::{
-    event::emit_general_event,
+    event::emit_event,
     nullifier_pda::create_nullifier_pdas,
     shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
@@ -135,13 +135,8 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(
-        &ix,
-        &transact_accounts.settlements,
-        tree_write,
-        &resolved_outputs,
-    );
-    emit_general_event(EventKind::Transact, event)
+    let event = build_transact_event(tree_write)?;
+    emit_event(EventKind::Transact, &event)
 }
 
 /// Checks:

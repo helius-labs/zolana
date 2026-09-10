@@ -2,15 +2,11 @@ use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{GeneralEvent, Input, MessageData, SplTransfer},
-    instruction::{
-        instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
-        OutputUtxo,
-    },
+    event::{Input, InputTreeSequence, TransactEvent},
+    instruction::instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
 };
 
 use super::verify::MAX_OUTPUTS;
-use crate::instructions::settlement::Settlement;
 
 pub struct TreeWrite {
     pub inputs: Vec<Input>,
@@ -37,57 +33,20 @@ pub(crate) fn resolve_outputs<'a>(
     Ok(outputs)
 }
 
-/// Build the emitted [`GeneralEvent`] from the instruction. Outputs map 1:1 to
-/// `ix.outputs`: each event output carries the resolved owner tag as its
-/// `view_tag`, the output commitment, and the optional ciphertext (empty when the
-/// slot is covered by a preceding bundle). `messages` are republished verbatim.
-pub fn build_transact_event(
-    ix: &TransactIxDataRef<'_>,
-    settlements: &[Settlement<'_>],
-    tree_write: TreeWrite,
-    resolved_outputs: &[ResolvedOutput],
-) -> GeneralEvent {
-    let outputs = resolved_outputs
-        .iter()
-        .map(|output| OutputUtxo {
-            view_tag: output.owner_tag,
-            utxo_hash: *output.utxo_hash,
-            data: output.data.map(<[u8]>::to_vec).unwrap_or_default(),
-        })
-        .collect();
-
-    let messages = ix
-        .messages
-        .iter()
-        .map(|message| MessageData {
-            view_tag: *message.view_tag,
-            data: message.data.to_vec(),
-        })
-        .collect();
-
-    let spl_transfers = ix
-        .interface_transfers
-        .iter()
-        .zip(settlements.iter())
-        .map(|(transfer, settlement)| SplTransfer {
-            is_deposit: transfer.is_deposit(),
-            amount: transfer.amount(),
-            asset: match settlement {
-                Settlement::SolDeposit(_) | Settlement::SolWithdrawal(_) => None,
-                Settlement::SplDeposit(spl) => Some(spl.mint_account.address().to_bytes()),
-                Settlement::SplWithdrawal(spl) => Some(spl.mint_account.address().to_bytes()),
-            },
-        })
-        .collect();
-
-    GeneralEvent {
-        inputs: tree_write.inputs,
-        outputs,
-        messages,
-        tx_viewing_pk: *ix.tx_viewing_pk,
-        salt: *ix.salt,
-        first_output_leaf_index: tree_write.first_output_leaf_index,
+/// Build the emitted [`TransactEvent`]: the trees and the values assigned while
+/// writing them. Everything else the indexer reads from the instruction data
+/// and account list when it rebuilds the `GeneralEvent`.
+pub fn build_transact_event(tree_write: TreeWrite) -> Result<TransactEvent, ProgramError> {
+    let first_input = tree_write
+        .inputs
+        .first()
+        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+    Ok(TransactEvent {
+        input_trees: vec![InputTreeSequence {
+            tree: first_input.tree,
+            first_input_queue_seq: first_input.input_queue_seq,
+        }],
         output_tree: tree_write.output_tree,
-        spl_transfers,
-    }
+        first_output_leaf_index: tree_write.first_output_leaf_index,
+    })
 }

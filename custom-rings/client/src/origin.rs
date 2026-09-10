@@ -7,7 +7,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::tag;
+use zolana_event_parser::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,
@@ -51,8 +52,6 @@ pub enum OriginError {
     },
     #[error(transparent)]
     Decode(#[from] ClientError),
-    #[error("inner instruction carries no stack height")]
-    MissingStackHeight,
     #[error("inner instruction stack height {0} has no parent")]
     InvalidStackHeight(u32),
     #[error("ring transact instruction data is undecodable {0}")]
@@ -85,7 +84,7 @@ fn ring_instructions_in(
     for group in groups {
         let mut callers = vec![group.outer.program_id];
         for inner in &group.inner {
-            let height = inner.stack_height.ok_or(OriginError::MissingStackHeight)?;
+            let height = inner.stack_height;
             let parent_depth = usize::try_from(height)
                 .ok()
                 .and_then(|height| height.checked_sub(2))
@@ -113,7 +112,7 @@ fn ring_withdrawals_of(
         let Some(transfers) = interface_transfers(instruction)? else {
             continue;
         };
-        let total: usize = transfers.iter().map(|t| settlement_width(*t)).sum();
+        let total: usize = transfers.iter().map(|t| t.settlement_account_count()).sum();
         let start = instruction
             .accounts
             .len()
@@ -121,7 +120,7 @@ fn ring_withdrawals_of(
             .ok_or(OriginError::SettlementAccounts)?;
         let mut settlement = &instruction.accounts[start..];
         for transfer in transfers {
-            let (group, rest) = settlement.split_at(settlement_width(transfer));
+            let (group, rest) = settlement.split_at(transfer.settlement_account_count());
             settlement = rest;
             match transfer {
                 InterfaceTransfer::SolWithdrawal { amount } => {
@@ -161,16 +160,6 @@ fn interface_transfers(
     let data = TransactIxData::deserialize(content)
         .map_err(|error| OriginError::InvalidTransactData(error.to_string()))?;
     Ok(Some(data.interface_transfers))
-}
-
-/// Settlement accounts appended per interface transfer, mirroring
-/// `append_interface_transfer_accounts`.
-const fn settlement_width(transfer: InterfaceTransfer) -> usize {
-    if transfer.is_spl() {
-        5
-    } else {
-        2
-    }
 }
 
 #[cfg(feature = "solana-rpc")]

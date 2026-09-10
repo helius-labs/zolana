@@ -7,7 +7,7 @@ use zolana_interface::instruction::{AssetDeposit, Deposit};
 use zolana_keypair::PublicKey;
 use zolana_transaction::Utxo;
 
-use zolana_event::general_event_from_indexed;
+use zolana_event_parser::general_event_from_indexed;
 
 use crate::{
     deposit_outputs_from_event, single_deposit_view, DepositOutput, ProgramTestError,

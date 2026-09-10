@@ -3,11 +3,14 @@ use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use zolana_event::{
-    decode_encrypted_ring_deposit_output_data, encode_encrypted_ring_deposit_output,
-    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    proofless_outputs, EncryptedRingDepositOutput, EventKind, GeneralEvent, ProoflessOutput,
+    encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, EventKind, GeneralEvent,
+    ProoflessOutput,
 };
-pub use zolana_event::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_event_parser::{
+    decode_encrypted_ring_deposit_output_data, event_kind_from_indexed, general_event_from_indexed,
+    indexed_events_from_instruction_groups, proofless_outputs,
+};
+pub use zolana_event_parser::{IndexedEvent, InstructionGroup, ParsedInstruction};
 use zolana_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
@@ -93,7 +96,7 @@ impl RingDepositOutput {
 pub fn parsed_instruction_from_compiled(
     account_keys: &[Pubkey],
     instruction: &CompiledInstruction,
-    stack_height: Option<u32>,
+    stack_height: u32,
 ) -> Result<ParsedInstruction, ProgramTestError> {
     let program_id = account_keys
         .get(instruction.program_id_index as usize)
@@ -133,7 +136,7 @@ pub fn parsed_instruction_groups_from_meta(
     let mut groups = outer_instructions
         .iter()
         .map(|instruction| {
-            parsed_instruction_from_compiled(account_keys, instruction, Some(1)).map(|outer| {
+            parsed_instruction_from_compiled(account_keys, instruction, 1).map(|outer| {
                 InstructionGroup {
                     outer,
                     inner: Vec::new(),
@@ -154,7 +157,7 @@ pub fn parsed_instruction_groups_from_meta(
                 parsed_instruction_from_compiled(
                     account_keys,
                     &inner.instruction,
-                    Some(u32::from(inner.stack_height)),
+                    u32::from(inner.stack_height),
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;

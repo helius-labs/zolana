@@ -18,7 +18,8 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true }
+zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-keypair = { workspace = true }
 zolana-transaction = { workspace = true }
