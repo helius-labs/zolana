@@ -19,16 +19,17 @@
 //     thread, so the host MUST instantiate this inside a Web Worker or the page
 //     will freeze for the duration of the proof.
 //
-// mopro is not involved and cannot be: its gnark adapter is gated
-// #[cfg(not(target_arch = "wasm32"))] (it binds Go gnark through cgo) and its
-// wasm-capable adapters cover only circom, halo2, and noir. Proving Zolana's
-// gnark circuits in a browser has to go through gnark's own js/wasm target.
+// Mopro supplies the optional threaded Rust FFT/MSM kernel. Go retains
+// Zolana witness construction, gnark solving, blinding and proof encoding.
 package main
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/consensys/gnark/backend/groth16"
+	cs "github.com/consensys/gnark/constraint/bn254"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall/js"
@@ -44,12 +45,13 @@ import (
 // LazyKeyManager keys its cache so a cache key computed from a proof request
 // resolves the same system the server would have picked.
 type registry struct {
-	mu      sync.RWMutex
-	systems map[string]*common.TransferProofSystem
+	mu       sync.RWMutex
+	systems  map[string]*common.TransferProofSystem
+	prepared map[string]*preparedCircuit
 }
 
 func newRegistry() *registry {
-	return &registry{systems: make(map[string]*common.TransferProofSystem)}
+	return &registry{systems: make(map[string]*common.TransferProofSystem), prepared: make(map[string]*preparedCircuit)}
 }
 
 func cacheKey(circuitType common.CircuitType, nInputs, nOutputs uint32) string {
@@ -59,7 +61,20 @@ func cacheKey(circuitType common.CircuitType, nInputs, nOutputs uint32) string {
 func (r *registry) put(key string, ps *common.TransferProofSystem) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Keep a single shape resident; large transfer keys otherwise exhaust
+	// browser memory during the shape sweep. The JS cache retains key bytes.
+	for _, old := range r.prepared {
+		if old.kernel != nil {
+			old.kernel.close()
+		}
+	}
+	clear(r.systems)
+	clear(r.prepared)
+	runtime.GC()
+	c := &preparedCircuit{cs: ps.ConstraintSystem.(*cs.R1CS), pk: ps.ProvingKey}
+	prepareKernel(c)
 	r.systems[key] = ps
+	r.prepared[key] = c
 }
 
 func (r *registry) get(key string) (*common.TransferProofSystem, bool) {
@@ -148,6 +163,9 @@ func (r *registry) loadKey(args []js.Value) any {
 		"nOutputs":    int(ps.NOutputs),
 		"nbPublic":    ps.ConstraintSystem.GetNbPublicVariables(),
 		"nbSecret":    ps.ConstraintSystem.GetNbSecretVariables(),
+		"constraints": ps.ConstraintSystem.GetNbConstraints(),
+		"accelerated": r.prepared[key].kernel != nil,
+		"fileName":    name,
 	}
 }
 
@@ -200,7 +218,8 @@ func (r *registry) proveTransfer(request []byte) (*common.Proof, error) {
 	if !ok {
 		return nil, fmt.Errorf("proving key %s is not loaded; call loadKey first", key)
 	}
-	return transfereddsaonly.ProveTransfer(ps, &params)
+	_ = ps
+	return r.prepared[key].prove(&params)
 }
 
 func (r *registry) proveMerge(request []byte, circuitType common.CircuitType) (*common.Proof, error) {
@@ -213,7 +232,60 @@ func (r *registry) proveMerge(request []byte, circuitType common.CircuitType) (*
 	if !ok {
 		return nil, fmt.Errorf("proving key %s is not loaded; call loadKey first", key)
 	}
-	return mergeprover.ProveMerge(ps, &params)
+	_ = ps
+	return r.prepared[key].prove(&params)
+}
+
+// Verify locally using gnark and the public witness derived from the request.
+func (r *registry) verify(args []js.Value) any {
+	if len(args) != 2 {
+		return errorResult(fmt.Errorf("verify expects request and proof JSON"))
+	}
+	request := []byte(args[0].String())
+	meta, err := common.ParseProofRequestMeta(request)
+	if err != nil {
+		return errorResult(err)
+	}
+	var params parameters
+	var key string
+	if meta.CircuitType == common.MergeCircuitType || meta.CircuitType == common.MergeRingCircuitType {
+		p := new(mergeprover.MergeParameters)
+		if err := json.Unmarshal(request, p); err != nil {
+			return errorResult(err)
+		}
+		params = p
+		key = cacheKey(meta.CircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	} else {
+		p := new(transfereddsaonly.TransferParameters)
+		if err := json.Unmarshal(request, p); err != nil {
+			return errorResult(err)
+		}
+		params = p
+		key = cacheKey(p.Variant.CircuitType(), p.NInputs, p.NOutputs)
+	}
+	ps, ok := r.get(key)
+	if !ok {
+		return errorResult(fmt.Errorf("key %s is not loaded", key))
+	}
+	var proof common.Proof
+	if err := json.Unmarshal([]byte(args[1].String()), &proof); err != nil {
+		return errorResult(err)
+	}
+	w, err := assignmentWitness(params)
+	if err != nil {
+		return errorResult(err)
+	}
+	public, err := w.Public()
+	if err != nil {
+		return errorResult(err)
+	}
+	return map[string]any{"valid": groth16.Verify(proof.Proof, ps.VerifyingKey, public) == nil}
+}
+
+func byteArray(value js.Value) []byte {
+	data := make([]byte, value.Get("byteLength").Int())
+	js.CopyBytesToGo(data, value)
+	return data
 }
 
 // errorResult keeps every failure on the resolve path as a plain object. A Go
@@ -250,6 +322,7 @@ func main() {
 	api := js.Global().Get("Object").New()
 	api.Set("loadKey", guard("loadKey", keys.loadKey))
 	api.Set("prove", guard("prove", keys.prove))
+	api.Set("verify", guard("verify", keys.verify))
 	api.Set("loadedKeys", guard("loadedKeys", func([]js.Value) any {
 		loaded := keys.keys()
 		out := make([]any, len(loaded))
