@@ -353,7 +353,7 @@ describe("address and instruction builders", () => {
     });
     expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
-    expect(TREE_ACCOUNT_SIZE).toBe(39_952);
+    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
     expect(TREE_CREATION_STEP_COUNT).toBe(Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP));
     expect(TREE_CREATION_STEP_COUNT).toBe(4);
     expect(STATE_ROOT_OFFSET).toBe(80);

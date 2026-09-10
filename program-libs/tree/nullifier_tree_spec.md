@@ -63,7 +63,8 @@ separates the fee pool from the working capital: PDA creation floors the tree
 at `rent_minimum + fee_balance` and never borrows from collected fees.
 
 The queue holds `N` batches. Each batch stores `K` hash-chain
-commitments, `K` cached tree updates, and:
+commitments, `K` cached tree updates, a two-slot buffer of pending values,
+and:
 
 ```rust
 struct Batch {
@@ -74,11 +75,18 @@ struct Batch {
     num_inserted_zkp_batches: u64,  // finalized ZKP batches applied to the tree
     batch_size: u64,                // B, equal to the tree's batch_size
     zkp_batch_size: u64,            // Z, equal to the tree's zkp_batch_size
+    pending_values: [[u8; 32]; 2],  // open ZKP batch values not yet absorbed
 }
 ```
 
 ```text
 0 <= num_inserted_zkp_batches <= num_full_zkp_batches <= K
+
+num_pending = 0                        if num_inserted == 0
+            = (num_inserted - 1) mod 3 otherwise
+
+pending_values[0..num_pending] are the last num_pending queued values
+of the open ZKP batch; slots at or above num_pending are unspecified.
 
 RH = K
 
@@ -159,18 +167,27 @@ The instruction also receives the writable PDA.
    waiting for the batch's PDAs to become reclaimable. `Full` is not
    reusable.
 3. Require `q < tree.capacity`.
-4. Let `j = batches[c].num_full_zkp_batches`. Update the open commitment:
+4. Let `j = batches[c].num_full_zkp_batches` and `k = num_pending`. Update the
+   open commitment:
 
    ```text
-   hash_chains[c][j] = nullifier                              if num_inserted == 0
-   hash_chains[c][j] = Poseidon(hash_chains[c][j], nullifier) otherwise
+   hash_chains[c][j] = nullifier                                      if num_inserted == 0
+   pending_values[k] = nullifier                                      if k < 2 and num_inserted + 1 < Z
+   hash_chains[c][j] = Poseidon(hash_chains[c][j], g0, g1, g2)        otherwise, where
+       (g0, g1, g2) = pending_values[0..k] ++ [nullifier], zero-padded to three
    ```
 
-5. Increment `num_inserted`. When `num_inserted == Z`, finalize the commitment,
-   increment
-   `num_full_zkp_batches`, and reset `num_inserted` to zero. When
-   `num_full_zkp_batches == K`, set the batch to `Full` and advance `c` modulo
-   `N`.
+   Once finalized, `hash_chains[c][j] = HashChain4(v0, ..., v(Z-1))` over the
+   ZKP batch's values in queue order, with `HashChain4` as defined under
+   [Batch append](#batch-append). A value is therefore either the head, or
+   waits in the buffer, or is absorbed with the buffer; only the absorbing
+   insert hashes.
+
+5. Increment `num_inserted`. When `num_inserted == Z`, the commitment is
+   finalized (the last insert absorbed the buffer, zero-padded if the last
+   group was short); increment `num_full_zkp_batches` and reset `num_inserted`
+   to zero. When `num_full_zkp_batches == K`, set the batch to `Full` and
+   advance `c` modulo `N`.
 6. Increment `q` once.
 7. Charge `fees.fee_per_nullifier` from the transaction payer to the tree
    (System transfer) and add the same amount to `fee_balance`. The inserting
@@ -225,15 +242,23 @@ For pending batch `p` and requested ZKP batch `i`:
 start_index = batches[p].start_index + i * Z
 leaves_hash = hash_chains[p][i]
 
-public_input = HashChain(
+public_input = HashChain4(
     old_root,
     new_root,
     leaves_hash,
     u256_be(start_index),
-)
+)            = Poseidon(old_root, new_root, leaves_hash, u256_be(start_index))
 
-HashChain(x0, ..., xn) = Poseidon(...Poseidon(Poseidon(x0, x1), x2)..., xn)
+HashChain4(x0)          = x0
+HashChain4(x0, ..., xn) = h_m where h_0 = x0 and, for each group of up to three
+                          consecutive elements (g0, g1, g2) of x1..xn in order,
+                          h_(i+1) = Poseidon(h_i, g0, g1 or 0, g2 or 0)
 ```
+
+Every Poseidon call is the 4-input permutation; a short trailing group is
+zero-padded, never hashed with a narrower permutation. `leaves_hash` is
+`HashChain4` over the `Z` queued values, so the circuit recomputes it from the
+values with the same fold.
 
 The Groth16 proof establishes the height-40 indexed append from `old_root` to
 `new_root` for the ordered values committed by `leaves_hash`, starting at

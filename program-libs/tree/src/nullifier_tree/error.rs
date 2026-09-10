@@ -29,6 +29,8 @@ pub enum NullifierTreeError {
     HashChainNotReady,
     #[error("Hash chain region is full, cannot push any new elements.")]
     HashChainFull,
+    #[error("Pending value buffer of the open ZKP batch is full.")]
+    PendingValuesFull,
     #[error("Invalid height.")]
     InvalidHeight,
     #[error("Root history must contain exactly one queue batch of ZKP update roots.")]
