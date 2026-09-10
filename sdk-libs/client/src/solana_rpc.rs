@@ -218,12 +218,11 @@ impl SolanaRpc {
         program_id: Address,
         filter: &ProgramAccountsFilter,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
-        let program = pubkey_from_address(&program_id);
         let accounts = self
             .client
-            .get_program_ui_accounts_with_config(&program, filter.rpc_config())
-            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))?;
-        filtered_program_accounts(&program, filter, accounts)
+            .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
+        filtered_program_accounts(&program_id, filter, accounts)
     }
 
     pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
@@ -336,13 +335,12 @@ impl AsyncSolanaRpc {
         program_id: Address,
         filter: &ProgramAccountsFilter,
     ) -> Result<Vec<(Address, Account)>, ClientError> {
-        let program = pubkey_from_address(&program_id);
         let accounts = self
             .client
-            .get_program_ui_accounts_with_config(&program, filter.rpc_config())
+            .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
             .await
-            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program}: {err}")))?;
-        filtered_program_accounts(&program, filter, accounts)
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
+        filtered_program_accounts(&program_id, filter, accounts)
     }
 
     pub async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
@@ -401,24 +399,24 @@ impl AsyncSolanaRpc {
 }
 
 fn filtered_program_accounts(
-    program: &Pubkey,
+    program: &Address,
     filter: &ProgramAccountsFilter,
-    accounts: Vec<(Pubkey, UiAccount)>,
+    accounts: Vec<(Address, UiAccount)>,
 ) -> Result<Vec<(Address, Account)>, ClientError> {
     accounts
         .into_iter()
-        .map(|(pubkey, ui_account)| {
+        .map(|(address, ui_account)| {
             let account = ui_account.to_account().ok_or_else(|| {
                 ClientError::Rpc(format!(
-                    "get_program_accounts {program} returned account {pubkey} in an unsupported encoding"
+                    "get_program_accounts {program} returned account {address} in an unsupported encoding"
                 ))
             })?;
             if !filter.matches(&account.data) {
                 return Err(ClientError::Rpc(format!(
-                    "get_program_accounts {program} returned account {pubkey} outside the filter"
+                    "get_program_accounts {program} returned account {address} outside the filter"
                 )));
             }
-            Ok((Address::new_from_array(pubkey.to_bytes()), account))
+            Ok((address, account))
         })
         .collect()
 }
@@ -875,9 +873,9 @@ mod tests {
     const DATA_SIZE: usize = 68;
     const DISCRIMINATOR: u8 = 4;
 
-    fn keyed_account(pubkey: &Pubkey, owner: &Pubkey, data: &[u8]) -> Value {
+    fn keyed_account(address: &Address, owner: &Address, data: &[u8]) -> Value {
         json!({
-            "pubkey": pubkey.to_string(),
+            "pubkey": address.to_string(),
             "account": {
                 "lamports": 1_000_000u64,
                 "data": [STANDARD.encode(data), "base64"],
@@ -941,8 +939,8 @@ mod tests {
 
     #[test]
     fn filtered_query_decodes_matching_accounts() {
-        let program = Pubkey::new_unique();
-        let pubkey = Pubkey::new_unique();
+        let program = Address::new_unique();
+        let pubkey = Address::new_unique();
         let data = account_data(DISCRIMINATOR);
         let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
             "succeeds",
@@ -950,27 +948,27 @@ mod tests {
         ));
 
         let accounts = rpc
-            .get_program_accounts_filtered(Address::new_from_array(program.to_bytes()), &filter())
+            .get_program_accounts_filtered(program, &filter())
             .expect("filtered query");
 
         let [(address, account)] = accounts.as_slice() else {
             panic!("expected one account, got {}", accounts.len());
         };
-        assert_eq!(address.to_bytes(), pubkey.to_bytes());
+        assert_eq!(*address, pubkey);
         assert_eq!(account.data, data);
         assert_eq!(account.owner, program);
     }
 
     #[test]
     fn filtered_query_rejects_an_account_outside_the_filter() {
-        let program = Pubkey::new_unique();
+        let program = Address::new_unique();
         let matching = keyed_account(
-            &Pubkey::new_unique(),
+            &Address::new_unique(),
             &program,
             &account_data(DISCRIMINATOR),
         );
         let other = keyed_account(
-            &Pubkey::new_unique(),
+            &Address::new_unique(),
             &program,
             &account_data(DISCRIMINATOR + 1),
         );
@@ -980,7 +978,7 @@ mod tests {
         ));
 
         let err = rpc
-            .get_program_accounts_filtered(Address::new_from_array(program.to_bytes()), &filter())
+            .get_program_accounts_filtered(program, &filter())
             .expect_err("account outside the filter");
 
         assert!(
@@ -991,8 +989,8 @@ mod tests {
 
     #[tokio::test]
     async fn async_filtered_query_decodes_matching_accounts() {
-        let program = Pubkey::new_unique();
-        let pubkey = Pubkey::new_unique();
+        let program = Address::new_unique();
+        let pubkey = Address::new_unique();
         let data = account_data(DISCRIMINATOR);
         let rpc = AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks(
             "succeeds".to_owned(),
@@ -1000,12 +998,12 @@ mod tests {
         ));
 
         let accounts = rpc
-            .get_program_accounts_filtered(Address::new_from_array(program.to_bytes()), &filter())
+            .get_program_accounts_filtered(program, &filter())
             .await
             .expect("filtered query");
 
         assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0].0.to_bytes(), pubkey.to_bytes());
+        assert_eq!(accounts[0].0, pubkey);
         assert_eq!(accounts[0].1.data, data);
     }
 }
