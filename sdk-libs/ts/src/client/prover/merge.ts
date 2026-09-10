@@ -379,7 +379,7 @@ function copyMergeProof(
 ): MergeTransactInstructionData["proof"] {
   return Object.freeze({
     a: checkedBytes(proof.a, 32, "merge proof a"),
-    b: checkedBytes(proof.b, 64, "merge proof b"),
+    b: checkedBytes(proof.b, 128, "merge proof b"),
     c: checkedBytes(proof.c, 32, "merge proof c"),
   });
 }

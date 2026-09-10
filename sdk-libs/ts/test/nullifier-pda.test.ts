@@ -13,7 +13,7 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   InputUtxo,
   MergeTransactInstructionData,
   TransactInstructionData,
@@ -47,7 +47,7 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
     salt: filled(42, 16) as Bytes16,
     proof: {
       a: filled(43, 32) as Bytes32,
-      b: filled(44, 64) as Bytes64,
+      b: filled(44, 128) as Bytes128,
       c: filled(45, 32) as Bytes32,
     },
     inputs,
@@ -145,7 +145,7 @@ describe("nullifier PDA accounts", () => {
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
       proof: {
         a: filled(43, 32) as Bytes32,
-        b: filled(44, 64) as Bytes64,
+        b: filled(44, 128) as Bytes128,
         c: filled(45, 32) as Bytes32,
       },
       outputUtxoHash: filled(46, 32) as Bytes32,

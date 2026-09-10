@@ -60,7 +60,7 @@ import {
   type Bytes16,
   type Bytes32,
   type Bytes33,
-  type Bytes64,
+  type Bytes128,
 } from "../src/interface/index.js";
 import { treeWithBump } from "../src/interface/pda/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
@@ -569,7 +569,7 @@ describe("address and instruction builders", () => {
         salt: new Uint8Array(16) as Bytes16,
         proof: {
           a: new Uint8Array(32) as Bytes32,
-          b: new Uint8Array(64) as Bytes64,
+          b: new Uint8Array(128) as Bytes128,
           c: new Uint8Array(32) as Bytes32,
         },
         inputs: [],

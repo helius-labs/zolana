@@ -12,7 +12,7 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   TransactExternalData,
   TransactInstructionData,
 } from "../src/interface/types.js";
@@ -116,13 +116,13 @@ describe("encodeTransactInstructionData", () => {
       ...PARITY_EXTERNAL_DATA,
       privateTxHash: bytes32(0xc0),
       circuit: { kind: "confidentialEddsa", inputs: 1, outputs: 2, publicAssetSlots: 3 },
-      proof: { a: bytes32(0x01), b: sequence(64, 0x02) as Bytes64, c: bytes32(0x03) },
+      proof: { a: bytes32(0x01), b: sequence(128, 0x02) as Bytes128, c: bytes32(0x03) },
       inputs: [{ nullifierHash: bytes32(0x04), nullifierTreeRootIndex: 5, utxoTreeRootIndex: 6 }],
     };
     const prefix = encodeTransactExternalData(PARITY_EXTERNAL_DATA);
     const encoded = encodeTransactInstructionData(instruction);
     expect(encoded.subarray(0, prefix.length)).toEqual(prefix);
-    expect(encoded.length).toBe(prefix.length + 32 + 5 + 128 + 1 + 36);
+    expect(encoded.length).toBe(prefix.length + 32 + 5 + 192 + 1 + 36);
     expect(prefix.length).toBe(
       8 + 33 + 16 + 1 + 9 + 10 + 1 + 1 + 1 + (32 + 33 + 3 + 16) + (32 + 33 + 1) + 1,
     );

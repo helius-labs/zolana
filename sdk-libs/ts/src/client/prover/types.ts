@@ -242,7 +242,7 @@ export interface Proof {
 
 export interface CompressedProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
   readonly commitment?: Bytes32;
   readonly commitmentPok?: Bytes32;

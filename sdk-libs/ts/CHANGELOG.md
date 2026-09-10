@@ -180,8 +180,16 @@ Breaking
   deposited UTXO from the indexer after the deposit lands, since the blinding,
   and therefore the hash, depend on the leaf index assigned when the transaction
   executes.
+- `TransactProof.b`, `CompressedProof.b`, and the merge instruction `proof.b`
+  are the 128-byte uncompressed G2 point (was the 64-byte compressed encoding),
+  so `encodeTransactInstructionData` and `encodeMergeTransactInstructionData`
+  write 64 more bytes and a hand-built 64-byte `b` is refused → pass the
+  `compressProof` result through unchanged, it now keeps the point the prover
+  returned; `toCustomRingProof()` still compresses `b`.
 
 Added
+
+- `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
   a policy ring, the rule table over the list entries the rules name, and

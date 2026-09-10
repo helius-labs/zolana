@@ -21,19 +21,33 @@ const G2 = new Uint8Array([
 ]);
 
 describe("proof compression", () => {
-  it("matches Solana's c1 || c0 G2 encoding", () => {
+  it("keeps the raw G2 point and compresses it only for the custom-ring proof", () => {
     const proof = {
       a: new Uint8Array(64),
       b: G2,
       c: new Uint8Array(64),
+      commitment: new Uint8Array(64),
+      commitmentPok: new Uint8Array(64),
     } as Proof;
-    expect(compressProof(proof).b).toEqual(G2.slice(0, 64));
+    const compressed = compressProof(proof);
+    expect(compressed.b).toEqual(G2);
+    expect(compressed.toTransactProof().b).toEqual(G2);
+    expect(compressed.toCustomRingProof().subarray(32, 96)).toEqual(G2.slice(0, 64));
+  });
+
+  it("rejects a G2 point off the curve", () => {
+    const offCurve = new Uint8Array(G2);
+    offCurve[127] = (offCurve[127] ?? 0) ^ 1;
+    const proof = { a: new Uint8Array(64), b: offCurve, c: new Uint8Array(64) } as Proof;
+    expect(() => compressProof(proof)).toThrow(
+      expect.objectContaining({ code: "CLIENT_PROOF_POINT" }),
+    );
   });
 
   it("ports the standard Groth16 proof without protocol-specific fields", () => {
     expect(compressProof(parseProof({ proof: ZERO_PROOF })).toTransactProof()).toEqual({
       a: new Uint8Array(32),
-      b: new Uint8Array(64),
+      b: new Uint8Array(128),
       c: new Uint8Array(32),
     });
   });
@@ -90,7 +104,7 @@ describe("proof compression", () => {
     const audit = compressed.toCustomRingProof();
     expect(audit).toHaveLength(CUSTOM_RING_PROOF_LENGTH);
     expect(audit.subarray(0, 32)).toEqual(compressed.a);
-    expect(audit.subarray(32, 96)).toEqual(compressed.b);
+    expect(audit.subarray(32, 96)).toEqual(new Uint8Array(64));
     expect(audit.subarray(96, 128)).toEqual(compressed.c);
     expect(audit.subarray(128, 160)).toEqual(compressed.commitment);
     expect(audit.subarray(160, 192)).toEqual(compressed.commitmentPok);

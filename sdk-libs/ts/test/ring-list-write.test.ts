@@ -62,7 +62,7 @@ const ENTRIES_TREE = addressOf(filled(0x30));
 const RING = addressOf(filled(0x10));
 const ZERO_PROOF: TransactProof = {
   a: new Uint8Array(32) as Bytes32,
-  b: new Uint8Array(64) as TransactProof["b"],
+  b: new Uint8Array(128) as TransactProof["b"],
   c: new Uint8Array(32) as Bytes32,
 };
 
@@ -325,7 +325,7 @@ describe("entry instructions", () => {
       0x03,
       0x02,
       0x01,
-      ...new Uint8Array(128),
+      ...new Uint8Array(192),
     ]);
   });
 
@@ -349,7 +349,7 @@ describe("entry instructions", () => {
       2,
     ]);
     expect(instruction.data).toHaveLength(
-      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 128,
+      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 192,
     );
     expect(RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT).toBe(1_400_000);
   });

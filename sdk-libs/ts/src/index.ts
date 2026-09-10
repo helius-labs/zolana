@@ -35,6 +35,7 @@ export {
   type Bytes32,
   type Bytes33,
   type Bytes64,
+  type Bytes128,
   type RequestContext,
   type Signature,
 } from "./interface/index.js";
