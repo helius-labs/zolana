@@ -111,16 +111,15 @@ impl NullifierForester {
         let proof = ProverClient::local()
             .prove_batch_address_append(&inputs)
             .unwrap();
-        let compressed = ProofCompressed::try_from(proof).unwrap();
+        let compressed_proof = ProofCompressed::try_from(proof)
+            .unwrap()
+            .to_nullifier_tree_proof()
+            .unwrap();
         let instruction_data = InstructionDataBatchNullifyInputs {
             new_root,
             old_root,
             zkp_batch_index: zkp_index as u16,
-            compressed_proof: CompressedProof {
-                a: compressed.a,
-                b: compressed.b,
-                c: compressed.c,
-            },
+            compressed_proof,
         };
         let result = account
             .update_tree_from_queue(TREE_PUBKEY, instruction_data)
@@ -171,16 +170,15 @@ impl NullifierForester {
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed = ProofCompressed::try_from(proof).unwrap();
+            let compressed_proof = ProofCompressed::try_from(proof)
+                .unwrap()
+                .to_nullifier_tree_proof()
+                .unwrap();
             let instruction = InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: zkp_index as u16,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
+                compressed_proof,
             };
             prepared.push(PreparedUpdate {
                 instruction,

@@ -41,7 +41,7 @@ use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
 use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
-use zolana_interface::instruction::{BatchUpdateNullifierTreeData, CompressedProof};
+use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::{TreeAccount, TreeFeeSchedule};
 
@@ -704,7 +704,8 @@ fn drain_once(
                 let proof = prover
                     .prove_batch_address_append(&inputs)
                     .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
-                let proof = ProofCompressed::try_from(proof)
+                let compressed_proof = ProofCompressed::try_from(proof)
+                    .and_then(|proof| proof.to_nullifier_tree_proof())
                     .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
 
                 let signature = batch_update_nullifier_tree_once(ForestParams {
@@ -720,11 +721,7 @@ fn drain_once(
                         // (= batch_size / zkp_batch_size), well within `u16`, so
                         // the cast cannot truncate.
                         zkp_batch_index: zkp_index as u16,
-                        compressed_proof: CompressedProof {
-                            a: proof.a,
-                            b: proof.b,
-                            c: proof.c,
-                        },
+                        compressed_proof,
                     },
                 })
                 .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;

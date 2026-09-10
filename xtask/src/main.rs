@@ -614,8 +614,8 @@ fn tx_size(args: Vec<String>) {
         bincode::serialize(&tx).unwrap().len()
     };
 
-    // TransactIxData.proof carries the compressed Groth16 points.
-    const TRANSACT_PROOF_LEN: usize = 128;
+    // TransactIxData.proof: compressed G1 a and c, raw 128-byte G2 b.
+    const TRANSACT_PROOF_LEN: usize = 192;
     // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
     const LEGACY_PROOF_LEN: usize = 192;
 
