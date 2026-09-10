@@ -57,6 +57,10 @@ impl Shape {
         }
     }
 
+    const fn is(&self, other: Shape) -> bool {
+        self.n_inputs == other.n_inputs && self.n_outputs == other.n_outputs
+    }
+
     pub const fn n_inputs(&self) -> usize {
         self.n_inputs
     }
@@ -105,15 +109,31 @@ pub const SPP_SUPPORTED_SHAPES: [Shape; 11] = [
     Shape::IN36_OUT2,
 ];
 
-pub const SPP_AUTO_SHAPES: [Shape; 10] = [
-    Shape::IN1_OUT1,
-    Shape::IN1_OUT2,
-    Shape::IN2_OUT2,
-    Shape::IN2_OUT3,
-    Shape::IN3_OUT3,
-    Shape::IN4_OUT3,
-    Shape::IN4_OUT4,
-    Shape::IN5_OUT3,
-    Shape::IN5_OUT4,
-    Shape::IN1_OUT8,
-];
+/// The consolidation shape: supported, but only reached by declaring it.
+pub const SPP_CONSOLIDATION_SHAPE: Shape = Shape::IN36_OUT2;
+
+/// [`SPP_SUPPORTED_SHAPES`] minus [`SPP_CONSOLIDATION_SHAPE`]: the shapes
+/// automatic selection may pick.
+pub const SPP_AUTO_SHAPES: [Shape; SPP_SUPPORTED_SHAPES.len() - 1] = auto_shapes();
+
+const fn auto_shapes() -> [Shape; SPP_SUPPORTED_SHAPES.len() - 1] {
+    let mut auto = [SPP_CONSOLIDATION_SHAPE; SPP_SUPPORTED_SHAPES.len() - 1];
+    let mut written = 0;
+    let mut remaining: &[Shape] = &SPP_SUPPORTED_SHAPES;
+    while let Some((shape, rest)) = remaining.split_first() {
+        if !shape.is(SPP_CONSOLIDATION_SHAPE) {
+            assert!(
+                written < auto.len(),
+                "SPP_SUPPORTED_SHAPES must list the consolidation shape exactly once"
+            );
+            auto[written] = *shape;
+            written += 1;
+        }
+        remaining = rest;
+    }
+    assert!(
+        written == auto.len(),
+        "SPP_SUPPORTED_SHAPES must list the consolidation shape exactly once"
+    );
+    auto
+}

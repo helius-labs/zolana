@@ -12,7 +12,8 @@ pub use proofless::{
     is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
     EncryptedRingDepositData, EncryptedRingDepositDataRef, EncryptedRingDepositOutput,
     EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput, ProoflessOutputRef,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN,
+    ENCRYPTED_RING_DEPOSIT_SCHEME, PLAINTEXT_OUTPUT_FIXED_LEN,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 

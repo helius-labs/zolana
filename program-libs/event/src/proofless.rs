@@ -150,11 +150,53 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
 
 /// Borrowed counterpart of [`encode_output_data`].
 pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
-    let mut blob = vec![0u8];
-    data.serialize(&mut blob)
-        .expect("shielded-pool output data serialization is infallible");
-    borsh::to_vec(&OutputDataEncoding::Plaintext(blob))
-        .expect("shielded-pool output data serialization is infallible")
+    let variable_len = data.utxo_data.map_or(0, <[u8]>::len)
+        + data.ring_data.map_or(0, <[u8]>::len)
+        + data.memo.map_or(0, <[u8]>::len);
+    encode_tagged_body(
+        OutputDataEncoding::PLAINTEXT_TAG,
+        PLAINTEXT_SCHEME,
+        PLAINTEXT_OUTPUT_FIXED_LEN + variable_len,
+        |out| data.serialize(out),
+    )
+}
+
+const PLAINTEXT_SCHEME: u8 = 0;
+const BODY_LEN_OFFSET: usize = 1;
+const BODY_OFFSET: usize = BODY_LEN_OFFSET + 4;
+
+/// Encoded length of a plaintext output with every option present and every
+/// variable-length field empty: encoding tag, `u32` body length, scheme byte,
+/// then the borsh body. Variable-length bytes add on top.
+pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
+
+/// Encoded length of an owner-hidden ring deposit output with `data_hash`
+/// present and an empty ciphertext; ciphertext bytes add on top.
+pub const ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN: usize = 228;
+
+/// Writes `OutputDataEncoding::<tag>(scheme || body)` into one buffer: the
+/// `u32` body length is patched in after the body is serialized, so the body is
+/// not serialized into a temporary and copied into the enum payload.
+fn encode_tagged_body(
+    encoding_tag: u8,
+    scheme: u8,
+    capacity: usize,
+    write_body: impl FnOnce(&mut Vec<u8>) -> borsh::io::Result<()>,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(capacity);
+    out.push(encoding_tag);
+    out.extend_from_slice(&[0u8; 4]);
+    out.push(scheme);
+    write_body(&mut out).expect("shielded-pool output data serialization is infallible");
+    let body_len = out
+        .len()
+        .checked_sub(BODY_OFFSET)
+        .and_then(|len| u32::try_from(len).ok())
+        .expect("shielded-pool output data length fits in u32");
+    out.get_mut(BODY_LEN_OFFSET..BODY_OFFSET)
+        .expect("length prefix written above")
+        .copy_from_slice(&body_len.to_le_bytes());
+    out
 }
 
 /// Encodes the mixed public/encrypted payload used by `ring_deposit`.
@@ -177,10 +219,10 @@ pub fn encode_encrypted_ring_deposit_output(data: EncryptedRingDepositOutput) ->
 pub fn encode_encrypted_ring_deposit_output_ref(
     data: EncryptedRingDepositOutputRef<'_>,
 ) -> Vec<u8> {
-    let mut blob = Vec::new();
-    blob.push(ENCRYPTED_RING_DEPOSIT_SCHEME);
-    data.serialize(&mut blob)
-        .expect("shielded-pool output data serialization is infallible");
-    borsh::to_vec(&OutputDataEncoding::Encrypted(blob))
-        .expect("shielded-pool output data serialization is infallible")
+    encode_tagged_body(
+        OutputDataEncoding::ENCRYPTED_TAG,
+        ENCRYPTED_RING_DEPOSIT_SCHEME,
+        ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN + data.encrypted.ciphertext.len(),
+        |out| data.serialize(out),
+    )
 }
