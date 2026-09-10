@@ -131,7 +131,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		return nil, err
 	}
 	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
-	wantSigners := int(p.NInputs) + 1
+	wantSigners := shape.SignerWidth()
 	if p.Variant == RingAuthorityVariant {
 		wantSigners = 1
 	}

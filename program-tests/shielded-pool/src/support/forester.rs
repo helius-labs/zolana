@@ -123,16 +123,12 @@ impl NullifierTestForester {
             .ok_or_else(|| anyhow!("queued nullifier slice {start}..{end} out of range"))?;
         let (inputs, new_root) = self.build_inputs(&plan, batch_values)?;
         let proof = ProverClient::local().prove_batch_address_append(&inputs)?;
-        let compressed = ProofCompressed::try_from(proof)?;
+        let compressed_proof = ProofCompressed::try_from(proof)?.to_nullifier_tree_proof()?;
         let batch_update = BatchUpdateNullifierTreeData {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
-                a: compressed.a,
-                b: compressed.b,
-                c: compressed.c,
-            },
+            compressed_proof,
         };
 
         Ok((

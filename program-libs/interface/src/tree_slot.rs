@@ -69,7 +69,7 @@ pub fn tree_slots_hash_chain(slots: &[TreeSlot; INPUT_TREES]) -> Result<[u8; 32]
 /// Right hash chain over `m` all-zero slots, at index `m - 1`:
 /// `S(1) = Z`, `S(m) = Poseidon(Z, S(m - 1))` with `Z = Poseidon(0, 0, 0)`.
 /// Pinned by `zero_suffix_chains_match_recomputation`.
-pub const ZERO_TREE_SLOT_SUFFIX_CHAINS: [[u8; 32]; INPUT_TREES - 1] = [
+pub static ZERO_TREE_SLOT_SUFFIX_CHAINS: [[u8; 32]; INPUT_TREES - 1] = [
     [
         0x0b, 0xc1, 0x88, 0xd2, 0x7d, 0xcc, 0xea, 0xdc, 0x1d, 0xcf, 0xb6, 0xaf, 0x0a, 0x7a, 0xf0,
         0x8f, 0xe2, 0x86, 0x4e, 0xec, 0xec, 0x96, 0xc5, 0xae, 0x7c, 0xee, 0x6d, 0xb3, 0x1b, 0xa5,

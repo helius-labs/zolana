@@ -252,8 +252,8 @@ Type aliases used in the `struct` definitions throughout this spec. Each is defi
 | `P256Keypair` | — | A P256 `(secret, public)` keypair; its public half is a `P256Pubkey`. |
 | `Signature` | `[u8; 64]` | A Solana (Ed25519) transaction signature. |
 | `ECDSASignature` | `[u8; 64]` | A P256 ECDSA signature (`r‖s`); authenticates an RPC request under the signer's key. |
-| `SPPProof` | `[u8; 128]` | Vanilla compressed Groth16 proof. |
-| `TransactProof` | struct | A 128-byte vanilla Groth16 proof (`a`, `b`, `c`). |
+| `SPPProof` | `[u8; 192]` | Vanilla Groth16 proof `a(32) || b(128) || c(32)`: `a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point. |
+| `TransactProof` | struct | A 192-byte vanilla Groth16 proof (`a`, `b`, `c`): `a` and `c` compressed G1 (32 bytes each), `b` the raw big-endian G2 point (128 bytes). |
 | `CircuitId` | enum | Selects the circuit family and fixed shape: `ConfidentialEddsa`, `RingEddsa`, or `RingAuthority`, each carrying `(n_inputs, n_outputs, n_public_asset_slots)`. Unknown values are rejected at deserialization. |
 
 Raw fixed-size byte arrays keep their literal types where no alias adds clarity:
@@ -994,14 +994,37 @@ indexing](#merge-output-indexing-removed-merge-view-tag)).
 
 **Public Inputs**
 
-The single public signal is `public_input_hash = HashChain(fields)`. The table
+The single public signal is `public_input_hash = HashChain4(fields)`. The table
 lists `fields` in preimage order; variant-only fields are omitted for other
-variants. `HashChain` folds left to right; `RightHashChain` folds right to left.
+variants. `HashChain` folds left to right one element per Poseidon call;
+`RightHashChain` folds right to left; `HashChain4` folds left to right three
+elements per call:
+
+<a id="hash-chain-4"></a>
+```
+HashChain4(e[0..L]):
+    L == 0  -> 0
+    L == 1  -> e[0]
+    L >= 2  -> h = e[0]
+               for each group g of up to 3 consecutive elements of e[1..L], in order:
+                   h = Poseidon(h, g[0], g[1] or 0, g[2] or 0)
+               return h
+```
+
+Every call is the 4-input Poseidon permutation; a partial trailing group is
+zero-padded, so `ceil((L - 1) / 3)` calls hash `L` elements. `HashChain4`
+carries no length tag and no domain separation: `[a, b]` and `[a, b, 0, 0]`
+hash to the same value. It is injective only over inputs of one fixed length.
+Every `HashChain4` in this protocol has a length fixed by the compiled circuit
+(the shape fixes the input, output and field counts) and the proof verifies
+against that circuit's verifying key, so a chain of another length belongs to
+a different circuit. `HashChain4` MUST NOT be used where a variable-length
+input could be zero-padded to look like a fixed-length one.
 
 | Input | Source |
 | --- | --- |
-| `HashChain(nullifiers)` | published nullifiers for every input slot, including padding and addresses |
-| `HashChain(output_utxo_hashes)` | instruction data (`outputs[i].utxo_hash`), including dummy outputs |
+| `HashChain4(nullifiers)` | published nullifiers for every input slot, including padding and addresses |
+| `HashChain4(output_utxo_hashes)` | instruction data (`outputs[i].utxo_hash`), including dummy outputs |
 | `tree_slot_chain` | commitment to the five input tree slots; see [Tree Slot Chain](#tree-slot-chain) |
 | `output_tree_id` | raw `u16` id of `output_tree`; hashed into each output `utxo_hash` |
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
@@ -1010,9 +1033,9 @@ variants. `HashChain` folds left to right; `RightHashChain` folds right to left.
 | `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input because SPP cannot recompute the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
-| signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to `N_inputs + 1`. `RingAuthority` uses only the payer (width 1). |
+| signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to [`signer_width`](#signer-width). `RingAuthority` uses only the payer (width 1). |
 | `allow_dummy_inputs` | boolean derived by SPP from the input tree's remaining capacity; see [Input slots](#input-slots) |
-| published output owner hash chain (owner-signed variants) | `HashChain` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `RingEddsa` and `RingP256` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
+| published output owner hash chain (owner-signed variants) | `HashChain4` over per-output tagged Solana identities. `ConfidentialEddsa` includes every resolved owner tag. `RingEddsa` and `RingP256` use `hash_bytes_33(0x53 || fetch_tag)` for confidential-encrypted slots (scheme byte `3`), and `0` for other encodings. `RingAuthority` omits this field. |
 
 A `RingP256` proof spending a policy-ring P256 UTXO must keep the shared identity
 private: it cannot also spend a default-ring P256 UTXO or publish an output owner
@@ -1169,8 +1192,29 @@ cover the full instruction.
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
-1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by the owner-signer accounts in first-occurrence order (a repeated account signs once). Every owner-signer account must be a transaction signer, and the unique run must fit the fixed `MAX_SIGNERS = MAX_INPUTS + 1` width.
-2. SPP hashes the run, `owner_proof_input_hash` of each signer address zero-padded to `n_inputs + 1`, as a `RightHashChain` public input. The circuit requires each Ed25519 input owner to equal a chain element and separately verifies shared P256 ownership on `RingP256`.
+1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by the owner-signer accounts in first-occurrence order (a repeated account signs once). Every owner-signer account must be a transaction signer, and SPP rejects more than `owner_signer_slots(n_inputs)` owner-signer accounts.
+2. SPP hashes the run, `owner_proof_input_hash` of each signer address zero-padded to `signer_width`, as a `RightHashChain` public input. The circuit requires each Ed25519 input owner to equal a chain element and separately verifies shared P256 ownership on `RingP256`.
+
+<a id="signer-width"></a>
+The public signer vector has `signer_width` slots on every signature-requiring
+variant and 1 slot (the payer) on `RingAuthority`:
+
+```
+MAX_TRANSACTION_ADDRESSES = 64
+FIXED_TRANSACT_ADDRESSES  = 4
+owner_signer_slots(n)     = min(n, MAX_TRANSACTION_ADDRESSES - FIXED_TRANSACT_ADDRESSES - n)
+signer_width              = owner_signer_slots(n_inputs) + 1
+MAX_SIGNERS               = max over the supported shapes of signer_width = 25
+```
+
+A v1 transaction carries at most 64 distinct addresses; a `transact` spends
+four of them on the payer, the input tree (the output tree may coincide with
+it), the shielded pool program and the system program, and one per input on
+its nullifier PDA. Owner signers are ordinary accounts, so at most
+`64 - 4 - n_inputs` of them can exist; the transaction signature cap does not
+bound them because PDA owners sign through CPI. The width is that bound capped
+by the input count: `n_inputs + 1` for every shape up to 30 inputs and 25 for
+`36x2`.
 
 <a id="circuit-variants"></a>
 **Circuit Combinations**
@@ -1238,17 +1282,17 @@ derivations.
 
 ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_8_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_8_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
 
-The proof is a 128-byte vanilla Groth16 `a || b || c` over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
+The proof is a 192-byte vanilla Groth16 `a || b || c` (`a`, `c` compressed G1, `b` raw G2) over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 
 **Requirement.** No signing or viewing secret witness. `nullifier_secret` is required.
 
 **Public Inputs**
 
-The single public signal is `public_input_hash`, a Poseidon hash chain over a shared 7-element prefix plus a variant tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
+The single public signal is `public_input_hash`, one Poseidon [`HashChain4`](#hash-chain-4) over the 8 (default merge) or 9 (policy-ring merge) elements below: a shared 7-element prefix followed by the variant tail, hashed as a single chain, never as a prefix hash extended by the tail (`programs/shielded-pool/src/instructions/merge/verify.rs` `fn public_input_hash`, mirrored by `CommonPublicInputs.Prefix` in the circuits):
 
 | Element | Source |
 | --- | --- |
-| `HashChain(nullifiers)` | per-slot nullifiers, derived by the proof (real slots) and by `merge_dummy_nullifier` (padding slots); published in instruction data |
+| `HashChain4(nullifiers)` | per-slot nullifiers, derived by the proof (real slots) and by `merge_dummy_nullifier` (padding slots); published in instruction data |
 | `output_utxo_hash` | instruction data |
 | `tree_slot_chain` | the [Tree Slot Chain](#tree-slot-chain), resolved from `input_tree` as for `transact` |
 | `output_tree_id` | raw `u16` id of `output_tree`, hashed into the output `utxo_hash` |
@@ -2069,8 +2113,9 @@ the instruction and must use a fresh blinding per output.
 struct MergeTransactIxData {
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    /// Vanilla Groth16 proof: `a(32) || b(64) || c(32)` — 128 bytes on the
-    /// wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes). The merge
+    /// Vanilla Groth16 proof: `a(32) || b(128) || c(32)` — 192 bytes. `a` and
+    /// `c` are compressed G1 points, `b` is the raw big-endian G2 point so the
+    /// program skips the G2 decompression syscall. The merge
     /// circuit carries no P256 gadget, so there is no BSB22 commitment.
     proof: MergeProof,
     /// One output UTXO hash; appended to the UTXO tree.
@@ -2101,7 +2146,7 @@ struct MergeTransactIxData {
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
-6. The 128-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
+6. The 192-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
 9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
@@ -2376,7 +2421,7 @@ Generates SPP proofs server-side for clients that opt into server-side proving i
 
 ### `generateSppProof`
 
-Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the compressed Groth16 proof for the [`transact`](#transact) or [`ring_transact`](#ring_transact) instruction.
+Builds an [SPP proof](#spp-proof---solana-privacy-zk-proof) from proof inputs; returns the Groth16 proof (`a`, `c` compressed, `b` raw) for the [`transact`](#transact) or [`ring_transact`](#ring_transact) instruction.
 
 ```rust
 struct GenerateSppProofRequest {

@@ -62,7 +62,7 @@ const ENTRIES_TREE = addressOf(filled(0x30));
 const RING = addressOf(filled(0x10));
 const ZERO_PROOF: TransactProof = {
   a: new Uint8Array(32) as Bytes32,
-  b: new Uint8Array(64) as TransactProof["b"],
+  b: new Uint8Array(128) as TransactProof["b"],
   c: new Uint8Array(32) as Bytes32,
 };
 
@@ -142,7 +142,7 @@ describe("entry transition inputs", () => {
       "1f5af8e4fba46ce23dc7690ba20a2c900dee0e9226e080427ea4b370c13ea9b8",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "2d66a2d5ac74c9f2e0f167b8fbb87a3cd3db45d8d77bd8e28a1693e6f9cee50c",
+      "2600314d0e9cc38c907456b62b8ce775a9c4fcb76e237babd6edc1e731530241",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
@@ -174,7 +174,7 @@ describe("entry transition inputs", () => {
       "202e31e8682a29d7c0a061e836bc43b159ee93ddeacc12f155c46a69f2c89713",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "2302b717d9e8b8752dd394526993c496c2615f981c2b44553cd3b4eae4c31bd9",
+      "040d44e7358f23ab67b986eb83961dbd7dff30abb77c6759b80d0d7728ce01f4",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);
@@ -325,7 +325,7 @@ describe("entry instructions", () => {
       0x03,
       0x02,
       0x01,
-      ...new Uint8Array(128),
+      ...new Uint8Array(192),
     ]);
   });
 
@@ -349,7 +349,7 @@ describe("entry instructions", () => {
       2,
     ]);
     expect(instruction.data).toHaveLength(
-      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 128,
+      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 192,
     );
     expect(RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT).toBe(1_400_000);
   });

@@ -250,7 +250,7 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
         .ok_or(CustomRingProofError::MissingCommitment)?;
     Ok(CustomRingProof {
         proof_a: compressed.a,
-        proof_b: compressed.b,
+        proof_b: compressed.compressed_b()?,
         proof_c: compressed.c,
         commitment: commitment.commitment,
         commitment_pok: commitment.commitment_pok,

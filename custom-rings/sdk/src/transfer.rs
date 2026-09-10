@@ -554,7 +554,7 @@ impl StagedTransfer {
             public_transfers: self.proof_inputs.public_transfers()?,
             signer_pk_hashes: self
                 .proof_inputs
-                .signer_pk_hashes(tx_shape.n_inputs() + 1)?,
+                .signer_pk_hashes(tx_shape.signer_width())?,
             allow_dummy_inputs,
             ring_program_id: Some(self.program_id),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),

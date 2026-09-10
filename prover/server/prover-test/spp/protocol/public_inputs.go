@@ -74,11 +74,11 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if inputs.OutputTreeID == nil {
 		return nil, fmt.Errorf("spp: public input hash: output tree id is required")
 	}
-	nullifierChain, err := HashChain(inputs.Nullifiers)
+	nullifierChain, err := HashChain4(inputs.Nullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier chain: %w", err)
 	}
-	outputChain, err := HashChain(inputs.OutputUtxoHashes)
+	outputChain, err := HashChain4(inputs.OutputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash output chain: %w", err)
 	}
@@ -110,11 +110,11 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 		inputs.AllowDummyInputs,
 	)
 	if inputs.BindOutputOwnerTags {
-		outputOwnerChain, err := HashChain(inputs.OutputOwnerPkHashes)
+		outputOwnerChain, err := HashChain4(inputs.OutputOwnerPkHashes)
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)
 		}
 		fields = append(fields, outputOwnerChain)
 	}
-	return HashChain(fields)
+	return HashChain4(fields)
 }

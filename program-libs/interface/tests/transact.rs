@@ -84,7 +84,7 @@ fn circuit_id_wire_layout_and_unknown_rejection() {
 fn proof() -> TransactProof {
     TransactProof {
         a: [1u8; 32],
-        b: [2u8; 64],
+        b: [2u8; 128],
         c: [3u8; 32],
     }
 }
@@ -100,7 +100,7 @@ fn transact_proof_round_trips() {
 #[test]
 fn proof_has_expected_wire_size() {
     let proof = wincode::serialize(&proof()).unwrap();
-    assert_eq!(proof.len(), 128);
+    assert_eq!(proof.len(), 192);
 }
 
 fn mixed_outputs() -> Vec<TransactOutput> {

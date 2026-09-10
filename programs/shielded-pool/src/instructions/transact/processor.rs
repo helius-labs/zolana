@@ -28,7 +28,7 @@ use crate::instructions::{
     event::emit_event,
     nullifier_pda::create_nullifier_pdas,
     settlement::Settlement,
-    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
+    shared::{check_field_element, check_field_elements, check_not_expired},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -88,27 +88,18 @@ pub fn process_transact_ix(
     )?;
     // 8. Resolve the input tree's roots and insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    // The fee transfer CPI includes the tree, so it must run before
-    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
-    // only its own accounts into the transaction context, and a pending tree
-    // debit without the matching nullifier PDA credits trips the runtime's
-    // UnbalancedInstruction check.
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        input_tree_result.forester_fee,
-    )?;
     create_nullifier_pdas(
         transact_accounts.payer,
         transact_accounts.input_tree,
         &mut transact_accounts.nullifier_pdas,
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
         &input_tree_result,
     )?;
     // 9. Append new utxo hashes.
     let tree_write = apply_output_tree(
         transact_accounts.output_tree,
         &ix,
-        input_tree_result.inputs,
+        input_tree_result.input_tree,
         clock.slot,
     )?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
@@ -128,7 +119,7 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write)?;
+    let event = build_transact_event(tree_write);
     emit_event(EventKind::Transact, &event)
 }
 

@@ -9,6 +9,7 @@ use zolana_hasher::primitives::hash_bytes;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS},
+    SOL_ASSET_FIELD,
 };
 
 use crate::instructions::{
@@ -21,7 +22,8 @@ use crate::instructions::{
 
 /// One deposited asset: its validated settlement accounts plus the asset
 /// identity committed into UTXO hashes. `asset_field` is `hash_bytes`
-/// of `asset`, computed once per group so batch entries reuse it.
+/// of `asset`, computed once per group so batch entries reuse it; for SOL
+/// that is the pinned `SOL_ASSET_FIELD`.
 pub struct DepositAssetGroup<'a> {
     /// Deposited asset: the SPL mint, or all-zero for native SOL.
     pub asset: [u8; 32],
@@ -96,7 +98,7 @@ impl<'a> DepositAccounts<'a> {
                     let bump = validate_sol(depositor, system_program, sol_interface)?;
                     DepositAssetGroup {
                         asset: [0u8; 32],
-                        asset_field: hash_bytes(&[0u8; 32])?,
+                        asset_field: SOL_ASSET_FIELD,
                         settlement: Settlement::SolDeposit(SettlementAccountsSol {
                             sol_interface_account: sol_interface,
                             sol_interface_bump: bump,

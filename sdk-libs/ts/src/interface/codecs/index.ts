@@ -174,7 +174,7 @@ export function encodeCreateTreeData(value: CreateTreeData): Uint8Array {
 }
 
 function writeProof(writer: Writer, proof: TransactProof): void {
-  writer.bytes(proof.a, 32, "proof.a").bytes(proof.b, 64, "proof.b").bytes(proof.c, 32, "proof.c");
+  writer.bytes(proof.a, 32, "proof.a").bytes(proof.b, 128, "proof.b").bytes(proof.c, 32, "proof.c");
 }
 
 function writeInput(writer: Writer, value: InputUtxo): void {
@@ -283,7 +283,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
     .bytes(value.proof.a, 32, "proof.a")
-    .bytes(value.proof.b, 64, "proof.b")
+    .bytes(value.proof.b, 128, "proof.b")
     .bytes(value.proof.c, 32, "proof.c")
     .bytes(value.outputUtxoHash, 32, "outputUtxoHash")
     .bool(value.eddsaOwner, "eddsaOwner")
@@ -301,7 +301,7 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 492);
+  return encoded(value, writeMergeData, 556);
 }
 
 export function mergeExternalDataHash(

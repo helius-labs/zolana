@@ -2,12 +2,12 @@ use crate::instructions::shared::caused_by;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use arrayvec::ArrayVec as RefArrayVec;
-use light_array_map::ArrayMap;
+use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_hash_chain_from_slice_ref},
+    hash_chain::{create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref},
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
@@ -18,6 +18,7 @@ use zolana_interface::{
         is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
         TransactIxDataRef,
     },
+    shape::Shape,
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
     MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
@@ -29,13 +30,81 @@ use crate::instructions::{settlement::Settlement, verifier};
 /// `zolana_interface::INPUT_TREES` (the number of public tree slots).
 pub const MAX_INPUTS: usize = MAX_TRANSACT_INPUTS;
 
-pub const MAX_SIGNERS: usize = MAX_INPUTS + 1;
+pub use zolana_interface::shape::MAX_SIGNERS;
 
 pub use zolana_interface::MAX_OUTPUTS;
 
 const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 
-pub type OwnerHashCache = ArrayMap<[u8; 32], [u8; 32], MAX_OWNER_HASHES>;
+struct OwnerHashEntry {
+    owner_tag: [u8; 32],
+    hash: [u8; 32],
+    /// Set once the tag has been counted as an owner signer, so a tag first
+    /// cached as an output owner is still counted the first time it signs.
+    is_signer: bool,
+}
+
+/// Owner identity hashes computed in this instruction, keyed by owner tag, so a
+/// tag that appears as an output owner and as a signer is hashed once. Backed by
+/// uninitialized storage: nothing is zero-filled on construction.
+#[derive(Default)]
+pub struct OwnerHashCache {
+    entries: RefArrayVec<OwnerHashEntry, MAX_OWNER_HASHES>,
+}
+
+impl OwnerHashCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[cfg(feature = "test-sbf")]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[cfg(feature = "test-sbf")]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn entry_mut(&mut self, owner_tag: &[u8; 32]) -> Option<&mut OwnerHashEntry> {
+        self.entries
+            .iter_mut()
+            .find(|entry| pubkey_eq(&entry.owner_tag, owner_tag))
+    }
+
+    fn insert(&mut self, owner_tag: &[u8; 32], is_signer: bool) -> Result<[u8; 32], ProgramError> {
+        let hash = solana_owner_identity(owner_tag)?;
+        self.entries
+            .try_push(OwnerHashEntry {
+                owner_tag: *owner_tag,
+                hash,
+                is_signer,
+            })
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        Ok(hash)
+    }
+
+    fn output_owner_hash(&mut self, owner_tag: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+        if let Some(entry) = self.entry_mut(owner_tag) {
+            return Ok(entry.hash);
+        }
+        self.insert(owner_tag, false)
+    }
+
+    /// The identity hash of `address` the first time it is seen as a signer;
+    /// `None` once it has already been counted.
+    fn new_signer_hash(&mut self, address: &[u8; 32]) -> Result<Option<[u8; 32]>, ProgramError> {
+        if let Some(entry) = self.entry_mut(address) {
+            if entry.is_signer {
+                return Ok(None);
+            }
+            entry.is_signer = true;
+            return Ok(Some(entry.hash));
+        }
+        self.insert(address, true).map(Some)
+    }
+}
 
 const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
 const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
@@ -125,8 +194,8 @@ impl TransactProofInputs {
     }
 
     // Assign the payer and ordered, first-occurrence-deduplicated EdDSA signer
-    // identities. The payer occupies slot zero and seeds `seen`, so an appended
-    // payer is ignored.
+    // identities. The payer occupies slot zero and is marked as a signer first,
+    // so an appended payer is ignored.
     #[profile]
     pub fn fill_owner_signer_hashes(
         &mut self,
@@ -135,22 +204,19 @@ impl TransactProofInputs {
         owner_hashes: &mut OwnerHashCache,
     ) -> Result<(), ProgramError> {
         let payer_address = payer.address().to_bytes();
-        self.signer_pk_hashes[0] = cached_owner_hash(owner_hashes, &payer_address)?;
+        self.signer_pk_hashes[0] = owner_hashes
+            .new_signer_hash(&payer_address)?
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
 
-        let mut seen: ArrayMap<[u8; 32], (), MAX_SIGNERS> = ArrayMap::new();
-        seen.insert(payer_address, (), ShieldedPoolError::InvalidTransactShape)?;
         let mut unique_count = 1usize;
         for signer in owner_signers {
-            let address = signer.address().to_bytes();
-            if seen.get_by_pubkey(&address).is_some() {
+            let Some(hash) = owner_hashes.new_signer_hash(signer.address().as_array())? else {
                 continue;
-            }
-            seen.insert(address, (), ShieldedPoolError::InvalidTransactShape)?;
+            };
             *self
                 .signer_pk_hashes
                 .get_mut(unique_count)
-                .ok_or(ShieldedPoolError::InvalidTransactShape)? =
-                cached_owner_hash(owner_hashes, &address)?;
+                .ok_or(ShieldedPoolError::InvalidTransactShape)? = hash;
             unique_count += 1;
         }
         self.unique_owner_signer_count =
@@ -174,14 +240,14 @@ impl TransactProofInputs {
             OutputOwnerMode::All => {
                 for (index, output) in resolved_outputs.iter().enumerate() {
                     self.output_owner_pk_hashes[index] =
-                        cached_owner_hash(owner_hashes, &output.owner_tag)?;
+                        owner_hashes.output_owner_hash(&output.owner_tag)?;
                 }
             }
             OutputOwnerMode::ConfidentialMarked => {
                 for (index, output) in resolved_outputs.iter().enumerate() {
                     if output.data.is_some_and(is_confidential_encrypted_output) {
                         self.output_owner_pk_hashes[index] =
-                            cached_owner_hash(owner_hashes, &output.owner_tag)?;
+                            owner_hashes.output_owner_hash(&output.owner_tag)?;
                     }
                 }
             }
@@ -238,22 +304,6 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_PUBLIC_TRANSFERS;
         Ok(())
     }
-}
-
-fn cached_owner_hash(
-    owner_hashes: &mut OwnerHashCache,
-    owner_tag: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
-    if let Some(hash) = owner_hashes.get_by_pubkey(owner_tag) {
-        return Ok(*hash);
-    }
-    let hash = solana_owner_identity(owner_tag)?;
-    owner_hashes.insert(
-        *owner_tag,
-        hash,
-        ProgramError::from(ShieldedPoolError::InvalidTransactShape),
-    )?;
-    Ok(hash)
 }
 
 fn checked_slot_amount(net: i128) -> Result<i128, ProgramError> {
@@ -332,6 +382,7 @@ impl<'a> TransactProof<'a> {
         usize::from(self.ix.circuit.num_public_asset_slots())
     }
 
+    #[profile]
     #[inline(never)]
     pub fn public_input_hash(&self) -> Result<[u8; 32], ProgramError> {
         let n_in = self.n_inputs();
@@ -339,7 +390,7 @@ impl<'a> TransactProof<'a> {
         let n_public_asset_slots = self.n_public_asset_slots();
         let shape = ShieldedPoolError::InvalidTransactShape;
         let signer_width = if self.ix.circuit.requires_input_signatures() {
-            n_in.checked_add(1).ok_or(shape)?
+            Shape::new(n_in, n_out).signer_width()
         } else {
             1
         };
@@ -374,7 +425,7 @@ impl<'a> TransactProof<'a> {
                     .try_push(&input.nullifier_hash)
                     .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
             }
-            create_hash_chain_from_slice_ref(nullifiers.as_slice())?
+            create_hash_chain_4_from_slice_ref(nullifiers.as_slice())?
         };
         let output_chain = {
             let mut utxo_hashes: RefArrayVec<&[u8; 32], MAX_OUTPUTS> = RefArrayVec::new();
@@ -383,7 +434,7 @@ impl<'a> TransactProof<'a> {
                     .try_push(output.utxo_hash)
                     .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
             }
-            create_hash_chain_from_slice_ref(utxo_hashes.as_slice())?
+            create_hash_chain_4_from_slice_ref(utxo_hashes.as_slice())?
         };
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
@@ -418,9 +469,9 @@ impl<'a> TransactProof<'a> {
             self.derived.allow_dummy_inputs,
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
-            fields.push(create_hash_chain_from_slice(output_owner_pk_hashes)?);
+            fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
-        create_hash_chain_from_slice(fields.as_slice()).map_err(Into::into)
+        create_hash_chain_4_from_slice(fields.as_slice()).map_err(Into::into)
     }
 }
 
@@ -548,66 +599,6 @@ pub static SIGNER_ZERO_SUFFIX_CHAINS: [[u8; 32]; MAX_SIGNERS] = [
         0x19, 0x55, 0x30, 0x58, 0xd6, 0xdf, 0x21, 0xff, 0x0f, 0x78, 0x5e, 0xbd, 0x5a, 0xaf, 0x6f,
         0xb0, 0x41, 0xa8, 0x99, 0x78, 0x2e, 0xde, 0xa6, 0x30, 0xce, 0xe4, 0xa2, 0xc6, 0xbb, 0xe5,
         0x81, 0xf9,
-    ],
-    [
-        0x27, 0x23, 0xa0, 0x2b, 0x5d, 0x5c, 0xb8, 0x20, 0xb7, 0x5d, 0x2a, 0xf2, 0xa5, 0xae, 0xad,
-        0x03, 0x7d, 0x0a, 0x19, 0x25, 0xc7, 0x2e, 0x2b, 0x33, 0xa0, 0xa7, 0xbb, 0xa3, 0x7c, 0x88,
-        0x89, 0x53,
-    ],
-    [
-        0x10, 0x50, 0x9b, 0xd8, 0x96, 0x79, 0x30, 0x17, 0xdf, 0xe2, 0x98, 0x8b, 0xd4, 0xf2, 0x99,
-        0xe1, 0x67, 0x8d, 0x57, 0xc8, 0x98, 0x15, 0x53, 0x69, 0xf1, 0x2a, 0x51, 0xa6, 0x08, 0x0f,
-        0xc3, 0x7b,
-    ],
-    [
-        0x30, 0x1a, 0x0f, 0x5f, 0xfe, 0x0b, 0xb8, 0xa7, 0x11, 0x29, 0xdc, 0xfd, 0xd9, 0x4f, 0x14,
-        0xd5, 0x3d, 0x49, 0xea, 0x47, 0x6b, 0x24, 0x8f, 0x3e, 0x68, 0x83, 0x09, 0x4a, 0x9e, 0x6c,
-        0x43, 0x25,
-    ],
-    [
-        0x1a, 0xb9, 0xfd, 0x70, 0x90, 0x3c, 0x65, 0x63, 0x37, 0x3e, 0x1d, 0x41, 0x55, 0xb6, 0xe8,
-        0xfc, 0x79, 0x08, 0x9a, 0x1b, 0xcc, 0xe7, 0xd7, 0xd3, 0xee, 0x71, 0xd1, 0xe4, 0xcc, 0xae,
-        0x2c, 0x57,
-    ],
-    [
-        0x01, 0xbf, 0xb3, 0x64, 0x4b, 0xa2, 0x9c, 0x6b, 0x13, 0x66, 0x31, 0x2b, 0x53, 0xd6, 0x5d,
-        0x49, 0x3b, 0x98, 0xcb, 0xba, 0x22, 0xaa, 0x15, 0x6e, 0x81, 0x8b, 0x9d, 0x4c, 0xf0, 0x01,
-        0xd1, 0x7b,
-    ],
-    [
-        0x0f, 0x2e, 0xc8, 0xc7, 0x14, 0xc7, 0xcf, 0xf4, 0xbd, 0xa1, 0x2f, 0xe3, 0xd9, 0x84, 0x40,
-        0x50, 0x9b, 0xc3, 0x0c, 0xf3, 0x1b, 0x55, 0xb5, 0x3d, 0x2c, 0xed, 0xf1, 0xf3, 0xd5, 0x6c,
-        0x6a, 0x3d,
-    ],
-    [
-        0x1b, 0x93, 0x0e, 0xaf, 0x38, 0x8e, 0x44, 0xa8, 0x61, 0x80, 0x06, 0xd4, 0xc7, 0x8b, 0xe5,
-        0x95, 0x41, 0x18, 0x52, 0xa8, 0x1d, 0x49, 0x71, 0xb3, 0xa1, 0x50, 0x5e, 0xab, 0xec, 0xd2,
-        0x38, 0xfb,
-    ],
-    [
-        0x0f, 0xf9, 0xd9, 0x7a, 0x75, 0x42, 0x0a, 0xa5, 0x15, 0x2f, 0xe7, 0x42, 0x42, 0x5c, 0xb6,
-        0xae, 0x0d, 0xac, 0x0d, 0x2b, 0x98, 0x46, 0xef, 0x01, 0xc4, 0x3f, 0x09, 0x89, 0x86, 0x46,
-        0x8c, 0x71,
-    ],
-    [
-        0x26, 0x56, 0x6b, 0xa2, 0x9f, 0x36, 0x63, 0x3d, 0xbb, 0x92, 0xa3, 0xe9, 0x25, 0xd0, 0x2b,
-        0xaa, 0xb7, 0x20, 0x4f, 0xc3, 0xb3, 0xc6, 0xa4, 0xc8, 0xf0, 0x42, 0x3f, 0x48, 0x04, 0x48,
-        0x6a, 0xd1,
-    ],
-    [
-        0x28, 0x94, 0x6f, 0xdd, 0xb4, 0x47, 0x3f, 0x83, 0xa1, 0x31, 0x5d, 0x60, 0xf0, 0xb3, 0xeb,
-        0x61, 0xc2, 0x7b, 0x08, 0x63, 0x66, 0x1c, 0x06, 0x32, 0xd4, 0xc8, 0xbc, 0x40, 0xd5, 0xc3,
-        0x73, 0xac,
-    ],
-    [
-        0x18, 0xba, 0xe1, 0xe2, 0xec, 0xa5, 0xea, 0xa0, 0xd2, 0x9c, 0x9d, 0x7f, 0xde, 0x96, 0x1f,
-        0x1b, 0x79, 0xaf, 0xf9, 0x60, 0xc1, 0x8e, 0xd0, 0x21, 0xdb, 0x45, 0xca, 0x89, 0x4a, 0x34,
-        0x72, 0x12,
-    ],
-    [
-        0x1b, 0xf7, 0x69, 0xa2, 0x94, 0x42, 0x4a, 0xf6, 0xe3, 0xad, 0x49, 0x4a, 0x82, 0xba, 0xe6,
-        0x41, 0x17, 0x87, 0xcc, 0x99, 0x88, 0x88, 0x12, 0xd6, 0x16, 0x37, 0x1f, 0xd8, 0x1c, 0x8d,
-        0x9a, 0xfc,
     ],
 ];
 

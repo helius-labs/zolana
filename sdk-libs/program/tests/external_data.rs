@@ -16,7 +16,7 @@ const TRANSACT_TAG: [u8; 1] = [tag::TRANSACT];
 fn proof() -> TransactProof {
     TransactProof {
         a: [1u8; 32],
-        b: [2u8; 64],
+        b: [2u8; 128],
         c: [3u8; 32],
     }
 }

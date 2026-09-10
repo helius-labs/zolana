@@ -11217,6 +11217,7 @@ dependencies = [
  "proptest",
  "solana-address 2.6.1",
  "solana-instruction",
+ "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rent 4.3.0",

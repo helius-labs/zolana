@@ -125,7 +125,7 @@ func NewCommonPublicInputs(n int) CommonPublicInputs {
 // Prefix returns the common public-input-hash preimage prefix.
 func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	return []frontend.Variable{
-		gadget.HashChain(api, p.Nullifiers),
+		gadget.HashChain4(api, p.Nullifiers),
 		p.OutputHash,
 		transaction.TreeSlotsHashChain(api, p.TreeSlots),
 		p.OutputTreeID,

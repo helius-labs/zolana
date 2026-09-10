@@ -64,10 +64,10 @@ pub struct RingTransferP256ProofResult {
 impl RingTransferP256Prover {
     pub fn build(self) -> Result<RingTransferP256ProofResult, ClientError> {
         let shape = resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
-        if self.signer_pk_hashes.len() != shape.n_inputs() + 1 {
+        if self.signer_pk_hashes.len() != shape.signer_width() {
             return Err(ClientError::WitnessInputCountMismatch {
                 got: self.signer_pk_hashes.len(),
-                expected: shape.n_inputs() + 1,
+                expected: shape.signer_width(),
             });
         }
 

@@ -1553,7 +1553,7 @@ mod tests {
             .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
                 Ok(ProofCompressed {
                     a: [0u8; 32],
-                    b: [0u8; 64],
+                    b: [0u8; 128],
                     c: [0u8; 32],
                     commitment: None,
                 })

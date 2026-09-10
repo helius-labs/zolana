@@ -5,7 +5,7 @@
 //! public-input-hash element set are merge-specific.
 
 use num_bigint::BigUint;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::instruction_data::{
         merge_ring::MergeRingIxData,
@@ -127,7 +127,7 @@ impl MergeProver {
         // nullifier_pk to get user_owner_hash.
         let mut elements = merge.head.to_vec();
         elements.push(merge.user_signing_pk_hash);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         // Default merge is non-ring; the merge-ring builder sets the ring binding.
         Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
@@ -240,7 +240,7 @@ impl MergeProver {
 
         let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
         let head = [
-            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
             tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
             tree_id_field(self.output_tree_id),

@@ -72,7 +72,7 @@ func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCi
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:           shared.NewTreeSlots(),
-			SignerPkHashes:      make([]frontend.Variable, shape.NInputs+1),
+			SignerPkHashes:      make([]frontend.Variable, shape.SignerWidth()),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: DefaultRingEddsaOnlyPrivate{
@@ -103,7 +103,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 		AllowDummyInputs:  c.Public.AllowDummyInputs,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
+			gadget.HashChain4(api, c.Public.OutputOwnerPkHashes),
 		},
 	}
 }
@@ -111,7 +111,7 @@ func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Tr
 func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.newTransaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Public.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},

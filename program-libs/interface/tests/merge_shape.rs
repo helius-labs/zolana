@@ -8,7 +8,7 @@ fn data_with(input_count: usize) -> MergeTransactIxData {
         expiry_unix_ts: 42,
         proof: MergeProof {
             a: [1u8; 32],
-            b: [2u8; 64],
+            b: [2u8; 128],
             c: [3u8; 32],
         },
         output_utxo_hash: [9u8; 32],
@@ -26,7 +26,7 @@ fn every_supported_shape_has_the_contracted_encoded_length() {
         let bytes = data_with(input_count)
             .serialize()
             .expect("serialize merge instruction");
-        assert_eq!(bytes.len(), 204 + 36 * input_count);
+        assert_eq!(bytes.len(), 268 + 36 * input_count);
         MergeTransactIxDataRef::from_bytes(&bytes).expect("a supported shape must parse back");
     }
 }

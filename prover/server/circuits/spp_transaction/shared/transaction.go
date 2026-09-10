@@ -179,8 +179,8 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 
 func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields := []frontend.Variable{
-		gadget.HashChain(api, t.Nullifiers),
-		gadget.HashChain(api, t.OutputHashes),
+		gadget.HashChain4(api, t.Nullifiers),
+		gadget.HashChain4(api, t.OutputHashes),
 		TreeSlotsHashChain(api, t.TreeSlots),
 		t.OutputTreeID,
 		t.PrivateTxHash,
@@ -190,7 +190,7 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
 	fields = append(fields, t.RingProgramID, t.SignerPkHashChain, t.AllowDummyInputs)
 	fields = append(fields, t.PreimageTail...)
-	return gadget.HashChain(api, fields)
+	return gadget.HashChain4(api, fields)
 }
 
 // Shape identifies one fixed-size SPP transaction circuit by its input and
@@ -211,6 +211,20 @@ func (s Shape) Validate() error {
 		return fmt.Errorf("spp: NOutputs must be >= 1, got %d", s.NOutputs)
 	}
 	return nil
+}
+
+// OwnerSignerSlots is the number of owner signers a transaction with nInputs
+// inputs can carry: at most one per input, bounded by the addresses a v1
+// transaction has left after the fixed transact accounts and one nullifier PDA
+// per input.
+func OwnerSignerSlots(nInputs int) int {
+	return min(nInputs, MaxTransactionAddresses-FixedTransactAddresses-nInputs)
+}
+
+// SignerWidth is the public signer vector length on the signature-requiring
+// rails: the payer plus OwnerSignerSlots. The ring authority rail uses 1.
+func (s Shape) SignerWidth() int {
+	return OwnerSignerSlots(s.NInputs) + 1
 }
 
 // publicSlots returns the public movement slots interleaved as
@@ -240,6 +254,11 @@ const (
 	// NPublicSlots is the number of distinct public assets whose aggregate
 	// movement can be proven in one transaction.
 	NPublicSlots = 3
+	// MaxTransactionAddresses is the address limit of a v1 Solana transaction.
+	MaxTransactionAddresses = 64
+	// FixedTransactAddresses is the number of transact accounts that are neither
+	// a nullifier PDA nor an owner signer: payer, tree, program, system program.
+	FixedTransactAddresses = 4
 	// InputTrees is the number of input tree slots a proof spends from.
 	InputTrees = 5
 	// DummyDomain is the domain tag for dummy (padding) utxos.

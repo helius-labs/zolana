@@ -22,7 +22,7 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   Signature,
   TransactInstructionData,
 } from "../src/interface/types.js";
@@ -290,7 +290,7 @@ function ringInstructionData(txHash: Bytes32): TransactInstructionData {
     salt: new Uint8Array(16) as Bytes16,
     proof: {
       a: new Uint8Array(32) as Bytes32,
-      b: new Uint8Array(64) as Bytes64,
+      b: new Uint8Array(128) as Bytes128,
       c: new Uint8Array(32) as Bytes32,
     },
     inputs: [],

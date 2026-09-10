@@ -175,7 +175,7 @@ pub fn into_prover_with_dummy_policy(
         return Err(ClientError::P256TransactUnsupported);
     }
     let shape = proof_inputs.check_shape()?;
-    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.n_inputs() + 1)?;
+    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
     let public_transfers = proof_inputs.public_transfers()?;
     let SppProofInputs {
         input_utxos: inputs,

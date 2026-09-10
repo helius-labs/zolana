@@ -14,7 +14,7 @@ export const CUSTOM_RING_PROOF_LENGTH = 192;
 
 export function compressProof(proof: Proof): CompressedProof {
   const a = compressG1(checkedBytes(proof.a, 64, "proof.a"), "proof.a");
-  const b = compressG2(checkedBytes(proof.b, 128, "proof.b"));
+  const b = validG2(checkedBytes(proof.b, 128, "proof.b"));
   const c = compressG1(checkedBytes(proof.c, 64, "proof.c"), "proof.c");
   if (proof.commitment === undefined || proof.commitmentPok === undefined) {
     return compressedProof({ a, b, c });
@@ -44,7 +44,7 @@ export function compressedProof(
   }>,
 ): CompressedProof {
   const a = checkedBytes(input.a, 32, "proof.a");
-  const b = checkedBytes(input.b, 64, "proof.b");
+  const b = checkedBytes(input.b, 128, "proof.b");
   const c = checkedBytes(input.c, 32, "proof.c");
   const commitment =
     input.commitment === undefined
@@ -63,7 +63,7 @@ export function compressedProof(
     toTransactProof(): TransactProof {
       return Object.freeze({
         a: new Uint8Array(a) as Bytes32,
-        b: new Uint8Array(b) as Bytes64,
+        b: new Uint8Array(b) as Bytes128,
         c: new Uint8Array(c) as Bytes32,
       });
     },
@@ -75,7 +75,7 @@ export function compressedProof(
       }
       const bytes = new Uint8Array(CUSTOM_RING_PROOF_LENGTH);
       bytes.set(a, 0);
-      bytes.set(b, 32);
+      bytes.set(compressG2(b), 32);
       bytes.set(c, 96);
       bytes.set(commitment, 128);
       bytes.set(commitmentPok, 160);
@@ -127,21 +127,24 @@ function compressG1(point: Bytes64, name: string): Bytes32 {
   return result as Bytes32;
 }
 
-function compressG2(point: Bytes128): Bytes64 {
+/// Solana's big-endian G2 encoding stores each Fq2 value as c1 || c0: the
+/// four 32-byte coordinates are `x1 || x0 || y1 || y0`. Returns them in that
+/// order after checking the point is on the curve, or all zeros for the
+/// identity placeholder of a dummy proof.
+function g2Coordinates(point: Bytes128): [bigint, bigint, bigint, bigint] {
   const values = [0, 32, 64, 96].map((offset) =>
     bytesToBigInt(point.subarray(offset, offset + 32)),
   );
-  if (values.some((value) => value >= BN254_BASE_MODULUS)) {
-    throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
-  }
-  if (values.every((value) => value === 0n)) return new Uint8Array(64) as Bytes64;
-  // Solana's big-endian G2 encoding stores each Fq2 value as c1 || c0.
-  // Noble names the components in field order, so swap each pair only while
-  // validating; the compressed wire value keeps the original x bytes.
   const [x1, x0, y1, y0] = values;
   if (x0 === undefined || x1 === undefined || y0 === undefined || y1 === undefined) {
     throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
   }
+  if (values.some((value) => value >= BN254_BASE_MODULUS)) {
+    throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
+  }
+  if (values.every((value) => value === 0n)) return [x1, x0, y1, y0];
+  // Noble names the components in field order, so swap each pair while
+  // validating; the encoded bytes keep the c1 || c0 order.
   try {
     bn254.G2.Point.fromAffine({
       x: { c0: x0, c1: x1 },
@@ -150,7 +153,18 @@ function compressG2(point: Bytes128): Bytes64 {
   } catch {
     throw new ClientError("CLIENT_PROOF_POINT", { details: { field: "proof.b" } });
   }
+  return [x1, x0, y1, y0];
+}
+
+function validG2(point: Bytes128): Bytes128 {
+  g2Coordinates(point);
+  return new Uint8Array(point) as Bytes128;
+}
+
+function compressG2(point: Bytes128): Bytes64 {
+  const [, , y1, y0] = g2Coordinates(point);
   const result = new Uint8Array(point.subarray(0, 64)) as Bytes64;
+  if (y1 === 0n && y0 === 0n) return result;
   if (isLargest(y1) || (y1 === 0n && isLargest(y0))) {
     result[0] = (result[0] ?? 0) | 0x80;
   }

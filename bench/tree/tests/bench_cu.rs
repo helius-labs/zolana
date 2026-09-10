@@ -17,7 +17,6 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
     layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
-    proof::CompressedProof,
 };
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
@@ -197,16 +196,15 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed = ProofCompressed::try_from(proof).unwrap();
+            let compressed_proof = ProofCompressed::try_from(proof)
+                .unwrap()
+                .to_nullifier_tree_proof()
+                .unwrap();
             index0_ix = Some(InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
+                compressed_proof,
             });
             new_root
         } else {

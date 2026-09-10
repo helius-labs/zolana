@@ -121,7 +121,7 @@ export interface OutputUtxo {
 
 export interface TransactProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
 }
 
@@ -257,7 +257,7 @@ export interface MergeTransactInstructionData {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
     a: Bytes32;
-    b: Bytes64;
+    b: Bytes128;
     c: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;

@@ -12,7 +12,7 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   InterfaceTransfer,
 } from "../src/interface/types.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
@@ -218,7 +218,7 @@ function transactData(transfers: readonly InterfaceTransfer[]): string {
     circuit: { kind: "ringEddsa", inputs: 1, outputs: 2, publicAssetSlots: 1 },
     txViewingPk: zeros(33) as Bytes33,
     salt: zeros(16) as Bytes16,
-    proof: { a: zeros(32) as Bytes32, b: zeros(64) as Bytes64, c: zeros(32) as Bytes32 },
+    proof: { a: zeros(32) as Bytes32, b: zeros(128) as Bytes128, c: zeros(32) as Bytes32 },
     inputs: [
       { nullifierHash: zeros(32) as Bytes32, nullifierTreeRootIndex: 0, utxoTreeRootIndex: 0 },
     ],

@@ -446,12 +446,12 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
-    // fails at G1/G2 decompression -- the 7007 encoding error, distinct from
+    // fails at G1 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
     let mut data = merge_ix_data(true);
     data.proof = MergeProof {
         a: [0xFF; 32],
-        b: [0xFF; 64],
+        b: [0xFF; 128],
         c: [0xFF; 32],
     };
     let ix = merge_instruction(&rpc, &tree, record, data);
