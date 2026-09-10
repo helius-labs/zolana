@@ -7,6 +7,7 @@ use zolana_interface::{
         instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
         validate_interface_transfers,
     },
+    shape::owner_signer_slots,
     MAX_INTERFACE_TRANSFERS,
 };
 
@@ -81,7 +82,7 @@ impl<'a> TransactAccounts<'a> {
             .iter()
             .position(|account| !account.is_signer())
             .unwrap_or(remaining.len());
-        if signer_count > usize::from(ix.circuit.num_inputs())
+        if signer_count > owner_signer_slots(usize::from(ix.circuit.num_inputs()))
             || (!allow_owner_signers && signer_count != 0)
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
