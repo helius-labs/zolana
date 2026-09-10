@@ -1,4 +1,4 @@
-use zolana_event::{encode_output_data, ProoflessOutput};
+use zolana_interface::output_data::{encode_output_data, ProoflessOutput};
 
 /// Raw id of the tree this test hashes UTXOs under.
 const TEST_TREE_ID: u16 = 0;

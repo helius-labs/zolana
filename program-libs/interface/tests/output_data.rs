@@ -4,10 +4,10 @@
 //! change the bytes an indexer or wallet parses.
 
 use borsh::BorshSerialize;
-use zolana_event::{
-    decode_output_data, encode_output_data, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, OutputDataEncoding, ProoflessOutput,
-    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
+use zolana_interface::output_data::{
+    decode_output_data, encode_output_data, encode_verifiably_encrypted,
+    is_confidential_encrypted_output, ring_confidential_encrypted_output_body, OutputDataEncoding,
+    ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, PLAINTEXT_OUTPUT_FIXED_LEN,
     RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
@@ -154,8 +154,6 @@ fn every_option_present_but_empty() -> ProoflessOutput {
 #[test]
 fn verifiably_encrypted_round_trips_with_tag_byte_two() {
     use borsh::BorshDeserialize;
-    use zolana_event::encode_verifiably_encrypted;
-
     let blob = vec![1u8, 2, 3, 4, 5];
     let encoded = encode_verifiably_encrypted(blob.clone());
     assert_eq!(

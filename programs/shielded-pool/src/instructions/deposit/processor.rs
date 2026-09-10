@@ -7,9 +7,9 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_interface::event::SplTransfer;
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::SplTransfer,
     instruction::{
         deposit_blinding, DepositAssetKind, DepositEntryRef, DepositIxDataRef, RingDepositEntryRef,
         RingDepositIxDataRef, MAX_DEPOSIT_ASSETS,
@@ -228,9 +228,6 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             .get(usize::from(*asset_index))
             .ok_or(ShieldedPoolError::InvalidDepositAssetIndex)?;
 
-        if !group.settlement.is_deposit() {
-            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
-        }
         if *total > 0 {
             group.settlement.settle(*total)?;
         }

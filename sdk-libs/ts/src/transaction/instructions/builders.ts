@@ -6,7 +6,13 @@ import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.
 import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
-import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
+import {
+  MAX_MERGE_INPUTS,
+  MERGE_DEFAULT_INPUT_COUNT,
+  MERGE_SUPPORTED_INPUT_COUNTS,
+  isSupportedMergeInputCount,
+  mergePaddedInputCount,
+} from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
 import { checked, equal } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
@@ -28,8 +34,6 @@ import {
   type InputUtxoContext,
 } from "./transact.js";
 
-/** Padded input count of the merge circuit, the counterpart of Rust `MERGE_INPUTS`. */
-export const MERGE_INPUTS = MERGE_INPUT_COUNT;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
 
 function checkedU64(value: bigint, field: string): bigint {
@@ -61,10 +65,16 @@ export class PreparedMerge {
       outputTreeId: TreeId;
     }>,
   ) {
-    if (input.inputs.length !== MERGE_INPUTS) {
-      throw new TransactionError("TRANSACTION_INVALID_OUTPUT_COUNT", {
-        expected: MERGE_INPUTS,
+    if (!isSupportedMergeInputCount(input.inputs.length)) {
+      throw new TransactionError("TRANSACTION_INVALID_INPUT_COUNT", {
+        supported: MERGE_SUPPORTED_INPUT_COUNTS,
         actual: input.inputs.length,
+      });
+    }
+    if (input.inputs.length > MERGE_DEFAULT_INPUT_COUNT) {
+      throw new TransactionError("TRANSACTION_VERSION_UNSUPPORTED", {
+        inputs: input.inputs.length,
+        maxInputs: MERGE_DEFAULT_INPUT_COUNT,
       });
     }
     let sawDummy = false;
@@ -146,10 +156,11 @@ export class Merge {
     outputTreeId: TreeId = DEFAULT_TREE_ID,
   ) {
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    if (inputs.length > MERGE_INPUTS) {
+    const paddedInputCount = mergePaddedInputCount(inputs.length);
+    if (paddedInputCount === undefined) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
         got: inputs.length,
-        max: MERGE_INPUTS,
+        max: MAX_MERGE_INPUTS,
       });
     }
     const address =
@@ -191,7 +202,9 @@ export class Merge {
       // Dummies are hashed under the input tree like every real input.
       const treeId = inputTreeId(inputs);
       const padded = [...inputs];
-      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, treeId));
+      while (padded.length < paddedInputCount) {
+        padded.push(ProofInputUtxo.dummy(undefined, treeId));
+      }
       this.#prepared = new PreparedMerge({
         inputs: padded,
         output: createProofOutput({

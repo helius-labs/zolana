@@ -48,6 +48,47 @@ func TestRecoveryDerivationsMatchRustVectors(t *testing.T) {
 	assert.SolvingFailed(&derivationCircuit{}, &witness, test.WithCurves(ecc.BN254))
 }
 
+type dummyNullifierSeedCircuit struct {
+	Secret frontend.Variable
+	FirstA frontend.Variable
+	FirstB frontend.Variable
+}
+
+func (c *dummyNullifierSeedCircuit) Define(api frontend.API) error {
+	widest := 0
+	for _, count := range SupportedInputCounts {
+		if count > widest {
+			widest = count
+		}
+	}
+	for slot := 1; slot < widest; slot++ {
+		api.AssertIsDifferent(
+			MergeDummyNullifier(api, c.Secret, c.FirstA, slot),
+			MergeDummyNullifier(api, c.Secret, c.FirstB, slot),
+		)
+		api.AssertIsDifferent(
+			MergeDummyNullifier(api, c.Secret, c.FirstA, slot),
+			MergeDummyNullifier(api, c.Secret, c.FirstA, slot-1),
+		)
+	}
+	return nil
+}
+
+func TestMergeDummyNullifiersDependOnTheFirstNullifierAndSlot(t *testing.T) {
+	witness := dummyNullifierSeedCircuit{
+		Secret: big.NewInt(19),
+		FirstA: big.NewInt(0xA1),
+		FirstB: big.NewInt(0xB2),
+	}
+	if err := test.IsSolved(&dummyNullifierSeedCircuit{}, &witness, ecc.BN254.ScalarField()); err != nil {
+		t.Fatalf("dummy nullifier derivation collides across seeds or slots: %v", err)
+	}
+	witness.FirstB = big.NewInt(0xA1)
+	if err := test.IsSolved(&dummyNullifierSeedCircuit{}, &witness, ecc.BN254.ScalarField()); err == nil {
+		t.Fatal("equal first nullifiers must derive equal dummy nullifiers")
+	}
+}
+
 // TestRecoveryDomainsAreTheAsciiTags pins the tag byte values; drift here
 // silently breaks wallet recovery.
 func TestRecoveryDomainsAreTheAsciiTags(t *testing.T) {

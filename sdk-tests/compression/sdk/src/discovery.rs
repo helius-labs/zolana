@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use solana_address::Address;
 use zolana_client::{EncryptedUtxoMatch, Rpc, ZolanaIndexer};
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_transaction::WalletUtxo;
 
 use crate::{

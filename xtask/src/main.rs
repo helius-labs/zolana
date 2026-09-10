@@ -120,6 +120,8 @@ fn main() {
             }
         }
         Some("tx-size") => tx_size(args.collect()),
+        Some("max-shape") => max_shape(args.collect()),
+        Some("max-merge-shape") => max_merge_shape(),
         Some("--help") | Some("-h") | None => print_help(),
         Some(command) => {
             eprintln!("unknown xtask command: {command}");
@@ -399,6 +401,12 @@ fn print_help() {
         "  generate-account-snapshots  Generate canonical protocol accounts from the local build"
     );
     println!("  tx-size [N:M ...]        Compute serialized transaction sizes per circuit shape");
+    println!(
+        "  max-shape [DATA_LEN]     Largest transact shape that fits a v1 transaction, per rail"
+    );
+    println!(
+        "  max-merge-shape          Largest merge input count that fits a v1 transaction, per rail"
+    );
 }
 
 fn print_create_verifying_keys_help() {
@@ -411,14 +419,14 @@ fn print_create_verifying_keys_help() {
 
 fn tx_size(args: Vec<String>) {
     use bincode;
+    use solana_address::Address;
     use solana_hash::Hash;
     use solana_instruction::Instruction;
     use solana_keypair::Keypair;
     use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
-    use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
-    use zolana_interface::instruction::instruction_data::MERGE_INPUT_COUNT;
+    use zolana_interface::instruction::instruction_data::MERGE_DEFAULT_INPUT_COUNT;
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -466,24 +474,24 @@ fn tx_size(args: Vec<String>) {
 
     let payer = Keypair::new();
     let payer_pk = payer.pubkey();
-    let tree_pk = Pubkey::from([2u8; 32]);
-    let spp_pk = Pubkey::from(SHIELDED_POOL_PROGRAM_ID);
+    let tree_pk = Address::from([2u8; 32]);
+    let spp_pk = Address::from(SHIELDED_POOL_PROGRAM_ID);
 
     // SPL shield/unshield extra accounts. vault and recipient are in the ALT;
     // user_token_pk and token_program_pk are inline (user-specific / program).
-    let vault_pk = Pubkey::from([3u8; 32]);
-    let recipient_pk = Pubkey::from([4u8; 32]);
-    let user_token_pk = Pubkey::from([5u8; 32]);
-    let token_program_pk = Pubkey::from([6u8; 32]);
+    let vault_pk = Address::from([3u8; 32]);
+    let recipient_pk = Address::from([4u8; 32]);
+    let user_token_pk = Address::from([5u8; 32]);
+    let token_program_pk = Address::from([6u8; 32]);
 
     // ALT for a pure transfer: tree (writable) + program (readonly).
     let alt_transfer = AddressLookupTableAccount {
-        key: Pubkey::from([10u8; 32]),
+        key: Address::from([10u8; 32]),
         addresses: vec![tree_pk, spp_pk],
     };
     // ALT for SPL shield: tree + vault + recipient (writable) + program (readonly).
     let alt_shield = AddressLookupTableAccount {
-        key: Pubkey::from([11u8; 32]),
+        key: Address::from([11u8; 32]),
         addresses: vec![tree_pk, vault_pk, recipient_pk, spp_pk],
     };
 
@@ -581,8 +589,8 @@ fn tx_size(args: Vec<String>) {
             AccountMeta::new(tree_pk, false),
         ];
         for index in 0..leg_count {
-            let recipient = Pubkey::from([20 + index as u8; 32]);
-            let user_token = Pubkey::from([40 + index as u8; 32]);
+            let recipient = Address::from([20 + index as u8; 32]);
+            let user_token = Address::from([40 + index as u8; 32]);
             accounts.push(AccountMeta::new_readonly(
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 false,
@@ -877,7 +885,7 @@ fn tx_size(args: Vec<String>) {
         "transaction", "accounts", "ix data (B)", "legacy tx (B)",
     );
     println!("|{:-<36}|{:-<10}|{:-<13}|{:-<14}|", "", "", "", "");
-    let tree = Pubkey::new_unique();
+    let tree = Address::new_unique();
     for n in [2usize, 3, 5] {
         let spec = transfer_layout(
             3,
@@ -910,7 +918,7 @@ fn tx_size(args: Vec<String>) {
         use zolana_interface::instruction::{
             instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
         };
-        let nullifiers = (0..MERGE_INPUT_COUNT)
+        let nullifiers = (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
@@ -920,19 +928,20 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-            nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+            utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+            nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
         };
-        let settings = Pubkey::new_unique();
+        let settings = Address::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
         let merge_ix = MergeTransact {
             input_tree: tree,
             output_tree: tree,
             payer: vault,
-            user_record: Pubkey::new_unique(),
+            user_record: Address::new_unique(),
             data,
         }
-        .instruction();
+        .instruction()
+        .expect("the default merge shape is supported");
         let merge_ix_accounts = merge_ix.accounts.len();
         let merge_ix_data_len = merge_ix.data.len();
         let direct_len = bincode::serialize(&Transaction::new_unsigned(Message::new(
@@ -944,7 +953,7 @@ fn tx_size(args: Vec<String>) {
         let sync_ix =
             zolana_smart_account_client::execute_sync_ix(&settings, 0, &[payer_pk], &[merge_ix]);
         let compute_budget = Instruction {
-            program_id: Pubkey::from_str_const("ComputeBudget111111111111111111111111111111"),
+            program_id: Address::from_str_const("ComputeBudget111111111111111111111111111111"),
             accounts: Vec::new(),
             data: [vec![2u8], 1_400_000u32.to_le_bytes().to_vec()].concat(),
         };
@@ -965,9 +974,9 @@ fn tx_size(args: Vec<String>) {
 }
 
 fn transfer_accounts(
-    payer: solana_pubkey::Pubkey,
-    tree: solana_pubkey::Pubkey,
-    spp: solana_pubkey::Pubkey,
+    payer: solana_address::Address,
+    tree: solana_address::Address,
+    spp: solana_address::Address,
 ) -> Vec<solana_instruction::AccountMeta> {
     use solana_instruction::AccountMeta;
     vec![
@@ -980,13 +989,13 @@ fn transfer_accounts(
 
 #[allow(clippy::too_many_arguments)]
 fn shield_accounts(
-    payer: solana_pubkey::Pubkey,
-    tree: solana_pubkey::Pubkey,
-    vault: solana_pubkey::Pubkey,
-    recipient: solana_pubkey::Pubkey,
-    user_token: solana_pubkey::Pubkey,
-    token_program: solana_pubkey::Pubkey,
-    spp: solana_pubkey::Pubkey,
+    payer: solana_address::Address,
+    tree: solana_address::Address,
+    vault: solana_address::Address,
+    recipient: solana_address::Address,
+    user_token: solana_address::Address,
+    token_program: solana_address::Address,
+    spp: solana_address::Address,
 ) -> Vec<solana_instruction::AccountMeta> {
     use solana_instruction::AccountMeta;
     vec![
@@ -999,4 +1008,209 @@ fn shield_accounts(
         AccountMeta::new_readonly(token_program, false),
         AccountMeta::new_readonly(spp, false),
     ]
+}
+
+fn max_shape(args: Vec<String>) {
+    use solana_message::v1;
+    use zolana_test_utils::transaction_size::{
+        largest_fitting_input_count, TransactProbe, TransactRail, CUSTOM_RING_EXTRA_ACCOUNTS,
+        CUSTOM_RING_EXTRA_DATA, RING_EXTRA_ACCOUNTS, RING_EXTRA_DATA,
+    };
+
+    let output_data_len: usize = args
+        .first()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+
+    println!(
+        "transaction v1: {} bytes, {} addresses, {} signatures; output data = {output_data_len} B",
+        v1::MAX_TRANSACTION_SIZE,
+        v1::MAX_ADDRESSES,
+        v1::MAX_SIGNATURES,
+    );
+    println!();
+    println!(
+        "{:<40} {:>7} {:>8} {:>8} {:>7}",
+        "rail (n_out=2)", "max in", "bytes", "spare", "addrs"
+    );
+
+    let rails: [(&str, TransactRail, usize, usize, usize); 6] = [
+        ("plain transact", TransactRail::Eddsa, 0, 0, 1),
+        (
+            "ring transact",
+            TransactRail::RingEddsa,
+            RING_EXTRA_ACCOUNTS,
+            RING_EXTRA_DATA,
+            1,
+        ),
+        (
+            "ring transact, p256",
+            TransactRail::RingP256,
+            RING_EXTRA_ACCOUNTS,
+            RING_EXTRA_DATA,
+            1,
+        ),
+        (
+            "custom ring",
+            TransactRail::RingEddsa,
+            CUSTOM_RING_EXTRA_ACCOUNTS,
+            CUSTOM_RING_EXTRA_DATA,
+            1,
+        ),
+        (
+            "custom ring, two signers",
+            TransactRail::RingEddsa,
+            CUSTOM_RING_EXTRA_ACCOUNTS,
+            CUSTOM_RING_EXTRA_DATA,
+            2,
+        ),
+        (
+            "custom ring, two signers, p256",
+            TransactRail::RingP256,
+            CUSTOM_RING_EXTRA_ACCOUNTS,
+            CUSTOM_RING_EXTRA_DATA,
+            2,
+        ),
+    ];
+    for (name, rail, extra_accounts, extra_data, signatures) in rails {
+        let probe = |n_in: usize| TransactProbe {
+            rail,
+            n_in,
+            n_out: 2,
+            output_data_len,
+            extra_accounts,
+            extra_data,
+            signatures,
+        };
+        let best = largest_fitting_input_count(|n_in| probe(n_in).fits().is_some())
+            .and_then(|n_in| probe(n_in).fits().map(|size| (n_in, size)));
+        match best {
+            Some((n_in, size)) => println!(
+                "{name:<40} {n_in:>7} {:>8} {:>8} {:>7}",
+                size.bytes,
+                size.spare_bytes(),
+                size.addresses
+            ),
+            None => println!("{name:<40} {:>7}", "none"),
+        }
+    }
+
+    println!();
+    println!(
+        "{:<40} {:>8} {:>8}",
+        "shape (custom ring, 2 signers, p256)", "bytes", "fits"
+    );
+    for (n_in, n_out) in [
+        (36, 2),
+        (38, 2),
+        (40, 2),
+        (42, 2),
+        (44, 2),
+        (48, 2),
+        (1, 40),
+        (1, 48),
+    ] {
+        let label = format!("{n_in} in x {n_out} out");
+        let probe = TransactProbe {
+            rail: TransactRail::RingP256,
+            n_in,
+            n_out,
+            output_data_len,
+            extra_accounts: CUSTOM_RING_EXTRA_ACCOUNTS,
+            extra_data: CUSTOM_RING_EXTRA_DATA,
+            signatures: 2,
+        };
+        match probe.size() {
+            Some(size) => println!(
+                "{label:<40} {:>8} {:>8}",
+                size.bytes,
+                if size.fits() { "yes" } else { "no" }
+            ),
+            None => println!("{label:<40} {:>8} {:>8}", "-", "no"),
+        }
+    }
+}
+
+fn max_merge_shape() {
+    use solana_message::v1;
+    use zolana_test_utils::transaction_size::{
+        largest_fitting_input_count, MergeProbe, MergeRail, CUSTOM_RING_EXTRA_ACCOUNTS,
+        CUSTOM_RING_EXTRA_DATA,
+    };
+
+    println!(
+        "transaction v1: {} bytes, {} addresses, {} signatures; merge is always 1 output",
+        v1::MAX_TRANSACTION_SIZE,
+        v1::MAX_ADDRESSES,
+        v1::MAX_SIGNATURES,
+    );
+    println!();
+    println!(
+        "{:<40} {:>7} {:>8} {:>8} {:>7}",
+        "rail", "max in", "bytes", "spare", "addrs"
+    );
+
+    let rails: [(&str, MergeRail, usize, usize, usize); 4] = [
+        ("merge_transact", MergeRail::Plain, 0, 0, 1),
+        ("merge_ring", MergeRail::Ring, 0, 0, 1),
+        (
+            "merge_ring, custom ring",
+            MergeRail::Ring,
+            CUSTOM_RING_EXTRA_ACCOUNTS,
+            CUSTOM_RING_EXTRA_DATA,
+            1,
+        ),
+        (
+            "merge_ring, custom ring, 2 signers",
+            MergeRail::Ring,
+            CUSTOM_RING_EXTRA_ACCOUNTS,
+            CUSTOM_RING_EXTRA_DATA,
+            2,
+        ),
+    ];
+    for (name, rail, extra_accounts, extra_data, signatures) in rails {
+        let probe = |n_in: usize| MergeProbe {
+            rail,
+            n_in,
+            extra_accounts,
+            extra_data,
+            signatures,
+        };
+        let best = largest_fitting_input_count(|n_in| probe(n_in).fits().is_some())
+            .and_then(|n_in| probe(n_in).fits().map(|size| (n_in, size)));
+        match best {
+            Some((n_in, size)) => println!(
+                "{name:<40} {n_in:>7} {:>8} {:>8} {:>7}",
+                size.bytes,
+                size.spare_bytes(),
+                size.addresses
+            ),
+            None => println!("{name:<40} {:>7}", "none"),
+        }
+    }
+
+    println!();
+    println!(
+        "{:<40} {:>8} {:>8} {:>7}",
+        "shape (custom ring, 2 signers)", "bytes", "fits", "addrs"
+    );
+    for n_in in [8, 32, 36, 38, 40, 42] {
+        let label = format!("{n_in} in x 1 out");
+        let probe = MergeProbe {
+            rail: MergeRail::Ring,
+            n_in,
+            extra_accounts: CUSTOM_RING_EXTRA_ACCOUNTS,
+            extra_data: CUSTOM_RING_EXTRA_DATA,
+            signatures: 2,
+        };
+        match probe.size() {
+            Some(size) => println!(
+                "{label:<40} {:>8} {:>8} {:>7}",
+                size.bytes,
+                if size.fits() { "yes" } else { "no" },
+                size.addresses
+            ),
+            None => println!("{label:<40} {:>8} {:>8}", "-", "no"),
+        }
+    }
 }

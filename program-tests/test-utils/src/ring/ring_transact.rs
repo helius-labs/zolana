@@ -1,5 +1,6 @@
 //! Ring transfer and withdrawal operations.
 
+use crate::compute::TEST_TRANSACTION_CU_LIMIT;
 use anyhow::{anyhow, Result};
 use solana_account::Account;
 use solana_address::Address;
@@ -503,7 +504,8 @@ impl RingHarness {
             data: data.clone(),
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         let instructions = [compute_budget, transfer_ix.clone()];
         let signature = send_transaction_fitting(&mut self.rpc, &instructions, &fee_payer, &[])?;
 
@@ -886,7 +888,8 @@ impl RingHarness {
             data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         match send_transaction(
             &mut self.rpc,

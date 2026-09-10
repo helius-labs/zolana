@@ -1,0 +1,3 @@
+pub use zolana_client::DEFAULT_TRANSACT_CU_LIMIT;
+
+pub const TEST_TRANSACTION_CU_LIMIT: u32 = 1_400_000;

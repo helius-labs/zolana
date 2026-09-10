@@ -32,15 +32,26 @@ var SupportedShapes = []Shape{
 	{NInputs: 5, NOutputs: 4},
 	{NInputs: 1, NOutputs: 8},
 	// Consolidation shape; sized against the custom-ring path, not a bare
-	// transact.
+	// transact. See Shape::IN36_OUT2 in program-libs/interface/src/shape.rs.
 	{NInputs: 36, NOutputs: 2},
 }
 
-// AutoShapes is the smallest-fit search order. It excludes the large
-// consolidation shape: including it would silently route a six-input transfer
-// to a 36-input circuit, roughly twenty times the constraints for no benefit. A
-// caller that wants that shape names it.
+// AutoShapes is the smallest-fit search order, mirroring SPP_AUTO_SHAPES in
+// program-libs/interface/src/shape.rs. It excludes the large consolidation
+// shape: including it would silently route a six-input transfer to a 36-input
+// circuit, roughly twenty times the constraints for no benefit. A caller that
+// wants that shape names it.
 var AutoShapes = SupportedShapes[:10]
+
+// RingAuthorityShapes is the subset of SupportedShapes the ring-authority rail
+// has keys for, mirroring the RingAuthority arm of CircuitId::is_supported in
+// program-libs/interface/src/verifying_keys/circuit.rs.
+var RingAuthorityShapes = []Shape{
+	{NInputs: 1, NOutputs: 1},
+	{NInputs: 2, NOutputs: 2},
+	{NInputs: 3, NOutputs: 3},
+	{NInputs: 4, NOutputs: 4},
+}
 
 // SmallestSupportedShape returns the smallest shape with a key that holds the
 // given real input/output counts, searching the full validation set.

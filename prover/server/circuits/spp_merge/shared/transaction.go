@@ -21,9 +21,10 @@ const (
 // keyed for, smallest first. A spender pads up to the next supported count with
 // dummy slots, so the set does not need an entry per real input count.
 //
-// Merge instruction data carries no circuit selector: both the prover and the
-// program derive the shape from the declared nullifier count, so every side
-// must agree on which counts exist.
+// Mirror MERGE_SUPPORTED_INPUT_COUNTS in
+// program-libs/interface/src/instruction/instruction_data/merge_transact.rs;
+// merge instruction data carries no circuit selector, so both sides derive the
+// shape from the declared nullifier count and must agree on which counts exist.
 var SupportedInputCounts = []int{8, 36}
 
 // IsSupportedInputCount reports whether a merge circuit exists for n inputs.

@@ -8,6 +8,7 @@ use rings_fixtures::{
     seed_tagged_transaction_history, signature_at, tag_page, LookupCost, PAGE_LIMIT, VIEW_TAG,
 };
 
+use borsh::BorshDeserialize;
 use photon_indexer::{
     api::{
         error::PhotonApiError,
@@ -27,7 +28,7 @@ use photon_indexer::{
             rings_event_parser::parse_rings_events,
             state_update::{
                 IndexedTreeLeafUpdate, RawIndexedElement, RingsNullifierUpdate, RingsOutputUpdate,
-                StateUpdate, Transaction,
+                RingsTransactionUpdate, StateUpdate, Transaction,
             },
             tree_info::TreeInfo,
         },
@@ -56,16 +57,26 @@ use solana_account::Account;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
-    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
-};
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
 };
+use zolana_interface::event::{
+    encode_deposit_event, encode_merge_event, encode_transact_event, EventKind, GeneralEvent,
+    Input, MergeEvent, OutputUtxo, SplTransfer, TransactEvent,
+};
 use zolana_interface::{
-    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
+    instruction::{
+        encode_instruction,
+        instruction_data::{
+            merge_ring::MergeRingIxData,
+            merge_transact::{MergeProof, MergeTransactIxData, MERGE_DEFAULT_INPUT_COUNT},
+            transact::{fetch_tag, CircuitId},
+        },
+        tag, BatchUpdateNullifierTreeData, CompressedProof, InputUtxo, InterfaceTransfer, OwnerTag,
+        TransactIxData, TransactOutput, TransactProof,
+    },
+    output_data::{encode_output_data, encode_verifiably_encrypted, ProoflessOutput},
     pda,
     state::{
         default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
@@ -78,8 +89,17 @@ const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
+const MERGE_SLOT: u64 = 31;
+const RING_MERGE_SLOT: u64 = 32;
 const TEST_TREE: [u8; 32] = [41; 32];
 const TEST_STATE_ROOT_INDEX: u16 = 137;
+const RING_CONFIG: [u8; 32] = [0xbb; 32];
+const MERGE_FIRST_INPUT_QUEUE_SEQ: u64 = 40;
+const MERGE_FIRST_NULLIFIER_BYTE: u8 = 50;
+const MERGE_OUTPUT_LEAF_INDEX: u64 = 9;
+const MERGE_OUTPUT_UTXO_HASH: [u8; 32] = [31; 32];
+const MERGE_OUTPUT_VIEW_TAG: [u8; 32] = [30; 32];
+const RING_MERGE_OUTPUT_RING_DATA_HASH: [u8; 32] = [33; 32];
 
 fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
     assert_eq!(items.len(), 1, "expected exactly one {description}");
@@ -97,7 +117,7 @@ fn parses_proofless_shield_event_with_photon_parser() {
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -117,7 +137,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -146,7 +166,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     );
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -180,7 +200,7 @@ fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -198,6 +218,80 @@ fn parses_unshield_event_with_photon_parser() {
             expected_output(1, 5, 6, 16, Vec::new()),
             expected_output(2, 6, 7, 17, Vec::new()),
         ]
+    );
+}
+
+#[test]
+fn parses_merge_event_with_photon_parser() {
+    let state_update =
+        parse_rings_update(merge_transaction_info(5, tag::MERGE_TRANSACT), MERGE_SLOT);
+
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(
+        *rings_tx,
+        RingsTransactionUpdate {
+            signature: Signature::from([5; 64]),
+            event_index: 0,
+            slot: MERGE_SLOT,
+            ring_config: None,
+            source_instruction_tag: tag::MERGE_TRANSACT as i16,
+            output_tree: TEST_TREE,
+            first_output_leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+            tx_viewing_pk: None,
+            salt: None,
+            proofless: false,
+            encrypted_utxos: None,
+            raw_event: Some(merge_raw_event(MERGE_OUTPUT_VIEW_TAG)),
+            parse_version: 4,
+            outputs: vec![RingsOutputUpdate {
+                output_index: 0,
+                output_tree: TEST_TREE,
+                leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+                view_tag: MERGE_OUTPUT_VIEW_TAG,
+                utxo_hash: MERGE_OUTPUT_UTXO_HASH,
+                payload: Vec::new(),
+            }],
+            messages: Vec::new(),
+            nullifiers: expected_merge_nullifiers(),
+        }
+    );
+}
+
+#[test]
+fn parses_ring_merge_event_with_photon_parser() {
+    let state_update = parse_rings_update(
+        merge_transaction_info(6, tag::RING_MERGE_TRANSACT),
+        RING_MERGE_SLOT,
+    );
+
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(
+        *rings_tx,
+        RingsTransactionUpdate {
+            signature: Signature::from([6; 64]),
+            event_index: 0,
+            slot: RING_MERGE_SLOT,
+            ring_config: Some(RING_CONFIG),
+            source_instruction_tag: tag::RING_MERGE_TRANSACT as i16,
+            output_tree: TEST_TREE,
+            first_output_leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+            tx_viewing_pk: None,
+            salt: None,
+            proofless: false,
+            encrypted_utxos: None,
+            raw_event: Some(merge_raw_event([0; 32])),
+            parse_version: 4,
+            outputs: vec![RingsOutputUpdate {
+                output_index: 0,
+                output_tree: TEST_TREE,
+                leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+                view_tag: [MERGE_FIRST_NULLIFIER_BYTE; 32],
+                utxo_hash: MERGE_OUTPUT_UTXO_HASH,
+                payload: RING_MERGE_OUTPUT_RING_DATA_HASH.to_vec(),
+            }],
+            messages: Vec::new(),
+            nullifiers: expected_merge_nullifiers(),
+        }
     );
 }
 
@@ -237,23 +331,20 @@ fn ring_fixture_records_the_signing_ring_config() {
     let slot = confirmed.slot;
     let tx = parse_transaction_info(confirmed.transaction).expect("fixture transaction");
 
-    // The transaction also carries a ComputeBudget instruction, so take the
-    // group that actually reached the pool.
-    let ring_program = tx
+    let pool_program = pda::shielded_pool_program_id();
+    let pool_group = tx
         .instruction_groups
         .iter()
         .find(|group| {
             group
                 .inner_instructions
                 .iter()
-                .any(|inner| inner.program_id == pda::shielded_pool_program_id())
+                .any(|inner| inner.program_id == pool_program)
         })
-        .expect("group that invoked the pool")
-        .outer_instruction
-        .program_id;
+        .expect("group that invoked the pool");
+    let ring_program = pool_group.outer_instruction.program_id;
     assert_ne!(
-        ring_program,
-        pda::shielded_pool_program_id(),
+        ring_program, pool_program,
         "fixture must be a ring CPI, not a direct pool call"
     );
 
@@ -269,6 +360,77 @@ fn ring_fixture_records_the_signing_ring_config() {
 
     let (ring_auth, _) = pda::ring_auth(&ring_program);
     assert_eq!(update.ring_config, Some(ring_auth.to_bytes()));
+
+    let pool_instruction = pool_group
+        .inner_instructions
+        .iter()
+        .find(|inner| {
+            inner.program_id == pool_program && inner.data.first() == Some(&tag::RING_TRANSACT)
+        })
+        .expect("ring_transact pool instruction");
+    let emit_event = pool_group
+        .inner_instructions
+        .iter()
+        .find(|inner| {
+            inner.program_id == pool_program && inner.data.first() == Some(&tag::EMIT_EVENT)
+        })
+        .expect("emit_event self-CPI");
+    let instruction_data =
+        TransactIxData::deserialize(pool_instruction.data.get(1..).unwrap_or_default())
+            .expect("fixture ring_transact instruction data");
+    let positions = TransactEvent::try_from_slice(emit_event.data.get(2..).unwrap_or_default())
+        .expect("fixture transact event body");
+    let input_tree = pool_instruction
+        .accounts
+        .get(1)
+        .expect("input tree account")
+        .to_bytes();
+    let output_tree = pool_instruction
+        .accounts
+        .get(2)
+        .expect("output tree account")
+        .to_bytes();
+
+    let expected_nullifiers: Vec<RingsNullifierUpdate> = instruction_data
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(index, input)| RingsNullifierUpdate {
+            input_index: i16::try_from(index).expect("input index fits in i16"),
+            nullifier_tree: input_tree,
+            input_queue_seq: positions.first_input_queue_seq
+                + u64::try_from(index).expect("input index fits in u64"),
+            nullifier: input.nullifier_hash,
+        })
+        .collect();
+    let expected_outputs: Vec<RingsOutputUpdate> = instruction_data
+        .outputs
+        .iter()
+        .enumerate()
+        .map(|(index, output)| RingsOutputUpdate {
+            output_index: i16::try_from(index).expect("output index fits in i16"),
+            output_tree,
+            leaf_index: positions.first_output_leaf_index
+                + u64::try_from(index).expect("output index fits in u64"),
+            view_tag: fetch_tag(&output.owner_tag, |account_index| {
+                pool_instruction
+                    .accounts
+                    .get(usize::from(account_index))
+                    .map(Pubkey::to_bytes)
+            })
+            .expect("fixture owner tag resolves"),
+            utxo_hash: output.utxo_hash,
+            payload: output.data.clone().unwrap_or_default(),
+        })
+        .collect();
+    assert!(
+        !expected_nullifiers.is_empty() && !expected_outputs.is_empty(),
+        "fixture must spend and create UTXOs"
+    );
+    assert_eq!(
+        (update.nullifiers.clone(), update.outputs.clone()),
+        (expected_nullifiers, expected_outputs)
+    );
 }
 
 /// Replays a real registration captured by `just dump-ring-fixture`. The
@@ -1931,24 +2093,282 @@ fn rings_transaction_info(
     event: GeneralEvent,
 ) -> TransactionInfo {
     let program_id = pda::shielded_pool_program_id();
+    let tree = Pubkey::new_from_array(TEST_TREE);
+    let payer = Pubkey::new_from_array([0xaa; 32]);
+    let first_input_queue_seq = event
+        .inputs
+        .first()
+        .map(|input| input.input_queue_seq)
+        .unwrap_or_default();
+
+    let (accounts, parent_data, event_data) = match event_kind {
+        EventKind::Transact => {
+            let (parent_data, settlement_accounts) =
+                transact_parent_data(source_instruction_tag, &event);
+            let mut accounts = vec![payer, tree, tree, program_id, Pubkey::new_unique()];
+            accounts.extend(event.inputs.iter().map(|_| Pubkey::new_unique()));
+            accounts.extend(settlement_accounts);
+            (
+                accounts,
+                parent_data,
+                encode_transact_event(&TransactEvent {
+                    first_input_queue_seq,
+                    first_output_leaf_index: event.first_output_leaf_index,
+                })
+                .to_vec(),
+            )
+        }
+        EventKind::Merge => {
+            let mut accounts = vec![
+                tree,
+                tree,
+                Pubkey::new_from_array(RING_CONFIG),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+                Pubkey::new_unique(),
+            ];
+            accounts.extend(event.inputs.iter().map(|_| Pubkey::new_unique()));
+            let output_view_tag = if source_instruction_tag == tag::RING_MERGE_TRANSACT {
+                [0; 32]
+            } else {
+                event
+                    .outputs
+                    .first()
+                    .expect("merge event has one output")
+                    .view_tag
+            };
+            (
+                accounts,
+                merge_parent_data(source_instruction_tag, &event),
+                encode_merge_event(&MergeEvent {
+                    first_input_queue_seq,
+                    first_output_leaf_index: event.first_output_leaf_index,
+                    output_view_tag,
+                })
+                .to_vec(),
+            )
+        }
+        EventKind::Deposit => (
+            vec![payer, tree, tree],
+            vec![source_instruction_tag],
+            encode_deposit_event(&event),
+        ),
+        other => panic!("unsupported event kind in fixture: {other:?}"),
+    };
+
     TransactionInfo {
         instruction_groups: vec![InstructionGroup {
             outer_instruction: Instruction {
                 program_id,
-                accounts: Vec::new(),
-                data: vec![source_instruction_tag],
+                accounts,
+                data: parent_data,
                 stack_height: Some(1),
             },
             inner_instructions: vec![Instruction {
                 program_id,
                 accounts: Vec::new(),
-                data: encode_event_instruction(event_kind, event),
+                data: event_data,
                 stack_height: Some(2),
             }],
         }],
         signature: Signature::from([signature_byte; 64]),
         error: None,
     }
+}
+
+/// `TransactIxData` whose inputs, outputs and messages reproduce `event`. Owner
+/// tags are inline, so every output's view tag resolves to itself without an
+/// account lookup. The returned account tail mirrors every settlement group so
+/// reconstruction also reproduces `spl_transfers`.
+fn transact_parent_data(
+    source_instruction_tag: u8,
+    event: &GeneralEvent,
+) -> (Vec<u8>, Vec<Pubkey>) {
+    let mut settlement_accounts = Vec::new();
+    let interface_transfers = event
+        .spl_transfers
+        .iter()
+        .map(|transfer| match (transfer.is_deposit, transfer.asset) {
+            (true, None) => {
+                settlement_accounts.extend([Pubkey::new_unique(), Pubkey::new_unique()]);
+                InterfaceTransfer::SolDeposit {
+                    amount: transfer.amount,
+                }
+            }
+            (false, None) => {
+                settlement_accounts.extend([Pubkey::new_unique(), Pubkey::new_unique()]);
+                InterfaceTransfer::SolWithdrawal {
+                    amount: transfer.amount,
+                }
+            }
+            (true, Some(mint)) => {
+                settlement_accounts.extend([
+                    Pubkey::new_from_array(mint),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                ]);
+                InterfaceTransfer::SplDeposit {
+                    amount: transfer.amount,
+                    spl_interface_bump: 0,
+                }
+            }
+            (false, Some(mint)) => {
+                settlement_accounts.extend([
+                    Pubkey::new_unique(),
+                    Pubkey::new_from_array(mint),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                    Pubkey::new_unique(),
+                ]);
+                InterfaceTransfer::SplWithdrawal {
+                    amount: transfer.amount,
+                    spl_interface_bump: 0,
+                }
+            }
+        })
+        .collect();
+    let data = TransactIxData {
+        expiry_unix_ts: u64::MAX,
+        tx_viewing_pk: event.tx_viewing_pk,
+        salt: event.salt,
+        interface_transfers,
+        outputs: event
+            .outputs
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: output.utxo_hash,
+                owner_tag: OwnerTag::Inline(output.view_tag),
+                data: (!output.data.is_empty()).then(|| output.data.clone()),
+            })
+            .collect(),
+        messages: event.messages.clone(),
+        circuit: CircuitId::ConfidentialEddsa(
+            event.inputs.len() as u8,
+            event.outputs.len() as u8,
+            3,
+        ),
+        proof: TransactProof {
+            a: [0; 32],
+            b: [0; 64],
+            c: [0; 32],
+        },
+        private_tx_hash: [0; 32],
+        inputs: event
+            .inputs
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: input.nullifier,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+        data_hash: None,
+        ring_data_hash: None,
+    };
+    let mut bytes = vec![source_instruction_tag];
+    bytes.extend_from_slice(&data.serialize().expect("serialize transact ix data"));
+    (bytes, settlement_accounts)
+}
+
+fn merge_parent_data(source_instruction_tag: u8, event: &GeneralEvent) -> Vec<u8> {
+    let output = event.outputs.first().expect("merge event has one output");
+    let input_count = event.inputs.len();
+    let merge = MergeTransactIxData {
+        expiry_unix_ts: u64::MAX,
+        proof: MergeProof::zeroed(),
+        output_utxo_hash: output.utxo_hash,
+        eddsa_owner: false,
+        private_tx_hash: [0; 32],
+        nullifiers: event.inputs.iter().map(|input| input.nullifier).collect(),
+        utxo_tree_root_index: vec![0; input_count],
+        nullifier_tree_root_index: vec![0; input_count],
+    };
+    let body = match source_instruction_tag {
+        tag::MERGE_TRANSACT => merge.serialize().expect("serialize merge ix data"),
+        tag::RING_MERGE_TRANSACT => MergeRingIxData {
+            output_ring_data_hash: output
+                .data
+                .as_slice()
+                .try_into()
+                .expect("ring merge output data is the 32-byte ring data hash"),
+            merge,
+        }
+        .serialize()
+        .expect("serialize ring merge ix data"),
+        other => panic!("not a merge source tag: {other}"),
+    };
+    let mut bytes = vec![source_instruction_tag];
+    bytes.extend_from_slice(&body);
+    bytes
+}
+
+fn merge_transaction_info(signature_byte: u8, source_instruction_tag: u8) -> TransactionInfo {
+    let nullifiers: Vec<[u8; 32]> = (0..MERGE_DEFAULT_INPUT_COUNT)
+        .map(|offset| {
+            let byte = u8::try_from(offset).expect("merge input count fits in u8");
+            [MERGE_FIRST_NULLIFIER_BYTE + byte; 32]
+        })
+        .collect();
+    let first_nullifier = *nullifiers.first().expect("merge has inputs");
+    let (view_tag, data) = if source_instruction_tag == tag::RING_MERGE_TRANSACT {
+        (first_nullifier, RING_MERGE_OUTPUT_RING_DATA_HASH.to_vec())
+    } else {
+        (MERGE_OUTPUT_VIEW_TAG, Vec::new())
+    };
+    rings_transaction_info(
+        signature_byte,
+        source_instruction_tag,
+        EventKind::Merge,
+        GeneralEvent {
+            inputs: nullifiers
+                .iter()
+                .enumerate()
+                .map(|(offset, nullifier)| Input {
+                    tree: TEST_TREE,
+                    input_queue_seq: MERGE_FIRST_INPUT_QUEUE_SEQ
+                        + u64::try_from(offset).expect("offset fits in u64"),
+                    nullifier: *nullifier,
+                })
+                .collect(),
+            outputs: vec![OutputUtxo {
+                view_tag,
+                utxo_hash: MERGE_OUTPUT_UTXO_HASH,
+                data,
+            }],
+            messages: Vec::new(),
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            first_output_leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+            output_tree: TEST_TREE,
+            spl_transfers: Vec::new(),
+        },
+    )
+}
+
+fn merge_raw_event(output_view_tag: [u8; 32]) -> Vec<u8> {
+    encode_merge_event(&MergeEvent {
+        first_input_queue_seq: MERGE_FIRST_INPUT_QUEUE_SEQ,
+        first_output_leaf_index: MERGE_OUTPUT_LEAF_INDEX,
+        output_view_tag,
+    })
+    .get(1..)
+    .unwrap_or_default()
+    .to_vec()
+}
+
+fn expected_merge_nullifiers() -> Vec<RingsNullifierUpdate> {
+    (0..MERGE_DEFAULT_INPUT_COUNT)
+        .map(|offset| {
+            let byte = u8::try_from(offset).expect("merge input count fits in u8");
+            expected_nullifier(
+                i16::from(byte),
+                MERGE_FIRST_INPUT_QUEUE_SEQ + u64::from(byte),
+                MERGE_FIRST_NULLIFIER_BYTE + byte,
+            )
+        })
+        .collect()
 }
 
 fn test_input(input_queue_seq: u64, nullifier_byte: u8) -> Input {

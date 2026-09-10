@@ -195,7 +195,7 @@ pub fn nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8; 32], 
 mod tests {
     use super::*;
     use solana_address::address;
-    use zolana_interface::{event::OutputDataEncoding, tree_slot::tree_id_field};
+    use zolana_interface::{output_data::OutputDataEncoding, tree_slot::tree_id_field};
     use zolana_keypair::hash::poseidon;
     use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
     use zolana_transaction::{utxo, ProofInputUtxo, SOL_MINT};

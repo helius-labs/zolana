@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding};
+use zolana_interface::output_data::{EncryptedRingDepositOutput, OutputDataEncoding};
 use zolana_keypair::{
     hash::owner_hash, viewing_key::ViewTag, KeypairError, NullifierKey, P256Pubkey, PublicKey,
     ViewingKey,

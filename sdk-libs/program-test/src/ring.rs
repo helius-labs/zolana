@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_event::SplTransfer;
+use zolana_interface::event::SplTransfer;
 use zolana_interface::{
     instruction::{
         encode_instruction, tag, CreateRingConfigData, DepositAsset, DepositSplAccounts,

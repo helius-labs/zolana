@@ -17,11 +17,11 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ProofCompressed, ProverClient};
 use zolana_interface::{
-    event::OutputDataEncoding,
     instruction::{
         instruction_data::transact::{OwnerTag, TransactOutput},
         AssetDeposit, Deposit, DepositAsset, Transact,
     },
+    output_data::OutputDataEncoding,
 };
 use zolana_keypair::ShieldedKeypair;
 use zolana_test_utils::test_validator_asserts::{

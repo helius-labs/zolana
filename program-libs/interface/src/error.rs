@@ -162,6 +162,8 @@ pub enum ShieldedPoolError {
     RingNotActivated = 7064,
     #[error("every input must reference the same UTXO-tree and nullifier-tree roots")]
     InputTreeRootIndexMismatch = 7065,
+    #[error("external data hash commits to more addresses than the preimage can hold")]
+    TooManyExternalDataHashSlices = 7066,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -270,6 +272,7 @@ mod tests {
                 DepositBlindingDerivationFailed => 7063,
                 RingNotActivated => 7064,
                 InputTreeRootIndexMismatch => 7065,
+                TooManyExternalDataHashSlices => 7066,
             }
         }
 
@@ -338,6 +341,7 @@ mod tests {
             DepositBlindingDerivationFailed,
             RingNotActivated,
             InputTreeRootIndexMismatch,
+            TooManyExternalDataHashSlices,
         ];
         for variant in variants {
             assert_eq!(
@@ -347,6 +351,6 @@ mod tests {
             );
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 62, "variant count drifted");
+        assert_eq!(variants.len(), 63, "variant count drifted");
     }
 }

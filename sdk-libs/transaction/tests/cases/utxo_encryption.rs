@@ -1,5 +1,5 @@
 use borsh::BorshDeserialize;
-use zolana_event::MessageData;
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{viewing_key::random_salt, PublicKey};
 use zolana_transaction::{
     data::{Data, DataRecord},
@@ -40,11 +40,13 @@ pub(crate) fn input_utxo(owner: PublicKey, asset: Address, amount: u64, seed: u8
 }
 
 pub(crate) fn body(ciphertext: &MessageData) -> Vec<u8> {
-    let output_data = zolana_event::OutputDataEncoding::try_from_slice(&ciphertext.data).unwrap();
+    let output_data =
+        zolana_interface::output_data::OutputDataEncoding::try_from_slice(&ciphertext.data)
+            .unwrap();
     let blob = match output_data {
-        zolana_event::OutputDataEncoding::Encrypted(blob)
-        | zolana_event::OutputDataEncoding::VerifiablyEncrypted(blob)
-        | zolana_event::OutputDataEncoding::Plaintext(blob) => blob,
+        zolana_interface::output_data::OutputDataEncoding::Encrypted(blob)
+        | zolana_interface::output_data::OutputDataEncoding::VerifiablyEncrypted(blob)
+        | zolana_interface::output_data::OutputDataEncoding::Plaintext(blob) => blob,
     };
     blob.get(1..).expect("scheme byte").to_vec()
 }

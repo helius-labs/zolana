@@ -13,10 +13,10 @@ use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
-    event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
         CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
     },
+    output_data::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
     N_PUBLIC_SLOTS,
 };

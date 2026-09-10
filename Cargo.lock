@@ -5726,7 +5726,6 @@ dependencies = [
  "solana-transaction",
  "solana-transaction-status-client-types",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -8966,6 +8965,7 @@ dependencies = [
  "rand 0.8.8",
  "serial_test",
  "solana-address 2.6.1",
+ "solana-message",
  "solana-pubkey 4.2.1",
  "solana-signer",
  "zolana-client",
@@ -11076,8 +11076,9 @@ name = "zolana-event"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "solana-pubkey 4.2.1",
- "wincode",
+ "solana-address 2.6.1",
+ "zolana-interface",
+ "zolana-tree",
 ]
 
 [[package]]
@@ -11128,18 +11129,20 @@ dependencies = [
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "borsh",
  "bytemuck",
  "groth16-solana",
  "proptest",
  "solana-address 2.6.1",
+ "solana-hash",
  "solana-instruction",
+ "solana-message",
  "solana-program-error",
  "solana-pubkey 4.2.1",
  "solana-rent 4.3.0",
  "thiserror 2.0.20",
  "wincode",
- "zolana-event",
  "zolana-hasher",
  "zolana-tree",
 ]
@@ -11364,7 +11367,6 @@ dependencies = [
  "solana-signature",
  "thiserror 2.0.20",
  "wincode",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11390,7 +11392,6 @@ dependencies = [
  "wincode",
  "zerocopy",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-indexed-array",
  "zolana-merkle-tree",
@@ -11441,7 +11442,6 @@ dependencies = [
  "solana-transaction",
  "tokio",
  "zolana-client",
- "zolana-event",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",

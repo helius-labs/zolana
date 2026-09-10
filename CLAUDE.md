@@ -71,6 +71,7 @@ program-tests/
   shielded-pool/       -- internal litesvm/localnet tests
 
 sdk-libs/
+  event/               -- locating emitted events and rebuilding them off-chain
   keypair/             -- shielded key material and hashes
   program/             -- SBF-buildable SDK for programs: on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness
@@ -341,17 +342,64 @@ When choosing the length encoding for a wincode `containers::Vec<T, FixIntLen<..
 The `transfer` (eddsa, Solana-only rail) and `transfer_p256` (P256 ownership
 rail) circuits live in `prover/server/circuits/spp_transaction/`. Their proving
 systems are per-shape (`<nInputs>x<nOutputs>`); the supported shape set is
-duplicated in four places that MUST stay in sync:
-`sdk-libs/client/src/shape.rs` (the client may use a subset), Go
-`prover-test/spp/protocol/shape.go` (`SupportedShapes`), Go
-`prover/common/lazy_key_manager.go` (`transferSupportedShapes`), and the
-shielded-pool verifier when it exists (`transact/proof.rs`).
+duplicated in **six** places that MUST stay in sync:
+
+1. `program-libs/interface/src/shape.rs`, `SPP_SUPPORTED_SHAPES` -- the
+   validation set, and the Rust source of truth.
+2. The same file's `SPP_AUTO_SHAPES` -- the smallest-fit search set. It
+   deliberately excludes large shapes, so `canonical_shape` never routes a small
+   transfer into a huge circuit; a caller reaches those by declaring them.
+3. `program-libs/interface/src/verifying_keys/circuit.rs`, `is_supported()`.
+4. The same file's `verifying_key()` table, one arm per rail per shape.
+5. `prover/server/prover-test/spp/protocol/shape.go`, `SupportedShapes` plus its
+   `AutoShapes` slice, mirroring 1 and 2.
+6. `prover/server/prover/common/lazy_key_manager.go`,
+   `transferSupportedShapes`.
+
+The ring-authority rail is a seventh, partial list: `is_supported()` gives it
+only a four-shape subset, mirrored Go-side by `RingAuthorityShapes` in
+`prover/server/prover-test/spp/protocol/shape.go` and
+`ringAuthoritySupportedShapes` in `lazy_key_manager.go`, so the key-path
+resolver only names ring-authority key files the program accepts.
+`TestLazyKeyManagerKeyPathsExistInLockfile` in `prover/server/prover/common`
+checks every resolvable key path against `proving-keys.lock`.
+
+### Merge shapes are a separate, parallel list
+
+The `merge` and `merge_ring` circuits
+(`prover/server/circuits/spp_merge/`) always produce one output, so a merge
+shape is its input count alone. **Merge instruction data carries no circuit
+selector**: the shape is the declared nullifier count, so both the decode gate
+and the verifying-key selection read it from the instruction. The supported set
+is duplicated in **five** places that MUST stay in sync:
+
+1. `program-libs/interface/.../merge_transact.rs`, `MERGE_SUPPORTED_INPUT_COUNTS`
+   -- the validation set and the Rust source of truth, with `MAX_MERGE_INPUTS`
+   and `MERGE_DEFAULT_INPUT_COUNT` derived names beside it.
+2. `programs/shielded-pool/src/instructions/merge/verify.rs`,
+   `MergeProof::verifying_key()` -- one arm per rail per count, fail-closed on
+   anything else.
+3. `prover/server/circuits/spp_merge/shared/transaction.go`,
+   `SupportedInputCounts`.
+4. `prover/server/prover/common/lazy_key_manager.go`,
+   `mergeSupportedInputCounts`.
+5. `sdk-libs/ts/src/interface/constants.ts`,
+   `MERGE_SUPPORTED_INPUT_COUNTS`, pinned against the Rust set through
+   `test-vectors/constants.json` (`mergeSupportedInputs`).
+
+`prover/server/scripts/generate_keys_merge.sh` loops the same list, and the
+padding helpers (`merge_padded_input_count` in Rust,
+`mergePaddedInputCount` in TypeScript) pick the smallest supported count that
+fits so a small consolidation never lands in the wide circuit.
 
 ### Generate proving keys (`.key`)
 
 ```bash
 # All supported shapes, both rails -> prover/server/proving-keys/<rail>_<in>_<out>.key
 prover/server/scripts/generate_keys_transfer.sh
+
+# All supported merge input counts, both merge rails
+prover/server/scripts/generate_keys_merge.sh
 
 # One shape directly (--circuit flag = transfer (eddsa) | transfer-p256).
 # Key files mirror the vk modules: transfer_<shape>.key / transfer_p256_<shape>.key.

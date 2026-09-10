@@ -77,7 +77,7 @@ pub(crate) fn validate_sol_settlement(
 #[inline(always)]
 fn validate_cpi_authority(account: &AccountView) -> Result<(), ProgramError> {
     let expected = Address::from(SHIELDED_POOL_CPI_AUTHORITY);
-    if !address_eq(account.address(), &expected) {
+    if !address_eq(account.address(), &expected) || account.is_writable() {
         return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
     }
     Ok(())

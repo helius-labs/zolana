@@ -208,9 +208,9 @@ func TestDerivePublicSlotsRejectsInvalidInterfaceTransfers(t *testing.T) {
 		wantErr   string
 	}{
 		{
-			name:      "u8 transfer count overflow",
+			name:      "transfer count exceeds protocol maximum",
 			transfers: tooManyTransfers,
-			wantErr:   "interface_transfers length 256 exceeds u8 encoding maximum 255",
+			wantErr:   "interface_transfers length 33 exceeds protocol maximum 32",
 		},
 		{
 			name:      "zero amount",

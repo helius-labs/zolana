@@ -1,6 +1,6 @@
 use borsh::BorshDeserialize;
-use zolana_event::{MessageData, OutputDataEncoding};
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use zolana_interface::{instruction::MessageData, output_data::OutputDataEncoding};
 use zolana_keypair::{constants::SALT_LEN, random_salt, ShieldedAddress, ViewingKey};
 
 use super::SppProofOutputUtxo;

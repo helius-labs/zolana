@@ -2,10 +2,9 @@ use light_program_profiler::profile;
 use pinocchio::{address::address_eq, AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
-    event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
+            hash_external_data, CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef,
             TransactOutput, TransactProof,
         },
         tag::TRANSACT,
@@ -68,59 +67,52 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let output_hash = state.utxo_hash(&owner.owner_hash, output_tree_id)?;
     let payload = state.to_output_data()?;
 
-    let resolved_output = [ResolvedOutput {
-        utxo_hash: &output_hash,
-        owner_tag: pda_bytes,
-        data: Some(payload.as_slice()),
-    }];
-    let messages: &[MessageData] = &[];
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: TRANSACT,
-        expiry_unix_ts: u64::MAX,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &[0u8; 33],
-        salt: &[0u8; 16],
-        outputs: &resolved_output,
-        messages,
-    }
-    .hash()
-    .map_err(|_| CompressionError::HashingFailed)?;
-    // The address chain carries the nullifier, i.e. the compressed address the
-    // account is created at, not the address UTXO hash.
-    let private_tx = private_tx_hash(
-        [0u8; 32],
-        output_hash,
-        address,
-        &external_data_hash,
-        &private_tx_blinding(&address, 0)?,
-    )?;
-
     let transact = TransactIxData {
         expiry_unix_ts: u64::MAX,
-        private_tx_hash: private_tx,
-        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        proof,
-        inputs: vec![InputUtxo {
-            nullifier_hash: address,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        }],
         interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
         outputs: vec![TransactOutput {
             utxo_hash: output_hash,
             owner_tag: OwnerTag::Inline(pda_bytes),
             data: Some(payload),
         }],
         messages: Vec::new(),
+        data_hash: None,
+        ring_data_hash: None,
+        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+        proof,
+        private_tx_hash: [0u8; 32],
+        inputs: vec![InputUtxo {
+            nullifier_hash: address,
+            nullifier_tree_root_index,
+            utxo_tree_root_index,
+        }],
     };
-    let transact_bytes = transact
+    let mut bytes = transact
         .serialize()
         .map_err(|_| CompressionError::SerializationFailed)?;
-    cpi_spp_transact_signed(&authority, &pda, bump, accounts, &transact_bytes)
+    let (_, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes)
+        .map_err(|_| CompressionError::SerializationFailed)?;
+    let external_data_len = external_data_prefix.len();
+    let external_data_hash =
+        hash_external_data(TRANSACT, external_data_prefix, core::iter::empty())
+            .map_err(|_| CompressionError::HashingFailed)?;
+    // The address chain carries the nullifier, i.e. the compressed address the
+    // account is created at, not the address UTXO hash.
+    let private_tx_hash = private_tx_hash(
+        [0u8; 32],
+        output_hash,
+        address,
+        &external_data_hash,
+        &private_tx_blinding(&address, 0)?,
+    )?;
+    // `private_tx_hash` is the first field after the external-data prefix; patch
+    // it in place instead of serializing the instruction a second time.
+    bytes
+        .get_mut(external_data_len..)
+        .and_then(|rest| rest.get_mut(..32))
+        .ok_or(CompressionError::SerializationFailed)?
+        .copy_from_slice(&private_tx_hash);
+    cpi_spp_transact_signed(&authority, &pda, bump, accounts, &bytes)
 }

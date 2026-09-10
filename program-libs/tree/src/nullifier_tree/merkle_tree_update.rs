@@ -1,13 +1,12 @@
 use borsh::{BorshDeserialize, BorshSerialize};
-use zolana_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_array, primitives::is_canonical_bn254_scalar_be,
 };
 
 use crate::nullifier_tree::{
-    batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,
-    proof::CompressedProof,
+    batch::BatchState, error::NullifierTreeError, event::NullifierTreeUpdateEvent,
+    layout::NullifierTreeLayout, proof::CompressedProof,
 };
 #[cfg(feature = "verify")]
 use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_update};

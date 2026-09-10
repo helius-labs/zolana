@@ -277,6 +277,13 @@ var transferSupportedShapes = [][2]uint32{
 	{36, 2},
 }
 
+var ringAuthoritySupportedShapes = [][2]uint32{
+	{1, 1},
+	{2, 2},
+	{3, 3},
+	{4, 4},
+}
+
 // mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
 // because common must not import the circuit packages; keep in sync with
 // circuits/spp_merge/shared/transaction.go.
@@ -298,6 +305,7 @@ func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs ui
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
 	var prefix string
+	shapes := transferSupportedShapes
 	switch circuitType {
 	case TransferConfidentialCircuitType:
 		prefix = "transfer_confidential"
@@ -307,6 +315,7 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 		prefix = "transfer_p256_ring"
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
+		shapes = ringAuthoritySupportedShapes
 	case MergeCircuitType:
 		return m.mergeKeyPath("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
@@ -315,7 +324,7 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 		return ""
 	}
 
-	for _, shape := range transferSupportedShapes {
+	for _, shape := range shapes {
 		if shape[0] == nInputs && shape[1] == nOutputs {
 			return m.keyPath(fmt.Sprintf("%s_%d_%d.key", prefix, nInputs, nOutputs))
 		}

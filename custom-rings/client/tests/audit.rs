@@ -21,8 +21,8 @@ use zolana_client::{
     Context, GetShieldedTransactionsByTagsResponse, IndexerRpcConfig, Rpc, ShieldedTransaction,
 };
 use zolana_interface::{
-    event::{ring_confidential_encrypted_output_body, OutputDataEncoding},
     instruction::MessageData,
+    output_data::{ring_confidential_encrypted_output_body, OutputDataEncoding},
 };
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey, ViewingKey};
 use zolana_ring_client::{

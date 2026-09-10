@@ -148,7 +148,7 @@ impl UtxoSerialization for Confidential {
 #[cfg(test)]
 mod tests {
     use borsh::BorshDeserialize;
-    use zolana_event::OutputDataEncoding;
+    use zolana_interface::output_data::OutputDataEncoding;
 
     use super::*;
     use crate::{data::Data, SOL_ASSET_ID};

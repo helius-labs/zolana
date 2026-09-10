@@ -14,7 +14,7 @@ go build -o light-prover .
 # One key per supported merge input count per variant: the default merge
 # (merge_transact) and the policy-ring merge (merge_ring). Merge always produces
 # one output, so the shape is the input count alone. Keep in sync with
-# mergeshared.SupportedInputCounts.
+# mergeshared.SupportedInputCounts and MERGE_SUPPORTED_INPUT_COUNTS.
 input_counts=(8 36)
 
 # "<setup-merge --circuit flag> <key-file prefix>". The prefix mirrors the

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use zolana_event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 
 /// Raw id of the tree these helpers hash UTXOs under. The SDK reads a single
 /// tree today; the id only has to match between the hash and the tree the

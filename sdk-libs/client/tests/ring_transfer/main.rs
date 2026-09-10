@@ -26,6 +26,10 @@ fn run_shape_matrix(mode: Mode) {
         (5, 3),
         (5, 4),
         (1, 8),
+        // Consolidation shape. Proves the 36-input key really works on both the
+        // eddsa and P256 ring rails, which is the only end-to-end check that
+        // the new circuit and its verifying key agree.
+        (36, 2),
     ];
     for (n_inputs, n_outputs) in shapes {
         RingTransferHarness {

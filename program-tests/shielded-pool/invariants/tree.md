@@ -175,7 +175,7 @@ now states H=32 and lists tag 4.
 - [ ] **INV-BATCH-NULL-05: a successful update emits the batch event exactly when one is produced**
   - Partial coverage: `program-tests/shielded-pool/tests/localnet/photon/forester.rs` `nullifier_test_forester_batches_queued_nullifiers_with_photon_indexer` (nullifier root advances via the forester; the `EmitEvent` self-CPI itself is not asserted)
   - Kind: postcondition
-  - Statement: after a successful `batch_update_nullifier_tree` that produced a `BatchAddressAppendEvent`, exactly one self-CPI `EmitEvent` inner instruction carrying that event is recorded; when the update produces no event, no self-CPI occurs.
+  - Statement: after a successful `batch_update_nullifier_tree` that produced a `NullifierTreeUpdateEvent`, exactly one self-CPI `EmitEvent` inner instruction carrying that event is recorded; when the update produces no event, no self-CPI occurs.
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:43-52` (`fn process_batch_update_nullifier_tree`)
   - Severity: Medium (forester/indexer sync)
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
@@ -195,7 +195,7 @@ now states H=32 and lists tag 4.
 - [~] **INV-BATCH-NULL-07: Photon records a batch update only from an authenticated emitted event**
   - Cross-branch coverage: the event-sourced parser and its tests live on the security/photon-batch-event-sourcing branch, landing before this one — the `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` test module there (`drops_forged_batch_update_cpi_without_event`, `drops_successful_batch_update_without_event`, `drops_event_with_foreign_parent`, `drops_event_under_non_batch_update_parent`, `parses_batch_update_from_emitted_event`, `records_event_root_not_instruction_root`; on THIS branch the parser is reverted to the instruction-intent form)
   - Kind: postcondition (indexer)
-  - Statement: Photon ingests a nullifier-tree batch update only from a `BatchAddressAppendEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-4 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
+  - Statement: Photon ingests a nullifier-tree batch update only from a `NullifierTreeUpdateEvent` carried by an `EMIT_EVENT` inner instruction whose stack-height parent is a shielded-pool `BATCH_UPDATE_NULLIFIER_TREE` instruction (the program emits the event only when an update actually applied). A forged tag-4 CPI that fails the on-chain forester-authority check, a successful no-op update, and a forged `EMIT_EVENT` with a foreign parent all record nothing; the tree and new root are taken from the event, never from instruction data (F-04).
   - Location: `services/photon/src/ingester/parser/nullifier_tree_batch_update_parser.rs` (`fn parse_nullifier_tree_batch_update`)
   - Severity: Critical (permissionless indexer halt)
   - Suggested test: negative + positive; harness: photon parser unit tests
@@ -214,7 +214,7 @@ now states H=32 and lists tag 4.
 - [ ] **INV-BATCH-NULL-09: the event emit is the last fallible operation**
   - Partial coverage: photon parser tests (the consumer half: Photon records updates only from events in successful transactions); the ordering itself is a documented code invariant, untestable directly
   - Kind: state
-  - Statement: every fallible step (including `pay_reimbursement`) precedes the `emit_batch_nullifier_append_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
+  - Statement: every fallible step (including `pay_reimbursement`) precedes the `emit_nullifier_tree_update_event` self-CPI; Photon's parser records updates only from events in successful transactions, so an emit-then-fail shape would drop a genuine update or wedge the indexer on a forged one (F-04 companion).
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs:43-52` (documented code INVARIANT)
   - Severity: Critical (indexer wedge, F-04 companion)
   - Suggested test: none possible on-chain (convention); consumer half exists as photon parser unit tests

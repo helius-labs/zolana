@@ -9,20 +9,22 @@
 //!    every valid encoding (two hand-maintained decode paths, not a derive
 //!    round-trip).
 
-use proptest::{prelude::*, test_runner::TestCaseError};
-use zolana_event::MessageData;
+use proptest::prelude::*;
 use zolana_interface::instruction::instruction_data::{
     deposit::{
         DepositEntry, DepositIxData, EncryptedRingDepositData, RingDepositEntry, RingDepositIxData,
         UtxoData,
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    merge_transact::{
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+    },
     transact::{
-        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof,
+        CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, OwnerTagRef, TransactIxData,
+        TransactIxDataRef, TransactOutput, TransactProof,
     },
 };
+use zolana_interface::output_data::MessageData;
 
 mod strategies {
     use super::*;
@@ -125,17 +127,17 @@ mod strategies {
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
                 )| TransactIxData {
                     expiry_unix_ts,
-                    private_tx_hash,
-                    circuit,
                     tx_viewing_pk,
                     salt,
-                    proof,
-                    inputs,
                     interface_transfers,
-                    data_hash,
-                    ring_data_hash,
                     outputs,
                     messages,
+                    data_hash,
+                    ring_data_hash,
+                    circuit,
+                    proof,
+                    private_tx_hash,
+                    inputs,
                 },
             )
     }
@@ -145,9 +147,9 @@ mod strategies {
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
+            prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -177,33 +179,52 @@ mod strategies {
     }
 }
 
-/// Every field of the zero-copy view must equal its owned counterpart.
-fn assert_ref_matches_owned(
-    view: &TransactIxDataRef,
-    owned: &TransactIxData,
-) -> Result<(), TestCaseError> {
-    prop_assert_eq!(view.expiry_unix_ts, owned.expiry_unix_ts);
-    prop_assert_eq!(view.private_tx_hash, &owned.private_tx_hash);
-    prop_assert_eq!(view.circuit, owned.circuit);
-    prop_assert_eq!(view.tx_viewing_pk, &owned.tx_viewing_pk);
-    prop_assert_eq!(view.salt, &owned.salt);
-    prop_assert_eq!(view.proof, owned.proof);
-    prop_assert_eq!(&view.inputs, &owned.inputs);
-    prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
-    prop_assert_eq!(view.data_hash, owned.data_hash);
-    prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
-    prop_assert_eq!(view.outputs.len(), owned.outputs.len());
-    for (got, want) in view.outputs.iter().zip(owned.outputs.iter()) {
-        prop_assert_eq!(got.utxo_hash, &want.utxo_hash);
-        prop_assert_eq!(got.owner_tag, want.owner_tag);
-        prop_assert_eq!(got.data, want.data.as_deref());
+fn owned_from_view(view: &TransactIxDataRef<'_>) -> TransactIxData {
+    let external = &view.external_data;
+    TransactIxData {
+        expiry_unix_ts: external.expiry_unix_ts,
+        tx_viewing_pk: *external.tx_viewing_pk,
+        salt: *external.salt,
+        interface_transfers: external.interface_transfers.clone(),
+        outputs: external
+            .outputs
+            .iter()
+            .map(|output| TransactOutput {
+                utxo_hash: *output.utxo_hash,
+                owner_tag: match output.owner_tag {
+                    OwnerTagRef::Inline(owner_tag) => OwnerTag::Inline(*owner_tag),
+                    OwnerTagRef::Account(index) => OwnerTag::Account(index),
+                },
+                data: output.data.map(<[u8]>::to_vec),
+            })
+            .collect(),
+        messages: external
+            .messages
+            .iter()
+            .map(|message| MessageData {
+                view_tag: *message.view_tag,
+                data: message.data.to_vec(),
+            })
+            .collect(),
+        data_hash: external.data_hash.copied(),
+        ring_data_hash: external.ring_data_hash.copied(),
+        circuit: view.circuit,
+        proof: TransactProof {
+            a: *view.proof.a,
+            b: *view.proof.b,
+            c: *view.proof.c,
+        },
+        private_tx_hash: *view.private_tx_hash,
+        inputs: view
+            .inputs
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: *input.nullifier_hash,
+                nullifier_tree_root_index: input.nullifier_tree_root_index,
+                utxo_tree_root_index: input.utxo_tree_root_index,
+            })
+            .collect(),
     }
-    prop_assert_eq!(view.messages.len(), owned.messages.len());
-    for (got, want) in view.messages.iter().zip(owned.messages.iter()) {
-        prop_assert_eq!(got.view_tag, &want.view_tag);
-        prop_assert_eq!(got.data, want.data.as_slice());
-    }
-    Ok(())
 }
 
 proptest! {
@@ -233,7 +254,7 @@ proptest! {
         let view = TransactIxDataRef::from_bytes(&bytes);
         prop_assert!(view.is_ok(), "ref parse failed on valid encoding: {:?}", view.err());
         if let Ok(view) = view {
-            assert_ref_matches_owned(&view, &owned)?;
+            prop_assert_eq!(owned_from_view(&view), owned);
         }
     }
 
@@ -296,7 +317,7 @@ proptest! {
         let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_INPUT_COUNT
+            nullifier_count == MERGE_DEFAULT_INPUT_COUNT
         );
 
         let mut wrong_roots = owned.clone();
@@ -304,7 +325,7 @@ proptest! {
         let bytes = wrong_roots.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_INPUT_COUNT
+            root_count == MERGE_DEFAULT_INPUT_COUNT
         );
     }
 

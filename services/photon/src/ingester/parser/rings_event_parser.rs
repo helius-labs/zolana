@@ -1,13 +1,16 @@
-use super::event_site::{find_event_sites, to_rings_instruction_groups};
+use super::event_site::{ring_config, to_rings_instruction_groups};
 use super::state_update::{
     RingsMessageUpdate, RingsNullifierUpdate, RingsOutputUpdate, RingsTransactionUpdate,
     StateUpdate,
 };
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
-use zolana_event::{decode_event_payload, tag};
+use zolana_event::{emits_general_event, find_event_sites};
+use zolana_interface::instruction::tag;
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 3;
+// 4: `transact` and `merge` events shrank to their assigned positions and are
+// reconstructed from the parent instruction, so version 3 rows must reparse.
+const RINGS_PARSE_VERSION: i16 = 4;
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
@@ -15,7 +18,7 @@ pub fn parse_rings_events(
 ) -> Result<Option<StateUpdate>, IngesterError> {
     let rings_program_id = pda::shielded_pool_program_id();
     let groups = to_rings_instruction_groups(&tx.instruction_groups);
-    let event_sites = find_event_sites(&groups, rings_program_id, is_general_event_source)?;
+    let event_sites = find_event_sites(rings_program_id, &groups, emits_general_event);
 
     if event_sites.is_empty() {
         return Ok(None);
@@ -27,7 +30,7 @@ pub fn parse_rings_events(
         let event_index_i16 = i16::try_from(event_index).map_err(|_| {
             IngesterError::ParserError(format!("Event index {} does not fit in i16", event_index))
         })?;
-        let event = decode_event_payload(&event_site.payload).map_err(|err| {
+        let event = event_site.general_event().map_err(|err| {
             IngesterError::ParserError(format!(
                 "Failed to decode Rings event for {} event {}: {:?}",
                 tx.signature, event_index, err
@@ -124,7 +127,7 @@ pub fn parse_rings_events(
                 signature: tx.signature,
                 event_index: event_index_i16,
                 slot,
-                ring_config: event_site.ring_config.map(|key| key.to_bytes()),
+                ring_config: ring_config(&event_site).map(|key| key.to_bytes()),
                 source_instruction_tag: event_site.source_instruction_tag as i16,
                 // Accepted events are Rings EMIT_EVENT inner instructions under a
                 // Rings source instruction, so these fields are trusted as the
@@ -135,7 +138,7 @@ pub fn parse_rings_events(
                 salt,
                 proofless,
                 encrypted_utxos: None,
-                raw_event: Some(event_site.payload),
+                raw_event: Some(event_site.payload.to_vec()),
                 parse_version: RINGS_PARSE_VERSION,
                 outputs,
                 messages,
@@ -144,24 +147,4 @@ pub fn parse_rings_events(
     }
 
     Ok(Some(state_update))
-}
-
-fn is_general_event_source(source_instruction_tag: u8) -> bool {
-    // Keep this in sync with shielded-pool processors that call
-    // `emit_general_event`, directly or via process_transact_core /
-    // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
-    // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
-    // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
-    // drops those transactions from the index (they never get a rings_transactions
-    // row).
-    matches!(
-        source_instruction_tag,
-        tag::TRANSACT
-            | tag::RING_TRANSACT
-            | tag::RING_AUTHORITY_TRANSACT
-            | tag::MERGE_TRANSACT
-            | tag::RING_MERGE_TRANSACT
-            | tag::DEPOSIT
-            | tag::RING_DEPOSIT
-    )
 }

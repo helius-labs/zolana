@@ -2,7 +2,6 @@
 members = [
     "forester",
     "program-libs/account-checks",
-    "program-libs/event",
     "program-libs/hasher",
     "program-libs/indexed-array",
     "program-libs/interface",
@@ -24,6 +23,7 @@ members = [
     "custom-rings/sdk",
     "custom-rings/test",
     "sdk-libs/client",
+    "sdk-libs/event",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
@@ -75,7 +75,7 @@ tools-version = "v1.54"
 time = ">=0.3, <0.3.46"
 
 # Local workspace crates.
-zolana-event = { path = "program-libs/event", version = "0.1.0" }
+zolana-event = { path = "sdk-libs/event", version = "0.1.0" }
 zolana-interface = { path = "program-libs/interface", version = "0.1.0" }
 zolana-user-registry-interface = { path = "program-libs/user-registry-interface", version = "0.1.0" }
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }

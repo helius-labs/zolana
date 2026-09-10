@@ -22,6 +22,7 @@ import {
   AssetRegistry,
   ConfidentialTransfer,
   Data,
+  Merge,
   ProofInputUtxo,
   SOL_MINT,
   TransactionError,
@@ -198,6 +199,32 @@ describe("transaction core", () => {
     expect(() => canonicalShape(99, 99)).toThrow(
       expect.objectContaining({ code: "TRANSACTION_UNSUPPORTED_SHAPE" }),
     );
+  });
+
+  it("refuses a merge that needs a version 1 transaction before any proof", () => {
+    const { keypair, nullifier } = keyMaterial();
+    const inputs = Array.from(
+      { length: 36 },
+      (_, index) =>
+        new ProofInputUtxo({
+          utxo: new Utxo({
+            owner: keypair.signingPublicKey(),
+            asset: SOL_MINT,
+            amount: 1n,
+            blinding: scalar(10 + index),
+          }),
+          nullifierKey: nullifier,
+        }),
+    );
+    expect(new Merge(keypair, inputs.slice(0, 8)).prepare().inputs).toHaveLength(8);
+    for (const count of [9, 36]) {
+      expect(() => new Merge(keypair, inputs.slice(0, count))).toThrow(
+        expect.objectContaining({
+          code: "TRANSACTION_VERSION_UNSUPPORTED",
+          details: { inputs: 36, maxInputs: 8 },
+        }),
+      );
+    }
   });
 
   it("binds UTXO hashes and nullifiers to every committed input", () => {

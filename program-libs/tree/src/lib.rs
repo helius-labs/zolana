@@ -83,6 +83,7 @@ use core::mem::{size_of, MaybeUninit};
 
 pub use error::TreeError;
 pub use fees::TreeFeeSchedule;
+pub use nullifier_tree::event::NullifierTreeUpdateEvent;
 pub use nullifier_tree::init::NullifierTreeInitParams;
 use nullifier_tree::{
     constants::{DEFAULT_NULLIFIER_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES},

@@ -11,7 +11,7 @@ use zolana_client::{
     ProverClient, RingTransferProofResult, RingTransferProver, Rpc, SettlementAccountValidation,
     Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferInputs, TransferSpendInput,
 };
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
         tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
@@ -813,11 +813,11 @@ impl RingEddsaInstructionData<'_> {
 #[cfg(test)]
 mod tests {
     use zolana_client::MerkleContext;
-    use zolana_interface::instruction::{
-        instruction_data::transact::{
+    use zolana_interface::{
+        instruction::TransactSolTransferAccounts,
+        output_data::{
             confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
         },
-        TransactSolTransferAccounts,
     };
     use zolana_transaction::instructions::transact::{ConfidentialTransfer, SettlementTarget};
     use zolana_transaction::SOL_MINT;

@@ -46,7 +46,6 @@ solana-signer = { workspace = true }
 solana-transaction = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 zolana-client = { workspace = true, features = ["indexer-api", "solana-rpc"] }
-zolana-event = { workspace = true, features = ["program-test"] }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program-test = { workspace = true }

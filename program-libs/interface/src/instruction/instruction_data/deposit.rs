@@ -1,12 +1,9 @@
-use wincode::{
-    config::{Configuration, DEFAULT_PREALLOCATION_SIZE_LIMIT},
-    containers,
-    len::FixIntLen,
-    SchemaRead, SchemaWrite,
-};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
+pub use crate::output_data::{EncryptedRingDepositData, EncryptedRingDepositDataRef};
+
+use super::RefConfig;
 
 /// Application data committed into the deposited UTXO's `data_hash`. The deposit
 /// is authorized by the payer (non-ring) or the `RingConfig` account (ring); the
@@ -79,8 +76,8 @@ pub struct DepositEntry {
 ///
 /// Each entry appends one output UTXO. Entries deposit into at most
 /// [`MAX_DEPOSIT_ASSETS`] distinct assets; per-asset amounts are summed so each
-/// asset settles with a single transfer, and the program emits one
-/// [`crate::event::GeneralEvent`] carrying every proofless output for wallet
+/// asset settles with a single transfer, and the program emits a single
+/// `zolana_event::GeneralEvent` carrying every proofless output for wallet
 /// discovery.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct DepositIxData {
@@ -120,15 +117,6 @@ pub struct DepositEntryRef<'a> {
     pub amount: u64,
     pub utxo_data: Option<UtxoDataRef<'a>>,
     pub memo: Option<&'a [u8]>,
-}
-
-/// Self-contained recipient-encryption envelope for one ring-deposit output.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct EncryptedRingDepositData {
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub ciphertext: Vec<u8>,
 }
 
 /// One output of a batched policy-ring deposit.
@@ -188,15 +176,8 @@ pub struct RingDepositEntryRef<'a> {
     pub encrypted: EncryptedRingDepositDataRef<'a>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct EncryptedRingDepositDataRef<'a> {
-    pub tx_viewing_pk: &'a [u8; 33],
-    pub salt: &'a [u8; 16],
-    pub ciphertext: &'a [u8],
-}
-
-/// Borrowed on-chain view of [`DepositIxData`]. Entry payloads alias the
-/// instruction buffer.
+/// Borrowed view of [`DepositIxData`]. Entry payloads alias the instruction
+/// buffer; only the small element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct DepositIxDataRef<'a> {
     #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
@@ -207,12 +188,12 @@ pub struct DepositIxDataRef<'a> {
 
 impl<'a> DepositIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
-        wincode::config::deserialize_exact(data, DepositRefConfig::new())
+        wincode::config::deserialize_exact(data, RefConfig::new())
     }
 }
 
-/// Borrowed on-chain view of [`RingDepositIxData`]. Entry payloads alias the
-/// instruction buffer.
+/// Borrowed view of [`RingDepositIxData`]. Entry payloads alias the
+/// instruction buffer; only the small element vectors are read owned.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead)]
 pub struct RingDepositIxDataRef<'a> {
     #[wincode(with = "containers::Vec<DepositAssetKind, FixIntLen<u8>>")]
@@ -223,7 +204,7 @@ pub struct RingDepositIxDataRef<'a> {
 
 impl<'a> RingDepositIxDataRef<'a> {
     pub fn from_bytes(data: &'a [u8]) -> wincode::ReadResult<Self> {
-        wincode::config::deserialize_exact(data, DepositRefConfig::new())
+        wincode::config::deserialize_exact(data, RefConfig::new())
     }
 }
 
