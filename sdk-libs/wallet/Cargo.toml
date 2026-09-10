@@ -33,7 +33,7 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 rand = { workspace = true }
 p256 = { workspace = true }
 num-bigint = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
 zolana-merkle-tree = { workspace = true }
 

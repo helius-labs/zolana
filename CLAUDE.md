@@ -71,6 +71,8 @@ program-tests/
   shielded-pool/       -- internal litesvm/localnet tests
 
 sdk-libs/
+  event/               -- indexer-side event discovery; rebuilds GeneralEvent from
+                          the emitting instruction plus the minimal on-chain event
   keypair/             -- shielded key material and hashes
   program/             -- SBF-buildable SDK for programs: on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness

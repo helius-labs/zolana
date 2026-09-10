@@ -15,12 +15,12 @@ use crate::ingester::{
     },
 };
 use solana_pubkey::Pubkey;
-use zolana_event::{
-    tag, tag::InstructionTag, InstructionGroup as RingsInstructionGroup,
-    ParsedInstruction as RingsInstruction,
+use zolana_event::{tag, tag::InstructionTag};
+use zolana_event_parser::{
+    InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
 };
 
-pub struct EventSite {
+pub struct EventSite<'a> {
     /// Tag of the instruction that emitted this event.
     pub source_instruction_tag: u8,
     /// The ring's `ring_auth` PDA, for ring instructions only.
@@ -28,6 +28,9 @@ pub struct EventSite {
     /// Event bytes: `[kind, borsh(body)]`, i.e. the `EMIT_EVENT` instruction
     /// data with the tag byte removed.
     pub payload: Vec<u8>,
+    /// The instruction that emitted this event. Its data and account list are
+    /// the second input when the `GeneralEvent` view is rebuilt.
+    pub source: &'a RingsInstruction,
 }
 
 pub fn to_rings_instruction_groups(
@@ -58,11 +61,11 @@ pub fn to_rings_instruction_groups(
 /// Collect every `EMIT_EVENT` whose parent is an instruction of
 /// `rings_program_id` with a tag `is_source_tag` accepts. `is_source_tag` must
 /// never accept `EMIT_EVENT` itself, or an event could parent another.
-pub fn find_event_sites(
-    groups: &[RingsInstructionGroup],
+pub fn find_event_sites<'a>(
+    groups: &'a [RingsInstructionGroup],
     rings_program_id: Pubkey,
     is_source_tag: impl Fn(u8) -> bool,
-) -> Result<Vec<EventSite>, IngesterError> {
+) -> Result<Vec<EventSite<'a>>, IngesterError> {
     let mut sites = Vec::new();
 
     for group in groups {
@@ -94,6 +97,7 @@ pub fn find_event_sites(
                 ring_config: ring_config_index(source_instruction_tag)
                     .and_then(|index| parent.accounts.get(index).copied()),
                 payload: instruction.data.get(1..).unwrap_or_default().to_vec(),
+                source: parent,
             });
         }
     }
@@ -160,7 +164,7 @@ fn is_emit_event(rings_program_id: Pubkey, instruction: &RingsInstruction) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zolana_event::{InstructionGroup, ParsedInstruction};
+    use zolana_event_parser::{InstructionGroup, ParsedInstruction};
     use zolana_interface::pda;
 
     fn spp() -> Pubkey {
@@ -181,18 +185,23 @@ mod tests {
         )
     }
 
-    fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite> {
+    fn event_sites(groups: &[InstructionGroup]) -> Vec<EventSite<'_>> {
         find_event_sites(groups, spp(), |source| source == tag::TRANSACT).unwrap()
     }
 
-    fn ring_sites(source_tag: u8, accounts: Vec<Pubkey>) -> Vec<EventSite> {
+    /// The `ring_config` each event site under `source_tag` reports.
+    fn ring_configs(source_tag: u8, accounts: Vec<Pubkey>) -> Vec<Option<Pubkey>> {
         let mut source = ix(spp(), source_tag, 2);
         source.accounts = accounts;
         let groups = [InstructionGroup {
             outer: ix(foreign(), 0, 1),
             inner: vec![source, ix(spp(), tag::EMIT_EVENT, 3)],
         }];
-        find_event_sites(&groups, spp(), |tag| tag == source_tag).unwrap()
+        find_event_sites(&groups, spp(), |tag| tag == source_tag)
+            .unwrap()
+            .into_iter()
+            .map(|site| site.ring_config)
+            .collect()
     }
 
     fn numbered_accounts(count: u8) -> Vec<Pubkey> {
@@ -211,11 +220,9 @@ mod tests {
             (tag::RING_DEPOSIT, 2),
             (tag::RING_MERGE_TRANSACT, 2),
         ] {
-            let sites = ring_sites(source_tag, numbered_accounts(8));
-            assert_eq!(sites.len(), 1, "tag {source_tag}");
             assert_eq!(
-                sites[0].ring_config,
-                Some(Pubkey::new_from_array([index; 32])),
+                ring_configs(source_tag, numbered_accounts(8)),
+                vec![Some(Pubkey::new_from_array([index; 32]))],
                 "tag {source_tag}"
             );
         }
@@ -226,19 +233,21 @@ mod tests {
     #[test]
     fn instructions_without_a_ring_report_none() {
         for source_tag in [tag::TRANSACT, tag::DEPOSIT, tag::MERGE_TRANSACT] {
-            let sites = ring_sites(source_tag, numbered_accounts(8));
-            assert_eq!(sites.len(), 1, "tag {source_tag}");
-            assert_eq!(sites[0].ring_config, None, "tag {source_tag}");
+            assert_eq!(
+                ring_configs(source_tag, numbered_accounts(8)),
+                vec![None],
+                "tag {source_tag}"
+            );
         }
     }
 
     /// A truncated account list must not panic or report a wrong account.
     #[test]
     fn a_ring_instruction_missing_its_config_account_reports_none() {
-        let sites = ring_sites(tag::RING_TRANSACT, numbered_accounts(4));
-
-        assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].ring_config, None);
+        assert_eq!(
+            ring_configs(tag::RING_TRANSACT, numbered_accounts(4)),
+            vec![None]
+        );
     }
 
     #[test]
@@ -251,7 +260,10 @@ mod tests {
         let sites = event_sites(&groups);
 
         assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
+        assert_eq!(
+            sites.first().map(|site| site.source_instruction_tag),
+            Some(tag::TRANSACT)
+        );
     }
 
     #[test]
@@ -264,7 +276,10 @@ mod tests {
         let sites = event_sites(&groups);
 
         assert_eq!(sites.len(), 1);
-        assert_eq!(sites[0].source_instruction_tag, tag::TRANSACT);
+        assert_eq!(
+            sites.first().map(|site| site.source_instruction_tag),
+            Some(tag::TRANSACT)
+        );
     }
 
     #[test]

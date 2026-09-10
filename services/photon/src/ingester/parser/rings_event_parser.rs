@@ -4,10 +4,14 @@ use super::state_update::{
     StateUpdate,
 };
 use crate::ingester::{error::IngesterError, typedefs::block_info::TransactionInfo};
-use zolana_event::{decode_event_payload, tag};
+use zolana_event::tag;
+use zolana_event_parser::reconstruct_general_event_from_payload;
 use zolana_interface::pda;
 
-const RINGS_PARSE_VERSION: i16 = 3;
+/// Version 4: `transact`/`merge` emit a minimal body and the `GeneralEvent` is
+/// rebuilt from it plus the emitting instruction, so `raw_event` holds that
+/// minimal body rather than a full `GeneralEvent`.
+const RINGS_PARSE_VERSION: i16 = 4;
 
 pub fn parse_rings_events(
     tx: &TransactionInfo,
@@ -27,12 +31,13 @@ pub fn parse_rings_events(
         let event_index_i16 = i16::try_from(event_index).map_err(|_| {
             IngesterError::ParserError(format!("Event index {} does not fit in i16", event_index))
         })?;
-        let event = decode_event_payload(&event_site.payload).map_err(|err| {
-            IngesterError::ParserError(format!(
-                "Failed to decode Rings event for {} event {}: {:?}",
-                tx.signature, event_index, err
-            ))
-        })?;
+        let event = reconstruct_general_event_from_payload(event_site.source, &event_site.payload)
+            .map_err(|err| {
+                IngesterError::ParserError(format!(
+                    "Failed to reconstruct Rings event for {} event {}: {:?}",
+                    tx.signature, event_index, err
+                ))
+            })?;
         let tx_viewing_pk = Some(event.tx_viewing_pk)
             .filter(|key| key.iter().any(|byte| *byte != 0))
             .map(|key| key.to_vec());
@@ -148,8 +153,8 @@ pub fn parse_rings_events(
 
 fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // Keep this in sync with shielded-pool processors that call
-    // `emit_general_event`, directly or via process_transact_core /
-    // process_merge_core. Self-emitting instructions: TRANSACT, RING_TRANSACT,
+    // `emit_general_event` (deposit) or `emit_event` (transact/merge core).
+    // Self-emitting instructions: TRANSACT, RING_TRANSACT,
     // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
     // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently
     // drops those transactions from the index (they never get a rings_transactions

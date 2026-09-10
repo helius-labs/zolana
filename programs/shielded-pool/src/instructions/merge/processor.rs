@@ -25,7 +25,7 @@ use super::{
     verify::{MergeOwnerBinding, MergeProof, MergeProofInputs},
 };
 use crate::instructions::{
-    event::emit_general_event,
+    event::emit_event,
     nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     shared::{
         bool_field, check_field_element, check_field_elements, check_not_expired,
@@ -107,7 +107,6 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
         external_data_hash,
         MergeOwnerBinding::Registry { signing_pk_field },
         output_view_tag,
-        Vec::new(),
         clock.slot,
     )
 }
@@ -115,8 +114,7 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
 /// Shared tail for `merge_transact` and `merge_ring`: resolve the input tree's
 /// roots, nullify the inputs, append the output, verify the proof, and emit the
 /// event. The tree-derived dummy-input policy is captured before any queue
-/// insertion or state append. `output_data` is the event's output payload:
-/// empty for `merge_transact`, the output `ring_data_hash` for `merge_ring`.
+/// insertion or state append.
 #[inline(never)]
 pub(crate) fn process_merge_core(
     mut accounts: MergeCoreAccounts<'_>,
@@ -124,7 +122,6 @@ pub(crate) fn process_merge_core(
     external_data_hash: [u8; 32],
     owner_binding: MergeOwnerBinding,
     output_view_tag: [u8; 32],
-    output_data: Vec<u8>,
     slot: u64,
 ) -> ProgramResult {
     let (input_tree_result, mut derived) = {
@@ -185,9 +182,9 @@ pub(crate) fn process_merge_core(
         apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs, slot)?
     };
 
-    let event = build_merge_event(ix, tree_write, output_view_tag, output_data);
+    let event = build_merge_event(tree_write, output_view_tag)?;
     MergeProof::new(ix, derived).verify()?;
-    emit_general_event(EventKind::Merge, event)
+    emit_event(EventKind::Merge, &event)
 }
 
 /// Resolve `input_tree`'s roots into the proof's tree slot and insert every

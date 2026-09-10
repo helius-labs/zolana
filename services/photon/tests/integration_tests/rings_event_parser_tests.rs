@@ -57,12 +57,18 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_event::{
-    encode_event_instruction, encode_output_data, encode_verifiably_encrypted, EventKind,
-    GeneralEvent, Input, OutputUtxo, ProoflessOutput, SplTransfer,
+    encode_event_instruction_with, encode_output_data, encode_verifiably_encrypted, EventKind,
+    GeneralEvent, Input, InputTreeSequence, MergeEvent, OutputUtxo, ProoflessOutput, SplTransfer,
+    TransactEvent,
 };
 use zolana_indexer_api::{
     GetMerkleProofsRequest, GetNonInclusionProofsRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsBySignatureRequest, Hash, SerializablePubkey, SerializableSignature,
+};
+use zolana_interface::instruction::{
+    instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
+    CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
+    TransactOutput, TransactProof,
 };
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
@@ -97,7 +103,7 @@ fn parses_proofless_shield_event_with_photon_parser() {
         parse_rings_update(proofless_shield_transaction_info(), PROOFLESS_SHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::DEPOSIT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 0);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -117,7 +123,7 @@ fn parses_shielded_transfer_event_with_photon_parser() {
         parse_rings_update(shielded_transfer_transaction_info(), SHIELDED_TRANSFER_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 1);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -146,7 +152,7 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     );
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 2);
     let tx_viewing_pk = rings_tx
@@ -176,11 +182,92 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
 }
 
 #[test]
+fn parses_ring_transact_event_against_the_spp_inner_instruction() {
+    let accounts: Vec<Pubkey> = (0..8u8)
+        .map(|i| Pubkey::new_from_array([0x60 + i; 32]))
+        .collect();
+    let ring_config = accounts.get(5).copied().expect("ring_config account");
+    let owner = accounts.get(6).copied().expect("owner account");
+    let expected = GeneralEvent {
+        inputs: vec![test_input(6, 27)],
+        outputs: vec![
+            test_output(11, 30, Vec::new()),
+            OutputUtxo {
+                view_tag: owner.to_bytes(),
+                utxo_hash: [31; 32],
+                data: encode_verifiably_encrypted(vec![9]),
+            },
+        ],
+        messages: Vec::new(),
+        tx_viewing_pk: [0; 33],
+        salt: [0; 16],
+        first_output_leaf_index: 7,
+        output_tree: TEST_TREE,
+        spl_transfers: Vec::new(),
+    };
+    let mut outputs = inline_outputs(&expected);
+    outputs.get_mut(1).expect("second output").owner_tag = OwnerTag::Account(6);
+
+    let state_update = parse_rings_update(
+        ring_transact_transaction_info(&expected, outputs, accounts),
+        50,
+    );
+
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 4);
+    assert_eq!(rings_tx.source_instruction_tag, tag::RING_TRANSACT as i16);
+    assert_eq!(rings_tx.ring_config, Some(ring_config.to_bytes()));
+    assert_eq!(rings_tx.first_output_leaf_index, 7);
+    assert_eq!(rings_tx.nullifiers, vec![expected_nullifier(0, 6, 27)]);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![
+            expected_output(0, 7, 11, 30, Vec::new()),
+            RingsOutputUpdate {
+                output_index: 1,
+                output_tree: TEST_TREE,
+                leaf_index: 8,
+                view_tag: owner.to_bytes(),
+                utxo_hash: [31; 32],
+                payload: encode_verifiably_encrypted(vec![9]),
+            },
+        ]
+    );
+}
+
+#[test]
+fn parses_merge_event_with_photon_parser() {
+    let state_update = parse_rings_update(merge_transaction_info(), 60);
+
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.parse_version, 4);
+    assert_eq!(rings_tx.source_instruction_tag, tag::MERGE_TRANSACT as i16);
+    assert!(rings_tx.tx_viewing_pk.is_none());
+    assert!(rings_tx.salt.is_none());
+    assert!(!rings_tx.proofless);
+    assert_eq!(
+        rings_tx.nullifiers,
+        (0..MERGE_INPUT_COUNT)
+            .map(|i| expected_nullifier(
+                i16::try_from(i).expect("shape"),
+                30 + u64::try_from(i).expect("shape"),
+                0x50 + u8::try_from(i).expect("shape"),
+            ))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
+    assert_eq!(
+        rings_tx.outputs,
+        vec![expected_output(0, 12, 0x77, 0x66, Vec::new())]
+    );
+}
+
+#[test]
 fn parses_unshield_event_with_photon_parser() {
     let state_update = parse_rings_update(unshield_transaction_info(), UNSHIELD_SLOT);
 
     let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
-    assert_eq!(rings_tx.parse_version, 3);
+    assert_eq!(rings_tx.parse_version, 4);
     assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
     assert_eq!(rings_tx.first_output_leaf_index, 4);
     assert!(rings_tx.tx_viewing_pk.is_none());
@@ -1816,7 +1903,7 @@ fn parse_ingestion_update(tx_info: TransactionInfo, slot: u64) -> StateUpdate {
 fn proofless_shield_transaction_info() -> TransactionInfo {
     rings_transaction_info(
         1,
-        tag::DEPOSIT,
+        vec![tag::DEPOSIT],
         EventKind::Deposit,
         GeneralEvent {
             inputs: Vec::new(),
@@ -1855,10 +1942,8 @@ fn proofless_output_payload() -> Vec<u8> {
 }
 
 fn shielded_transfer_transaction_info() -> TransactionInfo {
-    rings_transaction_info(
+    transact_transaction_info(
         2,
-        tag::TRANSACT,
-        EventKind::Transact,
         GeneralEvent {
             inputs: vec![test_input(0, 21), test_input(1, 22)],
             outputs: vec![
@@ -1873,14 +1958,13 @@ fn shielded_transfer_transaction_info() -> TransactionInfo {
             output_tree: TEST_TREE,
             spl_transfers: Vec::new(),
         },
+        Vec::new(),
     )
 }
 
 fn unshield_transaction_info() -> TransactionInfo {
-    rings_transaction_info(
+    transact_transaction_info(
         3,
-        tag::TRANSACT,
-        EventKind::Transact,
         GeneralEvent {
             inputs: vec![test_input(2, 23), test_input(3, 24)],
             outputs: vec![
@@ -1899,14 +1983,13 @@ fn unshield_transaction_info() -> TransactionInfo {
                 asset: None,
             }],
         },
+        vec![InterfaceTransfer::SolWithdrawal { amount: 40 }],
     )
 }
 
 fn encrypted_transfer_transaction_info() -> TransactionInfo {
-    rings_transaction_info(
+    transact_transaction_info(
         4,
-        tag::TRANSACT,
-        EventKind::Transact,
         GeneralEvent {
             inputs: vec![test_input(4, 25), test_input(5, 26)],
             outputs: vec![
@@ -1921,14 +2004,172 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
             output_tree: TEST_TREE,
             spl_transfers: Vec::new(),
         },
+        Vec::new(),
     )
 }
 
-fn rings_transaction_info(
+/// A `transact` transaction whose parser output should equal `expected`: the
+/// instruction data carries the nullifiers, outputs, viewing key and salt, the
+/// `EMIT_EVENT` self-CPI only the tree writes, so the parser must put the two
+/// back together.
+fn transact_transaction_info(
     signature_byte: u8,
-    source_instruction_tag: u8,
+    expected: GeneralEvent,
+    interface_transfers: Vec<InterfaceTransfer>,
+) -> TransactionInfo {
+    let outputs = inline_outputs(&expected);
+    rings_transaction_info(
+        signature_byte,
+        transact_source_data(tag::TRANSACT, &expected, outputs, interface_transfers),
+        EventKind::Transact,
+        transact_event_for(&expected),
+    )
+}
+
+/// `[source_tag] ++ wincode(TransactIxData)` whose nullifiers, viewing key, salt
+/// and messages match `expected`; `outputs` carry the owner tags to publish.
+fn transact_source_data(
+    source_tag: u8,
+    expected: &GeneralEvent,
+    outputs: Vec<TransactOutput>,
+    interface_transfers: Vec<InterfaceTransfer>,
+) -> Vec<u8> {
+    let ix = TransactIxData {
+        expiry_unix_ts: 0,
+        private_tx_hash: [0; 32],
+        circuit: CircuitId::ConfidentialEddsa(
+            u8::try_from(expected.inputs.len()).expect("shape"),
+            u8::try_from(outputs.len()).expect("shape"),
+            0,
+        ),
+        tx_viewing_pk: expected.tx_viewing_pk,
+        salt: expected.salt,
+        proof: TransactProof::zeroed(),
+        inputs: expected
+            .inputs
+            .iter()
+            .map(|input| InputUtxo {
+                nullifier_hash: input.nullifier,
+                nullifier_tree_root_index: 0,
+                utxo_tree_root_index: 0,
+            })
+            .collect(),
+        interface_transfers,
+        data_hash: None,
+        ring_data_hash: None,
+        outputs,
+        messages: expected.messages.clone(),
+    };
+    let mut source_data = vec![source_tag];
+    source_data.extend_from_slice(&ix.serialize().expect("serialize transact"));
+    source_data
+}
+
+/// Every output of `expected` with its view tag published inline.
+fn inline_outputs(expected: &GeneralEvent) -> Vec<TransactOutput> {
+    expected
+        .outputs
+        .iter()
+        .map(|output| TransactOutput {
+            utxo_hash: output.utxo_hash,
+            owner_tag: OwnerTag::Inline(output.view_tag),
+            data: (!output.data.is_empty()).then(|| output.data.clone()),
+        })
+        .collect()
+}
+
+/// The minimal body the program emits for `expected`.
+fn transact_event_for(expected: &GeneralEvent) -> TransactEvent {
+    let first_input = expected.inputs.first().expect("transact spends an input");
+    TransactEvent {
+        input_trees: vec![InputTreeSequence {
+            tree: first_input.tree,
+            first_input_queue_seq: first_input.input_queue_seq,
+        }],
+        output_tree: expected.output_tree,
+        first_output_leaf_index: expected.first_output_leaf_index,
+        spl_transfers: expected.spl_transfers.clone(),
+    }
+}
+
+/// A ring CPI: the ring program's outer instruction wraps the SPP
+/// `ring_transact` inner instruction (height 2), which emits at height 3. The
+/// SPP inner instruction is the reconstruction source, so an `OwnerTag::Account`
+/// output resolves against its account list, not the ring program's.
+fn ring_transact_transaction_info(
+    expected: &GeneralEvent,
+    outputs: Vec<TransactOutput>,
+    accounts: Vec<Pubkey>,
+) -> TransactionInfo {
+    let program_id = pda::shielded_pool_program_id();
+    let ring_program = Pubkey::new_from_array([7; 32]);
+    TransactionInfo {
+        instruction_groups: vec![InstructionGroup {
+            outer_instruction: Instruction {
+                program_id: ring_program,
+                accounts: vec![program_id],
+                data: vec![tag::RING_TRANSACT],
+                stack_height: Some(1),
+            },
+            inner_instructions: vec![
+                Instruction {
+                    program_id,
+                    accounts,
+                    data: transact_source_data(tag::RING_TRANSACT, expected, outputs, Vec::new()),
+                    stack_height: Some(2),
+                },
+                Instruction {
+                    program_id,
+                    accounts: Vec::new(),
+                    data: encode_event_instruction_with(
+                        EventKind::Transact,
+                        &transact_event_for(expected),
+                    ),
+                    stack_height: Some(3),
+                },
+            ],
+        }],
+        signature: Signature::from([9; 64]),
+        error: None,
+    }
+}
+
+fn merge_transaction_info() -> TransactionInfo {
+    let merge = MergeTransactIxData {
+        expiry_unix_ts: 0,
+        proof: MergeProof::zeroed(),
+        output_utxo_hash: [0x66; 32],
+        eddsa_owner: true,
+        private_tx_hash: [0; 32],
+        nullifiers: (0..MERGE_INPUT_COUNT)
+            .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
+            .collect(),
+        utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+        nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+    };
+    let mut source_data = vec![tag::MERGE_TRANSACT];
+    source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));
+    rings_transaction_info(
+        6,
+        source_data,
+        EventKind::Merge,
+        MergeEvent {
+            input_trees: vec![InputTreeSequence {
+                tree: TEST_TREE,
+                first_input_queue_seq: 30,
+            }],
+            output_tree: TEST_TREE,
+            output_leaf_index: 12,
+            output_view_tag: [0x77; 32],
+        },
+    )
+}
+
+fn rings_transaction_info<T: borsh::BorshSerialize>(
+    signature_byte: u8,
+    source_instruction_data: Vec<u8>,
     event_kind: EventKind,
-    event: GeneralEvent,
+    event: T,
 ) -> TransactionInfo {
     let program_id = pda::shielded_pool_program_id();
     TransactionInfo {
@@ -1936,13 +2177,13 @@ fn rings_transaction_info(
             outer_instruction: Instruction {
                 program_id,
                 accounts: Vec::new(),
-                data: vec![source_instruction_tag],
+                data: source_instruction_data,
                 stack_height: Some(1),
             },
             inner_instructions: vec![Instruction {
                 program_id,
                 accounts: Vec::new(),
-                data: encode_event_instruction(event_kind, event),
+                data: encode_event_instruction_with(event_kind, &event),
                 stack_height: Some(2),
             }],
         }],

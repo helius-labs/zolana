@@ -18,10 +18,16 @@ fn emit_encoded_event(data: &[u8]) -> ProgramResult {
     invoke(&instruction, &accounts)
 }
 
-/// Emit a [`GeneralEvent`] (deposit/transact/merge).
+/// Emit a [`GeneralEvent`] (deposit).
 #[inline(never)]
 pub fn emit_general_event(kind: EventKind, event: GeneralEvent) -> ProgramResult {
     emit_encoded_event(&encode_event_instruction(kind, event))
+}
+
+/// Emit an event whose body is not a [`GeneralEvent`] (transact, merge).
+#[inline(never)]
+pub fn emit_event<T: BorshSerialize>(kind: EventKind, event: &T) -> ProgramResult {
+    emit_encoded_event(&encode_event_instruction_with(kind, event))
 }
 
 /// Emit a nullifier-tree batch-update event. The payload is the

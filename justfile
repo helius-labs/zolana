@@ -334,6 +334,7 @@ test-user-registry-litesvm: build-programs
 test-sdk-libs:
     cargo nextest run -p zolana-keypair
     cargo test --doc -p zolana-keypair
+    cargo nextest run -p zolana-event-parser
     cargo nextest run -p zolana-transaction
     # `parallel` is off by default, so the default run compiles neither
     # wallet::parallel nor the tests that hold the two scan strategies to the

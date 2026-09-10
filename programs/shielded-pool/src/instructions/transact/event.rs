@@ -2,11 +2,8 @@ use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{GeneralEvent, Input, MessageData, SplTransfer},
-    instruction::{
-        instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
-        OutputUtxo,
-    },
+    event::{Input, InputTreeSequence, SplTransfer, TransactEvent},
+    instruction::instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
 };
 
 use super::verify::MAX_OUTPUTS;
@@ -37,33 +34,19 @@ pub(crate) fn resolve_outputs<'a>(
     Ok(outputs)
 }
 
-/// Build the emitted [`GeneralEvent`] from the instruction. Outputs map 1:1 to
-/// `ix.outputs`: each event output carries the resolved owner tag as its
-/// `view_tag`, the output commitment, and the optional ciphertext (empty when the
-/// slot is covered by a preceding bundle). `messages` are republished verbatim.
+/// Build the emitted [`TransactEvent`]: the values assigned while writing the
+/// trees plus the settled assets. Outputs, messages, nullifiers, `tx_viewing_pk`
+/// and `salt` are not repeated; the indexer reads them from the instruction data
+/// when it rebuilds the `GeneralEvent`.
 pub fn build_transact_event(
     ix: &TransactIxDataRef<'_>,
     settlements: &[Settlement<'_>],
     tree_write: TreeWrite,
-    resolved_outputs: &[ResolvedOutput],
-) -> GeneralEvent {
-    let outputs = resolved_outputs
-        .iter()
-        .map(|output| OutputUtxo {
-            view_tag: output.owner_tag,
-            utxo_hash: *output.utxo_hash,
-            data: output.data.map(<[u8]>::to_vec).unwrap_or_default(),
-        })
-        .collect();
-
-    let messages = ix
-        .messages
-        .iter()
-        .map(|message| MessageData {
-            view_tag: *message.view_tag,
-            data: message.data.to_vec(),
-        })
-        .collect();
+) -> Result<TransactEvent, ProgramError> {
+    let first_input = tree_write
+        .inputs
+        .first()
+        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
 
     let spl_transfers = ix
         .interface_transfers
@@ -80,14 +63,13 @@ pub fn build_transact_event(
         })
         .collect();
 
-    GeneralEvent {
-        inputs: tree_write.inputs,
-        outputs,
-        messages,
-        tx_viewing_pk: *ix.tx_viewing_pk,
-        salt: *ix.salt,
-        first_output_leaf_index: tree_write.first_output_leaf_index,
+    Ok(TransactEvent {
+        input_trees: vec![InputTreeSequence {
+            tree: first_input.tree,
+            first_input_queue_seq: first_input.input_queue_seq,
+        }],
         output_tree: tree_write.output_tree,
+        first_output_leaf_index: tree_write.first_output_leaf_index,
         spl_transfers,
-    }
+    })
 }

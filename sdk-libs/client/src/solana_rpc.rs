@@ -28,7 +28,7 @@ use solana_transaction_status_client_types::{
     EncodedTransaction, TransactionStatus, UiCompiledInstruction, UiInstruction, UiLoadedAddresses,
     UiMessage, UiTransactionEncoding,
 };
-use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_event_parser::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{fetch_tag, TransactIxData},

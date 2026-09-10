@@ -64,9 +64,9 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
         output_ring_data_hash: *ix.output_ring_data_hash,
     };
 
-    // The merged output is indexed by the first input nullifier. The output
-    // `ring_data_hash` is published in the event so the wallet can reconstruct
-    // the ring output.
+    // The merged output is indexed by the first input nullifier. The indexer
+    // republishes the output `ring_data_hash` from this instruction's data as the
+    // output payload so the wallet can reconstruct the ring output.
     process_merge_core(
         MergeCoreAccounts {
             input_tree: merge_accounts.input_tree,
@@ -81,7 +81,6 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
             .nullifiers
             .first()
             .ok_or(ShieldedPoolError::InvalidMergeShape)?,
-        ix.output_ring_data_hash.to_vec(),
         clock.slot,
     )
 }

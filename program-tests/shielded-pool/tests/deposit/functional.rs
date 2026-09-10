@@ -3,7 +3,8 @@ use solana_clock::Clock;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_event::{general_event_from_indexed, SplTransfer};
+use zolana_event::SplTransfer;
+use zolana_event_parser::general_event_from_indexed;
 use zolana_interface::{
     instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
     pda,

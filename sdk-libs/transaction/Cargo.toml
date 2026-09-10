@@ -8,7 +8,7 @@ repository.workspace = true
 
 [dependencies]
 zolana-interface = { workspace = true }
-zolana-event = { workspace = true, features = ["program-test"] }
+zolana-event = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-keypair = { workspace = true }
 zolana-program = { workspace = true }

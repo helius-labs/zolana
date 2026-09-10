@@ -4,7 +4,8 @@
 //! wallet-facing outputs that tests query.
 
 use thiserror::Error;
-use zolana_event::{encode_encrypted_ring_deposit_output, proofless_output, GeneralEvent};
+use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
+use zolana_event_parser::proofless_output;
 use zolana_hasher::Poseidon;
 use zolana_interface::state::STATE_HEIGHT;
 use zolana_keypair::{P256Pubkey, PublicKey};

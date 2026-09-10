@@ -10,7 +10,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
-use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
+use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{

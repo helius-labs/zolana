@@ -7,7 +7,8 @@ use solana_address::Address;
 use solana_signature::Signature;
 use thiserror::Error;
 use zolana_client::ClientError;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::tag;
+use zolana_event_parser::{InstructionGroup, ParsedInstruction};
 use zolana_interface::{
     instruction::{InterfaceTransfer, TransactIxData},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,

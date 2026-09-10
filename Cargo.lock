@@ -4838,6 +4838,7 @@ dependencies = [
  "utoipa",
  "yellowstone-grpc-proto",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-indexer-api",
  "zolana-interface",
  "zolana-tree",
@@ -6505,6 +6506,7 @@ dependencies = [
  "zolana-account-checks",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11064,6 +11066,7 @@ dependencies = [
  "zeroize",
  "zolana-api",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11078,6 +11081,16 @@ dependencies = [
  "borsh",
  "solana-pubkey 4.2.1",
  "wincode",
+]
+
+[[package]]
+name = "zolana-event-parser"
+version = "0.1.0"
+dependencies = [
+ "borsh",
+ "solana-pubkey 4.2.1",
+ "zolana-event",
+ "zolana-interface",
 ]
 
 [[package]]
@@ -11212,6 +11225,7 @@ dependencies = [
  "thiserror 2.0.20",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",
@@ -11241,6 +11255,7 @@ dependencies = [
  "zeroize",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
@@ -11335,6 +11350,7 @@ dependencies = [
  "solana-transaction-error",
  "zolana-client",
  "zolana-event",
+ "zolana-event-parser",
  "zolana-hasher",
  "zolana-interface",
  "zolana-keypair",

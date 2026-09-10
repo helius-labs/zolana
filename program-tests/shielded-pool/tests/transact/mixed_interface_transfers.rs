@@ -10,7 +10,8 @@ use solana_signer::Signer;
 use zolana_client::{
     PublicInputs, PublicTransfers, TransferInput, TransferOutput, STATE_TREE_HEIGHT,
 };
-use zolana_event::{general_event_from_indexed, SplTransfer};
+use zolana_event::SplTransfer;
+use zolana_event_parser::general_event_from_indexed;
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     instruction::{
