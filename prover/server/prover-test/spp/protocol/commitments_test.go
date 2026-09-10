@@ -434,6 +434,9 @@ func TestHashChain4SharedKnownAnswerVectors(t *testing.T) {
 		Inputs []string `json:"inputs"`
 		Output string   `json:"output"`
 	}
+	type file struct {
+		Vectors []vector `json:"vectors"`
+	}
 	_, source, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("locate commitments_test.go")
@@ -442,14 +445,14 @@ func TestHashChain4SharedKnownAnswerVectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var vectors []vector
+	var vectors file
 	if err := json.Unmarshal(raw, &vectors); err != nil {
 		t.Fatal(err)
 	}
-	if len(vectors) == 0 {
+	if len(vectors.Vectors) == 0 {
 		t.Fatal("no vectors")
 	}
-	for _, vector := range vectors {
+	for _, vector := range vectors.Vectors {
 		inputs := make([]*big.Int, len(vector.Inputs))
 		for i, input := range vector.Inputs {
 			value, ok := new(big.Int).SetString(input, 16)

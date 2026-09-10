@@ -1,8 +1,11 @@
 package shared_test
 
 import (
-	"fmt"
+	"encoding/json"
 	"math/big"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"zolana/prover/circuits/gadget"
@@ -23,21 +26,62 @@ func (c *hashChain4Circuit) Define(api frontend.API) error {
 	return nil
 }
 
-func TestHashChain4GadgetMatchesHost(t *testing.T) {
-	for _, length := range []int{1, 2, 3, 4, 5, 7, 8, 16, 36} {
-		t.Run(fmt.Sprintf("len_%d", length), func(t *testing.T) {
-			inputs := make([]*big.Int, length)
-			for i := range inputs {
-				inputs[i] = big.NewInt(int64(i + 1))
-			}
-			want, err := protocol.HashChain4(inputs)
+type hashChain4Vector struct {
+	Name   string   `json:"name"`
+	Inputs []string `json:"inputs"`
+	Output string   `json:"output"`
+}
+
+func readHashChain4Vectors(t *testing.T) []hashChain4Vector {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate hash_chain_4_test.go")
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/hash_chain_4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct {
+		Vectors []hashChain4Vector `json:"vectors"`
+	}
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Vectors) == 0 {
+		t.Fatal("no vectors")
+	}
+	return file.Vectors
+}
+
+func parseHashChain4Hex(t *testing.T, name, value string) *big.Int {
+	t.Helper()
+	out, ok := new(big.Int).SetString(value, 16)
+	if !ok {
+		t.Fatalf("%s: %q is not hex", name, value)
+	}
+	return out
+}
+
+func TestHashChain4GadgetMatchesSharedKnownAnswerVectors(t *testing.T) {
+	for _, vector := range readHashChain4Vectors(t) {
+		if len(vector.Inputs) == 0 {
+			continue
+		}
+		t.Run(vector.Name, func(t *testing.T) {
+			length := len(vector.Inputs)
+			want := parseHashChain4Hex(t, vector.Name, vector.Output)
+			host, err := protocol.HashChain4(parseHashChain4Inputs(t, vector))
 			if err != nil {
 				t.Fatal(err)
 			}
+			if host.Cmp(want) != 0 {
+				t.Fatalf("host hash = %064x, want %064x", host, want)
+			}
 			circuit := &hashChain4Circuit{Inputs: make([]frontend.Variable, length)}
 			assignment := &hashChain4Circuit{Inputs: make([]frontend.Variable, length), Hash: want}
-			for i, input := range inputs {
-				assignment.Inputs[i] = input
+			for i, input := range vector.Inputs {
+				assignment.Inputs[i] = parseHashChain4Hex(t, vector.Name, input)
 			}
 			assert := test.NewAssert(t)
 			assert.CheckCircuit(circuit,
@@ -68,4 +112,13 @@ func TestHashChain4GadgetRejectsBinaryChain(t *testing.T) {
 		test.NoFuzzing(),
 		test.NoSerializationChecks(),
 	)
+}
+
+func parseHashChain4Inputs(t *testing.T, vector hashChain4Vector) []*big.Int {
+	t.Helper()
+	inputs := make([]*big.Int, len(vector.Inputs))
+	for i, input := range vector.Inputs {
+		inputs[i] = parseHashChain4Hex(t, vector.Name, input)
+	}
+	return inputs
 }
