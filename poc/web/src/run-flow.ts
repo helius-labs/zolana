@@ -40,6 +40,7 @@ import {
   canonicalShape,
   signSendAndConfirm,
   proverMeasurementSink,
+  observeProofRequests,
   runFlow,
   type Measurement,
   type ProverKind,
@@ -203,7 +204,11 @@ export async function runBrowserFlow(options: FlowRunOptions): Promise<RunResult
         proverUrl: config.proverUrl,
         // Routing prove requests into wasm is the entire local-proving
         // integration; every other request falls through to the real fetch.
-        ...(prover === "wasm" && wasm !== undefined ? { fetch: wasm.createFetch() } : {}),
+        fetch: observeProofRequests(
+          prover === "wasm" && wasm !== undefined ? wasm.createFetch() : globalThis.fetch.bind(globalThis),
+          config.proverUrl,
+          (actual) => proverMeasurementSink({ step: "proof-request", ms: 0, shape: actual.label }),
+        ),
       }),
     );
     log(`client ready (prover: ${prover})`);

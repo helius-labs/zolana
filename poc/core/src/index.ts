@@ -47,3 +47,5 @@ export {
 export { signSendAndConfirm, type Landed, type Signer, type SubmitClient } from "./submit.js";
 
 export { automaticProvingThreads } from "./proving-threads.js";
+
+export { observeProofRequests } from "./proof-requests.js";

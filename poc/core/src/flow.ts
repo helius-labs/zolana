@@ -18,6 +18,7 @@
  */
 
 import {
+  SOL_MINT,
   buildDepositTransaction,
   buildSplitTransaction,
   buildTransferTransaction,
@@ -33,6 +34,7 @@ import type { Transaction } from "@solana/kit";
 
 import { signSendAndConfirm, type Signer, type SubmitClient } from "./submit.js";
 
+import { sweepAmounts } from "./sweep-amounts.js";
 import { RunRecorder, type Measurement, type ProverKind, type RunResult } from "./bench.js";
 import { canonicalShape, type ShapeKey } from "./shapes.js";
 
@@ -126,11 +128,20 @@ export interface FlowOptions {
 export async function runFlow(context: FlowContext, options: FlowOptions): Promise<RunResult> {
   const notes = Math.max(1, options.notes);
   const shape = canonicalShape(notes, 2);
-  const recorder = new RunRecorder(shape.label, context.prover);
+  const recorder = new RunRecorder(`${String(notes)} notes (transfer not proved)`, context.prover);
+  let transferShape: string | undefined;
+  let buildingTransfer = false;
+  const finish = (error?: unknown): RunResult => {
+    const result = recorder.finish(error);
+    return transferShape === undefined
+      ? result
+      : Object.freeze({ ...result, shape: transferShape });
+  };
 
   // Prove timings are produced inside the worker and surfaced through the
   // prover's callback, so route them into this run for its lifetime.
   const restore = installMeasurementSink((measurement) => {
+    if (buildingTransfer && measurement.step === "proof-request") transferShape = measurement.shape;
     recorder.record(measurement);
     context.onMeasurement?.(measurement);
   });
@@ -152,6 +163,7 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
     });
 
   try {
+    const amounts = sweepAmounts(context.shieldAmount, notes);
     if (context.prepareShape !== undefined) {
       await recorder.step("key-fetch", () => context.prepareShape?.(shape) ?? Promise.resolve(), {
         bytes: shape.keyBytes,
@@ -197,7 +209,25 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
       await recorder.step("wallet-sync", sync);
     }
 
-    const perLeg = context.shieldAmount / BigInt(notes + 2);
+    const spendable = context.wallet
+      .utxos()
+      .filter((entry) => !entry.spent && entry.utxo.asset === SOL_MINT);
+    if (
+      spendable.length !== notes ||
+      spendable.some(
+        (entry) =>
+          entry.utxo.amount !== context.shieldAmount / BigInt(notes) ||
+          entry.utxo.ringProgramId !== undefined ||
+          entry.ringDataHash !== undefined ||
+          entry.dataHash !== undefined ||
+          !entry.utxo.data.isEmpty(),
+      )
+    ) {
+      throw new Error(
+        `Expected ${String(notes)} equal plain SOL notes before the benchmark transfer`,
+      );
+    }
+    buildingTransfer = true;
     await recorder.step(
       "transfer-submit",
       async () => {
@@ -207,13 +237,14 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
           authority: context.authority,
           feePayer: context.signer.address,
           recipient: context.transferRecipient,
-          amount: perLeg,
+          amount: amounts.transfer,
         });
         await submit(transaction);
       },
       { note: `transfer, ${String(notes)} note(s) available` },
     );
 
+    buildingTransfer = false;
     await recorder.step("wallet-sync", sync);
 
     await recorder.step(
@@ -225,16 +256,16 @@ export async function runFlow(context: FlowContext, options: FlowOptions): Promi
           authority: context.authority,
           feePayer: context.signer.address,
           recipient: context.withdrawalRecipient,
-          amount: perLeg,
+          amount: amounts.withdrawal,
         });
         await submit(transaction);
       },
       { note: "withdraw to public address" },
     );
 
-    return recorder.finish();
+    return finish();
   } catch (error) {
-    return recorder.finish(error);
+    return finish(error);
   } finally {
     restore();
   }

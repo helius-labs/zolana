@@ -541,8 +541,9 @@ poc-deploy:
     fly deploy . --config poc/web/fly.toml --dockerfile poc/web/Dockerfile \
       --ignorefile poc/web/.dockerignore
 
-# Typecheck and build both PoC packages.
+# Test, typecheck and build both PoC packages.
 poc-check: build-prover-wasm
+    npm run poc:test
     npm run poc:typecheck
     npm run poc:build
 
