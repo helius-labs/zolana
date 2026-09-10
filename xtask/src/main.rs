@@ -727,7 +727,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 128 B vanilla proof):");
+    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 192 B proof with raw G2 b):");
     println!(
         "| {:<14} | N | M | {:>11} | {:>21} | {:>18} | {:>19} | {:>16} |",
         "Circuit",
