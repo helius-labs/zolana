@@ -19,7 +19,7 @@ use shielded_pool_program::testing::{
     amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::hash_bytes,
 };
 use zolana_interface::{
@@ -104,10 +104,13 @@ fn tree_slots(vector: &Value) -> [TreeSlot; INPUT_TREES] {
 }
 
 /// Test-local clone of the Go `protocol.PublicInputHash` ordering
-/// (public_inputs.go), built from the program's own primitives.
-/// `public_slot_amounts` are the already-encoded field elements and
-/// `signer_pk_hashes` is the payer-first run already zero-padded to the
-/// variant's width (a one-element run right-folds to itself).
+/// (public_inputs.go), built from the program's own primitives: the nullifier,
+/// output and output-owner chains and the final fold are 4-input Poseidon
+/// folds, the signer run stays a binary right fold and the tree slots a binary
+/// right fold from the zero suffix. `public_slot_amounts` are the
+/// already-encoded field elements and `signer_pk_hashes` is the payer-first run
+/// already zero-padded to the variant's width (a one-element run right-folds
+/// to itself).
 struct GoAssembly<'a> {
     nullifiers: &'a [[u8; 32]],
     output_hashes: &'a [[u8; 32]],
@@ -129,8 +132,8 @@ struct GoAssembly<'a> {
 impl GoAssembly<'_> {
     fn hash(&self) -> [u8; 32] {
         let mut fields = vec![
-            create_hash_chain_from_slice(self.nullifiers).expect("nullifier chain"),
-            create_hash_chain_from_slice(self.output_hashes).expect("output chain"),
+            create_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
+            create_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
             tree_slots_hash_chain(self.tree_slots).expect("tree slot chain"),
             self.output_tree_id,
             self.private_tx_hash,
@@ -151,10 +154,10 @@ impl GoAssembly<'_> {
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
-                create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
+                create_hash_chain_4_from_slice(output_owner_pk_hashes).expect("output owner chain"),
             );
         }
-        create_hash_chain_from_slice(&fields).expect("public input hash chain")
+        create_hash_chain_4_from_slice(&fields).expect("public input hash chain")
     }
 }
 
@@ -252,16 +255,18 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 /// The real `public_input_hash` agrees with the vector-pinned Go ordering for
 /// every circuit selector, with the public transfer slots interleaved as
 /// `(asset, amount)`, the payer-first signer run right-folded at the variant's
-/// width (input-signing rails: `n_in + 1`; the authority rail: a bare payer
-/// element), and the output-owner-chain appendix selected by the variant.
+/// width (input-signing rails: `Shape::signer_width`, 25 on `36x2`; the
+/// authority rail: a bare payer element), and the output-owner-chain appendix
+/// selected by the variant. The `36x2` confidential row fills every signer
+/// slot so the full-width path of the signer chain is covered.
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
         (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
         (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(36, 2, 3), 37, 2, true),
-        (CircuitId::RingEddsa(36, 2, 3), 37, 1, true),
+        (CircuitId::ConfidentialEddsa(36, 2, 3), 25, 25, true),
+        (CircuitId::RingEddsa(36, 2, 3), 25, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
