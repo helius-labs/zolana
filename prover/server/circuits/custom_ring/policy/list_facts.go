@@ -55,7 +55,7 @@ type listFactContext struct {
 }
 
 // checkListFacts authenticates shared list facts before any rule can use them.
-func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, checker frontend.Rangechecker) [NListFacts]listFact {
+func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, rangeChecker frontend.Rangechecker) [NListFacts]listFact {
 	var out [NListFacts]listFact
 	for i, fact := range c.ListFacts {
 		// 1. Resolve the source namespace for the claimed list.
@@ -66,17 +66,17 @@ func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, checker front
 		}
 
 		// 2. Prove the list fact at the supplied roots.
-		out[i] = fact.check(api, checker, context)
+		out[i] = fact.check(api, rangeChecker, context)
 	}
 	return out
 }
 
 // check authenticates an enabled claim for rule evaluation.
-func (w ListFactWires) check(api frontend.API, checker frontend.Rangechecker, context listFactContext) listFact {
+func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecker, context listFactContext) listFact {
 	// 1. Check the enabled claim, member and numeric bounds.
 	api.AssertIsBoolean(w.Enabled)
-	checker.Check(w.ListId, 8)
-	checker.Check(w.Version, 64)
+	rangeChecker.Check(w.ListId, 8)
+	rangeChecker.Check(w.Version, 64)
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.Member))
 	shared.AssertWhen(api, w.Enabled, nonZero(api, w.ListId))
 
