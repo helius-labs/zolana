@@ -194,6 +194,18 @@ Breaking
   (unchanged for every shape this package builds) → run a program and prover
   from this release, a proof or public-input hash produced by an earlier
   release no longer verifies.
+- `InputUtxo` is only the `nullifierHash`, and `TransactInstructionData` and
+  `MergeTransactInstructionData` carry one `utxoTreeRootIndex` and
+  `nullifierTreeRootIndex` pair after the inputs (was one pair per input, and
+  `utxoTreeRootIndexes` / `nullifierTreeRootIndexes` arrays on the merge data),
+  so `encodeTransactInstructionData` writes 4 fewer bytes per input and
+  `encodeMergeTransactInstructionData` 30 fewer → set the pair once on the
+  instruction data; the `MergeAssembly` exposes the same two scalars.
+- `privateTxHash`, `SppProofInputs.privateTxHash()`, and the private
+  transaction hash of a merge proof fold their input list, output list, and
+  address nullifier list three elements per Poseidon call (was one) → prove
+  with this release's prover, a private transaction hash or ring proof request
+  produced by an earlier release no longer matches its proof.
 
 Added
 

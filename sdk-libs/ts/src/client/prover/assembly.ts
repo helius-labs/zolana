@@ -34,7 +34,6 @@ import {
   bytesField,
   bytesToBigInt,
   field,
-  hashChain,
   hashChain4,
   hashBytesBigInt,
   poseidon,
@@ -132,9 +131,9 @@ function assembleUnchecked(
       : confidentialMarkedOutputOwnerHashes(proofInputs.externalData);
   const externalDataHash = bytesField(proofInputs.externalData.hash(), "external data hash");
   const privateTxHash = poseidon([
-    hashChain(inputHashes),
-    hashChain(privateOutputHashes),
-    hashChain(Array.from({ length: inputHashes.length }, () => 0n)),
+    hashChain4(inputHashes),
+    hashChain4(privateOutputHashes),
+    hashChain4(Array.from({ length: inputHashes.length }, () => 0n)),
     externalDataHash,
     bytesField(proofInputs.privateTxBlinding(), "private tx blinding"),
   ]);

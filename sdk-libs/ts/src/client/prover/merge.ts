@@ -25,7 +25,6 @@ import {
   bytesToBigInt,
   checkedBytes,
   field,
-  hashChain,
   hashChain4,
   poseidon,
 } from "../internal.js";
@@ -250,9 +249,9 @@ function assembleMergeUnchecked(
   const privateTxBlinding = mergePrivateTxBlinding(material.nullifierKey, firstNullifier);
   const privateTxHash = bigintToBytes(
     poseidon([
-      hashChain(inputHashes),
+      hashChain4(inputHashes),
       bytesToBigInt(outputHash),
-      hashChain(Array.from({ length: MERGE_INPUTS }, () => 0n)),
+      hashChain4(Array.from({ length: MERGE_INPUTS }, () => 0n)),
       bytesToBigInt(externalDataHash),
       bytesField(privateTxBlinding, "merge private tx blinding"),
     ]),

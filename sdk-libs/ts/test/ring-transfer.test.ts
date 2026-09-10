@@ -62,7 +62,7 @@ import {
   transactionsPage,
 } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
-import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
+import { bigintToBytes, hashBytesBigInt, hashChain4, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
 import { ringLookupTableAddresses } from "../src/ring/instructions.js";
 import {
@@ -906,7 +906,7 @@ describe("ring proof folded fields", () => {
   function assertFoldedFields(proofInputs: SppProofInputs, nIn: number): void {
     const externalDataHash = proofInputs.externalData.hash();
     const addressChain = ringAddressChain(nIn);
-    expect(addressChain).toEqual(bigintToBytes(hashChain(Array.from({ length: nIn }, () => 0n))));
+    expect(addressChain).toEqual(bigintToBytes(hashChain4(Array.from({ length: nIn }, () => 0n))));
 
     const inputHashes = proofInputs.inputUtxos.map((input) =>
       input.isDummy() ? (new Uint8Array(32) as Bytes32) : input.hash(),
@@ -918,8 +918,8 @@ describe("ring proof folded fields", () => {
     const canonical = privateTxHash({ inputHashes, outputHashes, externalDataHash, blinding });
     const reconstructed = bigintToBytes(
       poseidon([
-        hashChain(inputHashes.map(bytesToBigInt)),
-        hashChain(outputHashes.map(bytesToBigInt)),
+        hashChain4(inputHashes.map(bytesToBigInt)),
+        hashChain4(outputHashes.map(bytesToBigInt)),
         bytesToBigInt(addressChain),
         bytesToBigInt(externalDataHash),
         bytesToBigInt(blinding),
@@ -932,7 +932,7 @@ describe("ring proof folded fields", () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate());
     expect(proofInputs.inputUtxos).toHaveLength(1);
     assertFoldedFields(proofInputs, 1);
-    // hashChain([0]) == 0.
+    // hashChain4([0]) == 0.
     expect(ringAddressChain(1)).toEqual(new Uint8Array(32));
   });
 
@@ -940,9 +940,9 @@ describe("ring proof folded fields", () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [1n]);
     expect(proofInputs.inputUtxos).toHaveLength(2);
     assertFoldedFields(proofInputs, 2);
-    // hashChain([0, 0]) == Poseidon(0, 0) != 0.
+    // hashChain4([0, 0]) == Poseidon(0, 0, 0, 0) != 0.
     expect(ringAddressChain(2)).not.toEqual(new Uint8Array(32));
-    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain([0n, 0n])));
+    expect(ringAddressChain(2)).toEqual(bigintToBytes(hashChain4([0n, 0n])));
   });
 
   it("sends the finalized SPP external hash and address chain to the custom prover", async () => {

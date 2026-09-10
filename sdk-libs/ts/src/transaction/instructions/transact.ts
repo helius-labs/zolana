@@ -35,7 +35,7 @@ import {
   copy,
   decodeAddress,
   equal,
-  hashChain,
+  hashChain4,
   hashBytes,
   poseidon,
   sha256Bytes,
@@ -453,9 +453,9 @@ export interface PrivateTxHashInput {
 }
 
 /**
- * `Poseidon(chain(inputs), chain(outputs), chain(address nullifiers),
- * external_data_hash, blinding)`, the value a transact proof publishes and the
- * owners sign over. The circuit reads one address nullifier per input slot, so
+ * `Poseidon(hashChain4(inputs), hashChain4(outputs), hashChain4(address
+ * nullifiers), external_data_hash, blinding)`, the value a transact proof
+ * publishes and the owners sign over. The circuit reads one address nullifier per input slot, so
  * a set of a different length would silently shift the address chain rather
  * than fail.
  */
@@ -471,9 +471,9 @@ export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
   }
   const addressNullifiers = input.addressNullifiers ?? input.inputHashes.map(() => copy(ZERO_32));
   return poseidon([
-    hashChain(input.inputHashes),
-    hashChain(input.outputHashes),
-    hashChain(addressNullifiers),
+    hashChain4(input.inputHashes),
+    hashChain4(input.outputHashes),
+    hashChain4(addressNullifiers),
     input.externalDataHash,
     checked<Bytes32>(input.blinding, 32, "private tx blinding"),
   ]);
