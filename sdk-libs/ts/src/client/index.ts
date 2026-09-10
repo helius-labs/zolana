@@ -56,6 +56,7 @@ export type {
   TransferInput,
   TransferInputs,
   TransferOutput,
+  TreeSlotFields,
 } from "./prover/types.js";
 export {
   DEFAULT_INDEXER_POLL_CONFIG,

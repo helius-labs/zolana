@@ -237,10 +237,13 @@ export { provePolicyAnswers } from "./answers.js";
 export type { PolicyAnswerInput, PolicyAnswers, RingPolicyAnswerClient } from "./answers.js";
 export { proveRingEntryTransition, ringEntryTransitionInputs } from "./entry-proof.js";
 export type {
+  ListEntryDraft,
   RingEntryProof,
   RingEntryProofClient,
   RingEntryStateLeaf,
+  RingEntryTransition,
   RingEntryTransitionInput,
+  RingEntryTransitionInputs,
   RingEntryTransitionProofInputs,
 } from "./entry-proof.js";
 export { buildRingListWriteTransaction } from "./list-write.js";
