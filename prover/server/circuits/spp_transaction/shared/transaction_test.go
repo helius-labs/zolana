@@ -135,7 +135,7 @@ func (a *testAssignment) TransactionSignerPkHashes() []frontend.Variable {
 	if a.SignerPkHashes != nil {
 		return a.SignerPkHashes
 	}
-	out := make([]frontend.Variable, a.Shape.NInputs+1)
+	out := make([]frontend.Variable, a.Shape.SignerWidth())
 	out[0] = testPayerPkHash()
 	for i := range out {
 		if i != 0 {
@@ -428,7 +428,7 @@ func buildCircuitAssignmentExact(
 		privateTxBlinding,
 	)
 	payerPkHash := testPayerPkHash()
-	signerPkHashes := zeroFields(shape.NInputs + 1)
+	signerPkHashes := zeroFields(shape.SignerWidth())
 	signerPkHashes[0] = new(big.Int).Set(payerPkHash)
 	nextSigner := 1
 	seenSigners := []*big.Int{payerPkHash}
