@@ -1,0 +1,14 @@
+import type { GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest, GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest, GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse } from "./types.js";
+type WireObject = Record<string, unknown>;
+export declare function encodeRingsByTagsRequest(value: GetRingsByTagsRequest): WireObject;
+export declare function encodeRingsByNullifiersRequest(value: GetRingsByNullifiersRequest): WireObject;
+export declare function encodeShieldedTransactionsBySignatureRequest(value: GetShieldedTransactionsBySignatureRequest): WireObject;
+export declare function decodeEncryptedUtxosResponse(value: unknown): GetEncryptedUtxosByTagsResponse;
+export declare function decodeShieldedTransactionsResponse(value: unknown): GetShieldedTransactionsByTagsResponse;
+export declare function decodeShieldedTransactionsByNullifiersResponse(value: unknown): GetShieldedTransactionsByNullifiersResponse;
+export declare function decodeShieldedTransactionsBySignatureResponse(value: unknown): GetShieldedTransactionsBySignatureResponse;
+export declare function encodeMerkleProofsRequest(value: GetMerkleProofsRequest): WireObject;
+export declare function decodeMerkleProofsResponse(value: unknown): GetMerkleProofsResponse;
+export declare function encodeNonInclusionProofsRequest(value: GetNonInclusionProofsRequest): WireObject;
+export declare function decodeNonInclusionProofsResponse(value: unknown): GetNonInclusionProofsResponse;
+export {};
