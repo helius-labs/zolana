@@ -2,7 +2,7 @@ use crate::instructions::shared::caused_by;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use arrayvec::ArrayVec as RefArrayVec;
-use light_array_map::ArrayMap;
+use light_array_map::pubkey_eq;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
@@ -35,7 +35,75 @@ pub use zolana_interface::MAX_OUTPUTS;
 
 const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 
-pub type OwnerHashCache = ArrayMap<[u8; 32], [u8; 32], MAX_OWNER_HASHES>;
+struct OwnerHashEntry {
+    owner_tag: [u8; 32],
+    hash: [u8; 32],
+    /// Set once the tag has been counted as an owner signer, so a tag first
+    /// cached as an output owner is still counted the first time it signs.
+    is_signer: bool,
+}
+
+/// Owner identity hashes computed in this instruction, keyed by owner tag, so a
+/// tag that appears as an output owner and as a signer is hashed once. Backed by
+/// uninitialized storage: nothing is zero-filled on construction.
+#[derive(Default)]
+pub struct OwnerHashCache {
+    entries: RefArrayVec<OwnerHashEntry, MAX_OWNER_HASHES>,
+}
+
+impl OwnerHashCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[cfg(feature = "test-sbf")]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[cfg(feature = "test-sbf")]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn entry_mut(&mut self, owner_tag: &[u8; 32]) -> Option<&mut OwnerHashEntry> {
+        self.entries
+            .iter_mut()
+            .find(|entry| pubkey_eq(&entry.owner_tag, owner_tag))
+    }
+
+    fn insert(&mut self, owner_tag: &[u8; 32], is_signer: bool) -> Result<[u8; 32], ProgramError> {
+        let hash = solana_owner_identity(owner_tag)?;
+        self.entries
+            .try_push(OwnerHashEntry {
+                owner_tag: *owner_tag,
+                hash,
+                is_signer,
+            })
+            .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
+        Ok(hash)
+    }
+
+    fn output_owner_hash(&mut self, owner_tag: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
+        if let Some(entry) = self.entry_mut(owner_tag) {
+            return Ok(entry.hash);
+        }
+        self.insert(owner_tag, false)
+    }
+
+    /// The identity hash of `address` the first time it is seen as a signer;
+    /// `None` once it has already been counted.
+    fn new_signer_hash(&mut self, address: &[u8; 32]) -> Result<Option<[u8; 32]>, ProgramError> {
+        if let Some(entry) = self.entry_mut(address) {
+            if entry.is_signer {
+                return Ok(None);
+            }
+            entry.is_signer = true;
+            return Ok(Some(entry.hash));
+        }
+        self.insert(address, true).map(Some)
+    }
+}
 
 const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
 const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
@@ -125,8 +193,8 @@ impl TransactProofInputs {
     }
 
     // Assign the payer and ordered, first-occurrence-deduplicated EdDSA signer
-    // identities. The payer occupies slot zero and seeds `seen`, so an appended
-    // payer is ignored.
+    // identities. The payer occupies slot zero and is marked as a signer first,
+    // so an appended payer is ignored.
     #[profile]
     pub fn fill_owner_signer_hashes(
         &mut self,
@@ -135,22 +203,19 @@ impl TransactProofInputs {
         owner_hashes: &mut OwnerHashCache,
     ) -> Result<(), ProgramError> {
         let payer_address = payer.address().to_bytes();
-        self.signer_pk_hashes[0] = cached_owner_hash(owner_hashes, &payer_address)?;
+        self.signer_pk_hashes[0] = owner_hashes
+            .new_signer_hash(&payer_address)?
+            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
 
-        let mut seen: ArrayMap<[u8; 32], (), MAX_SIGNERS> = ArrayMap::new();
-        seen.insert(payer_address, (), ShieldedPoolError::InvalidTransactShape)?;
         let mut unique_count = 1usize;
         for signer in owner_signers {
-            let address = signer.address().to_bytes();
-            if seen.get_by_pubkey(&address).is_some() {
+            let Some(hash) = owner_hashes.new_signer_hash(signer.address().as_array())? else {
                 continue;
-            }
-            seen.insert(address, (), ShieldedPoolError::InvalidTransactShape)?;
+            };
             *self
                 .signer_pk_hashes
                 .get_mut(unique_count)
-                .ok_or(ShieldedPoolError::InvalidTransactShape)? =
-                cached_owner_hash(owner_hashes, &address)?;
+                .ok_or(ShieldedPoolError::InvalidTransactShape)? = hash;
             unique_count += 1;
         }
         self.unique_owner_signer_count =
@@ -174,14 +239,14 @@ impl TransactProofInputs {
             OutputOwnerMode::All => {
                 for (index, output) in resolved_outputs.iter().enumerate() {
                     self.output_owner_pk_hashes[index] =
-                        cached_owner_hash(owner_hashes, &output.owner_tag)?;
+                        owner_hashes.output_owner_hash(&output.owner_tag)?;
                 }
             }
             OutputOwnerMode::ConfidentialMarked => {
                 for (index, output) in resolved_outputs.iter().enumerate() {
                     if output.data.is_some_and(is_confidential_encrypted_output) {
                         self.output_owner_pk_hashes[index] =
-                            cached_owner_hash(owner_hashes, &output.owner_tag)?;
+                            owner_hashes.output_owner_hash(&output.owner_tag)?;
                     }
                 }
             }
@@ -238,22 +303,6 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_PUBLIC_TRANSFERS;
         Ok(())
     }
-}
-
-fn cached_owner_hash(
-    owner_hashes: &mut OwnerHashCache,
-    owner_tag: &[u8; 32],
-) -> Result<[u8; 32], ProgramError> {
-    if let Some(hash) = owner_hashes.get_by_pubkey(owner_tag) {
-        return Ok(*hash);
-    }
-    let hash = solana_owner_identity(owner_tag)?;
-    owner_hashes.insert(
-        *owner_tag,
-        hash,
-        ProgramError::from(ShieldedPoolError::InvalidTransactShape),
-    )?;
-    Ok(hash)
 }
 
 fn checked_slot_amount(net: i128) -> Result<i128, ProgramError> {
