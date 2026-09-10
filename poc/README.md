@@ -1,11 +1,20 @@
 # Zolana PoC: browser proving, with on-screen benchmarks
 
-A browser app that generates Zolana transfer proofs locally and reports its own
-timings.
+A browser app that generates and verifies Zolana transfer proofs locally with
+Mopro's threaded Rust arithmetic kernel and Zolana's gnark witness builder.
+This branch starts from PR #187 (`17a420f4a92bfd894b34661f2b5842f6b2137289`).
+
+The Mopro prover source is in
+[`sergeytimoshin/mopro`, branch `feat/gnark-web`](https://github.com/sergeytimoshin/mopro/tree/feat/gnark-web).
+Follow that branch's
+[gnark web setup](https://github.com/sergeytimoshin/mopro/blob/feat/gnark-web/docs/docs/setup/web-wasm-setup.md#gnark-groth16-bn254)
+to produce `MoproWasmBindings`, including the documented local `mopro-ffi`
+override while this code is unreleased. This demo adapts the Go bridge to
+Zolana's gnark 0.15 keys and reuses the built Rust kernel.
 
 ```
 poc/core     shared: shapes, benchmark model, wasm prover transport, flow driver
-poc/web      Vite + React. Local proving via gnark compiled to js/wasm. Works.
+poc/web      Vite + React. Local proving via Mopro + gnark compiled to js/wasm.
 poc/native   Expo scaffold. Renders the benchmark model; proves nothing yet.
 ```
 
@@ -15,17 +24,15 @@ does proving -- both need a native module that has not been built. The screen sa
 so rather than failing opaquely. `poc/native/MOPRO.md` covers what that module has
 to provide and why mopro's stock gnark API does not fit Zolana's key format.
 
-## The finding that shaped this
+## What changed from PR #187
 
-**mopro cannot prove Zolana's circuits in a browser, and this is not a
-configuration problem.** Its gnark adapter is declared
-`#[cfg(not(target_arch = "wasm32"))]` (`cli/src/template/gnark/lib.rs:1`) because
-`rust-gnark` binds Go gnark through cgo; mopro's web build runs
-`wasm-pack --features wasm`, which enables only its circom, halo2, and noir
-adapters. Zolana's circuits are gnark.
+The original PR used Go's single-threaded WASM prover because Mopro's cgo gnark
+adapter could not run in a browser. The new Mopro web prover supplies a Rust
+WASM kernel for FFTs and multi-scalar multiplication, using a Rayon worker pool.
+Zolana's Go module still decodes its combined keys, builds the witness, assembles
+the proof and verifies it. Its existing JSON protocol and pinned keys are retained.
 
-So the browser uses gnark's **own** `GOOS=js GOARCH=wasm` target. That was
-verified before any UI was written:
+The baseline PR established:
 
 | Check | Result |
 | --- | --- |
@@ -49,12 +56,50 @@ mirrors `server.processProofSync` — same JSON in, same JSON out. So the whole
 integration is a `fetch` that recognizes the prover URL and answers it from wasm.
 No SDK changes. Everything else (indexer, Solana RPC) falls through.
 
-The module runs in a Web Worker because Go's js/wasm runtime occupies the thread
-it is instantiated on and `groth16.Prove` blocks for seconds.
+The Go module runs in a Web Worker and calls the Mopro kernel in that worker.
+Mopro's arithmetic pool uses additional workers and requires cross-origin
+isolation (COOP/COEP headers). The Vite server supplies these headers.
+Only one circuit shape stays deserialized at a time to bound memory use;
+downloaded key bytes remain cached and are checked against the pinned digest.
+Every generated proof is locally verified before the SDK receives it.
 
 ## Running the web app
 
-Two benchmarks with different requirements.
+**Local proof playground — no validator needed.** It replays a local test
+transfer request with 2 inputs, 3 outputs and 54,031 constraints. Prepare a Mopro
+web build (the directory containing `gnark/accelerator/`), this checkout's pinned
+proving keys, and a captured local test request. Generated binaries, keys, request
+fixtures and `.env.local` are ignored by git.
+
+```sh
+npm ci
+npm run build:ts
+just build-prover-wasm
+node poc/web/scripts/stage-mopro.mjs \
+  /path/to/MoproWasmBindings \
+  /path/to/proving-keys \
+  /path/to/local-test-transfer-2x3.json
+npm run poc:dev
+```
+
+Open **http://127.0.0.1:5178/** and click **Generate & verify proof**, or
+**Benchmark 5 proofs** for a median. The sample stays local; this does not submit
+a transaction. Key preparation is measured separately from proving.
+
+**Proving threads** defaults to **Automatic**: use the CPU thread count reported
+by `navigator.hardwareConcurrency`, capped at 18, or 4 when unavailable. This is
+a starting configuration, not an autotuning benchmark. Browsers can report fewer
+threads than the machine has. Select **Custom thread count** to experiment, or
+**Original Go prover** to compare the original single-threaded implementation.
+Changing modes or counts clears the prover and its deserialized key.
+
+The staging script accepts an unpacked Mopro npm package as well as a bindings
+directory. It validates supplied keys against this checkout's lockfile before
+copying them; the 2x3 key is required, other transfer and merge keys are optional.
+The sample must be a valid local test request for these keys. The existing
+`verify-wasm-prover.mjs` script can capture such a request from a localnet.
+
+Additional tools are under **Localnet transfers, key benchmarks & connection settings**.
 
 **Proving-key benchmark — no validator needed.** Fetches and deserializes each
 shape's key in the wasm instance and reports the cold-start cost of local
@@ -63,7 +108,7 @@ proving.
 ```sh
 just build-prover-wasm    # compile the wasm module + copy wasm_exec.js
 just poc-keys             # link proving keys into poc/web/public/keys
-just poc-web              # vite dev server
+npm run poc:dev            # requires the Mopro kernel staged above
 ```
 
 Then click **Benchmark proving keys**.
@@ -82,7 +127,11 @@ per-step timings, and **Export CSV** dumps them.
 `poc-keys` needs the keys present locally (`just build-prover-server` fetches
 them per `provingkeys/proving-keys.lock`).
 
-## Deploying the web PoC
+## Deployment baseline
+
+This branch is configured and tested locally. PR #187's Fly image does not yet
+stage the new Mopro kernel or local sample; those artifacts must be added to its
+build before deploying this version. No hosted service was changed.
 
 ```sh
 just poc-deploy           # fly deploy, app and region in poc/web/fly.toml
@@ -145,29 +194,76 @@ crash lands mid-proof and looks like a proving failure rather than an I/O one.
 proving path. Anything else added there that writes to stdout/stderr will
 reintroduce this.
 
-## Status
+## Validation and measurements
 
-Verified locally:
+With the Vite server running:
 
-- the wasm prover builds (17 MB) and its API works under a JS wasm host — filename-derived
-  circuit types, branchable errors, instance survives bad input
-- `poc/core` and `poc/web` typecheck and build (4.95 MB bundle; the bulk is the
-  Poseidon hasher's inlined wasm)
-- the justfile recipes parse
+```sh
+npm run poc:typecheck
+npm run poc:build
+# Optional CHROME_BIN selects a Chromium browser, e.g. Brave.
+npm run test:browser --workspace @zolana/poc-web
+cd prover/server
+MOPRO_BROWSER_PROOFS=../../target/mopro-browser-ui/proofs.json \
+  go test ./cmd/prover-wasm -count=1
+```
 
-Measured against a localnet, replaying a real transfer request through the wasm
-module:
+The browser test exercises automatic and custom thread counts, the original Go
+prover, five-proof benchmarking, invalid-witness rejection and recovery, and the
+mobile layout. It saves screenshots and proofs under `target/mopro-browser-ui/`.
+The Go test independently verifies those browser proofs using native gnark.
 
-| | |
-| --- | --- |
-| Proving key load, 15.6 MiB (2x3) | 3.9 s |
-| `groth16.Prove`, 2x3, 54031 constraints | **3.5 s** |
-| Key deserialization rate | ~260 ms/MiB, linear from 7.8 to 15.6 MiB |
+Local Brave measurements on the same 2x3 sample (September 10, 2026):
 
-Single-threaded throughout: Go's js/wasm has no thread support, so the core count
-the browser reports is irrelevant. Cold start dominates and cannot be cached away
--- the key bytes persist in the Cache API, but the deserialized proving key lives
-in wasm linear memory and dies with the instance.
+| Configuration | Proving time | Key preparation |
+| --- | ---: | ---: |
+| Mopro, 18 custom threads | 232.1 ms median of 5 | 3.96 s |
+| Mopro, automatic (browser reported 6) | 408.4 ms median of 5 | 4.05 s |
+| Mopro, 2 custom threads | 994.0 ms, one proof | 4.02 s |
+| Original Go prover | 3,437.9 ms, one proof | 3.95 s |
+
+Browser verification took approximately 5–7 ms. These are local sample
+measurements, not a comparison with native proving speed. Key bytes persist in
+the Cache API, but the prepared key is rebuilt when the worker or shape changes.
+
+### Comparing browsers
+
+Run each browser sequentially so their worker pools do not compete for CPU:
+
+```sh
+node poc/web/scripts/benchmark-browsers.mjs brave 18,6,1
+node poc/web/scripts/benchmark-browsers.mjs firefox 18,6,1
+# Optional diagnostic timings around the shipped Rust kernel's JS methods:
+node poc/web/scripts/benchmark-browsers.mjs brave 18,12 profile
+node poc/web/scripts/benchmark-browsers.mjs firefox 18,12 profile
+```
+
+These use separate headless profiles and save raw samples in
+`target/mopro-browser-comparison/`. Each configuration discards three warm-up
+proofs, measures 15 proofs and verifies every proof. `CHROME_BIN` and
+`FIREFOX_BIN` override the default macOS browser paths. Selenium can download
+matching drivers on first use. Key preparation and verification are excluded
+from the reported proving time.
+
+On the same Mac and 2x3 sample, Brave/Chromium 152 and Firefox 155 measured:
+
+| Workers | Brave median | Firefox median |
+| ---: | ---: | ---: |
+| 1 | 1,860.5 ms | 2,034.1 ms |
+| 6 | 403.2 ms | 464.0 ms |
+| 18 | 230.4 ms | 401.3 ms |
+
+The diagnostic run at 18 workers measured 142.7 ms inside the Rust kernel in
+Brave and 284.2 ms in Firefox. The remaining Go/witness/bridge/assembly work was
+approximately 87.4 and 109.8 ms respectively. This sample retained the Go solver.
+Separate phase medians need not add up to the total median.
+
+Reducing Firefox to 12 workers improved the diagnostic run's total median from
+396.2 to 325.3 ms; Brave was faster at 18 (229.7 ms) than 12 (272.1 ms). This
+points to poorer scaling of the threaded arithmetic path in Firefox for this
+workload. It does not isolate the underlying compiler, synchronization or
+scheduler behavior. The Automatic setting still uses the reported CPU count;
+it does not perform this calibration.
 
 Not yet exercised:
 

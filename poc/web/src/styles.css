@@ -265,3 +265,46 @@ dd {
     overflow-wrap: anywhere;
   }
 }
+
+/* Mopro proof playground */
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; color: #172a29; background: #f4f6f3; }
+body { margin: 0; background: #f4f6f3; color: #172a29; }
+main { max-width: 1080px; margin: 0 auto; padding: 48px 24px 64px; }
+.demo-header { padding: 16px 0 28px; }
+.eyebrow { font-size: 11px; letter-spacing: .16em; font-weight: 750; color: #5c756b; }
+h1 { font-size: clamp(30px, 5vw, 52px); letter-spacing: -.045em; line-height: 1.12; margin: 16px 0; color: #183b31; }
+.demo-header p { max-width: 650px; color: #5b6965; line-height: 1.6; }
+.runtime-pill { display: inline-flex; align-items: center; gap: 10px; padding: 8px 12px; background: #e8eee8; border-radius: 6px; font-size: 12px; color: #36584c; margin-top: 12px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #47896b; }
+.panel { background: #fff; border: 1px solid #d9e1d9; border-radius: 12px; padding: 26px; margin: 0 0 20px; box-shadow: none; }
+.section-top { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+h2 { font-size: 20px; letter-spacing: -.025em; margin-top: 10px; color: #203b32; }
+.tag { color: #557364; border: 1px solid #d9e4db; font-size: 11px; padding: 6px 9px; border-radius: 5px; white-space: nowrap; }
+.hint, .status { color: #69766e; font-size: 13px; line-height: 1.55; }
+.prover-controls { display: flex; flex-wrap: wrap; gap: 22px; align-items: end; margin: 26px 0; }
+.prover-controls label { font-size: 12px; font-weight: 600; }
+.prover-controls input { display: block; width: 90px; margin-top: 8px; }
+.prover-controls select { display: block; max-width: 100%; margin-top: 8px; padding: 10px; border: 1px solid #cbd7ca; border-radius: 5px; color: inherit; background: #fafcf9; font: inherit; }
+.prover-controls .hint { max-width: 500px; }
+input, textarea { border: 1px solid #ccd8ce; background: #fbfcfa; color: #203b32; border-radius: 6px; padding: 10px; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid #dfe6de; border-radius: 8px; margin: 20px 0; overflow: hidden; }
+.metrics > div { padding: 21px; background: #f8faf7; border-right: 1px solid #dfe6de; }
+.metrics > div:last-child { border: 0; }
+.metrics span, .metrics small { display: block; font-size: 12px; color: #687b70; }
+.metrics strong { display: block; font-size: 30px; letter-spacing: -.04em; margin: 12px 0; font-weight: 650; font-variant-numeric: tabular-nums; }
+.metrics strong.verified { color: #22714e; font-size: 26px; }
+.metrics small { font-size: 11px; }
+button { border: 1px solid #cad6ca; color: #254435; background: #fff; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+button:hover:not(:disabled) { background: #edf3ed; border-color: #89a892; }
+button.primary { background: #255f45; border-color: #255f45; color: #fff; }
+button.primary:hover:not(:disabled) { background: #184832; }
+button:disabled { opacity: .5; cursor: progress; }
+.actions { gap: 10px; }
+details { margin-top: 20px; }
+summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 10px 0; color: #486154; }
+.request-editor textarea { width: 100%; min-height: 220px; box-sizing: border-box; display: block; font: 12px/1.55 ui-monospace, monospace; margin-bottom: 12px; }
+.proof-output pre { background: #f4f7f2; color: #315541; padding: 16px; border: 1px solid #dde6da; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 180px; overflow-y: auto; }
+.proof-error { background: #fff2ec; color: #923d21; padding: 16px; white-space: pre-wrap; border-radius: 6px; font-size: 12px; }
+.advanced > summary { padding: 14px 0 24px; color: #65756b; }
+.log { background: #f4f7f2; color: #294c38; }
+@media (max-width: 680px) { main { padding: 22px 14px; } .panel { padding: 18px; } .section-top { display: block; } .tag { display: inline-block; margin: 4px 0 12px; } .metrics { grid-template-columns: 1fr; } .metrics > div { border-right: 0; border-bottom: 1px solid #dfe6de; padding: 16px; } .prover-controls { align-items: start; flex-direction: column; gap: 12px; } .metrics strong { font-size: 27px; margin: 7px 0; } .runtime-pill { flex-wrap: wrap; } }

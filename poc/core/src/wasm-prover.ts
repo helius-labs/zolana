@@ -7,22 +7,21 @@
  * recognizes the prover URL and answers it from wasm instead of the network.
  * Everything else -- indexer calls, Solana RPC -- falls through untouched.
  *
- * Why not mopro: its gnark adapter is `#[cfg(not(target_arch = "wasm32"))]`
- * because it binds Go gnark through cgo, and its wasm-capable adapters are
- * circom/halo2/noir only. Zolana's circuits are gnark, so browser proving has to
- * use gnark's own js/wasm target. mopro remains the right tool on iOS/Android,
- * where that cgo path does work.
+ * Mopro supplies the threaded Rust arithmetic kernel; Zolana retains its
+ * native witness and proof formats.
  */
 
 import type { Measurement } from "./bench.js";
+import { automaticProvingThreads } from "./proving-threads.js";
 import { keyForProveRequest, type ShapeKey } from "./shapes.js";
 
 /** Messages the worker understands. Mirrored by `prover.worker.ts`. */
 export type WorkerRequest =
-  | Readonly<{ id: number; kind: "init"; wasmUrl: string }>
+  | Readonly<{ id: number; kind: "init"; wasmUrl: string; threads: number }>
   | Readonly<{ id: number; kind: "loadKey"; fileName: string; key: ArrayBuffer }>
   | Readonly<{ id: number; kind: "prove"; body: string }>
-  | Readonly<{ id: number; kind: "loadedKeys" }>;
+  | Readonly<{ id: number; kind: "loadedKeys" }>
+  | Readonly<{ id: number; kind: "verify"; body: string; proof: string }>;
 
 /**
  * `Omit` over a union collapses to the union's common keys, which would erase
@@ -43,6 +42,8 @@ export type WorkerResponse = Readonly<{
 export interface WasmProverOptions {
   /** URL of `zolana-prover.wasm` (built by `build_prover_wasm.sh`). */
   readonly wasmUrl: string;
+  /** Omit to choose automatically; zero selects the original Go prover. */
+  readonly threads?: number;
   /** Base URL proving keys are fetched from, e.g. the CloudFront prefix. */
   readonly keyBaseUrl: string;
   /** The prover URL handed to the SDK; requests to it are intercepted. */
@@ -70,6 +71,14 @@ export class WasmProver {
   #worker: Worker | undefined;
   #manifest: Promise<ReadonlyMap<string, KeyDigest>> | undefined;
   #nextId = 1;
+  #queue: Promise<unknown> = Promise.resolve();
+  #threads = 0;
+  get threads(): number { return this.#threads; }
+  #enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.#queue.then(operation);
+    this.#queue = next.catch(() => {});
+    return next;
+  }
   readonly #pending = new Map<
     number,
     Readonly<{ resolve: (value: WorkerResponse) => void; reject: (error: unknown) => void }>
@@ -117,14 +126,20 @@ export class WasmProver {
     });
     this.#worker = worker;
 
-    await this.#call(
-      { kind: "init", wasmUrl: this.#options.wasmUrl },
+    const ready = await this.#call(
+      { kind: "init", wasmUrl: this.#options.wasmUrl, threads: this.#options.threads ?? automaticProvingThreads() },
       "wasm-init",
     );
+    const value = ready.value as { threads: number };
+    this.#threads = value.threads;
   }
 
   /** Downloads (or reads from cache) and deserializes one shape's proving key. */
   async ensureKey(shape: ShapeKey): Promise<void> {
+    return this.#enqueue(() => this.#loadKey(shape));
+  }
+
+  async #loadKey(shape: ShapeKey): Promise<void> {
     if (this.#loaded.has(shape.keyFile)) {
       // Reported rather than returned silently: a second sweep would otherwise
       // show a passing run with no steps, which reads as a lost measurement.
@@ -147,6 +162,7 @@ export class WasmProver {
       note: shape.keyFile,
     });
 
+    this.#loaded.clear();
     const response = await this.#call(
       { kind: "loadKey", fileName: shape.keyFile, key },
       "key-load",
@@ -166,6 +182,7 @@ export class WasmProver {
           ? shape.keyFile
           : `${shape.keyFile} as ${String(info.key)} nbPublic=${String(info.nbPublic)} nbSecret=${String(info.nbSecret)}`,
     });
+    this.#loaded.clear();
     this.#loaded.add(shape.keyFile);
   }
 
@@ -255,59 +272,32 @@ export class WasmProver {
       if (body === undefined) {
         throw new WasmProverError("intercepted a prove request with no body");
       }
-      // Load the key the request actually needs. Predicting the shape ahead of
-      // time is unreliable -- the protocol picks it from the real input/output
-      // counts -- so read it off the request, exactly as the server's
-      // LazyKeyManager does.
-      const shape = requestShape(body);
-      // The variable-length arrays are what set the witness size, and gnark
-      // reports only a total. Record them so a size mismatch names the culprit.
-      this.#options.onMeasurement?.({
-        step: "transfer-prove",
-        ms: 0,
-        note: `request ${describeRequest(body)}`,
-      });
-      if (shape !== undefined) {
-        try {
-          await this.ensureKey(shape);
-        } catch (cause) {
-          return proverErrorResponse(
-            `loading ${shape.keyFile}: ${cause instanceof Error ? cause.message : String(cause)}`,
-            this.#options.onMeasurement,
-          );
-        }
+      try {
+        const result = await this.proveRequest(body);
+        return new Response(result.proof, { status: 200, headers: { "content-type": "application/json" } });
+      } catch (error) {
+        return proverErrorResponse(error instanceof Error ? error.message : String(error), this.#options.onMeasurement);
       }
-
-      const response = await this.#call({ kind: "prove", body }, "prove");
-      this.#options.onMeasurement?.({
-        step: "transfer-prove",
-        ms: response.ms,
-        note: response.ok
-          ? `wasm groth16.Prove, single-threaded${shape === undefined ? "" : ` (${shape.label})`}`
-          : `wasm prove failed: ${response.error ?? "unknown"}`,
-      });
-      if (!response.ok) {
-        // Parked where a console one-liner can retrieve it. A witness-size
-        // mismatch is only diagnosable by diffing the request against a
-        // known-good one, and a 12 KB body is not something to read off a page.
-        (globalThis as { __lastProveRequest?: string }).__lastProveRequest = body;
-        console.error(
-          `[wasm prover] ${response.error ?? "unknown"}\n` +
-            `  ${describeRequest(body)} bodyBytes=${String(body.length)}\n` +
-            "  full request: copy(__lastProveRequest)",
-        );
-        // The reason has to travel in the body AND in a measurement: the SDK
-        // reports only the HTTP status, so a bare 500 would reach the UI with no
-        // indication of what the prover objected to.
-        return proverErrorResponse(
-          `${response.error ?? "unknown wasm prover error"} [${describeRequest(body)}]`,
-        );
-      }
-      return new Response(String(response.value), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
     };
+  }
+
+  /** Prove and verify one request locally, keeping key switching atomic. */
+  async proveRequest(body: string): Promise<{ proof: string; proveMs: number; verifyMs: number }> {
+    return this.#enqueue(async () => {
+      const shape = requestShape(body);
+      if (shape === undefined) throw new WasmProverError("Unsupported circuit or malformed request");
+      await this.#loadKey(shape);
+      const response = await this.#call({ kind: "prove", body }, "prove");
+      if (!response.ok) throw new WasmProverError(response.error ?? "Proof generation failed");
+      if (typeof response.value !== "string") throw new WasmProverError("Invalid proof response");
+      const proof = response.value;
+      const verified = await this.#call({ kind: "verify", body, proof }, "verify");
+      if (typeof verified.value !== "object" || verified.value === null || !("valid" in verified.value) || verified.value.valid !== true) {
+        throw new WasmProverError("Native gnark verification rejected the proof");
+      }
+      this.#options.onMeasurement?.({ step: "transfer-prove", ms: response.ms, note: `Mopro proof, ${String(this.#threads)} arithmetic workers; locally verified` });
+      return { proof, proveMs: response.ms, verifyMs: verified.ms };
+    });
   }
 
   async loadedKeys(): Promise<readonly string[]> {

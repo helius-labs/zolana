@@ -1,6 +1,11 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const isolationHeaders = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+};
+
 export default defineConfig({
   plugins: [react()],
   // The SDK and the Poseidon hasher both use top-level await, so the output
@@ -9,6 +14,9 @@ export default defineConfig({
   build: { target: "esnext" },
   worker: { format: "es" },
   server: {
+    host: "127.0.0.1",
+    port: 5178,
+    strictPort: true,
     // Must match the /devnet/ paths deploy/nginx.conf proxies.
     proxy: {
       "/devnet/indexer": {
@@ -22,14 +30,10 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/devnet\/prover/u, ""),
       },
     },
-    headers: {
-      // Not required by the Go wasm prover -- js/wasm is single-threaded and
-      // needs no SharedArrayBuffer -- but set so the page stays cross-origin
-      // isolated if a threaded prover is dropped in later.
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp",
-    },
+    // Required for Mopro's shared-memory Rayon arithmetic workers.
+    headers: isolationHeaders,
   },
+  preview: { host: "127.0.0.1", headers: isolationHeaders },
   // Proving keys are served from public/keys in local development so the browser
   // fetches them same-origin, with no CORS configuration on the key host.
   publicDir: "public",
