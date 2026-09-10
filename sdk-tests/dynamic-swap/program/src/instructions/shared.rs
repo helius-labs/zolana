@@ -8,7 +8,7 @@ use pinocchio::{
     AccountView, Address, ProgramResult,
 };
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
-use zolana_hasher::{primitives::hash_bytes, Hasher, Poseidon};
+use zolana_hasher::{primitives::solana_owner_identity, Hasher, Poseidon};
 use zolana_interface::{instruction::tag::TRANSACT, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::DynamicSwapError;
@@ -20,7 +20,8 @@ pub fn u64_right_align(value: u64) -> [u8; 32] {
 }
 
 /// The escrow_authority PDA's owner-hash for `pair`:
-/// `Poseidon(hash_bytes(derived PDA), nullifier_pubkey)`, with the PDA derived
+/// `Poseidon(solana_owner_identity(derived PDA), nullifier_pubkey)` -- a PDA is
+/// a Solana key, so its identity carries the Solana owner tag -- with the PDA derived
 /// here so the program never trusts a client value for the PDA binding of the
 /// `escrow_open` circuit's `EscrowAuthorityOwnerHash` public input.
 /// `nullifier_pubkey` is the value published in
@@ -34,7 +35,7 @@ pub fn escrow_authority_owner_hash(
     nullifier_pubkey: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
     let (pda, _bump) = derive_authority_pda(crate::ESCROW_AUTHORITY_PDA_SEED, pair);
-    let owner_pk_field = hash_bytes(pda.as_array()).map_err(DynamicSwapError::from)?;
+    let owner_pk_field = solana_owner_identity(pda.as_array()).map_err(DynamicSwapError::from)?;
     Poseidon::hashv(&[owner_pk_field.as_slice(), nullifier_pubkey.as_slice()])
         .map_err(|_| DynamicSwapError::HashingFailed.into())
 }

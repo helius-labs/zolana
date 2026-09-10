@@ -52,12 +52,19 @@ func TestSignedAmountRangeBoundary(t *testing.T) {
 	)
 	assert.SolvingSucceeded(
 		circuit,
-		&signedAmountRangeCircuit{Value: protocol.SignedToField(new(big.Int).Neg(limit))},
+		&signedAmountRangeCircuit{Value: protocol.SignedToField(new(big.Int).Neg(new(big.Int).Sub(limit, big.NewInt(1))))},
 		test.WithCurves(ecc.BN254),
 	)
 	assert.SolvingFailed(
 		circuit,
 		&signedAmountRangeCircuit{Value: protocol.SignedToField(limit)},
+		test.WithCurves(ecc.BN254),
+	)
+	// -2^64 has a magnitude that does not fit u64 even though it fits the
+	// 65-bit shifted decomposition.
+	assert.SolvingFailed(
+		circuit,
+		&signedAmountRangeCircuit{Value: protocol.SignedToField(new(big.Int).Neg(limit))},
 		test.WithCurves(ecc.BN254),
 	)
 	assert.SolvingFailed(

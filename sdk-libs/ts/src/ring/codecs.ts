@@ -28,6 +28,8 @@ export interface RingPolicySource {
 export interface RingPolicyConfig {
   readonly policyHash: Bytes32;
   readonly entriesTree: Address;
+  /** Raw id of `entriesTree`, every entry leaf and address hashes under it. */
+  readonly entriesTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
   readonly sources: readonly RingPolicySource[];
@@ -62,7 +64,7 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 1177;
+const RING_POLICY_CONFIG_SIZE = 1179;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -74,6 +76,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   reader.u8("discriminator");
   const policyHash = reader.bytes(32, "policyHash") as Bytes32;
   const entriesTree = encodeBase58(reader.bytes(32, "entriesTree"));
+  const entriesTreeId = reader.u16("entriesTreeId");
   const namespaceBump = reader.u8("namespaceBump");
   const bump = reader.u8("bump");
   const sources = Object.freeze(
@@ -93,6 +96,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   return Object.freeze({
     policyHash,
     entriesTree,
+    entriesTreeId,
     namespaceBump,
     bump,
     sources,

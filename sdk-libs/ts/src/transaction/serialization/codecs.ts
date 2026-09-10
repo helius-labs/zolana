@@ -8,7 +8,18 @@ import { Data, type DataRecord } from "../data.js";
 import { TransactionError } from "../error.js";
 import { checked, concat, copy, decodeAddress, encodeAddress, equal } from "../internal.js";
 import { SOL_MINT, type AssetRegistry } from "../asset.js";
-import { Utxo, deriveBlinding, resolveRingProgramId } from "../utxo.js";
+import { SPP_SUPPORTED_SHAPES } from "../../interface/shape.js";
+import { Utxo, resolveRingProgramId, transactOutputBlinding } from "../utxo.js";
+
+/**
+ * The widest output slot count any transact shape has. A seed-disclosing
+ * bundle derives its slots' blindings by position, so a reverse lookup never
+ * has to search past it. Mirrors Rust `MAX_OUTPUT_SLOTS`.
+ */
+const MAX_OUTPUT_SLOTS = SPP_SUPPORTED_SHAPES.reduce(
+  (max, shape) => Math.max(max, shape.outputs),
+  0,
+);
 
 /**
  * The type prefix each encrypted family writes into its plaintext body. These
@@ -485,10 +496,17 @@ export function decodeAnonymousSender(bytes: Uint8Array): AnonymousSenderPlainte
   return result;
 }
 
+/**
+ * Rust `AnonymousTransferSenderPlaintext::into_utxos`. The bundle's
+ * `blindingSeed` is the derived output seed; the change slots' blindings
+ * follow from it and the transaction's first nullifier at the fixed change
+ * positions, SPL at 0 and SOL at 1.
+ */
 export function anonymousSenderUtxos(
   value: AnonymousSenderPlaintext,
   assets: AssetRegistry,
   solMint: Address,
+  firstNullifier: Bytes32,
   ringProgramId?: Address,
 ): readonly Utxo[] {
   if (value.splAmount === 0n && !value.splData.isEmpty()) {
@@ -505,7 +523,7 @@ export function anonymousSenderUtxos(
         owner: value.ownerPublicKey,
         asset: assets.resolve(value.splAssetId),
         amount: value.splAmount,
-        blinding: deriveBlinding(value.blindingSeed, 0),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 0),
         data: value.splData,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -518,7 +536,7 @@ export function anonymousSenderUtxos(
         owner: value.ownerPublicKey,
         asset: solMint,
         amount: value.solAmount,
-        blinding: deriveBlinding(value.blindingSeed, 1),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 1),
         data: value.solData,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -581,15 +599,12 @@ export function decodePlaintextTransfer(
       solData: readData(reader),
     };
   });
-  const recipientSlots = Array.from(
-    { length: reader.u8() },
-    (): TransferPlaintextRecipient => ({
-      ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
-      assetId: reader.u64(),
-      amount: reader.u64(),
-      data: readData(reader),
-    }),
-  );
+  const recipientSlots = Array.from({ length: reader.u8() }, (): TransferPlaintextRecipient => ({
+    ownerPublicKey: ShieldedPublicKey.fromBytes(reader.take(34) as Bytes34),
+    assetId: reader.u64(),
+    amount: reader.u64(),
+    data: readData(reader),
+  }));
   reader.exact();
   return {
     typePrefix,
@@ -602,13 +617,15 @@ export function decodePlaintextTransfer(
 /**
  * Rust `TransferPlaintextUtxos::into_utxos`. Slot 0 is the sender's SPL
  * change, slot 1 its SOL change, and recipients follow from slot 2; the
- * position is what derives each blinding, so it is also the position the
- * published output slot must sit at.
+ * position, with the disclosed output seed and the transaction's first
+ * nullifier, derives each blinding, so it is also the position the published
+ * output slot must sit at.
  */
 export function plaintextTransferUtxos(
   value: TransferPlaintextUtxos,
   assets: AssetRegistry,
   solMint: Address,
+  firstNullifier: Bytes32,
   ringProgramId?: Address,
 ): readonly Utxo[] {
   const values: Utxo[] = [];
@@ -627,7 +644,7 @@ export function plaintextTransferUtxos(
           owner: sender.ownerPublicKey,
           asset: assets.resolve(sender.spl.assetId),
           amount: sender.spl.amount,
-          blinding: deriveBlinding(value.blindingSeed, 0),
+          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 0),
           data: sender.splData,
           ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
@@ -640,7 +657,7 @@ export function plaintextTransferUtxos(
           owner: sender.ownerPublicKey,
           asset: solMint,
           amount: sender.solAmount,
-          blinding: deriveBlinding(value.blindingSeed, 1),
+          blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, 1),
           data: sender.solData,
           ...(ring === undefined ? {} : { ringProgramId: ring }),
         }),
@@ -649,14 +666,14 @@ export function plaintextTransferUtxos(
   }
   value.recipientSlots.forEach((recipient, index) => {
     const position = index + 2;
-    if (position > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+    if (position >= MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
     const ring = resolveRingProgramId(ringProgramId, recipient.data);
     values.push(
       new Utxo({
         owner: recipient.ownerPublicKey,
         asset: assets.resolve(recipient.assetId),
         amount: recipient.amount,
-        blinding: deriveBlinding(value.blindingSeed, position),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, position),
         data: recipient.data,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -725,13 +742,22 @@ export function decodeSplitEncrypted(bytes: Uint8Array): SplitEncryptedUtxos {
   return { typePrefix, txViewingPublicKey, salt, ciphertext };
 }
 
+/**
+ * Rust `SplitBundlePlaintext::into_utxos`: the bundle discloses the derived
+ * output seed and every slot's blinding follows from it, the transaction's
+ * first nullifier, and the slot index.
+ */
 export function splitBundleUtxos(
   value: SplitBundlePlaintext,
   assets: AssetRegistry,
+  firstNullifier: Bytes32,
   ringProgramId?: Address,
 ): readonly Utxo[] {
   if (value.numOutputs === 0 && !value.data.isEmpty()) {
     throw new TransactionError("TRANSACTION_DATA_WITHOUT_OUTPUT");
+  }
+  if (value.numOutputs > MAX_OUTPUT_SLOTS) {
+    throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
   }
   const ring = resolveRingProgramId(ringProgramId, value.data);
   const asset = assets.resolve(value.assetId);
@@ -742,7 +768,7 @@ export function splitBundleUtxos(
         owner: value.ownerPublicKey,
         asset,
         amount: value.assetAmount,
-        blinding: deriveBlinding(value.blindingSeed, position),
+        blinding: transactOutputBlinding(firstNullifier, value.blindingSeed, position),
         data: value.data,
         ...(ring === undefined ? {} : { ringProgramId: ring }),
       }),
@@ -1104,20 +1130,38 @@ function validateRing(utxo: Utxo, ringProgramId: Address | undefined, index: num
   }
 }
 
-/** The blinding position a UTXO sits at, or `undefined` if the seed derives none. */
-function blindingPosition(seed: Bytes32, blinding: Bytes32): number | undefined {
-  for (let position = 0; position <= 0xff; position++) {
-    if (equal(deriveBlinding(seed, position), blinding)) return position;
+/**
+ * The output slot a UTXO sits at, or `undefined` if the seed derives its
+ * blinding at no slot. The derivation is not invertible, so every slot of the
+ * widest shape is tried.
+ */
+function blindingPosition(
+  firstNullifier: Bytes32,
+  seed: Bytes32,
+  blinding: Bytes32,
+): number | undefined {
+  for (let position = 0; position < MAX_OUTPUT_SLOTS; position++) {
+    if (equal(transactOutputBlinding(firstNullifier, seed, position), blinding)) return position;
   }
   return undefined;
+}
+
+/**
+ * The context a seed-disclosing bundle is rebuilt from: the derived output
+ * seed the bundle carries and the transaction's first nullifier.
+ */
+export interface SeedBundleContext {
+  readonly blindingSeed: Bytes32;
+  readonly firstNullifier: Bytes32;
 }
 
 export function plaintextTransferFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ blindingSeed: Bytes32 }>,
+  cx: SeedBundleContext,
 ): TransferPlaintextUtxos {
   const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
+  const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
   let senderOwner: ShieldedPublicKey | undefined;
   let spl: TransferPlaintextSplChange | undefined;
   let solAmount: bigint | undefined;
@@ -1127,7 +1171,7 @@ export function plaintextTransferFromUtxos(
   const seen = new Set<number>();
   for (const [index, utxo] of utxos.entries()) {
     validateRing(utxo, owner.ringProgramId, index);
-    const position = blindingPosition(blindingSeed, utxo.blinding);
+    const position = blindingPosition(firstNullifier, blindingSeed, utxo.blinding);
     if (position === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT", { index });
     if (seen.has(position)) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
@@ -1164,7 +1208,7 @@ export function plaintextTransferFromUtxos(
   recipients.sort(([left], [right]) => left - right);
   for (const [offset, [position]] of recipients.entries()) {
     const expected = offset + 2;
-    if (expected > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+    if (expected >= MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
     if (position !== expected) {
       throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position });
     }
@@ -1208,13 +1252,14 @@ export function anonymousRecipientFromUtxos(
 export function anonymousSenderFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{
-    blindingSeed: Bytes32;
-    recipientViewingPublicKeys: readonly P256PublicKey[];
-  }>,
+  cx: SeedBundleContext &
+    Readonly<{
+      recipientViewingPublicKeys: readonly P256PublicKey[];
+    }>,
 ): AnonymousSenderPlaintext {
   if (utxos.length === 0) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
   const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
+  const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
   let splAssetId = 0n;
   let splAmount = 0n;
   let solAmount = 0n;
@@ -1226,14 +1271,20 @@ export function anonymousSenderFromUtxos(
     validateOwner(utxo, owner.owner, index);
     validateRing(utxo, owner.ringProgramId, index);
     if (utxo.asset === SOL_MINT) {
-      if (solSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 1))) {
+      if (
+        solSeen ||
+        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, 1))
+      ) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 1 });
       }
       solSeen = true;
       solAmount = utxo.amount;
       solData = new Data(utxo.data.records());
     } else {
-      if (splSeen || !equal(utxo.blinding, deriveBlinding(blindingSeed, 0))) {
+      if (
+        splSeen ||
+        !equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, 0))
+      ) {
         throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", { position: 0 });
       }
       splSeen = true;
@@ -1257,12 +1308,13 @@ export function anonymousSenderFromUtxos(
 export function splitBundleFromUtxos(
   utxos: readonly Utxo[],
   owner: OwnerContext,
-  cx: Readonly<{ blindingSeed: Bytes32 }>,
+  cx: SeedBundleContext,
 ): SplitBundlePlaintext {
   const first = utxos[0];
   if (first === undefined) throw new TransactionError("TRANSACTION_MISSING_OUTPUT");
-  if (utxos.length > 0xff) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
+  if (utxos.length > MAX_OUTPUT_SLOTS) throw new TransactionError("TRANSACTION_TOO_MANY_OUTPUTS");
   const blindingSeed = checked<Bytes32>(cx.blindingSeed, 32, "blinding seed");
+  const firstNullifier = checked<Bytes32>(cx.firstNullifier, 32, "first nullifier");
   for (const [index, utxo] of utxos.entries()) {
     validateOwner(utxo, owner.owner, index);
     validateRing(utxo, owner.ringProgramId, index);
@@ -1275,7 +1327,7 @@ export function splitBundleFromUtxos(
     if (!sameData(utxo.data, first.data)) {
       throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH", { index });
     }
-    if (!equal(utxo.blinding, deriveBlinding(blindingSeed, index))) {
+    if (!equal(utxo.blinding, transactOutputBlinding(firstNullifier, blindingSeed, index))) {
       throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", { index });
     }
   }

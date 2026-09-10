@@ -23,6 +23,7 @@ pub struct LiveEntry {
 #[must_use]
 pub struct ReadEntry {
     pub entries_tree: Address,
+    pub entries_tree_id: u16,
     pub namespace: Address,
     pub list_id: ListId,
     pub member: Member,
@@ -61,6 +62,7 @@ impl ReadEntry {
             owner,
             list_id: self.list_id,
             member: self.member,
+            tree_id: self.entries_tree_id,
         })
     }
 }
@@ -70,12 +72,13 @@ pub(crate) struct EntryLookup {
     pub owner: ListNamespace,
     pub list_id: ListId,
     pub member: Member,
+    pub tree_id: u16,
 }
 
 impl EntryLookup {
     pub(crate) fn address(&self) -> Result<[u8; 32], EntryProofError> {
         self.owner
-            .address(self.list_id, &self.member)
+            .address(self.list_id, &self.member, self.tree_id)
             .map_err(|_| EntryProofError::Hashing)
     }
 
@@ -87,7 +90,7 @@ impl EntryLookup {
         if entry.list_id != self.list_id || entry.member != self.member {
             return None;
         }
-        let utxo_hash = entry.utxo_hash(&self.owner, address).ok()?;
+        let utxo_hash = entry.utxo_hash(&self.owner, address, self.tree_id).ok()?;
         if utxo_hash != slot.output_context.hash {
             return None;
         }
@@ -282,6 +285,7 @@ pub(crate) mod tests {
             owner: owner(),
             list_id,
             member,
+            tree_id: 0,
         }
     }
 
@@ -303,8 +307,11 @@ pub(crate) mod tests {
                         state: *state,
                         version: version as u64,
                         content_hash: [0u8; 32],
+                        blinding: [version as u8 + 1; 32],
                     };
-                    let utxo_hash = entry.utxo_hash(&lookup.owner, &address).expect("hash");
+                    let utxo_hash = entry
+                        .utxo_hash(&lookup.owner, &address, lookup.tree_id)
+                        .expect("hash");
                     LiveEntry {
                         entry,
                         utxo_hash,
@@ -450,6 +457,7 @@ pub(crate) mod tests {
     fn read(lookup: EntryLookup, rpc: &NullifierRpc) -> Result<Option<LiveEntry>, EntryProofError> {
         ReadEntry {
             entries_tree: tree(),
+            entries_tree_id: 0,
             namespace: namespace(),
             list_id: lookup.list_id,
             member: lookup.member,
@@ -507,6 +515,7 @@ pub(crate) mod tests {
         let live = futures::executor::block_on(
             ReadEntry {
                 entries_tree: tree(),
+                entries_tree_id: 0,
                 namespace: namespace(),
                 list_id: ListId::Block,
                 member: member(2),

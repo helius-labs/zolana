@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     err,
+    shared::INDEXED_TREE_ID,
     state::{OrderTerms, OrderUtxo, PlainTextData},
     MarkerData,
 };
@@ -99,7 +100,7 @@ impl TakerOrderCandidate {
         };
         let order_utxo_hash = order_utxo
             .output_utxo(taker_viewing_pubkey)?
-            .hash()
+            .hash(INDEXED_TREE_ID)
             .map_err(err)?;
         if order_utxo_hash != self.order_utxo_hash {
             bail!("reconstructed order utxo hash does not match the committed leaf");

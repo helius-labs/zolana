@@ -23,7 +23,9 @@ type ListFactWires struct {
 	// Cleared proofs.
 	ContentHash frontend.Variable
 	Version     frontend.Variable
-	State       frontend.Variable
+	// The SPP output blinding the record publishes, inclusion binds it.
+	Blinding frontend.Variable
+	State    frontend.Variable
 	// AbsentBranch selects an unclaimed address or a cleared entry.
 	AbsentBranch frontend.Variable
 	// Lower-leaf bounds prove the target is absent from the nullifier tree.
@@ -52,6 +54,7 @@ type listFactContext struct {
 	ownerHash     frontend.Variable
 	stateRoot     frontend.Variable
 	nullifierRoot frontend.Variable
+	treeID        frontend.Variable
 }
 
 // checkListFacts authenticates shared list facts before any rule can use them.
@@ -63,6 +66,7 @@ func (c *CustomRingPolicyCircuit) checkListFacts(api frontend.API, rangeChecker 
 			ownerHash:     resolveSourceOwner(api, c.Sources, fact),
 			stateRoot:     c.StateRoot,
 			nullifierRoot: c.NullifierRoot,
+			treeID:        c.EntriesTreeID,
 		}
 
 		// 2. Prove the list fact at the supplied roots.
@@ -93,7 +97,7 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 	// 3. Derive the entry address from its source, list and member.
 	seed := gadget.PoseidonHash(api, []frontend.Variable{policyAddressDomain, w.ListId, w.Member})
 	address := gadget.PoseidonHash(api, []frontend.Variable{
-		addressUtxoHash(api, context.ownerHash, seed),
+		addressUtxoHash(api, context.ownerHash, seed, context.treeID),
 		seed,
 		0,
 	})
@@ -109,16 +113,16 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 		w.Version,
 		w.ContentHash,
 	})
-	// The entry version is its blinding.
 	utxoHash := gadget.PoseidonHash(api, []frontend.Variable{
 		shared.UtxoDomain,
+		context.treeID,
 		solAssetField,
 		0,
 		dataHash,
 		emptyRingHash,
-		gadget.PoseidonHash(api, []frontend.Variable{context.ownerHash, w.Version}),
+		gadget.PoseidonHash(api, []frontend.Variable{context.ownerHash, w.Blinding}),
 	})
-	nullifier := gadget.PoseidonHash(api, []frontend.Variable{utxoHash, w.Version, 0})
+	nullifier := gadget.PoseidonHash(api, []frontend.Variable{utxoHash, w.Blinding, 0})
 
 	// 5. Require state inclusion for Present and Cleared claims.
 	clearedBranch := api.Mul(absent, cleared)
@@ -175,9 +179,10 @@ func (w ListFactWires) check(api frontend.API, rangeChecker frontend.Rangechecke
 
 // addressUtxoHash binds the namespace owner and seed into the entry's address
 // commitment.
-func addressUtxoHash(api frontend.API, ownerHash, seed frontend.Variable) frontend.Variable {
+func addressUtxoHash(api frontend.API, ownerHash, seed, treeID frontend.Variable) frontend.Variable {
 	return gadget.PoseidonHash(api, []frontend.Variable{
 		shared.AddressDomain,
+		treeID,
 		0,
 		0,
 		0,

@@ -70,7 +70,12 @@ fn sync_records_inbound_and_outbound_transfer_history() {
     let spent_utxo = alice_wallet.utxos[0].utxo.clone();
     let spent_nullifier_pk = alice.nullifier_key.pubkey().unwrap();
     let spent_hash = spent_utxo
-        .hash(&spent_nullifier_pk, &[0u8; 32], &[0u8; 32])
+        .hash(
+            &spent_nullifier_pk,
+            &[0u8; 32],
+            &[0u8; 32],
+            common::TEST_TREE_ID,
+        )
         .unwrap();
     let spend_nullifier = spent_utxo
         .nullifier(&spent_hash, &alice.nullifier_key)

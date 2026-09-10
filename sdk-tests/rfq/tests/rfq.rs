@@ -8,8 +8,8 @@ use zolana_interface::instruction::Transact;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -26,6 +26,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     let TestEnv {
         client,
         tree,
+        tree_id,
         mut maker,
         mut taker,
         usdc_mint,
@@ -49,17 +50,19 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .cloned()
         .ok_or_else(|| anyhow!("no taker usdc utxo >= {BUY_USDC}"))?;
 
-    let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker.keypair);
-    let taker_spend = SppProofInputUtxo::new(taker_usdc_utxo, &taker.keypair);
+    let maker_spend = SppProofInputUtxo::new(maker_sol_utxo, &maker.keypair).in_tree(tree_id);
+    let taker_spend = SppProofInputUtxo::new(taker_usdc_utxo, &taker.keypair).in_tree(tree_id);
     let inputs = vec![maker_spend, taker_spend];
 
     let sol_to_taker = SppProofOutputUtxo::new(SOL_MINT, SELL_SOL, taker_address)?;
     let usdc_to_maker = SppProofOutputUtxo::new(usdc_mint, BUY_USDC, maker_address)?;
-    let outputs = vec![sol_to_taker, usdc_to_maker];
+    let mut outputs = vec![sol_to_taker, usdc_to_maker];
+    let blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
 
     let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &inputs)
         .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
-    let encoded = encrypt_transaction_data(&outputs, &maker.registry, &transaction_viewing_key)?;
+    let encoded =
+        encrypt_transaction_data(&outputs, &maker.registry, &transaction_viewing_key, tree_id)?;
 
     let external_data = ExternalData::new(
         *transaction_viewing_key.pubkey().as_bytes(),
@@ -73,7 +76,9 @@ fn cosigned_rfq_settlement() -> Result<()> {
         encoded.output_utxos,
         external_data,
         maker_address.solana_address()?,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(tree_id);
 
     let data = client
         .prove_transact(Address::new_from_array(tree.to_bytes()), proof_inputs, None)
@@ -101,10 +106,10 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .get(1)
         .ok_or_else(|| anyhow!("missing usdc output"))?;
     let sol_to_taker_hash = sol_output
-        .hash()
+        .hash(tree_id)
         .map_err(|e| anyhow!("sol output hash: {e:?}"))?;
     let usdc_to_maker_hash = usdc_output
-        .hash()
+        .hash(tree_id)
         .map_err(|e| anyhow!("usdc output hash: {e:?}"))?;
     client
         .indexer()

@@ -4,7 +4,6 @@ fn main() {
     println!("cargo:rerun-if-changed=circuits/main.go");
     println!("cargo:rerun-if-changed=circuits/go.mod");
     println!("cargo:rerun-if-changed=circuits/go.sum");
-    println!("cargo:rerun-if-changed=circuits/pool_update/pool_update.go");
     println!("cargo:rerun-if-changed=circuits/escrow_open/escrow_open.go");
     println!("cargo:rerun-if-changed=circuits/escrow_settle/escrow_settle.go");
     println!("cargo:rerun-if-changed=circuits/witness/witness.go");

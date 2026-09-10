@@ -711,7 +711,12 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 	if err := json.Unmarshal(payload, &params); err != nil {
 		return nil, fmt.Errorf("unmarshal merge params: %w", err)
 	}
-	ps, err := w.keyManager.GetTransferSystem(circuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	// The declared input count is the merge shape; check it before the key
+	// lookup so an unsupported count is not reported as a missing key.
+	if err := params.ValidateShape(); err != nil {
+		return nil, err
+	}
+	ps, err := w.keyManager.GetTransferSystem(circuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", circuitType, err)
 	}

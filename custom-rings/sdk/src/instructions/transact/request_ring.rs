@@ -9,6 +9,7 @@ use zolana_client::{
     prover::{Delivery, ProveRequest},
     ClientError,
 };
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_keypair::{P256Pubkey, ViewingKey};
 use zolana_ring_policy::{
     MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
@@ -23,6 +24,8 @@ pub const NULLIFIER_PATH_LEN: usize = 40;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CustomRingOpening {
     pub domain: [u8; 32],
+    /// Raw id of the tree the slot hashes under, right aligned.
+    pub tree_id: [u8; 32],
     pub owner_pk_hash: [u8; 32],
     pub nullifier_pk: [u8; 32],
     pub asset: [u8; 32],
@@ -44,6 +47,7 @@ pub struct RuleAnswer {
     pub member: [u8; 32],
     pub content_hash: [u8; 32],
     pub version: u64,
+    pub blinding: [u8; 32],
     pub low: [u8; 32],
     pub next: [u8; 32],
     pub nullifier_path: Vec<[u8; 32]>,
@@ -63,6 +67,7 @@ impl Default for RuleAnswer {
             member: [0u8; 32],
             content_hash: [0u8; 32],
             version: 0,
+            blinding: [0u8; 32],
             low: [0u8; 32],
             next: [0u8; 32],
             nullifier_path: vec![[0u8; 32]; NULLIFIER_PATH_LEN],
@@ -88,6 +93,7 @@ pub struct CustomRingPolicyProofRequest {
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
     pub address_chain: [u8; 32],
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
     pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub policy_len: u8,
     pub rules: [[u8; 32]; MAX_RULES],
@@ -96,6 +102,7 @@ pub struct CustomRingPolicyProofRequest {
     pub inline_count: u8,
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
+    pub entries_tree_id: u16,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -173,6 +180,7 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             outputs: self.outputs.iter().map(opening_json).collect(),
             address_chain: field_hex(&self.address_chain),
             external_data_hash: field_hex(&self.external_data_hash),
+            private_tx_blinding: field_hex(&self.private_tx_blinding),
             sources: self.sources.iter().map(source_json).collect(),
             policy_len: self.policy_len,
             rule_enc: self.rules.iter().map(field_hex).collect(),
@@ -181,6 +189,7 @@ impl ProveRequest for CustomRingPolicyProofRequest {
             inline_count: self.inline_count,
             state_root: field_hex(&self.state_root),
             nullifier_root: field_hex(&self.nullifier_root),
+            entries_tree_id: field_hex(&tree_id_field(self.entries_tree_id)),
             answers: self.answers.iter().map(answers_json).collect(),
         };
         serde_json::to_string(&json)
@@ -196,6 +205,7 @@ impl ProveRequest for CustomRingPolicyProofRequest {
 fn opening_json(opening: &CustomRingOpening) -> CustomRingOpeningJson {
     CustomRingOpeningJson {
         domain: field_hex(&opening.domain),
+        tree_id: field_hex(&opening.tree_id),
         owner_pk_hash: field_hex(&opening.owner_pk_hash),
         nullifier_pk: field_hex(&opening.nullifier_pk),
         asset: field_hex(&opening.asset),
@@ -230,6 +240,7 @@ fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
         member: field_hex(&entry.member),
         content_hash: field_hex(&entry.content_hash),
         version: entry.version,
+        blinding: field_hex(&entry.blinding),
         low: field_hex(&entry.low),
         next: field_hex(&entry.next),
         nf_path_elements: entry.nullifier_path.iter().map(field_hex).collect(),
@@ -242,6 +253,8 @@ fn answers_json(entry: &RuleAnswer) -> RuleAnswerJson {
 #[derive(Serialize)]
 struct CustomRingOpeningJson {
     domain: String,
+    #[serde(rename = "treeId")]
+    tree_id: String,
     #[serde(rename = "ownerPkHash")]
     owner_pk_hash: String,
     #[serde(rename = "nullifierPk")]
@@ -278,6 +291,7 @@ struct RuleAnswerJson {
     #[serde(rename = "contentHash")]
     content_hash: String,
     version: u64,
+    blinding: String,
     low: String,
     next: String,
     #[serde(rename = "nfPathElements")]
@@ -314,6 +328,8 @@ struct CustomRingPolicyProofRequestJson<'a> {
     address_chain: String,
     #[serde(rename = "externalDataHash")]
     external_data_hash: String,
+    #[serde(rename = "privateTxBlinding")]
+    private_tx_blinding: String,
     sources: Vec<CustomRingSourceJson>,
     #[serde(rename = "policyLen")]
     policy_len: u8,
@@ -329,6 +345,8 @@ struct CustomRingPolicyProofRequestJson<'a> {
     state_root: String,
     #[serde(rename = "nullifierRoot")]
     nullifier_root: String,
+    #[serde(rename = "entriesTreeId")]
+    entries_tree_id: String,
     answers: Vec<RuleAnswerJson>,
 }
 
@@ -353,6 +371,7 @@ mod tests {
             outputs: [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS],
             address_chain: [0u8; 32],
             external_data_hash: [6u8; 32],
+            private_tx_blinding: [7u8; 32],
             sources: [SourceOwnerEntry::default(); MAX_SOURCES],
             policy_len: 1,
             rules: [[0u8; 32]; MAX_RULES],
@@ -361,6 +380,7 @@ mod tests {
             inline_count: 0,
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
+            entries_tree_id: 3,
             answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
         }
     }
@@ -379,6 +399,7 @@ mod tests {
                 "answers",
                 "auditorPk",
                 "circuitType",
+                "entriesTreeId",
                 "ephSk",
                 "externalDataHash",
                 "inlineAssets",
@@ -390,6 +411,7 @@ mod tests {
                 "nullifierRoot",
                 "outputs",
                 "policyLen",
+                "privateTxBlinding",
                 "privateTxHash",
                 "publicInputHash",
                 "ruleEnc",

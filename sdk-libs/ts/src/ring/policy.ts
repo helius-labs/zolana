@@ -10,9 +10,11 @@ import {
   RING_SOURCE_SLOTS,
   type CustomRingSourceOwner,
 } from "../client/prover/types.js";
-import { hashBytes } from "../hasher/index.js";
+import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
 import { ADDRESS_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
+import { treeIdField } from "../interface/tree-slot.js";
+import type { TreeId } from "../transaction/utxo.js";
 import type { Bytes32, RequestContext } from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import type {
@@ -438,12 +440,17 @@ export type Member = Bytes32 & { readonly [memberBrand]: true };
 /** Mirrors Rust `Member::owner_tag`, the derivation `zolana-ring list add` applies to `--owner`. */
 export function memberOfTag(tag: Uint8Array): Member {
   if (tag.length !== 32) throw entryInvalid("tagLength");
-  return checkedMember(hashBytes(tag) as Bytes32);
+  return checkedMember(solanaOwnerIdentity(tag) as Bytes32);
+}
+
+/** Mirrors Rust `Member::owner_identity`, an owner of any curve by `ownerProofInputHash`. */
+export function memberOfIdentity(identity: Bytes32): Member {
+  return checkedMember(identity);
 }
 
 /** Mirrors Rust `Member::asset`, the mint as the UTXO asset field. */
 export function memberOfAsset(mint: Address): Member {
-  return memberOfTag(decodeAddress(mint));
+  return checkedMember(hashBytes(decodeAddress(mint)) as Bytes32);
 }
 
 function checkedMember(bytes: Bytes32): Member {
@@ -455,16 +462,17 @@ export type EntryState = "active" | "cleared";
 
 const ENTRY_STATES: readonly EntryState[] = ["active", "cleared"];
 
-/** Mirrors Rust `ListEntry`, the version doubles as the UTXO blinding. */
+/** Mirrors Rust `ListEntry`, the published SPP output blinding rebuilds the leaf. */
 export interface ListEntry {
   readonly listId: ListId;
   readonly member: Member;
   readonly state: EntryState;
   readonly version: bigint;
   readonly contentHash: Bytes32;
+  readonly blinding: Bytes32;
 }
 
-const LIST_ENTRY_LEN = 74;
+const LIST_ENTRY_LEN = 106;
 
 export type ListWriter = "authority" | "member";
 
@@ -494,6 +502,7 @@ export function encodeListEntry(entry: ListEntry): Uint8Array {
     .u8(ENTRY_STATES.indexOf(entry.state) + 1, "state")
     .u64(entry.version, "version")
     .bytes(entry.contentHash, 32, "contentHash")
+    .bytes(entry.blinding, 32, "blinding")
     .finish();
 }
 
@@ -509,8 +518,9 @@ export function decodeListEntry(outputData: Uint8Array): ListEntry {
   if (state === undefined) throw entryInvalid("state");
   const version = reader.u64("version");
   const contentHash = reader.bytes(32, "contentHash") as Bytes32;
+  const blinding = reader.bytes(32, "blinding") as Bytes32;
   reader.done();
-  return Object.freeze({ listId, member, state, version, contentHash });
+  return Object.freeze({ listId, member, state, version, contentHash, blinding });
 }
 
 function entryInvalid(reason: string): RingError {
@@ -531,23 +541,25 @@ const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
 /** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
   return ownerHash(
-    hashBytes(addressBytes(namespacePda, "namespacePda")),
+    solanaOwnerIdentity(addressBytes(namespacePda, "namespacePda")) as Bytes32,
     poseidon([new Uint8Array(32)]),
   ) as Bytes32;
 }
 
-/** Mirrors Rust `ListNamespace`. */
+/** Mirrors Rust `ListNamespace`, every entry of it hashes under `treeId`. */
 export class RingListNamespace {
   readonly address: Address;
   readonly ownerHash: Bytes32;
+  readonly treeId: TreeId;
 
-  private constructor(address: Address, ownerHash: Bytes32) {
+  private constructor(address: Address, ownerHash: Bytes32, treeId: TreeId) {
     this.address = address;
     this.ownerHash = ownerHash;
+    this.treeId = treeId;
   }
 
-  static of(namespace: Address): RingListNamespace {
-    return new RingListNamespace(namespace, ringNamespaceOwnerHash(namespace));
+  static of(namespace: Address, treeId: TreeId): RingListNamespace {
+    return new RingListNamespace(namespace, ringNamespaceOwnerHash(namespace), treeId);
   }
 
   /** One address lineage per `(listId, member)` pair under one namespace. */
@@ -567,20 +579,20 @@ export class RingListNamespace {
       fieldU64(entry.version),
       entry.contentHash,
     ]);
-    const blinding = fieldU64(entry.version);
     const utxoHash = poseidon([
       fieldU16(UTXO_DOMAIN),
+      treeIdField(this.treeId),
       solAssetField(),
       ZERO_32,
       dataHash,
       ringHash(),
-      poseidon([this.ownerHash, blinding]),
+      poseidon([this.ownerHash, entry.blinding]),
     ]);
     return Object.freeze({
       address,
       dataHash,
       utxoHash,
-      nullifier: entryNullifier(utxoHash, blinding),
+      nullifier: entryNullifier(utxoHash, entry.blinding),
     });
   }
 
@@ -588,6 +600,7 @@ export class RingListNamespace {
   addressSlotHash(seed: Bytes32): Bytes32 {
     return poseidon([
       fieldU16(ADDRESS_DOMAIN),
+      treeIdField(this.treeId),
       ZERO_32,
       ZERO_32,
       ZERO_32,
@@ -649,8 +662,9 @@ export type EntryIndexer = Pick<
 
 export interface ReadRingEntryInput {
   readonly indexer: EntryIndexer;
-  /** Only outputs in this tree continue a lineage. */
+  /** Only outputs in the entries tree continue a lineage. */
   readonly entriesTree: Address;
+  readonly entriesTreeId: TreeId;
   readonly namespace: Address;
   readonly listId: ListId;
   readonly member: Member;
@@ -665,6 +679,7 @@ export async function readRingEntry(
     {
       indexer: input.indexer,
       entriesTree: input.entriesTree,
+      entriesTreeId: input.entriesTreeId,
       lookups: [{ namespace: input.namespace, listId: input.listId, member: input.member }],
     },
     context,
@@ -675,6 +690,7 @@ export async function readRingEntry(
 export interface ReadRingEntriesInput {
   readonly indexer: EntryIndexer;
   readonly entriesTree: Address;
+  readonly entriesTreeId: TreeId;
   readonly namespace: Address;
   readonly pageLimit?: number;
 }
@@ -711,6 +727,7 @@ export async function readRingEntries(
     {
       indexer: input.indexer,
       entriesTree: input.entriesTree,
+      entriesTreeId: input.entriesTreeId,
       lookups: [...pairs.values()].map((pair) => ({ ...pair, namespace: input.namespace })),
     },
     context,
@@ -748,6 +765,7 @@ export interface RingEntryLookup extends EntryPair {
 export interface ReadRingEntryLineagesInput {
   readonly indexer: EntryIndexer;
   readonly entriesTree: Address;
+  readonly entriesTreeId: TreeId;
   readonly lookups: readonly RingEntryLookup[];
 }
 
@@ -758,7 +776,9 @@ export async function readRingEntryLineages(
 ): Promise<readonly (LiveEntry | undefined)[]> {
   const namespaces = new Map<Address, RingListNamespace>();
   const heads: Head[] = input.lookups.map((lookup) => {
-    const namespace = namespaces.get(lookup.namespace) ?? RingListNamespace.of(lookup.namespace);
+    const namespace =
+      namespaces.get(lookup.namespace) ??
+      RingListNamespace.of(lookup.namespace, input.entriesTreeId);
     namespaces.set(lookup.namespace, namespace);
     const address = namespace.entryAddress(lookup);
     return { namespace, pair: lookup, address, live: undefined, nullifier: address, ended: false };

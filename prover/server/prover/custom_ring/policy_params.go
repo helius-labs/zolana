@@ -26,6 +26,7 @@ const (
 // hashes it.
 type Opening struct {
 	Domain        *big.Int
+	TreeID        *big.Int
 	OwnerPkHash   *big.Int
 	NullifierPk   *big.Int
 	Asset         *big.Int
@@ -46,6 +47,7 @@ type ListFact struct {
 	Member       *big.Int
 	ContentHash  *big.Int
 	Version      uint64
+	Blinding     *big.Int
 	Low          *big.Int
 	Next         *big.Int
 
@@ -75,8 +77,9 @@ type PolicyParameters struct {
 	Inputs  [policy.NInputs]Opening
 	Outputs [policy.NOutputs]Opening
 
-	AddressChain     *big.Int
-	ExternalDataHash *big.Int
+	AddressChain      *big.Int
+	ExternalDataHash  *big.Int
+	PrivateTxBlinding *big.Int
 
 	Sources      [policy.NSources]SourceOwner
 	PolicyLen    uint8
@@ -87,12 +90,14 @@ type PolicyParameters struct {
 
 	StateRoot     *big.Int
 	NullifierRoot *big.Int
+	EntriesTreeID *big.Int
 
 	ListFacts [policy.NListFacts]ListFact
 }
 
 type openingJSON struct {
 	Domain        string `json:"domain"`
+	TreeID        string `json:"treeId"`
 	OwnerPkHash   string `json:"ownerPkHash"`
 	NullifierPk   string `json:"nullifierPk"`
 	Asset         string `json:"asset"`
@@ -117,6 +122,7 @@ type listFactJSON struct {
 	Member            string   `json:"member"`
 	ContentHash       string   `json:"contentHash"`
 	Version           uint64   `json:"version"`
+	Blinding          string   `json:"blinding"`
 	Low               string   `json:"low"`
 	Next              string   `json:"next"`
 	NfPathElements    []string `json:"nfPathElements"`
@@ -126,52 +132,56 @@ type listFactJSON struct {
 }
 
 type policyParametersJSON struct {
-	CircuitType      string            `json:"circuitType"`
-	PublicInputHash  string            `json:"publicInputHash"`
-	PrivateTxHash    string            `json:"privateTxHash"`
-	TxViewingSk      string            `json:"txViewingSk"`
-	EphSk            string            `json:"ephSk"`
-	AuditorPk        string            `json:"auditorPk"`
-	NIn              uint8             `json:"nIn"`
-	NOut             uint8             `json:"nOut"`
-	Inputs           []openingJSON     `json:"inputs"`
-	Outputs          []openingJSON     `json:"outputs"`
-	AddressChain     string            `json:"addressChain"`
-	ExternalDataHash string            `json:"externalDataHash"`
-	Sources          []sourceOwnerJSON `json:"sources"`
-	PolicyLen        uint8             `json:"policyLen"`
-	RuleEnc          []string          `json:"ruleEnc"`
-	InlineAssets     []string          `json:"inlineAssets"`
-	InlineLimits     []string          `json:"inlineLimits"`
-	InlineCount      uint8             `json:"inlineCount"`
-	StateRoot        string            `json:"stateRoot"`
-	NullifierRoot    string            `json:"nullifierRoot"`
-	ListFacts        []listFactJSON    `json:"answers"`
+	CircuitType       string            `json:"circuitType"`
+	PublicInputHash   string            `json:"publicInputHash"`
+	PrivateTxHash     string            `json:"privateTxHash"`
+	TxViewingSk       string            `json:"txViewingSk"`
+	EphSk             string            `json:"ephSk"`
+	AuditorPk         string            `json:"auditorPk"`
+	NIn               uint8             `json:"nIn"`
+	NOut              uint8             `json:"nOut"`
+	Inputs            []openingJSON     `json:"inputs"`
+	Outputs           []openingJSON     `json:"outputs"`
+	AddressChain      string            `json:"addressChain"`
+	ExternalDataHash  string            `json:"externalDataHash"`
+	PrivateTxBlinding string            `json:"privateTxBlinding"`
+	Sources           []sourceOwnerJSON `json:"sources"`
+	PolicyLen         uint8             `json:"policyLen"`
+	RuleEnc           []string          `json:"ruleEnc"`
+	InlineAssets      []string          `json:"inlineAssets"`
+	InlineLimits      []string          `json:"inlineLimits"`
+	InlineCount       uint8             `json:"inlineCount"`
+	StateRoot         string            `json:"stateRoot"`
+	NullifierRoot     string            `json:"nullifierRoot"`
+	EntriesTreeID     string            `json:"entriesTreeId"`
+	ListFacts         []listFactJSON    `json:"answers"`
 }
 
 func (p *PolicyParameters) MarshalJSON() ([]byte, error) {
 	raw := policyParametersJSON{
-		CircuitType:      string(common.CustomRingPolicyCircuitType),
-		PublicInputHash:  common.ToHex(p.PublicInputHash),
-		PrivateTxHash:    common.ToHex(p.PrivateTxHash),
-		TxViewingSk:      bytesHex(p.TxViewingSk[:]),
-		EphSk:            bytesHex(p.EphSk[:]),
-		AuditorPk:        bytesHex(p.AuditorPk[:]),
-		NIn:              p.NIn,
-		NOut:             p.NOut,
-		Inputs:           writeOpenings(p.Inputs[:]),
-		Outputs:          writeOpenings(p.Outputs[:]),
-		AddressChain:     common.ToHex(p.AddressChain),
-		ExternalDataHash: common.ToHex(p.ExternalDataHash),
-		Sources:          make([]sourceOwnerJSON, 0, len(p.Sources)),
-		PolicyLen:        p.PolicyLen,
-		RuleEnc:          make([]string, 0, len(p.RuleEnc)),
-		InlineAssets:     make([]string, 0, len(p.InlineAssets)),
-		InlineLimits:     make([]string, 0, len(p.InlineLimits)),
-		InlineCount:      p.InlineCount,
-		StateRoot:        common.ToHex(p.StateRoot),
-		NullifierRoot:    common.ToHex(p.NullifierRoot),
-		ListFacts:        make([]listFactJSON, 0, len(p.ListFacts)),
+		CircuitType:       string(common.CustomRingPolicyCircuitType),
+		PublicInputHash:   common.ToHex(p.PublicInputHash),
+		PrivateTxHash:     common.ToHex(p.PrivateTxHash),
+		TxViewingSk:       bytesHex(p.TxViewingSk[:]),
+		EphSk:             bytesHex(p.EphSk[:]),
+		AuditorPk:         bytesHex(p.AuditorPk[:]),
+		NIn:               p.NIn,
+		NOut:              p.NOut,
+		Inputs:            writeOpenings(p.Inputs[:]),
+		Outputs:           writeOpenings(p.Outputs[:]),
+		AddressChain:      common.ToHex(p.AddressChain),
+		ExternalDataHash:  common.ToHex(p.ExternalDataHash),
+		PrivateTxBlinding: common.ToHex(p.PrivateTxBlinding),
+		Sources:           make([]sourceOwnerJSON, 0, len(p.Sources)),
+		PolicyLen:         p.PolicyLen,
+		RuleEnc:           make([]string, 0, len(p.RuleEnc)),
+		InlineAssets:      make([]string, 0, len(p.InlineAssets)),
+		InlineLimits:      make([]string, 0, len(p.InlineLimits)),
+		InlineCount:       p.InlineCount,
+		StateRoot:         common.ToHex(p.StateRoot),
+		NullifierRoot:     common.ToHex(p.NullifierRoot),
+		EntriesTreeID:     common.ToHex(p.EntriesTreeID),
+		ListFacts:         make([]listFactJSON, 0, len(p.ListFacts)),
 	}
 	for _, src := range p.Sources {
 		raw.Sources = append(raw.Sources, sourceOwnerJSON{
@@ -246,6 +256,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if p.ExternalDataHash, err = fieldFromHex(raw.ExternalDataHash, "externalDataHash"); err != nil {
 		return err
 	}
+	if p.PrivateTxBlinding, err = fieldFromHex(raw.PrivateTxBlinding, "privateTxBlinding"); err != nil {
+		return err
+	}
 	if len(raw.Sources) != policy.NSources {
 		return fmt.Errorf("custom-ring: sources holds %d slots, expected %d", len(raw.Sources), policy.NSources)
 	}
@@ -266,6 +279,9 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if p.NullifierRoot, err = fieldFromHex(raw.NullifierRoot, "nullifierRoot"); err != nil {
+		return err
+	}
+	if p.EntriesTreeID, err = fieldFromHex(raw.EntriesTreeID, "entriesTreeId"); err != nil {
 		return err
 	}
 
@@ -325,6 +341,7 @@ func writeOpenings(src []Opening) []openingJSON {
 	for i, slot := range src {
 		out[i] = openingJSON{
 			Domain:        common.ToHex(slot.Domain),
+			TreeID:        common.ToHex(slot.TreeID),
 			OwnerPkHash:   common.ToHex(slot.OwnerPkHash),
 			NullifierPk:   common.ToHex(slot.NullifierPk),
 			Asset:         common.ToHex(slot.Asset),
@@ -348,6 +365,7 @@ func writeListFact(src *ListFact) listFactJSON {
 		Member:            common.ToHex(src.Member),
 		ContentHash:       common.ToHex(src.ContentHash),
 		Version:           src.Version,
+		Blinding:          common.ToHex(src.Blinding),
 		Low:               common.ToHex(src.Low),
 		Next:              common.ToHex(src.Next),
 		NfPathElements:    writePath(src.NfPathElements[:]),
@@ -376,6 +394,7 @@ func readOpenings(dst []Opening, src []openingJSON, name string) error {
 			label  string
 		}{
 			{&dst[i].Domain, slot.Domain, "domain"},
+			{&dst[i].TreeID, slot.TreeID, "treeId"},
 			{&dst[i].OwnerPkHash, slot.OwnerPkHash, "ownerPkHash"},
 			{&dst[i].NullifierPk, slot.NullifierPk, "nullifierPk"},
 			{&dst[i].Asset, slot.Asset, "asset"},
@@ -419,6 +438,9 @@ func readListFact(dst *ListFact, src listFactJSON) error {
 	if dst.ContentHash, err = fieldFromHex(src.ContentHash, "contentHash"); err != nil {
 		return err
 	}
+	if dst.Blinding, err = fieldFromHex(src.Blinding, "blinding"); err != nil {
+		return err
+	}
 	if dst.Low, err = fieldFromHex(src.Low, "low"); err != nil {
 		return err
 	}
@@ -450,12 +472,14 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 		return nil, fmt.Errorf("custom-ring: missing hash")
 	}
 	circuit := &policy.CustomRingPolicyCircuit{
-		PublicInputHash:  p.PublicInputHash,
-		PrivateTxHash:    p.PrivateTxHash,
-		AddressChain:     p.AddressChain,
-		ExternalDataHash: p.ExternalDataHash,
-		StateRoot:        p.StateRoot,
-		NullifierRoot:    p.NullifierRoot,
+		PublicInputHash:   p.PublicInputHash,
+		PrivateTxHash:     p.PrivateTxHash,
+		AddressChain:      p.AddressChain,
+		ExternalDataHash:  p.ExternalDataHash,
+		PrivateTxBlinding: p.PrivateTxBlinding,
+		StateRoot:         p.StateRoot,
+		NullifierRoot:     p.NullifierRoot,
+		EntriesTreeID:     p.EntriesTreeID,
 	}
 	for i, src := range p.Sources {
 		circuit.Sources[i] = policy.SourceWires{
@@ -493,6 +517,7 @@ func (p *PolicyParameters) CreateWitness() (*policy.CustomRingPolicyCircuit, err
 
 func assignOpening(dst *policy.UtxoWires, src *Opening) {
 	dst.Domain = src.Domain
+	dst.TreeID = src.TreeID
 	dst.OwnerPkHash = src.OwnerPkHash
 	dst.NullifierPk = src.NullifierPk
 	dst.Asset = src.Asset
@@ -534,6 +559,7 @@ func assignListFact(dst *policy.ListFactWires, src *ListFact) {
 	dst.Member = src.Member
 	dst.ContentHash = src.ContentHash
 	dst.Version = src.Version
+	dst.Blinding = src.Blinding
 	dst.State = src.State
 	dst.AbsentBranch = src.AbsentBranch
 	dst.NullifierLowValue = src.Low

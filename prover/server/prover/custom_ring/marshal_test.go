@@ -32,19 +32,21 @@ func sampleBaseParams() *BaseParameters {
 func sampleParams() *PolicyParameters {
 	base := sampleBaseParams()
 	p := &PolicyParameters{
-		PublicInputHash:  base.PublicInputHash,
-		PrivateTxHash:    base.PrivateTxHash,
-		TxViewingSk:      base.TxViewingSk,
-		EphSk:            base.EphSk,
-		AuditorPk:        base.AuditorPk,
-		NIn:              2,
-		NOut:             2,
-		AddressChain:     big.NewInt(0x31),
-		ExternalDataHash: big.NewInt(0x32),
-		PolicyLen:        3,
-		InlineCount:      1,
-		StateRoot:        big.NewInt(0x34),
-		NullifierRoot:    big.NewInt(0x35),
+		PublicInputHash:   base.PublicInputHash,
+		PrivateTxHash:     base.PrivateTxHash,
+		TxViewingSk:       base.TxViewingSk,
+		EphSk:             base.EphSk,
+		AuditorPk:         base.AuditorPk,
+		NIn:               2,
+		NOut:              2,
+		AddressChain:      big.NewInt(0x31),
+		ExternalDataHash:  big.NewInt(0x32),
+		PrivateTxBlinding: big.NewInt(0x36),
+		PolicyLen:         3,
+		InlineCount:       1,
+		StateRoot:         big.NewInt(0x34),
+		NullifierRoot:     big.NewInt(0x35),
+		EntriesTreeID:     big.NewInt(0x37),
 	}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
@@ -81,6 +83,7 @@ func sampleParams() *PolicyParameters {
 func sampleOpening(seed int64) Opening {
 	return Opening{
 		Domain:        big.NewInt(seed),
+		TreeID:        big.NewInt(seed + 9),
 		OwnerPkHash:   big.NewInt(seed + 1),
 		NullifierPk:   big.NewInt(seed + 2),
 		Asset:         big.NewInt(seed + 3),
@@ -96,6 +99,7 @@ func zeroedListFact() ListFact {
 	fact := ListFact{
 		Member:      big.NewInt(0),
 		ContentHash: big.NewInt(0),
+		Blinding:    big.NewInt(0),
 		Low:         big.NewInt(0),
 		Next:        big.NewInt(0),
 	}
@@ -160,8 +164,8 @@ func TestPolicyParametersWireFormat(t *testing.T) {
 	keys := []string{
 		"circuitType", "publicInputHash", "privateTxHash",
 		"txViewingSk", "ephSk", "auditorPk", "nIn", "nOut", "inputs",
-		"outputs", "addressChain", "externalDataHash", "sources",
-		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot",
+		"outputs", "addressChain", "externalDataHash", "privateTxBlinding", "sources",
+		"policyLen", "ruleEnc", "inlineAssets", "inlineLimits", "inlineCount", "stateRoot", "entriesTreeId",
 		"nullifierRoot", "answers",
 	}
 	if len(raw) != len(keys) {

@@ -15,14 +15,19 @@ use zolana_interface::{
 
 use crate::{
     error::CompressionError,
-    instructions::shared::{cpi_spp_transact_signed, private_tx_hash, TransitionAccounts},
-    state::{nullifier, AccountState, PdaOwner},
+    instructions::shared::{cpi_spp_transact_signed, private_tx_hash, tree_id, TransitionAccounts},
+    state::{nullifier, output_blinding, private_tx_blinding, AccountState, PdaOwner},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UpdateIxData {
     pub old_value: u64,
     pub version: u64,
+    /// Blinding of the UTXO being spent. It derives from the first nullifier of
+    /// the transition that created it, which this transaction does not see, so
+    /// the client supplies it. A wrong value yields a UTXO hash and nullifier
+    /// the pool cannot find in its trees, so it needs no check here.
+    pub old_blinding: [u8; 32],
     pub new_value: u64,
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
@@ -35,6 +40,7 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let UpdateIxData {
         old_value,
         version,
+        old_blinding,
         new_value,
         nullifier_tree_root_index,
         utxo_tree_root_index,
@@ -42,21 +48,37 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     } = wincode::deserialize_exact(data).map_err(|_| CompressionError::InvalidInstructionData)?;
 
     let parsed = TransitionAccounts::validate_and_parse(accounts)?;
+    let input_tree_id = tree_id(parsed.input_tree)?;
+    let output_tree_id = tree_id(parsed.output_tree)?;
     let authority = *parsed.authority.address();
     let (pda, bump) = (parsed.pda, parsed.bump);
 
     let pda_bytes = pda.to_bytes();
     let owner = PdaOwner::new(&pda_bytes)?;
-    let address = owner.address()?;
+    let address = owner.address(input_tree_id)?;
+    let new_version = version
+        .checked_add(1)
+        .ok_or(CompressionError::InvalidInstructionData)?;
+    let old_state = AccountState {
+        address,
+        authority: authority.to_bytes(),
+        value: old_value,
+        version,
+        blinding: old_blinding,
+    };
+    let old_hash = old_state.utxo_hash(&owner.owner_hash, input_tree_id)?;
+    let nullifier_hash = nullifier(&old_hash, &old_blinding)?;
+    // The spent UTXO's nullifier is this transaction's first nullifier, and the
+    // new version is its blinding seed; both derivations are recomputed
+    // here rather than read from instruction data.
     let state = AccountState {
         address,
         authority: authority.to_bytes(),
         value: new_value,
-        version: version
-            .checked_add(1)
-            .ok_or(CompressionError::InvalidInstructionData)?,
+        version: new_version,
+        blinding: output_blinding(&nullifier_hash, new_version)?,
     };
-    let output_hash = state.utxo_hash(&owner.owner_hash)?;
+    let output_hash = state.utxo_hash(&owner.owner_hash, output_tree_id)?;
     let payload = state.to_output_data()?;
 
     let resolved_output = [ResolvedOutput {
@@ -79,15 +101,13 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     .hash()
     .map_err(|_| CompressionError::HashingFailed)?;
 
-    let old_state = AccountState {
-        address,
-        authority: authority.to_bytes(),
-        value: old_value,
-        version,
-    };
-    let old_hash = old_state.utxo_hash(&owner.owner_hash)?;
-    let nullifier_hash = nullifier(&old_hash, &old_state.blinding())?;
-    let private_tx = private_tx_hash(old_hash, output_hash, [0u8; 32], &external_data_hash)?;
+    let private_tx = private_tx_hash(
+        old_hash,
+        output_hash,
+        [0u8; 32],
+        &external_data_hash,
+        &private_tx_blinding(&nullifier_hash, new_version)?,
+    )?;
 
     let transact = TransactIxData {
         expiry_unix_ts: u64::MAX,

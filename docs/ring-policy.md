@@ -187,7 +187,10 @@ signature.
 Creating an entry claims the address, and the nullifier tree admits each
 address once. One lineage per pair, for the life of the tree.
 
-The entry version doubles as the UTXO blinding. A member cleared and
+Every entry leaf and address hashes under the entries tree id the policy
+config pins. The entry's blinding is the SPP output blinding of the transact
+that wrote it, derived from the spent nullifier and published in the record,
+so a reader rebuilds the leaf from the record alone. A member cleared and
 recorded again never repeats a `utxo_hash` or a nullifier.
 
 A mutation is a one-input one-output SPP transact built over

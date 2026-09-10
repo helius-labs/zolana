@@ -38,6 +38,8 @@ type CustomRingPolicyCircuit struct {
 
 	AddressChain     frontend.Variable
 	ExternalDataHash frontend.Variable
+	// Folded last into the private transaction hash, as in SPP.
+	PrivateTxBlinding frontend.Variable
 
 	// Every rule uses the same list-to-namespace map.
 	Sources [NSources]SourceWires
@@ -55,6 +57,8 @@ type CustomRingPolicyCircuit struct {
 	StateRoot frontend.Variable
 	// The program limits nullifier root age with NULLIFIER_ROOT_WINDOW.
 	NullifierRoot frontend.Variable
+	// The raw id of the entries tree, every leaf and address hashes under it.
+	EntriesTreeID frontend.Variable
 
 	// All rules and transaction slots share these list facts.
 	ListFacts [NListFacts]ListFactWires `gnark:"Answers"`
@@ -84,7 +88,7 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
 
 	// 6. Bind the policy and supplied entry roots after the audit inputs.
-	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot)
+	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }

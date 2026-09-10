@@ -41,9 +41,10 @@ func MustPoseidon(t testing.TB, width int, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
-func MustUtxoHash(t testing.TB, utxo protocol.Utxo) *big.Int {
+// MustUtxoHash hashes utxo under the raw id of the tree that holds it.
+func MustUtxoHash(t testing.TB, utxo protocol.Utxo, treeID *big.Int) *big.Int {
 	t.Helper()
-	value, err := protocol.UtxoHash(utxo)
+	value, err := protocol.UtxoHash(utxo, treeID)
 	return MustHash(t, value, err)
 }
 
@@ -71,9 +72,9 @@ func MustHashChain(t testing.TB, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
-func MustPrivateTxHash(t testing.TB, inputs, outputs, addresses []*big.Int, externalDataHash *big.Int) *big.Int {
+func MustPrivateTxHash(t testing.TB, inputs, outputs, addresses []*big.Int, externalDataHash, blinding *big.Int) *big.Int {
 	t.Helper()
-	value, err := protocol.PrivateTxHash(inputs, outputs, addresses, externalDataHash)
+	value, err := protocol.PrivateTxHash(inputs, outputs, addresses, externalDataHash, blinding)
 	return MustHash(t, value, err)
 }
 

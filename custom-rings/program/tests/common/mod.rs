@@ -437,6 +437,7 @@ impl PolicyConfigFixture<'_> {
             discriminator: POLICY_CONFIG,
             policy_hash: policy_hash_for(self.rules, &self.sources),
             entries_tree: Address::new_from_array(self.entries_tree.to_bytes()),
+            entries_tree_id: ENTRIES_TREE_ID.to_le_bytes(),
             namespace_bump: namespace_pda_of(self.ring).1,
             bump: policy_config_pda_of(self.ring).1,
             sources: self.sources,
@@ -518,10 +519,17 @@ pub fn entries_tree() -> Pubkey {
     Pubkey::new_from_array([41; 32])
 }
 
+/// The id `initialized_entries_tree_account` inits the tree with.
+pub const ENTRIES_TREE_ID: u16 = 0;
+
+/// The header alone, the discriminator and the tree id `create_policy` reads.
 pub fn entries_tree_account() -> Account {
+    let mut data = vec![0u8; TreeAccount::tree_id_offset() + 2];
+    data[0] = zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR;
+    data[TreeAccount::tree_id_offset()..].copy_from_slice(&ENTRIES_TREE_ID.to_le_bytes());
     Account {
         lamports: 1_000_000_000,
-        data: vec![zolana_interface::state::discriminator::TREE_ACCOUNT_DISCRIMINATOR; 1],
+        data,
         owner: Pubkey::new_from_array(zolana_interface::SHIELDED_POOL_PROGRAM_ID),
         executable: false,
         rent_epoch: 0,
@@ -794,6 +802,8 @@ impl EntryFixture {
                 member: self.member,
                 state: self.state,
                 content_hash: self.content_hash,
+                blinding: [0u8; 32],
+                private_tx_blinding: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
                 proof: TransactProof::zeroed(),
@@ -813,8 +823,11 @@ impl EntryFixture {
                 spent_state: 1,
                 spent_content_hash: [0u8; 32],
                 spent_version,
+                spent_blinding: [0u8; 32],
                 state: self.state,
                 content_hash: self.content_hash,
+                blinding: [0u8; 32],
+                private_tx_blinding: [0u8; 32],
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
                 proof: TransactProof::zeroed(),

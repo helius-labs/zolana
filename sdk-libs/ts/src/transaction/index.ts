@@ -54,10 +54,19 @@ export {
   Utxo,
   createProofOutput,
   depositBlinding,
-  deriveBlinding,
+  outputBlindingSeed,
   ownerUtxoHash,
+  privateTxBlinding,
+  transactOutputBlinding,
 } from "./utxo.js";
-export type { Blinding, ProofOutputInit, ProofOutputUtxo, UtxoInit } from "./utxo.js";
+export type {
+  Blinding,
+  ProofOutputInit,
+  ProofOutputUtxo,
+  TreeId,
+  UtxoCommitmentInput,
+  UtxoInit,
+} from "./utxo.js";
 export {
   AssetRegistry,
   ClientEd25519WalletAuthority,
@@ -124,6 +133,7 @@ export {
   type DecodeContext,
   type OutputDataEncoding,
   type OwnerContext,
+  type SeedBundleContext,
 } from "./serialization/index.js";
 // The plaintext decoders, for a client that decrypts somewhere other than in
 // this process. `syncWallet` decrypts and decodes together and needs the

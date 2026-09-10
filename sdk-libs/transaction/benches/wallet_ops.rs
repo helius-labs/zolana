@@ -11,6 +11,7 @@ use zolana_transaction::{
         anonymous::{AnonymousRecipient, AnonymousSenderBundle, AnonymousSenderEncode},
         split::{Split, SplitEncode},
     },
+    utxo::derive_transact_output_blinding,
     AssetRegistry, Data, DecodeCx, OwnerCx, Utxo, UtxoSerialization, SOL_MINT,
 };
 
@@ -55,6 +56,7 @@ fn sender_bundle_body(recipient_count: u16) -> (ShieldedKeypair, Vec<u8>, Option
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let cx = AnonymousSenderEncode {
         tx: tx_key,
@@ -78,7 +80,9 @@ fn primitives(c: &mut Criterion) {
     let first_nullifier = unique_nullifier(&mut counter);
     let utxo = sample_utxo(&alice, &mut counter);
     let nullifier_pk = alice.nullifier_key.pubkey().unwrap();
-    let utxo_hash = utxo.hash(&nullifier_pk, &[0u8; 32], &[0u8; 32]).unwrap();
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &[0u8; 32], &[0u8; 32], common::TEST_TREE_ID)
+        .unwrap();
 
     let mut group = c.benchmark_group("primitives");
     group.bench_function("ecdh", |b| {
@@ -117,8 +121,13 @@ fn primitives(c: &mut Criterion) {
     });
     group.bench_function("utxo_hash", |b| {
         b.iter(|| {
-            utxo.hash(black_box(&nullifier_pk), &[0u8; 32], &[0u8; 32])
-                .unwrap()
+            utxo.hash(
+                black_box(&nullifier_pk),
+                &[0u8; 32],
+                &[0u8; 32],
+                common::TEST_TREE_ID,
+            )
+            .unwrap()
         })
     });
     group.bench_function("nullifier", |b| {
@@ -212,7 +221,12 @@ fn decrypt(c: &mut Criterion) {
             owner: alice.signing_pubkey(),
             asset: SOL_MINT,
             amount: 100,
-            blinding: zolana_transaction::derive_blinding(&split_blinding_seed, i),
+            blinding: derive_transact_output_blinding(
+                &split_nullifier,
+                &split_blinding_seed,
+                u32::from(i),
+            )
+            .unwrap(),
             ring_program_id: None,
             data: Data::default(),
         })
@@ -221,6 +235,7 @@ fn decrypt(c: &mut Criterion) {
         owner: alice.signing_pubkey(),
         assets: &assets,
         ring_program_id: None,
+        first_nullifier: Some(split_nullifier),
     };
     let split_cx = SplitEncode {
         tx: split_tx_key,

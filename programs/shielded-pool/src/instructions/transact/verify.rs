@@ -8,7 +8,7 @@ use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
     hash_chain::{create_hash_chain_from_slice, create_hash_chain_from_slice_ref},
-    primitives::hash_bytes,
+    primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
 };
@@ -18,12 +18,16 @@ use zolana_interface::{
         is_confidential_encrypted_output, CircuitId, InterfaceTransfer, ResolvedOutput,
         TransactIxDataRef,
     },
+    tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
     N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
 
+/// Maximum number of input UTXOs a transact circuit spends. Distinct from
+/// `zolana_interface::INPUT_TREES` (the number of public tree slots) even
+/// though both are 5.
 pub const MAX_INPUTS: usize = 5;
 
 pub const MAX_SIGNERS: usize = MAX_INPUTS + 1;
@@ -40,17 +44,22 @@ const ASSIGNED_PUBLIC_TRANSFERS: u8 = 1 << 2;
 const ASSIGNED_INPUT_TREE: u8 = 1 << 3;
 const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
 const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
+const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
 const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
     | ASSIGNED_INPUT_TREE
     | ASSIGNED_EXTERNAL_DATA
-    | ASSIGNED_RING_PROGRAM;
+    | ASSIGNED_RING_PROGRAM
+    | ASSIGNED_OUTPUT_TREE;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
-    pub utxo_roots: [[u8; 32]; MAX_INPUTS],
-    pub nullifier_tree_roots: [[u8; 32]; MAX_INPUTS],
+    /// Tree slot 0: `input_tree`'s id and the roots every input references.
+    /// The circuit's remaining `INPUT_TREES - 1` slots stay all zero.
+    pub tree_slot: TreeSlot,
+    /// `tree_id_field` of the tree every output is appended to.
+    pub output_tree_id: [u8; 32],
     pub signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
     pub output_owner_pk_hashes: [[u8; 32]; MAX_OUTPUTS],
     pub external_data_hash: [u8; 32],
@@ -73,8 +82,8 @@ impl TransactProofInputs {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
-            utxo_roots: [[0u8; 32]; MAX_INPUTS],
-            nullifier_tree_roots: [[0u8; 32]; MAX_INPUTS],
+            tree_slot: TreeSlot::ZERO,
+            output_tree_id: [0u8; 32],
             signer_pk_hashes: [[0u8; 32]; MAX_SIGNERS],
             output_owner_pk_hashes: [[0u8; 32]; MAX_OUTPUTS],
             external_data_hash: [0u8; 32],
@@ -92,21 +101,16 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_RING_PROGRAM;
     }
 
-    pub(crate) fn assign_input_tree(
-        &mut self,
-        utxo_roots: &[[u8; 32]],
-        nullifier_tree_roots: &[[u8; 32]],
-        allow_dummy_inputs: [u8; 32],
-    ) -> Result<(), ProgramError> {
-        if utxo_roots.len() != nullifier_tree_roots.len() || utxo_roots.len() > MAX_INPUTS {
-            return Err(ShieldedPoolError::InvalidTransactShape.into());
-        }
-        self.utxo_roots[..utxo_roots.len()].copy_from_slice(utxo_roots);
-        self.nullifier_tree_roots[..nullifier_tree_roots.len()]
-            .copy_from_slice(nullifier_tree_roots);
+    /// Assign `input_tree`'s slot and its dummy-input policy.
+    pub(crate) fn assign_input_tree(&mut self, tree_slot: TreeSlot, allow_dummy_inputs: [u8; 32]) {
+        self.tree_slot = tree_slot;
         self.allow_dummy_inputs = allow_dummy_inputs;
         self.assignments |= ASSIGNED_INPUT_TREE;
-        Ok(())
+    }
+
+    pub(crate) fn assign_output_tree_id(&mut self, tree_id: u16) {
+        self.output_tree_id = tree_id_field(tree_id);
+        self.assignments |= ASSIGNED_OUTPUT_TREE;
     }
 
     pub(crate) fn assign_external_data_hash(&mut self, external_data_hash: [u8; 32]) {
@@ -244,7 +248,7 @@ fn cached_owner_hash(
     if let Some(hash) = owner_hashes.get_by_pubkey(owner_tag) {
         return Ok(*hash);
     }
-    let hash = hash_bytes(owner_tag)?;
+    let hash = solana_owner_identity(owner_tag)?;
     owner_hashes.insert(
         *owner_tag,
         hash,
@@ -335,8 +339,6 @@ impl<'a> TransactProof<'a> {
         let n_out = self.n_outputs();
         let n_public_asset_slots = self.n_public_asset_slots();
         let shape = ShieldedPoolError::InvalidTransactShape;
-        let utxo_roots = self.derived.utxo_roots.get(..n_in).ok_or(shape)?;
-        let nullifier_tree_roots = self.derived.nullifier_tree_roots.get(..n_in).ok_or(shape)?;
         let signer_width = if self.ix.circuit.requires_input_signatures() {
             n_in.checked_add(1).ok_or(shape)?
         } else {
@@ -385,11 +387,13 @@ impl<'a> TransactProof<'a> {
             create_hash_chain_from_slice_ref(utxo_hashes.as_slice())?
         };
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
+        // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
+        // slot hash folded onto the precomputed four-slot zero suffix.
         fields.extend_from_slice(&[
             nullifier_chain,
             output_chain,
-            create_hash_chain_from_slice(utxo_roots)?,
-            create_hash_chain_from_slice(nullifier_tree_roots)?,
+            populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
+            self.derived.output_tree_id,
             *self.ix.private_tx_hash,
         ]);
         if self.ix.circuit.is_p256() {
@@ -397,8 +401,10 @@ impl<'a> TransactProof<'a> {
                 ShieldedPoolError::TransactProofVerificationFailed,
             ))?;
             fields.push(hash_bytes(&message_digest)?);
+            // The published default-ring P256 owner is its x-coordinate; the
+            // circuit commits it as the tagged P256 identity.
             fields.push(match self.ix.circuit.default_p256_owner_tag() {
-                Some(owner_tag) => hash_bytes(owner_tag)?,
+                Some(owner_x) => p256_owner_identity(owner_x)?,
                 None => [0u8; 32],
             });
         }
@@ -486,7 +492,13 @@ pub fn amount_field(amount: i128) -> Result<[u8; 32], ProgramError> {
         value.into_bigint().0
     };
     let mut out = [0u8; 32];
-    for (target, limb) in out.chunks_exact_mut(8).rev().zip(limbs.iter()) {
+    for (target, limb) in out
+        .as_chunks_mut::<8>()
+        .0
+        .iter_mut()
+        .rev()
+        .zip(limbs.iter())
+    {
         target.copy_from_slice(&limb.to_be_bytes());
     }
     Ok(out)

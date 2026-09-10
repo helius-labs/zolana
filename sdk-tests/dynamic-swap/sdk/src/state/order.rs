@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use dynamic_swap_program::instructions::shared::u64_right_align;
 use solana_address::Address;
-use zolana_keypair::{constants::BLINDING_LEN, hash::poseidon, ShieldedPda};
+use zolana_keypair::{hash::poseidon, ShieldedPda};
 use zolana_transaction::{
     instructions::{transact::SppProofOutputUtxo, types::SppProofInputUtxo},
     utxo::{Blinding, Utxo},
@@ -168,13 +168,13 @@ impl Reservation {
 /// from the recipient's registered account (both are committed together in the
 /// order UTXO's `data_hash`), which keeps the note small enough for
 /// `create_escrow` to stay under Solana's transaction size limit.
-const ESCROW_NOTE_LEN: usize = 8 + BLINDING_LEN;
+const ESCROW_NOTE_LEN: usize = 8 + core::mem::size_of::<Blinding>();
 
 /// Encode the order UTXO's note (see `ESCROW_NOTE_LEN`).
 pub fn encode_escrow_note(max_price: u64, reservation_blinding: &Blinding) -> Vec<u8> {
     let mut note = Vec::with_capacity(ESCROW_NOTE_LEN);
     note.extend_from_slice(&max_price.to_le_bytes());
-    note.extend_from_slice(&reservation_blinding[1..]);
+    note.extend_from_slice(reservation_blinding);
     note
 }
 
@@ -201,8 +201,9 @@ pub fn decode_escrow_note(data: &Data) -> Result<(u64, Blinding)> {
             .try_into()
             .map_err(|_| anyhow!("escrow note max_price length"))?,
     );
-    let mut reservation_blinding = [0u8; 32];
-    reservation_blinding[1..].copy_from_slice(blinding_bytes);
+    let reservation_blinding = blinding_bytes
+        .try_into()
+        .map_err(|_| anyhow!("escrow note reservation blinding length"))?;
     Ok((max_price, reservation_blinding))
 }
 
@@ -215,7 +216,7 @@ mod tests {
     #[test]
     fn escrow_note_round_trips() {
         let mut reservation_blinding = [7u8; 32];
-        reservation_blinding[0] = 0;
+        reservation_blinding[0] = 0x10;
         let note = encode_escrow_note(5, &reservation_blinding);
         assert_eq!(note.len(), ESCROW_NOTE_LEN);
 

@@ -1,4 +1,4 @@
-import { address, blockhash, type Commitment } from "@solana/kit";
+import { blockhash, type Commitment } from "@solana/kit";
 
 import type { ChainReader, IndexerReader, KitRpcAccess } from "../../src/client/index.js";
 import type { LatestBlockhash, SolanaRpc } from "../../src/client/kit.js";
@@ -8,6 +8,8 @@ import type {
   GetShieldedTransactionsByTagsResponse,
   RpcContext,
 } from "../../src/client/rpc.js";
+import { DEFAULT_TREE_ID } from "../../src/interface/tree-slot.js";
+import { treeAddress } from "../../src/interface/pda/index.js";
 import type { RingAuditReader } from "../../src/ring/audit.js";
 import type { RingTransferClient } from "../../src/ring/transfer.js";
 import type {
@@ -18,7 +20,9 @@ import type {
 } from "../../src/wallet/index.js";
 
 const CONTEXT: RpcContext = Object.freeze({ blockTime: 1_700_000_000n, slot: 0n });
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+/** The fake clients build against the default tree, so the address matches the id. */
+const TREE_ID = DEFAULT_TREE_ID;
+const TREE = treeAddress(TREE_ID);
 export const BLOCKHASH: LatestBlockhash = Object.freeze({
   blockhash: blockhash("11111111111111111111111111111111"),
   lastValidBlockHeight: 1n,
@@ -86,6 +90,7 @@ export function signatureReads(
 export function depositClient(overrides: Partial<DepositClient> = {}): DepositClient {
   return {
     tree: TREE,
+    treeId: TREE_ID,
     getLatestBlockhash: async () => BLOCKHASH,
     getAccount: async () => undefined,
     ...overrides,
@@ -107,6 +112,7 @@ export function ringTransferClient(
 ): RingTransferClient {
   return {
     tree: TREE,
+    treeId: TREE_ID,
     getLatestBlockhash: async () => BLOCKHASH,
     getAccount: async () => undefined,
     proveRingTransact: notImplemented("proveRingTransact"),

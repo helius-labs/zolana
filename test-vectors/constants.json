@@ -4,5 +4,6 @@
   "nullifierTreeHeight": 40,
   "transactTag": 12,
   "mergeTransactTag": 13,
-  "viewTagLength": 32
+  "viewTagLength": 32,
+  "inputTrees": 5
 }

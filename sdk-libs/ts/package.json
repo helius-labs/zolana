@@ -70,24 +70,24 @@
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
-    "@solana-program/address-lookup-table": "^0.13.0",
-    "@solana-program/compute-budget": "^0.17.0",
-    "@solana-program/system": "^0.13.0",
-    "@solana-program/token": "^0.15.0",
+    "@solana-program/address-lookup-table": "^0.14.1",
+    "@solana-program/compute-budget": "^0.18.1",
+    "@solana-program/system": "^0.14.1",
+    "@solana-program/token": "^0.16.1",
     "bn.js": "^5.2.5"
   },
   "devDependencies": {
-    "@solana/kit": "^7.0.0",
+    "@solana/kit": "^8.3.0",
     "@trustwallet/wallet-core": "^4.7.3",
     "@types/bn.js": "^5.2.0",
     "@types/node": "^24.0.0",
-    "oxfmt": "^0.60.0",
+    "oxfmt": "^0.67.0",
     "oxlint": "^1.75.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   },
   "peerDependencies": {
-    "@solana/kit": "^7.0.0"
+    "@solana/kit": "^8.3.0"
   },
   "engines": {
     "node": ">=24"

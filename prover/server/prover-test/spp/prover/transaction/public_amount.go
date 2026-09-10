@@ -110,7 +110,7 @@ func interfaceTransferAsset(transfer InterfaceTransferRequest, index int) (*big.
 	if err != nil {
 		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
 	}
-	asset, err := protocol.SolanaPkField(mint)
+	asset, err := protocol.AssetField(mint)
 	if err != nil {
 		return nil, fmt.Errorf("interface_transfers[%d].asset: %w", index, err)
 	}

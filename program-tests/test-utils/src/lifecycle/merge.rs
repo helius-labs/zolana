@@ -28,7 +28,7 @@ use crate::{
     nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
-        wait_for_merkle_proof, wait_for_non_inclusion_proof,
+        wait_for_merkle_proof, wait_for_merkle_proofs, wait_for_non_inclusion_proofs,
     },
 };
 
@@ -89,6 +89,9 @@ impl LifecycleHarness {
     ) -> Result<solana_signature::Signature> {
         self.ensure_fresh_actor(name)?;
         let keypair = self.actor(name).keypair.clone();
+        // The harness runs one tree, so every input, the merged output, and the
+        // wallet notes are hashed under it.
+        let tree_id = self.tree_id;
 
         let (inputs, input_positions): (Vec<Utxo>, Vec<usize>) = {
             let actor = self.actor(name);
@@ -106,63 +109,78 @@ impl LifecycleHarness {
             selected.into_iter().unzip()
         };
 
-        // Per-input SpendProof, exactly as the transfer path fetches them. The
-        // proof's root indices flow through `MergeProofResult` (real slots from the
-        // SpendProofs, dummy slots mirroring the first real input).
+        // Per-input SpendProof. Every input of one merge must be proven against
+        // the same UTXO root and the same nullifier root, so both proof sets come
+        // from ONE indexer call each: fetching them a leaf at a time lets the tree
+        // advance between calls and the client rejects the witness with
+        // `InputTreeRootMismatch` / `NullifierRootMismatch`.
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
         let mut total: u64 = 0;
+        let mut utxo_hashes = Vec::with_capacity(inputs.len());
+        let mut nullifiers = Vec::with_capacity(MERGE_INPUT_COUNT);
         for utxo in &inputs {
             total += utxo.amount;
-            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
-            let nullifier = keypair
-                .nullifier_key
-                .nullifier(&utxo_hash, &utxo.blinding)?;
-            let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
-            let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-            spend_inputs.push(TransferSpendInput {
-                utxo: utxo.clone(),
-                nullifier_key: keypair.nullifier_key.clone(),
-                data_hash: None,
-                ring_data_hash: None,
-                proof: Some(SpendProof {
-                    state,
-                    nullifier: nf,
-                }),
-                nullifier_proof: None,
-            });
+            let utxo_hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
+            nullifiers.push(
+                keypair
+                    .nullifier_key
+                    .nullifier(&utxo_hash, &utxo.blinding)?,
+            );
+            utxo_hashes.push(utxo_hash);
         }
-
-        let first_hash = inputs[0].hash(&nullifier_pk, &ZERO, &ZERO)?;
-        let first_nullifier = keypair
-            .nullifier_key
-            .nullifier(&first_hash, &inputs[0].blinding)?;
+        let first_nullifier = *nullifiers
+            .first()
+            .ok_or_else(|| anyhow!("{name} merge needs at least one input"))?;
 
         // Pad to the 8-input shape with dummies. A dummy mirrors the first real
         // input's UTXO root but carries a non-inclusion proof for its own
         // deterministic nullifier.
+        for slot in inputs.len()..MERGE_INPUT_COUNT {
+            nullifiers.push(merge_dummy_nullifier(
+                &keypair.nullifier_key,
+                &first_nullifier,
+                u8::try_from(slot).map_err(|_| anyhow!("merge slot index out of range"))?,
+            )?);
+        }
+
+        let state_proofs = wait_for_merkle_proofs(&self.indexer, self.tree_address, &utxo_hashes);
+        let nullifier_proofs =
+            wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
+
         let owner = keypair.signing_pubkey();
-        while spend_inputs.len() < MERGE_INPUT_COUNT {
-            let slot = spend_inputs.len();
-            let dummy_nullifier =
-                merge_dummy_nullifier(&keypair.nullifier_key, &first_nullifier, slot as u8)?;
-            let dummy_nullifier_proof =
-                wait_for_non_inclusion_proof(&self.indexer, self.tree_address, dummy_nullifier);
-            let utxo = Utxo {
-                owner,
-                asset,
-                amount: 0,
-                blinding: random_blinding(),
-                ring_program_id: None,
-                data: Data::default(),
+        let mut spend_inputs: Vec<TransferSpendInput> = Vec::with_capacity(MERGE_INPUT_COUNT);
+        for (slot, nullifier_proof) in nullifier_proofs.into_iter().enumerate() {
+            let real = inputs.get(slot).zip(state_proofs.get(slot));
+            let (utxo, proof, nullifier_proof) = match real {
+                Some((utxo, state)) => (
+                    utxo.clone(),
+                    Some(SpendProof {
+                        state: state.clone(),
+                        nullifier: nullifier_proof,
+                    }),
+                    None,
+                ),
+                None => (
+                    Utxo {
+                        owner,
+                        asset,
+                        amount: 0,
+                        blinding: random_blinding(),
+                        ring_program_id: None,
+                        data: Data::default(),
+                    },
+                    None,
+                    Some(nullifier_proof),
+                ),
             };
             spend_inputs.push(TransferSpendInput {
                 utxo,
                 nullifier_key: keypair.nullifier_key.clone(),
                 data_hash: None,
                 ring_data_hash: None,
-                proof: None,
-                nullifier_proof: Some(dummy_nullifier_proof),
+                tree_id,
+                proof,
+                nullifier_proof,
             });
         }
 
@@ -189,6 +207,7 @@ impl LifecycleHarness {
             expiry_unix_ts,
             signing_pubkey: owner,
             nullifier_key: keypair.nullifier_key.clone(),
+            output_tree_id: tree_id,
         }
         .build()?;
 
@@ -270,7 +289,7 @@ impl LifecycleHarness {
         // merge event; reconstruction needs their amounts, assets, and first
         // blinding.
         for input in &inputs {
-            let input_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            let input_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if self
                 .actor(name)
                 .wallet
@@ -291,6 +310,7 @@ impl LifecycleHarness {
                 nullifier: input.nullifier(&input_hash, &keypair.nullifier_key)?,
                 data_hash: None,
                 ring_data_hash: None,
+                tree_id,
                 spent: true,
             };
             let actor = self.actor_mut(name);
@@ -312,7 +332,7 @@ impl LifecycleHarness {
 
         // Mark consumed inputs spent if they were decrypted (tracked) UTXOs.
         for input in &inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if let Some(utxo) = self
                 .actor_mut(name)
                 .expected

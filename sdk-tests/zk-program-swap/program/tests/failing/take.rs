@@ -6,6 +6,7 @@
 
 use solana_program_error::ProgramError;
 use swap_program::error::SwapError;
+use zolana_interface::instruction::instruction_data::transact::InputUtxo;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{fixture, setup_mollusk, transact, wrapper_data_with, Wrapper};
@@ -35,6 +36,11 @@ fn oversized_take_private_tx_hash_fails_hashing_exactly() {
     // 0xFF-filled bytes exceed the BN254 modulus, so the public-input Poseidon
     // hash fails before proof verification.
     let mut data = transact(Vec::new());
+    data.inputs.push(InputUtxo {
+        nullifier_hash: [1; 32],
+        nullifier_tree_root_index: 0,
+        utxo_tree_root_index: 0,
+    });
     data.private_tx_hash = [0xFF; 32];
     instruction.data = wrapper_data_with(Wrapper::Take, data);
     expect_err_exact(
@@ -42,6 +48,18 @@ fn oversized_take_private_tx_hash_fails_hashing_exactly() {
         &instruction,
         &accounts,
         ProgramError::Custom(SwapError::HashingFailed as u32),
+    );
+}
+
+#[test]
+fn missing_first_nullifier_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let (instruction, accounts) = fixture(Wrapper::Take);
+    expect_err_exact(
+        &mollusk,
+        &instruction,
+        &accounts,
+        ProgramError::Custom(SwapError::InvalidInstructionData as u32),
     );
 }
 

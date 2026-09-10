@@ -18,24 +18,26 @@ const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
 const SENDER_TAG: [u8; 32] = [0xb2; 32];
 const BLOCKED_TAG: [u8; 32] = [0xc3; 32];
 const ASSET_MINT: [u8; 32] = [0xd4; 32];
+/// The entries tree id the Go fixture hashes under.
+const TREE_ID: u16 = 7;
 /// The mint's `hash_bytes`, the value a UTXO carries as its asset field.
 const ASSET_MEMBERS: &[[u8; 32]] = &[[
     0x14, 0xa6, 0xb5, 0x09, 0x2f, 0x94, 0x1b, 0xd4, 0x33, 0x6f, 0xe2, 0xa2, 0x5f, 0xc6, 0x17, 0xa9,
     0x51, 0x5b, 0x45, 0x7e, 0x02, 0x7e, 0x0c, 0xf5, 0xe4, 0x86, 0x7c, 0x08, 0x58, 0x85, 0x5e, 0xc1,
 ]];
 
-const RECORDS_OWNER_HASH: &str = "1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be";
-const CURATOR_OWNER_HASH: &str = "2719a8eec7b597c45bf36e95b85af000cbceef719715713fadec78fe81c88280";
-const POLICY_HASH: &str = "243120278b6c15d93cd9b27feeb0586457cf41798c30c534da48f66e3fd76b69";
+const RECORDS_OWNER_HASH: &str = "2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196";
+const CURATOR_OWNER_HASH: &str = "13463a1c543bbe328fea6b0990a4014a613371d7390be03f7bc35cb4540753bb";
+const POLICY_HASH: &str = "1be5d2fc725c11918d3ecbd5fcd0f5d7e78635dcffb0d7312246eaa380a51a7d";
 const EMPTY_POLICY_HASH: &str = "16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400";
 const ONE_RULE_POLICY_HASH: &str =
-    "226e9c2ba91e63d29176d27dd80711d501c284769b4d1a76c5c1676259bfd3ff";
+    "2ac1455d7a647806afa55bcdf3a99d4fffd378975d7268d3897f1f56ab14cf75";
 const TWO_RULE_POLICY_HASH: &str =
-    "0ab720d70035f79c4c91e8677e4753a855c3f7be0fcaf8f655883d258821189c";
+    "1fd5912b36ce5c0bd249bf2f54020721f16eb70a52c3381ba8c71484e392f384";
 const MIXED_RULE_POLICY_HASH: &str =
-    "1d6806016526767233ca9acecf59629642e061ae50a0018192a78eb6617f46f8";
+    "1a571ee1f11ce84b282e90fc7bf4358419c64e05a086d976b02b577e1ade2752";
 const PER_ASSET_POLICY_HASH: &str =
-    "2903cae630b7cd871a2074e617e68dcd52fc866b28fab7c509033ef87357143d";
+    "0e70f40402bf8dd92ff898133027a599072c8b5e92a06aa15f8dfeebff212d1f";
 const PER_ASSET_RULES: RuleTable = RuleTable::builder()
     .rule(Rule::require(Subject::OutputOwner, ListId::Allow).above_by_asset())
     .inline_assets(ASSET_MEMBERS)
@@ -44,6 +46,7 @@ const PER_ASSET_RULES: RuleTable = RuleTable::builder()
 
 struct Vector {
     seed: &'static str,
+    blinding: &'static str,
     address: &'static str,
     data_hash: &'static str,
     utxo_hash: &'static str,
@@ -51,24 +54,26 @@ struct Vector {
 }
 
 const ALLOW_PRESENT: Vector = Vector {
-    seed: "1a226466656865c6abbc97ffe595edd254a69d89071e659fedc495d140b6f00e",
-    address: "0ee2aa711dae06d975e5709ed68eafd75cd74070b75859093bb9becf3d2387b0",
-    data_hash: "01b623e0a858d61692c7da1d75771d3bf368ef5f8647139f030ed3d281dc1c01",
-    utxo_hash: "053cce0509ced4cd9c95c0f84c49b6fe40eeadf91d3166c8879db4c0b8df3c65",
-    nullifier: "23ea6084012812863119d78a52a0ecdaa1431254e08d0f0d2c95a8accb9f1e68",
+    seed: "148b5ac42f444aa51bec37ae98ee6a26c6af968bf968e0eb50e749f3ef0eab04",
+    blinding: "0000000000000000000000000000000000000000000000000000000000000001",
+    address: "004fe1ffd9574dfaf0d8ab04f3db3602cc1fb8db8d10c8ebba62cf3923998abf",
+    data_hash: "09c053bd16ca781e84e64bb353549e6dd9fbcc6e072e0a34e50c59fc3b6c9d2d",
+    utxo_hash: "03409e610c10c6e82bead86f12d0f79872c66e8ca3a51d796de1726aeed137ab",
+    nullifier: "0a4a91cd454e7f8acb5bc0df7bc826570caa1d22914a0cc8aa62db94a978af6d",
 };
 
 /// The frozen entry was never created and its list reads a curator's
 /// entries, so only its curator owned address is pinned.
-const FROZEN_SEED: &str = "08e7b574f94761ce516d508af775433829e11b046e54e02912756d8fc0926db4";
-const FROZEN_ADDRESS: &str = "061a65b955d92905ed3ac1ea36026f9171850fdcdb1ff5442fe90402da8b9f58";
+const FROZEN_SEED: &str = "1d07a2770e53955dd99bbf1a36348d8699fba111587451e3052d4fae3c23d5e6";
+const FROZEN_ADDRESS: &str = "30036588ff59652a8d248e3c5927aaf96e08d59f40b3291c1eec8af8f7fd1687";
 
 const BLOCK_CLEARED: Vector = Vector {
-    seed: "1f01f29f76e08896530395ef0169b0bcb96b52ce50f3f0350b791eb2f1356d18",
-    address: "2f717b4319dbc570077080cfdf8ddaf15e2357bc6282adbd40940b7455869b7e",
-    data_hash: "22c0474e22652fc298f31f82df3e64ea25390b75a37d303605b1d7bd037ef849",
-    utxo_hash: "1a349272ecf58b247f3c461605e6b354ab316b6afb6e836160491cc0dad408d1",
-    nullifier: "0210014fd4163aad3eae789aa5eceb789bcf928c85f23ad9ab897d38e13d70a1",
+    seed: "071bb37c9c8db477e9c559891989aa7b774b7da82c0341bdd826d1f2d35430ba",
+    blinding: "0000000000000000000000000000000000000000000000000000000000000003",
+    address: "110828bc9145be37cd119865f66113d3858a8df6436fa6427eba07d152d7e654",
+    data_hash: "145f4e2f25f4b57eefc76e760c8adfb06b48e7ea17f022c62c692d6530d9d9f3",
+    utxo_hash: "0e5cc81efe63454ebd769c706d697141626499d60889f5207cd823a0dc23a461",
+    nullifier: "03440de6febefc54740d90e51412d74ee76abd757d713ac3636d33e8b34068f2",
 };
 
 fn hex32(value: &str) -> [u8; 32] {
@@ -104,7 +109,7 @@ fn check(vector: &Vector, list_id: ListId, tag: [u8; 32], state: EntryState, ver
         hex32(vector.seed),
         "seed"
     );
-    let address = owner.address(list_id, &member).expect("address");
+    let address = owner.address(list_id, &member, TREE_ID).expect("address");
     assert_eq!(address, hex32(vector.address), "address");
 
     let entry = ListEntry {
@@ -113,13 +118,16 @@ fn check(vector: &Vector, list_id: ListId, tag: [u8; 32], state: EntryState, ver
         state,
         version,
         content_hash: [0u8; 32],
+        blinding: hex32(vector.blinding),
     };
     assert_eq!(
         entry.data_hash(&address).expect("data hash"),
         hex32(vector.data_hash),
         "data hash"
     );
-    let utxo_hash = entry.utxo_hash(&owner, &address).expect("utxo hash");
+    let utxo_hash = entry
+        .utxo_hash(&owner, &address, TREE_ID)
+        .expect("utxo hash");
     assert_eq!(utxo_hash, hex32(vector.utxo_hash), "utxo hash");
     assert_eq!(
         entry_nullifier(&utxo_hash, &entry.blinding()).expect("nullifier"),
@@ -145,7 +153,9 @@ fn record_hashing_matches_the_go_fixture() {
         hex32(FROZEN_SEED)
     );
     assert_eq!(
-        curator().address(ListId::Frozen, &sender).expect("address"),
+        curator()
+            .address(ListId::Frozen, &sender, TREE_ID)
+            .expect("address"),
         hex32(FROZEN_ADDRESS)
     );
     check(
@@ -249,6 +259,7 @@ fn policy_account_bytes_match_the_typescript_vector() {
         discriminator: POLICY_CONFIG,
         policy_hash: PER_ASSET_RULES.hash(&sources).expect("policy hash"),
         entries_tree: Address::new_from_array([0x22; 32]),
+        entries_tree_id: 7u16.to_le_bytes(),
         namespace_bump: 254,
         bump: 253,
         sources: slots,
@@ -284,6 +295,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         policy_hash: &hex32(POLICY_HASH),
         state_root: &[6u8; 32],
         nullifier_root: &[7u8; 32],
+        entries_tree_id: TREE_ID,
     };
     let chain = zolana_hasher::hash_chain::create_hash_chain_from_slice(&[
         elements[0],
@@ -297,6 +309,7 @@ fn the_public_input_chain_extends_the_audit_chain() {
         hex32(POLICY_HASH),
         [6u8; 32],
         [7u8; 32],
+        zolana_interface::tree_slot::tree_id_field(TREE_ID),
     ])
     .expect("chain");
     assert_eq!(policy.hash().expect("policy input"), chain);

@@ -28,11 +28,21 @@ type ProofTransactionRequest struct {
 	StateEntries             []ProofStateEntry          `json:"state_entries"`
 	Inputs                   []ProofInputRequest        `json:"inputs"`
 	Outputs                  []ProofUtxoRequest         `json:"outputs"`
-	UtxoTreeRootIndex        []uint16                   `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex   []uint16                   `json:"nullifier_tree_root_index"`
-	NullifierEntries         []string                   `json:"nullifier_entries"`
-	DataHash                 string                     `json:"data_hash"`
-	RingDataHash             string                     `json:"ring_data_hash"`
+	// InputTreeID and OutputTreeID are the raw u16 tree ids the utxo hashes are
+	// bound to: every input is spent from InputTreeID and every output is
+	// appended to OutputTreeID. Both default to tree 0.
+	InputTreeID  uint16 `json:"input_tree_id"`
+	OutputTreeID uint16 `json:"output_tree_id"`
+	// UtxoTreeRootIndex is one root index per tree slot, in slot order, and
+	// NullifierTreeRootIndex the single index SPP reads the nullifier root from.
+	// They are transaction-level, not per-input: an input picks its tree slot
+	// privately, so publishing an index per input would leak which tree it came
+	// from. An empty UtxoTreeRootIndex means every slot reads root index 0.
+	UtxoTreeRootIndex      []uint16 `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex uint16   `json:"nullifier_tree_root_index"`
+	NullifierEntries       []string `json:"nullifier_entries"`
+	DataHash               string   `json:"data_hash"`
+	RingDataHash           string   `json:"ring_data_hash"`
 }
 
 type InterfaceTransferRequest struct {
@@ -76,28 +86,40 @@ type ProofBundle struct {
 }
 
 type ProofTransaction struct {
-	Name                   string                     `json:"name"`
-	ExpiryUnixTs           uint64                     `json:"expiry_unix_ts"`
-	SenderViewTag          string                     `json:"sender_view_tag"`
-	TxViewingPk            string                     `json:"tx_viewing_pk"`
-	Salt                   string                     `json:"salt"`
-	Proof                  *common.Proof              `json:"proof"`
-	Nullifiers             []string                   `json:"nullifiers"`
-	OutputUtxoHashes       []string                   `json:"output_utxo_hashes"`
-	UtxoTreeRootIndex      []uint16                   `json:"utxo_tree_root_index"`
-	NullifierTreeRootIndex []uint16                   `json:"nullifier_tree_root_index"`
-	PrivateTxHash          string                     `json:"private_tx_hash"`
-	InterfaceTransfers     []InterfaceTransferRequest `json:"interface_transfers"`
-	EncryptedUtxos         string                     `json:"encrypted_utxos"`
-	PublicInputHash        string                     `json:"public_input_hash"`
-	ExternalDataHash       string                     `json:"external_data_hash"`
+	Name             string        `json:"name"`
+	ExpiryUnixTs     uint64        `json:"expiry_unix_ts"`
+	SenderViewTag    string        `json:"sender_view_tag"`
+	TxViewingPk      string        `json:"tx_viewing_pk"`
+	Salt             string        `json:"salt"`
+	Proof            *common.Proof `json:"proof"`
+	Nullifiers       []string      `json:"nullifiers"`
+	OutputUtxoHashes []string      `json:"output_utxo_hashes"`
+	InputTreeID      uint16        `json:"input_tree_id"`
+	OutputTreeID     uint16        `json:"output_tree_id"`
+	// One root index per tree slot plus the single nullifier root index,
+	// mirroring the transaction-level shape of the request.
+	UtxoTreeRootIndex      [protocol.InputTrees]uint16 `json:"utxo_tree_root_index"`
+	NullifierTreeRootIndex uint16                      `json:"nullifier_tree_root_index"`
+	PrivateTxHash          string                      `json:"private_tx_hash"`
+	InterfaceTransfers     []InterfaceTransferRequest  `json:"interface_transfers"`
+	EncryptedUtxos         string                      `json:"encrypted_utxos"`
+	PublicInputHash        string                      `json:"public_input_hash"`
+	ExternalDataHash       string                      `json:"external_data_hash"`
 
-	SolanaOwnerPubkeys      []string            `json:"solana_owner_pubkeys"`
-	OutputUtxos             []ProofUtxoResponse `json:"output_utxos"`
-	DebugInputUtxoHashes    []string            `json:"debug_input_utxo_hashes"`
-	DebugOutputUtxoHashes   []string            `json:"debug_output_utxo_hashes"`
-	DebugUtxoTreeRoots      []string            `json:"debug_utxo_tree_roots"`
-	DebugNullifierTreeRoots []string            `json:"debug_nullifier_tree_roots"`
+	SolanaOwnerPubkeys    []string            `json:"solana_owner_pubkeys"`
+	OutputUtxos           []ProofUtxoResponse `json:"output_utxos"`
+	DebugInputUtxoHashes  []string            `json:"debug_input_utxo_hashes"`
+	DebugOutputUtxoHashes []string            `json:"debug_output_utxo_hashes"`
+	DebugTreeSlots        []ProofTreeSlot     `json:"debug_tree_slots"`
+	DebugOutputTreeID     string              `json:"debug_output_tree_id"`
+}
+
+// ProofTreeSlot echoes one published tree slot: the tree id and the two roots
+// the proof was built against.
+type ProofTreeSlot struct {
+	ID            string `json:"id"`
+	UtxoRoot      string `json:"utxo_root"`
+	NullifierRoot string `json:"nullifier_root"`
 }
 
 type ProofSigningPayloadBundle struct {
@@ -228,11 +250,7 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		return ProofTransaction{}, err
 	}
 
-	utxoRootIndices, err := proofRootIndices(tx.UtxoTreeRootIndex, len(tx.Inputs), "utxo_tree_root_index")
-	if err != nil {
-		return ProofTransaction{}, err
-	}
-	nullifierTreeRootIndices, err := proofRootIndices(tx.NullifierTreeRootIndex, len(tx.Inputs), "nullifier_tree_root_index")
+	utxoRootIndices, err := proofUtxoRootIndices(tx.UtxoTreeRootIndex)
 	if err != nil {
 		return ProofTransaction{}, err
 	}
@@ -258,27 +276,41 @@ func buildProofTransaction(ps *ProofSystem, tx ProofTransactionRequest, payerHas
 		Proof:         &common.Proof{Proof: proof},
 		// Real-length public transcript. transcript.{nullifiers,outputHashes} are
 		// padded to the circuit shape (reals first, then dummy slots), but the
-		// on-chain TransactData wants the real-length arrays (it pads
-		// internally) and requires the nullifier count to match the
-		// root-index counts, which are already real-length. Slicing at the
-		// source makes every bundle consumer correct instead of each one
-		// re-slicing (the e2e fixture builder did the latter).
-		Nullifiers:              proofBigIntHexes(transcript.nullifiers[:len(tx.Inputs)]),
-		OutputUtxoHashes:        proofBigIntHexes(transcript.outputHashes[:len(tx.Outputs)]),
-		UtxoTreeRootIndex:       utxoRootIndices,
-		NullifierTreeRootIndex:  nullifierTreeRootIndices,
-		PrivateTxHash:           parse.FieldHex(publicInputs.PrivateTxHash),
-		InterfaceTransfers:      interfaceTransfers,
-		EncryptedUtxos:          parse.HexString(tx.EncryptedUtxos),
-		PublicInputHash:         parse.FieldHex(publicInputHash),
-		ExternalDataHash:        parse.FieldHex(publicInputs.ExternalDataHash),
-		SolanaOwnerPubkeys:      transcript.solanaOwnerPubkeys,
-		OutputUtxos:             outputUtxos,
-		DebugInputUtxoHashes:    proofBigIntHexes(transcript.inputHashes),
-		DebugOutputUtxoHashes:   proofBigIntHexes(transcript.outputHashes),
-		DebugUtxoTreeRoots:      proofBigIntHexes(publicInputs.UtxoTreeRoots),
-		DebugNullifierTreeRoots: proofBigIntHexes(publicInputs.NullifierTreeRoots),
+		// on-chain TransactData wants the real-length arrays and pads
+		// internally. Slicing at the source makes every bundle consumer correct
+		// instead of each one re-slicing (the e2e fixture builder did the
+		// latter). The root indices are transaction-level, so they no longer
+		// have to match the nullifier count.
+		Nullifiers:             proofBigIntHexes(transcript.nullifiers[:len(tx.Inputs)]),
+		OutputUtxoHashes:       proofBigIntHexes(transcript.outputHashes[:len(tx.Outputs)]),
+		InputTreeID:            tx.InputTreeID,
+		OutputTreeID:           tx.OutputTreeID,
+		UtxoTreeRootIndex:      utxoRootIndices,
+		NullifierTreeRootIndex: tx.NullifierTreeRootIndex,
+		PrivateTxHash:          parse.FieldHex(publicInputs.PrivateTxHash),
+		InterfaceTransfers:     interfaceTransfers,
+		EncryptedUtxos:         parse.HexString(tx.EncryptedUtxos),
+		PublicInputHash:        parse.FieldHex(publicInputHash),
+		ExternalDataHash:       parse.FieldHex(publicInputs.ExternalDataHash),
+		SolanaOwnerPubkeys:     transcript.solanaOwnerPubkeys,
+		OutputUtxos:            outputUtxos,
+		DebugInputUtxoHashes:   proofBigIntHexes(transcript.inputHashes),
+		DebugOutputUtxoHashes:  proofBigIntHexes(transcript.outputHashes),
+		DebugTreeSlots:         proofTreeSlots(publicInputs.TreeSlots),
+		DebugOutputTreeID:      parse.FieldHex(publicInputs.OutputTreeID),
 	}, nil
+}
+
+func proofTreeSlots(slots []protocol.TreeSlot) []ProofTreeSlot {
+	out := make([]ProofTreeSlot, len(slots))
+	for i, slot := range slots {
+		out[i] = ProofTreeSlot{
+			ID:            parse.FieldHex(slot.ID),
+			UtxoRoot:      parse.FieldHex(slot.UtxoRoot),
+			NullifierRoot: parse.FieldHex(slot.NullifierRoot),
+		}
+	}
+	return out
 }
 
 func normalizedInterfaceTransfers(transfers []InterfaceTransferRequest) ([]InterfaceTransferRequest, error) {
@@ -326,14 +358,20 @@ func buildProofSigningPayloadTransaction(shape protocol.Shape, tx ProofTransacti
 	}, nil
 }
 
-func proofRootIndices(indices []uint16, inputCount int, name string) ([]uint16, error) {
+// proofUtxoRootIndices normalizes the request's utxo root indices to one per
+// tree slot, in slot order. An omitted field means every slot reads root index
+// 0, the newest root, so an existing request stays valid.
+func proofUtxoRootIndices(indices []uint16) ([protocol.InputTrees]uint16, error) {
+	var out [protocol.InputTrees]uint16
 	if len(indices) == 0 {
-		return make([]uint16, inputCount), nil
+		return out, nil
 	}
-	if len(indices) != inputCount {
-		return nil, fmt.Errorf("spp: %s length %d does not match input count %d", name, len(indices), inputCount)
+	if len(indices) != protocol.InputTrees {
+		return out, fmt.Errorf(
+			"spp: utxo_tree_root_index length %d does not match the %d tree slots",
+			len(indices), protocol.InputTrees,
+		)
 	}
-	out := make([]uint16, inputCount)
-	copy(out, indices)
+	copy(out[:], indices)
 	return out, nil
 }

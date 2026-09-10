@@ -5,23 +5,70 @@
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
-the one it spends from. Trees now derive from ids, carry their own fee
-schedules, and create spent-nullifier accounts, and governance controls ring
-activation separately from registration. Wallet replay keeps merge
-outputs when their inputs arrive in the same sync, and selection and approval
-text use UTXO terminology without changing version 3 snapshot keys.
+the one it spends from. Wallet replay keeps merge outputs when their inputs
+arrive in the same sync, and selection and approval text use UTXO terminology
+without changing version 3 snapshot keys.
+A tree derives from its id instead of one fixed address, holds its own fee
+schedule, and takes four instructions in one transaction to create. Every
+spent nullifier gets its own account, and the transact, merge, and ring
+builders take one nullifier account per input. Registering a ring and admitting
+it are now two separate steps with two different signers. The proof system changed underneath: owner identities carry a signing
+algorithm tag, every UTXO commits to the tree it lives in, and one private
+blinding seed per proof derives every output blinding and the private
+transaction hash blinding.
 
 Breaking
 
+- `ShieldedPublicKey.ownerProofInputHash()` hashes a signing algorithm tag
+  ahead of the key, so every owner hash, compressed address, UTXO hash, and
+  nullifier differs from earlier releases → state and addresses produced before
+  this release no longer verify; derive addresses again and sync wallets from
+  an empty state.
+- `Utxo.hash`, `Utxo.proofInput`, `ProofOutputUtxo.hash`, and the object form of
+  `ownerUtxoHash` take the raw id of the tree the UTXO lives in, and
+  `ProofInputUtxo` carries `treeId` → pass `DEFAULT_TREE_ID` (0), the value
+  every builder, wallet, and client path defaults to.
+- `deriveBlinding` is removed; every transact output, padding included, is
+  blinded with `transactOutputBlinding(firstNullifier, outputBlindingSeed(firstNullifier, blindingSeed), slot)`
+  and the seed-disclosing bundles carry the derived output seed, so
+  `anonymousSenderUtxos`, `plaintextTransferUtxos`, `splitBundleUtxos`, and
+  their `*FromUtxos` counterparts take the transaction's first nullifier →
+  read `nullifiers[0]` of the indexed transaction and pass it along.
+- `privateTxHash` takes `blinding` and `addressNullifiers` (was
+  `addressHashes`), `createEncryptedTransaction` takes `outputTreeId` and
+  `privateTxBlinding`, and `SppProofInputs` requires `blindingSeed` and
+  `outputTreeId` while exposing `firstNullifier`, `outputBlindingSeed`,
+  `privateTxBlinding`, and `privateTxHash` → callers that hash a transaction
+  themselves supply the blinding; `messageHash` is unchanged in meaning.
+- `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
+  `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
+  argument, `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
+  `inputTreeId` and `outputTreeId`, and `PreparedTransfer` and `PreparedSplit`
+  expose the seed material the prover needs → an input set spanning two trees
+  is refused with `TRANSACTION_INPUT_TREE_MISMATCH`.
+- A padding output's published owner tag names a non-payer input owner or a
+  real output's owner and is always inline, and a self-paid transfer with no
+  change and no recipient keeps a real zero-amount SOL change output → expect
+  `PreparedTransfer.outputs` to hold an owned zero-amount output in that case,
+  and `TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT` when a transfer would
+  otherwise name nobody.
+- `ZolanaClientConfig.treeId` selects the pool tree (default 0) and `tree`, when
+  given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
+  proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, a merge
+  is refused with the same code when its output tree is not its input tree,
+  every input of an instruction carries one root position pair
+  (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
+  `outputTreeId`, and `blindingSeed` → run a prover from this release.
+
+- `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
   the upgrade `authority` alongside `payer`.
 - Policy rule tables now carry one `inlineLimit` per inline asset and policy
   prover requests carry the padded `inlineLimits` fields → recreate policy
   config accounts and include the limits in custom prover integrations.
-- Custom-ring prover requests now use the explicit circuit types
-  `custom-ring-base` and `custom-ring-policy`; the ambiguous `audit` and
-  `transfer` variants were removed. Rename request types and prover methods to
-  their `Base` or `Policy` forms.
+- Custom-ring prover requests use the circuit types `custom-ring-base` and
+  `custom-ring-policy` in place of the `audit` and `transfer` variants → rename
+  request types and prover methods to their `Base` or `Policy` forms.
 - `createRingConfigInstruction` takes `hasPolicy` and `RingProgramConfig`
   reports it → pass `true` for a ring that enforces compiled rules and `false`
   for an audit-only ring.
@@ -51,8 +98,9 @@ Breaking
   `getEncryptedUtxosByTags`, `getShieldedTransactionsByNullifiers`,
   `getMerkleProofs` and `getNonInclusionProofs` → add the four methods to a
   custom client.
-- `customRingPublicInputHash` takes `policyHash`, `stateRoot`, and
-  `nullifierRoot` → use `auditPublicInputHash` for the audit statement alone.
+- `customRingPublicInputHash` takes `policyHash`, `stateRoot`,
+  `nullifierRoot` and `entriesTreeId` → use `auditPublicInputHash` for the
+  audit statement alone.
 - Ring registration is permissionless and produces a config that authorizes
   nothing, and governance admits it separately with
   `getSetRingActivationInstructionAsync` → a ring is live only after its
@@ -140,7 +188,8 @@ Added
   into the answers and roots a ring transfer proves, and
   `readRingEntryLineages` reads the live version of many entries in one walk.
 - `fetchRingPolicyConfig` and `decodeRingPolicyConfig` read a policy ring's
-  `RingPolicyConfig` with its rule table hash, entries tree,
+  `RingPolicyConfig` with its rule table hash, entries tree and its
+  `entriesTreeId`,
   `RingPolicySource` list, rule rows and inline assets with their counts, and
   `generation` with its `generationSlot`, `ringPolicyConfigAddress` and
   `ringPolicyNamespaceAddress` derive its two accounts, and a missing or
@@ -206,14 +255,17 @@ Added
   curator-served list with `RING_LIST_SHARED` and a payer the list does not
   admit with `RING_LIST_WRITER_UNAUTHORIZED`.
 - `proveRingEntryTransition` and `ringEntryTransitionInputs` prove one entry
-  transition, `createRingEntryInstruction` and `updateRingEntryInstruction`
-  build its instruction, and an unreadable entries tree or proof is
+  transition from a `ListEntryDraft` and return the `ListEntry` with the
+  blinding the pool derives for it as a `RingEntryTransition`,
+  `createRingEntryInstruction` and `updateRingEntryInstruction` build its
+  instruction, and an unreadable entries tree or proof is
   `RING_ENTRIES_TREE_INVALID` or `RING_ENTRY_PROOF_INCOMPLETE`.
 - `readRingEntry` and `readRingEntries` walk a namespace's entry lineages
   through the indexer and return each live `ListEntry` with the transaction
-  that wrote it, `decodeListEntry` reads a published entry, `memberOfTag` and
-  `memberOfAsset` derive a `Member`, `RingListNamespace` derives entry
-  addresses and hashes, and a lineage whose spender carries no next version is
+  that wrote it, `decodeListEntry` reads a published entry with its
+  `blinding`, `memberOfTag`, `memberOfIdentity` and `memberOfAsset` derive a
+  `Member`, `RingListNamespace` derives entry addresses and hashes under the
+  entries tree id, and a lineage whose spender carries no next version is
   `RING_ENTRY_LINEAGE_BROKEN`.
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
@@ -252,6 +304,17 @@ Added
   derives for a deposit output, so a caller that does not want to trust an
   indexer can verify a deposited UTXO against the tree and leaf index alone.
   Reading the indexed UTXO remains the normal way to spend a deposit.
+- `solanaOwnerIdentity`, `p256OwnerIdentity`, `outputBlindingSeed`,
+  `transactOutputBlinding`, `privateTxBlinding`, `mergePrivateTxBlinding`,
+  `treeIdField`, `treeSlotHash`, `treeSlotsHashChain`, `inputTreeSlots`,
+  `INPUT_TREES`, and `DEFAULT_TREE_ID` expose the proof derivations a reader or
+  an integrating program recomputes.
+- `ClientError` adds `CLIENT_INPUT_TREE_ROOT_MISMATCH`,
+  `CLIENT_NULLIFIER_ROOT_MISMATCH`, `CLIENT_OUTPUT_BLINDING_MISMATCH`, and
+  `CLIENT_TREE_ID_MISMATCH`; `TransactionError` adds
+  `TRANSACTION_INPUT_TREE_MISMATCH`, `TRANSACTION_INVALID_TREE_ID`, and
+  `TRANSACTION_NO_DUMMY_OWNER_TAG_PARTICIPANT`, all raised before a proof
+  request leaves the client.
 
 Changed
 
@@ -281,7 +344,10 @@ Fixed
 
 Dependencies
 
-- `@solana-program/system` ^0.13.0 (new).
+- `@solana-program/address-lookup-table` ^0.14.1 (was ^0.13.0).
+- `@solana-program/compute-budget` ^0.18.1 (was ^0.17.0).
+- `@solana-program/token` ^0.16.1 (was ^0.15.0).
+- `@solana-program/system` ^0.14.1 (new).
 
 ## 0.1.5-alpha — 2026-09-01
 

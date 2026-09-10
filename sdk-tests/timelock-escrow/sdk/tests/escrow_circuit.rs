@@ -53,6 +53,10 @@ fn sample_terms() -> EscrowTermsProofInput {
     }
 }
 
+/// Both outputs of an escrow land in the same tree. A non-zero id keeps the test
+/// honest: a dropped tree id would change every commitment.
+const OUTPUT_TREE_ID: u16 = 3;
+
 fn build_inputs(escrow_amount: u64, change_amount: u64) -> EscrowProofInputs {
     let terms = sample_terms();
     let source_mint = Address::new_from_array([1u8; 32]);
@@ -61,13 +65,21 @@ fn build_inputs(escrow_amount: u64, change_amount: u64) -> EscrowProofInputs {
         &source_mint,
         escrow_amount,
         &blinding(7),
+        OUTPUT_TREE_ID,
     )
     .expect("escrow utxo")
     .with_data_hash(terms.data_hash().expect("terms data hash"));
-    let change = ProofInputUtxo::new(terms.owner_hash, &source_mint, change_amount, &blinding(6))
-        .expect("change utxo");
+    let change = ProofInputUtxo::new(
+        terms.owner_hash,
+        &source_mint,
+        change_amount,
+        &blinding(6),
+        OUTPUT_TREE_ID,
+    )
+    .expect("change utxo");
     let source_input_hash = fe(5);
     let external_data_hash = fe(8);
+    let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[source_input_hash, [0u8; 32]],
         &[
@@ -75,6 +87,7 @@ fn build_inputs(escrow_amount: u64, change_amount: u64) -> EscrowProofInputs {
             escrow_utxo.hash().expect("escrow utxo hash"),
         ],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -85,6 +98,7 @@ fn build_inputs(escrow_amount: u64, change_amount: u64) -> EscrowProofInputs {
         change,
         source_input_hash,
         external_data_hash,
+        private_tx_blinding,
     }
 }
 

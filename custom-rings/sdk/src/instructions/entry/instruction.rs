@@ -10,7 +10,7 @@ use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, R
 
 use crate::{
     instructions::{
-        entry::proof::{EntryProof, EntryProofError, EntryWitness},
+        entry::proof::{EntryDraft, EntryProof, EntryProofError, EntryWitness},
         policy_table::{LegacyPacket, PolicyTable},
     },
     CustomRing,
@@ -92,6 +92,7 @@ pub struct CreateEntry {
     pub ring: CustomRing,
     pub payer: Address,
     pub entries_tree: Address,
+    pub entries_tree_id: u16,
     pub list_id: ListId,
     pub member: Member,
     pub state: EntryState,
@@ -108,19 +109,20 @@ impl CreateEntry {
         }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
-        let entry = ListEntry {
+        let draft = EntryDraft {
             list_id: self.list_id,
             member: self.member,
             state: self.state,
             version: 0,
             content_hash: self.content_hash,
         };
-        let proof = EntryWitness {
+        let (entry, proof) = EntryWitness {
             owner: &owner,
             namespace,
             entries_tree: self.entries_tree,
+            entries_tree_id: self.entries_tree_id,
             payer: self.payer,
-            entry,
+            draft,
             spent: None,
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
@@ -141,6 +143,7 @@ pub struct UpdateEntry {
     pub ring: CustomRing,
     pub payer: Address,
     pub entries_tree: Address,
+    pub entries_tree_id: u16,
     pub spent: ListEntry,
     pub state: EntryState,
     pub content_hash: [u8; 32],
@@ -156,7 +159,7 @@ impl UpdateEntry {
         }
         let namespace = self.ring.namespace_pda();
         let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
-        let entry = ListEntry {
+        let draft = EntryDraft {
             list_id: self.spent.list_id,
             member: self.spent.member,
             state: self.state,
@@ -167,12 +170,13 @@ impl UpdateEntry {
                 .ok_or(EntryError::VersionOverflow)?,
             content_hash: self.content_hash,
         };
-        let proof = EntryWitness {
+        let (entry, proof) = EntryWitness {
             owner: &owner,
             namespace,
             entries_tree: self.entries_tree,
+            entries_tree_id: self.entries_tree_id,
             payer: self.payer,
-            entry,
+            draft,
             spent: Some(self.spent),
         }
         .prove(environment.indexer, environment.rpc, environment.prover)?;
@@ -227,6 +231,8 @@ impl ProvenEntry {
                     member: *entry.member.as_bytes(),
                     state: entry.state as u8,
                     content_hash: entry.content_hash,
+                    blinding: entry.blinding,
+                    private_tx_blinding: proof.private_tx_blinding,
                     nullifier_tree_root_index: proof.nullifier_tree_root_index,
                     utxo_tree_root_index: proof.utxo_tree_root_index,
                     proof: proof.proof,
@@ -241,8 +247,11 @@ impl ProvenEntry {
                     spent_state: spent.state as u8,
                     spent_content_hash: spent.content_hash,
                     spent_version: spent.version,
+                    spent_blinding: spent.blinding,
                     state: entry.state as u8,
                     content_hash: entry.content_hash,
+                    blinding: entry.blinding,
+                    private_tx_blinding: proof.private_tx_blinding,
                     nullifier_tree_root_index: proof.nullifier_tree_root_index,
                     utxo_tree_root_index: proof.utxo_tree_root_index,
                     proof: proof.proof,
@@ -284,6 +293,7 @@ mod tests {
             ring: CustomRing::new(Address::new_from_array([42u8; 32])),
             payer: Address::new_from_array([1u8; 32]),
             entries_tree: Address::new_from_array([2u8; 32]),
+            entries_tree_id: 0,
             list_id: ListId::Allow,
             member: Member::owner_tag(&[3u8; 32]).expect("member"),
             state: EntryState::Active,
@@ -315,6 +325,7 @@ mod tests {
                 state: EntryState::Active,
                 version: 0,
                 content_hash: [0u8; 32],
+                blinding: [1u8; 32],
             },
             spent: None,
             proof: EntryProof {
@@ -322,6 +333,7 @@ mod tests {
                 nullifier_tree_root_index: 0,
                 utxo_tree_root_index: 0,
                 nullifier,
+                private_tx_blinding: [0u8; 32],
             },
         }
         .instruction()

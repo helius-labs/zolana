@@ -111,7 +111,9 @@ fn fresh_sync_resolves_merge_dependencies() {
         output_slots: vec![OutputSlot {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
-                hash: output.hash(&nullifier_pk, &[0; 32], &[0; 32]).unwrap(),
+                hash: output
+                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
+                    .unwrap(),
                 tree: Address::default(),
                 leaf_index: 2,
             },
@@ -148,7 +150,7 @@ fn fresh_sync_resolves_merge_dependencies() {
             view_tag: alice.signing_pubkey().confidential_view_tag().unwrap(),
             output_context: OutputContext {
                 hash: chained_output
-                    .hash(&nullifier_pk, &[0; 32], &[0; 32])
+                    .hash(&nullifier_pk, &[0; 32], &[0; 32], common::TEST_TREE_ID)
                     .unwrap(),
                 tree: Address::default(),
                 leaf_index: 3,
@@ -205,7 +207,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
         ring_program_id: Some(ring),
         data: Data::default(),
     };
-    let input_hash = input.hash(&nullifier_pk, &[0; 32], &[0; 32]).unwrap();
+    let input_hash = input.hash(&nullifier_pk, &[0; 32], &[0; 32], 0).unwrap();
     let first_nullifier = input.nullifier(&input_hash, nullifier_key).unwrap();
     let output = Utxo {
         owner: alice.signing_pubkey(),
@@ -215,7 +217,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
         ring_program_id: Some(ring),
         data: Data::default(),
     };
-    let output_hash = output.hash(&nullifier_pk, &[0; 32], &[0; 32]).unwrap();
+    let output_hash = output.hash(&nullifier_pk, &[0; 32], &[0; 32], 0).unwrap();
     let mut nullifiers = vec![first_nullifier];
     nullifiers.extend(
         (1..MERGE_INPUTS).map(|slot| {
@@ -243,6 +245,7 @@ fn sync_recovers_a_ring_merge_tagged_by_its_first_nullifier() {
     let mut wallet = Wallet::new(alice.shielded_address().unwrap(), assets).unwrap();
     wallet.utxos.push(WalletUtxo {
         utxo: input,
+        tree_id: 0,
         output_context: OutputContext {
             hash: input_hash,
             tree: Address::default(),

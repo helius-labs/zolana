@@ -129,6 +129,7 @@ export async function writeList(
     const live = await readRingEntry({
       indexer: client,
       entriesTree,
+      entriesTreeId: client.treeId,
       namespace,
       listId: input.listId,
       member,

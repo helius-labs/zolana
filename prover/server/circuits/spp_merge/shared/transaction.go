@@ -11,12 +11,30 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// MergeInputs is the fixed merge shape. Fewer real inputs use dummy slots.
 const (
-	MergeInputs = 8
+	InputTrees  = transaction.InputTrees
 	UtxoDomain  = transaction.UtxoDomain
 	DummyDomain = transaction.DummyDomain
 )
+
+// SupportedInputCounts are the merge input counts the circuits are compiled and
+// keyed for, smallest first. A spender pads up to the next supported count with
+// dummy slots, so the set does not need an entry per real input count.
+//
+// Merge instruction data carries no circuit selector: both the prover and the
+// program derive the shape from the declared nullifier count, so every side
+// must agree on which counts exist.
+var SupportedInputCounts = []int{8, 36}
+
+// IsSupportedInputCount reports whether a merge circuit exists for n inputs.
+func IsSupportedInputCount(n int) bool {
+	for _, supported := range SupportedInputCounts {
+		if supported == n {
+			return true
+		}
+	}
+	return false
+}
 
 // Input contains the free per-slot merge witness. The circuit supplies the
 // shared owner, asset, data hash, and ring program when reconstructing its UTXO.
@@ -28,6 +46,8 @@ type Input struct {
 
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
+	// TreeSlot selects the public tree slot this input is spent from.
+	TreeSlot frontend.Variable
 
 	NullifierLowValue        frontend.Variable
 	NullifierNextValue       frontend.Variable
@@ -53,8 +73,11 @@ type CommonPublicInputs struct {
 	ExternalDataHash frontend.Variable
 	AllowDummyInputs frontend.Variable
 
-	UtxoTreeRoots      []frontend.Variable
-	NullifierTreeRoots []frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []transaction.TreeSlot
+	// Raw u16 id of the output tree.
+	OutputTreeID frontend.Variable
 }
 
 // Transaction is the common merge statement over a wrapper-owned witness.
@@ -80,9 +103,9 @@ type Derived struct {
 	OwnerPkHash frontend.Variable
 }
 
-// NewInputs allocates the fixed merge input slots and their Merkle paths.
-func NewInputs() []Input {
-	inputs := make([]Input, MergeInputs)
+// NewInputs allocates n merge input slots and their Merkle paths.
+func NewInputs(n int) []Input {
+	inputs := make([]Input, n)
 	for i := range inputs {
 		inputs[i].StatePathElements = make([]frontend.Variable, transaction.StateTreeHeight)
 		inputs[i].NullifierLowPathElements = make([]frontend.Variable, transaction.NullifierTreeHeight)
@@ -90,12 +113,12 @@ func NewInputs() []Input {
 	return inputs
 }
 
-// NewCommonPublicInputs allocates the per-input public signal slices.
-func NewCommonPublicInputs() CommonPublicInputs {
+// NewCommonPublicInputs allocates the per-input public signal slices for n
+// inputs.
+func NewCommonPublicInputs(n int) CommonPublicInputs {
 	return CommonPublicInputs{
-		Nullifiers:         make([]frontend.Variable, MergeInputs),
-		UtxoTreeRoots:      make([]frontend.Variable, MergeInputs),
-		NullifierTreeRoots: make([]frontend.Variable, MergeInputs),
+		Nullifiers: make([]frontend.Variable, n),
+		TreeSlots:  transaction.NewTreeSlots(),
 	}
 }
 
@@ -104,19 +127,22 @@ func (p CommonPublicInputs) Prefix(api frontend.API) []frontend.Variable {
 	return []frontend.Variable{
 		gadget.HashChain(api, p.Nullifiers),
 		p.OutputHash,
-		gadget.HashChain(api, p.UtxoTreeRoots),
-		gadget.HashChain(api, p.NullifierTreeRoots),
+		transaction.TreeSlotsHashChain(api, p.TreeSlots),
+		p.OutputTreeID,
 		p.PrivateTxHash,
 		p.ExternalDataHash,
 		p.AllowDummyInputs,
 	}
 }
 
-// ValidateLayout checks every slice indexed by the fixed merge skeleton before
-// Constrain emits any constraints.
+// ValidateLayout checks every slice indexed by the merge skeleton before
+// Constrain emits any constraints. The declared input count must be one the
+// circuits are keyed for: the public-input-hash prefix folds a nullifier chain
+// whose length is the input count, so a count with no key would produce a proof
+// the program can never verify.
 func (t Transaction) ValidateLayout(numInputs int) error {
-	if numInputs != MergeInputs {
-		return fmt.Errorf("merge: NumInputs must be %d, got %d", MergeInputs, numInputs)
+	if !IsSupportedInputCount(numInputs) {
+		return fmt.Errorf("merge: unsupported input count %d, want one of %v", numInputs, SupportedInputCounts)
 	}
 	if got := len(t.Inputs); got != numInputs {
 		return fmt.Errorf("merge: input count mismatch: got %d want %d", got, numInputs)
@@ -124,18 +150,18 @@ func (t Transaction) ValidateLayout(numInputs int) error {
 	checks := []struct {
 		name string
 		got  int
+		want int
 	}{
-		{"nullifier", len(t.Public.Nullifiers)},
-		{"utxo tree root", len(t.Public.UtxoTreeRoots)},
-		{"nullifier tree root", len(t.Public.NullifierTreeRoots)},
+		{"nullifier", len(t.Public.Nullifiers), numInputs},
+		{"tree slot", len(t.Public.TreeSlots), transaction.InputTrees},
 	}
 	for _, check := range checks {
-		if check.got != numInputs {
+		if check.got != check.want {
 			return fmt.Errorf(
 				"merge: %s count mismatch: got %d want %d",
 				check.name,
 				check.got,
-				numInputs,
+				check.want,
 			)
 		}
 	}
@@ -185,31 +211,17 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 
 	inputHashes := make([]frontend.Variable, len(t.Inputs))
 	nullifiers := make([]frontend.Variable, len(t.Inputs))
-	inputHashes[0], nullifiers[0] = constrainInput(
-		api,
-		t.Inputs[0],
-		userOwnerHash,
-		t.UserNullifierSecret,
-		t.Asset,
-		t.Public.UtxoTreeRoots[0],
-		t.Public.NullifierTreeRoots[0],
-		t.RingProgramID,
-		frontend.Variable(0),
-		0,
-	)
-	for i := 1; i < len(t.Inputs); i++ {
-		inputHashes[i], nullifiers[i] = constrainInput(
-			api,
-			t.Inputs[i],
-			userOwnerHash,
-			t.UserNullifierSecret,
-			t.Asset,
-			t.Public.UtxoTreeRoots[i],
-			t.Public.NullifierTreeRoots[i],
-			t.RingProgramID,
-			nullifiers[0],
-			i,
-		)
+	ctx := mergeInputContext{
+		OwnerHash:       userOwnerHash,
+		NullifierSecret: t.UserNullifierSecret,
+		Asset:           t.Asset,
+		RingProgramID:   t.RingProgramID,
+		FirstNullifier:  frontend.Variable(0),
+	}
+	for i := range t.Inputs {
+		tree := transaction.SelectTreeSlot(api, t.Inputs[i].TreeSlot, t.Public.TreeSlots)
+		inputHashes[i], nullifiers[i] = constrainInput(api, t.Inputs[i], ctx, tree, i)
+		ctx.FirstNullifier = nullifiers[0]
 	}
 	transaction.AssertDistinctNullifiers(api, nullifiers)
 
@@ -228,18 +240,20 @@ func (t Transaction) Constrain(api frontend.API) (Derived, error) {
 		t.Asset,
 		sumInputs,
 		t.RingProgramID,
+		t.Public.OutputTreeID,
 	)
 
-	addressHashes := make([]frontend.Variable, len(inputHashes))
-	for i := range addressHashes {
-		addressHashes[i] = frontend.Variable(0)
+	addressNullifiers := make([]frontend.Variable, len(inputHashes))
+	for i := range addressNullifiers {
+		addressNullifiers[i] = frontend.Variable(0)
 	}
 	privateTxHash := transaction.PrivateTxHashCircuit(
 		api,
 		inputHashes,
 		[]frontend.Variable{outputHash},
-		addressHashes,
+		addressNullifiers,
 		t.Public.ExternalDataHash,
+		transaction.DerivePrivateTxBlinding(api, nullifiers[0], t.UserNullifierSecret),
 	)
 	api.AssertIsEqual(privateTxHash, t.Public.PrivateTxHash)
 

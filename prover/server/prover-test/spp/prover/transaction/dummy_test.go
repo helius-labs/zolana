@@ -100,7 +100,7 @@ func TestProveTransferWithDummyPadding(t *testing.T) {
 	stateEntries := make([]ProofStateEntry, len(inputUtxos))
 	inputs := make([]ProofInputRequest, len(inputUtxos))
 	for i, input := range inputUtxos {
-		inputHash, err := protocol.UtxoHash(input)
+		inputHash, err := protocol.UtxoHash(input, big.NewInt(0))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -306,7 +306,7 @@ func testSplAsset(t *testing.T, mintHex string) *big.Int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	asset, err := protocol.SolanaPkField(mint)
+	asset, err := protocol.AssetField(mint)
 	if err != nil {
 		t.Fatal(err)
 	}

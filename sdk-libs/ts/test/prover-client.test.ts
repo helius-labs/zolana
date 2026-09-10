@@ -3,11 +3,18 @@ import { address } from "@solana/kit";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientError } from "../src/client/error.js";
-import { asField, createDummyTransferInput, createOutput } from "../src/client/prover/assembly.js";
+import {
+  asField,
+  createDummyTransferInput,
+  createOutput,
+  treeSlotFields,
+} from "../src/client/prover/assembly.js";
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { disabledRuleAnswer } from "../src/client/prover/types.js";
+import { treeAddress } from "../src/interface/pda/index.js";
+import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingOpening,
@@ -15,16 +22,34 @@ import type {
   MergeInputs,
   ProverInputs,
   TransferInput,
+  TreeSlotFields,
 } from "../src/client/prover/types.js";
 import { ProofInputUtxo, createProofOutput } from "../src/transaction/index.js";
+
+/** Every fixture proves from tree 0, the id the client and the wallet default to. */
+const OUTPUT_TREE_ID = 0;
+const INPUT_TREE = treeAddress(OUTPUT_TREE_ID);
+/** The wire form of `INPUT_TREES` unused slots. */
+const TREE_SLOTS: readonly TreeSlotFields[] = Array.from({ length: INPUT_TREES }, () =>
+  treeSlotFields(ZERO_TREE_SLOT),
+);
+const RETIRED_KEYS = [
+  "utxoTreeRoot",
+  "nullifierTreeRoot",
+  "outputBlindingSeed",
+  "privateTxBlinding",
+];
 
 const INPUTS: ProverInputs = {
   circuit: "transfer",
   payload: {
     inputs: [],
     outputs: [],
+    treeSlots: TREE_SLOTS,
+    outputTreeId: asField(0n),
     externalDataHash: asField(0n),
     privateTxHash: asField(0n),
+    blindingSeed: asField(0n),
     publicAssets: [asField(0n), asField(0n), asField(0n)],
     publicAmounts: [asField(0n), asField(0n), asField(0n)],
     ringProgramId: asField(0n),
@@ -56,6 +81,7 @@ function fieldHex(byte: number): string {
 function zeroOpening(): CustomRingOpening {
   return {
     domain: bytes(0),
+    treeId: bytes(0),
     ownerPkHash: bytes(0),
     nullifierPk: bytes(0),
     asset: bytes(0),
@@ -81,6 +107,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     outputs: Array.from({ length: 4 }, () => zeroOpening()),
     addressChain: bytes(0),
     externalDataHash: bytes(6),
+    privateTxBlinding: bytes(7),
     sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: bytes(0) })),
     policyLen: 1,
     rules: Array.from({ length: 16 }, () => bytes(0)),
@@ -89,6 +116,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     inlineCount: 0,
     stateRoot: bytes(8),
     nullifierRoot: bytes(9),
+    entriesTreeId: 3,
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
@@ -116,6 +144,7 @@ const EXPECTED_AUDIT_BODY = {
 
 const EXPECTED_OPENING = {
   domain: fieldHex(0),
+  treeId: fieldHex(0),
   ownerPkHash: fieldHex(0),
   nullifierPk: fieldHex(0),
   asset: fieldHex(0),
@@ -135,6 +164,7 @@ const EXPECTED_RULE_ANSWER = {
   member: fieldHex(0),
   contentHash: fieldHex(0),
   version: 0,
+  blinding: fieldHex(0),
   low: fieldHex(0),
   next: fieldHex(0),
   nfPathElements: Array.from({ length: 40 }, () => fieldHex(0)),
@@ -157,6 +187,7 @@ const EXPECTED_RING_BODY = {
   outputs: Array.from({ length: 4 }, () => EXPECTED_OPENING),
   addressChain: fieldHex(0),
   externalDataHash: fieldHex(6),
+  privateTxBlinding: fieldHex(7),
   sources: Array.from({ length: 8 }, () => ({ listId: 0, ownerHash: fieldHex(0) })),
   policyLen: 1,
   ruleEnc: Array.from({ length: 16 }, () => fieldHex(0)),
@@ -165,6 +196,7 @@ const EXPECTED_RING_BODY = {
   inlineCount: 0,
   stateRoot: fieldHex(8),
   nullifierRoot: fieldHex(9),
+  entriesTreeId: `0x${"0".repeat(62)}03`,
   answers: Array.from({ length: 10 }, () => EXPECTED_RULE_ANSWER),
 };
 
@@ -177,7 +209,10 @@ function mergeInputs(): MergeInputs {
         amount: 0n,
         blinding: bytes(0),
       }),
+      OUTPUT_TREE_ID,
     ),
+    treeSlots: TREE_SLOTS,
+    outputTreeId: asField(0n),
     ownerPublicKeyHash: asField(0n),
     userNullifierPublicKey: asField(0n),
     userNullifierSecret: asField(0n),
@@ -190,11 +225,10 @@ function mergeInputs(): MergeInputs {
   };
 }
 
-function dummyTransferInput(): TransferInput {
-  const utxo = ProofInputUtxo.dummy(bytes(7));
-  return createDummyTransferInput(utxo, 4n, {
+function dummyNullifierProof(utxo: ProofInputUtxo): NonInclusionProof {
+  return {
     leaf: utxo.nullifier(),
-    merkleContext: { treeType: 0, tree: address("11111111111111111111111111111111") },
+    merkleContext: { treeType: 0, tree: INPUT_TREE },
     lowElement: bytes(1),
     highElement: bytes(2),
     highElementIndex: 1n,
@@ -203,7 +237,34 @@ function dummyTransferInput(): TransferInput {
     root: bytes(3),
     rootSeq: 0n,
     rootIndex: 0,
-  } satisfies NonInclusionProof);
+  } satisfies NonInclusionProof;
+}
+
+function dummyTransferInput(): TransferInput {
+  const utxo = ProofInputUtxo.dummy(bytes(7));
+  return createDummyTransferInput(utxo, dummyNullifierProof(utxo));
+}
+
+/**
+ * Mirrors the Rust `assert_tree_slot_contract`: the roots moved from every
+ * input into `INPUT_TREES` public tree slots, an input only names its slot, and
+ * the circuit derives the blindings the client used to send.
+ */
+function expectTreeSlotContract(body: Record<string, unknown>): void {
+  const slots = body["treeSlots"];
+  if (!Array.isArray(slots)) throw new Error("treeSlots is an array");
+  expect(slots).toHaveLength(INPUT_TREES);
+  for (const slot of slots as unknown[]) {
+    expect(keysOf(slot)).toEqual(["id", "utxoRoot", "nullifierRoot"].sort());
+  }
+  expect(body["outputTreeId"]).toBeDefined();
+  for (const key of RETIRED_KEYS) expect(body).not.toHaveProperty(key);
+  const inputs = body["inputs"];
+  if (!Array.isArray(inputs)) throw new Error("inputs is an array");
+  for (const input of inputs as unknown[]) {
+    expect(input).toHaveProperty("treeSlot");
+    for (const key of RETIRED_KEYS) expect(input).not.toHaveProperty(key);
+  }
 }
 
 async function sentBody(
@@ -325,6 +386,7 @@ describe("prover request routing", () => {
       "answers",
       "auditorPk",
       "circuitType",
+      "entriesTreeId",
       "ephSk",
       "externalDataHash",
       "inlineAssets",
@@ -336,6 +398,7 @@ describe("prover request routing", () => {
       "nullifierRoot",
       "outputs",
       "policyLen",
+      "privateTxBlinding",
       "privateTxHash",
       "publicInputHash",
       "ruleEnc",
@@ -417,6 +480,8 @@ describe("prover request routing", () => {
         "circuitType",
         "inputs",
         "output",
+        "treeSlots",
+        "outputTreeId",
         "asset",
         "ownerPkHash",
         "userNullifierPk",
@@ -441,12 +506,15 @@ describe("prover request routing", () => {
         "nullifierNextValue",
         "nullifierLowPathElements",
         "nullifierLowPathIndex",
-        "utxoTreeRoot",
-        "nullifierTreeRoot",
+        "treeSlot",
         "nullifier",
       ].sort(),
     );
     expect(keysOf(body["output"])).toEqual(["ringDataHash", "hash"].sort());
+    expectTreeSlotContract(body);
+    // The merge circuit derives every blinding from userNullifierSecret, so
+    // the transfer-only root seed is not part of this request.
+    expect(body).not.toHaveProperty("blindingSeed");
   });
 
   it("pins the transfer request keys to the Go `TransferParametersJSON` tags", async () => {
@@ -470,8 +538,11 @@ describe("prover request routing", () => {
         "nOutputs",
         "inputs",
         "outputs",
+        "treeSlots",
+        "outputTreeId",
         "externalDataHash",
         "privateTxHash",
+        "blindingSeed",
         "publicAssets",
         "publicAmounts",
         "ringProgramId",
@@ -491,8 +562,7 @@ describe("prover request routing", () => {
         "nullifierNextValue",
         "nullifierLowPathElements",
         "nullifierLowPathIndex",
-        "utxoTreeRoot",
-        "nullifierTreeRoot",
+        "treeSlot",
         "nullifier",
         "ownerPkHash",
         "nullifierSecret",
@@ -501,6 +571,7 @@ describe("prover request routing", () => {
     expect(keysOf(output)).toEqual(
       ["utxo", "isDummy", "hash", "ownerPkHash", "nullifierPk"].sort(),
     );
+    expectTreeSlotContract(body);
     expect(keysOf(input?.["utxo"])).toEqual(
       [
         "domain",
@@ -592,26 +663,13 @@ describe("prover request routing", () => {
 describe("dummy prover inputs", () => {
   it("zeroes every inert UTXO field except blinding", () => {
     const input = ProofInputUtxo.dummy(bytes(7));
-    const proof = {
-      leaf: input.nullifier(),
-      merkleContext: {
-        treeType: 0,
-        tree: address("11111111111111111111111111111111"),
-      },
-      lowElement: bytes(1),
-      highElement: bytes(2),
-      highElementIndex: 1n,
-      path: [],
-      lowElementIndex: 0n,
-      root: bytes(3),
-      rootSeq: 0n,
-      rootIndex: 0,
-    } as NonInclusionProof;
 
-    const converted = createDummyTransferInput(input, 4n, proof);
+    const converted = createDummyTransferInput(input, dummyNullifierProof(input));
     const utxo = converted.circuit;
 
     expect(converted.ownerPublicKeyHash).toBe(0n);
+    // A single-tree proof opens every input, padding included, against slot 0.
+    expect(converted.treeSlot).toBe(0n);
     expect(utxo).toEqual({
       domain: 1n,
       owner: 0n,

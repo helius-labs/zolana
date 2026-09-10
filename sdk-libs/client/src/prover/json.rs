@@ -4,7 +4,7 @@ use zolana_transaction::ProofInputUtxo;
 
 use crate::prover::inputs::{
     BatchAddressAppendInputs, MergeInputs, TransferInput, TransferInputs, TransferOutput,
-    TransferP256Inputs,
+    TransferP256Inputs, TreeSlotFields,
 };
 
 fn big_uint_to_string(value: &BigUint) -> String {
@@ -53,16 +53,25 @@ pub(crate) struct InputParamsJson {
     pub nullifier_low_path_elements: Vec<String>,
     #[serde(rename = "nullifierLowPathIndex")]
     pub nullifier_low_path_index: String,
-    #[serde(rename = "utxoTreeRoot")]
-    pub utxo_tree_root: String,
-    #[serde(rename = "nullifierTreeRoot")]
-    pub nullifier_tree_root: String,
+    #[serde(rename = "treeSlot")]
+    pub tree_slot: String,
     #[serde(rename = "nullifier")]
     pub nullifier: String,
     #[serde(rename = "ownerPkHash")]
     pub owner_pk_hash: String,
     #[serde(rename = "nullifierSecret")]
     pub nullifier_secret: String,
+}
+
+/// One public tree slot. Mirrors Go `common.TreeSlotParamsJSON`.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct TreeSlotJson {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "utxoRoot")]
+    pub utxo_root: String,
+    #[serde(rename = "nullifierRoot")]
+    pub nullifier_root: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,10 +100,16 @@ pub(crate) struct TransferInputsJson {
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
     pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "treeSlots")]
+    pub tree_slots: Vec<TreeSlotJson>,
+    #[serde(rename = "outputTreeId")]
+    pub output_tree_id: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
+    #[serde(rename = "blindingSeed")]
+    pub blinding_seed: String,
     #[serde(rename = "publicAssets")]
     pub public_assets: Vec<String>,
     #[serde(rename = "publicAmounts")]
@@ -123,10 +138,16 @@ pub(crate) struct TransferP256InputsJson {
     pub inputs: Vec<InputParamsJson>,
     #[serde(rename = "outputs")]
     pub outputs: Vec<OutputParamsJson>,
+    #[serde(rename = "treeSlots")]
+    pub tree_slots: Vec<TreeSlotJson>,
+    #[serde(rename = "outputTreeId")]
+    pub output_tree_id: String,
     #[serde(rename = "externalDataHash")]
     pub external_data_hash: String,
     #[serde(rename = "privateTxHash")]
     pub private_tx_hash: String,
+    #[serde(rename = "blindingSeed")]
+    pub blinding_seed: String,
     #[serde(rename = "p256PubX")]
     pub p256_pub_x: String,
     #[serde(rename = "p256PubY")]
@@ -188,12 +209,24 @@ fn input_to_json(input: &TransferInput) -> InputParamsJson {
             .map(big_uint_to_string)
             .collect(),
         nullifier_low_path_index: big_uint_to_string(&input.nullifier_low_path_index),
-        utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
-        nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
+        tree_slot: big_uint_to_string(&input.tree_slot),
         nullifier: big_uint_to_string(&input.nullifier),
         owner_pk_hash: big_uint_to_string(&input.owner_pk_hash),
         nullifier_secret: big_uint_to_string(&input.nullifier_secret),
     }
+}
+
+/// Encode the request's public tree slots. The count is fixed by the circuit
+/// (`INPUT_TREES`), so the array is always sent in full.
+fn tree_slots_to_json(slots: &[TreeSlotFields]) -> Vec<TreeSlotJson> {
+    slots
+        .iter()
+        .map(|slot| TreeSlotJson {
+            id: big_uint_to_string(&slot.id),
+            utxo_root: big_uint_to_string(&slot.utxo_root),
+            nullifier_root: big_uint_to_string(&slot.nullifier_root),
+        })
+        .collect()
 }
 
 fn output_to_json(output: &TransferOutput) -> OutputParamsJson {
@@ -231,10 +264,8 @@ pub(crate) struct MergeInputParamsJson {
     pub nullifier_low_path_elements: Vec<String>,
     #[serde(rename = "nullifierLowPathIndex")]
     pub nullifier_low_path_index: String,
-    #[serde(rename = "utxoTreeRoot")]
-    pub utxo_tree_root: String,
-    #[serde(rename = "nullifierTreeRoot")]
-    pub nullifier_tree_root: String,
+    #[serde(rename = "treeSlot")]
+    pub tree_slot: String,
     #[serde(rename = "nullifier")]
     pub nullifier: String,
 }
@@ -258,6 +289,10 @@ pub(crate) struct MergeParametersJson {
     pub inputs: Vec<MergeInputParamsJson>,
     #[serde(rename = "output")]
     pub output: MergeOutputParamsJson,
+    #[serde(rename = "treeSlots")]
+    pub tree_slots: Vec<TreeSlotJson>,
+    #[serde(rename = "outputTreeId")]
+    pub output_tree_id: String,
     /// The single asset shared by every real input and the merged output.
     #[serde(rename = "asset")]
     pub asset: String,
@@ -308,8 +343,7 @@ fn merge_input_to_json(input: &TransferInput) -> MergeInputParamsJson {
             .map(big_uint_to_string)
             .collect(),
         nullifier_low_path_index: big_uint_to_string(&input.nullifier_low_path_index),
-        utxo_tree_root: big_uint_to_string(&input.utxo_tree_root),
-        nullifier_tree_root: big_uint_to_string(&input.nullifier_tree_root),
+        tree_slot: big_uint_to_string(&input.tree_slot),
         nullifier: big_uint_to_string(&input.nullifier),
     }
 }
@@ -326,6 +360,8 @@ fn merge_params_json(inputs: &MergeInputs, circuit_type: &str) -> String {
         circuit_type: circuit_type.to_string(),
         inputs: inputs.inputs.iter().map(merge_input_to_json).collect(),
         output: merge_output_to_json(&inputs.output),
+        tree_slots: tree_slots_to_json(&inputs.tree_slots),
+        output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         asset: fe_to_string(&inputs.output.utxo.asset),
         owner_pk_hash: big_uint_to_string(&inputs.owner_pk_hash),
         user_nullifier_pk: big_uint_to_string(&inputs.user_nullifier_pk),
@@ -425,8 +461,11 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        tree_slots: tree_slots_to_json(&inputs.tree_slots),
+        output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        blinding_seed: big_uint_to_string(&inputs.blinding_seed),
         public_assets: inputs
             .public_assets
             .iter()
@@ -480,8 +519,11 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
         n_outputs: inputs.outputs.len(),
         inputs: inputs.inputs.iter().map(input_to_json).collect(),
         outputs: inputs.outputs.iter().map(output_to_json).collect(),
+        tree_slots: tree_slots_to_json(&inputs.tree_slots),
+        output_tree_id: big_uint_to_string(&inputs.output_tree_id),
         external_data_hash: big_uint_to_string(&inputs.external_data_hash),
         private_tx_hash: big_uint_to_string(&inputs.private_tx_hash),
+        blinding_seed: big_uint_to_string(&inputs.blinding_seed),
         p256_pub_x: big_uint_to_string(&inputs.p256_pub_x),
         p256_pub_y: big_uint_to_string(&inputs.p256_pub_y),
         p256_sig_r: big_uint_to_string(&inputs.p256_sig_r),
@@ -518,6 +560,8 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
 
 #[cfg(test)]
 mod merge_tests {
+    use zolana_interface::INPUT_TREES;
+
     use super::*;
     use crate::rpc::{NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT};
 
@@ -530,6 +574,7 @@ mod merge_tests {
     fn sample_utxo() -> ProofInputUtxo {
         ProofInputUtxo {
             domain: fe(1),
+            tree_id: fe(0),
             owner_hash: fe(2),
             asset: fe(1),
             amount: fe(5),
@@ -540,11 +585,70 @@ mod merge_tests {
         }
     }
 
+    /// One populated slot followed by the zero suffix, exactly the shape the
+    /// single-tree client sends.
+    fn sample_tree_slots() -> [TreeSlotFields; INPUT_TREES] {
+        let mut slots: [TreeSlotFields; INPUT_TREES] = core::array::from_fn(|_| TreeSlotFields {
+            id: BigUint::ZERO,
+            utxo_root: BigUint::ZERO,
+            nullifier_root: BigUint::ZERO,
+        });
+        slots[0] = TreeSlotFields {
+            id: BigUint::from(3u8),
+            utxo_root: BigUint::from(11u8),
+            nullifier_root: BigUint::from(13u8),
+        };
+        slots
+    }
+
+    fn sample_input() -> TransferInput {
+        TransferInput {
+            utxo: sample_utxo(),
+            is_dummy: BigUint::ZERO,
+            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+            state_path_index: BigUint::ZERO,
+            nullifier_low_value: BigUint::ZERO,
+            nullifier_next_value: BigUint::ZERO,
+            nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
+            nullifier_low_path_index: BigUint::ZERO,
+            tree_slot: BigUint::ZERO,
+            nullifier: BigUint::from(99u8),
+            owner_pk_hash: BigUint::from(7u8),
+            nullifier_secret: BigUint::from(4u8),
+        }
+    }
+
+    /// Every request carries exactly `INPUT_TREES` slots with the three Go key
+    /// names, publishes `outputTreeId`, and never carries the retired
+    /// per-input roots or the derived secrets.
+    fn assert_tree_slot_contract(value: &serde_json::Value) {
+        let slots = value["treeSlots"]
+            .as_array()
+            .expect("treeSlots is an array");
+        assert_eq!(slots.len(), INPUT_TREES);
+        for slot in slots {
+            for key in ["id", "utxoRoot", "nullifierRoot"] {
+                assert!(!slot[key].is_null(), "missing tree slot key {key}");
+            }
+        }
+        assert!(!value["outputTreeId"].is_null());
+        assert!(value.get("outputBlindingSeed").is_none());
+        assert!(value.get("privateTxBlinding").is_none());
+        for input in value["inputs"].as_array().expect("inputs is an array") {
+            assert!(!input["treeSlot"].is_null(), "missing input treeSlot");
+            assert!(input.get("utxoTreeRoot").is_none());
+            assert!(input.get("nullifierTreeRoot").is_none());
+        }
+    }
+
     #[test]
     fn to_json_p256_ring_shape() {
         let inputs = TransferP256Inputs {
-            inputs: Vec::new(),
+            inputs: vec![sample_input()],
             outputs: Vec::new(),
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
+            blinding_seed: BigUint::from(15u8),
             external_data_hash: BigUint::from(1u8),
             private_tx_hash: BigUint::from(2u8),
             p256_pub_x: BigUint::from(3u8),
@@ -571,6 +675,11 @@ mod merge_tests {
         assert_eq!(value["defaultP256OwnerPkHash"], "0xd");
         assert_eq!(value["publishedOutputOwnerPkHashes"][0], "0xe");
         assert_eq!(value["ringProgramId"], "0x9");
+        assert_eq!(value["blindingSeed"], "0xf");
+        assert_eq!(value["outputTreeId"], "0x3");
+        assert_eq!(value["treeSlots"][0]["utxoRoot"], "0xb");
+        assert_eq!(value["treeSlots"][INPUT_TREES - 1]["id"], "0x0");
+        assert_tree_slot_contract(&value);
         assert!(value.get("p256SigningPkField").is_none());
     }
 
@@ -580,19 +689,8 @@ mod merge_tests {
     #[test]
     fn to_json_merge_shape() {
         let input = TransferInput {
-            utxo: sample_utxo(),
-            is_dummy: BigUint::ZERO,
-            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-            state_path_index: BigUint::ZERO,
-            nullifier_low_value: BigUint::ZERO,
-            nullifier_next_value: BigUint::ZERO,
-            nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
-            nullifier_low_path_index: BigUint::ZERO,
-            utxo_tree_root: BigUint::from(11u8),
-            nullifier_tree_root: BigUint::from(13u8),
-            nullifier: BigUint::from(99u8),
             owner_pk_hash: BigUint::ZERO,
-            nullifier_secret: BigUint::from(4u8),
+            ..sample_input()
         };
         let inputs = MergeInputs {
             inputs: vec![input; 8],
@@ -603,6 +701,8 @@ mod merge_tests {
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_pk: BigUint::ZERO,
             },
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
             owner_pk_hash: BigUint::ZERO,
             user_nullifier_pk: BigUint::from(3u8),
             user_nullifier_secret: BigUint::from(4u8),
@@ -619,6 +719,8 @@ mod merge_tests {
         for key in [
             "inputs",
             "output",
+            "treeSlots",
+            "outputTreeId",
             "asset",
             "ownerPkHash",
             "userNullifierPk",
@@ -645,12 +747,15 @@ mod merge_tests {
             "nullifierNextValue",
             "nullifierLowPathElements",
             "nullifierLowPathIndex",
-            "utxoTreeRoot",
-            "nullifierTreeRoot",
+            "treeSlot",
             "nullifier",
         ] {
             assert!(!in0[key].is_null(), "missing input key {key}");
         }
+        assert_tree_slot_contract(&value);
+        // The merge circuit derives every blinding from userNullifierSecret,
+        // so the transfer-only root seed is not part of this request.
+        assert!(value.get("blindingSeed").is_none());
         assert!(
             value["output"]["blinding"].is_null(),
             "merge output blinding is derived in-circuit"
@@ -668,23 +773,8 @@ mod merge_tests {
     // (no P256 fields).
     #[test]
     fn to_json_ring_authority_shape() {
-        let input = TransferInput {
-            utxo: sample_utxo(),
-            is_dummy: BigUint::ZERO,
-            state_path_elements: vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-            state_path_index: BigUint::ZERO,
-            nullifier_low_value: BigUint::ZERO,
-            nullifier_next_value: BigUint::ZERO,
-            nullifier_low_path_elements: vec![BigUint::ZERO; NULLIFIER_TREE_HEIGHT],
-            nullifier_low_path_index: BigUint::ZERO,
-            utxo_tree_root: BigUint::from(11u8),
-            nullifier_tree_root: BigUint::from(13u8),
-            nullifier: BigUint::from(99u8),
-            owner_pk_hash: BigUint::from(7u8),
-            nullifier_secret: BigUint::from(4u8),
-        };
         let inputs = TransferInputs {
-            inputs: vec![input],
+            inputs: vec![sample_input()],
             outputs: vec![TransferOutput {
                 utxo: sample_utxo(),
                 is_dummy: BigUint::ZERO,
@@ -692,6 +782,9 @@ mod merge_tests {
                 owner_pk_hash: BigUint::ZERO,
                 nullifier_pk: BigUint::ZERO,
             }],
+            tree_slots: sample_tree_slots(),
+            output_tree_id: BigUint::from(3u8),
+            blinding_seed: BigUint::from(10u8),
             external_data_hash: BigUint::from(6u8),
             private_tx_hash: BigUint::from(7u8),
             public_assets: core::array::from_fn(|_| BigUint::ZERO),
@@ -711,8 +804,11 @@ mod merge_tests {
             "nOutputs",
             "inputs",
             "outputs",
+            "treeSlots",
+            "outputTreeId",
             "externalDataHash",
             "privateTxHash",
+            "blindingSeed",
             "publicAssets",
             "publicAmounts",
             "ringProgramId",
@@ -731,6 +827,8 @@ mod merge_tests {
             value["publicAmounts"].as_array().map(|a| a.len()),
             Some(zolana_interface::N_PUBLIC_SLOTS)
         );
+        assert_tree_slot_contract(&value);
+        assert_eq!(value["blindingSeed"], "0xa");
         // Solana-only rail: no P256 fields on the request.
         assert!(value.get("p256PubX").is_none());
         assert_eq!(value["ringProgramId"], "0x55");

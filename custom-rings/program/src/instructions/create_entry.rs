@@ -30,7 +30,8 @@ pub fn process_create_entry_ix(
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
     parsed.check_mutator(list_id, &member)?;
 
-    let (address_utxo_hash, address) = entry_address_input(&parsed.owner, list_id, &member)?;
+    let (address_utxo_hash, address) =
+        entry_address_input(&parsed.owner, list_id, &member, parsed.entries_tree_id)?;
     let transact = EntryTransition {
         entry: ListEntry {
             list_id,
@@ -38,6 +39,7 @@ pub fn process_create_entry_ix(
             state,
             version: 0,
             content_hash: ix.content_hash,
+            blinding: ix.blinding,
         },
         input: InputUtxo {
             nullifier_hash: address,
@@ -46,9 +48,14 @@ pub fn process_create_entry_ix(
         },
         input_hash: [0u8; 32],
         address_utxo_hash,
+        private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }
-    .into_transact(&parsed.owner, &parsed.namespace_address)?;
+    .into_transact(
+        &parsed.owner,
+        &parsed.namespace_address,
+        parsed.entries_tree_id,
+    )?;
 
     cpi_spp_namespace_signed(
         &parsed.namespace_address,

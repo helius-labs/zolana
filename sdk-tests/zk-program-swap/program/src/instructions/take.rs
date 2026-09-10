@@ -33,6 +33,7 @@ pub struct TakeIxData {
 pub struct TakePublicInput<'a> {
     pub private_tx_hash: &'a [u8; 32],
     pub expiry: u64,
+    pub first_nullifier: &'a [u8; 32],
 }
 
 impl TakePublicInput<'_> {
@@ -40,6 +41,7 @@ impl TakePublicInput<'_> {
         Poseidon::hashv(&[
             self.private_tx_hash.as_slice(),
             u64_right_align(self.expiry).as_slice(),
+            self.first_nullifier.as_slice(),
         ])
         .map_err(|_| SwapError::HashingFailed.into())
     }
@@ -67,6 +69,11 @@ pub fn process_take_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramResu
         TakePublicInput {
             private_tx_hash: &transact.private_tx_hash,
             expiry: transact.expiry_unix_ts,
+            first_nullifier: &transact
+                .inputs
+                .first()
+                .ok_or(SwapError::InvalidInstructionData)?
+                .nullifier_hash,
         }
         .hash()?,
         &crate::verifying_keys::take::VERIFYINGKEY,

@@ -10,7 +10,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ShieldedKeypair, SigningKey, ViewingKey } from "../src/keypair/index.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../src/keypair/merge/index.js";
-import { SHIELDED_POOL_PROGRAM_ID, type Bytes16, type Bytes32 } from "../src/interface/index.js";
+import {
+  DEFAULT_TREE_ID,
+  SHIELDED_POOL_PROGRAM_ID,
+  type Bytes16,
+  type Bytes32,
+} from "../src/interface/index.js";
 import { StateDiscriminator } from "../src/interface/state.js";
 import {
   AssetRegistry,
@@ -23,11 +28,12 @@ import {
   Wallet,
   createProofOutput,
   decryptTransactions,
-  deriveBlinding,
   deserializeWallet,
   encodeConfidentialSlots,
+  outputBlindingSeed,
   serializeWallet,
   splitBundleFromUtxos,
+  transactOutputBlinding,
   type SyncWalletAuthority,
 } from "../src/transaction/index.js";
 import {
@@ -65,28 +71,31 @@ interface RequestWithCursor {
 function mergeAfterSplit() {
   const keypair = ShieldedKeypair.generate();
   const identityTag = keypair.signingPublicKey().confidentialViewTag();
-  const blindingSeed = bytes(7);
+  // The split's first nullifier. Every output blinding and the seed the bundle
+  // discloses derive from it, and sync reads it back from `nullifiers[0]`.
+  const splitNullifier = bytes(9);
+  const outputSeed = outputBlindingSeed(splitNullifier, bytes(7));
   const outputs = [0, 1].map(
     (index) =>
       new Utxo({
         owner: keypair.signingPublicKey(),
         asset: SOL_MINT,
         amount: 21n,
-        blinding: deriveBlinding(blindingSeed, index),
+        blinding: transactOutputBlinding(splitNullifier, outputSeed, index),
       }),
   );
   const contexts = outputs.map((utxo, index) => ({
-    hash: utxo.hash(keypair.nullifierPublicKey()),
+    hash: utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
     tree: TREE,
     leafIndex: BigInt(index),
   }));
   const salt = new Uint8Array(16).fill(5) as Bytes16;
-  const txKey = keypair.viewingKey().transactionViewingKey(bytes(9));
+  const txKey = keypair.viewingKey().transactionViewingKey(splitNullifier);
   const bundle = encodeSplitBundle(
     splitBundleFromUtxos(
       outputs,
       { owner: keypair.signingPublicKey(), assets: new AssetRegistry() },
-      { blindingSeed },
+      { blindingSeed: outputSeed, firstNullifier: splitNullifier },
     ),
   );
   const split = {
@@ -107,7 +116,7 @@ function mergeAfterSplit() {
           : new Uint8Array(),
     })),
     messages: [],
-    nullifiers: [bytes(90)],
+    nullifiers: [splitNullifier],
     proofless: false,
   };
 
@@ -128,7 +137,7 @@ function mergeAfterSplit() {
       {
         viewTag: identityTag,
         outputContext: {
-          hash: merged.hash(keypair.nullifierPublicKey()),
+          hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
           tree: TREE,
           leafIndex: 2n,
         },
@@ -159,7 +168,7 @@ function mergeAfterSplit() {
       {
         viewTag: identityTag,
         outputContext: {
-          hash: chained.hash(keypair.nullifierPublicKey()),
+          hash: chained.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
           tree: TREE,
           leafIndex: 3n,
         },
@@ -497,7 +506,7 @@ describe("wallet sync", () => {
       blinding,
       data: new Data(),
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     wallet._replace({
       ...wallet._state(),
       utxos: [
@@ -668,7 +677,7 @@ describe("wallet sync", () => {
         amount,
         blinding,
       });
-      const hash = utxo.hash(keypair.nullifierPublicKey());
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
       return {
         utxo,
         outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
@@ -703,7 +712,7 @@ describe("wallet sync", () => {
               {
                 viewTag: keypair.signingPublicKey().confidentialViewTag(),
                 outputContext: {
-                  hash: merged.hash(keypair.nullifierPublicKey()),
+                  hash: merged.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
                   leafIndex: 2n,
                 },
@@ -780,7 +789,7 @@ describe("wallet sync", () => {
       amount: 100n,
       blinding,
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     wallet._replace({
       ...wallet._state(),
       utxos: [
@@ -901,7 +910,7 @@ describe("wallet sync", () => {
       amount: 100n,
       blinding,
     });
-    const hash = utxo.hash(current.nullifierPublicKey());
+    const hash = utxo.hash(current.nullifierPublicKey(), DEFAULT_TREE_ID);
     wallet._replace({
       ...wallet._state(),
       utxos: [
@@ -989,7 +998,7 @@ describe("wallet sync", () => {
       amount: 100n,
       blinding: spentBlinding,
     });
-    const spentHash = spent.hash(keypair.nullifierPublicKey());
+    const spentHash = spent.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     const nullifier = keypair.nullifier(spentHash, spentBlinding);
     wallet._replace({
       ...wallet._state(),
@@ -1003,26 +1012,32 @@ describe("wallet sync", () => {
       ],
     });
 
-    // 100 in, 60 back as change: the row's amount is the 40 that moved.
-    const blindingSeed = bytes(32);
+    // 100 in, 60 back as change: the row's amount is the 40 that moved. The
+    // bundle discloses the output seed derived from the spend's nullifier.
+    const outputSeed = outputBlindingSeed(nullifier, bytes(32));
     const change = anonymousSenderUtxos(
       {
         ownerPublicKey: keypair.signingPublicKey(),
         splAssetId: 0n,
         splAmount: 0n,
         solAmount: 60n,
-        blindingSeed,
+        blindingSeed: outputSeed,
         recipientViewingPublicKeys: [keypair.viewingPublicKey()],
         splData: new Data(),
         solData: new Data(),
       },
       wallet.registry,
       SOL_MINT,
+      nullifier,
     );
     const sender = anonymousSenderFromUtxos(
       change,
       { owner: keypair.signingPublicKey(), assets: wallet.registry },
-      { blindingSeed, recipientViewingPublicKeys: [keypair.viewingPublicKey()] },
+      {
+        blindingSeed: outputSeed,
+        firstNullifier: nullifier,
+        recipientViewingPublicKeys: [keypair.viewingPublicKey()],
+      },
     );
     const recipientPlaintext = {
       ownerPublicKey: keypair.signingPublicKey(),
@@ -1068,7 +1083,7 @@ describe("wallet sync", () => {
           outputSlots: envelope.payload.map((slot, index) => ({
             viewTag: slot?.viewTag ?? bytes(0),
             outputContext: {
-              hash: slotUtxos[index]!.hash(keypair.nullifierPublicKey()),
+              hash: slotUtxos[index]!.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID),
               tree: TREE,
               leafIndex: BigInt(index + 1),
             },
@@ -1136,7 +1151,7 @@ describe("wallet sync", () => {
               {
                 viewTag: recipient.signingPublicKey().confidentialViewTag(),
                 outputContext: {
-                  hash: output.hash(recipient.nullifierPublicKey()),
+                  hash: output.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
                   leafIndex: 4n,
                 },
@@ -1189,7 +1204,7 @@ describe("wallet sync", () => {
       blinding: inputBlinding,
       ringProgramId: OWNER,
     });
-    const inputHash = input.hash(sender.nullifierPublicKey());
+    const inputHash = input.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID);
     const nullifier = sender.nullifier(inputHash, inputBlinding);
     wallet._replace({
       ...wallet._state(),
@@ -1267,7 +1282,7 @@ describe("wallet sync", () => {
               {
                 viewTag: sender.signingPublicKey().confidentialViewTag(),
                 outputContext: {
-                  hash: change.hash(sender.nullifierPublicKey()),
+                  hash: change.hash(sender.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
                   leafIndex: 1n,
                 },
@@ -1276,7 +1291,7 @@ describe("wallet sync", () => {
               {
                 viewTag: recipient.signingPublicKey().confidentialViewTag(),
                 outputContext: {
-                  hash: payment.hash(recipient.nullifierPublicKey()),
+                  hash: payment.hash(recipient.nullifierPublicKey(), DEFAULT_TREE_ID),
                   tree: TREE,
                   leafIndex: 2n,
                 },
@@ -1307,7 +1322,7 @@ describe("wallet sync", () => {
       amount: 42n,
       blinding,
     });
-    const hash = existing.hash(keypair.nullifierPublicKey());
+    const hash = existing.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     wallet._replace({
       ...wallet._state(),
       utxos: [
@@ -1387,7 +1402,7 @@ describe("wallet sync", () => {
         amount,
         blinding,
       });
-      const hash = utxo.hash(keypair.nullifierPublicKey());
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
       return {
         utxo,
         outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
@@ -1466,7 +1481,7 @@ describe("wallet sync", () => {
         amount,
         blinding,
       });
-      const hash = utxo.hash(keypair.nullifierPublicKey());
+      const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
       return {
         utxo,
         outputContext: { hash, tree: TREE, leafIndex: BigInt(index) },
@@ -1524,7 +1539,7 @@ describe("wallet sync", () => {
       amount: 5n,
       blinding,
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     const nullifier = keypair.nullifier(hash, blinding);
     wallet._replace({
       ...wallet._state(),
@@ -1572,7 +1587,7 @@ describe("wallet sync", () => {
       amount: 1n,
       blinding,
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     wallet._replace({
       ...wallet._state(),
       utxos: [
@@ -1624,7 +1639,7 @@ describe("wallet sync", () => {
       amount: 42n,
       blinding,
     });
-    const hash = utxo.hash(keypair.nullifierPublicKey());
+    const hash = utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
     const nullifier = keypair.nullifier(hash, blinding);
     const outputSlot = {
       viewTag: keypair.viewingKey().recipientBootstrapViewTag(),

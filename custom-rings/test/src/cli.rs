@@ -78,11 +78,17 @@ impl RingProject {
         } = write.member.resolve()?;
         self.run(&["list", verb, &list, flag, &value])?;
         let indexer = write.env.client.indexer();
-        let namespace = CustomRing::new(self.program_id).namespace_pda();
+        let ring = CustomRing::new(self.program_id);
+        let namespace = ring.namespace_pda();
+        let entries_tree_id = ring
+            .read_policy_config(write.env.client.rpc())?
+            .ok_or_else(|| anyhow!("policy config of {}", self.program_id))?
+            .entries_tree_id();
         let deadline = Instant::now() + INDEXING_TIMEOUT;
         let live = loop {
             let read = ReadEntry {
                 entries_tree: write.entries_tree,
+                entries_tree_id,
                 namespace,
                 list_id: write.list_id,
                 member,

@@ -114,6 +114,8 @@ function policyConfigBytes(
     3,
     ...filled(42, 32),
     ...filled(43, 32),
+    7,
+    0,
     253,
     252,
     ...(parts.sources ?? new Uint8Array(33 * 8)),
@@ -389,10 +391,11 @@ describe("ring config", () => {
 
   it("decodes the policy config account and rejects another layout", () => {
     const data = policyConfigBytes();
-    expect(data).toHaveLength(1177);
+    expect(data).toHaveLength(1179);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.entriesTree).toBe(addressOf(43));
+    expect(config.entriesTreeId).toBe(7);
     expect(config.namespaceBump).toBe(253);
     expect(config.bump).toBe(252);
     expect(config.sources).toHaveLength(8);
@@ -434,13 +437,13 @@ describe("ring config", () => {
       generation: [4, 3, 2, 1],
       generationSlot: [8, 7, 6, 5, 4, 3, 2, 1],
     });
-    expect(data[331]).toBe(1);
-    expect(data.subarray(332, 364)).toEqual(rule);
-    expect(data[844]).toBe(1);
-    expect(data.subarray(845, 877)).toEqual(member);
-    expect(data.subarray(1101, 1109)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
-    expect(data.subarray(1165, 1169)).toEqual(Uint8Array.from([4, 3, 2, 1]));
-    expect(data.subarray(1169)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
+    expect(data[333]).toBe(1);
+    expect(data.subarray(334, 366)).toEqual(rule);
+    expect(data[846]).toBe(1);
+    expect(data.subarray(847, 879)).toEqual(member);
+    expect(data.subarray(1103, 1111)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
+    expect(data.subarray(1167, 1171)).toEqual(Uint8Array.from([4, 3, 2, 1]));
+    expect(data.subarray(1171)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
     const config = decodeRingPolicyConfig(data);
     expect(config.ruleCount).toBe(1);
     expect(config.rules).toEqual([rule]);

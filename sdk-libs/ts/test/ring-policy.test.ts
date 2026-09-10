@@ -307,34 +307,45 @@ const RECIPIENT_TAG = filled(0xa1);
 const SENDER_TAG = filled(0xb2);
 const BLOCKED_TAG = filled(0xc3);
 
+/** The Go fixture hashes its entries under tree 7 with small blindings. */
+const FIXTURE_TREE_ID = 7;
 const ALLOW_PRESENT = {
-  seed: "1a226466656865c6abbc97ffe595edd254a69d89071e659fedc495d140b6f00e",
-  address: "0ee2aa711dae06d975e5709ed68eafd75cd74070b75859093bb9becf3d2387b0",
-  dataHash: "01b623e0a858d61692c7da1d75771d3bf368ef5f8647139f030ed3d281dc1c01",
-  utxoHash: "053cce0509ced4cd9c95c0f84c49b6fe40eeadf91d3166c8879db4c0b8df3c65",
-  nullifier: "23ea6084012812863119d78a52a0ecdaa1431254e08d0f0d2c95a8accb9f1e68",
+  seed: "148b5ac42f444aa51bec37ae98ee6a26c6af968bf968e0eb50e749f3ef0eab04",
+  address: "004fe1ffd9574dfaf0d8ab04f3db3602cc1fb8db8d10c8ebba62cf3923998abf",
+  dataHash: "09c053bd16ca781e84e64bb353549e6dd9fbcc6e072e0a34e50c59fc3b6c9d2d",
+  utxoHash: "03409e610c10c6e82bead86f12d0f79872c66e8ca3a51d796de1726aeed137ab",
+  nullifier: "0a4a91cd454e7f8acb5bc0df7bc826570caa1d22914a0cc8aa62db94a978af6d",
+  blinding: 1,
 };
 const BLOCK_CLEARED = {
-  address: "2f717b4319dbc570077080cfdf8ddaf15e2357bc6282adbd40940b7455869b7e",
-  dataHash: "22c0474e22652fc298f31f82df3e64ea25390b75a37d303605b1d7bd037ef849",
-  utxoHash: "1a349272ecf58b247f3c461605e6b354ab316b6afb6e836160491cc0dad408d1",
-  nullifier: "0210014fd4163aad3eae789aa5eceb789bcf928c85f23ad9ab897d38e13d70a1",
+  address: "110828bc9145be37cd119865f66113d3858a8df6436fa6427eba07d152d7e654",
+  dataHash: "145f4e2f25f4b57eefc76e760c8adfb06b48e7ea17f022c62c692d6530d9d9f3",
+  utxoHash: "0e5cc81efe63454ebd769c706d697141626499d60889f5207cd823a0dc23a461",
+  nullifier: "03440de6febefc54740d90e51412d74ee76abd757d713ac3636d33e8b34068f2",
+  blinding: 3,
 };
-const FROZEN_ADDRESS = "061a65b955d92905ed3ac1ea36026f9171850fdcdb1ff5442fe90402da8b9f58";
+const FROZEN_ADDRESS = "30036588ff59652a8d248e3c5927aaf96e08d59f40b3291c1eec8af8f7fd1687";
 
 function entry(
   listId: ListId,
   member: Member,
   state: ListEntry["state"],
   version: bigint,
+  blinding = 1,
 ): ListEntry {
-  return { listId, member, state, version, contentHash: filled(0) };
+  return { listId, member, state, version, contentHash: filled(0), blinding: fieldOf(blinding) };
+}
+
+function fieldOf(value: number): Bytes32 {
+  const bytes = new Uint8Array(32);
+  bytes[31] = value;
+  return bytes as Bytes32;
 }
 
 /** Rust `ListEntry::to_output_data`. */
 function outputData(value: ListEntry): Uint8Array {
-  const bytes = new Uint8Array(79);
-  bytes[1] = 74;
+  const bytes = new Uint8Array(111);
+  bytes[1] = 106;
   bytes[5] = value.listId;
   bytes.set(value.member, 6);
   bytes[38] = value.state === "active" ? 1 : 2;
@@ -344,20 +355,25 @@ function outputData(value: ListEntry): Uint8Array {
     version >>= 8n;
   }
   bytes.set(value.contentHash, 47);
+  bytes.set(value.blinding, 79);
   return bytes;
 }
 
 describe("entries", () => {
-  const owner = RingListNamespace.of(RECORDS_PDA);
+  const owner = RingListNamespace.of(RECORDS_PDA, FIXTURE_TREE_ID);
 
   it("derives the owner hash the Go policy fixture pins", () => {
-    expect(owner.ownerHash).toEqual(
-      hex("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be"),
-    );
+    expect(owner.ownerHash).toEqual(RECORDS_OWNER_HASH);
   });
 
   it("hashes an active entry as the Go fixture does", () => {
-    const active = entry(ListId.allow, memberOfTag(RECIPIENT_TAG), "active", 0n);
+    const active = entry(
+      ListId.allow,
+      memberOfTag(RECIPIENT_TAG),
+      "active",
+      0n,
+      ALLOW_PRESENT.blinding,
+    );
     expect(owner.entryHashes(active)).toEqual({
       address: hex(ALLOW_PRESENT.address),
       dataHash: hex(ALLOW_PRESENT.dataHash),
@@ -367,7 +383,13 @@ describe("entries", () => {
   });
 
   it("hashes a cleared entry as the Go fixture does", () => {
-    const cleared = entry(ListId.block, memberOfTag(BLOCKED_TAG), "cleared", 1n);
+    const cleared = entry(
+      ListId.block,
+      memberOfTag(BLOCKED_TAG),
+      "cleared",
+      1n,
+      BLOCK_CLEARED.blinding,
+    );
     expect(owner.entryHashes(cleared)).toEqual({
       address: hex(BLOCK_CLEARED.address),
       dataHash: hex(BLOCK_CLEARED.dataHash),
@@ -379,7 +401,10 @@ describe("entries", () => {
   it("derives a curator owned address", () => {
     const sender = memberOfTag(SENDER_TAG);
     expect(
-      RingListNamespace.of(CURATOR_PDA).entryAddress({ listId: ListId.frozen, member: sender }),
+      RingListNamespace.of(CURATOR_PDA, FIXTURE_TREE_ID).entryAddress({
+        listId: ListId.frozen,
+        member: sender,
+      }),
     ).toEqual(hex(FROZEN_ADDRESS));
     expect(memberOfAsset(addressOf(filled(0xd4)))).toEqual(
       hex("14a6b5092f941bd4336fe2a25fc617a9515b457e027e0cf5e4867c0858855ec1"),
@@ -409,7 +434,7 @@ describe("entries", () => {
 describe("lineage walk", () => {
   const ENTRIES_TREE = addressOf(filled(0x77));
   const OTHER_TREE = addressOf(filled(0x78));
-  const owner = RingListNamespace.of(RECORDS_PDA);
+  const owner = RingListNamespace.of(RECORDS_PDA, FIXTURE_TREE_ID);
   const member = memberOfTag(RECIPIENT_TAG);
   const v0 = entry(ListId.allow, member, "active", 0n);
   const v1 = entry(ListId.allow, member, "cleared", 1n);
@@ -459,6 +484,7 @@ describe("lineage walk", () => {
     readRingEntry({
       indexer,
       entriesTree: ENTRIES_TREE,
+      entriesTreeId: FIXTURE_TREE_ID,
       namespace: RECORDS_PDA,
       listId: ListId.allow,
       member,
@@ -537,6 +563,7 @@ describe("lineage walk", () => {
     const live = await readRingEntries({
       indexer: syncReads({ ...walker, getEncryptedUtxosByTags: byTags }),
       entriesTree: ENTRIES_TREE,
+      entriesTreeId: FIXTURE_TREE_ID,
       namespace: RECORDS_PDA,
     });
     expect(live.map((item) => [item.entry.listId, item.txSignature])).toEqual([
@@ -584,8 +611,8 @@ function owners(
   });
 }
 
-const RECORDS_OWNER_HASH = hex("1e99b255125d8e5d1a8ee78945c3197b227182301b2c5d263dd5410b5ff476be");
-const CURATOR_OWNER_HASH = hex("2719a8eec7b597c45bf36e95b85af000cbceef719715713fadec78fe81c88280");
+const RECORDS_OWNER_HASH = hex("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196");
+const CURATOR_OWNER_HASH = hex("13463a1c543bbe328fea6b0990a4014a613371d7390be03f7bc35cb4540753bb");
 const ASSET_MINT = addressOf(filled(0xd4));
 
 describe("rule encoding", () => {
@@ -761,7 +788,7 @@ describe("policy hash", () => {
       [ListId.approval, records],
     ]);
     expect(ringPolicyHash(table, sources)).toEqual(
-      hex("243120278b6c15d93cd9b27feeb0586457cf41798c30c534da48f66e3fd76b69"),
+      hex("1be5d2fc725c11918d3ecbd5fcd0f5d7e78635dcffb0d7312246eaa380a51a7d"),
     );
   });
 
@@ -774,7 +801,7 @@ describe("policy hash", () => {
         buildRuleTable({ rules: [require("outputOwner", ListId.allow)] }),
         owners([[ListId.allow, records]]),
       ),
-    ).toEqual(hex("226e9c2ba91e63d29176d27dd80711d501c284769b4d1a76c5c1676259bfd3ff"));
+    ).toEqual(hex("2ac1455d7a647806afa55bcdf3a99d4fffd378975d7268d3897f1f56ab14cf75"));
     expect(
       ringPolicyHash(
         buildRuleTable({
@@ -785,7 +812,7 @@ describe("policy hash", () => {
           [ListId.frozen, curator],
         ]),
       ),
-    ).toEqual(hex("0ab720d70035f79c4c91e8677e4753a855c3f7be0fcaf8f655883d258821189c"));
+    ).toEqual(hex("1fd5912b36ce5c0bd249bf2f54020721f16eb70a52c3381ba8c71484e392f384"));
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [rule("outputOwner", [ListId.approval], [ListId.block])] }),
@@ -794,7 +821,7 @@ describe("policy hash", () => {
           [ListId.approval, records],
         ]),
       ),
-    ).toEqual(hex("1d6806016526767233ca9acecf59629642e061ae50a0018192a78eb6617f46f8"));
+    ).toEqual(hex("1a571ee1f11ce84b282e90fc7bf4358419c64e05a086d976b02b577e1ade2752"));
   });
 
   it("matches the Go fixture for a per-asset limit", () => {
@@ -804,7 +831,7 @@ describe("policy hash", () => {
       inlineLimits: [123n],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("2903cae630b7cd871a2074e617e68dcd52fc866b28fab7c509033ef87357143d"),
+      hex("0e70f40402bf8dd92ff898133027a599072c8b5e92a06aa15f8dfeebff212d1f"),
     );
   });
 
@@ -867,7 +894,7 @@ describe("list entry encoding", () => {
     const cleared = entry(ListId.block, memberOfTag(BLOCKED_TAG), "cleared", 0x0102_0304_0506n);
     expect(encodeListEntry(active)).toEqual(outputData(active));
     expect(encodeListEntry(cleared)).toEqual(outputData(cleared));
-    expect(encodeListEntry(cleared)).toHaveLength(79);
+    expect(encodeListEntry(cleared)).toHaveLength(111);
     expect(decodeListEntry(encodeListEntry(cleared))).toEqual(cleared);
   });
 

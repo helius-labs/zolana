@@ -28,6 +28,7 @@ members = [
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
+    "sdk-libs/program",
     "sdk-libs/smart-account-client",
     "sdk-libs/zolana-api",
     "sdk-libs/program-test",
@@ -81,6 +82,7 @@ zolana-user-registry-interface = { path = "program-libs/user-registry-interface"
 zolana-tree = { path = "program-libs/tree", version = "0.1.0" }
 zolana-ring-policy = { path = "custom-rings/policy", version = "0.1.0" }
 zolana-keypair = { path = "sdk-libs/keypair", version = "0.1.0" }
+zolana-program = { path = "sdk-libs/program", version = "0.1.0" }
 zolana-api = { path = "sdk-libs/zolana-api", version = "0.1.0" }
 zolana-program-test = { path = "sdk-libs/program-test", version = "0.23.0" }
 zolana-transaction = { path = "sdk-libs/transaction", version = "0.1.0" }

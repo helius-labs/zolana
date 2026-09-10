@@ -18,7 +18,7 @@ use crate::{
         split::{Split, SplitBundlePlaintext, SplitEncode},
         UtxoSerialization,
     },
-    utxo::derive_blinding,
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     AssetRegistry,
 };
 
@@ -34,7 +34,12 @@ pub struct ConfidentialSplit {
     pub num_outputs: u8,
     pub per_output_amount: u64,
     pub payer: Address,
+    /// The transaction's private random root seed. See
+    /// [`SppProofInputs::blinding_seed`].
     pub blinding_seed: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub output_tree_id: u16,
 }
 
 const MIN_PARTS: u8 = 2;
@@ -84,7 +89,15 @@ impl ConfidentialSplit {
             per_output_amount,
             payer,
             blinding_seed: random_blinding(),
+            output_tree_id: 0,
         })
+    }
+
+    /// Appends every output to the tree with the raw id `output_tree_id`.
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
+        self
     }
 
     /// Assemble the `IN1_OUT8` output set: every slot is a real self-owned utxo
@@ -97,6 +110,9 @@ impl ConfidentialSplit {
         let slot_count = Shape::IN1_OUT8.n_outputs();
         let num_outputs = usize::from(self.num_outputs);
 
+        let first_nullifier = self.input.nullifier()?;
+        let output_blinding_seed =
+            derive_output_blinding_seed(&first_nullifier, &self.blinding_seed)?;
         let mut outputs = Vec::with_capacity(slot_count);
         for position in 0..slot_count {
             let amount = if position < num_outputs {
@@ -108,12 +124,14 @@ impl ConfidentialSplit {
                 owner_address: Some(self.owner),
                 asset: self.asset,
                 amount,
-                blinding: derive_blinding(&self.blinding_seed, position as u8),
+                blinding: derive_transact_output_blinding(
+                    &first_nullifier,
+                    &output_blinding_seed,
+                    u32::try_from(position).map_err(|_| TransactionError::TooManyOutputs)?,
+                )?,
                 ..Default::default()
             });
         }
-
-        let first_nullifier = self.input.nullifier()?;
 
         Ok(PreparedSplit {
             owner: self.owner,
@@ -124,6 +142,7 @@ impl ConfidentialSplit {
             per_output_amount: self.per_output_amount,
             num_outputs: self.num_outputs,
             blinding_seed: self.blinding_seed,
+            output_tree_id: self.output_tree_id,
             payer: self.payer,
         })
     }
@@ -153,7 +172,7 @@ impl ConfidentialSplit {
                 recipient_pubkey: prepared.owner.viewing_pubkey,
                 salt,
                 slot_index: 0,
-                blinding_seed: prepared.blinding_seed,
+                blinding_seed: bundle_plaintext.blinding_seed,
             },
         )?;
 
@@ -169,14 +188,25 @@ pub struct PreparedSplit {
     pub asset: Address,
     pub per_output_amount: u64,
     pub num_outputs: u8,
+    /// The transaction's private random root seed; every output blinding
+    /// derives from it and [`Self::first_nullifier`].
     pub blinding_seed: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
     pub payer: Address,
 }
 
 impl PreparedSplit {
-    /// The `Split` bundle plaintext that covers every real output: it carries
-    /// the owner pubkey, the shared blinding seed, and the per-output amount, so
-    /// the recipient re-derives all `num_outputs` utxos from slot 0 alone.
+    /// `Poseidon(TXOS, first_nullifier, blinding_seed)`: the seed every output
+    /// blinding derives from. The bundle discloses this child, never
+    /// [`Self::blinding_seed`].
+    pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
+        derive_output_blinding_seed(&self.first_nullifier, &self.blinding_seed)
+    }
+
+    /// The `Split` bundle plaintext that covers every real output. It carries
+    /// the derived output blinding seed; the reader re-derives each slot's
+    /// blinding from it and the first nullifier, matching [`Self::outputs`].
     pub fn bundle_plaintext(
         &self,
         assets: &AssetRegistry,
@@ -186,7 +216,7 @@ impl PreparedSplit {
             num_outputs: self.num_outputs,
             asset_id: assets.asset_id(&self.asset)?,
             asset_amount: self.per_output_amount,
-            blinding_seed: self.blinding_seed,
+            blinding_seed: self.output_blinding_seed()?,
             data: Data::default(),
         })
     }
@@ -218,6 +248,8 @@ impl PreparedSplit {
             owner,
             input,
             outputs,
+            blinding_seed,
+            output_tree_id,
             payer,
             ..
         } = self;
@@ -229,7 +261,7 @@ impl PreparedSplit {
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
         for (position, output) in outputs.iter().enumerate() {
-            let utxo_hash = output.hash()?;
+            let utxo_hash = output.hash(output_tree_id)?;
             let data = (position == 0).then(|| bundle.data.clone());
             transact_outputs.push(TransactOutput {
                 utxo_hash,
@@ -250,6 +282,8 @@ impl PreparedSplit {
         Ok(SppProofInputs {
             input_utxos: vec![input],
             output_utxos: outputs,
+            blinding_seed,
+            output_tree_id,
             external_data,
             payer,
         })
@@ -418,20 +452,40 @@ mod tests {
 
         let tx_viewing_pk =
             P256Pubkey::from_bytes(signed.external_data.tx_viewing_pk).expect("tx viewing pk");
+        let first_nullifier = signed
+            .input_utxos
+            .first()
+            .expect("split input")
+            .nullifier()
+            .expect("first nullifier");
         let cx = DecodeCx {
             viewing_key: &keypair.viewing_key,
             tx_viewing_pk: Some(tx_viewing_pk),
             salt: Some(signed.external_data.salt),
             slot_index: 0,
-            first_nullifier: None,
+            first_nullifier: Some(first_nullifier),
         };
         let plaintext = Split::decode(body, &cx).expect("decode split bundle");
         assert_eq!(plaintext.num_outputs, parts);
 
+        // The bundle discloses the derived seed, so the reader needs the
+        // transaction's first nullifier to rebuild each slot's blinding.
+        let assets = AssetRegistry::default();
+        let without_nullifier = OwnerCx {
+            owner: keypair.signing_pubkey(),
+            assets: &assets,
+            ring_program_id: None,
+            first_nullifier: None,
+        };
+        assert_eq!(
+            Split::into_utxos(plaintext.clone(), &without_nullifier).unwrap_err(),
+            TransactionError::MissingFirstNullifier
+        );
         let owner_cx = OwnerCx {
             owner: keypair.signing_pubkey(),
-            assets: &AssetRegistry::default(),
+            assets: &assets,
             ring_program_id: None,
+            first_nullifier: Some(first_nullifier),
         };
         let recovered = Split::into_utxos(plaintext, &owner_cx).expect("into utxos");
         assert_eq!(recovered.len(), usize::from(parts));
@@ -442,13 +496,13 @@ mod tests {
         let zero = [0u8; VIEW_TAG_LEN];
         for (position, utxo) in recovered.iter().enumerate() {
             let recovered_hash = utxo
-                .hash(&nullifier_pk, &zero, &zero)
+                .hash(&nullifier_pk, &zero, &zero, signed.output_tree_id)
                 .expect("recovered hash");
             let on_chain_hash = signed
                 .output_utxos
                 .get(position)
                 .expect("output slot")
-                .hash()
+                .hash(signed.output_tree_id)
                 .expect("on-chain hash");
             assert_eq!(recovered_hash, on_chain_hash);
         }

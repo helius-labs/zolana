@@ -32,6 +32,7 @@ export function ringPolicyConfig(
   return {
     policyHash: ringPolicyHash(input.table, policySourceOwners(input.sources)),
     entriesTree: input.entriesTree,
+    entriesTreeId: 0,
     namespaceBump: 0,
     bump: 0,
     sources: input.sources,
@@ -47,6 +48,7 @@ export function ringPolicyConfigData(
     table: RuleTable;
     sources: readonly RingPolicySource[];
     entriesTree: Address;
+    entriesTreeId?: number;
     bump: number;
     namespaceBump?: number;
     policyHash?: Bytes32;
@@ -58,6 +60,7 @@ export function ringPolicyConfigData(
     .u8(3, "discriminator")
     .bytes(input.policyHash ?? ringPolicyHash(input.table, policySourceOwners(input.sources)))
     .bytes(addressBytes(input.entriesTree))
+    .u16(input.entriesTreeId ?? 0, "entriesTreeId")
     .u8(input.namespaceBump ?? 0, "namespaceBump")
     .u8(input.bump, "bump");
   for (const slot of input.sources) {

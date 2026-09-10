@@ -22,11 +22,8 @@
 # built, which is what the build attestation exists to rule out. Sharing photon's
 # pins also shares the base layers.
 #
-# rust-toolchain.toml pins 1.97.0, so rustup downloads it over this base on every
-# build. That costs ~30s and is harmless: the pinned toolchain is the one that
-# compiles. Moving this FROM to a 1.97 digest would remove the download and
-# unshare photon's layers.
-FROM rust:1.95-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00db7aeb69f4b3d170c3e4082 AS builder
+# Keep the builder aligned with rust-toolchain.toml.
+FROM rust:1.98.1-slim-bookworm@sha256:ebd900bae66fd508b466cef82d64a83a5fb34682e4c8b2797a42908bddc95a57 AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

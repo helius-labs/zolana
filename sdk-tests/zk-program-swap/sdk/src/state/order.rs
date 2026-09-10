@@ -1,9 +1,9 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use solana_address::Address;
 use swap_program::instructions::shared::u64_right_align;
 use swap_prover::OrderTermsProofInput;
 use wincode::{SchemaRead, SchemaWrite};
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_keypair::{
     constants::BLINDING_LEN, hash::poseidon, CompressedShieldedAddress, NullifierKey, P256Pubkey,
     PublicKey, ShieldedAddress,
@@ -110,10 +110,15 @@ impl DataHash for OrderTermsProofInput {
     }
 }
 
-// All instructions: the taker pubkey as the `taker_pk_fe` terms field.
+// All instructions: the taker pubkey as the `taker_pk_fe` terms field. The
+// take_verifiable_encryption circuit asserts
+// `TakerIn.Owner == Poseidon(TakerPkFe, TakerNullifierPk)`
+// (`prover/circuits/take_verifiable_encryption/take.go:27-28`), and the taker's
+// UTXO owner is `Poseidon(owner_proof_input_hash(pk), nullifier_pk)`, so this
+// must be the algorithm-tagged Solana identity, not the bare `hash_bytes`.
 impl DataHash for Address {
     fn data_hash(&self) -> Result<[u8; 32]> {
-        hash_bytes(self.as_array()).map_err(err)
+        solana_owner_identity(self.as_array()).map_err(err)
     }
 }
 
@@ -235,19 +240,23 @@ impl OrderUtxo {
     }
 }
 
-// take: the take circuit derives the destination blinding from the order utxo
-// blinding, so the maker recomputes the payout from the opening instead of
-// decrypting a ciphertext.
 impl OrderUtxo {
+    /// Reconstruct the maker payout using the order opening and the first
+    /// nullifier published by its settlement. No settlement ciphertext is needed.
     pub fn derived_destination_output(
         &self,
-        recipient: ShieldedAddress,
+        first_nullifier: &[u8; 32],
     ) -> Result<SppProofOutputUtxo> {
-        Ok(self.destination_output(recipient, self.derived_destination_blinding()?))
-    }
-
-    pub fn derived_destination_blinding(&self) -> Result<Blinding> {
-        crate::instructions::take::derive_destination_blinding(&self.blinding)
+        if self.terms.take_mode != swap_prover::TAKE_MODE_DERIVED {
+            bail!("order does not use derived settlement");
+        }
+        use zolana_transaction::utxo::{
+            derive_output_blinding_seed, derive_transact_output_blinding,
+        };
+        let blinding_seed = crate::instructions::take::take_blinding_seed(&self.blinding)?;
+        let seed = derive_output_blinding_seed(first_nullifier, &blinding_seed).map_err(err)?;
+        let blinding = derive_transact_output_blinding(first_nullifier, &seed, 1).map_err(err)?;
+        Ok(self.destination_output(self.terms.destination, blinding))
     }
 }
 

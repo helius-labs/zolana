@@ -8,6 +8,17 @@ import (
 	transaction "zolana/prover/circuits/spp_transaction/shared"
 )
 
+// mergeInputContext holds the transaction-wide values every input slot shares.
+// FirstNullifier is zero while input 0 is constrained and input 0's derived
+// nullifier afterwards.
+type mergeInputContext struct {
+	OwnerHash       frontend.Variable
+	NullifierSecret frontend.Variable
+	Asset           frontend.Variable
+	RingProgramID   frontend.Variable
+	FirstNullifier  frontend.Variable
+}
+
 // Checks:
 // UTXO or dummy:
 // - nullifier non inclusion
@@ -18,16 +29,13 @@ import (
 // 2. Dummy
 // - all UTXO fields and nullifier secret are zero
 // - nullifier is derived deterministically
+//
+// tree is the slot the input's private TreeSlot selected.
 func constrainInput(
 	api frontend.API,
 	in Input,
-	userOwnerHash,
-	userNullifierSecret,
-	asset,
-	utxoTreeRoot,
-	nullifierTreeRoot,
-	ringProgramID,
-	firstNullifier frontend.Variable,
+	ctx mergeInputContext,
+	tree transaction.TreeSlot,
 	slotIndex int,
 ) (frontend.Variable, frontend.Variable) {
 	isDummy := api.IsZero(api.Sub(in.Domain, DummyDomain))
@@ -36,10 +44,10 @@ func constrainInput(
 	notDummy := isUtxo
 	abstractor.CallVoid(api, transaction.RangeCheck64{Value: in.Amount})
 
-	leafOwner := api.Select(isDummy, frontend.Variable(0), userOwnerHash)
-	leafAsset := api.Select(isDummy, frontend.Variable(0), asset)
-	leafRingProgramID := api.Select(isDummy, frontend.Variable(0), ringProgramID)
-	nullifierSecret := api.Select(isDummy, frontend.Variable(0), userNullifierSecret)
+	leafOwner := api.Select(isDummy, frontend.Variable(0), ctx.OwnerHash)
+	leafAsset := api.Select(isDummy, frontend.Variable(0), ctx.Asset)
+	leafRingProgramID := api.Select(isDummy, frontend.Variable(0), ctx.RingProgramID)
+	nullifierSecret := api.Select(isDummy, frontend.Variable(0), ctx.NullifierSecret)
 	utxo := transaction.UtxoCircuitFields{
 		Domain:        in.Domain,
 		Owner:         leafOwner,
@@ -51,9 +59,9 @@ func constrainInput(
 		RingProgramID: leafRingProgramID,
 	}
 	transaction.AssertWhen(api, isDummy, utxo.CheckDummy(api))
-	utxoHash := transaction.UtxoHashCircuit(api, utxo)
+	utxoHash := transaction.UtxoHashCircuit(api, utxo, tree.ID)
 
-	// Inclusion: utxoHash is a leaf of the state tree at UtxoTreeRoot.
+	// Inclusion: utxoHash is a leaf of the state tree at the slot's UTXO root.
 	statePathIndices := api.ToBinary(in.StatePathIndex, transaction.StateTreeHeight)
 	stateRoot := abstractor.Call(api, gadget.MerkleRootGadget{
 		Hash:   utxoHash,
@@ -61,7 +69,7 @@ func constrainInput(
 		Path:   in.StatePathElements,
 		Height: transaction.StateTreeHeight,
 	})
-	assertEqualWhen(api, notDummy, stateRoot, utxoTreeRoot)
+	assertEqualWhen(api, notDummy, stateRoot, tree.UtxoRoot)
 
 	nullifier := abstractor.Call(api, transaction.NullifierGadget{
 		UtxoHash:        utxoHash,
@@ -70,7 +78,7 @@ func constrainInput(
 	})
 	nullifier = api.Select(
 		isDummy,
-		MergeDummyNullifier(api, userNullifierSecret, firstNullifier, slotIndex),
+		MergeDummyNullifier(api, ctx.NullifierSecret, ctx.FirstNullifier, slotIndex),
 		nullifier,
 	)
 
@@ -85,7 +93,7 @@ func constrainInput(
 		Height: transaction.NullifierTreeHeight,
 	})
 
-	api.AssertIsEqual(nfRoot, nullifierTreeRoot)
+	api.AssertIsEqual(nfRoot, tree.NullifierRoot)
 	abstractor.CallVoid(api, transaction.AssertStrictlyOrdered{
 		Lo:  in.NullifierLowValue,
 		Mid: nullifier,

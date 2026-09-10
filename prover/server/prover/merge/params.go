@@ -24,9 +24,12 @@ type InputParams struct {
 	NullifierLowPathElements []*big.Int // len NullifierTreeHeight
 	NullifierLowPathIndex    *big.Int
 
-	UtxoTreeRoot      *big.Int
-	NullifierTreeRoot *big.Int
-	Nullifier         *big.Int
+	// TreeSlot indexes MergeParameters.TreeSlots and stays private: it selects
+	// the tree id this input's UTXO was hashed under together with the UTXO and
+	// nullifier roots it is proven against, so the three cannot be mixed across
+	// trees.
+	TreeSlot  *big.Int
+	Nullifier *big.Int
 }
 
 // OutputParams mirrors merge.Output: only the free leaf field plus the
@@ -49,6 +52,16 @@ type MergeParameters struct {
 	Inputs []InputParams
 	Output OutputParams
 
+	// TreeSlots are the InputTrees public tree slots inputs may be spent from,
+	// each an id with the UTXO and nullifier roots SPP resolved for it. Unused
+	// slots are all zero and no input may select one.
+	TreeSlots []common.TreeSlotParams
+
+	// OutputTreeID is the raw u16 id of the tree the merged output is inserted
+	// into; the output UTXO hash commits to it, so it need not match any input
+	// slot's tree.
+	OutputTreeID *big.Int
+
 	// Asset is the single asset shared by every real input and the merged output.
 	Asset *big.Int
 
@@ -59,7 +72,9 @@ type MergeParameters struct {
 	RingProgramID *big.Int
 
 	// Shared owner identity: the owner's pk_field and the nullifier
-	// secret/commitment.
+	// secret/commitment. UserNullifierSecret also seeds the private tx blinding
+	// and the merged output's blinding, both derived in-circuit, so no wire
+	// field carries either.
 	OwnerPkHash         *big.Int
 	UserNullifierPk     *big.Int
 	UserNullifierSecret *big.Int

@@ -13,7 +13,9 @@ import (
 // UtxoWires supplies a transaction slot's fields for hash binding and
 // subject extraction.
 type UtxoWires struct {
-	Domain        frontend.Variable
+	Domain frontend.Variable
+	// The raw id of the tree the UTXO lives in, SPP hashes under the same id.
+	TreeID        frontend.Variable
 	OwnerPkHash   frontend.Variable
 	NullifierPk   frontend.Variable
 	Asset         frontend.Variable
@@ -67,6 +69,7 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 		hashPrefix(api, outputHashes, c.OutputCountSelected[:]),
 		c.AddressChain,
 		c.ExternalDataHash,
+		c.PrivateTxBlinding,
 	}))
 	return txContext
 }
@@ -121,7 +124,7 @@ func (w UtxoWires) checkSlot(
 		DataHash:      w.DataHash,
 		RingDataHash:  w.RingDataHash,
 		RingProgramID: w.RingProgramID,
-	})
+	}, w.TreeID)
 
 	// 3. Mark selected UTXOs for rule evaluation.
 	return api.Select(isUtxo, hash, frontend.Variable(0)), utxoView{

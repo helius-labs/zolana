@@ -175,6 +175,7 @@ impl SplWithdrawalEnv {
             mut rpc,
             authority,
             tree,
+            ..
         } = Pool::initialized();
         let attacker = rpc.payer.insecure_clone();
         let mint = rpc.create_mint().expect("create mint");

@@ -115,13 +115,15 @@ pub struct Typed<L: ListSchema> {
 }
 
 impl<L: ListSchema> Typed<L> {
-    pub fn erase(&self) -> ListEntry {
+    /// `blinding` is the SPP output blinding of the write.
+    pub fn erase(&self, blinding: [u8; 32]) -> ListEntry {
         ListEntry {
             list_id: L::ID,
             member: self.member,
             state: self.state,
             version: self.version,
             content_hash: self.content.commit(),
+            blinding,
         }
     }
 }
@@ -188,6 +190,7 @@ mod tests {
                 state: EntryState::Active,
                 version: 0,
                 content_hash: commit,
+                blinding: [0u8; 32],
             };
             assert_eq!(
                 L::ID.admits_content(commit),
@@ -243,7 +246,7 @@ mod tests {
             version: 3,
             content: (),
         };
-        let entry = typed.erase();
+        let entry = typed.erase([0u8; 32]);
         assert_eq!(entry.list_id, ListId::Allow);
         assert_eq!(entry.content_hash, [0u8; 32]);
         let back = Typed::<Allow>::from_entry(&entry).expect("same list_id");
@@ -267,9 +270,9 @@ mod tests {
             content: (),
         };
         let copied = typed;
-        let mut entry = copied.erase();
+        let mut entry = copied.erase([0u8; 32]);
         entry.content_hash = [1u8; 32];
         assert!(Typed::<Allow>::from_entry(&entry).is_none());
-        assert!(Typed::<Allow>::from_entry(&typed.erase()).is_some());
+        assert!(Typed::<Allow>::from_entry(&typed.erase([0u8; 32])).is_some());
     }
 }

@@ -220,6 +220,7 @@ impl EntryMutation<'_> {
         }
         let live = ReadEntry {
             entries_tree: config.entries_tree,
+            entries_tree_id: config.entries_tree_id(),
             namespace: self.ring.namespace_pda(),
             list_id: self.list_id,
             member: self.member,
@@ -230,6 +231,7 @@ impl EntryMutation<'_> {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
                 entries_tree: config.entries_tree,
+                entries_tree_id: config.entries_tree_id(),
                 list_id: self.list_id,
                 member: self.member,
                 state: self.state,
@@ -246,6 +248,7 @@ impl EntryMutation<'_> {
                 ring: self.ring,
                 payer: self.authority.pubkey(),
                 entries_tree: config.entries_tree,
+                entries_tree_id: config.entries_tree_id(),
                 spent: entry,
                 state: self.state,
                 content_hash: [0u8; 32],
@@ -323,6 +326,7 @@ impl EntryArg {
             .ok_or(ListError::NoPolicy)?;
         let live = ReadEntry {
             entries_tree: config.entries_tree,
+            entries_tree_id: config.entries_tree_id(),
             namespace: config
                 .source_for(self.list_id)
                 .unwrap_or_else(|| ctx.ring.namespace_pda()),

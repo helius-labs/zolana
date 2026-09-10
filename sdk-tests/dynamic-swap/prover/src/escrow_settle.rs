@@ -8,14 +8,6 @@ use crate::{
     ProofInputUtxo,
 };
 
-/// Per-output-slot domains folded into the settle output-blinding derivation
-/// (`Poseidon(order_blinding, reservation_blinding, domain)`). These MUST stay
-/// byte-for-byte in sync with the Go copies in
-/// `prover/circuits/escrow_settle/escrow_settle.go`.
-pub const RECIPIENT_BLINDING_DOMAIN: u64 = 0x5345_5452_4543_4950; // "SETRECIP"
-pub const MAKER_COUNTER_BLINDING_DOMAIN: u64 = 0x5345_544D_4B43_5452; // "SETMKCTR"
-pub const MAKER_SOURCE_BLINDING_DOMAIN: u64 = 0x5345_544D_4B53_5243; // "SETMKSRC"
-
 /// Proof inputs for the `escrow_settle` circuit -- the single circuit `settle`
 /// uses for both outcomes (settle and price-refund). Exact 2-in (order,
 /// reservation) / 3-out (recipient, maker_counter, maker_source), no padding.
@@ -27,6 +19,7 @@ pub const MAKER_SOURCE_BLINDING_DOMAIN: u64 = 0x5345_544D_4B53_5243; // "SETMKSR
 pub struct EscrowSettleProofInputs {
     pub public_input_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
+    pub first_nullifier: [u8; 32],
     pub execution_price: u64,
     /// Private witness, re-opened from the order UTXO's data hash in-circuit.
     pub max_price: u64,
@@ -53,6 +46,7 @@ pub struct EscrowSettleProofInputs {
     pub maker_counter: ProofInputUtxo,
     pub maker_source: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowSettleProofInputs {
@@ -65,6 +59,10 @@ impl EscrowSettleProofInputs {
         map.insert(
             "Public_PrivateTxHash".to_string(),
             vec![bytes_to_decimal_string(&self.private_tx_hash)],
+        );
+        map.insert(
+            "Public_FirstNullifier".to_string(),
+            vec![bytes_to_decimal_string(&self.first_nullifier)],
         );
         map.insert(
             "Public_ExecutionPrice".to_string(),
@@ -98,6 +96,10 @@ impl EscrowSettleProofInputs {
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
+        map.insert(
+            "PrivateTxBlinding".to_string(),
+            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+        );
         for (key, value) in utxo_witness_entries(&self.order_in, "OrderIn")
             .into_iter()
             .chain(utxo_witness_entries(&self.reservation_in, "ReservationIn"))
@@ -120,11 +122,13 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::utxo::expected_utxo_witness_keys;
 
     fn sample() -> EscrowSettleProofInputs {
         EscrowSettleProofInputs {
             public_input_hash: [1; 32],
             private_tx_hash: [2; 32],
+            first_nullifier: [10; 32],
             execution_price: 90,
             max_price: 100,
             created_at: 1_700_000_000,
@@ -139,6 +143,7 @@ mod tests {
             maker_counter: ProofInputUtxo::default(),
             maker_source: ProofInputUtxo::default(),
             external_data_hash: [8; 32],
+            private_tx_blinding: [9; 32],
         }
     }
 
@@ -150,6 +155,7 @@ mod tests {
         let mut expected: Vec<String> = vec![
             "Public_PublicInputHash".to_string(),
             "Public_PrivateTxHash".to_string(),
+            "Public_FirstNullifier".to_string(),
             "Public_ExecutionPrice".to_string(),
             "Public_OrderInHash".to_string(),
             "Public_ReservationInHash".to_string(),
@@ -159,6 +165,7 @@ mod tests {
             "CreatedAt".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
+            "PrivateTxBlinding".to_string(),
         ];
         for prefix in [
             "OrderIn",
@@ -167,18 +174,7 @@ mod tests {
             "MakerCounter",
             "MakerSource",
         ] {
-            for suffix in [
-                "Domain",
-                "Owner",
-                "Asset",
-                "Amount",
-                "Blinding",
-                "DataHash",
-                "RingDataHash",
-                "RingProgramID",
-            ] {
-                expected.push(format!("{prefix}_{suffix}"));
-            }
+            expected.extend(expected_utxo_witness_keys(prefix));
         }
 
         let expected: HashSet<&str> = expected.iter().map(String::as_str).collect();

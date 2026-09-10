@@ -17,7 +17,9 @@ import {
 } from "../src/client/index.js";
 import { defaultSolanaRpcSubscriptionsUrl, runKitRpc } from "../src/client/kit.js";
 import { asField, assemble } from "../src/client/prover/assembly.js";
+import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
+import { treeAddress } from "../src/interface/pda/index.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import {
   ProofInputUtxo,
@@ -26,9 +28,15 @@ import {
   Utxo,
   createExternalData,
   createProofOutput,
+  outputBlindingSeed,
+  transactOutputBlinding,
 } from "../src/transaction/index.js";
 
-const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
+/** The client defaults to tree id 0; its address must be the PDA of that id. */
+const TREE_ID = 0;
+const TREE = treeAddress(TREE_ID);
+/** A PDA of no tree id the tests use, to check the id/address consistency gate. */
+const FOREIGN_TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const RPC_URL = "https://rpc.example.com/zolana";
 const INDEXER_URL = "https://indexer.example.com/api";
 const PROVER_URL = "https://prover.example.com/api";
@@ -45,7 +53,29 @@ function bytes(value: number): Bytes32 {
   return new Uint8Array(32).fill(value) as Bytes32;
 }
 
-function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: SpendProof }> {
+/** A root blinding seed is a field element, so its leading byte stays zero. */
+function blindingSeed(value: number): Bytes32 {
+  const seed = bytes(value);
+  seed[0] = 0;
+  return seed;
+}
+
+type ProofFixture = Readonly<{
+  proofInputs: SppProofInputs;
+  spendProof: SpendProof;
+  /** One non-inclusion proof per padding input, at the spend proof's nullifier root. */
+  dummyProofs: readonly NonInclusionProof[];
+}>;
+
+/**
+ * One real spend of tree 0 plus `dummyInputs` padding slots, every output
+ * blinding derived from the first nullifier and the root seed the way the
+ * circuit checks it.
+ */
+function proofFixture(
+  options: Readonly<{ dummyInputs?: number; outputTreeId?: number }> = {},
+): ProofFixture {
+  const outputTreeId = options.outputTreeId ?? TREE_ID;
   const keypair = ShieldedKeypair.generate();
   const input = new ProofInputUtxo({
     utxo: new Utxo({
@@ -56,25 +86,49 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
     }),
     nullifierKey: keypair.nullifierKey(),
   });
+  const dummyInputs = Array.from({ length: options.dummyInputs ?? 0 }, (_, index) =>
+    ProofInputUtxo.dummy(bytes(10 + index)),
+  );
+  const seed = blindingSeed(9);
+  const firstNullifier = input.nullifier();
+  const outputSeed = outputBlindingSeed(firstNullifier, seed);
+  const slotBlinding = (index: number): Bytes32 =>
+    transactOutputBlinding(firstNullifier, outputSeed, index);
+  const ownerTag = bytes(8);
   const output = createProofOutput({
     ownerAddress: keypair.shieldedAddress(),
     asset: SOL_MINT,
     amount: 7n,
-    blinding: bytes(2),
+    blinding: slotBlinding(0),
   });
-  const ownerTag = bytes(8);
+  const outputs = [
+    output,
+    ...dummyInputs.map((_, index) =>
+      createProofOutput({
+        asset: SOL_MINT,
+        amount: 0n,
+        blinding: slotBlinding(index + 1),
+        ownerTag,
+      }),
+    ),
+  ];
   const proofInputs = new SppProofInputs({
     // The payer must own the input UTXOs. Only its own are provable.
     payer: keypair.shieldedAddress().solanaAddress(),
-    inputUtxos: [input],
-    outputs: [output],
+    inputUtxos: [input, ...dummyInputs],
+    outputs,
     externalData: createExternalData({
       txViewingPublicKey: keypair.viewingPublicKey(),
       salt: new Uint8Array(16) as Bytes16,
-      outputs: [{ utxoHash: output.hash(), ownerTag: { kind: "inline", value: ownerTag } }],
-      resolvedOwnerTags: [ownerTag],
+      outputs: outputs.map((entry) => ({
+        utxoHash: entry.hash(outputTreeId),
+        ownerTag: { kind: "inline", value: ownerTag },
+      })),
+      resolvedOwnerTags: outputs.map(() => ownerTag),
       messages: [],
     }),
+    blindingSeed: seed,
+    outputTreeId,
   });
   const spendProof: SpendProof = {
     state: {
@@ -99,7 +153,19 @@ function proofFixture(): Readonly<{ proofInputs: SppProofInputs; spendProof: Spe
       rootIndex: 7,
     },
   };
-  return { proofInputs, spendProof };
+  const dummyProofs = dummyInputs.map((dummy): NonInclusionProof => ({
+    leaf: dummy.nullifier(),
+    merkleContext: { treeType: 1, tree: TREE },
+    path: Array.from({ length: 40 }, () => bytes(0)),
+    lowElement: bytes(4),
+    lowElementIndex: 0n,
+    highElement: bytes(5),
+    highElementIndex: 1n,
+    root: bytes(6),
+    rootSeq: 1n,
+    rootIndex: 7,
+  }));
+  return { proofInputs, spendProof, dummyProofs };
 }
 
 type ServiceOverrides = Pick<ZolanaClientConfig, "indexerUrl" | "proverUrl">;
@@ -142,9 +208,28 @@ async function serviceRequestUrls(
 
   await instance.getShieldedTransactionsByNullifiers({ nullifiers: [bytes(7)] });
   const fixture = proofFixture();
-  vi.spyOn(instance, "getInputMerkleProofs").mockResolvedValue([fixture.spendProof]);
+  // Proving reads the two proof endpoints directly, so those are what stay
+  // off the wire here; only the prover request is under test.
+  vi.spyOn(instance, "getMerkleProofs").mockResolvedValue({
+    context: { blockTime: 1n, slot: 1n },
+    proofs: [fixture.spendProof.state],
+  });
+  vi.spyOn(instance, "getNonInclusionProofs").mockResolvedValue({
+    context: { blockTime: 1n, slot: 1n },
+    proofs: [fixture.spendProof.nullifier],
+  });
   await instance.proveTransact(fixture.proofInputs);
   return urls;
+}
+
+function proverFetch(): ReturnType<typeof vi.fn<typeof globalThis.fetch>> {
+  return vi.fn<typeof globalThis.fetch>(() =>
+    Promise.resolve(
+      new Response(JSON.stringify(STANDARD_PROOF), {
+        headers: { "content-type": "application/json" },
+      }),
+    ),
+  );
 }
 
 function client(fetch = vi.fn<typeof globalThis.fetch>()): ZolanaClient {
@@ -173,6 +258,38 @@ describe("ZolanaClient", () => {
     const instance = client(fetch);
     expect(instance.tree).toBe(TREE);
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("builds against tree 0 by default and follows an explicit tree id", () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const byDefault = new ZolanaClient({ solanaRpcUrl: RPC_URL, fetch });
+    expect(byDefault.treeId).toBe(0);
+    expect(byDefault.tree).toBe(treeAddress(0));
+
+    const explicit = new ZolanaClient({ solanaRpcUrl: RPC_URL, treeId: 3, fetch });
+    expect(explicit.treeId).toBe(3);
+    expect(explicit.tree).toBe(treeAddress(3));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a tree address that does not name the tree id", () => {
+    // The id is what every commitment hashes under; an address of another tree
+    // would prove against one tree and submit to another.
+    for (const config of [
+      { tree: FOREIGN_TREE },
+      { treeId: 1, tree: treeAddress(0) },
+    ] satisfies readonly Pick<ZolanaClientConfig, "tree" | "treeId">[]) {
+      let error: unknown;
+      try {
+        new ZolanaClient({ solanaRpcUrl: RPC_URL, ...config });
+      } catch (cause) {
+        error = cause;
+      }
+      expect(error).toMatchObject({
+        code: "CLIENT_INVALID_CONFIG",
+        details: { field: "tree" },
+      });
+    }
   });
 
   it.each([
@@ -518,9 +635,12 @@ describe("ZolanaClient", () => {
   });
 
   it("fetches state and nullifier proofs once and in parallel", async () => {
-    const instance = client();
-    const utxoHash = bytes(1);
-    const nullifier = bytes(2);
+    // One real spend and one padding input: the padding slot's nullifier rides
+    // in the same non-inclusion request as the real one, after it, so every
+    // proof opens against one nullifier root.
+    const fixture = proofFixture({ dummyInputs: 1 });
+    const fetch = proverFetch();
+    const instance = client(fetch);
     let resolveState!: (value: GetMerkleProofsResponse) => void;
     let resolveNullifier!: (value: GetNonInclusionProofsResponse) => void;
     const getMerkleProofs = vi
@@ -534,42 +654,46 @@ describe("ZolanaClient", () => {
         () => new Promise<GetNonInclusionProofsResponse>((resolve) => (resolveNullifier = resolve)),
       );
 
-    const pending = instance.getInputMerkleProofs([{ index: 0, utxoHash, nullifier }]);
+    const pending = instance.proveTransact(fixture.proofInputs);
     expect(getMerkleProofs).toHaveBeenCalledOnce();
     expect(getNonInclusionProofs).toHaveBeenCalledOnce();
+    expect(getMerkleProofs.mock.calls[0]?.slice(0, 2)).toEqual([
+      TREE,
+      fixture.proofInputs.inputUtxoHashes(),
+    ]);
+    expect(getNonInclusionProofs.mock.calls[0]?.slice(0, 2)).toEqual([
+      TREE,
+      [
+        ...fixture.proofInputs.inputContexts().map((input) => input.nullifier),
+        ...fixture.proofInputs.dummyNullifiers(),
+      ],
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
 
     resolveState({
       context: { blockTime: 1n, slot: 1n },
-      proofs: [
-        {
-          leaf: utxoHash,
-          merkleContext: { treeType: 1, tree: TREE },
-          path: [],
-          leafIndex: 0n,
-          root: bytes(3),
-          rootSeq: 1n,
-          rootIndex: 4,
-        },
-      ],
+      proofs: [fixture.spendProof.state],
     });
     resolveNullifier({
       context: { blockTime: 1n, slot: 1n },
-      proofs: [
-        {
-          leaf: nullifier,
-          merkleContext: { treeType: 1, tree: TREE },
-          path: [],
-          lowElement: bytes(4),
-          lowElementIndex: 0n,
-          highElement: bytes(5),
-          highElementIndex: 1n,
-          root: bytes(6),
-          rootSeq: 1n,
-          rootIndex: 7,
-        },
-      ],
+      proofs: [fixture.spendProof.nullifier, ...fixture.dummyProofs],
     });
 
-    await expect(pending).resolves.toHaveLength(1);
+    await expect(pending).resolves.toMatchObject({
+      circuit: { kind: "confidentialEddsa", inputs: 2, outputs: 2 },
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects proof inputs built for another output tree before any request", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const instance = client(fetch);
+    const { proofInputs } = proofFixture({ outputTreeId: 1 });
+
+    await expect(instance.proveTransact(proofInputs)).rejects.toMatchObject({
+      code: "CLIENT_TREE_ID_MISMATCH",
+      details: { expected: 0, actual: 1 },
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

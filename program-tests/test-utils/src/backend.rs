@@ -8,12 +8,16 @@
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_interface::state::read_tree_id;
 use zolana_program_test::{ProgramTestError, ZolanaProgramTest};
 
 pub struct LiteSvmPoolBackend {
     pub rpc: ZolanaProgramTest,
     pub authority: Keypair,
     pub tree: Pubkey,
+    /// The raw id [`Self::tree`] was created with. UTXO commitments are hashed
+    /// under the id of the tree they live in, so tests resolve it once here.
+    pub tree_id: u16,
 }
 
 impl LiteSvmPoolBackend {
@@ -22,10 +26,16 @@ impl LiteSvmPoolBackend {
         let authority = Keypair::new();
         rpc.create_protocol_config(&authority)?;
         let tree = rpc.create_tree(&authority)?;
+        let tree_id = rpc
+            .account_data(&tree)
+            .as_deref()
+            .and_then(read_tree_id)
+            .ok_or_else(|| ProgramTestError::Rpc(format!("read tree id from {tree}")))?;
         Ok(Self {
             rpc,
             authority,
             tree,
+            tree_id,
         })
     }
 

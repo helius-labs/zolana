@@ -15,6 +15,7 @@ use zolana_interface::{
         tag::MERGE_TRANSACT,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
+    tree_slot::TreeSlot,
 };
 use zolana_tree::TreeAccount;
 
@@ -111,12 +112,11 @@ pub fn process_merge_transact_ix(accounts: &mut [AccountView], data: &[u8]) -> P
     )
 }
 
-/// Shared tail for `merge_transact` and `merge_ring`: read roots, nullify the
-/// inputs, append the output, verify the proof, and emit the event. The
-/// tree-derived dummy-input policy is
-/// captured before any queue insertion or state append.
-/// `output_data` is the event's output payload: empty for `merge_transact`, the
-/// output `ring_data_hash` for `merge_ring`.
+/// Shared tail for `merge_transact` and `merge_ring`: resolve the input tree's
+/// roots, nullify the inputs, append the output, verify the proof, and emit the
+/// event. The tree-derived dummy-input policy is captured before any queue
+/// insertion or state append. `output_data` is the event's output payload:
+/// empty for `merge_transact`, the output `ring_data_hash` for `merge_ring`.
 #[inline(never)]
 pub(crate) fn process_merge_core(
     mut accounts: MergeCoreAccounts<'_>,
@@ -127,7 +127,7 @@ pub(crate) fn process_merge_core(
     output_data: Vec<u8>,
     slot: u64,
 ) -> ProgramResult {
-    let (input_tree_result, derived) = {
+    let (input_tree_result, mut derived) = {
         let input_tree = accounts.input_tree.address().to_bytes();
         let mut tree = TreeAccount::from_account_view_mut(
             &mut *accounts.input_tree,
@@ -137,8 +137,8 @@ pub(crate) fn process_merge_core(
         .map_err(tree_error)?;
         let allow_dummy_inputs = tree.allow_dummy_inputs().map_err(tree_error)?;
         let mut derived = MergeProofInputs {
-            utxo_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
-            nullifier_tree_roots: [[0u8; 32]; MERGE_INPUT_COUNT],
+            tree_slot: TreeSlot::ZERO,
+            output_tree_id: [0u8; 32],
             external_data_hash,
             allow_dummy_inputs: bool_field(allow_dummy_inputs),
             owner_binding,
@@ -181,6 +181,7 @@ pub(crate) fn process_merge_core(
             TREE_ACCOUNT_DISCRIMINATOR,
         )
         .map_err(tree_error)?;
+        derived.output_tree_id = tree.tree_id_array();
         apply_output_tree(&mut tree, ix, output_tree, input_tree_result.inputs, slot)?
     };
 
@@ -189,6 +190,12 @@ pub(crate) fn process_merge_core(
     emit_general_event(EventKind::Merge, event)
 }
 
+/// Resolve `input_tree`'s roots into the proof's tree slot and insert every
+/// nullifier into its queue. `from_bytes` already enforced the fixed
+/// `MERGE_INPUT_COUNT` shape. The circuit publishes `INPUT_TREES` slots, but
+/// SPP spends from one `input_tree`, so every input must reference the same
+/// pair of root indexes (`InputTreeRootIndexMismatch` otherwise): the roots
+/// they resolve to fill slot 0 and the remaining slots stay zero.
 #[inline(never)]
 fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
@@ -197,18 +204,31 @@ fn apply_input_tree(
     derived: &mut MergeProofInputs,
 ) -> Result<Vec<Input>, ProgramError> {
     let shape = ShieldedPoolError::InvalidMergeShape;
-    let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
-    for i in 0..MERGE_INPUT_COUNT {
-        let nullifier = ix.nullifiers.get(i).ok_or(shape)?;
-        let utxo_root_index = *ix.utxo_tree_root_index.get(i).ok_or(shape)?;
-        let nullifier_root_index = *ix.nullifier_tree_root_index.get(i).ok_or(shape)?;
+    let utxo_tree_root_index = *ix.utxo_tree_root_index.first().ok_or(shape)?;
+    let nullifier_tree_root_index = *ix.nullifier_tree_root_index.first().ok_or(shape)?;
+    if ix
+        .utxo_tree_root_index
+        .iter()
+        .any(|index| *index != utxo_tree_root_index)
+        || ix
+            .nullifier_tree_root_index
+            .iter()
+            .any(|index| *index != nullifier_tree_root_index)
+    {
+        return Err(ShieldedPoolError::InputTreeRootIndexMismatch.into());
+    }
+    derived.tree_slot = TreeSlot {
+        id: tree.tree_id_array(),
+        utxo_root: tree
+            .get_utxo_tree_root(utxo_tree_root_index)
+            .map_err(tree_error)?,
+        nullifier_root: tree
+            .get_nullifier_tree_root(nullifier_tree_root_index)
+            .map_err(tree_error)?,
+    };
 
-        *derived.utxo_roots.get_mut(i).ok_or(shape)? = tree
-            .get_utxo_tree_root(utxo_root_index)
-            .map_err(tree_error)?;
-        *derived.nullifier_tree_roots.get_mut(i).ok_or(shape)? = tree
-            .get_nullifier_tree_root(nullifier_root_index)
-            .map_err(tree_error)?;
+    let mut inputs = Vec::with_capacity(MERGE_INPUT_COUNT);
+    for nullifier in &ix.nullifiers {
         let queue_index = tree
             .nullifier_tree()
             .insert_nullifier_into_queue(nullifier)

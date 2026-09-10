@@ -21,8 +21,8 @@ pub struct Bsb22Commitment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RingP256ProofData {
     pub bsb22_commitment: Bsb22Commitment,
-    /// The P256 public key x-coordinate when a real default-ring P256 input or
-    /// address is present. `None` keeps ring-only P256 ownership private.
+    /// The P256 public key x-coordinate when a default-ring P256 UTXO is spent;
+    /// address slots do not count. `None` keeps ring-only P256 ownership private.
     #[wincode(with = "FixedOptionOwnerTag")]
     pub default_owner_tag: Option<[u8; 32]>,
 }

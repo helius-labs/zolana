@@ -20,10 +20,11 @@ type DefaultRingEddsaOnlyPublic struct {
 	Nullifiers []frontend.Variable
 	// New output UTXO hashes.
 	OutputHashes []frontend.Variable
-	// UTXO tree roots to prove inclusion of real input UTXOs.
-	UtxoTreeRoots []frontend.Variable
-	// Nullifier tree roots to prove non-inclusion of input nullifiers.
-	NullifierTreeRoots []frontend.Variable
+	// Input tree slots: each tree's raw u16 id and both roots, selected as a
+	// unit by every input's private tree slot.
+	TreeSlots []shared.TreeSlot
+	// Raw u16 id of the output tree.
+	OutputTreeID frontend.Variable
 	// Hash of input UTXO hashes, output UTXO hashes, address hashes, and external data.
 	// Dummy UTXOs are represented as zero.
 	PrivateTxHash frontend.Variable
@@ -51,6 +52,8 @@ type DefaultRingEddsaOnlyPrivate struct {
 	InputOwnerPkHashes []frontend.Variable
 	Outputs            []shared.UtxoCircuitFields
 	OutputNullifierPks []frontend.Variable
+	// Private random seed for deriving output UTXO and transaction hash blindings.
+	BlindingSeed frontend.Variable
 }
 
 type DefaultRingEddsaOnlyCircuit struct {
@@ -68,8 +71,7 @@ func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCi
 		Public: DefaultRingEddsaOnlyPublic{
 			Nullifiers:          make([]frontend.Variable, shape.NInputs),
 			OutputHashes:        make([]frontend.Variable, shape.NOutputs),
-			UtxoTreeRoots:       make([]frontend.Variable, shape.NInputs),
-			NullifierTreeRoots:  make([]frontend.Variable, shape.NInputs),
+			TreeSlots:           shared.NewTreeSlots(),
 			SignerPkHashes:      make([]frontend.Variable, shape.NInputs+1),
 			OutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
@@ -84,21 +86,22 @@ func NewDefaultRingEddsaOnlyCircuit(shape shared.Shape) (*DefaultRingEddsaOnlyCi
 
 func (c *DefaultRingEddsaOnlyCircuit) newTransaction(api frontend.API) shared.Transaction {
 	return shared.Transaction{
-		Shape:              c.Shape,
-		Nullifiers:         c.Public.Nullifiers,
-		OutputHashes:       c.Public.OutputHashes,
-		UtxoTreeRoots:      c.Public.UtxoTreeRoots,
-		NullifierTreeRoots: c.Public.NullifierTreeRoots,
-		Inputs:             c.Private.Inputs,
-		Outputs:            c.Private.Outputs,
-		PrivateTxHash:      c.Public.PrivateTxHash,
-		ExternalDataHash:   c.Public.ExternalDataHash,
-		PublicAssets:       c.Public.PublicAssets,
-		PublicAmounts:      c.Public.PublicAmounts,
-		RingProgramID:      frontend.Variable(0),
-		SignerPkHashChain:  gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:   c.Public.AllowDummyInputs,
-		PublicInputHash:    c.Public.PublicInputHash,
+		Shape:             c.Shape,
+		Nullifiers:        c.Public.Nullifiers,
+		OutputHashes:      c.Public.OutputHashes,
+		TreeSlots:         c.Public.TreeSlots,
+		OutputTreeID:      c.Public.OutputTreeID,
+		Inputs:            c.Private.Inputs,
+		Outputs:           c.Private.Outputs,
+		BlindingSeed:      c.Private.BlindingSeed,
+		PrivateTxHash:     c.Public.PrivateTxHash,
+		ExternalDataHash:  c.Public.ExternalDataHash,
+		PublicAssets:      c.Public.PublicAssets,
+		PublicAmounts:     c.Public.PublicAmounts,
+		RingProgramID:     frontend.Variable(0),
+		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
+		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.HashChain(api, c.Public.OutputOwnerPkHashes),
 		},
@@ -118,9 +121,20 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	// Assert that all input and output UTXOs are in the default ring.
 	shared.AssertInDefaultRing(api, tx.Inputs, tx.Outputs)
 	// Enforce confidentiality:
-	// 1. Input utxos pubkeys are part of public inputs.
+	// 1. Input owners are private and each must be in the public signer vector.
 	// 2. Output UTXOs pubkeys are part of public input.
-	// 3. All dummy UTXO tags must be a real transaction participant.
+	// 3. Every dummy tag names an owner signer other than the payer or a real
+	//    output owner.
+
+	// 1.
+	authorized := shared.Signers(c.Public.SignerPkHashes)
+	inputOwners := shared.AuthorizedEddsaInputOwners(
+		api,
+		tx.Inputs,
+		c.Private.InputOwnerPkHashes,
+		authorized,
+	)
+	// 2.
 	if err := shared.AssertOutputOwnerTags(
 		api,
 		tx.Outputs,
@@ -130,23 +144,16 @@ func (c *DefaultRingEddsaOnlyCircuit) Define(api frontend.API) error {
 		return err
 	}
 
-	authorized := shared.Signers(c.Public.SignerPkHashes)
-	inputOwners := shared.AuthorizedEddsaInputOwners(
-		api,
-		tx.Inputs,
-		c.Private.InputOwnerPkHashes,
-		authorized,
-	)
 	// An output containing program data must be owned by an authorized signer.
 	outputPubkeyIsSigner := authorized.ContainsEach(api, c.Public.OutputOwnerPkHashes)
-	// Every dummy tag must name a real input signer or real output owner.
+	// 3.
 	if err := shared.AssertDummyTags(
 		api,
 		tx.Inputs,
 		tx.Outputs,
 		nil,
 		c.Public.OutputOwnerPkHashes,
-		authorized,
+		authorized.WithoutPayer(),
 	); err != nil {
 		return err
 	}

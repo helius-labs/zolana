@@ -32,6 +32,7 @@ pub struct MergeRing {
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
     ring_program_id: Address,
+    output_tree_id: u16,
 }
 
 impl MergeRing {
@@ -59,7 +60,10 @@ impl MergeRing {
             Ok(())
         })?;
 
-        let first_nullifier = inputs[0].nullifier()?;
+        let first_nullifier = inputs
+            .first()
+            .ok_or(TransactionError::NoInputs)?
+            .nullifier()?;
         // The merged output preserves ring ownership.
         let output = match output_ring_data_hash {
             Some(ring_data_hash) => {
@@ -81,11 +85,21 @@ impl MergeRing {
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
             ring_program_id,
+            output_tree_id: 0,
         })
     }
 
     pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
         self.expiry_unix_ts = expiry_unix_ts;
+        self
+    }
+
+    /// Appends the merged output to the tree with the raw id `output_tree_id`.
+    /// The id is hashed into the output commitment.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
         self
     }
 
@@ -99,6 +113,7 @@ impl MergeRing {
             expiry_unix_ts,
             signing_pubkey,
             ring_program_id,
+            output_tree_id,
         } = self;
         pad_with_dummies(&mut inputs);
         PreparedMergeRing {
@@ -107,6 +122,7 @@ impl MergeRing {
             expiry_unix_ts,
             signing_pubkey,
             ring_program_id,
+            output_tree_id,
         }
     }
 }
@@ -122,9 +138,16 @@ pub struct PreparedMergeRing {
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
     pub ring_program_id: Address,
+    /// Raw id of the tree the merged output is appended to.
+    pub output_tree_id: u16,
 }
 
 impl PreparedMergeRing {
+    /// Commitment of the merged output under [`Self::output_tree_id`].
+    pub fn output_hash(&self) -> Result<[u8; 32], TransactionError> {
+        self.output.hash(self.output_tree_id)
+    }
+
     /// Commitments for the real inputs only. UTXO program data is not mergeable,
     /// while policy-ring data remains part of each input commitment.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {

@@ -20,10 +20,13 @@ pub fn account_pda(authority: &Address) -> Address {
     .0
 }
 
-pub fn account_address(pda: &Address) -> Result<[u8; 32]> {
+/// The compressed address this PDA reserves in the tree with the raw id
+/// `tree_id`. The tree id is folded into the address UTXO's commitment, so an
+/// address is scoped to one tree.
+pub fn account_address(pda: &Address, tree_id: u16) -> Result<[u8; 32]> {
     PdaOwner::new(pda.as_array())
         .map_err(err)?
-        .address()
+        .address(tree_id)
         .map_err(err)
 }
 

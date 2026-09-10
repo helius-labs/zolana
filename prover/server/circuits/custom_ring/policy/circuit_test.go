@@ -502,7 +502,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, nil, mixedMap)))
 	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
 	fmt.Printf("per_asset_policy_hash %s\n", hex32(hostPolicyHash(
-		t, perAssetRule, []*big.Int{pkField(t, fill(0xd4))}, []uint64{123}, oneMap,
+		t, perAssetRule, []*big.Int{assetField(t, fill(0xd4))}, []uint64{123}, oneMap,
 	)))
 }
 
@@ -601,11 +601,12 @@ func emptySources() [NSources]source {
 
 // entry is one host-side policy entry, mirroring ring_policy::ListEntry.
 type entry struct {
-	listId  int64
-	member  *big.Int
-	state   int64
-	version int64
-	content *big.Int
+	listId   int64
+	member   *big.Int
+	state    int64
+	version  int64
+	content  *big.Int
+	blinding int64
 }
 
 type derived struct {
@@ -666,6 +667,8 @@ type statement struct {
 
 	entries []entry
 	derived []derived
+	// Spent nullifiers beside the entry addresses, tamper fixtures only.
+	twinAddresses []*big.Int
 
 	stateRoot     *big.Int
 	nullifierRoot *big.Int
@@ -676,10 +679,11 @@ type statement struct {
 	inputs  []UtxoWires
 	outputs []UtxoWires
 
-	addressChain     *big.Int
-	externalDataHash *big.Int
-	privateTxHash    *big.Int
-	publicInputHash  *big.Int
+	addressChain      *big.Int
+	externalDataHash  *big.Int
+	privateTxBlinding *big.Int
+	privateTxHash     *big.Int
+	publicInputHash   *big.Int
 
 	keys audittest.Keys
 }
@@ -712,16 +716,16 @@ func newStatement(t *testing.T, f fixture) *statement {
 	sender := pkField(t, fill(0xb2))
 	blocked := pkField(t, fill(0xc3))
 	approved := pkField(t, approvedKey)
-	asset := pkField(t, f.transferred)
+	asset := assetField(t, f.transferred)
 
 	s.entries = []entry{
-		allowedActive:      {listId: listAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		senderNotFrozen:    {listId: listFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0)},
-		blockedCleared:     {listId: listBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0)},
-		allowedNotBlocked:  {listId: listBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
-		approvedActive:     {listId: listApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		approvedBlocked:    {listId: listBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0)},
-		allowedNotApproved: {listId: listApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0)},
+		allowedActive:      {listId: listAllow, member: allowed, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 1},
+		senderNotFrozen:    {listId: listFrozen, member: sender, state: 0, version: 0, content: big.NewInt(0), blinding: 2},
+		blockedCleared:     {listId: listBlock, member: blocked, state: EntryStateCleared, version: 1, content: big.NewInt(0), blinding: 3},
+		allowedNotBlocked:  {listId: listBlock, member: allowed, state: 0, version: 0, content: big.NewInt(0), blinding: 4},
+		approvedActive:     {listId: listApproval, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 5},
+		approvedBlocked:    {listId: listBlock, member: approved, state: EntryStateActive, version: 0, content: big.NewInt(0), blinding: 6},
+		allowedNotApproved: {listId: listApproval, member: allowed, state: 0, version: 0, content: big.NewInt(0), blinding: 7},
 	}
 	for _, r := range s.entries {
 		s.derived = append(s.derived, deriveRecord(t, s.sources[r.listId-1].owner, r))
@@ -733,6 +737,9 @@ func newStatement(t *testing.T, f fixture) *statement {
 		s.sources[listFrozen-1] = source{listId: 0, owner: big.NewInt(0)}
 	}
 	if f.curatorSlotOwn {
+		// The repointed slot derives the sender's Frozen address under the
+		// own owner, an address the tree already holds.
+		s.twinAddresses = []*big.Int{deriveRecord(t, s.ownOwnerHash, s.entries[senderNotFrozen]).address}
 		s.sources[listFrozen-1].owner = s.ownOwnerHash
 	}
 
@@ -742,9 +749,9 @@ func newStatement(t *testing.T, f fixture) *statement {
 		{subject: SubjectAsset, mode: ModePresent, mask: listMask()},
 		{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), guardTag: GuardAboveAmount, threshold: guardThreshold},
 	}
-	s.inlineAssets = []*big.Int{pkField(t, f.inlineAsset)}
+	s.inlineAssets = []*big.Int{assetField(t, f.inlineAsset)}
 	if f.secondInlineAsset != [32]byte{} {
-		s.inlineAssets = append(s.inlineAssets, pkField(t, f.secondInlineAsset))
+		s.inlineAssets = append(s.inlineAssets, assetField(t, f.secondInlineAsset))
 	}
 	if f.perAssetLimits != nil {
 		s.rules[3].guardTag = GuardAboveAmountByAsset
@@ -773,7 +780,7 @@ func newStatement(t *testing.T, f fixture) *statement {
 	s.buildTrees(t)
 	secondAsset := asset
 	if f.secondTransferred != [32]byte{} {
-		secondAsset = pkField(t, f.secondTransferred)
+		secondAsset = assetField(t, f.secondTransferred)
 	}
 	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, secondAsset, f.amount, f.secondAmount)
 	return s
@@ -787,6 +794,11 @@ func (s *statement) buildTrees(t *testing.T) {
 	tree := spptest.MustNewNullifierTree(t)
 	s.stateLeaf = map[int]uint64{}
 	s.nonInclusion = nil
+	for _, twin := range s.twinAddresses {
+		if err := tree.Insert(twin); err != nil {
+			t.Fatalf("insert twin address: %v", err)
+		}
+	}
 	for i, r := range s.entries {
 		if r.state == 0 {
 			continue
@@ -817,6 +829,7 @@ func (s *statement) buildTransaction(
 	t.Helper()
 	spent := UtxoWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   sender,
 		NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(7)),
 		Asset:         asset,
@@ -828,6 +841,7 @@ func (s *statement) buildTransaction(
 	}
 	created := UtxoWires{
 		Domain:        big.NewInt(protocol.UtxoDomain),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   recipient,
 		NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(9)),
 		Asset:         asset,
@@ -845,6 +859,7 @@ func (s *statement) buildTransaction(
 	if secondAmount > 0 {
 		second = UtxoWires{
 			Domain:        big.NewInt(protocol.UtxoDomain),
+			TreeID:        big.NewInt(0),
 			OwnerPkHash:   recipient,
 			NullifierPk:   spptest.MustNullifierPk(t, big.NewInt(11)),
 			Asset:         secondAsset,
@@ -859,6 +874,7 @@ func (s *statement) buildTransaction(
 
 	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
+	s.privateTxBlinding = big.NewInt(0x5b1d)
 	s.updateHashes(t)
 }
 
@@ -876,15 +892,17 @@ func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyC
 	s.updateHashes(t)
 	wires := s.keys.AuditBlockWires(s.privateTxHash)
 	c := &CustomRingPolicyCircuit{
-		PublicInputHash:  s.publicInputHash,
-		PrivateTxHash:    wires.PrivateTxHash,
-		TxViewingSk:      wires.TxViewingSk,
-		EphSk:            wires.EphSk,
-		AuditorPk:        wires.AuditorPk,
-		AddressChain:     s.addressChain,
-		ExternalDataHash: s.externalDataHash,
-		StateRoot:        s.stateRoot,
-		NullifierRoot:    s.nullifierRoot,
+		PublicInputHash:   s.publicInputHash,
+		PrivateTxHash:     wires.PrivateTxHash,
+		TxViewingSk:       wires.TxViewingSk,
+		EphSk:             wires.EphSk,
+		AuditorPk:         wires.AuditorPk,
+		AddressChain:      s.addressChain,
+		ExternalDataHash:  s.externalDataHash,
+		PrivateTxBlinding: s.privateTxBlinding,
+		StateRoot:         s.stateRoot,
+		NullifierRoot:     s.nullifierRoot,
+		EntriesTreeID:     big.NewInt(entriesTreeID),
 	}
 	for i, slot := range s.sources {
 		c.Sources[i] = SourceWires{ListId: big.NewInt(slot.listId), OwnerHash: slot.owner}
@@ -960,6 +978,7 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 		Member:                entry.member,
 		ContentHash:           entry.content,
 		Version:               big.NewInt(entry.version),
+		Blinding:              big.NewInt(entry.blinding),
 		State:                 big.NewInt(entry.state),
 		AbsentBranch:          big.NewInt(branch),
 		NullifierLowPathIndex: big.NewInt(0),
@@ -994,13 +1013,17 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	return fact
 }
 
+// entriesTreeID is the raw id of the fixture's entries tree.
+const entriesTreeID = 7
+
 // deriveRecord mirrors ring_policy::entry, the seed and address fixed by
 // (listId, member) while the commitment moves with the state and version.
 func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 	t.Helper()
 	seed := spptest.MustPoseidon(t, 4, []*big.Int{policyAddressDomain, big.NewInt(r.listId), r.member})
-	addressUtxoHash := spptest.MustPoseidon(t, 7, []*big.Int{
+	addressUtxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.AddressDomain),
+		big.NewInt(entriesTreeID),
 		big.NewInt(0),
 		big.NewInt(0),
 		big.NewInt(0),
@@ -1017,20 +1040,21 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 		big.NewInt(r.version),
 		r.content,
 	})
-	utxoHash := spptest.MustPoseidon(t, 7, []*big.Int{
+	utxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.UtxoDomain),
+		big.NewInt(entriesTreeID),
 		solAssetField,
 		big.NewInt(0),
 		dataHash,
 		emptyRingHash,
-		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, big.NewInt(r.version)}),
+		spptest.MustPoseidon(t, 3, []*big.Int{ownerHash, big.NewInt(r.blinding)}),
 	})
 	return derived{
 		seed:      seed,
 		address:   address,
 		dataHash:  dataHash,
 		utxoHash:  utxoHash,
-		nullifier: spptest.MustPoseidon(t, 4, []*big.Int{utxoHash, big.NewInt(r.version), big.NewInt(0)}),
+		nullifier: spptest.MustPoseidon(t, 4, []*big.Int{utxoHash, big.NewInt(r.blinding), big.NewInt(0)}),
 	}
 }
 
@@ -1072,7 +1096,7 @@ func hostUtxoHash(t *testing.T, w UtxoWires) *big.Int {
 		DataHash:      spptest.AsBigInt(w.DataHash),
 		RingDataHash:  spptest.AsBigInt(w.RingDataHash),
 		RingProgramID: spptest.AsBigInt(w.RingProgramID),
-	})
+	}, spptest.AsBigInt(w.TreeID))
 }
 
 // dummyOpening is a padding slot, everything zero except the blinding that
@@ -1088,6 +1112,7 @@ func dummyOpening(t *testing.T, blinding int64) UtxoWires {
 func zeroOpening() UtxoWires {
 	return UtxoWires{
 		Domain:        big.NewInt(0),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   big.NewInt(0),
 		NullifierPk:   big.NewInt(0),
 		Asset:         big.NewInt(0),
@@ -1107,6 +1132,7 @@ func disabledListFact() ListFactWires {
 		Member:                big.NewInt(0),
 		ContentHash:           big.NewInt(0),
 		Version:               big.NewInt(0),
+		Blinding:              big.NewInt(0),
 		State:                 big.NewInt(0),
 		AbsentBranch:          big.NewInt(0),
 		NullifierLowValue:     big.NewInt(0),
@@ -1135,6 +1161,13 @@ func fill(b byte) [32]byte {
 func pkField(t *testing.T, key [32]byte) *big.Int {
 	t.Helper()
 	value, err := protocol.SolanaPkField(key)
+	return spptest.MustHash(t, value, err)
+}
+
+// assetField is the untagged mint field, assets are not identities.
+func assetField(t *testing.T, mint [32]byte) *big.Int {
+	t.Helper()
+	value, err := protocol.AssetField(mint)
 	return spptest.MustHash(t, value, err)
 }
 
