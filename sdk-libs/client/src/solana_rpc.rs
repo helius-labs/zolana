@@ -92,7 +92,8 @@ impl ProgramAccountsFilter {
         self
     }
 
-    fn rpc_config(&self) -> RpcProgramAccountsConfig {
+    /// The `getProgramAccounts` config the filtered query sends.
+    pub fn rpc_config(&self) -> RpcProgramAccountsConfig {
         let memcmp = self.memcmp.iter().map(|memcmp| {
             let bytes = MemcmpEncodedBytes::Base64(STANDARD.encode(&memcmp.bytes));
             RpcFilterType::Memcmp(Memcmp::new(memcmp.offset, bytes))
@@ -112,7 +113,7 @@ impl ProgramAccountsFilter {
         }
     }
 
-    fn matches(&self, data: &[u8]) -> bool {
+    pub fn matches(&self, data: &[u8]) -> bool {
         data.len() == self.data_size
             && self.memcmp.iter().all(|memcmp| {
                 data.get(memcmp.offset..)
@@ -859,151 +860,5 @@ impl AsyncRpc for AsyncSolanaRpc {
         signature: Signature,
     ) -> Result<Vec<[u8; 32]>, ClientError> {
         AsyncSolanaRpc::transact_output_view_tags_from_signature(self, &signature).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::{json, Value};
-    use solana_rpc_client::rpc_client::Mocks;
-    use solana_rpc_client_api::request::RpcRequest;
-
-    use super::*;
-
-    const DATA_SIZE: usize = 68;
-    const DISCRIMINATOR: u8 = 4;
-
-    fn keyed_account(address: &Address, owner: &Address, data: &[u8]) -> Value {
-        json!({
-            "pubkey": address.to_string(),
-            "account": {
-                "lamports": 1_000_000u64,
-                "data": [STANDARD.encode(data), "base64"],
-                "owner": owner.to_string(),
-                "executable": false,
-                "rentEpoch": 0u64,
-                "space": data.len(),
-            }
-        })
-    }
-
-    fn program_accounts_mocks(accounts: Vec<Value>) -> Mocks {
-        [(RpcRequest::GetProgramAccounts, Value::Array(accounts))]
-            .into_iter()
-            .collect()
-    }
-
-    fn account_data(discriminator: u8) -> Vec<u8> {
-        let mut data = vec![0xAB; DATA_SIZE];
-        data[0] = discriminator;
-        data
-    }
-
-    fn filter() -> ProgramAccountsFilter {
-        ProgramAccountsFilter::new(DATA_SIZE).with_memcmp(0, [DISCRIMINATOR])
-    }
-
-    #[test]
-    fn filter_maps_to_data_size_and_base64_memcmp() {
-        let config = filter().with_memcmp(1, vec![7, 8]).rpc_config();
-
-        assert_eq!(
-            config.filters,
-            Some(vec![
-                RpcFilterType::DataSize(DATA_SIZE as u64),
-                RpcFilterType::Memcmp(Memcmp::new(0, MemcmpEncodedBytes::Base64("BA==".into()))),
-                RpcFilterType::Memcmp(Memcmp::new(1, MemcmpEncodedBytes::Base64("Bwg=".into()))),
-            ])
-        );
-        assert_eq!(
-            config.account_config.encoding,
-            Some(UiAccountEncoding::Base64)
-        );
-        assert_eq!(
-            config.account_config.commitment,
-            Some(CommitmentConfig::confirmed())
-        );
-    }
-
-    #[test]
-    fn filter_matches_size_and_every_window() {
-        let filter = ProgramAccountsFilter::new(4).with_memcmp(1, [2u8, 3]);
-
-        assert!(filter.matches(&[9, 2, 3, 9]));
-        assert!(!filter.matches(&[9, 2, 3]));
-        assert!(!filter.matches(&[9, 2, 4, 9]));
-        assert!(!ProgramAccountsFilter::new(2)
-            .with_memcmp(3, [1u8])
-            .matches(&[1, 1]));
-    }
-
-    #[test]
-    fn filtered_query_decodes_matching_accounts() {
-        let program = Address::new_unique();
-        let pubkey = Address::new_unique();
-        let data = account_data(DISCRIMINATOR);
-        let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
-            "succeeds",
-            program_accounts_mocks(vec![keyed_account(&pubkey, &program, &data)]),
-        ));
-
-        let accounts = rpc
-            .get_program_accounts_filtered(program, &filter())
-            .expect("filtered query");
-
-        let [(address, account)] = accounts.as_slice() else {
-            panic!("expected one account, got {}", accounts.len());
-        };
-        assert_eq!(*address, pubkey);
-        assert_eq!(account.data, data);
-        assert_eq!(account.owner, program);
-    }
-
-    #[test]
-    fn filtered_query_rejects_an_account_outside_the_filter() {
-        let program = Address::new_unique();
-        let matching = keyed_account(
-            &Address::new_unique(),
-            &program,
-            &account_data(DISCRIMINATOR),
-        );
-        let other = keyed_account(
-            &Address::new_unique(),
-            &program,
-            &account_data(DISCRIMINATOR + 1),
-        );
-        let rpc = SolanaRpc::with_client(RpcClient::new_mock_with_mocks(
-            "succeeds",
-            program_accounts_mocks(vec![matching, other]),
-        ));
-
-        let err = rpc
-            .get_program_accounts_filtered(program, &filter())
-            .expect_err("account outside the filter");
-
-        assert!(
-            matches!(&err, ClientError::Rpc(message) if message.contains("outside the filter")),
-            "{err}"
-        );
-    }
-
-    #[tokio::test]
-    async fn async_filtered_query_decodes_matching_accounts() {
-        let program = Address::new_unique();
-        let pubkey = Address::new_unique();
-        let data = account_data(DISCRIMINATOR);
-        let rpc = AsyncSolanaRpc::with_client(NonblockingRpcClient::new_mock_with_mocks(
-            "succeeds".to_owned(),
-            program_accounts_mocks(vec![keyed_account(&pubkey, &program, &data)]),
-        ));
-
-        let accounts = rpc
-            .get_program_accounts_filtered(program, &filter())
-            .await
-            .expect("filtered query");
-
-        assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0].0, pubkey);
-        assert_eq!(accounts[0].1.data, data);
     }
 }
