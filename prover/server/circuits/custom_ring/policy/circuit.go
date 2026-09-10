@@ -69,16 +69,16 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 		AuditorPk:     c.AuditorPk,
 	})
 	// Both blocks share one BSB22 commitment.
-	checker := rangecheck.New(api)
+	rangeChecker := rangecheck.New(api)
 
 	// 2. Bind policy subjects and amounts to the SPP transaction.
-	txContext := c.constrainTransactionContext(api, checker)
+	txContext := c.constrainTransactionContext(api, rangeChecker)
 
 	// 3. Check the policy and reconstruct its commitment.
-	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, checker)
+	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, rangeChecker)
 
 	// 4. Authenticate the shared list facts.
-	listFacts := c.checkListFacts(api, checker)
+	listFacts := c.checkListFacts(api, rangeChecker)
 
 	// 5. Require every applicable rule to pass.
 	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)

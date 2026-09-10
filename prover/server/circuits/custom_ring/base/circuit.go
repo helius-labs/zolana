@@ -95,15 +95,15 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [8]frontend.Variable 
 	// (a) Range-check all 129 witnessed bytes to 8 bits. rangecheck.New reuses
 	// the range checker the emulated P-256 arithmetic already instantiates, so
 	// these checks share its lookup table.
-	checker := rangecheck.New(api)
+	rangeChecker := rangecheck.New(api)
 	for _, b := range w.TxViewingSk {
-		checker.Check(b, 8)
+		rangeChecker.Check(b, 8)
 	}
 	for _, b := range w.EphSk {
-		checker.Check(b, 8)
+		rangeChecker.Check(b, 8)
 	}
 	for _, b := range w.AuditorPk {
-		checker.Check(b, 8)
+		rangeChecker.Check(b, 8)
 	}
 	// The p256 compression gadget derives the SEC1 prefix from the y parity and
 	// ignores byte 0, so the uncompressed prefix has to be constrained here.

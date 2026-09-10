@@ -32,7 +32,7 @@ type RuleWires struct {
 // assets.
 func (c *CustomRingPolicyCircuit) checkPolicy(
 	api frontend.API,
-	checker frontend.Rangechecker,
+	rangeChecker frontend.Rangechecker,
 ) (frontend.Variable, [NRules]frontend.Variable, [NInlineAssets]frontend.Variable) {
 	// 1. Select the committed rule and inline asset prefixes.
 	assertOneHot(api, c.RuleCountSelected[:])
@@ -50,12 +50,12 @@ func (c *CustomRingPolicyCircuit) checkPolicy(
 	// 3. Bind valid rule fields to their encoded rows and configured
 	// sources.
 	for i, rule := range c.Rules {
-		rule.check(api, checker, ruleEnabled[i], sources)
+		rule.check(api, rangeChecker, ruleEnabled[i], sources)
 	}
 
 	// 4. Bound inline limits and exclude zero members and nonzero padding.
 	for i, asset := range c.InlineAssets {
-		checker.Check(c.InlineLimits[i], amountBits)
+		rangeChecker.Check(c.InlineLimits[i], amountBits)
 		shared.AssertWhen(api, inlineEnabled[i], nonZero(api, asset))
 		api.AssertIsEqual(api.Mul(api.Sub(1, inlineEnabled[i]), asset), 0)
 		api.AssertIsEqual(api.Mul(api.Sub(1, inlineEnabled[i]), c.InlineLimits[i]), 0)
@@ -70,12 +70,12 @@ func (c *CustomRingPolicyCircuit) checkPolicy(
 
 // check binds decoded fields to the row and rejects unsupported rule
 // combinations.
-func (w RuleWires) check(api frontend.API, checker frontend.Rangechecker, enabled frontend.Variable, sources [NSources]frontend.Variable) {
+func (w RuleWires) check(api frontend.API, rangeChecker frontend.Rangechecker, enabled frontend.Variable, sources [NSources]frontend.Variable) {
 	// 1. Bound every encoded field and decode the list masks.
-	checker.Check(w.Subject, 8)
-	checker.Check(w.Mode, 8)
-	checker.Check(w.GuardTag, 8)
-	checker.Check(w.Threshold, amountBits)
+	rangeChecker.Check(w.Subject, 8)
+	rangeChecker.Check(w.Mode, 8)
+	rangeChecker.Check(w.GuardTag, 8)
+	rangeChecker.Check(w.Threshold, amountBits)
 	listBits := api.ToBinary(w.ListMask, NSources)
 	altBits := api.ToBinary(w.OppositeModeListMask, NSources)
 
