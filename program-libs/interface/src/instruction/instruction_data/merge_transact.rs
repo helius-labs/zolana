@@ -8,25 +8,26 @@ pub const MAX_MERGE_INPUTS: usize = 36;
 pub const MERGE_DEFAULT_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
-/// 128 bytes on the wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes).
-/// The merge circuit carries no P256 gadget, so there is no BSB22 commitment.
+/// 192 bytes. `a` and `c` are compressed G1 points (32 bytes each), `b` is the
+/// raw big-endian G2 point (128 bytes). The merge circuit carries no P256
+/// gadget, so there is no BSB22 commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct MergeProof {
     pub a: [u8; 32],
-    pub b: [u8; 64],
+    pub b: [u8; 128],
     pub c: [u8; 32],
 }
 
 impl MergeProof {
     /// Serialized length: the three points back to back, no tag.
-    pub const LEN: usize = 128;
+    pub const LEN: usize = 192;
 
     /// A zeroed proof, used as a placeholder before the real proof is attached
     /// and as a dummy in tests.
     pub const fn zeroed() -> Self {
         Self {
             a: [0u8; 32],
-            b: [0u8; 64],
+            b: [0u8; 128],
             c: [0u8; 32],
         }
     }
@@ -36,7 +37,7 @@ impl MergeProof {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
 pub struct MergeProofRef<'a> {
     pub a: &'a [u8; 32],
-    pub b: &'a [u8; 64],
+    pub b: &'a [u8; 128],
     pub c: &'a [u8; 32],
 }
 
@@ -144,7 +145,7 @@ mod tests {
             expiry_unix_ts: 42,
             proof: MergeProof {
                 a: [1u8; 32],
-                b: [2u8; 64],
+                b: [2u8; 128],
                 c: [3u8; 32],
             },
             output_utxo_hash: [9u8; 32],
@@ -181,9 +182,9 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        // expiry(8) || proof(128) || output_hash(32) || eddsa_owner(1) ||
+        // expiry(8) || proof(192) || output_hash(32) || eddsa_owner(1) ||
         // private_tx_hash(32) || 3 vecs with u8 lens.
-        assert_eq!(bytes.len(), 204 + 36 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 268 + 36 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

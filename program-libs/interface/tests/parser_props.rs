@@ -48,7 +48,7 @@ mod strategies {
     }
 
     pub fn transact_proof() -> impl Strategy<Value = TransactProof> {
-        (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>())
+        (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>())
             .prop_map(|(a, b, c)| TransactProof { a, b, c })
     }
 
@@ -146,7 +146,7 @@ mod strategies {
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
-            (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
+            (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
             prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
             prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),

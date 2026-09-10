@@ -53,7 +53,7 @@ mod tests {
                 expiry_unix_ts: 42,
                 proof: MergeProof {
                     a: [1u8; 32],
-                    b: [2u8; 64],
+                    b: [2u8; 128],
                     c: [3u8; 32],
                 },
                 output_utxo_hash: [1u8; 32],

@@ -279,7 +279,7 @@ fn transact_rejects_proof_points_that_fail_decompression() {
     let mut data = transfer_ix_data(2, 3);
     data.proof = TransactProof {
         a: [0xFF; 32],
-        b: [0xFF; 64],
+        b: [0xFF; 128],
         c: [0xFF; 32],
     };
     expect_rejection(

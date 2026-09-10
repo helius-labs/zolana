@@ -9,11 +9,13 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
 use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
-/// The compressed Groth16 proof carried by a `transact` instruction.
+/// The Groth16 proof carried by a `transact` instruction: `a` and `c` are
+/// compressed G1 points (32 bytes each), `b` is the raw big-endian G2 point
+/// (128 bytes), 192 bytes in total.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct TransactProof {
     pub a: [u8; 32],
-    pub b: [u8; 64],
+    pub b: [u8; 128],
     pub c: [u8; 32],
 }
 
@@ -23,7 +25,7 @@ impl TransactProof {
     pub const fn zeroed() -> Self {
         Self {
             a: [0u8; 32],
-            b: [0u8; 64],
+            b: [0u8; 128],
             c: [0u8; 32],
         }
     }
