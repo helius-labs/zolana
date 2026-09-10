@@ -16,7 +16,7 @@ use zolana_keypair::{
 };
 use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_DEFAULT_INPUT_COUNT},
+        merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::{
             ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SettlementTarget, SppProofInputs,
@@ -521,8 +521,10 @@ pub struct MergeParams<'a> {
     pub inputs: Option<Vec<[u8; 32]>>,
 }
 
-/// Build an up-to-8-in/1-out consolidation of same-owner, same-asset plain utxos
-/// on one spend tree. Unlike a transfer, merge proves ownership in-circuit from
+/// Build an n-in/1-out consolidation of same-owner, same-asset plain utxos on
+/// one spend tree, padded to the smallest supported merge shape (auto-sweeps
+/// stay within the default shape; named inputs may reach the wide one). Unlike
+/// a transfer, merge proves ownership in-circuit from
 /// the keypair's nullifier secret and encrypts the single output to the owner's
 /// viewing key, so it does not build an [`UnsignedPrivateTransaction`] or take an
 /// authority signing step; the keypair is threaded straight to submission.
@@ -722,10 +724,12 @@ fn merge_spend_input(entry: &WalletUtxo, keypair: &ShieldedKeypair) -> SppProofI
 }
 
 /// Select the utxos a merge consolidates on `tree`. `None` auto-sweeps up to
-/// [`MERGE_DEFAULT_INPUT_COUNT`] of the smallest plain utxos of `asset` (ascending, dust
-/// first). `Some(hashes)` takes exactly the named utxos: 2..=8 distinct, unspent
-/// utxos of `asset` on `tree`; a non-plain named utxo is left for `Merge::new` to
-/// reject with a precise reason.
+/// [`MERGE_DEFAULT_INPUT_COUNT`] of the smallest plain utxos of `asset`
+/// (ascending, dust first), so a sweep never pays for the wide shape on its
+/// own. `Some(hashes)` takes exactly the named utxos: 2..=[`MAX_MERGE_INPUTS`]
+/// distinct, unspent utxos of `asset` on `tree`, and `Merge::new` pads them to
+/// the smallest supported shape; a non-plain named utxo is left for
+/// `Merge::new` to reject with a precise reason.
 fn select_merge_inputs(
     wallet: &Wallet,
     tree: Address,
@@ -757,10 +761,10 @@ fn select_merge_inputs(
                 .collect())
         }
         Some(hashes) => {
-            if hashes.len() > MERGE_DEFAULT_INPUT_COUNT {
+            if hashes.len() > MAX_MERGE_INPUTS {
                 return Err(ClientError::TooManyInputs {
                     got: hashes.len(),
-                    max: MERGE_DEFAULT_INPUT_COUNT,
+                    max: MAX_MERGE_INPUTS,
                 });
             }
             if hashes.len() < 2 {
@@ -2302,10 +2306,13 @@ mod tests {
     }
 
     #[test]
-    fn merge_explicit_selection_rejects_more_than_the_shape() {
+    fn merge_explicit_selection_rejects_more_than_the_widest_shape() {
+        const TOO_MANY: usize = MAX_MERGE_INPUTS + 1;
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let wallet = sol_wallet(&keypair);
-        let hashes: Vec<[u8; 32]> = (0..9u8).map(|i| [i; 32]).collect();
+        let hashes: Vec<[u8; 32]> = (0..TOO_MANY)
+            .map(|i| [u8::try_from(i).unwrap(); 32])
+            .collect();
 
         let error = match select_merge_inputs(
             &wallet,
@@ -2315,16 +2322,40 @@ mod tests {
             Some(hashes),
         ) {
             Err(error) => error,
-            Ok(_) => panic!("more than 8 inputs must be rejected"),
+            Ok(_) => panic!("more inputs than the widest merge shape must be rejected"),
         };
 
         assert!(matches!(
             error,
             ClientError::TooManyInputs {
-                got: 9,
-                max: MERGE_DEFAULT_INPUT_COUNT
+                got: TOO_MANY,
+                max: MAX_MERGE_INPUTS
             }
         ));
+    }
+
+    #[test]
+    fn merge_explicit_selection_reaches_the_wide_shape() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        let hashes: Vec<[u8; 32]> = (1..=MERGE_DEFAULT_INPUT_COUNT + 1)
+            .map(|amount| {
+                let seed = u8::try_from(amount).unwrap();
+                push_utxo(&mut wallet, &keypair, amount as u64, [seed; 31])
+            })
+            .collect();
+
+        let created = create_merge(MergeParams {
+            wallet: &wallet,
+            keypair: &keypair,
+            asset: SOL_MINT,
+            inputs: Some(hashes),
+        })
+        .expect("a named merge wider than the default shape pads to the wide shape");
+
+        assert_eq!(created.num_inputs, MERGE_DEFAULT_INPUT_COUNT + 1);
+        assert_eq!(created.prepared.inputs.len(), MAX_MERGE_INPUTS);
+        assert_eq!(created.merged_amount, 45);
     }
 
     #[test]
