@@ -63,7 +63,7 @@ pub(crate) fn encrypted_ring_output_utxo(
         data,
     }
 }
-
+// TODO: consider the emit DepositEvent directly
 pub(crate) struct DepositEvent {
     pub outputs: Vec<OutputUtxo>,
     pub spl_transfers: Vec<SplTransfer>,
