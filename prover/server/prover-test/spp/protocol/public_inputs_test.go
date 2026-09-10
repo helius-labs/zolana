@@ -106,8 +106,8 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 	}
 
 	fields := []*big.Int{
-		mustHashChain(t, inputs.Nullifiers),
-		mustHashChain(t, inputs.OutputUtxoHashes),
+		mustHashChain4(t, inputs.Nullifiers),
+		mustHashChain4(t, inputs.OutputUtxoHashes),
 		mustTreeSlotsHashChain(t, inputs.TreeSlots),
 		inputs.OutputTreeID,
 		inputs.PrivateTxHash,
@@ -123,7 +123,7 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 		t.Fatal(err)
 	}
 	fields = append(fields, inputs.RingProgramID, signerChain, inputs.AllowDummyInputs)
-	want := mustHashChain(t, fields)
+	want := mustHashChain4(t, fields)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("inserted preimage mismatch:\ngot  0x%s\nwant 0x%s", parse.FieldHex(got), parse.FieldHex(want))
 	}
