@@ -14,6 +14,7 @@ pub mod testing {
     pub use crate::instructions::shared::{
         check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error,
     };
+    pub use crate::instructions::transact::processor::hash_external_data;
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
         MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,

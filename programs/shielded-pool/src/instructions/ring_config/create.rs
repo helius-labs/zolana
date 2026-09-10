@@ -1,6 +1,6 @@
-use crate::instructions::shared::{caused_by, verify_pda};
+use crate::instructions::shared::caused_by;
 use borsh::BorshDeserialize;
-use pinocchio::{error::ProgramError, AccountView, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
     error::ShieldedPoolError, instruction::CreateRingConfigData, state::RingConfig,
@@ -30,14 +30,12 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
     if !ring_config.is_signer() {
         return Err(ShieldedPoolError::InvalidRingConfig.into());
     }
-    // Canonical derivation: never trust a bump from instruction data for
-    // account creation.
-    let ring_auth_bump = verify_pda(
-        ring_config.address(),
-        &[zolana_interface::RING_AUTH_PDA_SEED],
-        &data.program_id,
-    )
-    .map_err(|_| ShieldedPoolError::InvalidRingConfig)?;
+    // Canonical derivation (find_program_address): never trust a bump from
+    // instruction data for account creation.
+    let (expected, ring_auth_bump) = derive_ring_auth(&data.program_id);
+    if *ring_config.address() != expected {
+        return Err(ShieldedPoolError::InvalidRingConfig.into());
+    }
 
     // Creation is permissionless and `payer` only funds rent. A governance check
     // here would force a governance signature into the same CPI chain as the
@@ -64,4 +62,14 @@ pub fn process_create_ring_config(accounts: &mut [AccountView], data: &[u8]) -> 
         bump: ring_auth_bump,
     }
     .init(ring_config)
+}
+
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+fn derive_ring_auth(program_id: &Address) -> (Address, u8) {
+    Address::find_program_address(&[zolana_interface::RING_AUTH_PDA_SEED], program_id)
+}
+
+#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
+fn derive_ring_auth(_program_id: &Address) -> (Address, u8) {
+    unimplemented!("PDA derivation requires Solana runtime syscalls")
 }
