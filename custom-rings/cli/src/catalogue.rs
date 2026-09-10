@@ -388,6 +388,7 @@ mod tests {
             discriminator: POLICY_CONFIG,
             policy_hash: [0u8; 32],
             entries_tree: TREE,
+            entries_tree_id: [0; 2],
             namespace_bump: 0,
             bump: 0,
             sources,

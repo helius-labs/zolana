@@ -82,6 +82,8 @@ pub struct PolicyConfig {
     pub policy_hash: [u8; 32],
     /// All entries live in one tree, presence and absence stay provable against its roots.
     pub entries_tree: Address,
+    /// Little endian, every entry leaf and address hashes under it.
+    pub entries_tree_id: [u8; 2],
     pub namespace_bump: u8,
     pub bump: u8,
     /// Non-empty exactly for the lists `rules` references.
@@ -96,6 +98,10 @@ pub struct PolicyConfig {
 impl PolicyConfig {
     pub const SEED: &'static [u8] = POLICY_CONFIG_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub fn entries_tree_id(&self) -> u16 {
+        u16::from_le_bytes(self.entries_tree_id)
+    }
 
     /// The namespace owner serving `list_id`, `None` when the table does not
     /// reference it.
@@ -118,8 +124,8 @@ impl PolicyConfig {
 }
 
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 1177);
+const _: () = assert!(PolicyConfig::SIZE == 1179);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 331);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1165);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1169);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 333);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1167);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1171);

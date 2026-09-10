@@ -8,13 +8,13 @@ import (
 )
 
 // solAssetValue is the UTXO asset field for native SOL: the default (all-zero)
-// address encoded like any fixed 32-byte Address in a UTXO commitment:
-// HashBytes([0; 32]) == Poseidon(0, 0). Spec: SOL is Address::default(), and the SPL
-// asset uses the same SolanaPkField encoding (on-chain public_spl_asset).
+// address encoded like any mint, AssetField([0; 32]) == HashBytes([0; 32]).
+// Spec: SOL is Address::default(), and an SPL asset uses the same untagged
+// encoding (on-chain public_spl_asset).
 var solAssetValue = mustSolAsset()
 
 func mustSolAsset() *big.Int {
-	asset, err := SolanaPkField([32]byte{})
+	asset, err := AssetField([32]byte{})
 	if err != nil {
 		panic(err)
 	}
@@ -33,7 +33,69 @@ const (
 	DummyDomain   = 1
 	AddressDomain = 2
 	UtxoDomain    = 3
+	// OutputBlindingDomainV1 is the ASCII tag "TXOB".
+	OutputBlindingDomainV1 = 0x54584f42
+	// OutputBlindingSeedDomainV1 is the ASCII tag "TXOS".
+	OutputBlindingSeedDomainV1 = 0x54584f53
+	// PrivateTxBlindingDomainV1 is the ASCII tag "TXPB".
+	PrivateTxBlindingDomainV1 = 0x54585042
 )
+
+// A transaction draws one private root seed, blindingSeed, and derives its
+// output and transaction hash blindings from it and the first nullifier. A nullifier enters
+// the nullifier tree once, so each child is unique to one accepted
+// transaction even if a client reuses a seed.
+//
+// The children are domain-separated because they are disclosed to different
+// parties: OutputBlindingSeed goes to the reader of an anonymous Sender bundle
+// or a plaintext transfer, PrivateTxBlinding goes to a policy or third-party
+// co-prover. Neither can invert its child to blindingSeed, so neither can reach
+// the other's. blindingSeed itself is disclosed to nobody.
+
+// OutputBlindingSeed derives the seed every physical output blinding comes
+// from. This value is disclosed by the layouts that describe several slots
+// from one payload; the derived blindings are what other layouts carry.
+func OutputBlindingSeed(firstNullifier, blindingSeed *big.Int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(OutputBlindingSeedDomainV1),
+		firstNullifier,
+		blindingSeed,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: output blinding seed: %w", err)
+	}
+	return h, nil
+}
+
+// PrivateTxBlinding derives the final private_tx_hash preimage element, shared
+// by the transfer and merge rails. It is never published: every other preimage
+// element is public or computable, so a known blinding would let an observer
+// test candidate input UTXO hashes against the published hash.
+func PrivateTxBlinding(firstNullifier, blindingSeed *big.Int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(PrivateTxBlindingDomainV1),
+		firstNullifier,
+		blindingSeed,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: private tx blinding: %w", err)
+	}
+	return h, nil
+}
+
+// OutputBlinding derives one physical SPP transaction output blinding.
+func OutputBlinding(firstNullifier, seed *big.Int, outputIndex int) (*big.Int, error) {
+	h, err := poseidon.Hash([]*big.Int{
+		big.NewInt(OutputBlindingDomainV1),
+		firstNullifier,
+		seed,
+		big.NewInt(int64(outputIndex)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("spp: output blinding: %w", err)
+	}
+	return h, nil
+}
 
 type Utxo struct {
 	Domain        *big.Int
@@ -59,7 +121,17 @@ func OwnerUtxoHash(owner, blinding *big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-func UtxoHash(u Utxo) (*big.Int, error) {
+// UtxoHash commits to a utxo under the raw u16 id of the tree that holds it:
+// the selected input tree slot's id for an input, the output tree id for an
+// output. Mirrors the circuit's utxoHashGadget,
+// Poseidon(domain, treeID, asset, amount, dataHash, ringHash, ownerUtxoHash),
+// so equal utxos in different trees have distinct hashes, nullifiers, and
+// addresses. The tree id is not a utxo field: the same utxo body is hashed
+// under whichever tree it lives in.
+func UtxoHash(u Utxo, treeID *big.Int) (*big.Int, error) {
+	if treeID == nil {
+		return nil, fmt.Errorf("spp: utxo hash: tree id is required")
+	}
 	ownerUtxoHash, err := OwnerUtxoHash(u.Owner, u.Blinding)
 	if err != nil {
 		return nil, err
@@ -70,6 +142,7 @@ func UtxoHash(u Utxo) (*big.Int, error) {
 	}
 	h, err := poseidon.Hash([]*big.Int{
 		u.Domain,
+		treeID,
 		u.Asset,
 		u.Amount,
 		u.DataHash,
@@ -90,8 +163,10 @@ func Nullifier(utxoHash, blinding, nullifierSecret *big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-func NullifierFromSecret(utxo Utxo, nullifierSecret *big.Int) (*big.Int, error) {
-	utxoHash, err := UtxoHash(utxo)
+// NullifierFromSecret derives the nullifier of utxo, which lives in the tree
+// with the raw id treeID.
+func NullifierFromSecret(utxo Utxo, treeID, nullifierSecret *big.Int) (*big.Int, error) {
+	utxoHash, err := UtxoHash(utxo, treeID)
 	if err != nil {
 		return nil, err
 	}

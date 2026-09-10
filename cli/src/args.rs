@@ -745,28 +745,28 @@ impl TestValidatorOptions {
 
     pub(crate) fn sbf_program_specs(&self) -> Vec<ProgramSpec> {
         self.sbf_programs
-            .chunks_exact(2)
-            .filter_map(|chunk| match chunk {
-                [address, path] => Some(ProgramSpec {
-                    address: address.clone(),
-                    path: path.clone(),
-                }),
-                _ => None,
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|[address, path]| ProgramSpec {
+                address: address.clone(),
+                path: path.clone(),
             })
             .collect()
     }
 
     pub(crate) fn upgradeable_program_specs(&self) -> Vec<UpgradeableProgramSpec> {
         self.upgradeable_programs
-            .chunks_exact(3)
-            .filter_map(|chunk| match chunk {
-                [address, path, upgrade_authority] => Some(UpgradeableProgramSpec {
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(
+                |[address, path, upgrade_authority]| UpgradeableProgramSpec {
                     address: address.clone(),
                     path: path.clone(),
                     upgrade_authority: upgrade_authority.clone(),
-                }),
-                _ => None,
-            })
+                },
+            )
             .collect()
     }
 

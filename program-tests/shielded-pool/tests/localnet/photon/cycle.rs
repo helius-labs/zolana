@@ -28,6 +28,8 @@ struct CycleEnv {
     recipient_owner: Keypair,
     tree_pubkey: Pubkey,
     tree_address: Address,
+    /// Raw id of [`Self::tree_pubkey`]; every commitment is hashed under it.
+    tree_id: u16,
 }
 
 /// Restart the localnet, connect the RPC + Photon indexer, create the pool
@@ -55,6 +57,7 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
         payer,
         authority: _authority,
         tree,
+        tree_id,
     } = initialize_pool(&mut rpc)?;
     let recipient_owner = Keypair::new();
     print_signature(
@@ -73,6 +76,7 @@ fn phase_bootstrap() -> TestResult<CycleEnv> {
         recipient_owner,
         tree_pubkey,
         tree_address,
+        tree_id,
     })
 }
 
@@ -129,7 +133,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
         data: Data::default(),
     };
     assert_eq!((payer_utxo.asset, payer_utxo.amount), (SOL_MINT, AMOUNT));
-    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
+    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero, env.tree_id)?;
     assert_eq!(indexed_deposit.output_slot.view_tag, shield_view_tag);
     assert_eq!(indexed_deposit.tx_signature, shield_sig);
     assert_eq!(
@@ -172,7 +176,9 @@ fn phase_indexer_sync(env: &CycleEnv, shield: &PayerShield) -> TestResult<PayerP
     let tree_address = env.tree_address;
     let payer_nullifier_key = &shield.nullifier_key;
     let payer_nullifier_pk = payer_nullifier_key.pubkey()?;
-    let payer_utxo_hash = shield.utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
+    let payer_utxo_hash = shield
+        .utxo
+        .hash(&payer_nullifier_pk, &zero, &zero, env.tree_id)?;
     let payer_blinding = shield.utxo.blinding;
     let payer_owner_field = owner_hash(&shield.utxo.owner, &payer_nullifier_pk)?;
     let payer_owner_pk_hash = shield.utxo.owner.owner_proof_input_hash()?;
@@ -233,6 +239,7 @@ fn phase_indexer_sync(env: &CycleEnv, shield: &PayerShield) -> TestResult<PayerP
         nullifier: &payer_nullifier,
         owner_pk_hash: &payer_owner_pk_hash,
         nullifier_key: payer_nullifier_key,
+        tree_id: env.tree_id,
     })?;
 
     Ok(PayerProofs {
@@ -265,7 +272,8 @@ fn phase_shielded_transfer(
     } = payer_proofs;
     let payer_utxo = &shield.utxo;
     let payer_nullifier_pk = shield.nullifier_key.pubkey()?;
-    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
+    let tree_id = env.tree_id;
+    let payer_utxo_hash = payer_utxo.hash(&payer_nullifier_pk, &zero, &zero, tree_id)?;
     let payer_bytes = env.payer.pubkey().to_bytes();
 
     let recipient_bytes = env.recipient_owner.pubkey().to_bytes();
@@ -287,14 +295,13 @@ fn phase_shielded_transfer(
         TRANSFER_AMOUNT,
         [17u8; 31],
     );
-    let change_hash = change_output.hash()?;
-    let recipient_hash = recipient_output.hash()?;
-    let transfer_dummy_nullifier =
-        dummy_nullifier(&[20u8; 31]).map_err(|err| anyhow!("transfer dummy nullifier: {err}"))?;
+    let transfer_dummy_nullifier = dummy_nullifier(&[20u8; 31], tree_id)
+        .map_err(|err| anyhow!("transfer dummy nullifier: {err}"))?;
     let transfer_dummy_nf =
         wait_for_non_inclusion_proof(&env.indexer, env.tree_address, transfer_dummy_nullifier);
-    let transfer_roots = (payer_state_proof.root, payer_nullifier_proof.root);
-    let (transfer_dummy_output, transfer_dummy_hash) = dummy_transfer_output(&[19u8; 31])
+    let transfer_tree_slots =
+        single_tree_slots(tree_id, payer_state_proof.root, payer_nullifier_proof.root);
+    let (transfer_dummy_output, _) = dummy_transfer_output(&[19u8; 31], tree_id)
         .map_err(|err| anyhow!("transfer dummy output: {err}"))?;
 
     // Real outputs tag by owner (`confidential_view_tag`; see
@@ -302,30 +309,48 @@ fn phase_shielded_transfer(
     let change_view_tag = payer_utxo.owner.confidential_view_tag()?;
     let recipient_view_tag = recipient_public_key.confidential_view_tag()?;
     // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
-    // `set_output_owner_tags`).
-    let transfer_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
+    // `set_output_owner_tags`). The witness derives every output blinding from
+    // the first nullifier, so the hashes that land on chain come back out of
+    // the builder.
+    let SolTransferWitness {
+        ix_data: transfer_ix_data,
+        output_hashes: transfer_output_hashes,
+        output_blindings: transfer_output_blindings,
+    } = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             payer_spend_input,
-            dummy_input_with_proof(&[20u8; 31], &transfer_dummy_nf, transfer_roots)
+            dummy_input_with_proof(&[20u8; 31], &transfer_dummy_nf, tree_id)
                 .map_err(|err| anyhow!("transfer dummy input: {err}"))?,
         ],
         root_index: payer_state_proof.root_index,
-        output_hashes: vec![change_hash, recipient_hash, transfer_dummy_hash],
+        tree_slots: transfer_tree_slots,
+        output_tree_id: tree_id,
         view_tags: vec![change_view_tag, recipient_view_tag, change_view_tag],
         outputs: vec![
-            transfer_output(&change_output)?,
-            transfer_output(&recipient_output)?,
+            transfer_output(&change_output, tree_id)?,
+            transfer_output(&recipient_output, tree_id)?,
             transfer_dummy_output,
         ],
         output_nullifier_pks: [payer_nullifier_pk, recipient_nullifier_pk, zero],
         interface_transfers: Vec::new(),
         resolved_transfers: Vec::new(),
         private_tx_inputs: [payer_utxo_hash, zero],
-        private_tx_outputs: [change_hash, recipient_hash, zero],
         public_sol_amount: zero,
-        payer_pubkey_hash: hash_bytes(&payer_bytes)?,
+        payer_pubkey_hash: solana_owner_identity(&payer_bytes)?,
         label: "transfer",
     })?;
+    let change_hash = transfer_output_hashes
+        .first()
+        .copied()
+        .ok_or_else(|| anyhow!("transfer witness has no change output"))?;
+    let recipient_hash = transfer_output_hashes
+        .get(1)
+        .copied()
+        .ok_or_else(|| anyhow!("transfer witness has no recipient output"))?;
+    let recipient_blinding = transfer_output_blindings
+        .get(1)
+        .copied()
+        .ok_or_else(|| anyhow!("transfer witness has no recipient output"))?;
 
     let transfer_ix = Transact {
         payer: env.payer.pubkey(),
@@ -372,13 +397,13 @@ fn phase_shielded_transfer(
         owner: recipient_public_key,
         asset: SOL_MINT,
         amount: TRANSFER_AMOUNT,
-        blinding: recipient_output.blinding,
+        blinding: recipient_blinding,
         ring_program_id: None,
         data: Data::default(),
     };
     assert_eq!(
         recipient_hash,
-        recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero)?
+        recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero, tree_id)?
     );
 
     Ok(TransferOutcome {
@@ -408,11 +433,14 @@ fn phase_unshield(
     let indexer = &env.indexer;
     let tree_address = env.tree_address;
     let payer_nullifier_pk = shield.nullifier_key.pubkey()?;
-    let payer_utxo_hash = shield.utxo.hash(&payer_nullifier_pk, &zero, &zero)?;
+    let tree_id = env.tree_id;
+    let payer_utxo_hash = shield
+        .utxo
+        .hash(&payer_nullifier_pk, &zero, &zero, tree_id)?;
     let recipient_utxo = &transfer.recipient_utxo;
     let recipient_nullifier_key = &transfer.recipient_nullifier_key;
     let recipient_nullifier_pk = recipient_nullifier_key.pubkey()?;
-    let recipient_hash = recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero)?;
+    let recipient_hash = recipient_utxo.hash(&recipient_nullifier_pk, &zero, &zero, tree_id)?;
     let recipient_view_tag = recipient_utxo.owner.confidential_view_tag()?;
     let recipient_bytes = env.recipient_owner.pubkey().to_bytes();
     let recipient_owner_field = owner_hash(&recipient_utxo.owner, &recipient_nullifier_pk)?;
@@ -461,6 +489,7 @@ fn phase_unshield(
         nullifier: &recipient_nullifier,
         owner_pk_hash: &recipient_owner_pk_hash,
         nullifier_key: recipient_nullifier_key,
+        tree_id,
     })?;
 
     let public_recipient = Keypair::new().pubkey();
@@ -471,27 +500,46 @@ fn phase_unshield(
     let public_recipient_before = account_lamports(&env.rpc, &public_recipient)?;
     let vault = pda::sol_interface();
     let vault_before = account_lamports(&env.rpc, &vault)?;
-    let withdraw_dummy_nullifier =
-        dummy_nullifier(&[21u8; 31]).map_err(|err| anyhow!("withdraw dummy nullifier: {err}"))?;
+    let withdraw_dummy_nullifier = dummy_nullifier(&[21u8; 31], tree_id)
+        .map_err(|err| anyhow!("withdraw dummy nullifier: {err}"))?;
     let withdraw_dummy_nf =
         wait_for_non_inclusion_proof(indexer, tree_address, withdraw_dummy_nullifier);
-    let withdraw_roots = (recipient_state_proof.root, recipient_nullifier_proof.root);
-    let (withdraw_outputs, withdraw_output_hashes) =
-        dummy_witness_outputs(&[[1u8; 31], [2u8; 31], [3u8; 31]])?;
+    let withdraw_tree_slots = single_tree_slots(
+        tree_id,
+        recipient_state_proof.root,
+        recipient_nullifier_proof.root,
+    );
+    // A full withdrawal moves all of its value out through the public SOL slot,
+    // so it has no real recipient output. `AssertDummyTags` refuses a dummy tag
+    // that names only the payer, so slot 0 is a real zero-amount change output
+    // owned by the withdrawing owner and the two dummies name it.
+    let withdraw_change_nullifier_key = NullifierKey::from_secret([23u8; 31]);
+    let withdraw_change_nullifier_pk = withdraw_change_nullifier_key.pubkey()?;
+    let withdraw_outputs = change_and_dummy_outputs(
+        recipient_utxo.owner,
+        withdraw_change_nullifier_pk,
+        [1u8; 31],
+        &[[2u8; 31], [3u8; 31]],
+        tree_id,
+    )?;
 
     // Dummy slots reuse a participant's tag (the AssertDummyTags rule; see
     // `set_output_owner_tags`).
-    let withdraw_ix_data = build_sol_transfer_witness(SolTransferWitnessArgs {
+    let SolTransferWitness {
+        ix_data: withdraw_ix_data,
+        ..
+    } = build_sol_transfer_witness(SolTransferWitnessArgs {
         spend_inputs: vec![
             recipient_spend_input,
-            dummy_input_with_proof(&[21u8; 31], &withdraw_dummy_nf, withdraw_roots)
+            dummy_input_with_proof(&[21u8; 31], &withdraw_dummy_nf, tree_id)
                 .map_err(|err| anyhow!("withdraw dummy input: {err}"))?,
         ],
         root_index: recipient_state_proof.root_index,
-        output_hashes: withdraw_output_hashes,
+        tree_slots: withdraw_tree_slots,
+        output_tree_id: tree_id,
         view_tags: vec![recipient_view_tag; 3],
         outputs: withdraw_outputs,
-        output_nullifier_pks: [zero, zero, zero],
+        output_nullifier_pks: [withdraw_change_nullifier_pk, zero, zero],
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
@@ -500,9 +548,8 @@ fn phase_unshield(
             recipient: public_recipient.to_bytes(),
         }],
         private_tx_inputs: [recipient_hash, zero],
-        private_tx_outputs: [zero, zero, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
-        payer_pubkey_hash: hash_bytes(&recipient_bytes)?,
+        payer_pubkey_hash: solana_owner_identity(&recipient_bytes)?,
         label: "withdraw",
     })?;
 

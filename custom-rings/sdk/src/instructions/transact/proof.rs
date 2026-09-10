@@ -143,6 +143,7 @@ impl PendingCustomRingProof {
         self,
         private_tx_hash: CustomRingPrivateTxHash,
         external_data_hash: &[u8; 32],
+        private_tx_blinding: &[u8; 32],
         witness: crate::witness::CustomRingWitness,
         policy_hash: &[u8; 32],
     ) -> Result<
@@ -167,6 +168,7 @@ impl PendingCustomRingProof {
             policy_hash,
             state_root: &witness.roots.state,
             nullifier_root: &witness.roots.nullifier,
+            entries_tree_id: witness.entries_tree_id,
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -190,6 +192,7 @@ impl PendingCustomRingProof {
             ])
                 .map_err(|_| CustomRingProofInputError::Hashing)?,
                 external_data_hash: *external_data_hash,
+                private_tx_blinding: *private_tx_blinding,
                 sources: witness.sources,
                 policy_len: witness.policy_len,
                 rules: witness.rules,
@@ -198,6 +201,7 @@ impl PendingCustomRingProof {
                 inline_count: witness.inline_count,
                 state_root: witness.roots.state,
                 nullifier_root: witness.roots.nullifier,
+                entries_tree_id: witness.entries_tree_id,
                 answers: witness.answers,
             },
         )
@@ -277,6 +281,7 @@ mod tests {
 
     fn witness(state: [u8; 32], nullifier: [u8; 32]) -> CustomRingWitness {
         CustomRingWitness {
+            entries_tree_id: 0,
             roots: TransactRoots {
                 state,
                 state_index: 0,
@@ -323,6 +328,7 @@ mod tests {
             .finish(
                 CustomRingPrivateTxHash::try_from(private_tx_hash).expect("below the modulus"),
                 &external_data_hash,
+                &[0u8; 32],
                 witness(state, nullifier),
                 &policy_hash,
             )
@@ -339,6 +345,7 @@ mod tests {
             policy_hash: &policy_hash,
             state_root: &state,
             nullifier_root: &nullifier,
+            entries_tree_id: 0,
         }
         .hash()
         .expect("public input hash");

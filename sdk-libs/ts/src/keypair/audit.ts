@@ -1,3 +1,4 @@
+import { treeIdField } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
 import { pack33 } from "../interface/merge-utils.js";
 import type { MessageData } from "../interface/types.js";
@@ -169,12 +170,18 @@ export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 
 /** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
 export function customRingPublicInputHash(
   input: CustomRingBasePublicInput &
-    Readonly<{ policyHash: Bytes32; stateRoot: Bytes32; nullifierRoot: Bytes32 }>,
+    Readonly<{
+      policyHash: Bytes32;
+      stateRoot: Bytes32;
+      nullifierRoot: Bytes32;
+      entriesTreeId: number;
+    }>,
 ): Bytes32 {
   return hashChain([
     ...auditChainElements(input),
     checkedBytes(input.policyHash, 32, "policy hash"),
     checkedBytes(input.stateRoot, 32, "state root"),
     checkedBytes(input.nullifierRoot, 32, "nullifier root"),
+    treeIdField(input.entriesTreeId),
   ]);
 }

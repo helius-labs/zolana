@@ -3,6 +3,12 @@ use zolana_interface::instruction::instruction_data::transact::{OwnerTag, Transa
 use zolana_keypair::NullifierKey;
 use zolana_transaction::ExternalData;
 
+/// Raw id of the pool tree this example uses. The program reads the real id
+/// from the tree account and folds it into every UTXO commitment, so the two
+/// must agree.
+// TODO(tree-id): resolve the tree id from the tree account.
+pub const DEFAULT_TREE_ID: u16 = 0;
+
 pub fn zero_nullifier_key() -> NullifierKey {
     NullifierKey::from_secret([0u8; 31])
 }

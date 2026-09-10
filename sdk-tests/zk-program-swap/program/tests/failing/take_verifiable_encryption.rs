@@ -49,12 +49,12 @@ fn garbage_commitment_is_rejected_exactly() {
     let mut data = vec![Wrapper::TakeVerifiableEncryption.tag()];
     data.extend_from_slice(&wincode::serialize(&body).expect("serialize tve body"));
     instruction.data = data;
-    // The last output must carry the 71-byte destination ciphertext (checked
+    // The last output must carry the 72-byte destination ciphertext (checked
     // before the proof runs), so the 0xFF commitment is the first point the
     // verifier fails to decompress.
     let mut t = transact(Vec::new());
     if let Some(last) = t.outputs.last_mut() {
-        last.data = Some(vec![8; 71]);
+        last.data = Some(vec![8; 72]);
     }
     let body = TakeVerifiableEncryptionIxData {
         proof: TakeVerifiableEncryptionProof {

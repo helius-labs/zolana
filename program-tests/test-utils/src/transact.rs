@@ -14,10 +14,10 @@ use solana_signer::Signer;
 use zolana_client::{
     prover::field::{be, right_align_slice},
     spawn_prover, Proof, ProofCompressed, ProofInputUtxo, ProverClient, PublicInputs,
-    PublicTransfers, TransferInput, TransferInputs, TransferOutput, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    PublicTransfers, TransferInput, TransferInputs, TransferOutput, TreeSlotFields,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::{hash_bytes, solana_owner_identity};
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
@@ -29,8 +29,10 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
+    state::read_tree_id,
+    tree_slot::TreeSlot,
     verifying_keys::transfer_confidential_2_3,
-    N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
@@ -42,7 +44,10 @@ use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
     instructions::transact::PrivateTxHash,
     instructions::types::SppProofInputUtxo,
-    SppProofOutputUtxo, Utxo,
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
+    SppProofOutputUtxo, Utxo, SOL_MINT,
 };
 use zolana_tree::TreeAccount;
 
@@ -98,10 +103,10 @@ pub fn spl_public_slots(amount: [u8; 32], mint: &[u8; 32]) -> Result<PublicSlots
     Ok((assets, amounts))
 }
 
-/// Per-output owner `pk_field` the program reconstructs as
-/// `hash_bytes(resolved_owner_tag)`, one per output position. Mirrors the
-/// program's `resolve_outputs`: each output carries its own inline or
-/// account-based owner tag.
+/// Per-output owner identity the program reconstructs as
+/// `solana_owner_identity(resolved_owner_tag)`, one per output position.
+/// Mirrors the program's `resolve_outputs`: each output carries its own inline
+/// or account-based owner tag.
 pub fn output_owner_pk_hashes(outputs: &[TransactOutput]) -> Result<Vec<[u8; 32]>> {
     outputs
         .iter()
@@ -109,14 +114,14 @@ pub fn output_owner_pk_hashes(outputs: &[TransactOutput]) -> Result<Vec<[u8; 32]
             let resolved = output
                 .into_resolved(|_| None)
                 .map_err(|e| anyhow!("resolve owner tag: {e:?}"))?;
-            hash_bytes(&resolved.owner_tag).map_err(|e| anyhow!("owner pk field: {e:?}"))
+            solana_owner_identity(&resolved.owner_tag).map_err(|e| anyhow!("owner identity: {e:?}"))
         })
         .collect()
 }
 
 /// Build the `transact` output slots from parallel utxo-hash and owner-view-tag
 /// vectors: each output carries an `Inline` owner tag equal to its view tag and
-/// no ciphertext, so `hash_bytes(view_tag)` is the OWNER public input the circuit
+/// no ciphertext, so `solana_owner_identity(view_tag)` is the OWNER public input the circuit
 /// binds that output to. The two slices must have equal length; extra entries in
 /// either are dropped.
 pub fn inline_outputs(
@@ -155,13 +160,13 @@ pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
 }
 
 /// Stamp the confidential owner tag onto each witness output. `owner_pk_hashes[i]`
-/// is the program's `hash_bytes(view_tag[i])` (so the public output-owner chain
+/// is the program's `solana_owner_identity(view_tag[i])` (so the public output-owner chain
 /// matches), and `nullifier_pks[i]` is the real output's nullifier pubkey from
 /// which the circuit recomputes `owner_hash` (zero for a dummy, whose owner the
 /// circuit leaves unconstrained).
 ///
 /// Two rules every caller relies on: a real output's owner tag is its owner's
-/// `confidential_view_tag` (so the program's `hash_bytes(resolved_owner_tag)`
+/// `confidential_view_tag` (so the program's `solana_owner_identity(resolved_owner_tag)`
 /// equals that owner's `owner_pk_field`), and PR164's `AssertDummyTags` gate
 /// requires every DUMMY output to name a transaction participant, so dummy
 /// slots reuse a real participant's tag rather than a fresh key's.
@@ -186,6 +191,21 @@ pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> 
         nullifier_tree_root_index: 0,
         utxo_tree_root_index,
     }
+}
+
+/// The proof's public tree slots. SPP proves against exactly one input tree, so
+/// slot 0 carries `input_tree`'s id and the two roots the proof is built
+/// against and the remaining slots are all zero.
+pub fn single_tree_slots(
+    tree_id: u16,
+    utxo_root: [u8; 32],
+    nullifier_root: [u8; 32],
+) -> [TreeSlot; INPUT_TREES] {
+    let mut slots = [TreeSlot::ZERO; INPUT_TREES];
+    if let Some(slot_0) = slots.first_mut() {
+        *slot_0 = TreeSlot::new(tree_id, utxo_root, nullifier_root);
+    }
+    slots
 }
 
 pub fn new_transact_ix_data(
@@ -270,7 +290,10 @@ pub fn external_data_hash_spl(
 /// the program appends to the tree and the proof commits via the public output
 /// chain, while contributing `0` to `private_tx_hash`. Returns the witness output
 /// and that hash so callers can wire both consistently.
-pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8; 32])> {
+pub fn dummy_transfer_output(
+    blinding: &[u8; 31],
+    output_tree_id: u16,
+) -> Result<(TransferOutput, [u8; 32])> {
     let mut field_blinding = [0u8; 32];
     field_blinding[1..].copy_from_slice(blinding);
     let output = SppProofOutputUtxo {
@@ -278,10 +301,10 @@ pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8
         ..Default::default()
     };
     let hash = output
-        .hash()
+        .hash(output_tree_id)
         .map_err(|e| anyhow!("dummy output hash: {e:?}"))?;
-    let utxo =
-        ProofInputUtxo::try_from(&output).map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
+    let utxo = ProofInputUtxo::try_from((&output, output_tree_id))
+        .map_err(|e| anyhow!("dummy output utxo: {e:?}"))?;
     let zero = [0u8; 32];
     Ok((
         TransferOutput {
@@ -300,6 +323,16 @@ pub fn dummy_transfer_output(blinding: &[u8; 31]) -> Result<(TransferOutput, [u8
 pub struct TransferProverInputsArgs {
     pub inputs: Vec<TransferInput>,
     pub outputs: Vec<TransferOutput>,
+    /// The trees the inputs are spent from, one slot per tree; every input
+    /// selects one privately. Unused slots are all zero and sit at the end.
+    pub tree_slots: [TreeSlot; INPUT_TREES],
+    /// Raw id of the tree every output is appended to.
+    pub output_tree_id: u16,
+    /// The transaction's private random root seed. The circuit re-derives
+    /// the output blinding seed and the private transaction blinding from it,
+    /// so it must be the root seed the outputs were blinded with
+    /// ([`TEST_BLINDING_SEED`] for [`derive_test_output_blindings`]).
+    pub blinding_seed: [u8; 32],
     pub external_data_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
@@ -308,6 +341,85 @@ pub struct TransferProverInputsArgs {
     /// zero-padded to the circuit width (`n_inputs + 1`).
     pub signer_pk_hashes: Vec<[u8; 32]>,
     pub public_input_hash: [u8; 32],
+}
+
+/// The blinding seed every hand-built program-test fixture uses.
+/// Production builders draw a random one; fixtures pin it so the derived output
+/// blindings, the private transaction blinding, and the proof are reproducible.
+///
+/// It must be non-zero: the prover rejects a zero seed
+/// (`spp: blindingSeed must not be zero`,
+/// `prover/server/prover/transfer_eddsa_only/marshal.go:157`), because a zero
+/// seed makes the output blinding seed and the private transaction blinding
+/// public functions of the first nullifier. The leading zero byte keeps the
+/// value below the BN254 scalar modulus.
+pub const TEST_BLINDING_SEED: [u8; 32] = [
+    0x00, 0x54, 0x58, 0x53, 0x45, 0x43, 0x52, 0x45, 0x54, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+];
+
+/// The output blinding seed a fixture's outputs are derived from:
+/// `Poseidon(TXOS, first_nullifier, TEST_BLINDING_SEED)`, exactly as the circuit
+/// recomputes it from the witness `blinding_seed`.
+pub fn test_output_blinding_seed(first_nullifier: &[u8; 32]) -> Result<[u8; 32]> {
+    Ok(derive_output_blinding_seed(
+        first_nullifier,
+        &TEST_BLINDING_SEED,
+    )?)
+}
+
+/// The final `private_tx_hash` preimage element of a fixture:
+/// `Poseidon(TXPB, first_nullifier, TEST_BLINDING_SEED)`.
+pub fn test_private_tx_blinding(first_nullifier: &[u8; 32]) -> Result<[u8; 32]> {
+    Ok(derive_private_tx_blinding(
+        first_nullifier,
+        &TEST_BLINDING_SEED,
+    )?)
+}
+
+/// Rebind manual program-test outputs to the protocol derivation before their
+/// hashes and public inputs are assembled. Production builders draw a random
+/// blinding seed; fixtures use [`TEST_BLINDING_SEED`] for reproducibility
+/// while retaining nullifier/index uniqueness.
+pub fn derive_test_output_blindings(
+    first_nullifier: &[u8; 32],
+    outputs: &mut [SppProofOutputUtxo],
+) -> Result<()> {
+    let seed = test_output_blinding_seed(first_nullifier)?;
+    for (index, output) in outputs.iter_mut().enumerate() {
+        output.blinding = derive_transact_output_blinding(
+            first_nullifier,
+            &seed,
+            u32::try_from(index).map_err(|_| anyhow!("too many test outputs"))?,
+        )?;
+    }
+    Ok(())
+}
+
+/// Equivalent helper for already-materialized prover outputs. Each output is
+/// rehashed under the tree id it already carries, so callers must build the
+/// outputs with [`dummy_transfer_output`] / [`transfer_output`] for the right
+/// output tree first.
+pub fn derive_test_transfer_output_blindings(
+    first_nullifier: &[u8; 32],
+    outputs: &mut [TransferOutput],
+) -> Result<Vec<[u8; 32]>> {
+    let seed = test_output_blinding_seed(first_nullifier)?;
+    outputs
+        .iter_mut()
+        .enumerate()
+        .map(|(index, output)| {
+            let blinding = derive_transact_output_blinding(
+                first_nullifier,
+                &seed,
+                u32::try_from(index).map_err(|_| anyhow!("too many test outputs"))?,
+            )?;
+            output.utxo.blinding = blinding;
+            let hash = output.utxo.hash()?;
+            output.hash = be(&hash);
+            Ok(hash)
+        })
+        .collect()
 }
 
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
@@ -321,6 +433,9 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         .map(|output| output.owner_pk_hash.clone())
         .collect();
     TransferInputs {
+        tree_slots: TreeSlotFields::encode_all(&args.tree_slots),
+        output_tree_id: BigUint::from(args.output_tree_id),
+        blinding_seed: be(&args.blinding_seed),
         inputs: args.inputs,
         outputs: args.outputs,
         external_data_hash: be(&args.external_data_hash),
@@ -398,6 +513,36 @@ pub fn real_output(
     }
 }
 
+/// The output set a transaction with no real recipient must use: a real
+/// zero-amount SOL change output owned by `owner`, then one dummy per entry in
+/// `dummy_blindings`.
+///
+/// `AssertDummyTags`
+/// (`prover/server/circuits/spp_transaction/shared/owner_tags.go`) only accepts
+/// a dummy tag that names an owner signer *other than the payer* or a real
+/// output's owner, so an all-dummy output set is unprovable when the payer is
+/// the transaction's only signer. Production wallets emit the same zero-amount
+/// change output for a self-paid transaction that has no change.
+///
+/// The caller still stamps the tags with [`set_output_owner_tags`], passing
+/// `change_nullifier_pk` for slot 0 and zero for the dummy slots, and must fold
+/// slot 0's hash (not zero) into `private_tx_hash`.
+pub fn change_and_dummy_outputs(
+    owner: PublicKey,
+    change_nullifier_pk: [u8; 32],
+    change_blinding: [u8; 31],
+    dummy_blindings: &[[u8; 31]],
+    output_tree_id: u16,
+) -> Result<Vec<TransferOutput>> {
+    let change = real_output(owner, change_nullifier_pk, SOL_MINT, 0, change_blinding);
+    let mut outputs = Vec::with_capacity(dummy_blindings.len() + 1);
+    outputs.push(transfer_output(&change, output_tree_id)?);
+    for blinding in dummy_blindings {
+        outputs.push(dummy_transfer_output(blinding, output_tree_id)?.0);
+    }
+    Ok(outputs)
+}
+
 /// One circuit-dummy input over `blinding`: domain-tagged dummy utxo fields, the
 /// nullifier derived over the dummified utxo hash with secret 0, and a real
 /// non-inclusion witness for that nullifier from `nf_tree` (the circuit checks
@@ -408,13 +553,12 @@ pub fn real_output(
 pub fn dummy_input(
     blinding: &[u8; 31],
     nf_tree: &IndexedMerkleTree<Poseidon, usize>,
-    roots: ([u8; 32], [u8; 32]),
+    tree_id: u16,
 ) -> Result<(TransferInput, [u8; 32])> {
-    let mut spend = SppProofInputUtxo::new_dummy();
+    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
     spend.utxo.blinding = expand_blinding(blinding);
     let nullifier = spend.nullifier()?;
     let non_inclusion = nf_tree.get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))?;
-    let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
     let input = TransferInput {
         utxo: ProofInputUtxo::try_from(&spend)?,
@@ -425,8 +569,7 @@ pub fn dummy_input(
         nullifier_next_value: be(&non_inclusion.leaf_higher_range_value),
         nullifier_low_path_elements: non_inclusion.merkle_proof.iter().map(be).collect(),
         nullifier_low_path_index: be(&fe(non_inclusion.leaf_index as u64)),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
+        tree_slot: BigUint::ZERO,
         nullifier: be(&nullifier),
         owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
@@ -435,10 +578,10 @@ pub fn dummy_input(
 }
 
 /// The nullifier a dummy input over `blinding` derives (over the dummified utxo
-/// hash with secret 0). Callers fetch this value's non-inclusion proof before
-/// building the input with [`dummy_input_with_proof`].
-pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
-    let mut spend = SppProofInputUtxo::new_dummy();
+/// hash with secret 0, under `tree_id`). Callers fetch this value's
+/// non-inclusion proof before building the input with [`dummy_input_with_proof`].
+pub fn dummy_nullifier(blinding: &[u8; 31], tree_id: u16) -> Result<[u8; 32]> {
+    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
     spend.utxo.blinding = expand_blinding(blinding);
     Ok(spend.nullifier()?)
 }
@@ -448,12 +591,11 @@ pub fn dummy_nullifier(blinding: &[u8; 31]) -> Result<[u8; 32]> {
 pub fn dummy_input_with_proof(
     blinding: &[u8; 31],
     non_inclusion: &zolana_client::NonInclusionProof,
-    roots: ([u8; 32], [u8; 32]),
+    tree_id: u16,
 ) -> Result<TransferInput> {
-    let mut spend = SppProofInputUtxo::new_dummy();
+    let mut spend = SppProofInputUtxo::new_dummy().in_tree(tree_id);
     spend.utxo.blinding = expand_blinding(blinding);
     let nullifier = spend.nullifier()?;
-    let (utxo_root, nullifier_root) = roots;
     let zero = [0u8; 32];
     Ok(TransferInput {
         utxo: ProofInputUtxo::try_from(&spend)?,
@@ -464,8 +606,7 @@ pub fn dummy_input_with_proof(
         nullifier_next_value: be(&non_inclusion.high_element),
         nullifier_low_path_elements: non_inclusion.path.iter().map(be).collect(),
         nullifier_low_path_index: be(&fe(non_inclusion.low_element_index)),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
+        tree_slot: BigUint::ZERO,
         nullifier: be(&nullifier),
         owner_pk_hash: be(&zero),
         nullifier_secret: be(&zero),
@@ -489,20 +630,22 @@ pub struct SpendInputArgs<'a> {
     pub state_path: &'a [[u8; 32]],
     pub state_path_index: u64,
     pub non_inclusion: &'a NonInclusionProof,
-    pub roots: ([u8; 32], [u8; 32]),
+    /// Raw id of the tree this spend comes from; the UTXO commitment is hashed
+    /// under it.
+    pub tree_id: u16,
     pub nullifier: &'a [u8; 32],
     pub owner_pk_hash: &'a [u8; 32],
     pub nullifier_key: &'a NullifierKey,
 }
 
 pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
-    let (utxo_root, nullifier_root) = args.roots;
     Ok(TransferInput {
         utxo: ProofInputUtxo::new(
             *args.owner_field,
             &args.utxo.asset,
             args.utxo.amount,
             &args.utxo.blinding,
+            args.tree_id,
         )?
         .with_ring([0u8; 32], &args.utxo.ring_program_id)?,
         is_dummy: be(&fe(0)),
@@ -512,22 +655,22 @@ pub fn spend_input(args: SpendInputArgs<'_>) -> Result<TransferInput> {
         nullifier_next_value: be(&args.non_inclusion.leaf_higher_range_value),
         nullifier_low_path_elements: args.non_inclusion.merkle_proof.iter().map(be).collect(),
         nullifier_low_path_index: be(&fe(args.non_inclusion.leaf_index as u64)),
-        utxo_tree_root: be(&utxo_root),
-        nullifier_tree_root: be(&nullifier_root),
+        tree_slot: BigUint::ZERO,
         nullifier: be(args.nullifier),
         owner_pk_hash: be(args.owner_pk_hash),
         nullifier_secret: be(&right_align_slice(&*args.nullifier_key.secret())?),
     })
 }
 
-/// A real (non-dummy) witness output. The confidential owner tag
-/// (`owner_pk_hash`) and `nullifier_pk` are left zero here and stamped by
-/// [`set_output_owner_tags`] once the per-output view_tag mapping is known.
-pub fn transfer_output(output: &SppProofOutputUtxo) -> Result<TransferOutput> {
-    let hash = output.hash()?;
+/// A real (non-dummy) witness output, hashed under the id of the tree it is
+/// appended to. The confidential owner tag (`owner_pk_hash`) and `nullifier_pk`
+/// are left zero here and stamped by [`set_output_owner_tags`] once the
+/// per-output view_tag mapping is known.
+pub fn transfer_output(output: &SppProofOutputUtxo, output_tree_id: u16) -> Result<TransferOutput> {
+    let hash = output.hash(output_tree_id)?;
     let zero = [0u8; 32];
     Ok(TransferOutput {
-        utxo: ProofInputUtxo::try_from(output)?,
+        utxo: ProofInputUtxo::try_from((output, output_tree_id))?,
         is_dummy: be(&fe(0)),
         hash: be(&hash),
         owner_pk_hash: be(&zero),
@@ -596,7 +739,12 @@ pub fn build_spl_withdrawal(
         .context("indexed deposit UTXO")?;
     let blinding = utxo.blinding;
     assert_eq!((utxo.asset, utxo.amount), (mint, amount));
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("UTXO hash");
+    // The deposit, the spend and the outputs all live in `tree`, so one id
+    // covers every commitment here.
+    let tree_id = read_tree_id(&pt.account_data(tree).expect("tree account")).expect("tree id");
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("UTXO hash");
     assert_eq!(event.utxo_hash, utxo_hash);
 
     // The UTXO is leaf 0; its inclusion proof binds the latest post-shield
@@ -627,30 +775,40 @@ pub fn build_spl_withdrawal(
     let non_inclusion = nf_tree
         .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
         .expect("non-inclusion proof");
-    let roots = (utxo_root, nullifier_root);
+    let tree_slots = single_tree_slots(tree_id, utxo_root, nullifier_root);
     let (withdraw_dummy_input, dummy_nullifier) =
-        dummy_input(&[2u8; 31], &nf_tree, roots).expect("dummy input");
+        dummy_input(&[2u8; 31], &nf_tree, tree_id).expect("dummy input");
     let spend = spend_input(SpendInputArgs {
         utxo: &utxo,
         owner_field: &owner_field,
         state_path: &state_path,
         state_path_index: 0,
         non_inclusion: &non_inclusion,
-        roots,
+        tree_id,
         nullifier: &nullifier,
         owner_pk_hash: &owner_pk_hash,
         nullifier_key: &nullifier_key,
     })
     .expect("spend input");
 
-    let dummy_outputs: Vec<(TransferOutput, [u8; 32])> = [[1u8; 31], [2u8; 31], [3u8; 31]]
-        .iter()
-        .map(|blinding| dummy_transfer_output(blinding).expect("dummy output"))
-        .collect();
-    let output_hashes: Vec<[u8; 32]> = dummy_outputs.iter().map(|(_, hash)| *hash).collect();
-    let mut outputs: Vec<TransferOutput> = dummy_outputs.into_iter().map(|(out, _)| out).collect();
-    // Dummy slots carry the payer's tag (the AssertDummyTags rule; see
-    // `set_output_owner_tags`).
+    // The withdrawal drains the UTXO, so slot 0 is a real zero-amount change
+    // output owned by the payer and slots 1-2 are dummies naming it: the payer
+    // is the only signer here and `AssertDummyTags` refuses a dummy tag that
+    // names only the payer. See [`change_and_dummy_outputs`].
+    let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let change_nullifier_pk = change_nullifier_key
+        .pubkey()
+        .expect("change output nullifier pubkey");
+    let mut outputs = change_and_dummy_outputs(
+        utxo.owner,
+        change_nullifier_pk,
+        [1u8; 31],
+        &[[2u8; 31], [3u8; 31]],
+        tree_id,
+    )
+    .expect("change and dummy outputs");
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
     let mut data = new_transact_ix_data(
         vec![
             eddsa_input_utxo(nullifier, utxo_root_index),
@@ -663,14 +821,26 @@ pub fn build_spl_withdrawal(
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
     let output_owner_hashes = output_owner_pk_hashes(&data.outputs).expect("output owner hashes");
-    set_output_owner_tags(&mut outputs, &output_owner_hashes, &[zero, zero, zero]);
+    set_output_owner_tags(
+        &mut outputs,
+        &output_owner_hashes,
+        &[change_nullifier_pk, zero, zero],
+    );
     let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
         .expect("external data hash");
-    let private_tx = PrivateTxHash::new(&[utxo_hash, zero], &[zero, zero, zero], &external_hash)
-        .hash()
-        .expect("private transaction hash");
+    let private_tx_blinding =
+        test_private_tx_blinding(&nullifier).expect("private transaction blinding");
+    let change_output_hash = *output_hashes.first().expect("change output hash");
+    let private_tx = PrivateTxHash::new(
+        &[utxo_hash, zero],
+        &[change_output_hash, zero, zero],
+        &external_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private transaction hash");
     let public_spl_field = public_sol_field(Some(-(amount as i64)));
-    let payer_hash = hash_bytes(&payer_bytes).expect("payer hash");
+    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     let mint_bytes = mint.to_bytes();
     let signer_hashes = [payer_hash, zero, zero];
     let (public_slot_assets, public_slot_amounts) =
@@ -678,8 +848,8 @@ pub fn build_spl_withdrawal(
     let public_hash = PublicInputs {
         nullifiers: &[nullifier, dummy_nullifier],
         output_hashes: &output_hashes,
-        utxo_roots: &[utxo_root, utxo_root],
-        nullifier_tree_roots: &[nullifier_root, nullifier_root],
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
         private_tx: &private_tx,
         external_data_hash: &external_hash,
         public_transfers: &PublicTransfers {
@@ -696,6 +866,9 @@ pub fn build_spl_withdrawal(
     let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: vec![spend, withdraw_dummy_input],
         outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        blinding_seed: TEST_BLINDING_SEED,
         external_data_hash: external_hash,
         private_tx_hash: private_tx,
         public_slot_assets,

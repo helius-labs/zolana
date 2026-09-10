@@ -34,7 +34,7 @@ pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
-    canonical_shape,
+    assign_spend_output_blindings, canonical_shape,
     merge::MergeWitness,
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
@@ -48,7 +48,7 @@ pub use prover::{
     RingAuthorityProofResult, RingAuthorityProver, RingAuthorityWitness,
     RingTransferP256ProofResult, RingTransferP256Prover, RingTransferProofResult,
     RingTransferProver, Shape, TransferInput, TransferInputs, TransferOutput, TransferP256Inputs,
-    TransferProofResult, TransferProver, TransferSpendInput, SPP_SUPPORTED_SHAPES,
+    TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{

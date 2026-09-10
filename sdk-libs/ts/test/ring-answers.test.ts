@@ -320,7 +320,7 @@ describe("answer proving", () => {
     expect(roots).toEqual({ ...HEADS, nullifierRoot: filled(2), nullifierRootIndex: 4 });
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toEqual([
-      [RingListNamespace.of(NAMESPACE).entryAddress({ listId: ListId.block, member })],
+      [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
     ]);
     expect(client.accounts).toBe(1);
     expect(answers[0]).toMatchObject({
@@ -389,7 +389,7 @@ describe("answer proving", () => {
     expect(enabled[0]).toMatchObject({ listId: ListId.block, mode: 2, absentBranch: 1 });
     expect(client.merkle).toHaveLength(0);
     expect(client.nonInclusion).toEqual([
-      [RingListNamespace.of(NAMESPACE).entryAddress({ listId: ListId.block, member })],
+      [RingListNamespace.of(NAMESPACE, 0).entryAddress({ listId: ListId.block, member })],
     ]);
   });
 

@@ -8,18 +8,7 @@ import (
 	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
-// Per-output-slot domains folded into DeriveOutputBlinding so the three settle
-// outputs derive independent blindings from the same pair of input blindings.
-// These constants MUST stay in sync with dynamic-swap-prover's Rust copies.
-const (
-	RecipientBlindingDomain    uint64 = 0x5345545245434950 // "SETRECIP"
-	MakerCounterBlindingDomain uint64 = 0x5345544D4B435452 // "SETMKCTR"
-	MakerSourceBlindingDomain  uint64 = 0x5345544D4B535243 // "SETMKSRC"
-)
-
-// settleBlindingBits truncates the Poseidon output to a 31-byte blinding (the
-// SPP Blinding width), matching the Rust derivation's [1..32] byte slice.
-const settleBlindingBits = 248
+const blindingSeedDomain = 0x44535458 // DSTX; matches the SDK's settle_blinding_seed.
 
 // Circuit resolves an escrow -- settle or price-refund -- in a single circuit/VK
 // so the resolving transaction never reveals which outcome occurred. The proof
@@ -43,12 +32,19 @@ const settleBlindingBits = 248
 type Circuit struct {
 	Public PublicInputs
 
-	OrderIn       spp.UtxoCircuitFields
-	ReservationIn spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	OrderIn             spp.UtxoCircuitFields
+	OrderInTreeID       frontend.Variable
+	ReservationIn       spp.UtxoCircuitFields
+	ReservationInTreeID frontend.Variable
 
-	RecipientOut spp.UtxoCircuitFields
-	MakerCounter spp.UtxoCircuitFields
-	MakerSource  spp.UtxoCircuitFields
+	RecipientOut       spp.UtxoCircuitFields
+	RecipientOutTreeID frontend.Variable
+	MakerCounter       spp.UtxoCircuitFields
+	MakerCounterTreeID frontend.Variable
+	MakerSource        spp.UtxoCircuitFields
+	MakerSourceTreeID  frontend.Variable
 
 	OrderAmount frontend.Variable
 
@@ -64,11 +60,21 @@ type Circuit struct {
 	MaxPrice           frontend.Variable
 	CreatedAt          frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
 	orderInHash := c.checkOrderInputUtxo(api)
+	// The escrow creator and settler both hold these openings. The first
+	// nullifier is read from SPP instruction data by the native program, so the
+	// settler cannot substitute a seed that prevents the recipient's recovery.
+	blindingSeed := gadget.PoseidonHash(api, []frontend.Variable{blindingSeedDomain, c.OrderIn.Blinding, c.ReservationIn.Blinding})
+	seed := spp.DeriveOutputBlindingSeed(api, c.Public.FirstNullifier, blindingSeed)
+	api.AssertIsEqual(c.PrivateTxBlinding, spp.DerivePrivateTxBlinding(api, c.Public.FirstNullifier, blindingSeed))
+	for i, blinding := range []frontend.Variable{c.RecipientOut.Blinding, c.MakerCounter.Blinding, c.MakerSource.Blinding} {
+		api.AssertIsEqual(blinding, spp.DeriveOutputBlinding(api, c.Public.FirstNullifier, seed, i))
+	}
 
 	// Bind the private MaxPrice/CreatedAt to the order UTXO's committed DataHash
 	// so the prover cannot choose a MaxPrice that flips the outcome. OrderInHash
@@ -122,20 +128,6 @@ func (c *Circuit) Define(api frontend.API) error {
 	makerSourceAmount := api.Select(isSettle, c.OrderAmount, 0)
 	makerSourceHash := c.checkMakerSourceOutputUtxo(api, makerSourceAmount)
 
-	// Every output UTXO's blinding is deterministically derived from BOTH escrow
-	// input blindings (the order and reservation notes). Only a holder of both
-	// input secrets can recompute these, so the maker and taker can find and
-	// spend their settle outputs without an encrypted memo; a third-party
-	// observer never learns the input blindings, so this does not weaken the
-	// settle-vs-refund indistinguishability. A distinct domain per output slot
-	// keeps the three blindings independent (no cross-note linkage or collision).
-	api.AssertIsEqual(c.RecipientOut.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, RecipientBlindingDomain))
-	api.AssertIsEqual(c.MakerCounter.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, MakerCounterBlindingDomain))
-	api.AssertIsEqual(c.MakerSource.Blinding,
-		DeriveOutputBlinding(api, c.OrderIn.Blinding, c.ReservationIn.Blinding, MakerSourceBlindingDomain))
-
 	privateTxHashInputs{
 		OrderInputUtxoHash:         orderInHash,
 		ReservationInputUtxoHash:   reservationInHash,
@@ -143,6 +135,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		MakerCounterOutputUtxoHash: makerCounterHash,
 		MakerSourceOutputUtxoHash:  makerSourceHash,
 		ExternalDataHash:           c.ExternalDataHash,
+		PrivateTxBlinding:          c.PrivateTxBlinding,
 		PrivateTxHash:              c.Public.PrivateTxHash,
 	}.Check(api)
 
@@ -170,6 +163,7 @@ type PublicInputs struct {
 	OrderInHash        frontend.Variable
 	ReservationInHash  frontend.Variable
 	AuthorityOwnerHash frontend.Variable
+	FirstNullifier     frontend.Variable
 }
 
 func (p PublicInputs) Check(api frontend.API, orderInHash, reservationInHash frontend.Variable) {
@@ -181,6 +175,7 @@ func (p PublicInputs) Check(api frontend.API, orderInHash, reservationInHash fro
 		p.OrderInHash,
 		p.ReservationInHash,
 		p.AuthorityOwnerHash,
+		p.FirstNullifier,
 	})
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
@@ -192,6 +187,7 @@ type privateTxHashInputs struct {
 	MakerCounterOutputUtxoHash frontend.Variable
 	MakerSourceOutputUtxoHash  frontend.Variable
 	ExternalDataHash           frontend.Variable
+	PrivateTxBlinding          frontend.Variable
 	PrivateTxHash              frontend.Variable
 }
 
@@ -212,7 +208,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 		frontend.Variable(0),
 	}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -221,7 +224,7 @@ func (c *Circuit) checkOrderInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.OrderIn.RingDataHash, 0)
 	api.AssertIsEqual(c.OrderIn.RingProgramID, 0)
 	api.AssertIsEqual(c.OrderIn.Amount, c.OrderAmount)
-	return spp.UtxoHashCircuit(api, c.OrderIn)
+	return spp.UtxoHashCircuit(api, c.OrderIn, c.OrderInTreeID)
 }
 
 func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.Variable) frontend.Variable {
@@ -229,7 +232,7 @@ func (c *Circuit) checkReservationInputUtxo(api frontend.API, reserved frontend.
 	api.AssertIsEqual(c.ReservationIn.RingDataHash, 0)
 	api.AssertIsEqual(c.ReservationIn.RingProgramID, 0)
 	api.AssertIsEqual(c.ReservationIn.Amount, reserved)
-	return spp.UtxoHashCircuit(api, c.ReservationIn)
+	return spp.UtxoHashCircuit(api, c.ReservationIn, c.ReservationInTreeID)
 }
 
 func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset frontend.Variable) frontend.Variable {
@@ -240,7 +243,7 @@ func (c *Circuit) checkRecipientOutputUtxo(api frontend.API, amount, asset front
 	api.AssertIsEqual(c.RecipientOut.Asset, asset)
 	api.AssertIsEqual(c.RecipientOut.Amount, amount)
 	api.AssertIsEqual(c.RecipientOut.Owner, c.RecipientOwnerHash)
-	return spp.UtxoHashCircuit(api, c.RecipientOut)
+	return spp.UtxoHashCircuit(api, c.RecipientOut, c.RecipientOutTreeID)
 }
 
 // checkMakerCounterOutputUtxo is the maker's counter-asset leg: the unspent
@@ -258,7 +261,7 @@ func (c *Circuit) checkMakerCounterOutputUtxo(api frontend.API, remainder fronte
 	api.AssertIsEqual(c.MakerCounter.Amount, remainder)
 	api.ToBinary(c.MakerCounter.Amount, 64)
 
-	return spp.UtxoHashCircuit(api, c.MakerCounter)
+	return spp.UtxoHashCircuit(api, c.MakerCounter, c.MakerCounterTreeID)
 }
 
 // checkMakerSourceOutputUtxo is the pair authority's (maker's) own shielded UTXO
@@ -273,18 +276,5 @@ func (c *Circuit) checkMakerSourceOutputUtxo(api frontend.API, amount frontend.V
 	api.AssertIsEqual(c.MakerSource.Asset, c.OrderIn.Asset)
 	api.AssertIsEqual(c.MakerSource.Amount, amount)
 	api.AssertIsEqual(c.MakerSource.Owner, c.Public.AuthorityOwnerHash)
-	return spp.UtxoHashCircuit(api, c.MakerSource)
-}
-
-// DeriveOutputBlinding folds both escrow input blindings and a per-slot domain
-// into a single 31-byte blinding. Truncating the 254-bit Poseidon output to its
-// low 248 bits mirrors the Rust helper, which keeps bytes [1..32] of the hash.
-func DeriveOutputBlinding(api frontend.API, orderBlinding, reservationBlinding frontend.Variable, domain uint64) frontend.Variable {
-	full := gadget.PoseidonHash(api, []frontend.Variable{
-		orderBlinding,
-		reservationBlinding,
-		frontend.Variable(domain),
-	})
-	bits := api.ToBinary(full, 254)
-	return api.FromBinary(bits[:settleBlindingBits]...)
+	return spp.UtxoHashCircuit(api, c.MakerSource, c.MakerSourceTreeID)
 }

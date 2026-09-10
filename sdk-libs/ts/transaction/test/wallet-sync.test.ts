@@ -1,4 +1,11 @@
-import type { Address, Bytes16, Bytes32, Bytes33, Signature } from "../../src/interface/index.js";
+import {
+  DEFAULT_TREE_ID,
+  type Address,
+  type Bytes16,
+  type Bytes32,
+  type Bytes33,
+  type Signature,
+} from "../../src/interface/index.js";
 import {
   NullifierKey,
   P256PublicKey,
@@ -176,12 +183,14 @@ function shieldedTransactions(
             encodeProofless(output),
             "plaintext",
           );
+          // Wallet sync hashes under the one live tree, so the proofless hash
+          // the fixture leaves for recomputation is taken under the same id.
           hash = new Utxo({
             owner: keypair.signingPublicKey(),
             asset,
             amount,
             blinding: blinding as Bytes32,
-          }).hash(keypair.nullifierPublicKey());
+          }).hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID);
         }
         return {
           viewTag: hexBytes(fixtureString(slot, "viewTagBytes")) as Bytes32,

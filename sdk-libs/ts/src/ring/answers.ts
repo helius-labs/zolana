@@ -10,7 +10,7 @@ import {
 } from "../client/prover/types.js";
 import type { MerkleProof, NonInclusionProof } from "../client/rpc.js";
 import type { Address, Bytes32, RequestContext, TreeHeadRoots } from "../interface/types.js";
-import type { ProofInputUtxo, ProofOutputUtxo } from "../transaction/utxo.js";
+import type { ProofInputUtxo, ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import type { RingPolicyConfig } from "./codecs.js";
@@ -20,7 +20,7 @@ import {
   RingListNamespace,
   listIdFromByte,
   memberOfAsset,
-  memberOfTag,
+  memberOfIdentity,
   readRingEntryLineages,
   ruleAlternatives,
   type EntryIndexer,
@@ -55,10 +55,15 @@ export async function provePolicyAnswers(
 ): Promise<PolicyAnswers> {
   const plan = planPolicyAnswers(input);
   const lineages = await readRingEntryLineages(
-    { indexer: input.client, entriesTree: input.config.entriesTree, lookups: plan.lookups },
+    {
+      indexer: input.client,
+      entriesTree: input.config.entriesTree,
+      entriesTreeId: input.config.entriesTreeId,
+      lookups: plan.lookups,
+    },
     context,
   );
-  const resolved = resolvePolicyAnswers(plan, lineages);
+  const resolved = resolvePolicyAnswers(plan, lineages, input.config.entriesTreeId);
   const queries = answerQueries(resolved);
   const tree = input.config.entriesTree;
   const [states, absences] = await Promise.all([
@@ -167,7 +172,7 @@ function subjects(rule: Rule, input: PolicyAnswerInput): readonly Member[] {
     case "sender":
       return input.inputs
         .filter((spend) => !spend.isDummy())
-        .map((spend) => memberOfTag(spend.utxo.owner.confidentialViewTag()));
+        .map((spend) => memberOfIdentity(spend.utxo.owner.ownerProofInputHash()));
     case "asset":
       return liveOutputs(input).map((output) => memberOfAsset(output.asset));
     case "exitDestination":
@@ -182,8 +187,9 @@ function liveOutputs(input: PolicyAnswerInput): readonly LiveOutput[] {
   return input.outputs.filter((output): output is LiveOutput => output.ownerAddress !== undefined);
 }
 
+/** The identity the opening carries as `ownerPkHash`, one list serves every owner curve. */
 function ownerMember(output: LiveOutput): Member {
-  return memberOfTag(output.ownerAddress.confidentialViewTag());
+  return memberOfIdentity(output.ownerAddress.signingPublicKey.ownerProofInputHash());
 }
 
 /** Mirrors Rust `guard_exempts`, the aggregate over every live output to the member is weighed. */
@@ -236,6 +242,7 @@ interface ResolvedAnswer {
 function resolvePolicyAnswers(
   plan: AnswerPlan,
   lineages: readonly (LiveEntry | undefined)[],
+  treeId: TreeId,
 ): readonly ResolvedAnswer[] {
   if (lineages.length !== plan.lookups.length) {
     throw new RingError("RING_ENTRY_PROOF_INCOMPLETE", {
@@ -245,7 +252,10 @@ function resolvePolicyAnswers(
   const facts: EntryFact[] = plan.lookups.map((lookup, index) => {
     const live = lineages[index];
     return live === undefined
-      ? { kind: "unclaimed", address: RingListNamespace.of(lookup.namespace).entryAddress(lookup) }
+      ? {
+          kind: "unclaimed",
+          address: RingListNamespace.of(lookup.namespace, treeId).entryAddress(lookup),
+        }
       : { kind: "live", live };
   });
   const answers: ResolvedAnswer[] = [];
@@ -425,6 +435,7 @@ function assemblePolicyAnswers(
       absentBranch: 2,
       state: entry.state === "active" ? 1 : 2,
       version: entry.version,
+      blinding: entry.blinding,
       contentHash: entry.contentHash,
       statePath: state.path,
       statePathIndex: state.leafIndex,

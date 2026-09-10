@@ -30,12 +30,13 @@ export function lineage(
   input: Readonly<{
     namespace: Address;
     tree: Address;
+    treeId?: number;
     listId: ListId;
     member: Member;
     states: readonly EntryState[];
   }>,
 ): Lineage {
-  const namespace = RingListNamespace.of(input.namespace);
+  const namespace = RingListNamespace.of(input.namespace, input.treeId ?? 0);
   const address = namespace.entryAddress(input);
   let spent = address;
   const spenders: IndexedShieldedTransaction[] = [];
@@ -47,6 +48,7 @@ export function lineage(
       state,
       version: BigInt(version),
       contentHash: filled(0) as Bytes32,
+      blinding: filled(version + 1) as Bytes32,
     };
     const hashes = namespace.entryHashes(entry);
     spenders.push({

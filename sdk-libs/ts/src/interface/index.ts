@@ -85,5 +85,15 @@ export {
   checkedTransactionSize,
   transactionSize,
 } from "./transaction-size.js";
+export {
+  DEFAULT_TREE_ID,
+  INPUT_TREES,
+  ZERO_TREE_SLOT,
+  inputTreeSlots,
+  treeIdField,
+  treeSlotHash,
+  treeSlotsHashChain,
+} from "./tree-slot.js";
+export type { TreeSlot } from "./tree-slot.js";
 export type * from "./types.js";
 export type { ErrorEnvelope } from "../errors/internal.js";

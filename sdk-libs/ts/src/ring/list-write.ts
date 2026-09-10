@@ -73,6 +73,7 @@ export async function buildRingListWriteTransaction(
       {
         indexer: params.client,
         entriesTree: policy.entriesTree,
+        entriesTreeId: policy.entriesTreeId,
         namespace,
         listId: params.listId,
         member: params.member,
@@ -85,20 +86,20 @@ export async function buildRingListWriteTransaction(
     if (live !== undefined && live.entry.version >= U64_MAX) {
       throw new RingError("RING_ENTRY_INVALID", { details: { reason: "versionOverflow" } });
     }
-    const entry: ListEntry = Object.freeze({
-      listId: params.listId,
-      member: params.member,
-      state: params.state,
-      version: live === undefined ? 0n : live.entry.version + 1n,
-      contentHash: ZERO_32,
-    });
-    const proof = await proveRingEntryTransition(
+    const { entry, proof } = await proveRingEntryTransition(
       {
         client: params.client,
         ringProgramId: params.ringProgramId,
         entriesTree: policy.entriesTree,
+        entriesTreeId: policy.entriesTreeId,
         payer: params.payer,
-        entry,
+        entry: {
+          listId: params.listId,
+          member: params.member,
+          state: params.state,
+          version: live === undefined ? 0n : live.entry.version + 1n,
+          contentHash: ZERO_32,
+        },
         ...(live === undefined ? {} : { spent: live.entry }),
       },
       context,

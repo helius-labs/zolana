@@ -10,7 +10,7 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
     ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
-    RingTransferProver, Shape, SpendProof, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
+    RingTransferProver, Shape, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -28,7 +28,7 @@ use zolana_transaction::{
     SOL_MINT,
 };
 
-use super::{decode_output_blinding, RingHarness};
+use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
     localnet::{
         send_transaction, send_transaction_fitting, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
@@ -37,8 +37,7 @@ use crate::{
     spl::create_token_account,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_transact, fetch_account,
-        wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
-        RingTransactAssertArgs,
+        wait_for_indexed_transaction, RingTransactAssertArgs,
     },
     transact::pack_transact_proof,
 };
@@ -61,6 +60,25 @@ pub enum RingRail {
     Eddsa,
     /// Ownership authorized inside the proof (RingP256 + BSB22 commitment).
     P256,
+}
+
+impl RingRail {
+    /// The ring the transfer's change and recipient outputs join, `None` for
+    /// the default ring. A P256 owner cannot hold a default-ring output: the
+    /// circuit's private identity of a P256 owner is `p256_owner_identity(x)`
+    /// while every confidential-marked default-ring slot is published as
+    /// `solana_owner_identity(tag)` by the program (`transact/verify.rs`) and
+    /// the client, so `AssertPublishedOutputOwners` (`shared/owner_tags.go`)
+    /// can never hold, and `AssertDefaultP256Owner` (`shared/signers.go`)
+    /// additionally forbids publishing the P256 identity while a ring P256 UTXO
+    /// is spent. Ring-bound outputs use the ring-confidential scheme and
+    /// publish zero, so the P256 rail keeps every output inside the ring.
+    fn output_ring(self, ring: Address) -> Option<Address> {
+        match self {
+            Self::Eddsa => None,
+            Self::P256 => Some(ring),
+        }
+    }
 }
 
 /// Cross-rail grafting and proof-data tampering for the negative cases. The
@@ -148,6 +166,18 @@ struct RingTransferOperation<'a> {
     withdrawal: Option<RingWithdrawal>,
     rail: RingRail,
     tamper: ProofTamper,
+}
+
+/// What a landed ring operation produced, for rebuilding the expected
+/// recipient and change UTXOs. `output_ring` is the ring every output joined
+/// (`None` for the default ring), which is folded into each output's hash.
+struct TrackedOutputs<'a> {
+    from: &'a str,
+    to: Option<&'a str>,
+    inputs: &'a [Utxo],
+    send_asset: Address,
+    amount: u64,
+    output_ring: Option<Address>,
 }
 
 impl RingHarness {
@@ -282,6 +312,9 @@ impl RingHarness {
         let (from, to) = (operation.from, operation.to);
         let (inputs, send_asset, amount) =
             (operation.inputs, operation.send_asset, operation.amount);
+        let output_ring = operation
+            .rail
+            .output_ring(Address::new_from_array(self.ring_program_id.to_bytes()));
         let sent = self.send_ring_transfer(operation)?;
 
         let SentRingTransfer {
@@ -307,7 +340,17 @@ impl RingHarness {
         // Rebuild the expected recipient / change UTXOs from the committed output
         // blindings (decoded independently of `Wallet::sync`), then mark consumed
         // inputs spent, so `assert_utxos` is a real cross-check of the synced wallet.
-        let discovered = self.track_outputs(from, to, inputs, send_asset, amount, &indexed)?;
+        let discovered = self.track_outputs(
+            TrackedOutputs {
+                from,
+                to,
+                inputs,
+                send_asset,
+                amount,
+                output_ring,
+            },
+            &indexed,
+        )?;
         self.indexed.push(indexed);
 
         // Discovery via `Wallet::sync`: the confidential builder tagged the recipient
@@ -404,12 +447,17 @@ impl RingHarness {
         // ciphertexts, external_data) exactly as a confidential transact; the ring
         // rail differs only in the prover and the instruction, plus the public
         // ring_program_id and the rebound discriminator.
+        let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
             .collect();
         let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
+            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address)
+                .with_output_tree_id(self.tree_id);
+        if let Some(output_ring) = rail.output_ring(ring) {
+            transfer = transfer.with_ring_program_id(output_ring);
+        }
         match (&to_address, withdrawal) {
             (Some(addr), None) => {
                 transfer.send(addr, send_asset, amount)?;
@@ -433,7 +481,6 @@ impl RingHarness {
         // the proof and the on-chain recompute must agree on it.
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
 
-        let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let data = self.prove_and_assemble(&proof_inputs, &from_keypair, ring, rail, tamper)?;
 
         let interface_transfer_accounts = withdrawal
@@ -494,6 +541,8 @@ impl RingHarness {
         match rail {
             RingRail::Eddsa => {
                 let prover = RingTransferProver {
+                    blinding_seed: proof_inputs.blinding_seed,
+                    output_tree_id: proof_inputs.output_tree_id,
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
@@ -513,7 +562,10 @@ impl RingHarness {
                         proof_inputs,
                         &result.nullifiers,
                         result.private_tx_hash,
-                        &result.input_root_indices,
+                        (
+                            result.utxo_tree_root_index,
+                            result.nullifier_tree_root_index,
+                        ),
                         RingRail::P256,
                         proof,
                         Some(Bsb22Commitment {
@@ -527,7 +579,10 @@ impl RingHarness {
                         proof_inputs,
                         &result.nullifiers,
                         result.private_tx_hash,
-                        &result.input_root_indices,
+                        (
+                            result.utxo_tree_root_index,
+                            result.nullifier_tree_root_index,
+                        ),
                         RingRail::Eddsa,
                         proof,
                         None,
@@ -539,6 +594,8 @@ impl RingHarness {
                 let authorization =
                     SyncWalletAuthority::sign_p256(signer, &proof_inputs.message_hash()?)?;
                 let prover = RingTransferP256Prover {
+                    blinding_seed: proof_inputs.blinding_seed,
+                    output_tree_id: proof_inputs.output_tree_id,
                     inputs: spend_inputs,
                     outputs: proof_inputs.output_utxos.clone(),
                     external_data: proof_inputs.external_data.clone(),
@@ -570,7 +627,10 @@ impl RingHarness {
                     proof_inputs,
                     &result.nullifiers,
                     result.private_tx_hash,
-                    &result.input_root_indices,
+                    (
+                        result.utxo_tree_root_index,
+                        result.nullifier_tree_root_index,
+                    ),
                     wire_rail,
                     proof,
                     Some(commitment),
@@ -585,56 +645,65 @@ impl RingHarness {
     /// against its ring-bound UTXO hash. A dummy carries no state proof (it mirrors
     /// the first real input's state root downstream) but still needs a real
     /// non-inclusion witness for its own nullifier: the circuit checks
-    /// non-inclusion for every slot.
+    /// non-inclusion for every slot. All proofs come from one indexer snapshot
+    /// per tree (see [`RingHarness::fetch_slot_proofs`]).
     fn ring_spend_inputs(&self, spends: &[SppProofInputUtxo]) -> Result<Vec<TransferSpendInput>> {
-        let mut out = Vec::with_capacity(spends.len());
-        for spend in spends {
-            let (proof, nullifier_proof) = if spend.is_dummy() {
-                let nullifier = spend.nullifier()?;
-                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-                (None, Some(nf))
-            } else {
+        let slots = spends
+            .iter()
+            .map(|spend| {
+                if spend.is_dummy() {
+                    return Ok(SpendSlot {
+                        utxo_hash: None,
+                        nullifier: spend.nullifier()?,
+                    });
+                }
                 let nullifier_pk = spend.nullifier_key.pubkey()?;
-                let utxo_hash = spend.utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
+                let utxo_hash = spend
+                    .utxo
+                    .hash(&nullifier_pk, &ZERO, &ZERO, spend.tree_id)?;
                 let nullifier = spend
                     .nullifier_key
                     .nullifier(&utxo_hash, &spend.utxo.blinding)?;
-                let state = wait_for_merkle_proof(&self.indexer, self.tree_address, utxo_hash);
-                let nf = wait_for_non_inclusion_proof(&self.indexer, self.tree_address, nullifier);
-                (
-                    Some(SpendProof {
-                        state,
-                        nullifier: nf,
-                    }),
-                    None,
-                )
-            };
-            out.push(TransferSpendInput {
+                Ok(SpendSlot {
+                    utxo_hash: Some(utxo_hash),
+                    nullifier,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let proofs = self.fetch_slot_proofs(&slots)?;
+        Ok(spends
+            .iter()
+            .zip(proofs)
+            .map(|(spend, (proof, nullifier_proof))| TransferSpendInput {
                 utxo: spend.utxo.clone(),
                 nullifier_key: spend.nullifier_key.clone(),
                 data_hash: None,
                 ring_data_hash: None,
+                tree_id: spend.tree_id,
                 proof,
                 nullifier_proof,
-            });
-        }
-        Ok(out)
+            })
+            .collect())
     }
 
     /// Track the expected recipient and per-asset sender-change UTXOs and mark the
     /// consumed inputs spent, rebuilt independently from the decoded output blindings
     /// so `assert_utxos` cross-checks the synced wallet. Mirrors the default-ring
     /// `transact` flow; a withdrawal has no recipient slot and reduces the SOL change
-    /// by the public amount.
+    /// by the public amount. Every output joins `tracked.output_ring`.
     fn track_outputs(
         &mut self,
-        from: &str,
-        to: Option<&str>,
-        inputs: &[Utxo],
-        send_asset: Address,
-        amount: u64,
+        tracked: TrackedOutputs<'_>,
         indexed: &ShieldedTransaction,
     ) -> Result<DiscoveredOutputs> {
+        let TrackedOutputs {
+            from,
+            to,
+            inputs,
+            send_asset,
+            amount,
+            output_ring,
+        } = tracked;
         let from_keypair = self.actor(from).keypair.clone();
         let mut discovered = DiscoveredOutputs::default();
 
@@ -651,7 +720,7 @@ impl RingHarness {
                         indexed,
                         RECIPIENT_POSITION_BASE as u32,
                     )?,
-                    ring_program_id: None,
+                    ring_program_id: output_ring,
                     data: Data::default(),
                 },
                 indexed,
@@ -661,8 +730,9 @@ impl RingHarness {
         }
 
         let nullifier_pk = from_keypair.nullifier_key.pubkey()?;
+        let tree_id = self.tree_id;
         for input in inputs {
-            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO)?;
+            let consumed_hash = input.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
             if let Some(utxo) = self
                 .actor_mut(from)
                 .expected
@@ -709,7 +779,7 @@ impl RingHarness {
                             indexed,
                             position as u32,
                         )?,
-                        ring_program_id: None,
+                        ring_program_id: output_ring,
                         data: Data::default(),
                     },
                     indexed,
@@ -766,10 +836,11 @@ impl RingHarness {
 
         let spends: Vec<SppProofInputUtxo> = inputs
             .iter()
-            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair))
+            .map(|u| SppProofInputUtxo::new(u.clone(), &from_keypair).in_tree(self.tree_id))
             .collect();
         let mut transfer =
-            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address);
+            ConfidentialTransfer::new(from_keypair.shielded_address()?, spends, payer_address)
+                .with_output_tree_id(self.tree_id);
         transfer.send(&to_address, asset, amount)?;
         let mut proof_inputs = transfer.sign(&from_keypair, &self.assets)?;
         proof_inputs.external_data.instruction_discriminator = RING_TRANSACT;
@@ -779,6 +850,8 @@ impl RingHarness {
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
         let tx_shape = proof_inputs.check_shape()?;
         let prover = RingTransferProver {
+            blinding_seed: proof_inputs.blinding_seed,
+            output_tree_id: proof_inputs.output_tree_id,
             inputs: self.ring_spend_inputs(&proof_inputs.input_utxos)?,
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
@@ -793,7 +866,10 @@ impl RingHarness {
             &proof_inputs,
             &result.nullifiers,
             result.private_tx_hash,
-            &result.input_root_indices,
+            (
+                result.utxo_tree_root_index,
+                result.nullifier_tree_root_index,
+            ),
             RingRail::Eddsa,
             TransactProof::zeroed(),
             None,
@@ -1072,35 +1148,31 @@ fn assemble_ix_data(
     proof_inputs: &SppProofInputs,
     nullifiers: &[[u8; 32]],
     private_tx_hash: [u8; 32],
-    root_indices: &[(u16, u16)],
+    root_indices: (u16, u16),
     rail: RingRail,
     proof: TransactProof,
     commitment: Option<Bsb22Commitment>,
     default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    if nullifiers.len() != n_inputs || root_indices.len() != n_inputs {
+    if nullifiers.len() != n_inputs {
         return Err(anyhow!(
-            "witness input count {} / {} does not match shape {n_inputs}",
-            nullifiers.len(),
-            root_indices.len()
+            "witness input count {} does not match shape {n_inputs}",
+            nullifiers.len()
         ));
     }
 
-    let mut inputs = Vec::with_capacity(n_inputs);
-    for i in 0..n_inputs {
-        let nullifier_hash = *nullifiers
-            .get(i)
-            .ok_or_else(|| anyhow!("missing nullifier {i}"))?;
-        let &(utxo_tree_root_index, nullifier_tree_root_index) = root_indices
-            .get(i)
-            .ok_or_else(|| anyhow!("missing root index {i}"))?;
-        inputs.push(InputUtxo {
-            nullifier_hash,
+    // SPP resolves both roots from the single `input_tree`, so every slot
+    // references the same pair.
+    let (utxo_tree_root_index, nullifier_tree_root_index) = root_indices;
+    let inputs: Vec<InputUtxo> = nullifiers
+        .iter()
+        .map(|nullifier_hash| InputUtxo {
+            nullifier_hash: *nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
-        });
-    }
+        })
+        .collect();
 
     let external = &proof_inputs.external_data;
     let n_outputs = external.outputs.len() as u8;

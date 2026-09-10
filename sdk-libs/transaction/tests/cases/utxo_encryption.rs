@@ -16,7 +16,7 @@ use zolana_transaction::{
     Address, AssetRegistry, TransactionError,
 };
 
-use crate::TransactionWorld;
+use crate::{cases::TEST_TREE_ID, TransactionWorld};
 
 const SPL_ASSET_ID: u64 = 2;
 
@@ -64,7 +64,7 @@ pub(crate) fn standard_transfer_round_trips(
     let sol_nullifier = input_sol
         .nullifier(
             &input_sol
-                .hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .unwrap(),
             &sender.nullifier_key,
         )
@@ -72,7 +72,7 @@ pub(crate) fn standard_transfer_round_trips(
     let spl_nullifier = input_spl
         .nullifier(
             &input_spl
-                .hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32])
+                .hash(&sender_nullifier_pk, &[0u8; 32], &[0u8; 32], TEST_TREE_ID)
                 .unwrap(),
             &sender.nullifier_key,
         )
@@ -99,7 +99,10 @@ pub(crate) fn standard_transfer_round_trips(
         spl_data: Data::default(),
         sol_data: Data::default(),
     };
-    let expected_change = sender_pt.clone().into_utxos(&registry, None).unwrap();
+    let expected_change = sender_pt
+        .clone()
+        .into_utxos(&first_nullifier, &registry, None)
+        .unwrap();
     assert_eq!(expected_change.len(), 2);
 
     let salt = random_salt();
@@ -113,6 +116,7 @@ pub(crate) fn standard_transfer_round_trips(
         owner: sender.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: Some(first_nullifier),
     };
     let sender_ciphertext = AnonymousSenderBundle::encode(
         &expected_change,
@@ -133,6 +137,7 @@ pub(crate) fn standard_transfer_round_trips(
         owner: recipient_utxo.owner,
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: None,
     };
     let recipient_ciphertext = AnonymousRecipient::encode(
         core::slice::from_ref(&recipient_utxo),
@@ -241,7 +246,9 @@ pub(crate) fn data_without_output_rejected(world: &mut TransactionWorld, name: S
         sol_data: Data::default(),
     };
     assert_eq!(
-        spl_only.into_utxos(&registry, None).unwrap_err(),
+        spl_only
+            .into_utxos(&[9u8; 32], &registry, None)
+            .unwrap_err(),
         TransactionError::DataWithoutOutput
     );
     let sol_only = AnonymousTransferSenderPlaintext {
@@ -255,7 +262,9 @@ pub(crate) fn data_without_output_rejected(world: &mut TransactionWorld, name: S
         sol_data: Data::new(vec![DataRecord::UtxoData(vec![1])]),
     };
     assert_eq!(
-        sol_only.into_utxos(&registry, None).unwrap_err(),
+        sol_only
+            .into_utxos(&[9u8; 32], &registry, None)
+            .unwrap_err(),
         TransactionError::DataWithoutOutput
     );
 }
@@ -264,6 +273,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
     let registry = registry();
     let owner = world.kp(&name);
 
+    let nf = [11u8; 32];
     let split_pt = SplitBundlePlaintext {
         owner_pubkey: owner.signing_pubkey(),
         num_outputs: 4,
@@ -272,10 +282,9 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
         blinding_seed: [3u8; 32],
         data: Data::default(),
     };
-    let expected = split_pt.clone().into_utxos(&registry, None).unwrap();
+    let expected = split_pt.clone().into_utxos(&nf, &registry, None).unwrap();
     assert_eq!(expected.len(), 4);
 
-    let nf = [11u8; 32];
     let salt = random_salt();
     let transaction_viewing_key = owner.viewing_key.get_transaction_viewing_key(&nf).unwrap();
     let tx_viewing_pk = transaction_viewing_key.pubkey();
@@ -283,6 +292,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
         owner: owner.signing_pubkey(),
         assets: &registry,
         ring_program_id: None,
+        first_nullifier: Some(nf),
     };
     let ciphertext = Split::encode(
         &expected,
@@ -293,7 +303,7 @@ pub(crate) fn split_round_trips(world: &mut TransactionWorld, name: String) {
             recipient_pubkey: owner.viewing_pubkey(),
             salt,
             slot_index: 0,
-            blinding_seed: [3u8; 32],
+            blinding_seed: split_pt.blinding_seed,
         },
     )
     .unwrap();

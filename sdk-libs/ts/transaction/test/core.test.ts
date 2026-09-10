@@ -1,10 +1,20 @@
-import type { Address, Bytes16, Bytes31, Bytes32 } from "../../src/interface/index.js";
+import {
+  DEFAULT_TREE_ID,
+  DUMMY_DOMAIN,
+  UTXO_DOMAIN,
+  treeIdField,
+  type Address,
+  type Bytes16,
+  type Bytes31,
+  type Bytes32,
+} from "../../src/interface/index.js";
 import {
   NullifierKey,
   ShieldedKeypair,
   ShieldedPublicKey,
   SigningKey,
   ViewingKey,
+  poseidon,
 } from "../../src/keypair/index.js";
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,10 +30,13 @@ import {
   canonicalShape,
   createProofOutput,
   depositBlinding,
-  deriveBlinding,
+  outputBlindingSeed,
   ownerUtxoHash,
+  privateTxBlinding,
   resolveShape,
+  transactOutputBlinding,
 } from "../../src/transaction/index.js";
+import { decodeAddress, hashBytes, rightAlign } from "../../src/transaction/internal.js";
 import { encodeData } from "../../src/transaction/serialization/index.js";
 
 function scalar(value: number): Bytes32 {
@@ -36,12 +49,15 @@ function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-// Pinned from `SppProofInputUtxo::new_dummy` with a `[7u8; 31]` blinding; the
-// same two digests are asserted in `sdk-libs/transaction/src/instructions/types.rs`.
-const DUMMY_ORACLE_HASH = "21bad49e7dfee8758b2bd68372ce628c95826624661c03cd7657cee52738d930";
-const DUMMY_ORACLE_NULLIFIER = "14b3997656396c9e75335686e9a673fcc06da33bd7e3b4191ed8d1372719a976";
+// The shared `dummy_utxo_hash` vector of `test-vectors/transact_derivation.json`:
+// tree id 0 and the field element 7 as blinding. Rust pins the same digest in
+// `sdk-libs/transaction/tests/cases/transact_derivation.rs`. The nullifier is
+// `Poseidon(hash, blinding, 0)` under the all-zero dummy nullifier secret and is
+// recomputed structurally below.
+const DUMMY_ORACLE_HASH = "0bcdb815bb39d89bf9fabc897beab1b8c15fffee38fa9e9519db1d316614c351";
+const DUMMY_ORACLE_NULLIFIER = "0f97d9475372c5ad0e407745c72213340455e63265d4e7e3429873bb0cbe7f67";
 
-const DUMMY_BLINDING = new Uint8Array(32).fill(7) as Bytes32;
+const DUMMY_BLINDING = scalar(7);
 const ZERO_NULLIFIER_KEY = (): NullifierKey =>
   NullifierKey.fromSecret(new Uint8Array(31) as Bytes31);
 
@@ -195,11 +211,33 @@ describe("transaction core", () => {
     });
     const dataHash = scalar(4);
     const ringHash = scalar(5);
-    const hash = base.hash(scalar(6), dataHash, ringHash);
-    expect(base.hash(scalar(6), dataHash, ringHash)).toEqual(hash);
-    expect(base.hash(scalar(6), scalar(7), ringHash)).not.toEqual(hash);
-    expect(base.hash(scalar(8), dataHash, ringHash)).not.toEqual(hash);
+    const treeId = DEFAULT_TREE_ID;
+    const hash = base.hash(scalar(6), treeId, dataHash, ringHash);
+    expect(base.hash(scalar(6), treeId, dataHash, ringHash)).toEqual(hash);
+    expect(base.hash(scalar(6), treeId, scalar(7), ringHash)).not.toEqual(hash);
+    expect(base.hash(scalar(8), treeId, dataHash, ringHash)).not.toEqual(hash);
+    // The tree id is committed: the same UTXO in another tree has another hash.
+    expect(base.hash(scalar(6), 1, dataHash, ringHash)).not.toEqual(hash);
     expect(base.nullifier(hash, nullifier)).not.toEqual(base.nullifier(scalar(9), nullifier));
+
+    // `Poseidon(domain, tree_id, asset, amount, data_hash, Poseidon(ring_data_hash,
+    // ring_program_id), Poseidon(Poseidon(owner_identity, nullifier_pk), blinding))`.
+    const amount = new Uint8Array(8);
+    new DataView(amount.buffer).setBigUint64(0, 42n, false);
+    expect(
+      poseidon([
+        rightAlign(Uint8Array.of(UTXO_DOMAIN)),
+        treeIdField(treeId),
+        hashBytes(decodeAddress(SOL_MINT)),
+        rightAlign(amount),
+        dataHash,
+        poseidon([ringHash, hashBytes(decodeAddress(RING))]),
+        poseidon([
+          poseidon([keypair.signingPublicKey().ownerProofInputHash(), scalar(6)]),
+          base.blinding,
+        ]),
+      ]),
+    ).toEqual(hash);
 
     const proof = new ProofInputUtxo({
       utxo: base,
@@ -207,7 +245,11 @@ describe("transaction core", () => {
       dataHash,
       ringDataHash: ringHash,
     });
-    expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), dataHash, ringHash));
+    expect(proof.treeId).toBe(DEFAULT_TREE_ID);
+    expect(proof.hash()).toEqual(base.hash(nullifier.publicKey(), treeId, dataHash, ringHash));
+    expect(proof.withTreeId(1).hash()).toEqual(
+      base.hash(nullifier.publicKey(), 1, dataHash, ringHash),
+    );
     expect(ProofInputUtxo.dummy().isDummy()).toBe(true);
     expect(
       () =>
@@ -245,16 +287,38 @@ describe("transaction core", () => {
 
     expect(nullifierKey).toHaveBeenCalledOnce();
     expect(destroy).toHaveBeenCalledOnce();
-    expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey()));
+    expect(input.treeId).toBe(DEFAULT_TREE_ID);
+    expect(input.hash()).toEqual(utxo.hash(keypair.nullifierPublicKey(), DEFAULT_TREE_ID));
     expect(input.nullifier()).toHaveLength(32);
   });
 
   it("accepts and hashes a canonical dummy exactly as Rust does", () => {
-    const dummy = ProofInputUtxo.dummy(new Uint8Array(32).fill(7) as Bytes32);
+    const dummy = ProofInputUtxo.dummy(DUMMY_BLINDING, 0);
 
     expect(dummy.isDummy()).toBe(true);
+    expect(dummy.treeId).toBe(DEFAULT_TREE_ID);
     expect(hex(dummy.hash())).toBe(DUMMY_ORACLE_HASH);
     expect(hex(dummy.nullifier())).toBe(DUMMY_ORACLE_NULLIFIER);
+
+    // The 7-element preimage the shared vector encodes: the dummy domain, the
+    // tree id, zero asset, amount and data hash, an all-zero ring pair, and the
+    // blinding under a zero owner.
+    const zero = new Uint8Array(32);
+    const structural = poseidon([
+      rightAlign(Uint8Array.of(DUMMY_DOMAIN)),
+      treeIdField(0),
+      zero,
+      zero,
+      zero,
+      poseidon([zero, zero]),
+      poseidon([zero, DUMMY_BLINDING]),
+    ]);
+    expect(hex(structural)).toBe(DUMMY_ORACLE_HASH);
+    expect(hex(poseidon([structural, DUMMY_BLINDING, zero]))).toBe(DUMMY_ORACLE_NULLIFIER);
+
+    // The default tree is 0, and a dummy in another tree is another commitment.
+    expect(ProofInputUtxo.dummy(DUMMY_BLINDING).hash()).toEqual(dummy.hash());
+    expect(ProofInputUtxo.dummy(DUMMY_BLINDING, 1).hash()).not.toEqual(dummy.hash());
   });
 
   it("binds padded dummy output tags to the real input signer", () => {
@@ -393,9 +457,9 @@ describe("transaction core", () => {
         data: new Data([{ kind: "ringData", bytes: Uint8Array.of(1, 2) }]),
       }).ringDataHash,
     ).toBeUndefined();
-    expect(createProofOutput({ ...output, ringProgramId: ZERO_ADDRESS }).hash()).not.toEqual(
-      output.hash(),
-    );
+    expect(
+      createProofOutput({ ...output, ringProgramId: ZERO_ADDRESS }).hash(DEFAULT_TREE_ID),
+    ).not.toEqual(output.hash(DEFAULT_TREE_ID));
   });
 
   // The commitment is the one hashing path Rust drives through `light_poseidon`
@@ -436,14 +500,43 @@ describe("transaction core", () => {
     );
   });
 
-  it("derives position-specific blindings and validates their range", () => {
-    const seed = new Uint8Array(32).fill(9) as Bytes32;
-    expect(deriveBlinding(seed, 0)).not.toEqual(deriveBlinding(seed, 1));
-    expect(deriveBlinding(seed, 0)).toEqual(deriveBlinding(seed, 0));
-    expect(() => deriveBlinding(seed, 256)).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_INVALID_POSITION" }),
+  // The `blinding_seed` section of `test-vectors/transact_derivation.json`:
+  // first nullifier 7 and blinding seed 42 as field elements.
+  it("derives slot blindings from the first nullifier and the output seed", () => {
+    const firstNullifier = scalar(7);
+    const seed = scalar(42);
+    const outputSeed = outputBlindingSeed(firstNullifier, seed);
+    expect(hex(outputSeed)).toBe(
+      "06bca316066630056539772e0d19f5d9453331f9dda2f0d08ee0632b6b512de3",
     );
-    expect(ownerUtxoHash(scalar(1), seed)).toHaveLength(32);
+    expect(hex(privateTxBlinding(firstNullifier, seed))).toBe(
+      "1991f166208c440ba5ecdb0f8ccc792e8d2739038ae9d99862621cf2c292f610",
+    );
+    // The pinned TXOB vector feeds the root seed at index 3; the protocol form
+    // below feeds the derived output seed, as the circuit does for every slot.
+    expect(hex(transactOutputBlinding(firstNullifier, seed, 3))).toBe(
+      "06261540e857febb5f8d59eb742ad3d4d8200ff38ccbf2ea16cd1e0a9085e881",
+    );
+    const blinding = transactOutputBlinding(firstNullifier, outputSeed, 3);
+    expect(blinding).not.toEqual(transactOutputBlinding(firstNullifier, seed, 3));
+
+    // Every slot, every transaction and every seed gets its own blinding: the
+    // derivation binds the slot index, the first nullifier and the seed.
+    expect(transactOutputBlinding(firstNullifier, outputSeed, 3)).toEqual(blinding);
+    expect(transactOutputBlinding(firstNullifier, outputSeed, 4)).not.toEqual(blinding);
+    expect(transactOutputBlinding(scalar(8), outputSeed, 3)).not.toEqual(blinding);
+    expect(
+      transactOutputBlinding(firstNullifier, outputBlindingSeed(firstNullifier, scalar(43)), 3),
+    ).not.toEqual(blinding);
+    expect(outputBlindingSeed(scalar(8), seed)).not.toEqual(outputSeed);
+    // The disclosed output seed never equals the private tx blinding.
+    expect(privateTxBlinding(firstNullifier, seed)).not.toEqual(outputSeed);
+    // The index enters as a u32; anything wider is refused.
+    expect(() => transactOutputBlinding(firstNullifier, outputSeed, 0x1_0000_0000)).toThrow(
+      RangeError,
+    );
+    expect(() => transactOutputBlinding(firstNullifier, outputSeed, -1)).toThrow(RangeError);
+    expect(ownerUtxoHash(scalar(1), blinding)).toHaveLength(32);
   });
 
   it("derives the deposit blinding the shielded pool derives", () => {

@@ -11,14 +11,16 @@ use swap_program::{
     },
     verifying_keys::take::VERIFYINGKEY,
 };
-use swap_prover::{CircuitId, OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
-use swap_sdk::{instructions::take::derive_destination_blinding, state::DataHash};
-use zolana_hasher::primitives::hash_bytes;
-use zolana_keypair::ViewingKey;
-use zolana_transaction::{instructions::transact::PrivateTxHash, utxo::Blinding, ProofInputUtxo};
-
-mod shared;
-use shared::order_utxo_owner_hash;
+use swap_prover::{CircuitId, TakeProofInputs, TAKE_MODE_DERIVED};
+use swap_sdk::{
+    instructions::take::{take_blinding_seed, TakeProofInputParams},
+    state::{OrderTerms, OrderUtxo},
+};
+use zolana_keypair::ShieldedKeypair;
+use zolana_transaction::{
+    instructions::transact::{assign_output_blindings, PrivateTxHash},
+    utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
+};
 
 fn build_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../build/gnark/take")
@@ -42,85 +44,87 @@ fn fe(byte: u8) -> [u8; 32] {
     out
 }
 
-fn blinding(byte: u8) -> Blinding {
-    let mut out = [0u8; 32];
-    out[31] = byte;
-    out
-}
+/// Nonzero, different trees catch dropped or swapped IDs in the commitments.
+const INPUT_TREE_ID: u16 = 3;
+const OUTPUT_TREE_ID: u16 = 7;
 
-fn build_inputs(destination_output_blinding: Blinding) -> TakeProofInputs {
-    let maker_viewing_pk = *ViewingKey::new().pubkey().as_bytes();
-    let order = OrderTermsProofInput {
-        destination_asset: hash_bytes(&[2u8; 32]).expect("destination asset"),
-        destination_amount: 250,
-        maker_owner_hash: fe(99),
-        maker_viewing_pk,
-        expiry: 1_700_000_000,
-        taker_pk_fe: fe(123),
-        take_mode: TAKE_MODE_DERIVED,
+fn sample_params() -> TakeProofInputParams {
+    let maker = ShieldedKeypair::new_ed25519()
+        .unwrap()
+        .shielded_address()
+        .unwrap();
+    let taker = ShieldedKeypair::new_ed25519()
+        .unwrap()
+        .shielded_address()
+        .unwrap();
+    let order_utxo = OrderUtxo {
+        terms: OrderTerms {
+            destination_mint: Address::new_from_array([2; 32]),
+            destination_amount: 250,
+            destination: maker,
+            taker: taker.solana_address().unwrap(),
+            expiry: 1_700_000_000,
+            take_mode: TAKE_MODE_DERIVED,
+        },
+        blinding: fe(7),
+        source_mint: Address::new_from_array([1; 32]),
+        source_amount: 1_000,
+        destination_asset_id: 2,
     };
-    let source_mint = Address::new_from_array([1u8; 32]);
-    let destination_mint = Address::new_from_array([2u8; 32]);
-    let taker_owner_hash = fe(77);
-    let order_utxo = ProofInputUtxo::new(
-        order_utxo_owner_hash(&fe(42)),
-        &source_mint,
-        1_000,
-        &blinding(7),
-    )
-    .expect("order utxo")
-    .with_data_hash(order.data_hash().expect("order data hash"));
-    let taker_in = ProofInputUtxo::new(
-        taker_owner_hash,
-        &destination_mint,
-        order.destination_amount,
-        &blinding(13),
-    )
-    .expect("taker input utxo");
-    let source_output = ProofInputUtxo::new(taker_owner_hash, &source_mint, 1_000, &blinding(31))
-        .expect("source output utxo");
-    let destination_output = ProofInputUtxo::new(
-        order.maker_owner_hash,
-        &destination_mint,
-        order.destination_amount,
-        &destination_output_blinding,
-    )
-    .expect("destination output utxo");
-    let external_data_hash = fe(8);
-    let private_tx_hash = PrivateTxHash::new(
-        &[
-            order_utxo.hash().expect("order utxo hash"),
-            taker_in.hash().expect("taker input hash"),
-        ],
-        &[
-            source_output.hash().expect("source output hash"),
-            destination_output.hash().expect("destination output hash"),
-        ],
-        &external_data_hash,
-    )
-    .hash()
-    .expect("private tx hash");
-    let public_input_hash = TakePublicInput {
-        private_tx_hash: &private_tx_hash,
-        expiry: order.expiry,
-    }
-    .hash()
-    .expect("public input hash");
-    TakeProofInputs {
-        public_input_hash,
-        private_tx_hash,
-        order,
+    let first_nullifier = order_utxo
+        .to_input_utxo()
+        .unwrap()
+        .in_tree(INPUT_TREE_ID)
+        .nullifier()
+        .unwrap();
+    let blinding_seed = take_blinding_seed(&order_utxo.blinding).unwrap();
+    let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).unwrap();
+    let mut outputs = [
+        order_utxo.source_output(taker, fe(0)),
+        order_utxo.destination_output(maker, fe(0)),
+    ];
+    assign_output_blindings(&mut outputs, &first_nullifier, &seed).unwrap();
+    let [source_output, destination_output] = outputs;
+    TakeProofInputParams {
+        taker_in: order_utxo.destination_output(taker, fe(13)),
         order_utxo,
-        taker_in,
         source_output,
         destination_output,
-        external_data_hash,
+        external_data_hash: fe(8),
+        private_tx_blinding: derive_private_tx_blinding(&first_nullifier, &blinding_seed).unwrap(),
+        input_tree_id: INPUT_TREE_ID,
+        output_tree_id: OUTPUT_TREE_ID,
     }
 }
 
 fn sample_inputs() -> TakeProofInputs {
-    let derived = derive_destination_blinding(&blinding(7)).expect("derive destination blinding");
-    build_inputs(derived)
+    sample_params().to_proof_inputs().unwrap()
+}
+
+// Refresh both commitments after mutations, so negative proofs fail on the
+// recovery constraint rather than on stale public hashes.
+fn refresh_hashes(inputs: &mut TakeProofInputs) {
+    inputs.private_tx_hash = PrivateTxHash::new(
+        &[
+            inputs.order_utxo.hash().unwrap(),
+            inputs.taker_in.hash().unwrap(),
+        ],
+        &[
+            inputs.source_output.hash().unwrap(),
+            inputs.destination_output.hash().unwrap(),
+        ],
+        &inputs.external_data_hash,
+        &inputs.private_tx_blinding,
+    )
+    .hash()
+    .unwrap();
+    inputs.public_input_hash = TakePublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        expiry: inputs.order.expiry,
+        first_nullifier: &inputs.first_nullifier,
+    }
+    .hash()
+    .unwrap();
 }
 
 fn verify_with_vk(
@@ -149,12 +153,6 @@ fn verify_with_vk(
         Err(_) => return false,
     };
     verifier.verify().is_ok()
-}
-
-fn keys_in_sync(vk: &Groth16VerifyingkeyOwned) -> bool {
-    let borrowed = vk.as_borrowed();
-    borrowed.vk_ic.len() == VERIFYINGKEY.vk_ic.len()
-        && borrowed.vk_alpha_g1 == VERIFYINGKEY.vk_alpha_g1
 }
 
 #[test]
@@ -197,33 +195,25 @@ fn take_prove_verify() {
         "groth16 proof must verify against the generated take verifying key"
     );
 
-    if keys_in_sync(&vk) {
-        let public_input_hash = TakePublicInput {
-            private_tx_hash: &inputs.private_tx_hash,
-            expiry: inputs.order.expiry,
-        }
-        .hash()
-        .expect("program take public input hash");
-        let proof: TakeProof = proof.into();
-        verify_groth16(
-            CompressedGroth16Proof {
-                a: &proof.proof_a,
-                b: &proof.proof_b,
-                c: &proof.proof_c,
-                commitment: None,
-            },
-            public_input_hash,
-            &VERIFYINGKEY,
-        )
-        .expect("program take verify must accept a valid proof");
-    } else {
-        eprintln!(
-            "SKIP: committed take VERIFYINGKEY does not match the locally generated \
-             build/gnark/take/vk.bin (keys are gitignored and groth16 setup is randomized), \
-             so the on-chain verify_groth16 path was not exercised. Download the pinned keys \
-             matching swap-keys.CHECKSUM to run it."
-        );
+    let public_input_hash = TakePublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        expiry: inputs.order.expiry,
+        first_nullifier: &inputs.first_nullifier,
     }
+    .hash()
+    .expect("program take public input hash");
+    let proof: TakeProof = proof.into();
+    verify_groth16(
+        CompressedGroth16Proof {
+            a: &proof.proof_a,
+            b: &proof.proof_b,
+            c: &proof.proof_c,
+            commitment: None,
+        },
+        public_input_hash,
+        &VERIFYINGKEY,
+    )
+    .expect("program take verify must accept a valid proof");
 }
 
 #[test]
@@ -250,16 +240,97 @@ fn take_rejects_tampered_public_input() {
 }
 
 #[test]
-fn take_rejects_wrong_destination_blinding() {
+fn take_rejects_unrecoverable_payouts_and_transaction_blinding() {
     ensure_keys();
+    let good = sample_inputs();
+    good.prove().expect("positive control");
+    for attack in 0..4 {
+        let mut inputs = good.clone();
+        match attack {
+            0 => inputs.destination_output.blinding = fe(29),
+            1 => inputs.source_output.blinding = fe(29),
+            2 => inputs.private_tx_blinding = fe(29),
+            _ => {
+                let blinding_seed = fe(29);
+                let seed =
+                    derive_output_blinding_seed(&inputs.first_nullifier, &blinding_seed).unwrap();
+                inputs.private_tx_blinding =
+                    derive_private_tx_blinding(&inputs.first_nullifier, &blinding_seed).unwrap();
+                for (index, output) in [&mut inputs.source_output, &mut inputs.destination_output]
+                    .into_iter()
+                    .enumerate()
+                {
+                    output.blinding = zolana_transaction::utxo::derive_transact_output_blinding(
+                        &inputs.first_nullifier,
+                        &seed,
+                        index as u32,
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        refresh_hashes(&mut inputs);
+        assert!(inputs.prove().is_err(), "accepted recovery attack {attack}");
+    }
+}
 
-    let mut wrong_blinding =
-        derive_destination_blinding(&blinding(7)).expect("derive destination blinding");
-    wrong_blinding[30] ^= 0x01;
-    let inputs = build_inputs(wrong_blinding);
-
-    assert!(
-        inputs.prove().is_err(),
-        "proving must fail when the destination output blinding is not derived from the order utxo blinding"
+#[test]
+fn maker_recovers_payout_without_settlement_ciphertext() {
+    let params = sample_params();
+    let inputs = params.to_proof_inputs().unwrap();
+    let recovered = params
+        .order_utxo
+        .derived_destination_output(&inputs.first_nullifier)
+        .unwrap();
+    assert_eq!(
+        recovered.hash(OUTPUT_TREE_ID).unwrap(),
+        inputs.destination_output.hash().unwrap()
     );
+    let wrong_first = params
+        .order_utxo
+        .derived_destination_output(&fe(17))
+        .unwrap();
+    assert_ne!(
+        wrong_first.hash(OUTPUT_TREE_ID).unwrap(),
+        inputs.destination_output.hash().unwrap()
+    );
+}
+
+#[test]
+fn sdk_rejects_a_taker_selected_blinding_seed_or_payout() {
+    let mut params = sample_params();
+    params.destination_output.blinding = fe(29);
+    assert!(params
+        .to_proof_inputs()
+        .unwrap_err()
+        .to_string()
+        .contains("output 1 blinding"));
+    let mut params = sample_params();
+    params.private_tx_blinding = fe(29);
+    assert!(params
+        .to_proof_inputs()
+        .unwrap_err()
+        .to_string()
+        .contains("blinding seed"));
+}
+
+#[test]
+fn take_proof_binds_the_published_first_nullifier() {
+    ensure_keys();
+    let inputs = sample_inputs();
+    let proof = inputs.prove().unwrap();
+    let wrong_hash = TakePublicInput {
+        private_tx_hash: &inputs.private_tx_hash,
+        expiry: inputs.order.expiry,
+        first_nullifier: &fe(17),
+    }
+    .hash()
+    .unwrap();
+    assert!(!verify_with_vk(
+        &generated_vk(),
+        &proof.proof_a,
+        &proof.proof_b,
+        &proof.proof_c,
+        wrong_hash
+    ));
 }

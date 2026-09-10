@@ -16,7 +16,7 @@ use std::{fs, path::Path};
 
 use serde_json::Value;
 use shielded_pool_program::testing::{
-    amount_field, solana_pk_hash, TransactProof, TransactProofInputs,
+    amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
 use zolana_hasher::{
     hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
@@ -27,7 +27,9 @@ use zolana_interface::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
         TransactProof as ProofData,
     },
-    N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    merge_utils::owner_proof_input_hash_compressed,
+    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
+    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
 fn vector(name: &str) -> Value {
@@ -70,6 +72,37 @@ fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
         .collect()
 }
 
+/// Decode a `0x…` byte string of exactly `N` bytes (no field padding).
+fn bytes<const N: usize>(value: &Value) -> [u8; N] {
+    let text = value.as_str().expect("byte string");
+    let digits = text.strip_prefix("0x").expect("byte string has 0x prefix");
+    assert_eq!(digits.len(), N * 2, "byte string is {N} bytes");
+    let mut out = [0u8; N];
+    for (slot, chunk) in out.iter_mut().zip(digits.as_bytes().chunks(2)) {
+        let text = core::str::from_utf8(chunk).expect("hex chunk");
+        *slot = u8::from_str_radix(text, 16).expect("hex byte");
+    }
+    out
+}
+
+/// The vector's fixed-width `tree_slots` array: `INPUT_TREES` entries of
+/// `{id, utxo_root, nullifier_root}`, unused slots all zero at the end.
+fn tree_slots(vector: &Value) -> [TreeSlot; INPUT_TREES] {
+    let entries = vector
+        .get("tree_slots")
+        .and_then(Value::as_array)
+        .expect("vector tree_slots");
+    assert_eq!(entries.len(), INPUT_TREES, "vector publishes every slot");
+    core::array::from_fn(|index| {
+        let entry = entries.get(index).expect("tree slot");
+        TreeSlot {
+            id: fe_at(entry, "id"),
+            utxo_root: fe_at(entry, "utxo_root"),
+            nullifier_root: fe_at(entry, "nullifier_root"),
+        }
+    })
+}
+
 /// Test-local clone of the Go `protocol.PublicInputHash` ordering
 /// (public_inputs.go), built from the program's own primitives.
 /// `public_slot_amounts` are the already-encoded field elements and
@@ -78,8 +111,11 @@ fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
 struct GoAssembly<'a> {
     nullifiers: &'a [[u8; 32]],
     output_hashes: &'a [[u8; 32]],
-    utxo_roots: &'a [[u8; 32]],
-    nullifier_tree_roots: &'a [[u8; 32]],
+    /// Every slot, populated first and all-zero at the end; they enter the
+    /// preimage as one right-folded element.
+    tree_slots: &'a [TreeSlot; INPUT_TREES],
+    /// `tree_id_field` of the tree every output is appended to.
+    output_tree_id: [u8; 32],
     private_tx_hash: [u8; 32],
     external_data_hash: [u8; 32],
     public_slot_assets: &'a [[u8; 32]],
@@ -95,8 +131,8 @@ impl GoAssembly<'_> {
         let mut fields = vec![
             create_hash_chain_from_slice(self.nullifiers).expect("nullifier chain"),
             create_hash_chain_from_slice(self.output_hashes).expect("output chain"),
-            create_hash_chain_from_slice(self.utxo_roots).expect("utxo root chain"),
-            create_hash_chain_from_slice(self.nullifier_tree_roots).expect("nullifier root chain"),
+            tree_slots_hash_chain(self.tree_slots).expect("tree slot chain"),
+            self.output_tree_id,
             self.private_tx_hash,
             self.external_data_hash,
         ];
@@ -130,8 +166,7 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
     let vector = vector("public_input_hash_vector.json");
     let nullifiers = fe_list(&vector, "nullifiers");
     let output_hashes = fe_list(&vector, "output_utxo_hashes");
-    let utxo_roots = fe_list(&vector, "utxo_tree_roots");
-    let nullifier_tree_roots = fe_list(&vector, "nullifier_tree_roots");
+    let slots = tree_slots(&vector);
     let public_slot_assets = fe_list(&vector, "public_assets");
     let public_slot_amounts = fe_list(&vector, "public_amounts");
     let signer_pk_hashes = fe_list(&vector, "signer_pk_hashes");
@@ -139,8 +174,8 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
     let assembled = GoAssembly {
         nullifiers: &nullifiers,
         output_hashes: &output_hashes,
-        utxo_roots: &utxo_roots,
-        nullifier_tree_roots: &nullifier_tree_roots,
+        tree_slots: &slots,
+        output_tree_id: fe_at(&vector, "output_tree_id"),
         private_tx_hash: fe_at(&vector, "private_tx_hash"),
         external_data_hash: fe_at(&vector, "external_data_hash"),
         public_slot_assets: &public_slot_assets,
@@ -199,12 +234,9 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
     derived.allow_dummy_inputs = small_fe(1);
     derived.public_slot_amounts = [801, -901, 0];
     derived.unique_owner_signer_count = unique_signers;
-    for (index, root) in derived.utxo_roots.iter_mut().enumerate() {
-        *root = small_fe(0x20 + index as u8);
-    }
-    for (index, root) in derived.nullifier_tree_roots.iter_mut().enumerate() {
-        *root = small_fe(0x30 + index as u8);
-    }
+    // SPP proves against exactly one input tree, so only slot 0 is populated.
+    derived.tree_slot = TreeSlot::new(0x0d, small_fe(0x20), small_fe(0x30));
+    derived.output_tree_id = tree_id_field(0x0e);
     for (index, signer) in derived.signer_pk_hashes.iter_mut().enumerate() {
         *signer = small_fe(0x40 + index as u8);
     }
@@ -258,14 +290,15 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             .expect("unique signers")
             .to_vec();
         signer_run.resize(signer_width, [0u8; 32]);
+        let mut slots = [TreeSlot::ZERO; INPUT_TREES];
+        if let Some(slot_0) = slots.first_mut() {
+            *slot_0 = derived.tree_slot;
+        }
         let clone = GoAssembly {
             nullifiers: &nullifiers,
             output_hashes: &output_hashes,
-            utxo_roots: derived.utxo_roots.get(..2).expect("utxo roots"),
-            nullifier_tree_roots: derived
-                .nullifier_tree_roots
-                .get(..2)
-                .expect("nullifier roots"),
+            tree_slots: &slots,
+            output_tree_id: derived.output_tree_id,
             private_tx_hash: owned.private_tx_hash,
             external_data_hash: derived.external_data_hash,
             public_slot_assets: derived
@@ -301,8 +334,19 @@ fn field_derivation_vector_pins_the_shared_encodings() {
 
     let solana = vector.get("solana_pk_hash").expect("solana_pk_hash entry");
     assert_eq!(
-        solana_pk_hash(&fe_at(solana, "pubkey")).expect("solana pk hash"),
+        solana_owner_identity(&fe_at(solana, "pubkey")).expect("solana owner identity"),
         fe_at(solana, "hash")
+    );
+
+    // The P256 owner identity is tagged and taken over the x-coordinate only,
+    // so the vector's SEC1-compressed key and its odd-parity twin agree.
+    let p256 = vector
+        .get("p256_owner_pk_hash")
+        .expect("p256_owner_pk_hash entry");
+    let compressed: [u8; 33] = bytes(p256.get("compressed_pubkey").expect("compressed_pubkey"));
+    assert_eq!(
+        owner_proof_input_hash_compressed(&compressed).expect("p256 owner identity"),
+        fe_at(p256, "hash")
     );
 
     for entry in vector

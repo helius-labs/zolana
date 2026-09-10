@@ -213,6 +213,7 @@ pub(crate) struct MutationAccounts<'a> {
     pub namespace_bump: u8,
     pub owner: ListNamespace,
     pub authority: Address,
+    pub entries_tree_id: u16,
 }
 
 impl<'a> MutationAccounts<'a> {
@@ -278,6 +279,7 @@ impl<'a> MutationAccounts<'a> {
             namespace_bump,
             owner,
             authority: config.authority,
+            entries_tree_id: policy_config.entries_tree_id(),
         })
     }
 
@@ -305,6 +307,7 @@ pub(crate) struct EntryTransition {
     pub input: InputUtxo,
     pub input_hash: [u8; 32],
     pub address_utxo_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
     pub proof: TransactProof,
 }
 
@@ -313,13 +316,14 @@ impl EntryTransition {
         self,
         owner: &ListNamespace,
         namespace_address: &Address,
+        tree_id: u16,
     ) -> Result<TransactIxData, ProgramError> {
         let address = owner
-            .address(self.entry.list_id, &self.entry.member)
+            .address(self.entry.list_id, &self.entry.member, tree_id)
             .map_err(|_| CustomRingError::HashingFailed)?;
         let output_hash = self
             .entry
-            .utxo_hash(owner, &address)
+            .utxo_hash(owner, &address, tree_id)
             .map_err(|_| CustomRingError::HashingFailed)?;
         let content = self.entry.to_output_data();
         let entry_bytes = namespace_address.to_bytes();
@@ -347,6 +351,7 @@ impl EntryTransition {
             output_hash,
             self.address_utxo_hash,
             &external_data_hash,
+            &self.private_tx_blinding,
         )
         .map_err(|_| CustomRingError::HashingFailed)?;
 
@@ -374,12 +379,13 @@ impl EntryTransition {
 pub(crate) fn entry_spend_input(
     owner: &ListNamespace,
     entry: &ListEntry,
+    tree_id: u16,
 ) -> Result<([u8; 32], [u8; 32]), ProgramError> {
     let address = owner
-        .address(entry.list_id, &entry.member)
+        .address(entry.list_id, &entry.member, tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let spent_hash = entry
-        .utxo_hash(owner, &address)
+        .utxo_hash(owner, &address, tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let nullifier = entry_nullifier(&spent_hash, &entry.blinding())
         .map_err(|_| CustomRingError::HashingFailed)?;
@@ -390,10 +396,11 @@ pub(crate) fn entry_address_input(
     owner: &ListNamespace,
     list_id: ListId,
     member: &Member,
+    tree_id: u16,
 ) -> Result<([u8; 32], [u8; 32]), ProgramError> {
     let seed = entry_seed(list_id, member).map_err(|_| CustomRingError::HashingFailed)?;
     let address_utxo_hash = owner
-        .address_utxo_hash(&seed)
+        .address_utxo_hash(&seed, tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;
     let address =
         entry_nullifier(&address_utxo_hash, &seed).map_err(|_| CustomRingError::HashingFailed)?;

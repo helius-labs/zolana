@@ -7,6 +7,7 @@ use solana_account::Account;
 use solana_address::Address;
 use zolana_client::{AsyncRpc, MerkleProof, NonInclusionProof, Rpc};
 use zolana_hasher::primitives::{hash_bytes, right_align};
+use zolana_interface::tree_slot::tree_id_field;
 use zolana_interface::{
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, DUMMY_DOMAIN, SHIELDED_POOL_PROGRAM_ID,
     UTXO_DOMAIN,
@@ -40,6 +41,7 @@ pub struct TransactRoots {
 /// The policy witness of one transfer, serialized into the proof request.
 pub struct CustomRingWitness {
     pub roots: TransactRoots,
+    pub entries_tree_id: u16,
     pub sources: [SourceOwnerEntry; MAX_SOURCES],
     pub inputs: [CustomRingOpening; POLICY_INPUT_SLOTS],
     pub outputs: [CustomRingOpening; POLICY_OUTPUT_SLOTS],
@@ -61,6 +63,8 @@ pub struct CustomRingWitnessInput<'a> {
     pub policy_config: &'a PolicyConfig,
     pub inputs: &'a [SppProofInputUtxo],
     pub outputs: &'a [SppProofOutputUtxo],
+    /// The tree the outputs are appended to, every output hashes under it.
+    pub output_tree_id: u16,
 }
 
 impl<'a> CustomRingWitnessInput<'a> {
@@ -136,6 +140,7 @@ impl<'a> CustomRingWitnessInput<'a> {
                             },
                             list_id,
                             member,
+                            tree_id: self.policy_config.entries_tree_id(),
                         };
                         let index = lookups
                             .iter()
@@ -187,10 +192,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
-            let tag = address
-                .confidential_view_tag()
-                .map_err(|_| TransferError::PolicyHashing)?;
-            if Member::owner_tag(&tag).map_err(|_| TransferError::PolicyHashing)? != *owner {
+            if owner_member(address.signing_pubkey.owner_proof_input_hash())? != *owner {
                 continue;
             }
             let asset = Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?;
@@ -218,12 +220,7 @@ impl<'a> CustomRingWitnessInput<'a> {
                 Subject::Asset => {
                     Member::asset(&output.asset).map_err(|_| TransferError::PolicyHashing)?
                 }
-                _ => {
-                    let tag = address
-                        .confidential_view_tag()
-                        .map_err(|_| TransferError::PolicyHashing)?;
-                    Member::owner_tag(&tag).map_err(|_| TransferError::PolicyHashing)?
-                }
+                _ => owner_member(address.signing_pubkey.owner_proof_input_hash())?,
             };
             if output_member == *member {
                 total += u128::from(output.amount);
@@ -234,30 +231,18 @@ impl<'a> CustomRingWitnessInput<'a> {
 
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
         match rule.subject {
-            Subject::OutputOwner => {
-                let tags = self
-                    .outputs
-                    .iter()
-                    .filter_map(|output| output.owner_address.as_ref())
-                    .map(|address| address.confidential_view_tag())
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| TransferError::PolicyHashing)?;
-                tags.iter()
-                    .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
-                    .collect()
-            }
-            Subject::Sender => {
-                let tags = self
-                    .inputs
-                    .iter()
-                    .filter(|spend| !spend.is_dummy())
-                    .map(|spend| spend.utxo.owner.confidential_view_tag())
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|_| TransferError::PolicyHashing)?;
-                tags.iter()
-                    .map(|tag| Member::owner_tag(tag).map_err(|_| TransferError::PolicyHashing))
-                    .collect()
-            }
+            Subject::OutputOwner => self
+                .outputs
+                .iter()
+                .filter_map(|output| output.owner_address.as_ref())
+                .map(|address| owner_member(address.signing_pubkey.owner_proof_input_hash()))
+                .collect(),
+            Subject::Sender => self
+                .inputs
+                .iter()
+                .filter(|spend| !spend.is_dummy())
+                .map(|spend| owner_member(spend.utxo.owner.owner_proof_input_hash()))
+                .collect(),
             // The circuit ranges asset rules over live outputs, using the same
             // hashed mint field as output_opening.
             Subject::Asset => self
@@ -454,6 +439,7 @@ impl ResolvedWitness<'_> {
                     entry.absent_branch = 2;
                     entry.state = live.entry.state as u8;
                     entry.version = live.entry.version;
+                    entry.blinding = live.entry.blinding;
                     entry.content_hash = live.entry.content_hash;
                     entry.state_path = padded(state.path, STATE_PATH_LEN);
                     entry.state_path_index = state.leaf_index;
@@ -470,11 +456,12 @@ impl ResolvedWitness<'_> {
         }
         let mut outputs = [CustomRingOpening::default(); POLICY_OUTPUT_SLOTS];
         for (slot, output) in outputs.iter_mut().zip(input.outputs) {
-            *slot = output_opening(output)?;
+            *slot = output_opening(output, input.output_tree_id)?;
         }
         let table = &input.policy_config.rules;
         Ok(CustomRingWitness {
             roots,
+            entries_tree_id: input.policy_config.entries_tree_id(),
             sources: *self.sources.slots(),
             inputs,
             outputs,
@@ -636,6 +623,14 @@ fn head_roots(account: Option<Account>, tree: Address) -> Result<TransactRoots, 
     })
 }
 
+/// The identity SPP hashes the owner as, one list serves every owner curve.
+fn owner_member(
+    identity: Result<[u8; 32], zolana_keypair::KeypairError>,
+) -> Result<Member, TransferError> {
+    let identity = identity.map_err(|_| TransferError::PolicyHashing)?;
+    Member::owner_identity(&identity).map_err(|_| TransferError::PolicyHashing)
+}
+
 fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, TransferError> {
     if spend.is_dummy() {
         return Ok(CustomRingOpening {
@@ -643,14 +638,14 @@ fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, Transfe
             ..CustomRingOpening::default()
         });
     }
-    let tag = spend
-        .utxo
-        .owner
-        .confidential_view_tag()
-        .map_err(|_| TransferError::PolicyHashing)?;
     Ok(CustomRingOpening {
         domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
-        owner_pk_hash: hash_bytes(&tag).map_err(|_| TransferError::PolicyHashing)?,
+        tree_id: tree_id_field(spend.tree_id),
+        owner_pk_hash: spend
+            .utxo
+            .owner
+            .owner_proof_input_hash()
+            .map_err(|_| TransferError::PolicyHashing)?,
         nullifier_pk: spend
             .nullifier_key
             .pubkey()
@@ -664,19 +659,23 @@ fn input_opening(spend: &SppProofInputUtxo) -> Result<CustomRingOpening, Transfe
     })
 }
 
-fn output_opening(output: &SppProofOutputUtxo) -> Result<CustomRingOpening, TransferError> {
+fn output_opening(
+    output: &SppProofOutputUtxo,
+    tree_id: u16,
+) -> Result<CustomRingOpening, TransferError> {
     let Some(address) = output.owner_address.as_ref() else {
         return Ok(CustomRingOpening {
             domain: right_align(&DUMMY_DOMAIN.to_be_bytes()),
             ..CustomRingOpening::default()
         });
     };
-    let tag = address
-        .confidential_view_tag()
-        .map_err(|_| TransferError::PolicyHashing)?;
     Ok(CustomRingOpening {
         domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
-        owner_pk_hash: hash_bytes(&tag).map_err(|_| TransferError::PolicyHashing)?,
+        tree_id: tree_id_field(tree_id),
+        owner_pk_hash: address
+            .signing_pubkey
+            .owner_proof_input_hash()
+            .map_err(|_| TransferError::PolicyHashing)?,
         nullifier_pk: address.nullifier_pubkey,
         asset: asset_field(&output.asset)?,
         amount: right_align(&output.amount.to_be_bytes()),
@@ -735,6 +734,7 @@ mod tests {
             discriminator: POLICY_CONFIG,
             policy_hash: [0; 32],
             entries_tree: tree(),
+            entries_tree_id: [0; 2],
             namespace_bump: 0,
             bump: 0,
             sources,
@@ -747,8 +747,13 @@ mod tests {
     fn recipient() -> (Member, zolana_keypair::ShieldedAddress) {
         let keypair = ShieldedKeypair::new_ed25519().expect("recipient");
         let address = keypair.shielded_address().expect("address");
-        let member =
-            Member::owner_tag(&address.confidential_view_tag().expect("tag")).expect("member");
+        let member = Member::owner_identity(
+            &address
+                .signing_pubkey
+                .owner_proof_input_hash()
+                .expect("identity"),
+        )
+        .expect("member");
         (member, address)
     }
 
@@ -817,6 +822,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         };
 
         assert_eq!(
@@ -838,6 +844,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         };
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
         assert!(!input
@@ -852,6 +859,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &one,
+            output_tree_id: 0,
         };
         assert!(below
             .guard_exempts(&guarded, &member)
@@ -870,6 +878,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &one_recipient,
+            output_tree_id: 0,
         };
         assert!(!input
             .guard_exempts(&guarded, &member)
@@ -880,6 +889,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &two_recipients,
+            output_tree_id: 0,
         };
         assert!(split
             .guard_exempts(&guarded, &member)
@@ -915,6 +925,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &below,
+            output_tree_id: 0,
         };
         assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
 
@@ -924,6 +935,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &above,
+            output_tree_id: 0,
         };
         assert!(!input
             .guard_exempts(rule, &owner)
@@ -935,6 +947,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &unknown,
+            output_tree_id: 0,
         };
         assert!(matches!(
             input.guard_exempts(rule, &owner),
@@ -951,6 +964,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &[],
+            output_tree_id: 0,
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
@@ -1134,6 +1148,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1180,6 +1195,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1200,6 +1216,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1227,6 +1244,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
@@ -1244,6 +1262,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1269,6 +1288,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &[],
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1304,6 +1324,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1335,6 +1356,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1366,6 +1388,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1385,6 +1408,7 @@ mod tests {
             policy_config: &config,
             inputs: &[],
             outputs: &outputs,
+            output_tree_id: 0,
         }
         .build(&rpc, &rpc)
         .expect("witness");

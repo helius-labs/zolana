@@ -3,7 +3,6 @@ package transfereddsaonly
 import (
 	"encoding/json"
 	"fmt"
-	"math/big"
 
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover/common"
@@ -29,8 +28,7 @@ type InputParamsJSON struct {
 	NullifierNextValue       string         `json:"nullifierNextValue"`
 	NullifierLowPathElements []string       `json:"nullifierLowPathElements"`
 	NullifierLowPathIndex    string         `json:"nullifierLowPathIndex"`
-	UtxoTreeRoot             string         `json:"utxoTreeRoot"`
-	NullifierTreeRoot        string         `json:"nullifierTreeRoot"`
+	TreeSlot                 string         `json:"treeSlot"`
 	Nullifier                string         `json:"nullifier"`
 	OwnerPkHash              string         `json:"ownerPkHash"`
 	NullifierSecret          string         `json:"nullifierSecret"`
@@ -45,20 +43,23 @@ type OutputParamsJSON struct {
 }
 
 type TransferParametersJSON struct {
-	CircuitType                  common.CircuitType `json:"circuitType"`
-	NInputs                      uint32             `json:"nInputs"`
-	NOutputs                     uint32             `json:"nOutputs"`
-	Inputs                       []InputParamsJSON  `json:"inputs"`
-	Outputs                      []OutputParamsJSON `json:"outputs"`
-	ExternalDataHash             string             `json:"externalDataHash"`
-	PrivateTxHash                string             `json:"privateTxHash"`
-	PublicAssets                 []string           `json:"publicAssets"`
-	PublicAmounts                []string           `json:"publicAmounts"`
-	RingProgramID                string             `json:"ringProgramId"`
-	SignerPkHashes               []string           `json:"signerPkHashes"`
-	AllowDummyInputs             string             `json:"allowDummyInputs"`
-	PublishedOutputOwnerPkHashes []string           `json:"publishedOutputOwnerPkHashes"`
-	PublicInputHash              string             `json:"publicInputHash"`
+	CircuitType                  common.CircuitType          `json:"circuitType"`
+	NInputs                      uint32                      `json:"nInputs"`
+	NOutputs                     uint32                      `json:"nOutputs"`
+	Inputs                       []InputParamsJSON           `json:"inputs"`
+	Outputs                      []OutputParamsJSON          `json:"outputs"`
+	TreeSlots                    []common.TreeSlotParamsJSON `json:"treeSlots"`
+	OutputTreeID                 string                      `json:"outputTreeId"`
+	ExternalDataHash             string                      `json:"externalDataHash"`
+	PrivateTxHash                string                      `json:"privateTxHash"`
+	BlindingSeed                 string                      `json:"blindingSeed"`
+	PublicAssets                 []string                    `json:"publicAssets"`
+	PublicAmounts                []string                    `json:"publicAmounts"`
+	RingProgramID                string                      `json:"ringProgramId"`
+	SignerPkHashes               []string                    `json:"signerPkHashes"`
+	AllowDummyInputs             string                      `json:"allowDummyInputs"`
+	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
+	PublicInputHash              string                      `json:"publicInputHash"`
 }
 
 func (p *TransferParameters) MarshalJSON() ([]byte, error) {
@@ -79,33 +80,35 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		CircuitType:                  circuitType,
 		NInputs:                      p.NInputs,
 		NOutputs:                     p.NOutputs,
-		ExternalDataHash:             feHex(p.ExternalDataHash),
-		PrivateTxHash:                feHex(p.PrivateTxHash),
-		PublicAssets:                 feHexSlice(p.PublicAssets),
-		PublicAmounts:                feHexSlice(p.PublicAmounts),
-		RingProgramID:                feHex(p.RingProgramID),
-		SignerPkHashes:               feHexSlice(p.SignerPkHashes),
-		AllowDummyInputs:             feHex(p.AllowDummyInputs),
-		PublishedOutputOwnerPkHashes: feHexSlice(p.PublishedOutputOwnerPkHashes),
-		PublicInputHash:              feHex(p.PublicInputHash),
+		TreeSlots:                    common.TreeSlotsToJSON(p.TreeSlots),
+		OutputTreeID:                 common.FeHex(p.OutputTreeID),
+		ExternalDataHash:             common.FeHex(p.ExternalDataHash),
+		PrivateTxHash:                common.FeHex(p.PrivateTxHash),
+		BlindingSeed:                 common.FeHex(p.BlindingSeed),
+		PublicAssets:                 common.FeHexSlice(p.PublicAssets),
+		PublicAmounts:                common.FeHexSlice(p.PublicAmounts),
+		RingProgramID:                common.FeHex(p.RingProgramID),
+		SignerPkHashes:               common.FeHexSlice(p.SignerPkHashes),
+		AllowDummyInputs:             common.FeHex(p.AllowDummyInputs),
+		PublishedOutputOwnerPkHashes: common.FeHexSlice(p.PublishedOutputOwnerPkHashes),
+		PublicInputHash:              common.FeHex(p.PublicInputHash),
 	}
 
 	paramsJson.Inputs = make([]InputParamsJSON, len(p.Inputs))
 	for i, in := range p.Inputs {
 		paramsJson.Inputs[i] = InputParamsJSON{
 			Utxo:                     utxoParamsToJSON(in.Utxo),
-			IsDummy:                  feHex(in.IsDummy),
-			StatePathElements:        feHexSlice(in.StatePathElements),
-			StatePathIndex:           feHex(in.StatePathIndex),
-			NullifierLowValue:        feHex(in.NullifierLowValue),
-			NullifierNextValue:       feHex(in.NullifierNextValue),
-			NullifierLowPathElements: feHexSlice(in.NullifierLowPathElements),
-			NullifierLowPathIndex:    feHex(in.NullifierLowPathIndex),
-			UtxoTreeRoot:             feHex(in.UtxoTreeRoot),
-			NullifierTreeRoot:        feHex(in.NullifierTreeRoot),
-			Nullifier:                feHex(in.Nullifier),
-			OwnerPkHash:              feHex(in.OwnerPkHash),
-			NullifierSecret:          feHex(in.NullifierSecret),
+			IsDummy:                  common.FeHex(in.IsDummy),
+			StatePathElements:        common.FeHexSlice(in.StatePathElements),
+			StatePathIndex:           common.FeHex(in.StatePathIndex),
+			NullifierLowValue:        common.FeHex(in.NullifierLowValue),
+			NullifierNextValue:       common.FeHex(in.NullifierNextValue),
+			NullifierLowPathElements: common.FeHexSlice(in.NullifierLowPathElements),
+			NullifierLowPathIndex:    common.FeHex(in.NullifierLowPathIndex),
+			TreeSlot:                 common.FeHex(in.TreeSlot),
+			Nullifier:                common.FeHex(in.Nullifier),
+			OwnerPkHash:              common.FeHex(in.OwnerPkHash),
+			NullifierSecret:          common.FeHex(in.NullifierSecret),
 		}
 	}
 
@@ -113,10 +116,10 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 	for i, out := range p.Outputs {
 		paramsJson.Outputs[i] = OutputParamsJSON{
 			Utxo:        utxoParamsToJSON(out.Utxo),
-			IsDummy:     feHex(out.IsDummy),
-			Hash:        feHex(out.Hash),
-			OwnerPkHash: feHex(out.OwnerPkHash),
-			NullifierPk: feHex(out.NullifierPk),
+			IsDummy:     common.FeHex(out.IsDummy),
+			Hash:        common.FeHex(out.Hash),
+			OwnerPkHash: common.FeHex(out.OwnerPkHash),
+			NullifierPk: common.FeHex(out.NullifierPk),
 		}
 	}
 
@@ -128,12 +131,31 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	p.NInputs = params.NInputs
 	p.NOutputs = params.NOutputs
 	p.Variant = variantFromCircuitType(params.CircuitType)
-
-	if p.ExternalDataHash, err = feFromHex(params.ExternalDataHash); err != nil {
+	if p.TreeSlots, err = common.TreeSlotsFromJSON(params.TreeSlots); err != nil {
 		return err
 	}
-	if p.PrivateTxHash, err = feFromHex(params.PrivateTxHash); err != nil {
+	if p.OutputTreeID, err = common.FeFromHex(params.OutputTreeID); err != nil {
 		return err
+	}
+
+	if p.ExternalDataHash, err = common.FeFromHex(params.ExternalDataHash); err != nil {
+		return err
+	}
+	if p.PrivateTxHash, err = common.FeFromHex(params.PrivateTxHash); err != nil {
+		return err
+	}
+	// Required and non-zero, not defaulted: the circuit derives the private tx
+	// blinding and every output blinding from this root seed, so a zero or
+	// omitted seed hands an observer a known blinding and predictable output
+	// blindings. Fail at parse time rather than as a confusing proving error.
+	if params.BlindingSeed == "" {
+		return fmt.Errorf("spp: blindingSeed is required")
+	}
+	if p.BlindingSeed, err = common.FeFromHex(params.BlindingSeed); err != nil {
+		return err
+	}
+	if p.BlindingSeed.Sign() == 0 {
+		return fmt.Errorf("spp: blindingSeed must not be zero")
 	}
 	if len(params.PublicAssets) != txcircuit.NPublicSlots || len(params.PublicAmounts) != txcircuit.NPublicSlots {
 		return fmt.Errorf(
@@ -141,25 +163,25 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 			len(params.PublicAssets), len(params.PublicAmounts), txcircuit.NPublicSlots,
 		)
 	}
-	if p.PublicAssets, err = feFromHexSlice(params.PublicAssets); err != nil {
+	if p.PublicAssets, err = common.FeFromHexSlice(params.PublicAssets); err != nil {
 		return err
 	}
-	if p.PublicAmounts, err = feFromHexSlice(params.PublicAmounts); err != nil {
+	if p.PublicAmounts, err = common.FeFromHexSlice(params.PublicAmounts); err != nil {
 		return err
 	}
-	if p.RingProgramID, err = feFromHex(params.RingProgramID); err != nil {
+	if p.RingProgramID, err = common.FeFromHex(params.RingProgramID); err != nil {
 		return err
 	}
-	if p.SignerPkHashes, err = feFromHexSlice(params.SignerPkHashes); err != nil {
+	if p.SignerPkHashes, err = common.FeFromHexSlice(params.SignerPkHashes); err != nil {
 		return err
 	}
-	if p.AllowDummyInputs, err = feFromHex(params.AllowDummyInputs); err != nil {
+	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
 		return err
 	}
-	if p.PublishedOutputOwnerPkHashes, err = feFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
+	if p.PublishedOutputOwnerPkHashes, err = common.FeFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {
 		return err
 	}
-	if p.PublicInputHash, err = feFromHex(params.PublicInputHash); err != nil {
+	if p.PublicInputHash, err = common.FeFromHex(params.PublicInputHash); err != nil {
 		return err
 	}
 
@@ -170,40 +192,37 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 			return err
 		}
 		input := InputParams{Utxo: utxo}
-		if input.IsDummy, err = feFromHex(in.IsDummy); err != nil {
+		if input.IsDummy, err = common.FeFromHex(in.IsDummy); err != nil {
 			return err
 		}
-		if input.StatePathElements, err = feFromHexSlice(in.StatePathElements); err != nil {
+		if input.StatePathElements, err = common.FeFromHexSlice(in.StatePathElements); err != nil {
 			return err
 		}
-		if input.StatePathIndex, err = feFromHex(in.StatePathIndex); err != nil {
+		if input.StatePathIndex, err = common.FeFromHex(in.StatePathIndex); err != nil {
 			return err
 		}
-		if input.NullifierLowValue, err = feFromHex(in.NullifierLowValue); err != nil {
+		if input.NullifierLowValue, err = common.FeFromHex(in.NullifierLowValue); err != nil {
 			return err
 		}
-		if input.NullifierNextValue, err = feFromHex(in.NullifierNextValue); err != nil {
+		if input.NullifierNextValue, err = common.FeFromHex(in.NullifierNextValue); err != nil {
 			return err
 		}
-		if input.NullifierLowPathElements, err = feFromHexSlice(in.NullifierLowPathElements); err != nil {
+		if input.NullifierLowPathElements, err = common.FeFromHexSlice(in.NullifierLowPathElements); err != nil {
 			return err
 		}
-		if input.NullifierLowPathIndex, err = feFromHex(in.NullifierLowPathIndex); err != nil {
+		if input.NullifierLowPathIndex, err = common.FeFromHex(in.NullifierLowPathIndex); err != nil {
 			return err
 		}
-		if input.UtxoTreeRoot, err = feFromHex(in.UtxoTreeRoot); err != nil {
+		if input.TreeSlot, err = common.FeFromHex(in.TreeSlot); err != nil {
 			return err
 		}
-		if input.NullifierTreeRoot, err = feFromHex(in.NullifierTreeRoot); err != nil {
+		if input.Nullifier, err = common.FeFromHex(in.Nullifier); err != nil {
 			return err
 		}
-		if input.Nullifier, err = feFromHex(in.Nullifier); err != nil {
+		if input.OwnerPkHash, err = common.FeFromHex(in.OwnerPkHash); err != nil {
 			return err
 		}
-		if input.OwnerPkHash, err = feFromHex(in.OwnerPkHash); err != nil {
-			return err
-		}
-		if input.NullifierSecret, err = feFromHex(in.NullifierSecret); err != nil {
+		if input.NullifierSecret, err = common.FeFromHex(in.NullifierSecret); err != nil {
 			return err
 		}
 		p.Inputs[i] = input
@@ -216,16 +235,16 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 			return err
 		}
 		output := OutputParams{Utxo: utxo}
-		if output.IsDummy, err = feFromHex(out.IsDummy); err != nil {
+		if output.IsDummy, err = common.FeFromHex(out.IsDummy); err != nil {
 			return err
 		}
-		if output.Hash, err = feFromHex(out.Hash); err != nil {
+		if output.Hash, err = common.FeFromHex(out.Hash); err != nil {
 			return err
 		}
-		if output.OwnerPkHash, err = feFromHex(out.OwnerPkHash); err != nil {
+		if output.OwnerPkHash, err = common.FeFromHex(out.OwnerPkHash); err != nil {
 			return err
 		}
-		if output.NullifierPk, err = feFromHex(out.NullifierPk); err != nil {
+		if output.NullifierPk, err = common.FeFromHex(out.NullifierPk); err != nil {
 			return err
 		}
 		p.Outputs[i] = output
@@ -236,81 +255,43 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 
 func utxoParamsToJSON(u UtxoParams) UtxoParamsJSON {
 	return UtxoParamsJSON{
-		Domain:        feHex(u.Domain),
-		Owner:         feHex(u.Owner),
-		Asset:         feHex(u.Asset),
-		Amount:        feHex(u.Amount),
-		Blinding:      feHex(u.Blinding),
-		DataHash:      feHex(u.DataHash),
-		RingDataHash:  feHex(u.RingDataHash),
-		RingProgramID: feHex(u.RingProgramID),
+		Domain:        common.FeHex(u.Domain),
+		Owner:         common.FeHex(u.Owner),
+		Asset:         common.FeHex(u.Asset),
+		Amount:        common.FeHex(u.Amount),
+		Blinding:      common.FeHex(u.Blinding),
+		DataHash:      common.FeHex(u.DataHash),
+		RingDataHash:  common.FeHex(u.RingDataHash),
+		RingProgramID: common.FeHex(u.RingProgramID),
 	}
 }
 
 func utxoParamsFromJSON(u UtxoParamsJSON) (UtxoParams, error) {
 	var out UtxoParams
 	var err error
-	if out.Domain, err = feFromHex(u.Domain); err != nil {
+	if out.Domain, err = common.FeFromHex(u.Domain); err != nil {
 		return out, err
 	}
-	if out.Owner, err = feFromHex(u.Owner); err != nil {
+	if out.Owner, err = common.FeFromHex(u.Owner); err != nil {
 		return out, err
 	}
-	if out.Asset, err = feFromHex(u.Asset); err != nil {
+	if out.Asset, err = common.FeFromHex(u.Asset); err != nil {
 		return out, err
 	}
-	if out.Amount, err = feFromHex(u.Amount); err != nil {
+	if out.Amount, err = common.FeFromHex(u.Amount); err != nil {
 		return out, err
 	}
-	if out.Blinding, err = feFromHex(u.Blinding); err != nil {
+	if out.Blinding, err = common.FeFromHex(u.Blinding); err != nil {
 		return out, err
 	}
-	if out.DataHash, err = feFromHex(u.DataHash); err != nil {
+	if out.DataHash, err = common.FeFromHex(u.DataHash); err != nil {
 		return out, err
 	}
-	if out.RingDataHash, err = feFromHex(u.RingDataHash); err != nil {
+	if out.RingDataHash, err = common.FeFromHex(u.RingDataHash); err != nil {
 		return out, err
 	}
-	if out.RingProgramID, err = feFromHex(u.RingProgramID); err != nil {
+	if out.RingProgramID, err = common.FeFromHex(u.RingProgramID); err != nil {
 		return out, err
-	}
-	return out, nil
-}
-
-func feHex(i *big.Int) string {
-	if i == nil {
-		return common.ToHex(big.NewInt(0))
-	}
-	return common.ToHex(i)
-}
-
-func feHexSlice(xs []*big.Int) []string {
-	out := make([]string, len(xs))
-	for i := range xs {
-		out[i] = feHex(xs[i])
-	}
-	return out
-}
-
-func feFromHex(s string) (*big.Int, error) {
-	v := new(big.Int)
-	if s == "" {
-		return v, nil
-	}
-	if err := common.FromHex(v, s); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-func feFromHexSlice(ss []string) ([]*big.Int, error) {
-	out := make([]*big.Int, len(ss))
-	for i, s := range ss {
-		v, err := feFromHex(s)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = v
 	}
 	return out, nil
 }

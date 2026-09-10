@@ -661,12 +661,14 @@ function transactionSender(
                 }
               });
               await params.client.confirmTransaction(signature, undefined, context);
-              return signature;
+              return { signature };
             } catch (error) {
               const landed = await landedSignature(params, signatures, context);
-              if (landed !== undefined) return landed;
+              if (landed !== undefined) return { signature: landed };
               const last = signatures.at(-1);
-              if (last !== undefined && settled !== undefined && (await settled())) return last;
+              if (last !== undefined && settled !== undefined && (await settled())) {
+                return { signature: last };
+              }
               lastError = error;
               if (!retryable(error)) break;
             }

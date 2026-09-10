@@ -12,6 +12,7 @@ import {
 import { invalidLength } from "../error.js";
 import type { NullifierKey } from "../nullifier-key.js";
 import { poseidon } from "../poseidon.js";
+import { privateTxBlinding } from "../transact/index.js";
 
 export const MERGE_INFO = copyBytes(MERGE_INFO_BYTES);
 
@@ -75,6 +76,23 @@ export function mergeOutputBlinding(nullifierKey: NullifierKey, firstNullifier: 
       secret,
       checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"),
     ]) as Bytes32;
+  } finally {
+    secret.fill(0);
+  }
+}
+
+/**
+ * The private transaction blinding of a merge, `Poseidon("TXPB",
+ * first_nullifier, nullifier_secret)`: merge has no blinding seed, the owner's
+ * nullifier secret takes its place. Mirrors Rust `merge_private_tx_blinding`.
+ */
+export function mergePrivateTxBlinding(
+  nullifierKey: NullifierKey,
+  firstNullifier: Bytes32,
+): Bytes32 {
+  const secret = alignedNullifierSecret(nullifierKey);
+  try {
+    return privateTxBlinding(checkedBytes<Bytes32>(firstNullifier, 32, "first nullifier"), secret);
   } finally {
     secret.fill(0);
   }

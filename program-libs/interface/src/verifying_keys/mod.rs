@@ -6,7 +6,11 @@ mod circuit;
 pub use circuit::{Bsb22Commitment, CircuitId, OutputOwnerMode, RingP256ProofData};
 
 #[cfg(feature = "verifying-keys")]
+pub mod merge_36_1;
+#[cfg(feature = "verifying-keys")]
 pub mod merge_8_1;
+#[cfg(feature = "verifying-keys")]
+pub mod merge_ring_36_1;
 #[cfg(feature = "verifying-keys")]
 pub mod merge_ring_8_1;
 #[cfg(feature = "verifying-keys")]
@@ -19,6 +23,8 @@ pub mod transfer_confidential_1_8;
 pub mod transfer_confidential_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_2_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_confidential_36_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_confidential_3_3;
 #[cfg(feature = "verifying-keys")]
@@ -40,6 +46,8 @@ pub mod transfer_p256_ring_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_2_3;
 #[cfg(feature = "verifying-keys")]
+pub mod transfer_p256_ring_36_2;
+#[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_3_3;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_p256_ring_4_3;
@@ -59,6 +67,8 @@ pub mod transfer_ring_1_8;
 pub mod transfer_ring_2_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_2_3;
+#[cfg(feature = "verifying-keys")]
+pub mod transfer_ring_36_2;
 #[cfg(feature = "verifying-keys")]
 pub mod transfer_ring_3_3;
 #[cfg(feature = "verifying-keys")]

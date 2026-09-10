@@ -1,6 +1,7 @@
 use serde_json::Value;
 use zolana_interface::instruction::tag;
 use zolana_interface::state::tree::{NULLIFIER_TREE_HEIGHT, STATE_HEIGHT};
+use zolana_interface::INPUT_TREES;
 use zolana_keypair::constants::VIEW_TAG_LEN;
 use zolana_transaction::instructions::merge::MERGE_INPUTS;
 
@@ -14,4 +15,5 @@ fn constants_match_the_shared_vector() {
     assert_eq!(vector["transactTag"], tag::TRANSACT as u64);
     assert_eq!(vector["mergeTransactTag"], tag::MERGE_TRANSACT as u64);
     assert_eq!(vector["viewTagLength"], VIEW_TAG_LEN as u64);
+    assert_eq!(vector["inputTrees"], INPUT_TREES as u64);
 }

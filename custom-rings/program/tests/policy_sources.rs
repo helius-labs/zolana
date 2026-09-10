@@ -18,7 +18,7 @@ use crate::common::{
     initialized_curator_policy_config_account, initialized_policy_config_account, mixed_sources,
     own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     set_policy_source_fixture, setup_mollusk, specs_with_block_source, stored_policy_config,
-    table_ix_data, EntryFixture, Fixture, RELEASED_RULES, WARPED_SLOT,
+    table_ix_data, EntryFixture, Fixture, ENTRIES_TREE_ID, RELEASED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -302,17 +302,18 @@ fn an_own_served_kind_passes_the_source_gate() {
 #[test]
 fn the_layout_pins_every_field_offset() {
     let account = released_config();
-    assert_eq!(PolicyConfig::SIZE, 1177);
+    assert_eq!(PolicyConfig::SIZE, 1179);
     assert_eq!(account.data.len(), PolicyConfig::SIZE);
     assert_eq!(account.data[33..65], entries_tree().to_bytes());
+    assert_eq!(account.data[65..67], ENTRIES_TREE_ID.to_le_bytes());
     let sources = own_source_slots(&RELEASED_RULES);
-    assert_eq!(&account.data[67..331], bytemuck::bytes_of(&sources));
+    assert_eq!(&account.data[69..333], bytemuck::bytes_of(&sources));
     assert_eq!(
-        &account.data[331..1165],
+        &account.data[333..1167],
         bytemuck::bytes_of(&RELEASED_RULES.encode())
     );
-    assert_eq!(account.data[1165..1169], 1u32.to_le_bytes());
-    assert_eq!(account.data[1169..1177], 0u64.to_le_bytes());
+    assert_eq!(account.data[1167..1171], 1u32.to_le_bytes());
+    assert_eq!(account.data[1171..1179], 0u64.to_le_bytes());
 }
 
 /// Both SPP trees must equal the entries tree, an entry written through another

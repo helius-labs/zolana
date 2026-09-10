@@ -269,6 +269,25 @@ pub fn wait_for_merkle_proof<I: Rpc>(indexer: &I, tree: Address, leaf: [u8; 32])
     })
 }
 
+/// Every input of one transact or merge must be proven against the same UTXO
+/// root and root index (`ClientError::InputTreeRootMismatch`), so their proofs
+/// have to come from ONE indexer snapshot: fetching them one leaf at a time
+/// lets the tree advance between calls. Returns the proofs in `leaves` order.
+#[track_caller]
+pub fn wait_for_merkle_proofs<I: Rpc>(
+    indexer: &I,
+    tree: Address,
+    leaves: &[[u8; 32]],
+) -> Vec<MerkleProof> {
+    let requested = leaves.to_vec();
+    wait_for("indexed merkle proofs", || {
+        let response = indexer.get_merkle_proofs(tree, requested.clone(), None)?;
+        Ok(order_proofs(&requested, response.proofs, |proof| {
+            proof.leaf
+        }))
+    })
+}
+
 #[track_caller]
 pub fn wait_for_non_inclusion_proof<I: Rpc>(
     indexer: &I,
@@ -279,6 +298,44 @@ pub fn wait_for_non_inclusion_proof<I: Rpc>(
         let response = indexer.get_non_inclusion_proofs(tree, vec![leaf], None)?;
         Ok(response.proofs.into_iter().next())
     })
+}
+
+/// The non-inclusion counterpart of [`wait_for_merkle_proofs`]: one snapshot, so
+/// every input shares one nullifier root and root index.
+#[track_caller]
+pub fn wait_for_non_inclusion_proofs<I: Rpc>(
+    indexer: &I,
+    tree: Address,
+    leaves: &[[u8; 32]],
+) -> Vec<NonInclusionProof> {
+    let requested = leaves.to_vec();
+    wait_for("indexed non-inclusion proofs", || {
+        let response = indexer.get_non_inclusion_proofs(tree, requested.clone(), None)?;
+        Ok(order_proofs(&requested, response.proofs, |proof| {
+            proof.leaf
+        }))
+    })
+}
+
+/// Reorder `proofs` to match `requested`, or `None` while the indexer has not
+/// served every requested leaf yet (the caller keeps polling).
+fn order_proofs<P>(
+    requested: &[[u8; 32]],
+    proofs: Vec<P>,
+    leaf_of: impl Fn(&P) -> [u8; 32],
+) -> Option<Vec<P>> {
+    if proofs.len() != requested.len() {
+        return None;
+    }
+    let mut remaining: Vec<Option<P>> = proofs.into_iter().map(Some).collect();
+    let mut ordered = Vec::with_capacity(requested.len());
+    for leaf in requested {
+        let slot = remaining
+            .iter_mut()
+            .find(|entry| entry.as_ref().is_some_and(|proof| leaf_of(proof) == *leaf))?;
+        ordered.push(slot.take()?);
+    }
+    Some(ordered)
 }
 
 /// Wait until `leaf` is present in the nullifier tree: photon stops serving a

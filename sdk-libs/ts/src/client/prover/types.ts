@@ -22,6 +22,16 @@ export interface CircuitUtxo {
   readonly ringProgramId: Field;
 }
 
+/**
+ * One of the `INPUT_TREES` public tree slots of a proof, as the prover reads
+ * it: the raw tree id and the two roots the slot's inputs open against.
+ */
+export interface TreeSlotFields {
+  readonly id: Field;
+  readonly utxoRoot: Field;
+  readonly nullifierRoot: Field;
+}
+
 export interface TransferInput {
   readonly circuit: CircuitUtxo;
   readonly isDummy: Field;
@@ -31,8 +41,8 @@ export interface TransferInput {
   readonly nullifierNextValue: Field;
   readonly nullifierLowPathElements: readonly Field[];
   readonly nullifierLowPathIndex: Field;
-  readonly utxoTreeRoot: Field;
-  readonly nullifierTreeRoot: Field;
+  /** Index into `treeSlots` of the slot this input opens against. */
+  readonly treeSlot: Field;
   readonly nullifier: Field;
   readonly ownerPublicKeyHash: Field;
   readonly nullifierSecret: Field;
@@ -49,8 +59,13 @@ export interface TransferOutput {
 export interface TransferInputs {
   readonly inputs: readonly TransferInput[];
   readonly outputs: readonly TransferOutput[];
+  /** Exactly `INPUT_TREES` entries; the input tree in slot 0, zero slots after it. */
+  readonly treeSlots: readonly TreeSlotFields[];
+  readonly outputTreeId: Field;
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
+  /** The proof's private root seed; the circuit derives every output blinding from it. */
+  readonly blindingSeed: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
   readonly ringProgramId: Field;
@@ -63,6 +78,9 @@ export interface TransferInputs {
 export interface MergeInputs {
   readonly inputs: readonly TransferInput[];
   readonly output: TransferOutput;
+  /** Exactly `INPUT_TREES` entries; the input tree in slot 0, zero slots after it. */
+  readonly treeSlots: readonly TreeSlotFields[];
+  readonly outputTreeId: Field;
   readonly ownerPublicKeyHash: Field;
   readonly userNullifierPublicKey: Field;
   readonly userNullifierSecret: Field;
@@ -82,6 +100,16 @@ export type ProverInputs = Readonly<{
 /** The tree history entries the ring statement binds. */
 export type RingTransactRoots = TreeHeadRoots;
 
+/**
+ * The root history positions every input of one proof references. The
+ * shielded pool requires them equal across inputs, so one pair describes the
+ * whole instruction.
+ */
+export interface InputRootIndexes {
+  readonly utxoTree: number;
+  readonly nullifierTree: number;
+}
+
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;
@@ -89,9 +117,8 @@ export interface AssembledTransfer {
   readonly nullifiers: readonly Bytes32[];
   readonly outputHashes: readonly Bytes32[];
   readonly privateTxHash: Bytes32;
-  /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
-  readonly inputRootIndexes: readonly (readonly [number, number])[];
-  /// The first input's roots and indices, the pair the ring statement binds.
+  readonly rootIndexes: InputRootIndexes;
+  /** The input tree's roots and positions, the pair the ring statement binds. */
   readonly roots: RingTransactRoots;
   withProof(proof: TransactProof): TransactInstructionData;
 }
@@ -112,6 +139,8 @@ export const RING_NULLIFIER_PATH_LENGTH = 40;
 /** Mirrors Rust `CustomRingOpening`, one opened UTXO slot in circuit hash order. */
 export interface CustomRingOpening {
   readonly domain: Bytes32;
+  /** Raw id of the tree the slot hashes under, right aligned. */
+  readonly treeId: Bytes32;
   readonly ownerPkHash: Bytes32;
   readonly nullifierPk: Bytes32;
   readonly asset: Bytes32;
@@ -132,6 +161,7 @@ export interface CustomRingRuleAnswer {
   readonly member: Bytes32;
   readonly contentHash: Bytes32;
   readonly version: bigint;
+  readonly blinding: Bytes32;
   readonly low: Bytes32;
   readonly next: Bytes32;
   readonly nullifierPath: readonly Bytes32[];
@@ -152,6 +182,7 @@ export function disabledRuleAnswer(): CustomRingRuleAnswer {
     member: zero(),
     contentHash: zero(),
     version: 0n,
+    blinding: zero(),
     low: zero(),
     next: zero(),
     nullifierPath: Object.freeze(Array.from({ length: RING_NULLIFIER_PATH_LENGTH }, () => zero())),
@@ -167,7 +198,7 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
-/** Policy custom-ring proof request; `auditorPublicKey` is an uncompressed SEC1 point. */
+/** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
 export interface CustomRingPolicyProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;
@@ -180,6 +211,7 @@ export interface CustomRingPolicyProofRequest {
   readonly outputs: readonly CustomRingOpening[];
   readonly addressChain: Bytes32;
   readonly externalDataHash: Bytes32;
+  readonly privateTxBlinding: Bytes32;
   readonly sources: readonly CustomRingSourceOwner[];
   readonly policyLen: number;
   readonly rules: readonly Bytes32[];
@@ -188,10 +220,10 @@ export interface CustomRingPolicyProofRequest {
   readonly inlineCount: number;
   readonly stateRoot: Bytes32;
   readonly nullifierRoot: Bytes32;
+  readonly entriesTreeId: number;
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 
-/** Base custom-ring proof request, without policy enforcement. */
 export interface CustomRingBaseProofRequest {
   readonly publicInputHash: Bytes32;
   readonly privateTxHash: Bytes32;

@@ -144,6 +144,7 @@ impl Account for PolicyConfig {
 pub(crate) struct PolicyConfigInitParams {
     pub policy_hash: [u8; 32],
     pub entries_tree: Address,
+    pub entries_tree_id: u16,
     pub namespace_bump: u8,
     pub bump: u8,
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
@@ -160,6 +161,7 @@ impl PolicyConfigInitParams {
                 discriminator: POLICY_CONFIG,
                 policy_hash: self.policy_hash,
                 entries_tree: self.entries_tree,
+                entries_tree_id: self.entries_tree_id.to_le_bytes(),
                 namespace_bump: self.namespace_bump,
                 bump: self.bump,
                 sources: self.sources,

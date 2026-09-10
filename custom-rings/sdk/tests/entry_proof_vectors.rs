@@ -1,17 +1,18 @@
 //! Vectors shared with `sdk-libs/ts/test/ring-list-write.test.ts`.
 
 use zolana_client::{PublicInputs, PublicTransfers};
-use zolana_hasher::primitives::{hash_bytes, right_align};
+use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    ADDRESS_DOMAIN,
+    tree_slot::TreeSlot,
+    INPUT_TREES,
 };
-use zolana_ring_policy::{
-    entry_nullifier, entry_seed, EntryState, ListEntry, ListId, ListNamespace, Member,
-};
+use zolana_ring_policy::{entry_nullifier, EntryState, ListEntry, ListId, ListNamespace, Member};
 use zolana_transaction::{
     instructions::transact::{ExternalData, PrivateTxHash},
-    ProofInputUtxo,
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
 };
 
 const RECORDS_PDA: [u8; 32] = [0x11; 32];
@@ -19,18 +20,23 @@ const RECIPIENT_TAG: [u8; 32] = [0xa1; 32];
 const PAYER: [u8; 32] = [0x01; 32];
 const STATE_ROOT: [u8; 32] = [0x06; 32];
 const NULLIFIER_ROOT: [u8; 32] = [0x07; 32];
+const TREE_ID: u16 = 3;
+const BLINDING_SEED: [u8; 32] = [0x08; 32];
 
-const EXTERNAL_HASH: &str = "00cd3ab6720cc54f4119c19e017a3d4e0125cb4e7ba30b3e93b8a98046fbdc5f";
+const EXTERNAL_HASH: &str = "00ef014f5c68fff05cd62415182ac9e7db2456eebca778b39a14cdac540d0173";
 const CLAIM_PRIVATE_TX_HASH: &str =
-    "1318c383e8274e82368af891aadcbdce782b933afd743800d14e9f7f05c769d3";
+    "1224a99757d2c68fcacc59845bc8adf7689a879b0d5fccd451deea5ea5779a7b";
 const CLAIM_PUBLIC_INPUT_HASH: &str =
-    "0774564900eab14245f24d383e85928ca78588bc8f5417d642512f52d66dd55f";
+    "0c36fee57941a1f35389036e8b7037d66d6cd0ef6466b633c30ccf84b4652a51";
 const SPEND_PRIVATE_TX_HASH: &str =
-    "0076a214396d186cf1bcea3941002c231d78bbdc3a24f90483a8322ae2ff9c6a";
+    "16f3de48d03c896f8e726afe1f9a9f26f10237542b9a6ecdfb94929e2e860719";
 const SPEND_PUBLIC_INPUT_HASH: &str =
-    "18cd54d188bea439dac4f37a03e8ea18bec5effba436e24d43789a4322ae70ca";
+    "130fe7107f0bfcf8411d769abcd08a238dbb104049980f8833153a204908eb37";
+const CLAIM_BLINDING: &str = "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344";
+const SPEND_BLINDING: &str = "018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256";
 
 struct Transition {
+    entry: ListEntry,
     external: [u8; 32],
     private_tx: [u8; 32],
     public_input: [u8; 32],
@@ -40,32 +46,38 @@ struct Transition {
 fn transition(spent: Option<ListEntry>) -> Transition {
     let owner = ListNamespace::new(&RECORDS_PDA).expect("owner");
     let member = Member::owner_tag(&RECIPIENT_TAG).expect("member");
+    let address = owner
+        .address(ListId::Allow, &member, TREE_ID)
+        .expect("address");
+    let (input_hash, address_nullifier, nullifier) = match spent {
+        None => ([0u8; 32], Some(address), address),
+        Some(spent) => {
+            let spent_hash = spent
+                .utxo_hash(&owner, &address, TREE_ID)
+                .expect("spent hash");
+            let nullifier = entry_nullifier(&spent_hash, &spent.blinding()).expect("nullifier");
+            (spent_hash, None, nullifier)
+        }
+    };
+    let blinding = derive_transact_output_blinding(
+        &nullifier,
+        &derive_output_blinding_seed(&nullifier, &BLINDING_SEED).expect("output seed"),
+        0,
+    )
+    .expect("blinding");
+    let private_tx_blinding =
+        derive_private_tx_blinding(&nullifier, &BLINDING_SEED).expect("private tx blinding");
     let entry = ListEntry {
         list_id: ListId::Allow,
         member,
         state: EntryState::Active,
         version: spent.map_or(0, |spent| spent.version + 1),
         content_hash: [0u8; 32],
+        blinding,
     };
-    let address = owner.address(ListId::Allow, &member).expect("address");
-    let (input_hash, address_hash, nullifier) = match spent {
-        None => {
-            let seed = entry_seed(ListId::Allow, &member).expect("seed");
-            let slot = ProofInputUtxo {
-                domain: right_align(&ADDRESS_DOMAIN.to_be_bytes()),
-                owner_hash: owner.owner_hash,
-                blinding: seed,
-                ..ProofInputUtxo::default()
-            };
-            ([0u8; 32], Some(slot.hash().expect("address slot")), address)
-        }
-        Some(spent) => {
-            let spent_hash = spent.utxo_hash(&owner, &address).expect("spent hash");
-            let nullifier = entry_nullifier(&spent_hash, &spent.blinding()).expect("nullifier");
-            (spent_hash, None, nullifier)
-        }
-    };
-    let output_hash = entry.utxo_hash(&owner, &address).expect("output hash");
+    let output_hash = entry
+        .utxo_hash(&owner, &address, TREE_ID)
+        .expect("output hash");
     let external = ExternalData::new(
         [0u8; 33],
         [0u8; 16],
@@ -79,21 +91,25 @@ fn transition(spent: Option<ListEntry>) -> Transition {
     )
     .hash()
     .expect("external hash");
+    let address_nullifiers = address_nullifier.map(|nullifier| [nullifier]);
     let private_tx = PrivateTxHash {
         input_hashes: &[input_hash],
         output_hashes: &[output_hash],
-        address_hashes: address_hash.as_ref().map(core::slice::from_ref),
+        address_nullifiers: address_nullifiers.as_ref().map(|slice| slice.as_slice()),
         external_data_hash: &external,
+        blinding: &private_tx_blinding,
     }
     .hash()
     .expect("private tx hash");
-    let namespace_hash = hash_bytes(&RECORDS_PDA).expect("namespace");
-    let payer_hash = hash_bytes(&PAYER).expect("payer");
+    let namespace_hash = solana_owner_identity(&RECORDS_PDA).expect("namespace");
+    let payer_hash = solana_owner_identity(&PAYER).expect("payer");
+    let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
+    tree_slots[0] = TreeSlot::new(TREE_ID, STATE_ROOT, NULLIFIER_ROOT);
     let public_input = PublicInputs {
         nullifiers: &[nullifier],
         output_hashes: &[output_hash],
-        utxo_roots: &[STATE_ROOT],
-        nullifier_tree_roots: &[NULLIFIER_ROOT],
+        tree_slots: &tree_slots,
+        output_tree_id: TREE_ID,
         private_tx: &private_tx,
         external_data_hash: &external,
         public_transfers: &PublicTransfers::default(),
@@ -105,6 +121,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
     .hash()
     .expect("public input hash");
     Transition {
+        entry,
         external,
         private_tx,
         public_input,
@@ -114,6 +131,11 @@ fn transition(spent: Option<ListEntry>) -> Transition {
 #[test]
 fn a_claim_hashes_to_the_typescript_vector() {
     let claim = transition(None);
+    assert_eq!(
+        hex::encode(claim.entry.blinding),
+        CLAIM_BLINDING,
+        "blinding"
+    );
     assert_eq!(hex::encode(claim.external), EXTERNAL_HASH, "external");
     assert_eq!(
         hex::encode(claim.private_tx),
@@ -129,14 +151,12 @@ fn a_claim_hashes_to_the_typescript_vector() {
 
 #[test]
 fn a_spend_hashes_to_the_typescript_vector() {
-    let spent = ListEntry {
-        list_id: ListId::Allow,
-        member: Member::owner_tag(&RECIPIENT_TAG).expect("member"),
-        state: EntryState::Active,
-        version: 0,
-        content_hash: [0u8; 32],
-    };
-    let spend = transition(Some(spent));
+    let spend = transition(Some(transition(None).entry));
+    assert_eq!(
+        hex::encode(spend.entry.blinding),
+        SPEND_BLINDING,
+        "blinding"
+    );
     assert_eq!(
         hex::encode(spend.private_tx),
         SPEND_PRIVATE_TX_HASH,

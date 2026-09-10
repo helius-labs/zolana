@@ -21,6 +21,7 @@
     "test:ts:e2e": "npm run test:ts:e2e:sdk && npm run test:ts:example"
   },
   "devDependencies": {
+    "@solana/kit": "^8.3.0",
     "semver": "^7.8.5",
     "typedoc": "^0.28.20"
   }

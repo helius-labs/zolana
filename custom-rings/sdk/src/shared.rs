@@ -526,6 +526,7 @@ mod tests {
             discriminator: POLICY_CONFIG,
             policy_hash: [0; 32],
             entries_tree: Address::new_from_array([5u8; 32]),
+            entries_tree_id: [0; 2],
             namespace_bump: 0,
             bump: Address::find_program_address(&[PolicyConfig::SEED], &ring().program_id()).1,
             sources,

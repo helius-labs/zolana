@@ -147,6 +147,14 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_INVALID_INDEXER: Readonly<{ field: string }>;
   readonly CLIENT_PROOF_POINT: Readonly<{ field: string }>;
   readonly CLIENT_PROOF_TREE_MISMATCH: IndexDetails;
+  /** Two inputs of one proof open against different state roots or root positions. */
+  readonly CLIENT_INPUT_TREE_ROOT_MISMATCH: IndexDetails;
+  /** Two inputs of one proof open against different nullifier roots or root positions. */
+  readonly CLIENT_NULLIFIER_ROOT_MISMATCH: IndexDetails;
+  /** An output blinding is not the one the circuit derives for its slot. */
+  readonly CLIENT_OUTPUT_BLINDING_MISMATCH: IndexDetails;
+  /** The proof inputs were built for another output tree than the client's. */
+  readonly CLIENT_TREE_ID_MISMATCH: Readonly<{ expected: number; actual: number }>;
   readonly CLIENT_INVALID_MERGE_OUTPUT: NoDetails;
   readonly CLIENT_INVALID_MERGE_MATERIAL: NoDetails;
   readonly CLIENT_INVALID_MERGE_SHAPE: Readonly<{ expected: number; actual: number }>;
@@ -202,6 +210,10 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_INVALID_INDEXER",
   "CLIENT_PROOF_POINT",
   "CLIENT_PROOF_TREE_MISMATCH",
+  "CLIENT_INPUT_TREE_ROOT_MISMATCH",
+  "CLIENT_NULLIFIER_ROOT_MISMATCH",
+  "CLIENT_OUTPUT_BLINDING_MISMATCH",
+  "CLIENT_TREE_ID_MISMATCH",
   "CLIENT_INVALID_MERGE_OUTPUT",
   "CLIENT_INVALID_MERGE_MATERIAL",
   "CLIENT_INVALID_MERGE_SHAPE",
@@ -328,6 +340,10 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_INVALID_INDEXER: { field: "string" },
   CLIENT_PROOF_POINT: { field: "string" },
   CLIENT_PROOF_TREE_MISMATCH: { index: "number" },
+  CLIENT_INPUT_TREE_ROOT_MISMATCH: { index: "number" },
+  CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
+  CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
+  CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
   CLIENT_INVALID_MERGE_SHAPE: { expected: "number", actual: "number" },
   CLIENT_PROVER_REQUEST: { method: "string", attempts: "number" },
   CLIENT_PROVER_HTTP: { method: "string", status: "number", attempts: "number" },

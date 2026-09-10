@@ -5,14 +5,18 @@
 
 use num_bigint::BigUint;
 use zolana_hasher::hash_chain::create_hash_chain_from_slice;
-use zolana_interface::instruction::instruction_data::{
-    merge_ring::MergeRingIxData,
-    merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+use zolana_interface::{
+    instruction::instruction_data::{
+        merge_ring::MergeRingIxData,
+        merge_transact::{MergeExternalDataHash, MergeProof, MergeTransactIxData},
+    },
+    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    INPUT_TREES,
 };
 use zolana_keypair::{Curve, NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::{
-        merge::{merge_dummy_nullifier, PreparedMerge},
+        merge::{merge_dummy_nullifier, merge_private_tx_blinding, PreparedMerge},
         transact::PrivateTxHash,
     },
     SppProofOutputUtxo,
@@ -26,7 +30,7 @@ use crate::{
             assembly::{assemble_inputs, assemble_outputs, OwnerMode, TransferSpendInput},
             witness::{attach_input_proofs, SpendProof},
         },
-        MergeInputs, TransferInput, TransferOutput,
+        MergeInputs, TransferInput, TransferOutput, TreeSlotFields,
     },
     rpc::NonInclusionProof,
 };
@@ -50,6 +54,8 @@ pub struct MergeProver {
     /// `nullifier_pk` and every input nullifier).
     pub signing_pubkey: PublicKey,
     pub nullifier_key: NullifierKey,
+    /// Raw id of the tree the merged output is appended to.
+    pub output_tree_id: u16,
 }
 
 /// The built merge witness and the instruction-data ingredients, produced by
@@ -61,11 +67,11 @@ pub struct MergeProofResult {
     pub inputs: MergeInputs,
     pub public_input_hash: [u8; 32],
     pub nullifiers: Vec<[u8; 32]>,
-    /// Per-input references into the tree's root caches (length 8; dummy slots
-    /// mirror the first real input's UTXO root while carrying their own
-    /// nullifier non-inclusion root), for the `merge_transact` instruction data.
-    pub utxo_tree_root_indices: Vec<u16>,
-    pub nullifier_tree_root_indices: Vec<u16>,
+    /// Indexes into `input_tree`'s UTXO and nullifier root caches. Every
+    /// input, dummies included, is proven against the same pair of roots;
+    /// [`Self::instruction_data`] repeats them per input.
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
     pub output_hash: [u8; 32],
     pub private_tx_hash: [u8; 32],
     /// Recomputed on-chain from the instruction; surfaced so the caller need not
@@ -88,8 +94,8 @@ impl MergeProofResult {
             proof,
             output_utxo_hash: self.output_hash,
             nullifiers: self.nullifiers.clone(),
-            utxo_tree_root_index: self.utxo_tree_root_indices.clone(),
-            nullifier_tree_root_index: self.nullifier_tree_root_indices.clone(),
+            utxo_tree_root_index: vec![self.utxo_tree_root_index; self.nullifiers.len()],
+            nullifier_tree_root_index: vec![self.nullifier_tree_root_index; self.nullifiers.len()],
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
         }
@@ -136,12 +142,13 @@ pub(crate) struct CommonMerge {
     inputs: Vec<TransferInput>,
     output: TransferOutput,
     nullifiers: Vec<[u8; 32]>,
-    utxo_tree_root_indices: Vec<u16>,
-    nullifier_tree_root_indices: Vec<u16>,
+    tree_slots: [TreeSlotFields; INPUT_TREES],
+    output_tree_id: u16,
+    utxo_tree_root_index: u16,
+    nullifier_tree_root_index: u16,
     /// The public-input prefix both merge circuits share:
-    /// `[nullifiers_chain, output_hash, utxo_roots_chain,
-    /// nullifier_tree_roots_chain, private_tx_hash, external_data_hash,
-    /// allow_dummy_inputs]`.
+    /// `[nullifiers_chain, output_hash, tree_slots_chain, output_tree_id,
+    /// private_tx_hash, external_data_hash, allow_dummy_inputs]`.
     pub head: [[u8; 32]; 7],
     output_hash: [u8; 32],
     private_tx_hash: [u8; 32],
@@ -165,7 +172,11 @@ impl MergeProver {
     ) -> Result<CommonMerge, ClientError> {
         // Slot zero must be real: its single-use nullifier seeds the
         // deterministic output blinding and dummy nullifiers.
-        if self.inputs.is_empty() || self.inputs[0].proof.is_none() {
+        if !self
+            .inputs
+            .first()
+            .is_some_and(|first| first.proof.is_some())
+        {
             return Err(ClientError::NoInputs);
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
@@ -178,30 +189,32 @@ impl MergeProver {
             .nullifiers
             .first()
             .ok_or(ClientError::NoInputs)?;
-        for (i, spend) in self.inputs.iter().enumerate() {
-            if spend.proof.is_none() {
-                let dummy = merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, i as u8)?;
-                assembled_inputs.nullifiers[i] = dummy;
-                assembled_inputs.inputs[i].nullifier = BigUint::from_bytes_be(&dummy);
+        for ((slot, nullifier), input) in self
+            .inputs
+            .iter()
+            .enumerate()
+            .zip(assembled_inputs.nullifiers.iter_mut())
+            .zip(assembled_inputs.inputs.iter_mut())
+        {
+            let (index, spend) = slot;
+            if spend.proof.is_some() {
+                continue;
             }
+            let index = u8::try_from(index).map_err(|_| ClientError::TooManyInputs {
+                got: self.inputs.len(),
+                max: usize::from(u8::MAX),
+            })?;
+            let dummy = merge_dummy_nullifier(&self.nullifier_key, &first_nullifier, index)?;
+            *nullifier = dummy;
+            input.nullifier = BigUint::from_bytes_be(&dummy);
         }
 
-        let utxo_tree_root_indices: Vec<u16> = assembled_inputs
-            .root_indices
-            .iter()
-            .map(|(u, _)| *u)
-            .collect();
-        let nullifier_tree_root_indices: Vec<u16> = assembled_inputs
-            .root_indices
-            .iter()
-            .map(|(_, n)| *n)
-            .collect();
-
-        let assembled_outputs = assemble_outputs(std::slice::from_ref(&self.output))?;
+        let assembled_outputs =
+            assemble_outputs(std::slice::from_ref(&self.output), self.output_tree_id)?;
         let output_hash = *assembled_outputs
             .output_hashes
             .first()
-            .ok_or(ClientError::NoInputs)?;
+            .ok_or(ClientError::MissingOutput)?;
 
         // external_data_hash binds the instruction's discriminator, expiry, and
         // output commitment to the proof; the program recomputes it identically.
@@ -212,10 +225,15 @@ impl MergeProver {
         }
         .hash()?;
 
+        // Merge has no blinding seed: the owner's nullifier secret is
+        // already owner-only, and the first nullifier makes the blinding unique
+        // to one accepted merge.
+        let private_tx_blinding = merge_private_tx_blinding(&self.nullifier_key, &first_nullifier)?;
         let private_tx = PrivateTxHash::new(
             &assembled_inputs.input_hashes,
             &assembled_outputs.private_tx_output_hashes,
             &external_data_hash,
+            &private_tx_blinding,
         )
         .hash()?;
 
@@ -223,8 +241,8 @@ impl MergeProver {
         let head = [
             create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
-            create_hash_chain_from_slice(&assembled_inputs.utxo_roots)?,
-            create_hash_chain_from_slice(&assembled_inputs.nullifier_tree_roots)?,
+            tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
+            tree_id_field(self.output_tree_id),
             private_tx,
             external_data_hash,
             super::transact::assembly::bool_field(true),
@@ -249,8 +267,10 @@ impl MergeProver {
             inputs: assembled_inputs.inputs,
             output,
             nullifiers: assembled_inputs.nullifiers,
-            utxo_tree_root_indices,
-            nullifier_tree_root_indices,
+            tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
+            output_tree_id: self.output_tree_id,
+            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
+            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
             head,
             output_hash,
             private_tx_hash: private_tx,
@@ -278,6 +298,8 @@ impl CommonMerge {
         let inputs = MergeInputs {
             inputs: self.inputs,
             output: self.output,
+            tree_slots: self.tree_slots,
+            output_tree_id: BigUint::from(self.output_tree_id),
             owner_pk_hash: self.owner_pk_hash,
             user_nullifier_pk: be(&self.user_nullifier_pk),
             user_nullifier_secret: be(&self.user_nullifier_secret),
@@ -292,8 +314,8 @@ impl CommonMerge {
             inputs,
             public_input_hash: public_input,
             nullifiers: self.nullifiers,
-            utxo_tree_root_indices: self.utxo_tree_root_indices,
-            nullifier_tree_root_indices: self.nullifier_tree_root_indices,
+            utxo_tree_root_index: self.utxo_tree_root_index,
+            nullifier_tree_root_index: self.nullifier_tree_root_index,
             output_hash: self.output_hash,
             private_tx_hash: self.private_tx_hash,
             external_data_hash: self.external_data_hash,
@@ -329,6 +351,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             output,
             expiry_unix_ts,
             signing_pubkey,
+            output_tree_id,
         } = prepared;
 
         let mut spends = attach_input_proofs(inputs, &proofs, &dummy_nullifier_proofs)?;
@@ -344,6 +367,7 @@ impl TryFrom<MergeWitness> for MergeProver {
             expiry_unix_ts,
             signing_pubkey,
             nullifier_key,
+            output_tree_id,
         })
     }
 }

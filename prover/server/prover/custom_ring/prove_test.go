@@ -99,12 +99,14 @@ func baseParams(t *testing.T) *BaseParameters {
 func rulesFreeParams(t *testing.T) *PolicyParameters {
 	t.Helper()
 	p := &PolicyParameters{
-		NIn:              1,
-		NOut:             1,
-		AddressChain:     big.NewInt(0x77),
-		ExternalDataHash: big.NewInt(0x5eed),
-		StateRoot:        big.NewInt(0x0d),
-		NullifierRoot:    big.NewInt(0x0e),
+		NIn:               1,
+		NOut:              1,
+		AddressChain:      big.NewInt(0x77),
+		ExternalDataHash:  big.NewInt(0x5eed),
+		PrivateTxBlinding: big.NewInt(0x5b1d),
+		StateRoot:         big.NewInt(0x0d),
+		NullifierRoot:     big.NewInt(0x0e),
+		EntriesTreeID:     big.NewInt(0x0f),
 	}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
@@ -126,6 +128,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	}
 	p.Inputs[0] = Opening{
 		Domain:        big.NewInt(protocol.UtxoDomain),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   big.NewInt(0xb2),
 		NullifierPk:   big.NewInt(0xb3),
 		Asset:         big.NewInt(0xa5),
@@ -137,6 +140,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	}
 	p.Outputs[0] = Opening{
 		Domain:        big.NewInt(protocol.UtxoDomain),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   big.NewInt(0xa1),
 		NullifierPk:   big.NewInt(0xa2),
 		Asset:         big.NewInt(0xa5),
@@ -154,11 +158,12 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		p.ListFacts[i] = zeroedListFact()
 	}
 
-	p.PrivateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
+	p.PrivateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
 		openingHash(t, p.Inputs[0]),
 		openingHash(t, p.Outputs[0]),
 		p.AddressChain,
 		p.ExternalDataHash,
+		p.PrivateTxBlinding,
 	})
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
@@ -176,7 +181,7 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		elements = append(elements, value)
 	}
 	p.PublicInputHash = spptest.MustHashChain(t, append(elements,
-		policyHash, p.StateRoot, p.NullifierRoot))
+		policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID))
 	return p
 }
 
@@ -191,12 +196,13 @@ func openingHash(t *testing.T, slot Opening) *big.Int {
 		DataHash:      slot.DataHash,
 		RingDataHash:  slot.RingDataHash,
 		RingProgramID: slot.RingProgramID,
-	})
+	}, slot.TreeID)
 }
 
 func zeroedOpening() Opening {
 	return Opening{
 		Domain:        big.NewInt(0),
+		TreeID:        big.NewInt(0),
 		OwnerPkHash:   big.NewInt(0),
 		NullifierPk:   big.NewInt(0),
 		Asset:         big.NewInt(0),

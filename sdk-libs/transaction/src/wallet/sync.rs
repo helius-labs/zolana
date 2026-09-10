@@ -139,6 +139,12 @@ pub(super) struct SyncCtx<'a> {
     pub(super) report: SyncReport,
 }
 
+/// Raw id of the tree every synced UTXO is hashed under. The wallet reads a
+/// single tree, so recomputing a commitment against the tree it was observed in
+/// is the same as recomputing it against tree 0.
+// TODO(tree-id): resolve the tree id from the tree account.
+const SYNC_TREE_ID: u16 = 0;
+
 impl SyncCtx<'_> {
     fn push(
         &mut self,
@@ -154,6 +160,7 @@ impl SyncCtx<'_> {
             nullifier,
             data_hash,
             ring_data_hash,
+            tree_id: SYNC_TREE_ID,
             spent: false,
         });
         self.report.stored_utxos += 1;
@@ -186,7 +193,7 @@ impl SyncCtx<'_> {
         utxo: Utxo,
         tx: &ShieldedTransaction,
     ) -> Result<bool, TransactionError> {
-        let hash = utxo.hash(&self.nullifier_pk, &[0u8; 32], &[0u8; 32])?;
+        let hash = utxo.hash(&self.nullifier_pk, &[0u8; 32], &[0u8; 32], SYNC_TREE_ID)?;
         let Some(output_context) = tx
             .output_slots
             .iter()
@@ -393,6 +400,7 @@ impl SyncCtx<'_> {
                 &self.nullifier_pk,
                 &data_hash.unwrap_or([0u8; 32]),
                 &ring_data_hash.unwrap_or([0u8; 32]),
+                SYNC_TREE_ID,
             )?;
             if hash != output_context.hash {
                 self.report.undecryptable_candidates += 1;
@@ -477,7 +485,7 @@ impl SyncCtx<'_> {
             if position < SENDER_SLOT_COUNT && recipient_pk == key.pubkey() {
                 if let Ok(candidate) = plaintext.into_utxo(self.owner, assets) {
                     let matches_commitment = candidate
-                        .hash(&self.nullifier_pk, &[0; 32], &[0; 32])
+                        .hash(&self.nullifier_pk, &[0; 32], &[0; 32], SYNC_TREE_ID)
                         .is_ok_and(|hash| hash == slot.output_context.hash);
                     if matches_commitment {
                         change.push(candidate);
@@ -582,6 +590,7 @@ impl SyncCtx<'_> {
             owner: self.owner,
             assets,
             ring_program_id: None,
+            first_nullifier: cx.first_nullifier,
         };
         match output_data {
             OutputDataEncoding::Plaintext(blob) => {

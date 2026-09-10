@@ -10,12 +10,14 @@ use crate::{
 use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{
     cpi::{Seed, Signer},
+    error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, SHIELDED_POOL_PROGRAM_ID,
+    state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
+    SHIELDED_POOL_PROGRAM_ID,
 };
 
 /// Only the program upgrade authority pins a table.
@@ -41,7 +43,7 @@ pub fn process_create_policy_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
-    check_entries_tree(entries_tree)?;
+    let entries_tree_id = check_entries_tree(entries_tree)?;
     UpgradeAuthorityCheck {
         program_id,
         authority,
@@ -89,6 +91,7 @@ pub fn process_create_policy_ix(
     PolicyConfigInitParams {
         policy_hash,
         entries_tree: *entries_tree.address(),
+        entries_tree_id,
         namespace_bump,
         bump,
         sources,
@@ -98,7 +101,8 @@ pub fn process_create_policy_ix(
     .init(policy_config)
 }
 
-fn check_entries_tree(account: &AccountView) -> ProgramResult {
+/// The raw tree id the config pins for every entry hash.
+fn check_entries_tree(account: &AccountView) -> Result<u16, ProgramError> {
     if account.owner().as_array() != &SHIELDED_POOL_PROGRAM_ID {
         return Err(CustomRingError::InvalidEntriesTree.into());
     }
@@ -108,5 +112,5 @@ fn check_entries_tree(account: &AccountView) -> ProgramResult {
     if data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR) {
         return Err(CustomRingError::InvalidEntriesTree.into());
     }
-    Ok(())
+    read_tree_id(&data).ok_or_else(|| CustomRingError::InvalidEntriesTree.into())
 }

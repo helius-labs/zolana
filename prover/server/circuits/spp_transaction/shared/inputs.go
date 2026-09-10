@@ -14,6 +14,8 @@ type Input struct {
 	Utxo              UtxoCircuitFields
 	StatePathElements []frontend.Variable
 	StatePathIndex    frontend.Variable
+	// TreeSlot selects the public tree slot this input is spent from.
+	TreeSlot frontend.Variable
 
 	NullifierLowValue        frontend.Variable
 	NullifierNextValue       frontend.Variable
@@ -23,12 +25,12 @@ type Input struct {
 	NullifierSecret frontend.Variable
 }
 
-// Public inputs per input UTXO.
+// Public inputs per input UTXO. Tree is the slot the input's private TreeSlot
+// selected.
 type PublicInputUtxoInputs struct {
-	Nullifier         frontend.Variable
-	UtxoTreeRoot      frontend.Variable
-	NullifierTreeRoot frontend.Variable
-	SignerPk          frontend.Variable
+	Nullifier frontend.Variable
+	SignerPk  frontend.Variable
+	Tree      TreeSlot
 }
 
 func NewInputs(n int) []Input {
@@ -87,7 +89,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 
 	// Checks for UTXO, dummy UTXO, adddress:
 	// 1. nullifier must not exist in nullifier tree.
-	utxoHash := UtxoHashCircuit(api, in.Utxo)
+	utxoHash := UtxoHashCircuit(api, in.Utxo, signals.Tree.ID)
 	in.checkNonInclusion(api, utxoHash, signals)
 
 	// Checks UTXO and address:
@@ -107,7 +109,7 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// UTXO checks:
 	// 1. UTXO hash must exist in state Merkle tree.
 	{
-		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.UtxoTreeRoot))
+		AssertWhen(api, isUtxo, in.checkInclusion(api, utxoHash, signals.Tree.UtxoRoot))
 	}
 	// Dummy checks:
 	// 1. All UTXO fields and nullifier secret 0, except the blinding.
@@ -119,11 +121,13 @@ func constrainInput(api frontend.API, in Input, signals PublicInputUtxoInputs) (
 	// 1. All UTXO fields and nullifier secret 0, except the blinding and owner.
 	AssertWhen(api, isAddress, in.checkAddress(api))
 
-	// Only UTXOs and addresses must be accessible as such
-	// in zk program proofs via private transaction hash.
+	// Only UTXOs and addresses must be accessible as such in zk program proofs
+	// via the private transaction hash. A spent UTXO is exposed by its hash; an
+	// address slot by its nullifier, which is the compressed address SPP inserts
+	// (already public, and the value a zk program names an account by).
 	inputHash := api.Select(isUtxo, utxoHash, frontend.Variable(0))
-	addressHash := api.Select(isAddress, utxoHash, frontend.Variable(0))
-	return inputHash, addressHash
+	addressNullifier := api.Select(isAddress, signals.Nullifier, frontend.Variable(0))
+	return inputHash, addressNullifier
 }
 
 // isUtxo: the slot spends an existing utxo.
@@ -183,7 +187,7 @@ func allZero(api frontend.API, values ...frontend.Variable) frontend.Variable {
 
 //  1. derived nullifier equals the public nullifier.
 //  2. indexed leaf H(in.NullifierLowValue, in.NullifierNextValue) exists in the
-//     nullifier tree at signals.NullifierTreeRoot.
+//     nullifier tree at signals.Tree.NullifierRoot.
 //  3. nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 //
 // -> nullifier does not exist yet in indexed Merkle tree.
@@ -205,7 +209,7 @@ func (in Input) checkNonInclusion(api frontend.API, utxoHash frontend.Variable, 
 		Path:   in.NullifierLowPathElements,
 		Height: NullifierTreeHeight,
 	})
-	api.AssertIsEqual(nfRoot, signals.NullifierTreeRoot)
+	api.AssertIsEqual(nfRoot, signals.Tree.NullifierRoot)
 	// 3.  nullifier is in range (NullifierLowValue < Nullifier < NullifierNextValue)
 	assertStrictlyOrdered(api, in.NullifierLowValue, signals.Nullifier, in.NullifierNextValue)
 }

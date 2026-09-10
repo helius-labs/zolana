@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { poseidon } from "../src/keypair/poseidon.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
+import { treeIdField } from "../src/interface/tree-slot.js";
 import type { Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
   auditPublicInputHash,
@@ -95,8 +96,8 @@ describe("ring audit encryption", () => {
     const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
     const nullifierRoot = new Uint8Array(32).fill(7) as Bytes32;
     const extended = poseidon([
-      poseidon([poseidon([PUBLIC_INPUT_HASH, policyHash]), stateRoot]),
-      nullifierRoot,
+      poseidon([poseidon([poseidon([PUBLIC_INPUT_HASH, policyHash]), stateRoot]), nullifierRoot]),
+      treeIdField(9),
     ]);
     expect(
       customRingPublicInputHash({
@@ -108,6 +109,7 @@ describe("ring audit encryption", () => {
           ciphertext: CIPHERTEXT,
         },
         policyHash,
+        entriesTreeId: 9,
         stateRoot,
         nullifierRoot,
       }),

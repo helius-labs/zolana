@@ -83,7 +83,7 @@ pub fn process_transact_ix(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Insert nullifiers into queue.
+    // 8. Resolve the input tree's roots and insert nullifiers into queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
     // The fee transfer CPI includes the tree, so it must run before
     // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
@@ -108,6 +108,7 @@ pub fn process_transact_ix(
         input_tree_result.inputs,
         clock.slot,
     )?;
+    proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
     let resolved_interface_transfers =
         resolve_interface_transfers(&ix, &transact_accounts.settlements);

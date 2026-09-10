@@ -102,9 +102,13 @@ pub fn process_transact_ix(
 
     match policy_accounts {
         Some((policy_config_account, entries_tree_account)) => {
-            let (policy_hash, entries_tree) = {
+            let (policy_hash, entries_tree, entries_tree_id) = {
                 let policy = load_policy_config(program_id, policy_config_account)?;
-                (policy.policy_hash, policy.entries_tree)
+                (
+                    policy.policy_hash,
+                    policy.entries_tree,
+                    policy.entries_tree_id(),
+                )
             };
             // The borrow drops before the CPI below, else SPP faults borrowing the
             // aliased money tree.
@@ -121,6 +125,7 @@ pub fn process_transact_ix(
                     policy_hash: &policy_hash,
                     state_root: &roots.state,
                     nullifier_root: &roots.nullifier,
+                    entries_tree_id,
                 }
                 .hash()
                 .map_err(|_| CustomRingError::HashingFailed)?,

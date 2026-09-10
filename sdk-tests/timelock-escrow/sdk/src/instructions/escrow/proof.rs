@@ -7,9 +7,18 @@ use zolana_transaction::{
 
 use crate::{err, state::EscrowUtxo};
 
+/// The parts of the SPP transact this escrow CPIs into that the escrow proof has
+/// to reproduce byte-for-byte, or the two proofs bind different
+/// `private_tx_hash` values and the instruction can never land.
 pub struct SppTxHashes {
     pub source_input_hash: [u8; 32],
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the escrow and change outputs are appended to; it is
+    /// the second element of every output's commitment.
+    pub output_tree_id: u16,
 }
 
 impl SppTxHashes {
@@ -21,6 +30,8 @@ impl SppTxHashes {
         Ok(Self {
             source_input_hash: source_input.hash().map_err(err)?,
             external_data_hash: spp_proof_inputs.external_data.hash().map_err(err)?,
+            private_tx_blinding: spp_proof_inputs.private_tx_blinding().map_err(err)?,
+            output_tree_id: spp_proof_inputs.output_tree_id,
         })
     }
 }
@@ -47,9 +58,13 @@ impl EscrowProofInputParams {
             bail!("change output must not carry data or ring commitments");
         }
         let terms_input = EscrowTermsProofInput::try_from(terms)?;
+        // Both are created by this transaction, so both commit under the output
+        // tree's id.
+        let output_tree_id = self.spp_tx_hashes.output_tree_id;
         let escrow_utxo =
-            ProofInputUtxo::try_from(&self.escrow_utxo.to_input_utxo()?).map_err(err)?;
-        let change = ProofInputUtxo::try_from(&self.change).map_err(err)?;
+            ProofInputUtxo::try_from(&self.escrow_utxo.to_input_utxo()?.in_tree(output_tree_id))
+                .map_err(err)?;
+        let change = ProofInputUtxo::try_from((&self.change, output_tree_id)).map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[self.spp_tx_hashes.source_input_hash, [0u8; 32]],
             &[
@@ -57,6 +72,7 @@ impl EscrowProofInputParams {
                 escrow_utxo.hash().map_err(err)?,
             ],
             &self.spp_tx_hashes.external_data_hash,
+            &self.spp_tx_hashes.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -67,6 +83,7 @@ impl EscrowProofInputParams {
             change,
             source_input_hash: self.spp_tx_hashes.source_input_hash,
             external_data_hash: self.spp_tx_hashes.external_data_hash,
+            private_tx_blinding: self.spp_tx_hashes.private_tx_blinding,
         })
     }
 }

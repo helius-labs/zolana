@@ -111,7 +111,17 @@ impl RootIndexCache {
             return Ok(index);
         }
         if !self.due_for_refresh(tree) {
-            return Err(self.missing(tree));
+            // A second updating slot can be indexed during the on-miss
+            // cooldown. Give the refresher time to bring its root in instead
+            // of immediately rejecting a valid proof request. Wait only once:
+            // a root that remains absent must still fail closed.
+            tokio::time::sleep(MIN_REFRESH_INTERVAL).await;
+            if let Some(index) = self.lookup(tree, &root) {
+                return Ok(index);
+            }
+            if !self.due_for_refresh(tree) {
+                return Err(self.missing(tree));
+            }
         }
 
         self.refresh(rpc_client, tree, Fetch::OnMiss).await?;
@@ -370,6 +380,23 @@ mod tests {
             !cache.due_for_refresh(tree),
             "and an on-demand fetch still closes it"
         );
+    }
+
+    #[tokio::test]
+    async fn a_fresh_miss_waits_for_the_refresher_without_fetching() {
+        let tree = Pubkey::new_from_array([7; 32]);
+        let cache = cache_with(tree, &[(12, [9; 32])], Some(Instant::now()));
+        // Any on-demand RPC fetch would fail: the refresher alone must supply
+        // the authoritative index for the newly indexed root.
+        let rpc = RpcClient::new("http://127.0.0.1:1".to_string());
+        let (result, ()) = tokio::join!(cache.index_for(&rpc, tree, [4; 32]), async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            cache
+                .store(tree, [(13, [4; 32])], Fetch::Refresher)
+                .expect("store refreshed roots");
+        });
+        assert_eq!(result.expect("wait for the authoritative root"), 13);
+        assert_eq!(cache.lookup(tree, &[9; 32]), None, "old roots are evicted");
     }
 
     #[test]

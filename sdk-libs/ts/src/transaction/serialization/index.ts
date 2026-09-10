@@ -48,6 +48,7 @@ export {
   type OutputDataEncoding,
   type OwnerContext,
   type ProoflessOutput,
+  type SeedBundleContext,
   type SplitBundlePlaintext,
   type SplitEncryptedUtxos,
   type TransferPlaintextRecipient,

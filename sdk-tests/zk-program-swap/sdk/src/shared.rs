@@ -8,6 +8,12 @@ use zolana_transaction::{
 
 use crate::err;
 
+/// Raw id of the tree a rediscovered leaf was appended to. The tree id is the
+/// second element of a UTXO commitment, so the indexer must hash a candidate
+/// opening under the same id as the leaf it compares against.
+// TODO(tree-id): resolve the tree id from the tree account holding the leaf.
+pub const INDEXED_TREE_ID: u16 = 0;
+
 pub fn input_sum(inputs: &[SppProofInputUtxo], asset: &Address) -> i128 {
     inputs
         .iter()

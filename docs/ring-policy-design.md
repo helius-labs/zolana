@@ -34,12 +34,13 @@ the Go circuit. SPP hosts entries unchanged.
 
 Three ancestor mechanisms carry over exactly:
 
-- The owner is `Poseidon(hash_bytes(pda), Poseidon(0))`, the example's
+- The owner is `Poseidon(solana_owner_identity(pda), Poseidon(0))`, the example's
   `PdaOwner` with the zero nullifier secret. Every entry nullifier is
   publicly computable. Spending stays gated by the PDA signature alone.
-- The blinding is the version counter. Create starts at version zero. Update
-  spends version `v` and emits `v + 1` in one SPP transact. A re-added member
-  never repeats a utxo hash or a nullifier.
+- The version is a counter. Create starts at version zero. Update spends
+  version `v` and emits `v + 1` in one SPP transact. The blinding is the SPP
+  output blinding derived from the spent nullifier, published in the record,
+  so a re-added member never repeats a utxo hash or a nullifier.
 - The entry bytes publish as plaintext output data behind a five-byte
   header. Discovery trusts them only after re-deriving `data_hash` and the
   utxo hash and matching the on-chain leaf.
@@ -60,18 +61,20 @@ tree already rejects. There is no address registry and no new tree.
 `content_hash` together, so an entry cannot be replayed under another pair or
 another namespace PDA.
 
-A **member** is one field element, `Member::owner_tag` over the confidential
-view tag or `Member::asset` over a mint (`member.rs`). An ed25519 tag is the
-raw pubkey. A P256 tag is the x-coordinate alone. Parity travels in encrypted
-owner data, a ban therefore covers both parity points of an x. A mint hashes
-exactly as the asset field of the UTXO, native SOL as the all-zero address.
-One member space serves every rule subject because the circuit already
-carries these exact field elements in the slot openings. A list holds owner
-and asset members side by side. An owner rule derives its members from the
-output owners, an asset rule from the output mints. A mint and a tag with
-the same bytes derive one member, one entry serves both. A party holding
-both an ed25519 and a P256 identity owns two distinct members. A curator
-that bans an address does not ban the party's P256 identity.
+A **member** is one field element, `Member::owner_identity` over the
+algorithm-tagged owner identity SPP hashes, `Member::owner_tag` derives the
+Solana one from a pubkey, or `Member::asset` over a mint (`member.rs`). A
+Solana identity tags the raw pubkey, a P256 identity tags the x-coordinate
+alone. Parity travels in encrypted owner data, a ban therefore covers both
+parity points of an x. A mint hashes exactly as the asset field of the UTXO,
+native SOL as the all-zero address. One member space serves every rule
+subject because the circuit already carries these exact field elements in
+the slot openings. A list holds owner and asset members side by side. An
+owner rule derives its members from the output owners, an asset rule from
+the output mints. The algorithm tag keeps a mint and an owner key with equal
+bytes apart, and a party holding both an ed25519 and a P256 identity owns
+two distinct members. A curator that bans an address does not ban the
+party's P256 identity.
 
 An asset rule over lists reads entries the config authority or a curator
 writes, like an owner rule. The inline form, `Rule::allow_only_assets`, keeps
@@ -109,7 +112,7 @@ never crosses the CPI or reaches Go or TypeScript.
 
 The sealed `ListSchema` trait packages the reuse. A new list-backed feature
 declares a list with an unused nonzero discriminant, a writer arm, and an
-`EntryContent` type choice. It reuses the keying, the 74-byte entry layout,
+`EntryContent` type choice. It reuses the keying, the 106-byte entry layout,
 the membership proofs, the mutation instructions, and the circuit unchanged.
 Only a rule that consults the list touches anything else.
 

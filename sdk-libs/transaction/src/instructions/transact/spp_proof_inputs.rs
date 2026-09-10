@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_interface::{MAX_INTERFACE_TRANSFERS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
-use zolana_keypair::{hash::sha256, Curve, ViewingKey, ViewingKeyTrait};
+use zolana_keypair::{hash::sha256, random_blinding, Curve, ViewingKey, ViewingKeyTrait};
 
 use super::{
     shape::{Shape, SPP_SUPPORTED_SHAPES},
@@ -10,6 +10,9 @@ use super::{
 use crate::{
     error::TransactionError,
     instructions::types::{InputUtxoContext, SppProofInputUtxo},
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
     ExternalData, SppProofOutputUtxo, SOL_MINT,
 };
 
@@ -69,6 +72,35 @@ pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], Tr
         .nullifier()
 }
 
+/// Assigns the final deterministic blinding to every physical output slot.
+/// Call this before hashing or encrypting any output.
+pub fn assign_output_blindings(
+    outputs: &mut [SppProofOutputUtxo],
+    first_nullifier: &[u8; 32],
+    seed: &[u8; 32],
+) -> Result<(), TransactionError> {
+    for (index, output) in outputs.iter_mut().enumerate() {
+        let index = u32::try_from(index).map_err(|_| TransactionError::TooManyOutputs)?;
+        output.blinding = derive_transact_output_blinding(first_nullifier, seed, index)?;
+    }
+    Ok(())
+}
+
+/// Draws the blinding seed, derives the output blinding seed from it, and
+/// assigns every final output blinding. Call this before hashing or encrypting
+/// the outputs; the returned root seed goes into
+/// [`SppProofInputs::blinding_seed`](SppProofInputs) and is disclosed to nobody.
+pub fn prepare_output_blindings(
+    input_utxos: &[SppProofInputUtxo],
+    outputs: &mut [SppProofOutputUtxo],
+) -> Result<[u8; 32], TransactionError> {
+    let blinding_seed = random_blinding();
+    let first_nullifier = first_nullifier(input_utxos)?;
+    let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed)?;
+    assign_output_blindings(outputs, &first_nullifier, &seed)?;
+    Ok(blinding_seed)
+}
+
 pub fn get_transaction_viewing_key<K: ViewingKeyTrait>(
     keypair: &K,
     input_utxos: &[SppProofInputUtxo],
@@ -104,11 +136,24 @@ impl PublicTransfers {
 pub struct SppProofInputs {
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxos: Vec<SppProofOutputUtxo>,
+    /// The transaction's private random root seed. The output blinding seed
+    /// and the private transaction blinding derive from it and the first
+    /// nullifier, and neither child can be inverted back to it, so disclosing
+    /// one child never reaches the other. The root seed itself stays private: the
+    /// prover receives it, nobody else does.
+    pub blinding_seed: [u8; 32],
+    /// Raw id of the tree every output is appended to.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub output_tree_id: u16,
     pub external_data: ExternalData,
     pub payer: Address,
 }
 
 impl SppProofInputs {
+    /// Starts with a zero `blinding_seed` and output tree `0`. The circuit derives
+    /// every output blinding from `blinding_seed`, so a caller that assigns its own
+    /// outputs must blind them with [`prepare_output_blindings`] and pass the
+    /// returned root seed through [`Self::with_blinding_seed`], or the proof fails.
     pub fn new(
         input_utxos: Vec<SppProofInputUtxo>,
         output_utxos: Vec<SppProofOutputUtxo>,
@@ -118,9 +163,42 @@ impl SppProofInputs {
         Self {
             input_utxos,
             output_utxos,
+            blinding_seed: [0u8; 32],
+            output_tree_id: 0,
             external_data,
             payer,
         }
+    }
+
+    #[must_use]
+    pub fn with_blinding_seed(mut self, blinding_seed: [u8; 32]) -> Self {
+        self.blinding_seed = blinding_seed;
+        self
+    }
+
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
+        self
+    }
+
+    /// Nullifier of the first input slot, which must be a real spend. It enters
+    /// the nullifier tree once, so it makes every value derived from
+    /// [`Self::blinding_seed`] unique to one accepted transaction.
+    pub fn first_nullifier(&self) -> Result<[u8; 32], TransactionError> {
+        first_nullifier(&self.input_utxos)
+    }
+
+    /// Seed every physical output blinding derives from. Disclosed to the
+    /// reader of an anonymous Sender bundle or a plaintext transfer.
+    pub fn output_blinding_seed(&self) -> Result<[u8; 32], TransactionError> {
+        derive_output_blinding_seed(&self.first_nullifier()?, &self.blinding_seed)
+    }
+
+    /// Final `private_tx_hash` preimage element. Disclosed only to a policy or
+    /// third-party co-prover that has to recompute the transaction hash.
+    pub fn private_tx_blinding(&self) -> Result<[u8; 32], TransactionError> {
+        derive_private_tx_blinding(&self.first_nullifier()?, &self.blinding_seed)
     }
 
     /// Unique non-payer Ed25519 and PDA input owners in first-input order. This
@@ -150,15 +228,17 @@ impl SppProofInputs {
     }
 
     /// Fixed-width signer identity vector committed by the circuit. The payer
-    /// occupies slot zero, followed by unique non-payer input owners.
+    /// occupies slot zero, followed by unique non-payer input owners. Every
+    /// signer is a Solana account, so each identity carries the Solana owner
+    /// tag; the program derives the same values from its signer accounts.
     pub fn signer_pk_hashes(&self, width: usize) -> Result<Vec<[u8; 32]>, TransactionError> {
-        let mut hashes = vec![zolana_hasher::primitives::hash_bytes(
+        let mut hashes = vec![zolana_hasher::primitives::solana_owner_identity(
             self.payer.as_array(),
         )?];
         hashes.extend(
             self.owner_signer_pubkeys()?
                 .iter()
-                .map(|signer| zolana_hasher::primitives::hash_bytes(signer.as_array()))
+                .map(|signer| zolana_hasher::primitives::solana_owner_identity(signer.as_array()))
                 .collect::<Result<Vec<_>, _>>()?,
         );
         if hashes.len() > width {
@@ -288,13 +368,18 @@ impl SppProofInputs {
             if output.is_dummy() {
                 output_hashes.push([0u8; 32]);
             } else {
-                output_hashes.push(output.hash()?);
+                output_hashes.push(output.hash(self.output_tree_id)?);
             }
         }
 
         let external_data_hash = self.external_data.hash()?;
-        let private_tx =
-            PrivateTxHash::new(&input_hashes, &output_hashes, &external_data_hash).hash()?;
+        let private_tx = PrivateTxHash::new(
+            &input_hashes,
+            &output_hashes,
+            &external_data_hash,
+            &self.private_tx_blinding()?,
+        )
+        .hash()?;
         Ok(sha256(&private_tx))
     }
 }

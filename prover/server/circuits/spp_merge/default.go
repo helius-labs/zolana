@@ -25,7 +25,6 @@ type (
 )
 
 const (
-	MergeInputs = mergeshared.MergeInputs
 	UtxoDomain  = mergeshared.UtxoDomain
 	DummyDomain = mergeshared.DummyDomain
 )
@@ -51,11 +50,13 @@ type Circuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
 
-func NewMergeCircuit() *Circuit {
+// NewMergeCircuit allocates the default-rail merge circuit for n input slots.
+// One proving system exists per supported count; Define rejects any other.
+func NewMergeCircuit(n int) *Circuit {
 	return &Circuit{
-		NumInputs:          MergeInputs,
-		Inputs:             mergeshared.NewInputs(),
-		CommonPublicInputs: mergeshared.NewCommonPublicInputs(),
+		NumInputs:          n,
+		Inputs:             mergeshared.NewInputs(n),
+		CommonPublicInputs: mergeshared.NewCommonPublicInputs(n),
 	}
 }
 

@@ -220,11 +220,17 @@ impl EntryWrite<'_> {
             rpc,
             prover,
         };
+        let entries_tree_id = self
+            .ring
+            .read_policy_config(rpc)?
+            .ok_or_else(|| anyhow!("policy config of {}", self.ring.program_id()))?
+            .entries_tree_id();
         let proven = match self.target {
             EntryTarget::Claim { list_id, member } => CreateEntry {
                 ring: self.ring,
                 payer: authority,
                 entries_tree: env.tree,
+                entries_tree_id,
                 list_id,
                 member,
                 state: self.state,
@@ -235,6 +241,7 @@ impl EntryWrite<'_> {
                 ring: self.ring,
                 payer: authority,
                 entries_tree: env.tree,
+                entries_tree_id,
                 spent,
                 state: self.state,
                 content_hash: [0u8; 32],
@@ -256,6 +263,7 @@ impl EntryWrite<'_> {
         wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
         let live = ReadEntry {
             entries_tree: env.tree,
+            entries_tree_id,
             namespace: self.ring.namespace_pda(),
             list_id: entry.list_id,
             member: entry.member,

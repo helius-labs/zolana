@@ -16,14 +16,15 @@ import (
 
 // refreshStateEntry recomputes the state-tree leaf for an input whose owner
 // was mutated, so the witness builder reaches the owner checks instead of
-// failing the leaf lookup.
+// failing the leaf lookup. The leaf is hashed under the request's input tree
+// id, the same id the builder binds the input to.
 func refreshStateEntry(t *testing.T, tx *ProofTransactionRequest, i int) {
 	t.Helper()
 	parsed, err := parseProofInput(tx.Inputs[i])
 	if err != nil {
 		t.Fatal(err)
 	}
-	hash, err := protocol.UtxoHash(parsed.utxo)
+	hash, err := protocol.UtxoHash(parsed.utxo, big.NewInt(int64(tx.InputTreeID)))
 	if err != nil {
 		t.Fatal(err)
 	}

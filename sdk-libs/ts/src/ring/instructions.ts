@@ -143,19 +143,16 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/**
- * Mirrors Rust `CustomRingTransact`. Data layout is
- * `tag || proof || state root index || nullifier root index || transact data`.
- */
+/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`. */
 export async function ringTransactInstruction(
   input: Readonly<{
     ringProgramId: Address;
     payer: SignerAccount;
     inputTree: Address;
     outputTree: Address;
-    /** Read for the policy roots, never forwarded to SPP. Required for the policy tier. */
+    /** Read for the policy roots, never forwarded to SPP. */
     entriesTree?: Address;
-    /** The config tier. False drops the policy_config and entries_tree accounts. */
+    /** False drops the policy_config and entries_tree accounts. */
     hasPolicy?: boolean;
     proof: Uint8Array;
     /** History entries the ring statement binds, unread by a ring without rules. */
@@ -327,7 +324,7 @@ export async function setRingPolicySourceInstruction(
 
 export interface RingEntryInstructionInput {
   readonly ringProgramId: Address;
-  /** The mutator, an authority list needs the config authority, a member list the member's key. */
+  /** An authority list needs the config authority, a member list the member's key. */
   readonly payer: SignerAccount;
   readonly entriesTree: Address;
   readonly entry: ListEntry;
@@ -356,7 +353,8 @@ export async function updateRingEntryInstruction(
     .bytes(input.entry.member, 32, "member")
     .u8(entryStateByte(input.spent), "spentState")
     .bytes(input.spent.contentHash, 32, "spentContentHash")
-    .u64(input.spent.version, "spentVersion");
+    .u64(input.spent.version, "spentVersion")
+    .bytes(input.spent.blinding, 32, "spentBlinding");
   writeEntryTail(data, input.entry, input.proof);
   return entryInstruction(input, data.finish());
 }
@@ -365,6 +363,8 @@ function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof)
   writer
     .u8(entryStateByte(entry), "state")
     .bytes(entry.contentHash, 32, "contentHash")
+    .bytes(entry.blinding, 32, "blinding")
+    .bytes(proof.privateTxBlinding, 32, "privateTxBlinding")
     .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(proof.proof.a, 32, "proof.a")

@@ -39,8 +39,9 @@ pub fn process_update_entry_ix(
         state: spent_state,
         version: ix.spent_version,
         content_hash: ix.spent_content_hash,
+        blinding: ix.spent_blinding,
     };
-    let (spent_hash, nullifier) = entry_spend_input(&parsed.owner, &spent)?;
+    let (spent_hash, nullifier) = entry_spend_input(&parsed.owner, &spent, parsed.entries_tree_id)?;
     let version = ix
         .spent_version
         .checked_add(1)
@@ -52,6 +53,7 @@ pub fn process_update_entry_ix(
             state,
             version,
             content_hash: ix.content_hash,
+            blinding: ix.blinding,
         },
         input: InputUtxo {
             nullifier_hash: nullifier,
@@ -60,9 +62,14 @@ pub fn process_update_entry_ix(
         },
         input_hash: spent_hash,
         address_utxo_hash: [0u8; 32],
+        private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }
-    .into_transact(&parsed.owner, &parsed.namespace_address)?;
+    .into_transact(
+        &parsed.owner,
+        &parsed.namespace_address,
+        parsed.entries_tree_id,
+    )?;
 
     cpi_spp_namespace_signed(
         &parsed.namespace_address,

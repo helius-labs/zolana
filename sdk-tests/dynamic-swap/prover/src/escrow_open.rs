@@ -36,6 +36,7 @@ pub struct EscrowOpenProofInputs {
     pub reservation_out: ProofInputUtxo,
     pub maker_change: ProofInputUtxo,
     pub external_data_hash: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
 }
 
 impl EscrowOpenProofInputs {
@@ -74,6 +75,10 @@ impl EscrowOpenProofInputs {
             "ExternalDataHash".to_string(),
             vec![bytes_to_decimal_string(&self.external_data_hash)],
         );
+        map.insert(
+            "PrivateTxBlinding".to_string(),
+            vec![bytes_to_decimal_string(&self.private_tx_blinding)],
+        );
         for (key, value) in utxo_witness_entries(&self.source_in, "SourceIn")
             .into_iter()
             .chain(utxo_witness_entries(&self.maker_funding, "MakerFunding"))
@@ -99,6 +104,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use crate::utxo::expected_utxo_witness_keys;
 
     fn sample() -> EscrowOpenProofInputs {
         EscrowOpenProofInputs {
@@ -116,6 +122,7 @@ mod tests {
             reservation_out: ProofInputUtxo::default(),
             maker_change: ProofInputUtxo::default(),
             external_data_hash: [5; 32],
+            private_tx_blinding: [9; 32],
         }
     }
 
@@ -134,6 +141,7 @@ mod tests {
             "Public_DestinationAsset".to_string(),
             "OrderAmount".to_string(),
             "ExternalDataHash".to_string(),
+            "PrivateTxBlinding".to_string(),
         ];
         for prefix in [
             "SourceIn",
@@ -142,18 +150,7 @@ mod tests {
             "ReservationOut",
             "MakerChange",
         ] {
-            for suffix in [
-                "Domain",
-                "Owner",
-                "Asset",
-                "Amount",
-                "Blinding",
-                "DataHash",
-                "RingDataHash",
-                "RingProgramID",
-            ] {
-                expected.push(format!("{prefix}_{suffix}"));
-            }
+            expected.extend(expected_utxo_witness_keys(prefix));
         }
 
         let expected: HashSet<&str> = expected.iter().map(String::as_str).collect();

@@ -552,6 +552,7 @@ export async function proveCustomRingTransfer(
           policyHash: policyRound.config.policyHash,
           stateRoot: roots.stateRoot,
           nullifierRoot: roots.nullifierRoot,
+          entriesTreeId: policyRound.config.entriesTreeId,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
@@ -565,6 +566,7 @@ export async function proveCustomRingTransfer(
         // `privateTxHash`, else the gnark witness is unsatisfiable.
         addressChain: ringAddressChain(openings.nIn),
         externalDataHash: proofInputs.externalData.hash(),
+        privateTxBlinding: proofInputs.privateTxBlinding(),
         sources: policyRound.sources,
         policyLen: policyRound.config.ruleCount,
         rules: paddedRows(policyRound.config.rules, RING_RULE_SLOTS),
@@ -578,6 +580,7 @@ export async function proveCustomRingTransfer(
         inlineCount: policyRound.config.inlineCount,
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
+        entriesTreeId: policyRound.config.entriesTreeId,
         answers,
       },
       context,
@@ -680,6 +683,8 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     inputUtxos: proofInputs.inputUtxos,
     outputs: proofInputs.outputs,
     externalData: createExternalData({ ...external, outputs }),
+    blindingSeed: proofInputs.blindingSeed,
+    outputTreeId: proofInputs.outputTreeId,
   });
 }
 

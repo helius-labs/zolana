@@ -37,7 +37,8 @@ pub struct Pair {
     /// The escrow_authority identity's published nullifier pubkey, supplied at
     /// `create_pair` time by the maker, who derives it from its viewing key
     /// bound to the escrow_authority PDA. `create_escrow` recomputes the
-    /// escrow-authority owner hash as `Poseidon(hash_bytes(derived PDA), this)`,
+    /// escrow-authority owner hash as
+    /// `Poseidon(solana_owner_identity(derived PDA), this)`,
     /// so the PDA binding stays program-enforced while the nullifier secret
     /// stays private to the maker (the escrow spend graph is not public).
     pub escrow_authority_nullifier_pubkey: [u8; 32],

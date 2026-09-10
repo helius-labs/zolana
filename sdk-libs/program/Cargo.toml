@@ -1,0 +1,20 @@
+[package]
+name = "zolana-program"
+version = "0.1.0"
+description = "SPP protocol math for Solana programs: the blinding seed derivations a program recomputes on-chain, buildable for the SBF target."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "zolana_program"
+
+[dependencies]
+zolana-hasher = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "allow"
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

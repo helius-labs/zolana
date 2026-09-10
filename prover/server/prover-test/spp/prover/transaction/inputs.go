@@ -22,25 +22,26 @@ type parsedInput struct {
 type inputWitnesses struct {
 	inputs                   []txcircuit.Input
 	hashes                   []*big.Int
-	utxoRoots                []*big.Int
-	nullifierTreeRoots       []*big.Int
 	nullifiers               []*big.Int
 	inputOwnerPkHashes       []*big.Int
 	solanaOwnerPubkeys       []string
 	requiresP256OwnerWitness bool
 }
 
+// buildInputWitnesses fills every physical input slot, real spends first and
+// padding dummies after. Every slot is hashed and nullified under inputTreeID,
+// the raw id of the one tree this builder spends from, so the utxo hashes match
+// the state entries SPP resolved for that tree.
 func buildInputWitnesses(
 	shape protocol.Shape,
 	requests []ProofInputRequest,
 	state stateWitnesses,
 	nullifierTree *protocol.NullifierTree,
+	inputTreeID *big.Int,
 ) (inputWitnesses, error) {
 	inputs := inputWitnesses{
 		inputs:             make([]txcircuit.Input, shape.NInputs),
 		hashes:             make([]*big.Int, shape.NInputs),
-		utxoRoots:          make([]*big.Int, shape.NInputs),
-		nullifierTreeRoots: make([]*big.Int, shape.NInputs),
 		nullifiers:         make([]*big.Int, shape.NInputs),
 		inputOwnerPkHashes: make([]*big.Int, shape.NInputs),
 		solanaOwnerPubkeys: make([]string, len(requests)),
@@ -52,7 +53,7 @@ func buildInputWitnesses(
 			return inputWitnesses{}, fmt.Errorf("input %d: %w", i, err)
 		}
 
-		inputHash, err := protocol.UtxoHash(input.utxo)
+		inputHash, err := protocol.UtxoHash(input.utxo, inputTreeID)
 		if err != nil {
 			return inputWitnesses{}, err
 		}
@@ -74,8 +75,6 @@ func buildInputWitnesses(
 			inputs.inputOwnerPkHashes[i] = input.ownerKeyHash
 			inputs.solanaOwnerPubkeys[i] = input.ownerSolanaPubkey
 		}
-		utxoRoot := state.root
-		nullifierTreeRoot := nullifierTree.Root()
 
 		proof, ok := state.proofs[input.leafIndex]
 		if !ok {
@@ -95,8 +94,6 @@ func buildInputWitnesses(
 
 		inputs.inputs[i] = witness
 		inputs.hashes[i] = inputHash
-		inputs.utxoRoots[i] = utxoRoot
-		inputs.nullifierTreeRoots[i] = nullifierTreeRoot
 		inputs.nullifiers[i] = nullifier
 	}
 
@@ -106,7 +103,7 @@ func buildInputWitnesses(
 			return inputWitnesses{}, fmt.Errorf("dummy input %d blinding: %w", i, err)
 		}
 		utxo := dummyUtxo(blinding)
-		utxoHash, err := protocol.UtxoHash(utxo)
+		utxoHash, err := protocol.UtxoHash(utxo, inputTreeID)
 		if err != nil {
 			return inputWitnesses{}, fmt.Errorf("dummy input %d utxo hash: %w", i, err)
 		}
@@ -129,18 +126,21 @@ func buildInputWitnesses(
 		witness.NullifierLowPathIndex = pathIndexVariable(nfWitness.LowIndex)
 		inputs.inputs[i] = witness
 		inputs.hashes[i] = big.NewInt(0)
-		inputs.utxoRoots[i] = big.NewInt(0)
-		inputs.nullifierTreeRoots[i] = nullifierTree.Root()
 		inputs.nullifiers[i] = nullifier
 		inputs.inputOwnerPkHashes[i] = big.NewInt(0)
 	}
 	return inputs, nil
 }
 
+// newInputWitness allocates one input slot. TreeSlot is 0 for every slot: this
+// builder spends from a single tree, published in slot 0, and the circuit
+// rejects a slot whose roots are zero, so dummies must select the populated
+// slot too.
 func newInputWitness() txcircuit.Input {
 	return txcircuit.Input{
 		StatePathElements:        zeroVariables(protocol.StateTreeHeight),
 		StatePathIndex:           big.NewInt(0),
+		TreeSlot:                 big.NewInt(0),
 		NullifierLowPathElements: zeroVariables(protocol.NullifierTreeHeight),
 		NullifierLowPathIndex:    big.NewInt(0),
 		NullifierLowValue:        big.NewInt(0),
@@ -153,8 +153,9 @@ func newInputWitness() txcircuit.Input {
 // the public transcript is indistinguishable from a real input. Ownership and
 // inclusion are skipped in-circuit; the caller attaches the real nullifier
 // non-inclusion witness (checked for every slot) and publishes the derived
-// dummy nullifier. The public state root stays zero because the on-chain
-// verifier treats missing root indices as zero.
+// dummy nullifier. A dummy shares slot 0 with the real inputs: its utxo hash
+// and nullifier are derived under that slot's tree id, and its non-inclusion is
+// proven against that slot's nullifier root.
 func dummyInputWitness(utxo txcircuit.UtxoCircuitFields) txcircuit.Input {
 	witness := newInputWitness()
 	witness.Utxo = utxo

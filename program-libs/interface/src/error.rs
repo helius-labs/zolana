@@ -160,6 +160,8 @@ pub enum ShieldedPoolError {
     DepositBlindingDerivationFailed = 7063,
     #[error("ring is not activated by governance")]
     RingNotActivated = 7064,
+    #[error("every input must reference the same UTXO-tree and nullifier-tree roots")]
+    InputTreeRootIndexMismatch = 7065,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -267,6 +269,7 @@ mod tests {
                 NoClaimableTreeLamports => 7062,
                 DepositBlindingDerivationFailed => 7063,
                 RingNotActivated => 7064,
+                InputTreeRootIndexMismatch => 7065,
             }
         }
 
@@ -334,6 +337,7 @@ mod tests {
             NoClaimableTreeLamports,
             DepositBlindingDerivationFailed,
             RingNotActivated,
+            InputTreeRootIndexMismatch,
         ];
         for variant in variants {
             assert_eq!(
@@ -343,6 +347,6 @@ mod tests {
             );
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 61, "variant count drifted");
+        assert_eq!(variants.len(), 62, "variant count drifted");
     }
 }

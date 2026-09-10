@@ -136,14 +136,15 @@ func (s *statement) updateHashes(t *testing.T) {
 			outputHashes[i] = hostUtxoHash(t, output)
 		}
 	}
-	s.privateTxHash = spptest.MustPoseidon(t, 5, []*big.Int{
+	s.privateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
 		spptest.MustHashChain(t, inputHashes),
 		spptest.MustHashChain(t, outputHashes),
 		s.addressChain,
 		s.externalDataHash,
+		s.privateTxBlinding,
 	})
 	elements := s.keys.ChainElements(t, s.privateTxHash)
-	s.publicInputHash = spptest.MustHashChain(t, append(elements, s.policyHash, s.stateRoot, s.nullifierRoot))
+	s.publicInputHash = spptest.MustHashChain(t, append(elements, s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID)))
 }
 
 func rejectAssignment(t *testing.T, c *CustomRingPolicyCircuit) {

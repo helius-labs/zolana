@@ -10,6 +10,7 @@ use zolana_keypair::{NullifierKey, PublicKey, ShieldedKeypairTrait};
 use crate::{
     error::TransactionError,
     instructions::types::{InputUtxoContext, SppProofInputUtxo},
+    utxo::derive_private_tx_blinding,
     SppProofOutputUtxo,
 };
 
@@ -39,6 +40,18 @@ pub fn merge_output_blinding(
     ])?)
 }
 
+/// The merge transaction hash blinding. Merge draws no blinding seed: the
+/// owner's nullifier secret already is a value only the owner knows, and the
+/// first input's single-use nullifier makes the result unique to one accepted
+/// merge. Mirrors `DerivePrivateTxBlinding(nullifiers[0], userNullifierSecret)`
+/// in `circuits/spp_merge/shared/transaction.go`.
+pub fn merge_private_tx_blinding(
+    nullifier_key: &NullifierKey,
+    first_nullifier: &[u8; 32],
+) -> Result<[u8; 32], TransactionError> {
+    derive_private_tx_blinding(first_nullifier, &right_align(&nullifier_key.secret()))
+}
+
 /// The published nullifier of a dummy (padding) input slot, derived in-circuit
 /// from the owner's nullifier secret, the first real input's single-use
 /// nullifier, and the slot index. Seeding with the nullifier secret (owner-only)
@@ -66,6 +79,7 @@ pub struct Merge {
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
+    output_tree_id: u16,
 }
 
 impl Merge {
@@ -91,7 +105,10 @@ impl Merge {
         // (validation rejects empty inputs), and the circuit derives the same
         // value from the owner's nullifier secret and the first nullifier. The
         // wallet later reconstructs the output the same way.
-        let first_nullifier = inputs[0].nullifier()?;
+        let first_nullifier = inputs
+            .first()
+            .ok_or(TransactionError::NoInputs)?
+            .nullifier()?;
         let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
         output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
 
@@ -102,11 +119,21 @@ impl Merge {
             // expiry`, so set this explicitly for a relayer deadline.
             expiry_unix_ts: u64::MAX,
             signing_pubkey: keypair.signing_pubkey(),
+            output_tree_id: 0,
         })
     }
 
     pub fn with_expiry(mut self, expiry_unix_ts: u64) -> Self {
         self.expiry_unix_ts = expiry_unix_ts;
+        self
+    }
+
+    /// Appends the merged output to the tree with the raw id `output_tree_id`.
+    /// The id is hashed into the output commitment.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    #[must_use]
+    pub fn with_output_tree_id(mut self, output_tree_id: u16) -> Self {
+        self.output_tree_id = output_tree_id;
         self
     }
 
@@ -118,6 +145,7 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
+            output_tree_id,
         } = self;
         pad_with_dummies(&mut inputs);
         PreparedMerge {
@@ -125,6 +153,7 @@ impl Merge {
             output,
             expiry_unix_ts,
             signing_pubkey,
+            output_tree_id,
         }
     }
 }
@@ -232,9 +261,16 @@ pub struct PreparedMerge {
     pub output: SppProofOutputUtxo,
     pub expiry_unix_ts: u64,
     pub signing_pubkey: PublicKey,
+    /// Raw id of the tree the merged output is appended to.
+    pub output_tree_id: u16,
 }
 
 impl PreparedMerge {
+    /// Commitment of the merged output under [`Self::output_tree_id`].
+    pub fn output_hash(&self) -> Result<[u8; 32], TransactionError> {
+        self.output.hash(self.output_tree_id)
+    }
+
     /// Commitments for the real inputs only. Merge assembly only supports clean
     /// inputs, so an input that committed to program or ring data is rejected.
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {

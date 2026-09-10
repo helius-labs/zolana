@@ -21,12 +21,19 @@ import (
 type Circuit struct {
 	Public PublicInputs
 
-	SourceIn     spp.UtxoCircuitFields
-	MakerFunding spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	SourceIn           spp.UtxoCircuitFields
+	SourceInTreeID     frontend.Variable
+	MakerFunding       spp.UtxoCircuitFields
+	MakerFundingTreeID frontend.Variable
 
-	OrderOut       spp.UtxoCircuitFields
-	ReservationOut spp.UtxoCircuitFields
-	MakerChange    spp.UtxoCircuitFields
+	OrderOut             spp.UtxoCircuitFields
+	OrderOutTreeID       frontend.Variable
+	ReservationOut       spp.UtxoCircuitFields
+	ReservationOutTreeID frontend.Variable
+	MakerChange          spp.UtxoCircuitFields
+	MakerChangeTreeID    frontend.Variable
 
 	OrderAmount frontend.Variable
 
@@ -36,7 +43,8 @@ type Circuit struct {
 	// outcome.
 	MaxPrice frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (c *Circuit) Define(api frontend.API) error {
@@ -65,6 +73,7 @@ func (c *Circuit) Define(api frontend.API) error {
 		ReservationOutputUtxoHash: reservationOutHash,
 		MakerChangeOutputUtxoHash: makerChangeHash,
 		ExternalDataHash:          c.ExternalDataHash,
+		PrivateTxBlinding:         c.PrivateTxBlinding,
 		PrivateTxHash:             c.Public.PrivateTxHash,
 	}.Check(api)
 
@@ -120,6 +129,7 @@ type privateTxHashInputs struct {
 	ReservationOutputUtxoHash frontend.Variable
 	MakerChangeOutputUtxoHash frontend.Variable
 	ExternalDataHash          frontend.Variable
+	PrivateTxBlinding         frontend.Variable
 	PrivateTxHash             frontend.Variable
 }
 
@@ -141,7 +151,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 		frontend.Variable(0),
 	}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -155,7 +172,7 @@ func (c *Circuit) checkSourceInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(c.SourceIn.Asset, c.Public.SourceAsset)
 	// No change output: the source input must be exactly OrderAmount.
 	api.AssertIsEqual(c.SourceIn.Amount, c.OrderAmount)
-	return spp.UtxoHashCircuit(api, c.SourceIn)
+	return spp.UtxoHashCircuit(api, c.SourceIn, c.SourceInTreeID)
 }
 
 func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable {
@@ -166,7 +183,7 @@ func (c *Circuit) checkMakerFundingInputUtxo(api frontend.API) frontend.Variable
 	// Bind the maker's funding asset to the pair's destination asset so the maker
 	// cannot fund with a worthless token that the taker would be paid on settle.
 	api.AssertIsEqual(c.MakerFunding.Asset, c.Public.DestinationAsset)
-	return spp.UtxoHashCircuit(api, c.MakerFunding)
+	return spp.UtxoHashCircuit(api, c.MakerFunding, c.MakerFundingTreeID)
 }
 
 // checkOrderOutputUtxo commits (recipient, MaxPrice, CreatedAt) into the order
@@ -191,7 +208,7 @@ func (c *Circuit) checkOrderOutputUtxo(api frontend.API) frontend.Variable {
 		c.MaxPrice,
 		c.Public.CreatedAt,
 	}))
-	return spp.UtxoHashCircuit(api, c.OrderOut)
+	return spp.UtxoHashCircuit(api, c.OrderOut, c.OrderOutTreeID)
 }
 
 // checkReservationOutputUtxo binds the reservation's DataHash to the order UTXO's
@@ -209,7 +226,7 @@ func (c *Circuit) checkReservationOutputUtxo(api frontend.API, orderOutHash fron
 
 	api.AssertIsEqual(c.ReservationOut.Amount, api.Mul(c.OrderAmount, c.MaxPrice))
 
-	return spp.UtxoHashCircuit(api, c.ReservationOut)
+	return spp.UtxoHashCircuit(api, c.ReservationOut, c.ReservationOutTreeID)
 }
 
 // checkMakerChangeOutputUtxo returns the maker's unspent funding (funding -
@@ -228,5 +245,5 @@ func (c *Circuit) checkMakerChangeOutputUtxo(api frontend.API) frontend.Variable
 	api.AssertIsEqual(c.MakerChange.Amount, api.Sub(c.MakerFunding.Amount, reserved))
 	api.ToBinary(c.MakerChange.Amount, 64)
 
-	return spp.UtxoHashCircuit(api, c.MakerChange)
+	return spp.UtxoHashCircuit(api, c.MakerChange, c.MakerChangeTreeID)
 }

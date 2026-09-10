@@ -15,6 +15,10 @@ pub struct SppProofInputUtxo {
     pub nullifier_key: NullifierKey,
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: Option<[u8; 32]>,
+    /// Raw id of the tree this UTXO is spent from. It is hashed into the UTXO
+    /// commitment, so it must match the tree the inclusion proof comes from.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub tree_id: u16,
 }
 
 impl SppProofInputUtxo {
@@ -24,6 +28,7 @@ impl SppProofInputUtxo {
             nullifier_key: nullifier_key.as_ref().clone(),
             data_hash: None,
             ring_data_hash: None,
+            tree_id: 0,
         }
     }
 
@@ -34,6 +39,13 @@ impl SppProofInputUtxo {
 
     pub fn with_ring_data_hash(mut self, ring_data_hash: [u8; 32]) -> Self {
         self.ring_data_hash = Some(ring_data_hash);
+        self
+    }
+
+    /// Places the spend in the tree with the raw id `tree_id`.
+    #[must_use]
+    pub fn in_tree(mut self, tree_id: u16) -> Self {
+        self.tree_id = tree_id;
         self
     }
 
@@ -51,6 +63,7 @@ impl SppProofInputUtxo {
             nullifier_key: NullifierKey::from_secret([0u8; BLINDING_LEN]),
             data_hash: None,
             ring_data_hash: None,
+            tree_id: 0,
         }
     }
 
@@ -77,7 +90,10 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
     // slots by domain and requires every other dummy field to be zero.
     fn try_from(spend: &SppProofInputUtxo) -> Result<Self, Self::Error> {
         if spend.is_dummy() {
-            return Ok(ProofInputUtxo::new_dummy(&spend.utxo.blinding));
+            return Ok(ProofInputUtxo::new_dummy(
+                &spend.utxo.blinding,
+                spend.tree_id,
+            ));
         }
         let owner_hash =
             zolana_keypair::hash::owner_hash(&spend.utxo.owner, &spend.nullifier_key.pubkey()?)?;
@@ -86,6 +102,7 @@ impl TryFrom<&SppProofInputUtxo> for ProofInputUtxo {
             &spend.utxo.asset,
             spend.utxo.amount,
             &spend.utxo.blinding,
+            spend.tree_id,
         )?
         .with_data_hash(spend.data_hash.unwrap_or_default())
         .with_ring(

@@ -75,6 +75,9 @@ impl TestWallet {
 pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
+    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
+    /// in, so the SPP and dynamic-swap proofs must hash under the same value.
+    pub tree_id: u16,
     pub authority: TestWallet,
     pub user: TestWallet,
     pub spl_mint: Address,
@@ -231,6 +234,7 @@ pub fn setup() -> Result<TestEnv> {
     )?;
 
     let tree = tree_creation.tree;
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(&rpc, &tree)?;
 
     // Register an SPL asset with the pool so the user can escrow it as the
     // pair's source asset.
@@ -337,6 +341,7 @@ pub fn setup() -> Result<TestEnv> {
     Ok(TestEnv {
         client,
         tree,
+        tree_id,
         authority: TestWallet {
             keypair: authority_shielded_keypair,
         },
@@ -352,7 +357,7 @@ pub fn setup() -> Result<TestEnv> {
 /// The maker-derived shielded identity of the pair's escrow_authority PDA
 /// (`ShieldedPda::from_viewing_key`); its nullifier pubkey is published in the
 /// `Pair` account at `create_pair`, so `create_escrow` binds
-/// `Poseidon(hash_bytes(pda), nullifier_pk)` as the order owner hash.
+/// `Poseidon(solana_owner_identity(pda), nullifier_pk)` as the order owner hash.
 pub fn escrow_authority_identity(
     authority: &ShieldedKeypair,
     pair: &Pubkey,

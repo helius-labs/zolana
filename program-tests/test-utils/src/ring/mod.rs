@@ -22,6 +22,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
+use zolana_client::{NonInclusionProof, SpendProof};
 use zolana_interface::{
     instruction::{encode_instruction, tag, CreateRingConfigData, RingAssetDeposit},
     pda, SHIELDED_POOL_PROGRAM_ID,
@@ -35,7 +36,20 @@ use zolana_transaction::{
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
     localnet::{send_transaction, ZERO},
+    test_validator_asserts::{wait_for_merkle_proofs, wait_for_non_inclusion_proofs},
 };
+
+/// One padded input slot before its indexer proofs are fetched: a real spend
+/// names the UTXO hash its state proof is taken for, a dummy only its nullifier.
+pub(crate) struct SpendSlot {
+    pub(crate) utxo_hash: Option<[u8; 32]>,
+    pub(crate) nullifier: [u8; 32],
+}
+
+/// The proofs of one padded input slot, shaped like the two proof fields of
+/// `TransferSpendInput`: a real spend carries a `SpendProof`, a dummy only the
+/// non-inclusion proof of its own nullifier.
+pub(crate) type SlotProofs = (Option<SpendProof>, Option<NonInclusionProof>);
 
 /// A second ring fixture program id (deployed from the same
 /// `ring_test_program.so`), used to prove configs are per-program.
@@ -164,6 +178,7 @@ impl RingHarness {
         // Actors may exist before assets are registered, so refresh the wallet's
         // asset registry before decoding SPL UTXOs.
         let assets = self.assets.clone();
+        let tree_id = self.tree_id;
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
         let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
@@ -174,7 +189,7 @@ impl RingHarness {
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
         let mut spendable_hashes: Vec<[u8; 32]> = Vec::new();
         for utxo in &actor.spendable {
-            spendable_hashes.push(utxo.hash(&nullifier_pk, &ZERO, &ZERO)?);
+            spendable_hashes.push(utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?);
         }
         let newly_spendable: Vec<Utxo> = actor
             .wallet
@@ -215,7 +230,7 @@ impl RingHarness {
     ) -> Result<WalletUtxo> {
         let keypair = &self.actor(name).keypair;
         let nullifier_pk = keypair.nullifier_key.pubkey()?;
-        let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let hash = utxo.hash(&nullifier_pk, &ZERO, &ZERO, self.tree_id)?;
         let output_context = tx
             .output_slots
             .iter()
@@ -229,8 +244,43 @@ impl RingHarness {
             nullifier,
             data_hash: None,
             ring_data_hash: None,
+            tree_id: self.tree_id,
             spent: false,
         })
+    }
+
+    /// Fetch every slot's proofs from ONE indexer snapshot per tree: the state
+    /// proofs of all real slots in one request, the non-inclusion proofs of all
+    /// slots (dummies included) in another. Every input of one proof must be
+    /// proven against the same UTXO root and index and the same nullifier root
+    /// and index (`ClientError::InputTreeRootMismatch` /
+    /// `NullifierRootMismatch`); fetching leaf by leaf lets Photon index a
+    /// pending append between two calls. Returns the proofs in `slots` order.
+    pub(crate) fn fetch_slot_proofs(&self, slots: &[SpendSlot]) -> Result<Vec<SlotProofs>> {
+        let utxo_hashes: Vec<[u8; 32]> = slots.iter().filter_map(|slot| slot.utxo_hash).collect();
+        let nullifiers: Vec<[u8; 32]> = slots.iter().map(|slot| slot.nullifier).collect();
+        let state_proofs = if utxo_hashes.is_empty() {
+            Vec::new()
+        } else {
+            wait_for_merkle_proofs(&self.indexer, self.tree_address, &utxo_hashes)
+        };
+        let nullifier_proofs =
+            wait_for_non_inclusion_proofs(&self.indexer, self.tree_address, &nullifiers);
+
+        let mut states = state_proofs.into_iter();
+        slots
+            .iter()
+            .zip(nullifier_proofs)
+            .map(|(slot, nullifier)| {
+                if slot.utxo_hash.is_none() {
+                    return Ok((None, Some(nullifier)));
+                }
+                let state = states
+                    .next()
+                    .ok_or_else(|| anyhow!("indexer returned fewer state proofs than requested"))?;
+                Ok((Some(SpendProof { state, nullifier }), None))
+            })
+            .collect()
     }
 }
 

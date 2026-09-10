@@ -81,6 +81,10 @@ pub struct WalletUtxo {
     pub nullifier: [u8; 32],
     pub data_hash: Option<[u8; 32]>,
     pub ring_data_hash: Option<[u8; 32]>,
+    /// Raw id of the tree holding this UTXO. It is hashed into the commitment,
+    /// so spending it requires the same id the wallet observed it under.
+    // TODO(tree-id): resolve the tree id from the tree account.
+    pub tree_id: u16,
     pub spent: bool,
 }
 

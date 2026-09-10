@@ -220,6 +220,7 @@ mod tests {
         leaf_index: u64,
     ) -> WalletUtxo {
         WalletUtxo {
+            tree_id: 0,
             utxo: Utxo {
                 owner: owner.signing_pubkey(),
                 asset: SOL_MINT,

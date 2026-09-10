@@ -55,6 +55,9 @@ pub const SPP_RELAYER_DEADLINE: u64 = 2_000_000_000;
 pub struct TestEnv {
     pub client: ZolanaClient<SolanaRpc>,
     pub tree: Pubkey,
+    /// Raw id of `tree`, read from its account. Every UTXO commitment folds it
+    /// in, so the SPP and escrow proofs must hash under the same value.
+    pub tree_id: u16,
     pub creator: TestWallet,
     pub creator_input: SppProofInputUtxo,
 }
@@ -209,6 +212,7 @@ pub fn setup() -> Result<TestEnv> {
     )?;
 
     let tree = tree_creation.tree;
+    let tree_id = zolana_test_utils::nullifier_pda::tree_id(&rpc, &tree)?;
 
     // SOL only: asset id 1 is a built-in AssetRegistry::default() entry, no
     // SPL registration needed.
@@ -282,6 +286,7 @@ pub fn setup() -> Result<TestEnv> {
     Ok(TestEnv {
         client,
         tree,
+        tree_id,
         creator: TestWallet {
             wallet: creator_wallet,
             keypair: creator_shielded_keypair,

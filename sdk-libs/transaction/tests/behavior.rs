@@ -75,8 +75,19 @@ fn asset_registry_and_blinding_rules_are_explicit() {
     cases::asset::sol_reserved();
     cases::asset::duplicate_asset_id();
     cases::asset::duplicate_mint();
-    cases::blinding::blindings_deterministic();
-    cases::blinding::blinding_top_byte_dropped();
+    cases::blinding::transact_output_blindings_bind_seed_nullifier_and_slot();
+    cases::blinding::transact_domains_are_ascii_tags();
+    cases::blinding::transact_output_blinding_matches_circuit_vector();
+    cases::blinding::output_blinding_seed_matches_circuit_vector();
+    cases::blinding::private_tx_blinding_matches_circuit_vector();
+}
+
+#[test]
+fn transact_derivations_match_shared_vectors() {
+    cases::transact_derivation::owner_identities_match_shared_vectors();
+    cases::transact_derivation::blinding_seed_family_matches_shared_vectors();
+    cases::transact_derivation::tree_slot_chain_matches_shared_vectors();
+    cases::transact_derivation::dummy_utxo_hash_matches_shared_vectors();
 }
 
 #[test]
@@ -111,6 +122,7 @@ fn plaintext_transfers_are_canonical_and_indexed_by_owner() {
     cases::plaintext_transfer::output_amounts(&mut world, 100, 50, 40, 10);
     cases::plaintext_transfer::rejects_bad_discriminator(&mut world);
     cases::plaintext_transfer::sender_data_without_output(&mut world, "alice".into());
+    cases::plaintext_transfer::decode_without_first_nullifier_rejected(&mut world);
     cases::plaintext_transfer::ed25519_recipient_indexed();
 }
 
@@ -139,6 +151,12 @@ fn split_outputs_round_trip_at_regular_and_maximum_shapes() {
         cases::split::split_decrypt(&mut world, "owner".into(), count, amount);
     }
     cases::split::split_data_zero_outputs(&mut world, "owner".into());
+    cases::split::split_too_many_outputs_rejected(&mut world, "owner".into());
+}
+
+#[test]
+fn split_bundle_derives_the_committed_outputs_from_the_first_nullifier() {
+    cases::split::split_bundle_derives_committed_outputs();
 }
 
 #[test]
@@ -182,6 +200,7 @@ fn utxo_hashes_nullifiers_and_encryption_bind_all_context() {
     cases::utxo::utxo_hash_props(&mut world, "alice".into());
     cases::utxo::utxo_hash_nesting(&mut world, "alice".into());
     cases::utxo::utxo_nullifier(&mut world, "alice".into());
+    cases::utxo::private_tx_hash_is_blinded();
     cases::utxo_encryption::standard_transfer_round_trips(
         &mut world,
         "sender".into(),

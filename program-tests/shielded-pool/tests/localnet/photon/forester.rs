@@ -37,6 +37,7 @@ fn forester_dry_run_reconstructs_from_photon() -> TestResult {
         payer: _payer,
         authority: _authority,
         tree,
+        tree_id: _tree_id,
     } = initialize_pool(&mut rpc)?;
     let tree_pubkey = tree;
 
@@ -132,6 +133,8 @@ struct ForesterEnv {
     accounts: smart_account::StandardAccounts,
     tree_pubkey: Pubkey,
     tree_address: Address,
+    /// Raw id of [`Self::tree_pubkey`]; every commitment is hashed under it.
+    tree_id: u16,
 }
 
 /// Restart the localnet, then stand up the smart-account vaults, the protocol
@@ -150,7 +153,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
     };
     let (mut rpc, indexer) = LocalnetHarness::<()>::start_stack(&config)?;
     let setup = LocalnetHarness::<()>::setup_protocol_accounts(&mut rpc, &config)?;
-    let (tree_pubkey, tree_address) =
+    let (tree_pubkey, tree_address, tree_id) =
         LocalnetHarness::<()>::create_tree(&mut rpc, &setup, Some(localnet_nullifier_params()))?;
 
     Ok(ForesterEnv {
@@ -163,6 +166,7 @@ fn phase_bootstrap() -> TestResult<ForesterEnv> {
         accounts: setup.accounts,
         tree_pubkey,
         tree_address,
+        tree_id,
     })
 }
 
@@ -250,6 +254,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
             &ctx.payer_nullifier_key,
             &ctx.payer_nullifier_pk,
             &zero,
+            env.tree_id,
         )?;
         assert_eq!(
             indexed_deposit.output_slot.output_context.hash,
@@ -500,12 +505,14 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
         &ctx.payer_nullifier_key,
         &ctx.payer_nullifier_pk,
         &zero,
+        env.tree_id,
     )?;
     let recipient_utxo = RealSpendUtxo::new(
         recipient_utxo,
         &ctx.payer_nullifier_key,
         &ctx.payer_nullifier_pk,
         &zero,
+        env.tree_id,
     )?;
     assert_eq!(
         change_utxo.hash,

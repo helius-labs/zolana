@@ -42,15 +42,24 @@ pub struct EscrowOpenProofInputParams {
     pub created_at: u64,
     pub order_amount: u64,
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element. The spent inputs carry their own tree ids.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the order, reservation and maker-change outputs are
+    /// appended to; it is the second element of every output's commitment.
+    pub output_tree_id: u16,
 }
 
 impl EscrowOpenProofInputParams {
     pub fn to_proof_inputs(&self) -> Result<EscrowOpenProofInputs> {
         let source_in = ProofInputUtxo::try_from(&self.source_in).map_err(err)?;
         let maker_funding = ProofInputUtxo::try_from(&self.maker_funding).map_err(err)?;
-        let order_out = ProofInputUtxo::try_from(&self.order_out).map_err(err)?;
-        let reservation_out = ProofInputUtxo::try_from(&self.reservation_out).map_err(err)?;
-        let maker_change = ProofInputUtxo::try_from(&self.maker_change).map_err(err)?;
+        let order_out =
+            ProofInputUtxo::try_from((&self.order_out, self.output_tree_id)).map_err(err)?;
+        let reservation_out =
+            ProofInputUtxo::try_from((&self.reservation_out, self.output_tree_id)).map_err(err)?;
+        let maker_change =
+            ProofInputUtxo::try_from((&self.maker_change, self.output_tree_id)).map_err(err)?;
 
         if self.source_in.utxo.amount != self.order_amount {
             bail!("source_in amount does not match order_amount (no change output supported)");
@@ -114,6 +123,7 @@ impl EscrowOpenProofInputParams {
                 maker_change.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -143,6 +153,7 @@ impl EscrowOpenProofInputParams {
             reservation_out,
             maker_change,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

@@ -17,6 +17,7 @@ import {
   type MergeTransactInstructionData,
 } from "../interface/instructions/index.js";
 import { treeAddress } from "../interface/pda/index.js";
+import { DEFAULT_TREE_ID } from "../interface/tree-slot.js";
 import type {
   Bytes32,
   RequestContext,
@@ -83,6 +84,8 @@ import {
   type GetShieldedTransactionsBySignatureResponse,
   type GetShieldedTransactionsByTagsResponse,
   type IndexerRpcConfig,
+  type MerkleProof,
+  type NonInclusionProof,
   type ProgramAccount,
   type RpcAccount,
   type SpendProof,
@@ -102,6 +105,16 @@ export interface ZolanaClientConfig {
   readonly proverUrl?: string | URL | undefined;
   /** Sent by the indexer client. A URL that already carries a key needs none. */
   readonly apiKey?: string;
+  /**
+   * The raw id of the pool tree the client builds against, `DEFAULT_TREE_ID`
+   * unless set. Every commitment the client hashes and every proof it requests
+   * carries this id.
+   */
+  readonly treeId?: number;
+  /**
+   * The pool tree's address. Derived from `treeId` when absent; when both are
+   * given they must name the same tree.
+   */
   readonly tree?: Address;
   readonly commitment?: Commitment;
   readonly computeUnitLimit?: number;
@@ -136,6 +149,7 @@ export class ZolanaClient
     MergeAssembler
 {
   readonly tree: Address;
+  readonly treeId: number;
   readonly solanaRpc: SolanaRpc;
   readonly solanaRpcSubscriptions: SolanaRpcSubscriptions;
   readonly commitment: Commitment;
@@ -151,8 +165,17 @@ export class ZolanaClient
       throw new ClientError("CLIENT_INVALID_CONFIG");
     }
 
-    const tree = input.tree ?? treeAddress(0);
+    const treeId = input.treeId ?? DEFAULT_TREE_ID;
+    if (!Number.isInteger(treeId) || treeId < 0 || treeId > 0xffff) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "treeId" } });
+    }
+    const tree = input.tree ?? treeAddress(treeId);
     checkedAddress(tree, "tree");
+    // The id is what every commitment hashes under; an address naming another
+    // tree would prove against one tree and submit to another.
+    if (tree !== treeAddress(treeId)) {
+      throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "tree" } });
+    }
     const commitment = input.commitment ?? DEFAULT_COMMITMENT;
     if (!isCommitment(commitment)) {
       throw new ClientError("CLIENT_INVALID_CONFIG", { details: { field: "commitment" } });
@@ -221,6 +244,7 @@ export class ZolanaClient
       });
     }
     this.tree = tree;
+    this.treeId = treeId;
     this.solanaRpc = kit.solanaRpc;
     this.solanaRpcSubscriptions = kit.solanaRpcSubscriptions;
     this.commitment = commitment;
@@ -523,22 +547,36 @@ export class ZolanaClient
         context,
       ),
     ]);
+    return this.#pairSpendProofs(commitments, state.proofs, nullifier.proofs);
+  }
+
+  /**
+   * Zips state and non-inclusion proofs into spend proofs, checking every leaf
+   * and tree. Rust finishes the state proof before starting the nullifier one,
+   * so a pair wrong in both ways names the state tree and not the nullifier
+   * leaf.
+   */
+  #pairSpendProofs(
+    commitments: readonly InputUtxoContext[],
+    stateProofs: readonly MerkleProof[],
+    nullifierProofs: readonly NonInclusionProof[],
+  ): readonly SpendProof[] {
     if (
-      state.proofs.length !== commitments.length ||
-      nullifier.proofs.length !== commitments.length
+      stateProofs.length !== commitments.length ||
+      nullifierProofs.length !== commitments.length
     ) {
       throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
         details: {
           expected: commitments.length,
-          state: state.proofs.length,
-          nullifier: nullifier.proofs.length,
+          state: stateProofs.length,
+          nullifier: nullifierProofs.length,
         },
       });
     }
     return Object.freeze(
       commitments.map((commitment, index) => {
-        const stateProof = state.proofs[index];
-        const nullifierProof = nullifier.proofs[index];
+        const stateProof = stateProofs[index];
+        const nullifierProof = nullifierProofs[index];
         if (!stateProof || !nullifierProof) {
           throw new ClientError("CLIENT_MISSING_INPUT_MERKLE_PROOF", {
             details: { index },
@@ -549,8 +587,6 @@ export class ZolanaClient
             details: { index },
           });
         }
-        // Rust finishes the state proof before starting the nullifier one, so a
-        // pair wrong in both ways names the state tree and not the nullifier leaf.
         if (stateProof.merkleContext.tree !== this.tree) {
           throw new ClientError("CLIENT_STATE_PROOF_TREE_MISMATCH", {
             details: { index },
@@ -642,15 +678,39 @@ export class ZolanaClient
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
     }
+    // The proof inputs hashed their outputs under one tree; proving them for
+    // another would produce commitments the instruction's output tree rejects.
+    if (proofInputs.outputTreeId !== this.treeId) {
+      throw new ClientError("CLIENT_TREE_ID_MISMATCH", {
+        details: { expected: this.treeId, actual: proofInputs.outputTreeId },
+      });
+    }
     try {
+      const commitments = proofInputs.inputContexts();
       const dummyNullifiers = proofInputs.dummyNullifiers();
-      const [proofs, dummyResponse] = await Promise.all([
-        this.getInputMerkleProofs(proofInputs.inputContexts(), config, context),
-        dummyNullifiers.length === 0
-          ? Promise.resolve(undefined)
-          : this.getNonInclusionProofs(this.tree, dummyNullifiers, config, context),
+      // One non-inclusion request for real and dummy nullifiers alike, so every
+      // proof opens against the same nullifier root: the circuit publishes one
+      // root per tree slot and the instruction carries one root position.
+      const [state, nullifier] = await Promise.all([
+        this.getMerkleProofs(
+          this.tree,
+          commitments.map((item) => item.utxoHash),
+          config,
+          context,
+        ),
+        this.getNonInclusionProofs(
+          this.tree,
+          [...commitments.map((item) => item.nullifier), ...dummyNullifiers],
+          config,
+          context,
+        ),
       ]);
-      const dummyProofs = dummyResponse?.proofs ?? [];
+      const proofs = this.#pairSpendProofs(
+        commitments,
+        state.proofs,
+        nullifier.proofs.slice(0, commitments.length),
+      );
+      const dummyProofs = nullifier.proofs.slice(commitments.length);
       if (dummyProofs.length !== dummyNullifiers.length) {
         throw new ClientError("CLIENT_INCOMPLETE_INPUT_PROOFS", {
           details: {

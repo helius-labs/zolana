@@ -48,3 +48,21 @@ impl OrderTermsProofInput {
         entries
     }
 }
+
+/// The witness keys one `orderterms.OrderTerms` prefix must produce, spelled out
+/// from the Go field names for the exact-key-set tests.
+#[cfg(test)]
+pub(crate) fn expected_order_terms_witness_keys(prefix: &str) -> Vec<String> {
+    [
+        "DestinationAsset",
+        "DestinationAmount",
+        "MakerOwnerHash",
+        "MakerViewingPk",
+        "Expiry",
+        "TakerPkFe",
+        "TakeMode",
+    ]
+    .iter()
+    .map(|suffix| format!("{prefix}_{suffix}"))
+    .collect()
+}

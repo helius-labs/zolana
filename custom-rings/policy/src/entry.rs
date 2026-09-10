@@ -1,7 +1,8 @@
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, Hasher, HasherError, Poseidon,
+    hash_chain::create_hash_chain_from_slice, primitives::solana_owner_identity, Hasher,
+    HasherError, Poseidon,
 };
-use zolana_interface::{ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
+use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
 
 use crate::{
     field_u16, field_u64, field_u8, Member, MAX_SOURCES, POLICY_ADDRESS_DOMAIN,
@@ -145,7 +146,7 @@ impl TryFrom<u8> for ListId {
 pub const NAMESPACE_PDA_SEED: &[u8] = b"policy_records";
 
 /// Published entry length, the complete preimage of its hashes.
-pub const LIST_ENTRY_LEN: usize = 74;
+pub const LIST_ENTRY_LEN: usize = 106;
 /// The plaintext output-data envelope, tag byte and `u32` length before the
 /// content.
 pub const ENTRY_OUTPUT_DATA_LEN: usize = 5 + LIST_ENTRY_LEN;
@@ -179,19 +180,24 @@ pub struct ListNamespace {
 
 impl ListNamespace {
     pub fn new(pda: &[u8; 32]) -> Result<Self, HasherError> {
-        let owner_pk_field = hash_bytes(pda)?;
+        let owner_pk_field = solana_owner_identity(pda)?;
         let nullifier_pk = Poseidon::hashv(&[&[0u8; 32]])?;
         let owner_hash = Poseidon::hashv(&[&owner_pk_field, &nullifier_pk])?;
         Ok(Self { owner_hash })
     }
 
-    /// The address slot commitment, its blinding is the entry seed.
-    pub fn address_utxo_hash(&self, seed: &[u8; 32]) -> Result<[u8; 32], HasherError> {
+    /// The address slot commitment under the entries tree, its blinding is the entry seed.
+    pub fn address_utxo_hash(
+        &self,
+        seed: &[u8; 32],
+        tree_id: u16,
+    ) -> Result<[u8; 32], HasherError> {
         let zero = [0u8; 32];
         let ring_hash = Poseidon::hashv(&[&zero, &zero])?;
         let owner_utxo_hash = Poseidon::hashv(&[&self.owner_hash, seed])?;
         Poseidon::hashv(&[
             &field_u16(ADDRESS_DOMAIN),
+            &tree_id_field(tree_id),
             &zero,
             &zero,
             &zero,
@@ -202,9 +208,14 @@ impl ListNamespace {
 
     /// Deterministic, the nullifier tree admits one entry lineage per
     /// `(list_id, member)`.
-    pub fn address(&self, list_id: ListId, member: &Member) -> Result<[u8; 32], HasherError> {
+    pub fn address(
+        &self,
+        list_id: ListId,
+        member: &Member,
+        tree_id: u16,
+    ) -> Result<[u8; 32], HasherError> {
         let seed = entry_seed(list_id, member)?;
-        entry_nullifier(&self.address_utxo_hash(&seed)?, &seed)
+        entry_nullifier(&self.address_utxo_hash(&seed, tree_id)?, &seed)
     }
 }
 
@@ -217,8 +228,7 @@ pub fn entry_seed(list_id: ListId, member: &Member) -> Result<[u8; 32], HasherEr
     ])
 }
 
-/// The blinding is the version, a re-added member never repeats a commitment
-/// or a nullifier.
+/// The blinding is the SPP output blinding of the write, published in the record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ListEntry {
     pub list_id: ListId,
@@ -226,6 +236,7 @@ pub struct ListEntry {
     pub state: EntryState,
     pub version: u64,
     pub content_hash: [u8; 32],
+    pub blinding: [u8; 32],
 }
 
 impl ListEntry {
@@ -243,7 +254,7 @@ impl ListEntry {
     }
 
     pub fn blinding(&self) -> [u8; 32] {
-        field_u64(self.version)
+        self.blinding
     }
 
     /// Takes the content of [`ListEntry::to_output_data`], without its envelope.
@@ -255,6 +266,7 @@ impl ListEntry {
             state: EntryState::try_from(content[33]).ok()?,
             version: u64::from_le_bytes(content[34..42].try_into().ok()?),
             content_hash: content[42..74].try_into().ok()?,
+            blinding: content[74..106].try_into().ok()?,
         })
     }
 
@@ -268,20 +280,23 @@ impl ListEntry {
         content[38] = self.state as u8;
         content[39..47].copy_from_slice(&self.version.to_le_bytes());
         content[47..79].copy_from_slice(&self.content_hash);
+        content[79..111].copy_from_slice(&self.blinding);
         content
     }
 
-    /// The canonical SPP UTXO hash, entries are indistinguishable from value UTXOs.
+    /// The canonical SPP UTXO hash under the entries tree, entries are indistinguishable from value UTXOs.
     pub fn utxo_hash(
         &self,
         owner: &ListNamespace,
         address: &[u8; 32],
+        tree_id: u16,
     ) -> Result<[u8; 32], HasherError> {
         let zero = [0u8; 32];
         let ring_hash = Poseidon::hashv(&[&zero, &zero])?;
-        let owner_utxo_hash = Poseidon::hashv(&[&owner.owner_hash, &self.blinding()])?;
+        let owner_utxo_hash = Poseidon::hashv(&[&owner.owner_hash, &self.blinding])?;
         Poseidon::hashv(&[
             &field_u16(UTXO_DOMAIN),
+            &tree_id_field(tree_id),
             &SOL_ASSET_FIELD,
             &zero,
             &self.data_hash(address)?,
@@ -302,6 +317,7 @@ pub fn mutation_private_tx_hash(
     output_hash: [u8; 32],
     address_hash: [u8; 32],
     external_data_hash: &[u8; 32],
+    private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], HasherError> {
     let input_chain = create_hash_chain_from_slice(&[input_hash])?;
     let output_chain = create_hash_chain_from_slice(&[output_hash])?;
@@ -311,6 +327,7 @@ pub fn mutation_private_tx_hash(
         &output_chain,
         &address_chain,
         external_data_hash,
+        private_tx_blinding,
     ])
 }
 
@@ -325,6 +342,8 @@ mod tests {
     fn member(byte: u8) -> Member {
         Member::owner_tag(&[byte; 32]).unwrap()
     }
+
+    const TREE: u16 = 3;
 
     #[test]
     fn every_slot_of_all_parses_and_nothing_else_does() {
@@ -360,15 +379,19 @@ mod tests {
     #[test]
     fn the_address_is_deterministic_in_kind_and_member() {
         let owner = owner();
-        let a = owner.address(ListId::Block, &member(1)).unwrap();
-        assert_eq!(a, owner.address(ListId::Block, &member(1)).unwrap());
-        assert_ne!(a, owner.address(ListId::Frozen, &member(1)).unwrap());
-        assert_ne!(a, owner.address(ListId::Block, &member(2)).unwrap());
+        let a = owner.address(ListId::Block, &member(1), TREE).unwrap();
+        assert_eq!(a, owner.address(ListId::Block, &member(1), TREE).unwrap());
+        assert_ne!(a, owner.address(ListId::Frozen, &member(1), TREE).unwrap());
+        assert_ne!(a, owner.address(ListId::Block, &member(2), TREE).unwrap());
+        assert_ne!(
+            a,
+            owner.address(ListId::Block, &member(1), TREE + 1).unwrap()
+        );
         assert_ne!(
             a,
             ListNamespace::new(&[12u8; 32])
                 .unwrap()
-                .address(ListId::Block, &member(1))
+                .address(ListId::Block, &member(1), TREE)
                 .unwrap()
         );
     }
@@ -382,18 +405,22 @@ mod tests {
             state: EntryState::Active,
             version: 0,
             content_hash: [0u8; 32],
+            blinding: [1u8; 32],
         };
-        let address = owner.address(entry.list_id, &entry.member).unwrap();
-        let active = entry.utxo_hash(&owner, &address).unwrap();
+        let address = owner.address(entry.list_id, &entry.member, TREE).unwrap();
+        let active = entry.utxo_hash(&owner, &address, TREE).unwrap();
+        assert_ne!(active, entry.utxo_hash(&owner, &address, TREE + 1).unwrap());
         let cleared = ListEntry {
             state: EntryState::Cleared,
             version: 1,
             ..entry
         };
-        assert_ne!(active, cleared.utxo_hash(&owner, &address).unwrap());
+        assert_ne!(active, cleared.utxo_hash(&owner, &address, TREE).unwrap());
         assert_eq!(
             address,
-            owner.address(cleared.list_id, &cleared.member).unwrap()
+            owner
+                .address(cleared.list_id, &cleared.member, TREE)
+                .unwrap()
         );
     }
 
@@ -405,6 +432,7 @@ mod tests {
             state: EntryState::Cleared,
             version: 7,
             content_hash: [4u8; 32],
+            blinding: [6u8; 32],
         };
         let encoded = entry.to_output_data();
         assert_eq!(ListEntry::from_entry_bytes(&encoded[5..]), Some(entry));
@@ -412,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn version_uniqueness_separates_nullifiers_of_equal_states() {
+    fn the_blinding_separates_nullifiers_of_equal_states() {
         let owner = owner();
         let entry = ListEntry {
             list_id: ListId::Allow,
@@ -420,14 +448,16 @@ mod tests {
             state: EntryState::Active,
             version: 0,
             content_hash: [0u8; 32],
+            blinding: [1u8; 32],
         };
-        let address = owner.address(entry.list_id, &entry.member).unwrap();
+        let address = owner.address(entry.list_id, &entry.member, TREE).unwrap();
         let re_added = ListEntry {
             version: 2,
+            blinding: [2u8; 32],
             ..entry
         };
-        let first = entry.utxo_hash(&owner, &address).unwrap();
-        let second = re_added.utxo_hash(&owner, &address).unwrap();
+        let first = entry.utxo_hash(&owner, &address, TREE).unwrap();
+        let second = re_added.utxo_hash(&owner, &address, TREE).unwrap();
         assert_ne!(
             entry_nullifier(&first, &entry.blinding()).unwrap(),
             entry_nullifier(&second, &re_added.blinding()).unwrap()
