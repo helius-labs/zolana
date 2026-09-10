@@ -38,7 +38,6 @@ fn transact_event() -> TransactEvent {
         input_trees: input_trees(0),
         output_tree: OUTPUT_TREE,
         first_output_leaf_index: 0,
-        spl_transfers: Vec::new(),
     }
 }
 

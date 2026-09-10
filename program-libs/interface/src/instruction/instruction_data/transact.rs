@@ -74,6 +74,30 @@ impl InterfaceTransfer {
     pub const fn is_deposit(self) -> bool {
         matches!(self, Self::SolDeposit { .. } | Self::SplDeposit { .. })
     }
+
+    /// Accounts in this leg's settlement group. Settlement groups are the last
+    /// accounts of a `transact` instruction, in leg order; the program's account
+    /// parser and the event parser both size them with this.
+    pub const fn settlement_account_count(self) -> usize {
+        match self {
+            // sol_interface, recipient
+            Self::SolDeposit { .. } | Self::SolWithdrawal { .. } => 2,
+            // mint, spl_interface, token_authority, user_token_account, token_program
+            Self::SplDeposit { .. } => 5,
+            // cpi_authority, mint, spl_interface, user_token_account, token_program
+            Self::SplWithdrawal { .. } => 5,
+        }
+    }
+
+    /// Position of the mint account within this leg's settlement group; `None`
+    /// for SOL legs.
+    pub const fn mint_account_position(self) -> Option<usize> {
+        match self {
+            Self::SolDeposit { .. } | Self::SolWithdrawal { .. } => None,
+            Self::SplDeposit { .. } => Some(0),
+            Self::SplWithdrawal { .. } => Some(1),
+        }
+    }
 }
 
 pub fn validate_interface_transfers(

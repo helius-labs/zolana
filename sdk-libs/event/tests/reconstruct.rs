@@ -40,11 +40,6 @@ fn transfer_event() -> TransactEvent {
         input_trees: input_trees(10),
         output_tree: OUTPUT_TREE,
         first_output_leaf_index: 5,
-        spl_transfers: vec![SplTransfer {
-            is_deposit: false,
-            amount: 40,
-            asset: None,
-        }],
     }
 }
 
@@ -233,23 +228,86 @@ fn malformed_source_instruction_data_is_an_error() {
     );
 }
 
+/// Settlement groups are the last accounts of the instruction, in leg order:
+/// SPL deposit `[mint, spl_interface, token_authority, user_token_account,
+/// token_program]`, SPL withdrawal `[cpi_authority, mint, spl_interface,
+/// user_token_account, token_program]`, SOL `[sol_interface, recipient]`.
 #[test]
-fn spl_transfer_count_must_match_the_interface_transfers() {
+fn spl_legs_take_their_mint_from_the_settlement_group() {
     let spp = Pubkey::new_unique();
-    let owner = Pubkey::new_unique();
+    let deposit_mint = Pubkey::new_unique();
+    let withdrawal_mint = Pubkey::new_unique();
+    let mut accounts: Vec<Pubkey> = (0..4).map(|_| Pubkey::new_unique()).collect();
+    accounts.push(deposit_mint);
+    accounts.extend((0..4).map(|_| Pubkey::new_unique()));
+    accounts.push(Pubkey::new_unique());
+    accounts.push(withdrawal_mint);
+    accounts.extend((0..3).map(|_| Pubkey::new_unique()));
+    accounts.extend((0..2).map(|_| Pubkey::new_unique()));
+    let ix = transact_ix(
+        vec![input(0xA0)],
+        Vec::new(),
+        Vec::new(),
+        vec![
+            InterfaceTransfer::SplDeposit {
+                amount: 1,
+                spl_interface_bump: 0,
+            },
+            InterfaceTransfer::SplWithdrawal {
+                amount: 2,
+                spl_interface_bump: 0,
+            },
+            InterfaceTransfer::SolDeposit { amount: 3 },
+        ],
+    );
+    let src = transact_source(spp, tag::TRANSACT, accounts, &ix, 1);
+
+    let event = reconstruct_general_event(
+        &src,
+        &emit_event_data(EventKind::Transact, &transfer_event()),
+    )
+    .expect("reconstruct transact");
+
+    assert_eq!(
+        event.spl_transfers,
+        vec![
+            SplTransfer {
+                is_deposit: true,
+                amount: 1,
+                asset: Some(deposit_mint.to_bytes()),
+            },
+            SplTransfer {
+                is_deposit: false,
+                amount: 2,
+                asset: Some(withdrawal_mint.to_bytes()),
+            },
+            SplTransfer {
+                is_deposit: true,
+                amount: 3,
+                asset: None,
+            },
+        ]
+    );
+}
+
+#[test]
+fn account_list_shorter_than_the_settlement_groups_is_an_error() {
+    let spp = Pubkey::new_unique();
+    // `transfer_ix` has one SOL withdrawal leg, which needs two accounts.
     let src = transact_source(
         spp,
         tag::TRANSACT,
-        accounts_with_owner(owner),
+        vec![Pubkey::new_unique()],
         &transfer_ix(),
         1,
     );
-    let mut event = transfer_event();
-    event.spl_transfers.clear();
 
     assert_eq!(
-        reconstruct_general_event(&src, &emit_event_data(EventKind::Transact, &event)),
-        Err(EventDecodeError::SplTransferCountMismatch)
+        reconstruct_general_event(
+            &src,
+            &emit_event_data(EventKind::Transact, &transfer_event())
+        ),
+        Err(EventDecodeError::MissingSettlementAccount)
     );
 }
 

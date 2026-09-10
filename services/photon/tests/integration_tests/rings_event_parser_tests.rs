@@ -1910,6 +1910,7 @@ fn proofless_shield_transaction_info() -> TransactionInfo {
     rings_transaction_info(
         1,
         vec![tag::DEPOSIT],
+        Vec::new(),
         EventKind::Deposit,
         GeneralEvent {
             inputs: Vec::new(),
@@ -2024,9 +2025,11 @@ fn transact_transaction_info(
     interface_transfers: Vec<InterfaceTransfer>,
 ) -> TransactionInfo {
     let outputs = inline_outputs(&expected);
+    let settlement_accounts = settlement_accounts_for(&interface_transfers);
     rings_transaction_info(
         signature_byte,
         transact_source_data(tag::TRANSACT, &expected, outputs, interface_transfers),
+        settlement_accounts,
         EventKind::Transact,
         transact_event_for(&expected),
     )
@@ -2094,8 +2097,23 @@ fn transact_event_for(expected: &GeneralEvent) -> TransactEvent {
         }],
         output_tree: expected.output_tree,
         first_output_leaf_index: expected.first_output_leaf_index,
-        spl_transfers: expected.spl_transfers.clone(),
     }
+}
+
+/// The settlement account groups `transfers` require, in leg order: the last
+/// accounts of the instruction, sized per kind (SOL: sol_interface, recipient;
+/// SPL deposit: mint first; SPL withdrawal: cpi_authority then mint).
+fn settlement_accounts_for(transfers: &[InterfaceTransfer]) -> Vec<Pubkey> {
+    transfers
+        .iter()
+        .flat_map(|transfer| {
+            let count = match transfer {
+                InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => 2,
+                InterfaceTransfer::SplDeposit { .. } | InterfaceTransfer::SplWithdrawal { .. } => 5,
+            };
+            (0..count).map(|_| Pubkey::new_unique())
+        })
+        .collect()
 }
 
 /// A ring CPI: the ring program's outer instruction wraps the SPP
@@ -2158,6 +2176,7 @@ fn merge_transaction_info() -> TransactionInfo {
     rings_transaction_info(
         6,
         source_data,
+        Vec::new(),
         EventKind::Merge,
         MergeEvent {
             input_trees: vec![InputTreeSequence {
@@ -2174,6 +2193,7 @@ fn merge_transaction_info() -> TransactionInfo {
 fn rings_transaction_info<T: borsh::BorshSerialize>(
     signature_byte: u8,
     source_instruction_data: Vec<u8>,
+    source_accounts: Vec<Pubkey>,
     event_kind: EventKind,
     event: T,
 ) -> TransactionInfo {
@@ -2182,7 +2202,7 @@ fn rings_transaction_info<T: borsh::BorshSerialize>(
         instruction_groups: vec![InstructionGroup {
             outer_instruction: Instruction {
                 program_id,
-                accounts: Vec::new(),
+                accounts: source_accounts,
                 data: source_instruction_data,
                 stack_height: Some(1),
             },

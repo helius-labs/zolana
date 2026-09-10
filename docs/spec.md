@@ -1652,7 +1652,7 @@ one proof slot does not remove their individual account metas.
 
 **Event**
 
-The [`TransactEvent`](#general-event) contains only the values assigned at execution: input queue sequence numbers, output leaf index, movements. An indexer rebuilds the [`GeneralEvent`](#general-event) from it plus the instruction data and account list of the SPP instruction that sent the self-CPI (for ring CPIs the SPP inner instruction, whose account list resolves `OwnerTag::Account`):
+The [`TransactEvent`](#general-event) contains only the trees and the values assigned at execution: first input queue sequence number, first output leaf index. An indexer rebuilds the [`GeneralEvent`](#general-event) from it plus the instruction data and account list of the SPP instruction that sent the self-CPI (for ring CPIs the SPP inner instruction, whose account list resolves `OwnerTag::Account` and holds the settlement groups):
 
 ```rust
 GeneralEvent {
@@ -1685,14 +1685,27 @@ GeneralEvent {
     first_output_leaf_index: event.first_output_leaf_index,
     output_tree: event.output_tree,
     // One entry per public leg, in leg order; empty for a shielded transfer.
-    movements: event.movements,
+    movements: instruction_data
+        .interface_transfers
+        .iter()
+        .zip(settlement_groups) // the last accounts, one group per leg
+        .map(|(leg, group)| Movement {
+            is_deposit: leg.is_deposit(),
+            amount: leg.amount(),
+            asset: leg.mint_account_position().map(|i| group[i]),
+        })
+        .collect(),
 }
 ```
 
 `first_input_queue_seq` comes from `input_tree`; `first_output_leaf_index` from
-`output_tree`. Each movement's `mint` comes from the SPL accounts, and
-`is_deposit` is the public-amount direction proven by the proof (`true` for a
-deposit).
+`output_tree`. The settlement groups are the last accounts of the instruction,
+in leg order, sized per leg kind (SOL: `sol_interface`, `recipient`; SPL
+deposit: `mint`, `spl_interface`, `token_authority`, `user_token_account`,
+`token_program`; SPL withdrawal: `cpi_authority`, `mint`, `spl_interface`,
+`user_token_account`, `token_program`), so an indexer locates them from the end
+of the account list. `is_deposit` is the public-amount direction proven by the
+proof (`true` for a deposit).
 
 ### `deposit`
 
@@ -1878,8 +1891,6 @@ struct TransactEvent {
     input_trees: Vec<InputTreeSequence>,
     output_tree: Pubkey,
     first_output_leaf_index: u64,
-    /// See `GeneralEvent::movements`.
-    movements: Vec<Movement>,
 }
 
 struct MergeEvent {

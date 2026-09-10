@@ -135,7 +135,7 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(&ix, &transact_accounts.settlements, tree_write)?;
+    let event = build_transact_event(tree_write)?;
     emit_event(EventKind::Transact, &event)
 }
 

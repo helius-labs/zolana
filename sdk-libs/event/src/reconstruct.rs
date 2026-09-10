@@ -5,14 +5,15 @@
 //! and queue sequence numbers counted up from the emitted first sequence.
 
 use borsh::BorshDeserialize;
+use solana_pubkey::Pubkey;
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MergeEvent, MessageData, OutputUtxo,
-    TransactEvent,
+    SplTransfer, TransactEvent,
 };
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
     merge_transact::MergeTransactIxDataRef,
-    transact::{OwnerTag, TransactIxDataRef},
+    transact::{InterfaceTransfer, OwnerTag, TransactIxDataRef},
 };
 
 use crate::{instruction::ParsedInstruction, EventDecodeError};
@@ -79,9 +80,7 @@ pub fn transact_general_event(
     }
     let ix = TransactIxDataRef::from_bytes(ix_bytes)
         .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
-    if event.spl_transfers.len() != ix.interface_transfers.len() {
-        return Err(EventDecodeError::SplTransferCountMismatch);
-    }
+    let spl_transfers = settlement_transfers(&ix.interface_transfers, &source.accounts)?;
 
     let input_tree = single_input_tree(&event.input_trees)?;
     let inputs = inputs_from_nullifiers(
@@ -129,8 +128,51 @@ pub fn transact_general_event(
         salt: *ix.salt,
         first_output_leaf_index: event.first_output_leaf_index,
         output_tree: event.output_tree,
-        spl_transfers: event.spl_transfers.clone(),
+        spl_transfers,
     })
+}
+
+/// One [`SplTransfer`] per interface transfer, in leg order. `is_deposit` and
+/// `amount` come from the transfer; the mint comes from the leg's settlement
+/// group. The groups are the last accounts of the instruction, in leg order, and
+/// the program rejects any account after them, so they are located from the end
+/// of the account list; the owner signers before them need no counting.
+fn settlement_transfers(
+    transfers: &[InterfaceTransfer],
+    accounts: &[Pubkey],
+) -> Result<Vec<SplTransfer>, EventDecodeError> {
+    let total = transfers
+        .iter()
+        .try_fold(0usize, |total, transfer| {
+            total.checked_add(transfer.settlement_account_count())
+        })
+        .ok_or(EventDecodeError::IndexOverflow)?;
+    let settlement_accounts = accounts
+        .len()
+        .checked_sub(total)
+        .and_then(|start| accounts.get(start..))
+        .ok_or(EventDecodeError::MissingSettlementAccount)?;
+
+    let mut spl_transfers = Vec::with_capacity(transfers.len());
+    let mut group_start = 0usize;
+    for transfer in transfers {
+        let asset = match transfer.mint_account_position() {
+            None => None,
+            Some(position) => Some(
+                settlement_accounts
+                    .get(group_start + position)
+                    .ok_or(EventDecodeError::MissingSettlementAccount)?
+                    .to_bytes(),
+            ),
+        };
+        spl_transfers.push(SplTransfer {
+            is_deposit: transfer.is_deposit(),
+            amount: transfer.amount(),
+            asset,
+        });
+        group_start += transfer.settlement_account_count();
+    }
+    Ok(spl_transfers)
 }
 
 /// Rebuild a `merge_transact` or `merge_ring` event. The single output carries

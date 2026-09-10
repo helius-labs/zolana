@@ -140,7 +140,6 @@ fn indexed_emit_event_round_trip_through_index_events() {
             }],
             output_tree: expected.output_tree,
             first_output_leaf_index: expected.first_output_leaf_index,
-            spl_transfers: Vec::new(),
         },
     );
     let group = InstructionGroup {

@@ -51,8 +51,9 @@ pub enum EventDecodeError {
     /// The event names more input trees than the instruction data can assign
     /// inputs to.
     UnsupportedInputTreeCount(usize),
-    /// `spl_transfers` and the instruction's interface transfers differ in length.
-    SplTransferCountMismatch,
+    /// The emitting instruction's account list is shorter than the settlement
+    /// groups its interface transfers require.
+    MissingSettlementAccount,
     /// The event kind carries no [`GeneralEvent`](zolana_event::GeneralEvent) view
     /// (nullifier-tree updates).
     NotAGeneralEvent,

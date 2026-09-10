@@ -90,30 +90,59 @@ fn interface_transfer() -> impl Strategy<Value = InterfaceTransfer> {
     ]
 }
 
-fn spl_transfer() -> impl Strategy<Value = SplTransfer> {
-    (
-        any::<bool>(),
-        any::<u64>(),
-        prop::option::of(any::<[u8; 32]>()),
-    )
-        .prop_map(|(is_deposit, amount, asset)| SplTransfer {
-            is_deposit,
-            amount,
-            asset,
-        })
+/// Settlement group layout, written out independently of the interface helpers
+/// so a change to either side fails here.
+fn settlement_group_size(transfer: &InterfaceTransfer) -> usize {
+    match transfer {
+        InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => 2,
+        InterfaceTransfer::SplDeposit { .. } | InterfaceTransfer::SplWithdrawal { .. } => 5,
+    }
+}
+
+fn mint_position(transfer: &InterfaceTransfer) -> Option<usize> {
+    match transfer {
+        InterfaceTransfer::SolDeposit { .. } | InterfaceTransfer::SolWithdrawal { .. } => None,
+        InterfaceTransfer::SplDeposit { .. } => Some(0),
+        InterfaceTransfer::SplWithdrawal { .. } => Some(1),
+    }
 }
 
 #[derive(Debug)]
 struct TransactCase {
+    /// Prefix accounts followed by one settlement group per interface transfer.
     accounts: Vec<Pubkey>,
+    /// Number of accounts before the settlement groups; owner tags index these.
+    prefix_len: usize,
     inputs: Vec<InputUtxo>,
     outputs: Vec<TransactOutput>,
     messages: Vec<MessageData>,
     interface_transfers: Vec<InterfaceTransfer>,
-    spl_transfers: Vec<SplTransfer>,
     first_input_queue_seq: u64,
     first_output_leaf_index: u64,
     source_tag: u8,
+}
+
+impl TransactCase {
+    fn expected_spl_transfers(&self) -> Vec<SplTransfer> {
+        let mut group_start = self.prefix_len;
+        self.interface_transfers
+            .iter()
+            .map(|transfer| {
+                let asset = mint_position(transfer).map(|position| {
+                    self.accounts
+                        .get(group_start + position)
+                        .expect("strategy appends every settlement group")
+                        .to_bytes()
+                });
+                group_start += settlement_group_size(transfer);
+                SplTransfer {
+                    is_deposit: transfer.is_deposit(),
+                    amount: transfer.amount(),
+                    asset,
+                }
+            })
+            .collect()
+    }
 }
 
 fn transact_case() -> impl Strategy<Value = TransactCase> {
@@ -132,7 +161,7 @@ fn transact_case() -> impl Strategy<Value = TransactCase> {
     )
         .prop_flat_map(
             |(
-                accounts,
+                prefix,
                 inputs,
                 messages,
                 interface_transfers,
@@ -140,19 +169,25 @@ fn transact_case() -> impl Strategy<Value = TransactCase> {
                 first_output_leaf_index,
                 source_tag,
             )| {
-                let outputs = prop::collection::vec(transact_output(accounts.len()), 0..=8);
-                let spl_transfers =
-                    prop::collection::vec(spl_transfer(), interface_transfers.len());
-                (outputs, spl_transfers).prop_map(move |(outputs, spl_transfers)| TransactCase {
-                    accounts: accounts.clone(),
-                    inputs: inputs.clone(),
-                    outputs,
-                    messages: messages.clone(),
-                    interface_transfers: interface_transfers.clone(),
-                    spl_transfers,
-                    first_input_queue_seq,
-                    first_output_leaf_index,
-                    source_tag,
+                let prefix_len = prefix.len();
+                let settlement_len: usize =
+                    interface_transfers.iter().map(settlement_group_size).sum();
+                let outputs = prop::collection::vec(transact_output(prefix_len), 0..=8);
+                let settlement_accounts = prop::collection::vec(pubkey(), settlement_len);
+                (outputs, settlement_accounts).prop_map(move |(outputs, settlement_accounts)| {
+                    let mut accounts = prefix.clone();
+                    accounts.extend(settlement_accounts);
+                    TransactCase {
+                        accounts,
+                        prefix_len,
+                        inputs: inputs.clone(),
+                        outputs,
+                        messages: messages.clone(),
+                        interface_transfers: interface_transfers.clone(),
+                        first_input_queue_seq,
+                        first_output_leaf_index,
+                        source_tag,
+                    }
                 })
             },
         )
@@ -195,7 +230,6 @@ proptest! {
             }],
             output_tree: OUTPUT_TREE,
             first_output_leaf_index: case.first_output_leaf_index,
-            spl_transfers: case.spl_transfers.clone(),
         };
 
         let outputs = case
@@ -225,7 +259,7 @@ proptest! {
             salt: SALT,
             first_output_leaf_index: case.first_output_leaf_index,
             output_tree: OUTPUT_TREE,
-            spl_transfers: case.spl_transfers.clone(),
+            spl_transfers: case.expected_spl_transfers(),
         };
 
         let group = if case.source_tag == tag::TRANSACT {
@@ -339,7 +373,6 @@ proptest! {
                     input_trees: support::input_trees(0),
                     output_tree: OUTPUT_TREE,
                     first_output_leaf_index: 0,
-                    spl_transfers: Vec::new(),
                 },
             ),
             _ => emit_event_data(kind, &support::merge_event([0u8; 32])),

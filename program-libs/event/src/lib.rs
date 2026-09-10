@@ -72,20 +72,17 @@ pub struct InputTreeSequence {
     pub first_input_queue_seq: u64,
 }
 
-/// Body of [`EventKind::Transact`]: only the values assigned at execution or
-/// read from accounts. Nullifiers, output commitments, owner tags, ciphertexts,
-/// messages, `tx_viewing_pk` and `salt` are not repeated; an indexer reads them
-/// from the `transact` instruction data and account list when it rebuilds the
-/// [`GeneralEvent`].
+/// Body of [`EventKind::Transact`]: the trees and the values assigned at
+/// execution. An indexer rebuilds the rest of the [`GeneralEvent`] from the
+/// `transact` instruction data (nullifiers, outputs, messages, `tx_viewing_pk`,
+/// `salt`, interface transfers) and its account list (owner tags, settlement
+/// mints).
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct TransactEvent {
     pub input_trees: Vec<InputTreeSequence>,
     pub output_tree: [u8; 32],
     /// Leaf index of `outputs[0]`; later outputs append sequentially.
     pub first_output_leaf_index: u64,
-    /// One entry per interface transfer, in leg order. `asset` is the mint
-    /// account, which only the settlement accounts know.
-    pub spl_transfers: Vec<SplTransfer>,
 }
 
 /// Body of [`EventKind::Merge`]. The output commitment, the nullifiers and a
