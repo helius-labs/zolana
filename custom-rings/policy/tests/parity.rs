@@ -5,9 +5,10 @@ use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN};
 use zolana_keypair::{hash::owner_hash, NullifierKey, PublicKey};
 use zolana_ring_policy::{
-    entry_nullifier, entry_seed, EntryState, ListEntry, ListId, ListNamespace, Member,
+    entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, ListEntry, ListId,
+    ListNamespace, Member,
 };
-use zolana_transaction::{ProofInputUtxo, SOL_MINT};
+use zolana_transaction::{instructions::transact::PrivateTxHash, ProofInputUtxo, SOL_MINT};
 
 const TEST_PDA: solana_address::Address = address!("6ZKEgsScJbL6JVDpbHLCFCUiPEVgmMSt1j6NudNLqEvh");
 const TREE_ID: u16 = 5;
@@ -71,5 +72,39 @@ fn record_commitments_match_the_canonical_utxo_types() {
         nullifier_key
             .nullifier(&utxo_hash, &entry.blinding())
             .unwrap()
+    );
+}
+
+/// The program folds a claim's address as the slot's nullifier, as SPP does.
+#[test]
+fn the_mutation_private_tx_hash_matches_the_transact_preimage() {
+    let input = [1u8; 32];
+    let output = [2u8; 32];
+    let address = [3u8; 32];
+    let external = [4u8; 32];
+    let blinding = [5u8; 32];
+    assert_eq!(
+        mutation_private_tx_hash(input, output, address, &external, &blinding).unwrap(),
+        PrivateTxHash {
+            input_hashes: &[input],
+            output_hashes: &[output],
+            address_nullifiers: Some(&[address]),
+            external_data_hash: &external,
+            blinding: &blinding,
+        }
+        .hash()
+        .unwrap()
+    );
+    assert_eq!(
+        mutation_private_tx_hash(input, output, [0u8; 32], &external, &blinding).unwrap(),
+        PrivateTxHash {
+            input_hashes: &[input],
+            output_hashes: &[output],
+            address_nullifiers: None,
+            external_data_hash: &external,
+            blinding: &blinding,
+        }
+        .hash()
+        .unwrap()
     );
 }

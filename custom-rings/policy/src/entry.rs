@@ -315,13 +315,13 @@ pub fn entry_nullifier(utxo_hash: &[u8; 32], blinding: &[u8; 32]) -> Result<[u8;
 pub fn mutation_private_tx_hash(
     input_hash: [u8; 32],
     output_hash: [u8; 32],
-    address_hash: [u8; 32],
+    address_nullifier: [u8; 32],
     external_data_hash: &[u8; 32],
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], HasherError> {
     let input_chain = create_hash_chain_from_slice(&[input_hash])?;
     let output_chain = create_hash_chain_from_slice(&[output_hash])?;
-    let address_chain = create_hash_chain_from_slice(&[address_hash])?;
+    let address_chain = create_hash_chain_from_slice(&[address_nullifier])?;
     Poseidon::hashv(&[
         &input_chain,
         &output_chain,
