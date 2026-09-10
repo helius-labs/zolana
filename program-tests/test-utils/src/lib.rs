@@ -9,6 +9,7 @@
 //! that called the helper, not the helper body.
 
 pub mod backend;
+pub mod compute;
 pub mod harness;
 pub mod lifecycle;
 pub mod litesvm_asserts;
@@ -22,4 +23,5 @@ pub mod smart_account;
 pub mod spl;
 pub mod test_validator_asserts;
 pub mod transact;
+pub mod transaction_size;
 mod wallet_discovery;

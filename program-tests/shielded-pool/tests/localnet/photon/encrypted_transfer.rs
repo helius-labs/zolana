@@ -1,4 +1,5 @@
 use super::*;
+use zolana_test_utils::compute::TEST_TRANSACTION_CU_LIMIT;
 
 /// End-to-end encrypted transfer: shield two sender UTXOs, transfer one private
 /// output to a recipient using the high-level `Transaction` builder (real HPKE
@@ -114,7 +115,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
     // Proof verification needs more than the 200k default compute budget.
     let compute_budget =
         solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-            1_400_000,
+            TEST_TRANSACTION_CU_LIMIT,
         );
     let transfer_sig = send_transaction(
         &mut rpc,

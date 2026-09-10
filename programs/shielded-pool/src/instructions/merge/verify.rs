@@ -1,10 +1,11 @@
+use groth16_solana::groth16::Groth16Verifyingkey;
 use pinocchio::{error::ProgramError, ProgramResult};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::{create_hash_chain_from_slice, create_hash_chain_from_slice_ref};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::merge_transact::MergeTransactIxDataRef,
     tree_slot::{populated_tree_slots_hash_chain, TreeSlot},
-    verifying_keys::{merge_8_1, merge_ring_8_1},
+    verifying_keys::{merge_36_1, merge_8_1, merge_ring_36_1, merge_ring_8_1},
 };
 
 use crate::instructions::verifier;
@@ -16,12 +17,12 @@ use crate::instructions::verifier;
 pub enum MergeOwnerBinding {
     /// Default merge (`merge_transact`): owner identity bound from the user
     /// registry record -- the tagged owner identity of the registered key.
-    /// Verified against `merge_8_1`.
+    /// Verified against `merge_<n_inputs>_1`.
     Registry { signing_pk_field: [u8; 32] },
     /// Policy-ring merge (`merge_ring`): `pk_field(ring_program_id)` from the
     /// calling `ring_config`, plus the output `ring_data_hash` the ring program
     /// selected; the proof asserts it against the output's
-    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_8_1`.
+    /// `Output.Utxo.RingDataHash`. Verified against `merge_ring_<n_inputs>_1`.
     Ring {
         ring_program_id: [u8; 32],
         output_ring_data_hash: [u8; 32],
@@ -42,13 +43,15 @@ pub struct MergeProofInputs {
     pub owner_binding: MergeOwnerBinding,
 }
 
-pub struct MergeProof<'a> {
-    ix: &'a MergeTransactIxDataRef<'a>,
-    derived: MergeProofInputs,
+pub struct MergeProof<'a, 'data> {
+    ix: &'a MergeTransactIxDataRef<'data>,
+    // Borrowed rather than owned so assembling the proof does not copy the
+    // derived inputs onto this frame on top of the caller's copy.
+    derived: &'a MergeProofInputs,
 }
 
-impl<'a> MergeProof<'a> {
-    pub fn new(ix: &'a MergeTransactIxDataRef<'a>, derived: MergeProofInputs) -> Self {
+impl<'a, 'data> MergeProof<'a, 'data> {
+    pub fn new(ix: &'a MergeTransactIxDataRef<'data>, derived: &'a MergeProofInputs) -> Self {
         Self { ix, derived }
     }
 
@@ -63,12 +66,7 @@ impl<'a> MergeProof<'a> {
             c: p.c,
             commitment: None,
         };
-        // The policy-ring merge (`merge_ring`) commits `ring_program_id`, so it uses
-        // its own verifying key; the default-ring merge uses `merge_8_1`.
-        let vk = match self.derived.owner_binding {
-            MergeOwnerBinding::Registry { .. } => &merge_8_1::VERIFYINGKEY,
-            MergeOwnerBinding::Ring { .. } => &merge_ring_8_1::VERIFYINGKEY,
-        };
+        let vk = self.verifying_key()?;
         verifier::verify_groth16(
             proof,
             public_input_hash,
@@ -76,6 +74,32 @@ impl<'a> MergeProof<'a> {
             encoding_err,
             ShieldedPoolError::TransactProofVerificationFailed,
         )
+    }
+
+    /// Select the verifying key from the owner binding and the declared input
+    /// count.
+    ///
+    /// Both halves are load-bearing. The rail differs in what the
+    /// public-input-hash tail binds (`merge_ring` commits `ring_program_id`), and
+    /// the input count differs in the constraint system itself, because the
+    /// hash prefix folds a nullifier chain whose length is the input count. Merge
+    /// instruction data carries no circuit selector, so the count is implicit in
+    /// `nullifiers.len()`; a shape with no key must be refused here rather than
+    /// verified against a key for a different width.
+    fn verifying_key(&self) -> Result<&'static Groth16Verifyingkey<'static>, ProgramError> {
+        let input_count = self.ix.nullifiers.len();
+        let vk = match (&self.derived.owner_binding, input_count) {
+            (MergeOwnerBinding::Registry { .. }, 8) => &merge_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Registry { .. }, 36) => &merge_36_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 8) => &merge_ring_8_1::VERIFYINGKEY,
+            (MergeOwnerBinding::Ring { .. }, 36) => &merge_ring_36_1::VERIFYINGKEY,
+            // Unreachable through the instruction parse, which rejects any count
+            // outside MERGE_SUPPORTED_INPUT_COUNTS. Kept fail-closed so adding a
+            // count to that set without a key here cannot fall through to the
+            // wrong verifying key.
+            _ => return Err(ShieldedPoolError::InvalidMergeShape.into()),
+        };
+        Ok(vk)
     }
 
     /// The Poseidon hash chain the circuit folds into its single public input
@@ -92,7 +116,7 @@ impl<'a> MergeProof<'a> {
         // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
         // slot hash folded onto the precomputed four-slot zero suffix.
         let prefix = [
-            create_hash_chain_from_slice(&self.ix.nullifiers)?,
+            create_hash_chain_from_slice_ref(&self.ix.nullifiers)?,
             *self.ix.output_utxo_hash,
             populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
             self.derived.output_tree_id,

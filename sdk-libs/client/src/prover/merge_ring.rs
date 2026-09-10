@@ -1,4 +1,4 @@
-//! High-level builder for the 8-in/1-out policy-ring merge proof
+//! High-level builder for the n-in/1-out policy-ring merge proof
 //! (`merge_ring`). It shares the whole merge flow with the default merge
 //! ([`crate::prover::merge::MergeProver::common`]) and differs in two deltas: the merged
 //! output and every input are bound to a shared `ring_program_id`, which is
@@ -28,7 +28,7 @@ use crate::{
     rpc::NonInclusionProof,
 };
 
-/// Policy-ring merge consolidates up to 8 inputs sharing one owner, asset,
+/// Policy-ring merge consolidates up to MAX_MERGE_INPUTS inputs sharing one owner, asset,
 /// nullifier secret, and `ring_program_id` into one output. Identical to
 /// [`crate::prover::merge::MergeProver`] except for the shared `ring_program_id`
 /// and the output `ring_data_hash` folded into the public-input hash.

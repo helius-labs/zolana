@@ -1,7 +1,7 @@
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
-use zolana_event::MessageData;
 use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     random_salt,

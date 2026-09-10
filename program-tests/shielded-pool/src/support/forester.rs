@@ -15,6 +15,7 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
+use zolana_test_utils::compute::TEST_TRANSACTION_CU_LIMIT;
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
@@ -71,7 +72,7 @@ impl NullifierTestForester {
         // ceiling assert instead of aborting at the 200k default budget.
         let compute_budget =
             solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
-                1_400_000,
+                TEST_TRANSACTION_CU_LIMIT,
             );
         let message = Message::new(&[compute_budget, execute], Some(&fee_payer));
         let tx = Transaction::new(&[authority.signer], message, blockhash);

@@ -1,7 +1,7 @@
 //! High-level policy-ring merge build: [`MergeRing`] names which UTXOs to
 //! consolidate, the derived single output, and the ring program every input is
 //! owned by; [`PreparedMergeRing`] pads to
-//! [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) and yields the
+//! a supported merge shape and yields the
 //! input commitments to fetch Merkle proofs for. Like the default merge, the merge-ring
 //! proof proves ownership in-circuit from the nullifier secret, so there is no
 //! signing step. Every input and the output share a `ring_program_id`; policy-data
@@ -28,6 +28,7 @@ use crate::{
 /// asset, and `ring_program_id`.
 pub struct MergeRing {
     inputs: Vec<SppProofInputUtxo>,
+    padded_input_count: usize,
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
@@ -50,7 +51,7 @@ impl MergeRing {
         // Policy-ring data is allowed (the calling ring authorizes its state
         // transition before CPI and the merge-ring circuit commits every hash);
         // owner/program UTXO data is never mergeable.
-        let (asset, total) = validate_merge_inputs(keypair, &inputs, |index, spend| {
+        let validated = validate_merge_inputs(keypair, &inputs, |index, spend| {
             if spend.utxo.ring_program_id != Some(ring_program_id) {
                 return Err(TransactionError::MergeInputRingMismatch { index });
             }
@@ -64,14 +65,14 @@ impl MergeRing {
             .first()
             .ok_or(TransactionError::NoInputs)?
             .nullifier()?;
-        // The merged output preserves ring ownership.
+        let output = SppProofOutputUtxo::new(
+            validated.asset,
+            validated.total,
+            keypair.shielded_address()?,
+        )?;
         let output = match output_ring_data_hash {
-            Some(ring_data_hash) => {
-                SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
-                    .with_ring_data_hash(ring_program_id, ring_data_hash)
-            }
-            None => SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?
-                .with_ring_program_id(ring_program_id),
+            Some(ring_data_hash) => output.with_ring_data_hash(ring_program_id, ring_data_hash),
+            None => output.with_ring_program_id(ring_program_id),
         };
 
         let mut output = output;
@@ -79,6 +80,7 @@ impl MergeRing {
 
         Ok(Self {
             inputs,
+            padded_input_count: validated.padded_input_count,
             output,
             // Never expires by default; `merge_ring` rejects `current_ts >
             // expiry`, so set this explicitly for a relayer deadline.
@@ -103,19 +105,19 @@ impl MergeRing {
         self
     }
 
-    /// Pad to [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) with
-    /// dummy inputs (real inputs first), producing the proofless
-    /// [`PreparedMergeRing`].
+    /// Pad to the smallest supported shape that fits with dummy inputs (real
+    /// inputs first), producing the proofless [`PreparedMergeRing`].
     pub fn prepare(self) -> PreparedMergeRing {
         let MergeRing {
             mut inputs,
+            padded_input_count,
             output,
             expiry_unix_ts,
             signing_pubkey,
             ring_program_id,
             output_tree_id,
         } = self;
-        pad_with_dummies(&mut inputs);
+        pad_with_dummies(&mut inputs, padded_input_count);
         PreparedMergeRing {
             inputs,
             output,
@@ -127,9 +129,8 @@ impl MergeRing {
     }
 }
 
-/// A policy-ring merge padded to
-/// [`MERGE_INPUTS`](crate::instructions::merge::MERGE_INPUTS) (real inputs
-/// first, dummies at the tail), still proofless. Carries the shared
+/// A policy-ring merge padded to a supported shape (real inputs first, dummies
+/// at the tail), still proofless. Carries the shared
 /// `ring_program_id` the proof commits. [`Self::input_utxo_hashes`] yields what
 /// to fetch Merkle proofs for.
 pub struct PreparedMergeRing {
@@ -169,7 +170,7 @@ mod tests {
     use zolana_keypair::{viewing_key::random_blinding, ShieldedKeypair};
 
     use super::*;
-    use crate::{instructions::merge::MERGE_INPUTS, utxo::Utxo, Data, DataRecord};
+    use crate::{instructions::merge::MERGE_DEFAULT_INPUT_COUNT, utxo::Utxo, Data, DataRecord};
 
     const RING: [u8; 32] = [3u8; 32];
 
@@ -195,7 +196,7 @@ mod tests {
             .expect("merge-ring plan")
             .prepare();
 
-        assert_eq!(prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(prepared.inputs.len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(prepared.output.amount, 30);
         assert_eq!(prepared.ring_program_id, ring);
     }

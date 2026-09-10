@@ -1,4 +1,12 @@
-use crate::instructions::shared::caused_by;
+use crate::instructions::{
+    event::emit_transact_event,
+    nullifier_pda::create_nullifier_pdas,
+    shared::{
+        caused_by, check_field_element, check_field_elements, check_not_expired,
+        collect_forester_fee,
+    },
+    transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
+};
 use light_program_profiler::profile;
 use pinocchio::{
     error::ProgramError,
@@ -6,33 +14,105 @@ use pinocchio::{
     AccountView, ProgramResult,
 };
 use zolana_hasher::primitives::hash_bytes;
+use zolana_interface::event::TransactEvent;
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::EventKind,
     instruction::{
-        instruction_data::transact::{CircuitId, ExternalDataHash, TransactIxDataRef},
+        instruction_data::transact::{
+            CircuitId, ExternalDataPreimage, InterfaceTransfer, OwnerTagRef, TransactIxDataRef,
+            TransactOutputRef,
+        },
         tag::InstructionTag,
+        validate_interface_transfers,
     },
     N_PUBLIC_SLOTS,
 };
 
 use super::{
     account::{RingTransactAccounts, TransactAccounts},
-    event::{build_transact_event, resolve_outputs},
-    interface_transfer::{resolve_interface_transfers, settle_interface_transfers},
+    interface_transfer::settle_interface_transfers,
     tree::{apply_input_tree, apply_output_tree},
 };
-use crate::instructions::{
-    event::emit_general_event,
-    nullifier_pda::create_nullifier_pdas,
-    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
-    transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
-};
+
+/// Hash the serialized external-data prefix and the account addresses it names
+/// before mutable account parsing. Both inputs are borrowed directly from the
+/// runtime; this does not allocate or copy either instruction data or account
+/// addresses.
+#[inline(never)]
+fn hash_external_data_from_accounts<'a>(
+    instruction: InstructionTag,
+    external_data_prefix: &'a [u8],
+    accounts: &'a [AccountView],
+    interface_transfers: &[InterfaceTransfer],
+    outputs: &[TransactOutputRef<'_>],
+) -> Result<[u8; 32], ProgramError> {
+    let mut settlement_account_count = 0usize;
+    for transfer in interface_transfers {
+        settlement_account_count = settlement_account_count
+            .checked_add(transfer.settlement_account_count())
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    }
+    // Settlement groups are the final accounts; the account parser later
+    // validates every selected account and rejects missing or extra accounts.
+    let mut settlement_offset = accounts
+        .len()
+        .checked_sub(settlement_account_count)
+        .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+
+    let discriminator = [instruction as u8];
+    let mut preimage = ExternalDataPreimage::new(&discriminator, external_data_prefix);
+    for transfer in interface_transfers {
+        let group = accounts
+            .get(settlement_offset..)
+            .and_then(|rest| rest.get(..transfer.settlement_account_count()))
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        let user_account = group
+            .get(transfer.user_account_position())
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+        push_account_address(&mut preimage, user_account)?;
+        if let Some(position) = transfer.spl_interface_account_position() {
+            let spl_interface_account = group
+                .get(position)
+                .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+            push_account_address(&mut preimage, spl_interface_account)?;
+        }
+        settlement_offset = settlement_offset
+            .checked_add(group.len())
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
+    }
+
+    // Inline tags are already part of `external_data_prefix`. Account-backed
+    // tags append the referenced runtime address in output order.
+    for output in outputs {
+        if let OwnerTagRef::Account(index) = output.owner_tag {
+            let owner = accounts
+                .get(usize::from(index))
+                .ok_or(ShieldedPoolError::OwnerTagAccountMissing)?;
+            push_account_address(&mut preimage, owner)?;
+        }
+    }
+
+    preimage.finish().map_err(caused_by(
+        ShieldedPoolError::TransactProofVerificationFailed,
+    ))
+}
+
+#[inline]
+fn push_account_address<'a>(
+    preimage: &mut ExternalDataPreimage<'a>,
+    account: &'a AccountView,
+) -> ProgramResult {
+    preimage
+        .push_address(account.address().as_array())
+        .map_err(|_| ShieldedPoolError::TooManyExternalDataHashSlices.into())
+}
 
 // 1. Deserialize instruction data.
 // 2. Validate declared circuit type.
 // 3. Check proof is not expired.
-// 4. Resolve output tags from accounts.
+// 4. Hash external data directly from the instruction and account buffers.
+// 5. Derive output-owner public inputs directly from those same buffers.
+// 6. Validate and parse accounts.
 #[inline(never)]
 #[profile]
 pub fn process_transact_ix(
@@ -41,27 +121,39 @@ pub fn process_transact_ix(
     instruction: InstructionTag,
 ) -> ProgramResult {
     // 1. Deserialize instruction data.
-    let ix = TransactIxDataRef::from_bytes(data)
-        .map_err(caused_by(ProgramError::InvalidInstructionData))?;
+    let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
+        .map_err(caused_by(ShieldedPoolError::InvalidInstructionData))?;
     // 2. Validate declared circuit type.
     validate_circuit_type(&ix, instruction)?;
+    validate_interface_transfers(&ix.external_data.interface_transfers)?;
 
     // 3. Check proof is not expired.
     let clock = Clock::get()?;
-    check_not_expired(ix.expiry_unix_ts, &clock)?;
+    check_not_expired(ix.external_data.expiry_unix_ts, &clock)?;
 
-    // 4. Resolve output tags from accounts.
-    let resolved_outputs = resolve_outputs(accounts, &ix)?;
-    let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
-    let mut owner_hashes = Box::new(OwnerHashCache::new());
+    // 4. Hash the external-data prefix the parser borrowed from instruction
+    // data together with the account addresses it names.
+    let external_data_hash = hash_external_data_from_accounts(
+        instruction,
+        external_data_prefix,
+        accounts,
+        &ix.external_data.interface_transfers,
+        &ix.external_data.outputs,
+    )?;
+
+    // Both are stack-backed and sized by fixed protocol constants.
+    let mut proof_inputs = TransactProofInputs::new(ix.circuit);
+    let mut owner_hashes = OwnerHashCache::new();
     // 5. Derive the circuit-specific fixed-width output-owner commitment.
-    proof_inputs.fill_output_owner_pk_hashes(
+    proof_inputs.fill_output_owner_chain(
         ix.circuit.output_owner_mode(),
-        &resolved_outputs,
+        &ix,
+        accounts,
         &mut owner_hashes,
     )?;
+    proof_inputs.assign_external_data_hash(external_data_hash);
     // 6. Check accounts.
-    let mut transact_accounts = match ix.circuit {
+    let transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
             let (transact_accounts, ring_program_id) =
@@ -70,20 +162,19 @@ pub fn process_transact_ix(
             transact_accounts
         }
     };
-    // 6. Add owner signer hashes to proof inputs.
+    // 7. Add owner signer hashes to proof inputs.
     proof_inputs.fill_owner_signer_hashes(
         transact_accounts.payer,
         transact_accounts.owner_signers,
         &mut owner_hashes,
     )?;
 
-    // 7. Process sol and spl transfers.
+    // 8. Process SOL and SPL transfers.
     proof_inputs.assign_public_amounts_and_assets(
-        &ix.interface_transfers,
-        &transact_accounts.settlements,
+        transact_accounts.settlements(&ix.external_data.interface_transfers),
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve the input tree's roots and insert nullifiers into queue.
+    // 9. Resolve the input tree's roots and insert nullifiers into the queue.
     let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
     // The fee transfer CPI includes the tree, so it must run before
     // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
@@ -96,52 +187,29 @@ pub fn process_transact_ix(
         input_tree_result.forester_fee,
     )?;
     create_nullifier_pdas(
-        transact_accounts.payer,
         transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_pdas,
+        transact_accounts.nullifier_pdas.iter_mut(),
+        ix.inputs.iter().map(|input| input.nullifier_hash),
         &input_tree_result,
     )?;
-    // 9. Append new utxo hashes.
-    let tree_write = apply_output_tree(
-        transact_accounts.output_tree,
-        &ix,
-        input_tree_result.inputs,
-        clock.slot,
-    )?;
+    // 10. Append new UTXO hashes.
+    let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
-    let resolved_interface_transfers =
-        resolve_interface_transfers(&ix, &transact_accounts.settlements);
-
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: instruction as u8,
-        expiry_unix_ts: ix.expiry_unix_ts,
-        interface_transfers: &resolved_interface_transfers,
-        data_hash: ix.data_hash,
-        ring_data_hash: ix.ring_data_hash,
-        tx_viewing_pk: ix.tx_viewing_pk,
-        salt: ix.salt,
-        outputs: &resolved_outputs,
-        messages: &ix.messages,
-    }
-    .hash()
-    .map_err(caused_by(
-        ShieldedPoolError::TransactProofVerificationFailed,
-    ))?;
-    proof_inputs.assign_external_data_hash(external_data_hash);
     proof_inputs.ensure_complete()?;
 
     TransactProof::new(&ix, &proof_inputs).verify()?;
 
-    settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
+    settle_interface_transfers(
+        transact_accounts.settlements(&ix.external_data.interface_transfers),
+    )?;
 
-    let event = build_transact_event(
-        &ix,
-        &transact_accounts.settlements,
-        tree_write,
-        &resolved_outputs,
-    );
-    emit_general_event(EventKind::Transact, event)
+    // Only the execution-assigned positions: an indexer rebuilds nullifiers,
+    // outputs, messages and trees from this instruction and its account list.
+    emit_transact_event(&TransactEvent {
+        first_input_queue_seq: input_tree_result.first_input_queue_seq,
+        first_output_leaf_index: tree_write.first_output_leaf_index,
+    })
 }
 
 /// Checks:
@@ -170,7 +238,7 @@ pub fn validate_circuit_type(
         return Err(ShieldedPoolError::MismatchedCircuitType.into());
     }
     if usize::from(ix.circuit.num_inputs()) != ix.inputs.len() // 2.
-        || usize::from(ix.circuit.num_outputs()) != ix.outputs.len() //2.
+        || usize::from(ix.circuit.num_outputs()) != ix.external_data.outputs.len() //2.
         || usize::from(ix.circuit.num_public_asset_slots()) > N_PUBLIC_SLOTS
         || !ix.circuit.is_supported()
     // 3.
@@ -178,12 +246,15 @@ pub fn validate_circuit_type(
         return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
     check_field_elements(
-        ix.inputs.iter().map(|input| &input.nullifier_hash),
+        ix.inputs.iter().map(|input| input.nullifier_hash),
         "input nullifier",
         ShieldedPoolError::NonCanonicalInputNullifier,
     )?;
     check_field_elements(
-        ix.outputs.iter().map(|output| output.utxo_hash),
+        ix.external_data
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash),
         "output utxo hash",
         ShieldedPoolError::NonCanonicalOutputUtxoHash,
     )?;
@@ -193,4 +264,149 @@ pub fn validate_circuit_type(
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_account_checks::account_info::test_account_info::get_account_view;
+    use zolana_hasher::{sha256::Sha256BE, Hasher};
+    use zolana_interface::instruction::{OwnerTag, TransactIxData, TransactOutput, TransactProof};
+
+    fn account(address: u8) -> AccountView {
+        get_account_view([address; 32], [0; 32], false, false, false, Vec::new())
+    }
+
+    #[test]
+    fn external_data_hash_selects_accounts_in_protocol_order() {
+        let owned = TransactIxData {
+            expiry_unix_ts: 42,
+            tx_viewing_pk: [26; 33],
+            salt: [27; 16],
+            interface_transfers: vec![
+                InterfaceTransfer::SolDeposit { amount: 1 },
+                InterfaceTransfer::SplWithdrawal {
+                    amount: 2,
+                    spl_interface_bump: 255,
+                },
+            ],
+            data_hash: Some([24; 32]),
+            ring_data_hash: Some([25; 32]),
+            outputs: vec![
+                TransactOutput {
+                    utxo_hash: [28; 32],
+                    owner_tag: OwnerTag::Inline([29; 32]),
+                    data: Some(vec![30, 31]),
+                },
+                TransactOutput {
+                    utxo_hash: [32; 32],
+                    owner_tag: OwnerTag::Account(7),
+                    data: None,
+                },
+            ],
+            messages: vec![zolana_interface::instruction::MessageData {
+                view_tag: [34; 32],
+                data: vec![35, 36],
+            }],
+            private_tx_hash: [37; 32],
+            circuit: CircuitId::RingEddsa(1, 2, 1),
+            proof: TransactProof::zeroed(),
+            inputs: vec![zolana_interface::instruction::InputUtxo {
+                nullifier_hash: [38; 32],
+                nullifier_tree_root_index: 39,
+                utxo_tree_root_index: 40,
+            }],
+        };
+        let bytes = owned.serialize().unwrap();
+        let (ix, external_data_prefix) =
+            TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+
+        // This is the same complete fixture used by the Rust client, Go prover,
+        // and TypeScript SDK. Account 7 is the account-backed output owner;
+        // settlement groups are the suffix in instruction order. Arbitrary
+        // non-committed slots make an adjacent-index mistake visible.
+        let accounts = vec![
+            account(1),
+            account(2),
+            account(3),
+            account(4),
+            account(5),
+            account(6),
+            account(7),
+            account(33),
+            // SOL deposit: [sol_interface, user].
+            account(8),
+            account(20),
+            // SPL withdrawal: [cpi_authority, mint, spl_interface, user, token_program].
+            account(9),
+            account(21),
+            account(23),
+            account(22),
+            account(10),
+        ];
+
+        let actual = hash_external_data_from_accounts(
+            InstructionTag::RingTransact,
+            external_data_prefix,
+            &accounts,
+            &ix.external_data.interface_transfers,
+            &ix.external_data.outputs,
+        )
+        .unwrap();
+
+        let mut expected_preimage = vec![InstructionTag::RingTransact as u8];
+        expected_preimage.extend_from_slice(external_data_prefix);
+        for byte in [20u8, 22, 23, 33] {
+            expected_preimage.extend_from_slice(&[byte; 32]);
+        }
+        let expected = Sha256BE::hash(&expected_preimage).unwrap();
+
+        assert_eq!(actual, expected);
+        assert_eq!(
+            actual,
+            [
+                0, 222, 47, 97, 173, 68, 253, 98, 205, 189, 27, 97, 10, 140, 198, 237, 212, 34,
+                217, 98, 116, 208, 46, 158, 75, 101, 153, 36, 240, 42, 194, 155,
+            ],
+            "Rust program, Rust client, Go, and TypeScript must share this protocol vector",
+        );
+    }
+
+    #[test]
+    fn external_data_hash_rejects_missing_owner_account() {
+        let owned = TransactIxData {
+            expiry_unix_ts: 42,
+            tx_viewing_pk: [3; 33],
+            salt: [4; 16],
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: None,
+            outputs: vec![TransactOutput {
+                utxo_hash: [8; 32],
+                owner_tag: OwnerTag::Account(3),
+                data: None,
+            }],
+            messages: Vec::new(),
+            private_tx_hash: [9; 32],
+            circuit: CircuitId::ConfidentialEddsa(0, 1, 1),
+            proof: TransactProof::zeroed(),
+            inputs: Vec::new(),
+        };
+        let bytes = owned.serialize().unwrap();
+        let (ix, external_data_prefix) =
+            TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+
+        assert_eq!(
+            hash_external_data_from_accounts(
+                InstructionTag::Transact,
+                external_data_prefix,
+                &[account(1), account(2), account(3)],
+                &ix.external_data.interface_transfers,
+                &ix.external_data.outputs,
+            ),
+            Err(ProgramError::Custom(
+                ShieldedPoolError::OwnerTagAccountMissing as u32
+            ))
+        );
+    }
 }

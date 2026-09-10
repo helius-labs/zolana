@@ -3,11 +3,9 @@ use custom_ring_interface::{
 };
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
-use zolana_interface::instruction::{
-    instruction_data::transact::{
-        confidential_encrypted_output_body, ring_confidential_encrypted_output_body,
-    },
-    tag, CircuitId, MessageData,
+use zolana_interface::{
+    instruction::{tag, CircuitId, MessageData},
+    output_data::{confidential_encrypted_output_body, ring_confidential_encrypted_output_body},
 };
 
 use crate::{

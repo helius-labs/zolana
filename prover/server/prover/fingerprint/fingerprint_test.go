@@ -75,6 +75,21 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 	batch, err := nulltree.R1CSBatchAddressAppend(40, 10)
 	add("batch_address-append_40_10", batch, err)
 
+	wideEddsa, err := eddsaprover.R1CSTransfer(36, 2, eddsaprover.ConfidentialVariant)
+	add("transfer_confidential_36_2", wideEddsa, err)
+
+	wideRing, err := eddsaprover.R1CSTransfer(36, 2, eddsaprover.RingVariant)
+	add("transfer_ring_36_2", wideRing, err)
+
+	wideP256Ring, err := eddsaprover.R1CSP256Transfer(36, 2)
+	add("transfer_p256_ring_36_2", wideP256Ring, err)
+
+	wideMerged, err := mergeprover.R1CSMerge(36)
+	add("merge_36_1", wideMerged, err)
+
+	wideMergedRing, err := mergeprover.R1CSMergeRing(36)
+	add("merge_ring_36_1", wideMergedRing, err)
+
 	return out
 }
 
@@ -90,6 +105,11 @@ var expectedFingerprints = map[string]fingerprint{
 	"merge_8_1":                   {constraints: 180124, public: 2},
 	"merge_ring_8_1":              {constraints: 180394, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
+	"transfer_confidential_36_2":  {constraints: 827255, public: 2},
+	"transfer_ring_36_2":          {constraints: 827777, public: 2},
+	"transfer_p256_ring_36_2":     {constraints: 973423, public: 2},
+	"merge_36_1":                  {constraints: 791154, public: 2},
+	"merge_ring_36_1":             {constraints: 791508, public: 2},
 }
 
 func TestCircuitFingerprintsMatchRotatedKeys(t *testing.T) {

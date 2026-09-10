@@ -22,14 +22,13 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::{PublicInputs, PublicTransfers, TransferInput, STATE_TREE_HEIGHT};
-use zolana_event::{OutputDataEncoding, ProoflessOutput};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
+use zolana_interface::output_data::{OutputDataEncoding, ProoflessOutput};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
 };
@@ -46,8 +45,8 @@ use zolana_test_utils::transact::{
     external_data_hash, external_data_hash_spl, fe, inline_outputs, new_transact_ix_data,
     nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field,
     real_output, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    spl_public_slots, test_private_tx_blinding, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    spl_public_slots, test_private_tx_blinding, transfer_output, ResolvedInterfaceTransfer,
+    SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 
 const AMOUNT: u64 = 1_000_000_000;

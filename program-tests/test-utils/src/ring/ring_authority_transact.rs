@@ -1,5 +1,6 @@
 //! Ring-authority transfer operations and assertions.
 
+use crate::compute::TEST_TRANSACTION_CU_LIMIT;
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -75,7 +76,8 @@ impl RingHarness {
             data: ix_data.clone(),
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         let signature = send_transaction(
             &mut self.rpc,
             &[compute_budget, transfer_ix],
@@ -386,7 +388,8 @@ impl RingHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         match send_transaction(
             &mut self.rpc,
             &[compute_budget, transfer_ix],
@@ -434,7 +437,8 @@ impl RingHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         match send_transaction(
             &mut self.rpc,
             &[compute_budget, transfer_ix],

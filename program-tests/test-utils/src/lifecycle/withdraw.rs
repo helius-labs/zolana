@@ -5,6 +5,7 @@
 //! `transfer.send(..)` and adds a SOL interface transfer to the `Transact` builder, so
 //! the builder appends the `sol_interface` custody PDA and the recipient account.
 
+use crate::compute::TEST_TRANSACTION_CU_LIMIT;
 use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -132,7 +133,8 @@ impl LifecycleHarness {
             data: ix_data,
         }
         .instruction();
-        let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+        let compute_budget =
+            ComputeBudgetInstruction::set_compute_unit_limit(TEST_TRANSACTION_CU_LIMIT);
         let sig = send_transaction(
             &mut self.rpc,
             &[compute_budget, withdraw_ix.clone()],

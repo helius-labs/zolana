@@ -76,6 +76,15 @@ impl P256Pubkey {
     pub fn to_p256(&self) -> Result<P256PublicKey, KeypairError> {
         P256PublicKey::from_sec1_bytes(&self.0).map_err(|_| KeypairError::InvalidPublicKey)
     }
+
+    pub fn coordinates(&self) -> Result<([u8; 32], [u8; 32]), KeypairError> {
+        let point = self.to_p256()?.to_encoded_point(false);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(point.x().ok_or(KeypairError::InvalidPublicKey)?);
+        y.copy_from_slice(point.y().ok_or(KeypairError::InvalidPublicKey)?);
+        Ok((x, y))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]

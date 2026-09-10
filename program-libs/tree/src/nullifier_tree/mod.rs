@@ -16,6 +16,7 @@
 //! | [`batch`] | `Batch` state machine, hash chains, and cached tree updates |
 //! | [`proof`] | `CompressedProof`, the batch-update proof encoding |
 //! | `verify` | Groth16 verification and verifying keys (feature `verify`) |
+//! | [`event`] | [`event::NullifierTreeUpdateEvent`], the emitted batch-update event |
 //! | [`error`] | `NullifierTreeError`, the module's single error type |
 //!
 //! ## Operations
@@ -70,6 +71,7 @@ pub mod access;
 pub mod batch;
 pub mod constants;
 pub mod error;
+pub mod event;
 pub mod init;
 pub mod layout;
 pub mod merkle_tree_update;

@@ -27,6 +27,7 @@ mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
+pub mod transaction_size;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
@@ -67,7 +68,7 @@ pub use solana_rpc::{AsyncSolanaRpc, ConfirmedInstructionGroups, SolanaRpc};
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
 pub use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         merge_ring::{MergeRing, PreparedMergeRing},
         ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},

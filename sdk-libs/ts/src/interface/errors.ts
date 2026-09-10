@@ -73,6 +73,10 @@ export const ShieldedPoolError = Object.freeze({
   NonCanonicalDepositField: 7060,
   NonCanonicalRoot: 7061,
   NoClaimableTreeLamports: 7062,
+  DepositBlindingDerivationFailed: 7063,
+  RingNotActivated: 7064,
+  InputTreeRootIndexMismatch: 7065,
+  TooManyExternalDataHashSlices: 7066,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

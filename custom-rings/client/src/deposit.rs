@@ -5,7 +5,9 @@
 
 use borsh::BorshDeserialize;
 use solana_address::Address;
-use zolana_event::{EncryptedRingDepositOutput, OutputDataEncoding, ENCRYPTED_RING_DEPOSIT_SCHEME};
+use zolana_interface::output_data::{
+    EncryptedRingDepositOutput, OutputDataEncoding, ENCRYPTED_RING_DEPOSIT_SCHEME,
+};
 
 /// One deposit slot of a transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]

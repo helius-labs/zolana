@@ -143,7 +143,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         user_record,
         data: merge_data.clone(),
     }
-    .instruction();
+    .instruction()
+    .expect("valid merge transact");
     let mut expected_merge = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
@@ -163,7 +164,8 @@ fn every_spend_builder_has_the_exact_account_layout() {
         data: merge_data,
         output_ring_data_hash: [0u8; 32],
     }
-    .cpi_instruction();
+    .cpi_instruction()
+    .expect("valid merge ring");
     let mut expected_merge_ring = vec![
         AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),

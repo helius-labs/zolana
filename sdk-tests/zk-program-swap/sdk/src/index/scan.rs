@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use zolana_interface::event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_transaction::{
     instructions::transact::OutputSlot, AssetRegistry, DataRecord, EncryptedScheme,
     ShieldedTransaction, SOL_ASSET_ID, SOL_MINT,

@@ -5,7 +5,7 @@ use solana_address::Address;
 use zolana_client::{
     ConfidentialTransfer, NonInclusionProof, ProverVariant, PublicTransfers, Rpc, SppProofInputUtxo,
 };
-use zolana_event::OutputDataEncoding;
+use zolana_interface::output_data::OutputDataEncoding;
 use zolana_interface::{N_PUBLIC_SLOTS, SOL_ASSET_FIELD};
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, PublicKey, SigningKey};
 use zolana_transaction::{

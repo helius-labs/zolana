@@ -22,7 +22,7 @@ pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
 pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
 pub use merge_ring::MergeRing;
-pub use merge_transact::MergeTransact;
+pub use merge_transact::{MergeBuildError, MergeTransact};
 pub use protocol_config::{
     ClaimTreeLamports, CreateProtocolConfig, PauseTree, SetTreeFees, UpdateProtocolConfig,
 };

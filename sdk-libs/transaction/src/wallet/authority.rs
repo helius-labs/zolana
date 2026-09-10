@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use solana_address::Address;
-use zolana_event::MessageData;
+use zolana_interface::instruction::MessageData;
 use zolana_keypair::{
     derivation,
     shielded::{ShieldedAddress, ShieldedKeypair},

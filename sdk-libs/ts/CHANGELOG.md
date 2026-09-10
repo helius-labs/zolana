@@ -6,11 +6,14 @@ A tree derives from its id instead of one fixed address, holds its own fee
 schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
 builders take one nullifier account per input. Registering a ring and admitting
-it are now two separate steps with two different signers. Wallet replay keeps merge outputs when their inputs arrive in the same
-sync. The proof system changed underneath: owner identities carry a signing
-algorithm tag, every UTXO commits to the tree it lives in, and one private
-blinding seed per proof derives every output blinding and the private
-transaction hash blinding.
+it are now two separate steps with two different signers. The transact
+instruction data and `externalDataHash` change layout, deposits derive their
+blinding on chain, and merges come in two shapes. Wallet replay keeps merge
+outputs when their inputs arrive in the same sync, and selection and approval
+text use UTXO terminology without changing version 3 snapshot keys. The proof
+system changed underneath: owner identities carry a signing algorithm tag,
+every UTXO commits to the tree it lives in, and one private blinding seed per
+proof derives every output blinding and the private transaction hash blinding.
 
 Breaking
 
@@ -80,83 +83,99 @@ Breaking
   and it stores the latest update slot as a `u64`, making pre-release
   30,344-byte tree accounts incompatible → deploy fresh 39,952-byte trees
   and reindex Photon as one coordinated upgrade.
-- `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
-  `getTreeAddress(0)` for the default tree, which is not the address the
-  removed constant held.
-- `addressTreeParams` and `AddressTreeParams` are `nullifierTreeParams` and
-  `NullifierTreeParams`, without the `rootHistoryCapacity` member → rename, and
-  read `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY` for the capacity.
-- `ADDRESS_TREE_HEIGHT`, `ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE`,
+- `DEFAULT_TREE_ADDRESS`, `addressTreeParams`, `AddressTreeParams`,
+  `ADDRESS_TREE_HEIGHT`, `ADDRESS_TREE_INPUT_QUEUE_BATCH_SIZE`,
   `ADDRESS_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE`, and
-  `ADDRESS_TREE_ROOT_HISTORY_CAPACITY` are removed → read
-  `NULLIFIER_TREE_HEIGHT`, `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE`,
+  `ADDRESS_TREE_ROOT_HISTORY_CAPACITY` are removed → call `getTreeAddress(0)`
+  for the default tree, which is not the address the removed constant held, use
+  `nullifierTreeParams` and `NullifierTreeParams`, which have no
+  `rootHistoryCapacity` member, and read `NULLIFIER_TREE_HEIGHT`,
+  `NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE`, now 25,000,
   `NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE`, and
-  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY`.
+  `NULLIFIER_TREE_ROOT_HISTORY_CAPACITY`, now 100.
 - `foresterFeePerQueueElement(zkpBatchSize)` and
-  `FORESTER_REIMBURSEMENT_LAMPORTS` are removed → `defaultTreeFees(zkpBatchSize)`
-  returns the `TreeFeeSchedule` a tree is created with, and
-  `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
+  `FORESTER_REIMBURSEMENT_LAMPORTS` are removed →
+  `defaultTreeFees(zkpBatchSize)` returns the `TreeFeeSchedule` a tree is
+  created with, and `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
   `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` hold the per-batch reimbursements it
   covers.
 - `getCreateTreeInstructionAsync` is `getCreateTreeInstructionsAsync`, takes a
   `payer`, a `treeId`, and an optional `fees` instead of a tree address, and
-  returns the `TREE_CREATION_STEP_COUNT` identical instructions that allocate
-  the account → send all of them in one transaction, and pass the protocol
-  config's `nextTreeId` as the `treeId`.
+  returns the `TREE_CREATION_STEP_COUNT` (4) identical instructions that
+  allocate the `TREE_ACCOUNT_SIZE` (39,952 bytes) account → send all of them
+  in one transaction, and pass the protocol config's `nextTreeId` as the
+  `treeId`.
 - `transactInstruction`, `mergeTransactInstruction`, and `ringTransactAccounts`
   are async and include one writable nullifier account per spent input → await
-  them, pass the spent `inputs` to `ringTransactAccounts`, and rename
+  them, pass the spent `inputs` to `ringTransactAccounts`, rename
   `getTransactInstruction` and `getMergeTransactInstruction` to
-  `getTransactInstructionAsync` and `getMergeTransactInstructionAsync`.
-- `getCreateProtocolConfigInstructionAsync` requires `feeAuthority` and
-  `ProtocolConfigUpdate` gains a `feeAuthority` field → pass the address allowed
-  to set tree fees and claim tree lamports, and update exhaustive matches.
-- `decodeProtocolConfig` reads a 166-byte account and returns `feeAuthority` and
-  `nextTreeId` → a config account written before this release no longer decodes.
-- `DepositEntry` and `AssetDeposit` drop their `blinding` member and
-  `getDepositInstructionAsync` no longer encodes it → stop passing a blinding,
-  because the shielded pool now derives it from the tree and the leaf index the
-  output lands at, and an entry that still encodes one no longer decodes.
-- The `Deposit` a deposit builder returns drops its `utxoHash` member → read the
-  deposited UTXO from the indexer after the deposit lands, since the blinding,
-  and therefore the hash, depend on the leaf index assigned when the transaction
-  executes.
+  `getTransactInstructionAsync` and `getMergeTransactInstructionAsync`, and
+  derive the accounts yourself with `getNullifierPdaAddress(tree, nullifier)`
+  or `getNullifierPdaAccountsAsync(inputTree, nullifiers)`, which returns them
+  one per input in the same order.
+- `getCreateProtocolConfigInstructionAsync` requires `feeAuthority`,
+  `ProtocolConfigUpdate` gains a `feeAuthority` field, and
+  `decodeProtocolConfig` returns `feeAuthority` and `nextTreeId` → pass the
+  address allowed to set tree fees and claim tree lamports, update exhaustive
+  matches, and recreate a config account written before this release, which no
+  longer decodes.
+- `DepositEntry` and `AssetDeposit` drop their `blinding` member,
+  `getDepositInstructionAsync` no longer encodes it, and the `Deposit` a deposit
+  builder returns drops its `utxoHash` member → stop passing a blinding, read
+  the deposited UTXO from the indexer after the deposit lands or check it with
+  `depositBlinding(tree, leafIndex)`, which recomputes the blinding the shielded
+  pool derives for that leaf, and expect an entry that still encodes a blinding
+  to fail decoding.
+- `encodeTransactInstructionData` emits the transact fields in one flat order,
+  and `externalDataHash` takes one input holding `instructionDiscriminator`,
+  `expiryUnixTs`, `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`,
+  `ringDataHash`, `outputs`, `messages`, and `committedAddresses` and hashes all
+  of them, including each output's owner-tag encoding, so instruction bytes and
+  digests from an older SDK are rejected → rebuild pending instructions with
+  this release, and pass `externalDataHash` the whole instruction prefix plus
+  the committed account addresses in protocol order.
+- `ResolvedInterfaceTransfer`, `ResolvedOutput`, `MERGE_INPUT_COUNT`, and
+  `MERGE_INPUTS` are removed → delete the two unused type imports, and read
+  `MERGE_DEFAULT_INPUT_COUNT`, still 8, or `MERGE_SUPPORTED_INPUT_COUNTS` for
+  the merge input count.
+- A `PreparedMerge` whose input count matches no merge shape throws
+  `TRANSACTION_INVALID_INPUT_COUNT` with details `{ supported, actual }` instead
+  of `TRANSACTION_INVALID_OUTPUT_COUNT`, and the `CLIENT_INVALID_MERGE_SHAPE`
+  details are `{ supported, actual }` → match on the new code, and read
+  `supported` instead of `expected`.
 
 Added
 
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.
-- `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
+- `ShieldedPoolError` adds codes 7029 to 7066: deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
   `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,
   `InvalidReimbursementRecipient`, `NoClaimableTreeLamports`,
-  `RingNotActivated`), and six
-  `NonCanonical*` codes the program returns before touching any account when an
-  instruction-data hash is not a canonical BN254 field element.
+  `RingNotActivated`), six `NonCanonical*` codes for an instruction-data hash
+  outside the accepted range, `DepositBlindingDerivationFailed`, and
+  `TooManyExternalDataHashSlices`.
 - `InstructionTag.setRingActivation` (21).
 - `InstructionTag.closeNullifierPdas` (18), `InstructionTag.setTreeFees` (19),
   and `InstructionTag.claimTreeLamports` (20): the forester closes spent
   nullifier accounts, and the fee authority writes a tree's fee schedule and
   moves the tree's lamports above its rent, fee balance, and nullifier working
   capital to a recipient.
-- `getTreeAddress(treeId)` derives a tree, and
-  `getNullifierPdaAddress(tree, nullifier)` derives the account the pool creates
-  for a spent nullifier.
-- `nullifierPdaAccounts(inputTree, nullifiers)`, exported as
-  `getNullifierPdaAccountsAsync`, returns the writable nullifier accounts a
-  transact instruction takes, one per input in the same order.
 - `getSetTreeFeesInstructionAsync({ authority, tree, fees })` writes a tree's
-  `TreeFeeSchedule`, signed by the fee authority.
-- `decodeTreeFees(account)` reads a tree's `TreeFees`, its schedule and its
-  accrued balance. `encodeTreeFeeSchedule` and `decodeTreeFeeSchedule` convert
-  the schedule alone, and `TREE_FEES_OFFSET` and `TREE_FEE_BALANCE_OFFSET`
-  locate both in the account. `CreateTreeData` names the create-tree payload.
-- `depositBlinding(tree, leafIndex)` recomputes the blinding the shielded pool
-  derives for a deposit output, so a caller that does not want to trust an
-  indexer can verify a deposited UTXO against the tree and leaf index alone.
-  Reading the indexed UTXO remains the normal way to spend a deposit.
+  `TreeFeeSchedule` signed by the fee authority, `decodeTreeFees(account)` reads
+  a tree's schedule and accrued fee balance, `encodeTreeFeeSchedule` and
+  `decodeTreeFeeSchedule` convert the schedule alone, `TREE_FEES_OFFSET` and
+  `TREE_FEE_BALANCE_OFFSET` locate both in the account, and `CreateTreeData`
+  names the create-tree payload.
+- `TRANSACTION_TOO_MANY_MESSAGES`: `createExternalData` rejects more than 255
+  messages, the same way it already rejects more than 32 interface transfers or
+  255 outputs.
+- `MERGE_SUPPORTED_INPUT_COUNTS`, `MAX_MERGE_INPUTS`,
+  `isSupportedMergeInputCount`, and `mergePaddedInputCount` tell which merge
+  shapes the program accepts and which one a given real input count is padded
+  to.
 - `solanaOwnerIdentity`, `p256OwnerIdentity`, `outputBlindingSeed`,
   `transactOutputBlinding`, `privateTxBlinding`, `mergePrivateTxBlinding`,
   `treeIdField`, `treeSlotHash`, `treeSlotsHashChain`, `inputTreeSlots`,
@@ -179,14 +198,28 @@ Changed
   longer when slots contain no update. `TREE_ACCOUNT_SIZE` is 39,952,
   `TREE_CREATION_STEP_COUNT` is 4 at a `TREE_ALLOCATION_STEP` of 10,240 bytes,
   `STATE_ROOT_OFFSET` is 80, and `PROTOCOL_CONFIG_SIZE` is 166.
+- `Merge` and `wallet.merge` with named UTXO hashes accept up to
+  `MAX_MERGE_INPUTS` inputs and pad to the smallest supported shape,
+  `encodeMergeTransactInstructionData` accepts either supported count, and the
+  automatic sweep still selects at most 8, but a merge that pads above 8 inputs
+  throws `TRANSACTION_VERSION_UNSUPPORTED` before any proof is requested,
+  because this release does not yet build the version 1 transactions that shape
+  needs.
+- `createZolanaClient` requests 800,000 compute units for `transact` by default
+  instead of 300,000, and a caller sending only small shapes can pass a lower
+  `computeUnitLimit`.
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
 
 Fixed
 
-- `decryptTransactions` no longer omits a merge when its inputs arrive in the
-  same sync because merge dependencies resolve before wallet commit.
+- Mutating a typed array passed to `createExternalData`, or one read from its
+  returned view, changed the committed transaction; both are now private
+  copies, so the committed data stays as built.
+- `decryptTransactions` omitted a merge whose inputs arrived in the same sync;
+  merge dependencies now resolve before the wallet commits, so the merge output
+  is kept.
 - A deposit could be given a blinding that already belonged to another deposit,
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the

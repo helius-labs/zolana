@@ -723,7 +723,7 @@ fn convert_shielded_transaction(
         messages: item
             .messages
             .into_iter()
-            .map(|message| zolana_event::MessageData {
+            .map(|message| zolana_interface::instruction::MessageData {
                 view_tag: message.view_tag.into(),
                 data: message.payload.into(),
             })

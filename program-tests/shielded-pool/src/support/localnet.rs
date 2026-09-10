@@ -13,9 +13,7 @@ use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput
 use zolana_event::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         CreateProtocolConfig,
     },
     state::{default_tree_fees, nullifier_tree_params},
@@ -30,7 +28,7 @@ use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    ResolvedInterfaceTransfer, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;

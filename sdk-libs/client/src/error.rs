@@ -1,7 +1,7 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::instruction::DepositBuildError;
+use zolana_interface::instruction::{DepositBuildError, MergeBuildError};
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
@@ -9,6 +9,9 @@ use zolana_transaction::TransactionError;
 pub enum ClientError {
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
+
+    #[error("merge builder error: {0}")]
+    MergeBuild(#[from] MergeBuildError),
 
     #[error("keypair error: {0}")]
     Keypair(#[from] KeypairError),
@@ -31,6 +34,9 @@ pub enum ClientError {
 
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
+
+    #[error("transaction message could not be compiled: {0}")]
+    TransactionCompile(String),
 
     #[error("spend amount must be greater than zero")]
     ZeroSpendAmount,

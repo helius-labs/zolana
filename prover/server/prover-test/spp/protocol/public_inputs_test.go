@@ -4,16 +4,20 @@ import (
 	"encoding/json"
 	"math/big"
 	"os"
+	"reflect"
 	"testing"
 
 	"zolana/prover/prover-test/spp/parse"
 )
 
-// publicInputHashVectorPath is the cross-language known-answer vector: the Rust
-// program tests reassemble the same preimage from this file, so a change here
+// The public input hash vectors are cross-language known answers: the Rust
+// program tests reassemble the same preimage from these files, so a change here
 // must land together with the Rust side or the two implementations have
 // silently diverged.
-const publicInputHashVectorPath = "../testdata/public_input_hash_vector.json"
+const (
+	publicInputHashVectorPath     = "../testdata/public_input_hash_vector.json"
+	publicInputHashVector36x2Path = "../testdata/public_input_hash_vector_36x2.json"
+)
 
 type treeSlotVector struct {
 	ID            string `json:"id"`
@@ -37,35 +41,144 @@ type publicInputHashVector struct {
 	PublicInputHash     string           `json:"public_input_hash"`
 }
 
+type publicInputHashVectorShape struct {
+	nInputs      int
+	nOutputs     int
+	inputSigners int
+}
+
+var publicInputHashVectorFiles = map[string]publicInputHashVectorShape{
+	publicInputHashVectorPath:     {nInputs: 2, nOutputs: 3, inputSigners: 2},
+	publicInputHashVector36x2Path: {nInputs: 36, nOutputs: 2, inputSigners: 2},
+}
+
+// TestWritePublicInputHashVectors is the UPDATE_VECTORS=1 escape hatch: it
+// rewrites the checked-in known answers after a deliberate preimage change. The
+// struct field order is the file's key order, so the files stay readable in
+// wire order.
+func TestWritePublicInputHashVectors(t *testing.T) {
+	if os.Getenv("UPDATE_VECTORS") != "1" {
+		t.Skip("set UPDATE_VECTORS=1 to regenerate the public input hash vectors")
+	}
+	for path, shape := range publicInputHashVectorFiles {
+		vector := buildPublicInputHashVector(t, shape)
+		bytes, err := json.MarshalIndent(vector, "", "  ")
+		if err != nil {
+			t.Fatalf("encode %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, append(bytes, '\n'), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+}
+
+func TestPublicInputHashVectorsMatchTheProducer(t *testing.T) {
+	for path, shape := range publicInputHashVectorFiles {
+		got := readPublicInputHashVector(t, path)
+		want := buildPublicInputHashVector(t, shape)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s is stale: regenerate with UPDATE_VECTORS=1", path)
+		}
+	}
+}
+
 func TestPublicInputHashKnownAnswerVector(t *testing.T) {
-	vector := readPublicInputHashVector(t)
-	if len(vector.PublicAssets) != NPublicSlots || len(vector.PublicAmounts) != NPublicSlots {
-		t.Fatalf("vector public slot count: got %d assets and %d amounts, want %d",
-			len(vector.PublicAssets), len(vector.PublicAmounts), NPublicSlots)
+	for path := range publicInputHashVectorFiles {
+		vector := readPublicInputHashVector(t, path)
+		if len(vector.PublicAssets) != NPublicSlots || len(vector.PublicAmounts) != NPublicSlots {
+			t.Fatalf("%s public slot count: got %d assets and %d amounts, want %d",
+				path, len(vector.PublicAssets), len(vector.PublicAmounts), NPublicSlots)
+		}
+		inputs := inputsFromVector(t, vector)
+		inputs.BindOutputOwnerTags = true
+		got, err := PublicInputHash(inputs)
+		if err != nil {
+			t.Fatalf("%s public input hash: %v", path, err)
+		}
+
+		want := parseField(t, vector.PublicInputHash)
+		if got.Cmp(want) != 0 {
+			t.Fatalf("%s public input hash mismatch:\ngot  0x%s\nwant 0x%s", path, parse.FieldHex(got), parse.FieldHex(want))
+		}
+	}
+}
+
+// buildPublicInputHashVector produces a vector from small tagged values so the
+// preimage is readable by eye. Tree slots are populated for the first
+// min(nInputs, InputTrees) trees and zero-padded to InputTrees, the layout SPP
+// publishes.
+func buildPublicInputHashVector(t *testing.T, shape publicInputHashVectorShape) publicInputHashVector {
+	t.Helper()
+	if shape.inputSigners > shape.nInputs {
+		t.Fatalf("vector shape declares %d input signers for %d inputs", shape.inputSigners, shape.nInputs)
+	}
+	tag := func(value int64) string {
+		return "0x" + parse.FieldHex(big.NewInt(value))
+	}
+	run := func(base int64, count int) []string {
+		out := make([]string, count)
+		for i := range out {
+			out[i] = tag(base + int64(i))
+		}
+		return out
+	}
+	signers := make([]string, shape.nInputs+1)
+	signers[0] = tag(1201)
+	for i := range signers[1:] {
+		if i < shape.inputSigners {
+			signers[i+1] = tag(1301 + int64(i))
+		} else {
+			signers[i+1] = tag(0)
+		}
+	}
+	populatedTrees := shape.nInputs
+	if populatedTrees > InputTrees {
+		populatedTrees = InputTrees
+	}
+	treeSlots := make([]treeSlotVector, InputTrees)
+	for k := range treeSlots {
+		if k < populatedTrees {
+			treeSlots[k] = treeSlotVector{
+				ID:            tag(7 + 10*int64(k)),
+				UtxoRoot:      tag(301 + int64(k)),
+				NullifierRoot: tag(401 + int64(k)),
+			}
+		} else {
+			treeSlots[k] = treeSlotVector{ID: tag(0), UtxoRoot: tag(0), NullifierRoot: tag(0)}
+		}
+	}
+	vector := publicInputHashVector{
+		Nullifiers:          run(101, shape.nInputs),
+		OutputUtxoHashes:    run(201, shape.nOutputs),
+		TreeSlots:           treeSlots,
+		OutputTreeID:        tag(11),
+		PrivateTxHash:       tag(501),
+		ExternalDataHash:    tag(701),
+		PublicAssets:        make([]string, NPublicSlots),
+		PublicAmounts:       make([]string, NPublicSlots),
+		RingProgramID:       tag(1501),
+		AllowDummyInputs:    tag(1),
+		SignerPkHashes:      signers,
+		OutputOwnerPkHashes: run(1537, shape.nOutputs),
+	}
+	for i := 0; i < NPublicSlots; i++ {
+		vector.PublicAssets[i] = tag(801 + 200*int64(i))
+		vector.PublicAmounts[i] = tag(901 + 200*int64(i))
 	}
 	inputs := inputsFromVector(t, vector)
 	inputs.BindOutputOwnerTags = true
-	got, err := PublicInputHash(inputs)
+	hash, err := PublicInputHash(inputs)
 	if err != nil {
 		t.Fatalf("public input hash: %v", err)
 	}
-
-	if os.Getenv("UPDATE_VECTORS") == "1" {
-		vector.PublicInputHash = "0x" + parse.FieldHex(got)
-		writePublicInputHashVector(t, vector)
-		t.Skip("rewrote the public input hash vector; rerun without UPDATE_VECTORS")
-	}
-
-	want := parseField(t, vector.PublicInputHash)
-	if got.Cmp(want) != 0 {
-		t.Fatalf("public input hash mismatch:\ngot  0x%s\nwant 0x%s", parse.FieldHex(got), parse.FieldHex(want))
-	}
+	vector.PublicInputHash = "0x" + parse.FieldHex(hash)
+	return vector
 }
 
 // The preimage carries exactly InputTrees slots. A shorter or longer list is a
 // different commitment shape, so it must not silently hash.
 func TestPublicInputHashRejectsWrongTreeSlotCount(t *testing.T) {
-	inputs := inputsFromVector(t, readPublicInputHashVector(t))
+	inputs := inputsFromVector(t, readPublicInputHashVector(t, publicInputHashVectorPath))
 	padded, err := PadTreeSlots()
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +202,7 @@ func TestPublicInputHashRejectsWrongTreeSlotCount(t *testing.T) {
 // land directly after private_tx_hash and before external_data_hash, so the
 // two rails cannot reinterpret each other's preimage.
 func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
-	inputs := inputsFromVector(t, readPublicInputHashVector(t))
+	inputs := inputsFromVector(t, readPublicInputHashVector(t, publicInputHashVectorPath))
 	base, err := PublicInputHash(inputs)
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +243,7 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 }
 
 func TestCustomRingPublicInputHashDoesNotBindPrivateOutputOwners(t *testing.T) {
-	vector := readPublicInputHashVector(t)
+	vector := readPublicInputHashVector(t, publicInputHashVectorPath)
 	inputs := inputsFromVector(t, vector)
 	inputs.BindOutputOwnerTags = false
 
@@ -230,9 +343,9 @@ func TestRightHashChainFoldsFromThePaddedSuffix(t *testing.T) {
 	}
 }
 
-func readPublicInputHashVector(t *testing.T) publicInputHashVector {
+func readPublicInputHashVector(t *testing.T, path string) publicInputHashVector {
 	t.Helper()
-	bytes, err := os.ReadFile(publicInputHashVectorPath)
+	bytes, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read public input hash vector: %v", err)
 	}
@@ -241,21 +354,6 @@ func readPublicInputHashVector(t *testing.T) publicInputHashVector {
 		t.Fatalf("decode public input hash vector: %v", err)
 	}
 	return vector
-}
-
-// writePublicInputHashVector is the UPDATE_VECTORS=1 escape hatch: it rewrites
-// the checked-in known answer after a deliberate preimage change. The struct
-// field order is the file's key order, so the file stays readable in wire
-// order.
-func writePublicInputHashVector(t *testing.T, vector publicInputHashVector) {
-	t.Helper()
-	encoded, err := json.MarshalIndent(vector, "", "  ")
-	if err != nil {
-		t.Fatalf("encode public input hash vector: %v", err)
-	}
-	if err := os.WriteFile(publicInputHashVectorPath, append(encoded, '\n'), 0o644); err != nil {
-		t.Fatalf("write public input hash vector: %v", err)
-	}
 }
 
 func parseFields(t *testing.T, values []string) []*big.Int {

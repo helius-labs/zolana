@@ -1,5 +1,9 @@
 {
   "mergeInputs": 8,
+  "mergeSupportedInputs": [
+    8,
+    36
+  ],
   "stateTreeHeight": 32,
   "nullifierTreeHeight": 40,
   "transactTag": 12,

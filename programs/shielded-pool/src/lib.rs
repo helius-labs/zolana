@@ -72,7 +72,7 @@ pub fn process_instruction(
         // Deliberate no-op: the event self-CPI exists only to record inner-
         // instruction data. Anyone can invoke this tag (directly or via CPI)
         // with forged bytes; indexers MUST filter events by parent instruction
-        // (see `zolana_event::tag::EMIT_EVENT`).
+        // (see `zolana_interface::instruction::tag::EMIT_EVENT`).
         InstructionTag::EmitEvent => Ok(()),
         InstructionTag::Transact
         | InstructionTag::RingTransact

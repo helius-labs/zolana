@@ -1,10 +1,14 @@
 package transaction
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -110,14 +114,14 @@ func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "transfer count exceeds u8 encoding",
+			name: "transfer count exceeds protocol maximum",
 			mutate: func(tx *ProofTransactionRequest) {
 				tx.InterfaceTransfers = make([]InterfaceTransferRequest, MaxInterfaceTransfers+1)
 				for i := range tx.InterfaceTransfers {
 					tx.InterfaceTransfers[i].Amount = 1
 				}
 			},
-			wantErr: "interface_transfers length 256 exceeds u8 encoding maximum 255",
+			wantErr: "interface_transfers length 33 exceeds protocol maximum 32",
 		},
 		{
 			name: "zero amount",
@@ -151,6 +155,17 @@ func TestBuildProofAssignmentRejectsBadInterfaceTransferRequests(t *testing.T) {
 				}}
 			},
 			wantErr: "interface_transfers[0].pool_account",
+		},
+		{
+			name: "SPL bump on SOL transfer",
+			mutate: func(tx *ProofTransactionRequest) {
+				tx.InterfaceTransfers = []InterfaceTransferRequest{{
+					Amount:           1,
+					SplInterfaceBump: 1,
+					UserAccount:      strings.Repeat("11", 32),
+				}}
+			},
+			wantErr: "interface_transfers[0].spl_interface_bump must be zero for SOL",
 		},
 	}
 
@@ -256,142 +271,316 @@ func TestProofUtxoJSONUsesRingFields(t *testing.T) {
 	}
 }
 
-func TestExternalDataFieldHashMatchesVector(t *testing.T) {
-	// Known-answer vector for the canonical Rust ExternalDataHash layout:
-	// counted direction-tagged transfers, absent optional ring hashes, the
-	// transaction encryption context, counted resolved outputs with Some/None
-	// data, and an empty counted message section.
-	data := externalDataPreimage{
-		InstructionDiscriminator: 0x0d,
-		ExpiryUnixTs:             0x1122334455667788,
-		InterfaceTransfers: []resolvedInterfaceTransfer{
-			{amount: 0x0102030405060708},
-			{isSpl: true, isDeposit: true, amount: 0x1112131415161718},
-		},
-		Outputs: []resolvedOutput{
-			{hasData: true, data: []byte{0xaa, 0xbb, 0xcc}},
-			{},
-		},
-	}
-	for i := range data.Outputs[0].ownerTag {
-		data.InterfaceTransfers[0].userAccount[i] = byte(0x20 + i)
-		data.InterfaceTransfers[1].userAccount[i] = byte(0x40 + i)
-		data.InterfaceTransfers[1].poolAccount[i] = byte(0x60 + i)
-		data.Outputs[0].utxoHash[i] = byte(i)
-		data.Outputs[0].ownerTag[i] = byte(0x80 + i)
-		data.Outputs[1].utxoHash[i] = byte(0xa0 + i)
-		data.Outputs[1].ownerTag[i] = byte(0xc0 + i)
-	}
+type sharedExternalDataVector struct {
+	InstructionDiscriminator uint8  `json:"instructionDiscriminator"`
+	ExpiryUnixTs             uint64 `json:"expiryUnixTs"`
+	TxViewingPk              string `json:"txViewingPk"`
+	Salt                     string `json:"salt"`
+	InterfaceTransfers       []struct {
+		Kind                string `json:"kind"`
+		Amount              uint64 `json:"amount"`
+		SplInterfaceBump    uint8  `json:"splInterfaceBump"`
+		UserAccount         string `json:"userAccount"`
+		SplInterfaceAccount string `json:"splInterfaceAccount"`
+	} `json:"interfaceTransfers"`
+	DataHash     *string `json:"dataHash"`
+	RingDataHash *string `json:"ringDataHash"`
+	Outputs      []struct {
+		UtxoHash string `json:"utxoHash"`
+		OwnerTag struct {
+			Kind    string `json:"kind"`
+			Value   string `json:"value"`
+			Index   uint8  `json:"index"`
+			Address string `json:"address"`
+		} `json:"ownerTag"`
+		Data *string `json:"data"`
+	} `json:"outputs"`
+	Messages []struct {
+		ViewTag string `json:"viewTag"`
+		Data    string `json:"data"`
+	} `json:"messages"`
+	CommittedAddresses []string `json:"committedAddresses"`
+	ExternalDataPrefix string   `json:"externalDataPrefix"`
+	ExternalDataHash   string   `json:"externalDataHash"`
+}
 
-	got := externalDataFieldHash(data)
-	const want = "002dd852de9b27e16b074ab1fe930f1ff5fcd8cf21aef89a3bd430e83d7e902f"
-	if parse.FieldHex(got) != want {
-		t.Fatalf("external data hash = %s, want %s", parse.FieldHex(got), want)
+func loadSharedExternalDataVector(t *testing.T) sharedExternalDataVector {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate proof_bundle_test.go")
 	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../../test-vectors/external_data_hash.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vector sharedExternalDataVector
+	if err := json.Unmarshal(raw, &vector); err != nil {
+		t.Fatal(err)
+	}
+	return vector
+}
 
-	// expiry_unix_ts is bound in external_data_hash (not private_tx_hash), so
-	// changing it must change the hash.
-	withDifferentExpiry := data
-	withDifferentExpiry.ExpiryUnixTs ^= 1
-	if parse.FieldHex(externalDataFieldHash(withDifferentExpiry)) == want {
-		t.Fatal("external_data_hash did not change when expiry_unix_ts changed")
+func vectorBytes(t *testing.T, label, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("%s: %v", label, err)
+	}
+	return decoded
+}
+
+func vectorFixed(t *testing.T, label, value string, dst []byte) {
+	t.Helper()
+	decoded := vectorBytes(t, label, value)
+	if len(decoded) != len(dst) {
+		t.Fatalf("%s: expected %d bytes, got %d", label, len(dst), len(decoded))
+	}
+	copy(dst, decoded)
+}
+
+func vector32(t *testing.T, label, value string) (out [32]byte) {
+	t.Helper()
+	vectorFixed(t, label, value, out[:])
+	return out
+}
+
+func interfaceTransferKindFromVector(t *testing.T, label, name string) interfaceTransferKind {
+	t.Helper()
+	switch name {
+	case "solDeposit":
+		return interfaceTransferSolDeposit
+	case "solWithdrawal":
+		return interfaceTransferSolWithdrawal
+	case "splDeposit":
+		return interfaceTransferSplDeposit
+	case "splWithdrawal":
+		return interfaceTransferSplWithdrawal
+	default:
+		t.Fatalf("%s: unknown interface transfer kind %q", label, name)
+		return 0
 	}
 }
 
-func TestExternalDataFieldHashBindsOrderedTaggedInterfaceTransfers(t *testing.T) {
+func externalDataHashInputFromSharedVector(t *testing.T, vector sharedExternalDataVector) externalDataHashInput {
+	t.Helper()
+	data := externalDataHashInput{
+		instructionDiscriminator: vector.InstructionDiscriminator,
+		expiryUnixTs:             vector.ExpiryUnixTs,
+	}
+	vectorFixed(t, "txViewingPk", vector.TxViewingPk, data.txViewingPk[:])
+	vectorFixed(t, "salt", vector.Salt, data.salt[:])
+	for i, transfer := range vector.InterfaceTransfers {
+		label := fmt.Sprintf("interfaceTransfers[%d]", i)
+		built := interfaceTransferData{
+			kind:             interfaceTransferKindFromVector(t, label, transfer.Kind),
+			amount:           transfer.Amount,
+			splInterfaceBump: transfer.SplInterfaceBump,
+			userAccount:      vector32(t, label+".userAccount", transfer.UserAccount),
+		}
+		if transfer.SplInterfaceAccount != "" {
+			built.splTokenInterface = vector32(t, label+".splInterfaceAccount", transfer.SplInterfaceAccount)
+		}
+		data.interfaceTransfers = append(data.interfaceTransfers, built)
+	}
+	if vector.DataHash != nil {
+		data.dataHashPresent = true
+		data.dataHash = vector32(t, "dataHash", *vector.DataHash)
+	}
+	if vector.RingDataHash != nil {
+		data.ringDataHashPresent = true
+		data.ringDataHash = vector32(t, "ringDataHash", *vector.RingDataHash)
+	}
+	for i, output := range vector.Outputs {
+		label := fmt.Sprintf("outputs[%d]", i)
+		built := transactOutputData{utxoHash: vector32(t, label+".utxoHash", output.UtxoHash)}
+		switch output.OwnerTag.Kind {
+		case "inline":
+			built.ownerTag = ownerTagData{
+				kind:   ownerTagInline,
+				inline: vector32(t, label+".ownerTag.value", output.OwnerTag.Value),
+			}
+		case "account":
+			built.ownerTag = ownerTagData{
+				kind:           ownerTagAccount,
+				accountIndex:   output.OwnerTag.Index,
+				accountAddress: vector32(t, label+".ownerTag.address", output.OwnerTag.Address),
+			}
+		default:
+			t.Fatalf("%s: unknown owner tag kind %q", label, output.OwnerTag.Kind)
+		}
+		if output.Data != nil {
+			built.dataPresent = true
+			built.data = vectorBytes(t, label+".data", *output.Data)
+		}
+		data.outputs = append(data.outputs, built)
+	}
+	for i, message := range vector.Messages {
+		label := fmt.Sprintf("messages[%d]", i)
+		data.messages = append(data.messages, transactMessageData{
+			viewTag: vector32(t, label+".viewTag", message.ViewTag),
+			data:    vectorBytes(t, label+".data", message.Data),
+		})
+	}
+	return data
+}
+
+func TestExternalDataHashMatchesSharedVector(t *testing.T) {
+	vector := loadSharedExternalDataVector(t)
+	data := externalDataHashInputFromSharedVector(t, vector)
+
+	var committed []string
+	for _, transfer := range data.interfaceTransfers {
+		committed = append(committed, fmt.Sprintf("%x", transfer.userAccount))
+		if transfer.kind == interfaceTransferSplDeposit || transfer.kind == interfaceTransferSplWithdrawal {
+			committed = append(committed, fmt.Sprintf("%x", transfer.splTokenInterface))
+		}
+	}
+	for _, output := range data.outputs {
+		if output.ownerTag.kind == ownerTagAccount {
+			committed = append(committed, fmt.Sprintf("%x", output.ownerTag.accountAddress))
+		}
+	}
+	if strings.Join(committed, ",") != strings.Join(vector.CommittedAddresses, ",") {
+		t.Fatalf("committed addresses = %v, vector lists %v", committed, vector.CommittedAddresses)
+	}
+
+	prefix, err := encodeExternalDataPrefix(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%x", prefix); got != vector.ExternalDataPrefix {
+		t.Fatalf("external-data prefix mismatch:\ngot  %s\nwant %s", got, vector.ExternalDataPrefix)
+	}
+
+	wantHash := vector32(t, "externalDataHash", vector.ExternalDataHash)
+	if got := mustExternalDataHash(t, data); got != wantHash {
+		t.Fatalf("external data hash = %x, want %x", got, wantHash)
+	}
+
+	withDifferentExpiry := data
+	withDifferentExpiry.expiryUnixTs ^= 1
+	if mustExternalDataHash(t, withDifferentExpiry) == wantHash {
+		t.Fatal("external_data_hash did not bind expiry_unix_ts")
+	}
+
+	withDifferentOwnerAddress := data
+	withDifferentOwnerAddress.outputs = append([]transactOutputData(nil), data.outputs...)
+	withDifferentOwnerAddress.outputs[1].ownerTag.accountAddress[0] ^= 1
+	if mustExternalDataHash(t, withDifferentOwnerAddress) == wantHash {
+		t.Fatal("external_data_hash did not bind account-backed output owner address")
+	}
+}
+
+func TestExternalDataHashBindsOrderedTaggedInterfaceTransfers(t *testing.T) {
 	userA := [32]byte{1}
 	userB := [32]byte{2}
-	pool := [32]byte{3}
-	base := externalDataPreimage{
-		InterfaceTransfers: []resolvedInterfaceTransfer{
-			{amount: 5, userAccount: userA},
-			{isSpl: true, isDeposit: true, amount: 7, userAccount: userB, poolAccount: pool},
+	splInterface := [32]byte{3}
+	base := externalDataHashInput{
+		interfaceTransfers: []interfaceTransferData{
+			{kind: interfaceTransferSolWithdrawal, amount: 5, userAccount: userA},
+			{
+				kind:              interfaceTransferSplDeposit,
+				amount:            7,
+				splInterfaceBump:  9,
+				userAccount:       userB,
+				splTokenInterface: splInterface,
+			},
 		},
 	}
-	baseHash := externalDataFieldHash(base)
+	baseHash := mustExternalDataHash(t, base)
 
 	reordered := base
-	reordered.InterfaceTransfers = []resolvedInterfaceTransfer{
-		base.InterfaceTransfers[1],
-		base.InterfaceTransfers[0],
+	reordered.interfaceTransfers = []interfaceTransferData{
+		base.interfaceTransfers[1],
+		base.interfaceTransfers[0],
 	}
-	if externalDataFieldHash(reordered).Cmp(baseHash) == 0 {
+	if mustExternalDataHash(t, reordered) == baseHash {
 		t.Fatal("external_data_hash did not bind interface transfer order")
 	}
 
 	oneTransfer := base
-	oneTransfer.InterfaceTransfers = base.InterfaceTransfers[:1]
-	if externalDataFieldHash(oneTransfer).Cmp(baseHash) == 0 {
+	oneTransfer.interfaceTransfers = base.interfaceTransfers[:1]
+	if mustExternalDataHash(t, oneTransfer) == baseHash {
 		t.Fatal("external_data_hash did not bind interface transfer count")
 	}
 
-	differentTag := base
-	differentTag.InterfaceTransfers = append(
-		[]resolvedInterfaceTransfer(nil),
-		base.InterfaceTransfers...,
-	)
-	differentTag.InterfaceTransfers[0].isSpl = true
-	differentTag.InterfaceTransfers[0].poolAccount = pool
-	if externalDataFieldHash(differentTag).Cmp(baseHash) == 0 {
-		t.Fatal("external_data_hash did not bind interface transfer tag")
-	}
-
 	differentDirection := base
-	differentDirection.InterfaceTransfers = append(
-		[]resolvedInterfaceTransfer(nil),
-		base.InterfaceTransfers...,
+	differentDirection.interfaceTransfers = append(
+		[]interfaceTransferData(nil),
+		base.interfaceTransfers...,
 	)
-	differentDirection.InterfaceTransfers[0].isDeposit = true
-	if externalDataFieldHash(differentDirection).Cmp(baseHash) == 0 {
+	differentDirection.interfaceTransfers[0].kind = interfaceTransferSolDeposit
+	if mustExternalDataHash(t, differentDirection) == baseHash {
 		t.Fatal("external_data_hash did not bind interface transfer direction")
 	}
 
-	differentRecipient := base
-	differentRecipient.InterfaceTransfers = append(
-		[]resolvedInterfaceTransfer(nil),
-		base.InterfaceTransfers...,
+	differentBump := base
+	differentBump.interfaceTransfers = append(
+		[]interfaceTransferData(nil),
+		base.interfaceTransfers...,
 	)
-	differentRecipient.InterfaceTransfers[0].userAccount[0] ^= 1
-	if externalDataFieldHash(differentRecipient).Cmp(baseHash) == 0 {
+	differentBump.interfaceTransfers[1].splInterfaceBump++
+	if mustExternalDataHash(t, differentBump) == baseHash {
+		t.Fatal("external_data_hash did not bind SPL interface bump")
+	}
+
+	differentRecipient := base
+	differentRecipient.interfaceTransfers = append(
+		[]interfaceTransferData(nil),
+		base.interfaceTransfers...,
+	)
+	differentRecipient.interfaceTransfers[0].userAccount[0] ^= 1
+	if mustExternalDataHash(t, differentRecipient) == baseHash {
 		t.Fatal("external_data_hash did not bind interface transfer recipient")
+	}
+
+	differentSplInterface := base
+	differentSplInterface.interfaceTransfers = append(
+		[]interfaceTransferData(nil),
+		base.interfaceTransfers...,
+	)
+	differentSplInterface.interfaceTransfers[1].splTokenInterface[0] ^= 1
+	if mustExternalDataHash(t, differentSplInterface) == baseHash {
+		t.Fatal("external_data_hash did not bind SPL token interface address")
 	}
 }
 
-func TestExternalDataFieldHashBindsEncryptionContextAndOptionalHashPresence(t *testing.T) {
-	base := externalDataPreimage{
-		TxViewingPk: [33]byte{1},
-		Salt:        [16]byte{2},
+func TestExternalDataHashBindsEncryptionContextAndOptionalHashPresence(t *testing.T) {
+	base := externalDataHashInput{
+		txViewingPk: [33]byte{1},
+		salt:        [16]byte{2},
 	}
-	baseHash := externalDataFieldHash(base)
+	baseHash := mustExternalDataHash(t, base)
 
 	differentPk := base
-	differentPk.TxViewingPk[0] ^= 1
-	if externalDataFieldHash(differentPk).Cmp(baseHash) == 0 {
+	differentPk.txViewingPk[0] ^= 1
+	if mustExternalDataHash(t, differentPk) == baseHash {
 		t.Fatal("external_data_hash did not bind tx_viewing_pk")
 	}
 
 	differentSalt := base
-	differentSalt.Salt[0] ^= 1
-	if externalDataFieldHash(differentSalt).Cmp(baseHash) == 0 {
+	differentSalt.salt[0] ^= 1
+	if mustExternalDataHash(t, differentSalt) == baseHash {
 		t.Fatal("external_data_hash did not bind salt")
 	}
 
 	dataHashPresent := base
-	dataHashPresent.DataHashPresent = true
-	if externalDataFieldHash(dataHashPresent).Cmp(baseHash) == 0 {
+	dataHashPresent.dataHashPresent = true
+	if mustExternalDataHash(t, dataHashPresent) == baseHash {
 		t.Fatal("external_data_hash collapsed absent data_hash and present zero data_hash")
 	}
 
 	ringDataHashPresent := base
-	ringDataHashPresent.RingDataHashPresent = true
-	if externalDataFieldHash(ringDataHashPresent).Cmp(baseHash) == 0 {
+	ringDataHashPresent.ringDataHashPresent = true
+	if mustExternalDataHash(t, ringDataHashPresent) == baseHash {
 		t.Fatal("external_data_hash collapsed absent ring_data_hash and present zero ring_data_hash")
 	}
 }
 
-func TestResolveOutputsMatchesSingleSenderBundle(t *testing.T) {
+func TestBuildTransactOutputsMatchesSingleSenderBundle(t *testing.T) {
 	ownerTag := [32]byte{9}
-	outputs, err := resolveOutputs(
+	outputs, err := buildTransactOutputs(
 		[]*big.Int{big.NewInt(1), big.NewInt(2)},
 		ownerTag,
 		[]byte{},
@@ -403,22 +592,47 @@ func TestResolveOutputsMatchesSingleSenderBundle(t *testing.T) {
 		t.Fatalf("outputs length = %d, want 2", len(outputs))
 	}
 	for i, output := range outputs {
-		if output.ownerTag != ownerTag {
+		if output.ownerTag.kind != ownerTagInline || output.ownerTag.inline != ownerTag {
 			t.Fatalf("output %d owner tag = %x, want %x", i, output.ownerTag, ownerTag)
 		}
 	}
-	if !outputs[0].hasData || len(outputs[0].data) != 0 {
+	if !outputs[0].dataPresent || len(outputs[0].data) != 0 {
 		t.Fatal("first output must carry Some(empty) for an empty sender bundle")
 	}
-	if outputs[1].hasData {
+	if outputs[1].dataPresent {
 		t.Fatal("second output must carry None")
 	}
 
-	withSomeEmpty := externalDataFieldHash(externalDataPreimage{Outputs: outputs})
-	outputs[0].hasData = false
-	withNone := externalDataFieldHash(externalDataPreimage{Outputs: outputs})
-	if withSomeEmpty.Cmp(withNone) == 0 {
+	withSomeEmpty := mustExternalDataHash(t, externalDataHashInput{outputs: outputs})
+	outputs[0].dataPresent = false
+	withNone := mustExternalDataHash(t, externalDataHashInput{outputs: outputs})
+	if withSomeEmpty == withNone {
 		t.Fatal("external_data_hash collapsed Some(empty) and None")
+	}
+}
+
+func TestExternalDataPrefixRejectsUnencodableValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    externalDataHashInput
+		wantErr string
+	}{
+		{"too many transfers", externalDataHashInput{interfaceTransfers: make([]interfaceTransferData, MaxInterfaceTransfers+1)}, "interface transfer count 33 exceeds protocol maximum 32"},
+		{"zero transfer amount", externalDataHashInput{interfaceTransfers: []interfaceTransferData{{kind: interfaceTransferSolDeposit}}}, "interface transfer 0 amount must be nonzero"},
+		{"too many outputs", externalDataHashInput{outputs: make([]transactOutputData, 256)}, "output count 256 exceeds u8"},
+		{"too many messages", externalDataHashInput{messages: make([]transactMessageData, 256)}, "message count 256 exceeds u8"},
+		{"long output data", externalDataHashInput{outputs: []transactOutputData{{dataPresent: true, data: make([]byte, 1<<16)}}}, "output 0 data length 65536 exceeds u16"},
+		{"long message data", externalDataHashInput{messages: []transactMessageData{{data: make([]byte, 1<<16)}}}, "message 0 data length 65536 exceeds u16"},
+		{"invalid transfer kind", externalDataHashInput{interfaceTransfers: []interfaceTransferData{{kind: 4, amount: 1}}}, "interface transfer 0 has invalid kind 4"},
+		{"invalid owner tag", externalDataHashInput{outputs: []transactOutputData{{ownerTag: ownerTagData{kind: 2}}}}, "output 0 has invalid owner tag kind 2"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := encodeExternalDataPrefix(test.data)
+			if err == nil || err.Error() != test.wantErr {
+				t.Fatalf("error = %v, want %q", err, test.wantErr)
+			}
+		})
 	}
 }
 
@@ -434,17 +648,17 @@ func TestInstructionOutputHashesExcludeCircuitPadding(t *testing.T) {
 	}
 
 	ownerTag := [32]byte{9}
-	realOutputs, err := resolveOutputs(got, ownerTag, []byte{0xaa})
+	realOutputs, err := buildTransactOutputs(got, ownerTag, []byte{0xaa})
 	if err != nil {
 		t.Fatal(err)
 	}
-	withPadding, err := resolveOutputs([]*big.Int{real, dummy}, ownerTag, []byte{0xaa})
+	withPadding, err := buildTransactOutputs([]*big.Int{real, dummy}, ownerTag, []byte{0xaa})
 	if err != nil {
 		t.Fatal(err)
 	}
-	realHash := externalDataFieldHash(externalDataPreimage{Outputs: realOutputs})
-	paddedHash := externalDataFieldHash(externalDataPreimage{Outputs: withPadding})
-	if realHash.Cmp(paddedHash) == 0 {
+	realHash := mustExternalDataHash(t, externalDataHashInput{outputs: realOutputs})
+	paddedHash := mustExternalDataHash(t, externalDataHashInput{outputs: withPadding})
+	if realHash == paddedHash {
 		t.Fatal("external_data_hash did not distinguish real outputs from circuit padding")
 	}
 
@@ -453,35 +667,40 @@ func TestInstructionOutputHashesExcludeCircuitPadding(t *testing.T) {
 	}
 }
 
-func TestInterfaceTransferRequestJSONSupportsFullU64(t *testing.T) {
+func TestInterfaceTransferRequestJSONSupportsFullRangeIntegers(t *testing.T) {
 	var transfer InterfaceTransferRequest
-	if err := json.Unmarshal([]byte(`{"is_deposit":true,"amount":18446744073709551615}`), &transfer); err != nil {
+	if err := json.Unmarshal([]byte(`{"is_spl":true,"is_deposit":true,"amount":18446744073709551615,"spl_interface_bump":255}`), &transfer); err != nil {
 		t.Fatal(err)
 	}
-	if !transfer.IsDeposit || transfer.Amount != math.MaxUint64 {
+	if !transfer.IsSpl || !transfer.IsDeposit || transfer.Amount != math.MaxUint64 || transfer.SplInterfaceBump != math.MaxUint8 {
 		t.Fatalf("decoded interface transfer = %+v", transfer)
 	}
 	if err := json.Unmarshal([]byte(`{"amount":-1}`), &transfer); err == nil {
 		t.Fatal("negative interface-transfer magnitude must be rejected")
+	}
+	if err := json.Unmarshal([]byte(`{"spl_interface_bump":256}`), &transfer); err == nil {
+		t.Fatal("SPL interface bump above u8 must be rejected")
 	}
 }
 
 func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
 	requests := []InterfaceTransferRequest{
 		{
-			IsSpl:       true,
-			IsDeposit:   true,
-			Asset:       testMintA,
-			Amount:      8,
-			UserAccount: strings.Repeat("41", 32),
-			PoolAccount: strings.Repeat("61", 32),
+			IsSpl:            true,
+			IsDeposit:        true,
+			Asset:            testMintA,
+			Amount:           8,
+			SplInterfaceBump: 11,
+			UserAccount:      strings.Repeat("41", 32),
+			PoolAccount:      strings.Repeat("61", 32),
 		},
 		{
-			IsSpl:       true,
-			Asset:       testMintA,
-			Amount:      3,
-			UserAccount: strings.Repeat("42", 32),
-			PoolAccount: strings.Repeat("62", 32),
+			IsSpl:            true,
+			Asset:            testMintA,
+			Amount:           3,
+			SplInterfaceBump: 12,
+			UserAccount:      strings.Repeat("42", 32),
+			PoolAccount:      strings.Repeat("62", 32),
 		},
 	}
 	normalized, err := normalizedInterfaceTransfers(requests)
@@ -490,27 +709,38 @@ func TestSameAssetTransfersRemainSeparateInHashAndBundleOutput(t *testing.T) {
 	}
 	if len(normalized) != 2 ||
 		normalized[0].UserAccount == normalized[1].UserAccount ||
-		normalized[0].PoolAccount == normalized[1].PoolAccount {
+		normalized[0].PoolAccount == normalized[1].PoolAccount ||
+		normalized[0].SplInterfaceBump != requests[0].SplInterfaceBump ||
+		normalized[1].SplInterfaceBump != requests[1].SplInterfaceBump {
 		t.Fatalf("normalized interface transfers lost settlement identity: %+v", normalized)
 	}
 
-	resolved, err := resolveInterfaceTransfers(requests)
+	built, err := buildInterfaceTransfers(requests)
 	if err != nil {
 		t.Fatal(err)
 	}
-	separateHash := externalDataFieldHash(externalDataPreimage{InterfaceTransfers: resolved})
-	aggregatedHash := externalDataFieldHash(externalDataPreimage{
-		InterfaceTransfers: []resolvedInterfaceTransfer{{
-			isSpl:       true,
-			isDeposit:   true,
-			amount:      5,
-			userAccount: resolved[0].userAccount,
-			poolAccount: resolved[0].poolAccount,
+	separateHash := mustExternalDataHash(t, externalDataHashInput{interfaceTransfers: built})
+	aggregatedHash := mustExternalDataHash(t, externalDataHashInput{
+		interfaceTransfers: []interfaceTransferData{{
+			kind:              interfaceTransferSplDeposit,
+			amount:            5,
+			splInterfaceBump:  built[0].splInterfaceBump,
+			userAccount:       built[0].userAccount,
+			splTokenInterface: built[0].splTokenInterface,
 		}},
 	})
-	if separateHash.Cmp(aggregatedHash) == 0 {
+	if separateHash == aggregatedHash {
 		t.Fatal("external_data_hash collapsed separate same-asset interface transfers")
 	}
+}
+
+func mustExternalDataHash(t *testing.T, data externalDataHashInput) [32]byte {
+	t.Helper()
+	digest, err := externalDataHash(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }
 
 func TestProofUtxoRootIndices(t *testing.T) {

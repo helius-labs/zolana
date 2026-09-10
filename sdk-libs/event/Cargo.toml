@@ -1,0 +1,16 @@
+[package]
+name = "zolana-event"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+borsh = { workspace = true }
+solana-address = { workspace = true }
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["borsh", "output-codec"] }
+
+[dev-dependencies]
+zolana-interface = { path = "../../program-libs/interface", version = "0.1.0", default-features = false, features = ["borsh", "output-codec", "tree"] }
+zolana-tree = { workspace = true }

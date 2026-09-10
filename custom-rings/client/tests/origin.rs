@@ -3,7 +3,8 @@
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
-use zolana_event::{tag, InstructionGroup, ParsedInstruction};
+use zolana_event::{InstructionGroup, ParsedInstruction};
+use zolana_interface::instruction::tag;
 use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer, TransactIxData, TransactProof},
     SHIELDED_POOL_CPI_AUTHORITY, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE,

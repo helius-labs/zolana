@@ -5,7 +5,7 @@
 //! without any key.
 
 use solana_address::Address;
-use zolana_event::{
+use zolana_interface::output_data::{
     encode_encrypted_ring_deposit_output, EncryptedRingDepositData, EncryptedRingDepositOutput,
     OutputDataEncoding, ENCRYPTED_RING_DEPOSIT_SCHEME,
 };

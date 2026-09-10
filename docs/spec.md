@@ -1057,47 +1057,29 @@ zero is rejected.
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the external-data prefix of the invoking SPP instruction and the Solana accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
-    u8(spp_instruction_discriminator)                ||
-    u64_be(expiry_unix_ts)                           ||
-    u8(resolved_public_legs.len())                    ||
-    public_leg(resolved_public_legs[0]) || ...        ||
-    option_hash(data_hash)                            ||
-    option_hash(ring_data_hash)                       ||
-    tx_viewing_pk                                     ||
-    salt                                              ||
-    u16_be(outputs.len())  || output(outputs[0])   || output(outputs[1])   || ... ||
-    u16_be(messages.len()) || message(messages[0])  || message(messages[1])  || ...
+    u8(spp_instruction_discriminator)
+    || external_data_prefix
+    || committed_addresses[0]
+    || ...
+    || committed_addresses[n]
 )
-
-option_hash(h) := match h {
-                      None    => u8(0) || [0; 32],
-                      Some(v) => u8(1) || v,
-                  }
-output(o)  := o.utxo_hash || fetch_tag(o.owner_tag) || match o.data {
-                  None    => u8(0),
-                  Some(d) => u8(1) || u16_be(d.len()) || d,
-              }
-message(m) := m.view_tag || u16_be(m.data.len()) || m.data
-
-public_leg(Sol { is_deposit, amount, recipient }) :=
-    u8(0) || u8(is_deposit) || u64_be(amount) || recipient
-
-public_leg(Spl { is_deposit, amount, user_token_account, vault }) :=
-    u8(1) || u8(is_deposit) || u64_be(amount) || user_token_account || vault
 ```
 
-`fetch_tag(owner_tag)` is the 32-byte value the [`OwnerTag`](#transact) carries or references. The hash covers those bytes, not the tag encoding, so an `Account` reference is fail-closed: reordering the account list changes the hash and the proof no longer verifies. Count prefixes, per-datum length prefixes, and the strict `{0, 1}` presence byte (`None` differs from `Some(&[])`) keep the preimage injective.
+The entire ordered byte sequence is hashed once. The resulting
+`external_data_hash` is reduced to the protocol's canonical field form by
+clearing its first byte.
 
-`resolved_public_legs` is produced by pairing each instruction-data
-[`InterfaceTransfer`](#transact) with its account group in the same position. The leg
-count and `{Sol = 0, Spl = 1}` tags make the variable-length sequence
-unambiguous. The account addresses in each entry bind the proof to its concrete
-recipient or token settlement. Reordering legs or account groups therefore
-changes the hash.
+`external_data_prefix` is the contiguous run of the flat [`transact`](#transact) instruction data from `expiry_unix_ts` through `messages`, including `data_hash` and `ring_data_hash`, hashed exactly as encoded. SPP decodes one flat borrowed instruction view; because `private_tx_hash` is the first following field, its pointer identifies the prefix end in the original instruction buffer. SPP hashes that slice directly and does not construct or copy a second instruction-data value.
+
+`committed_addresses` follow in protocol order: per entry of `interface_transfers`, the user account for a SOL leg or the user token account then the per-mint interface vault for an SPL leg; then the resolved owner of every output whose [`OwnerTag`](#transact) names an account, in `outputs` order. The mint is bound through the interface vault's PDA derivation.
+
+Every field of the encoding is fixed width or prefixed by its count or length, and the strict `{0, 1}` presence byte keeps `None` distinct from `Some(&[])`, so `external_data_prefix` is recoverable from the preimage and the number of appended addresses follows from it. The framing is unambiguous: reordering legs, an account group, or outputs changes the hashed bytes.
+
+The hash covers the owner tag encoding, not only the resolved tag: an output tagged `Inline(x)` and one tagged `Account(i)` where account `i` holds `x` produce different digests, so a relayer cannot rewrite one form into the other.
 
 Proof-slot aggregation does not alter this preimage: all ordered settlement
 legs remain present, including legs in an asset group whose net movement is zero.
@@ -1106,12 +1088,9 @@ Thus different recipients or funding accounts cannot cancel out of
 
 `spp_instruction_discriminator` is the SPP discriminator byte of the instruction whose handler runs the proof verification (see [Instructions](#instructions)). SPP recomputes this value from the dispatched instruction and checks the proof's `external_data_hash` against it.
 
-`data_hash` and `ring_data_hash` are optional transaction-level external commitments from the [`transact`](#transact) instruction data, `None` for a default-ring `transact`. A ring or co-proof sets them to a tx-level digest of its inputs. The proof does not interpret them: as with the rest of `external_data_hash` it commits only to the combined hash, which SPP (or the ring program before its CPI) recomputes and checks. They are not standalone public inputs, and are distinct from the per-UTXO `data_hash` / `ring_data_hash` in [`utxo_hash`](#utxo-hash).
+The transaction-level `data_hash` and `ring_data_hash` sit inside `external_data_prefix`, so the proof binds their presence and contents. They are distinct from the per-UTXO `data_hash` / `ring_data_hash` in [`utxo_hash`](#utxo-hash).
 
-The presence byte in `option_hash` makes `None` distinct from
-`Some([0; 32])`. `tx_viewing_pk` and `salt` bind the transaction-level
-decryption context to the encrypted output and message bytes, so an
-intermediary cannot replace either value while reusing the proof.
+`tx_viewing_pk` and `salt` sit in `external_data_prefix`, so they bind the transaction-level decryption context to the encrypted output and message bytes and an intermediary cannot replace either value while reusing the proof.
 
 **Checks**
 
@@ -1172,7 +1151,7 @@ cover the full instruction.
 
 <a id="utxo-ownership-check"></a>
 **Utxo Ownership Check:**
-1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by the owner-signer accounts in first-occurrence order (a repeated account signs once). Every owner-signer account must be a transaction signer, and the unique run must fit the fixed `MAX_SIGNERS = MAX_INPUTS + 1` width.
+1. Ed25519 Solana signers checked by SPP. Authorization comes from the accounts array, not instruction data: the payer occupies signer slot 0, followed by a contiguous run of owner-signer accounts. Every account in that run must be a transaction signer, and the run may contain at most one account per circuit input. SPP deduplicates addresses in first-occurrence order (including the payer), so the public signer chain contains at most `n_inputs + 1` unique identities.
 2. SPP hashes the run, `owner_proof_input_hash` of each signer address zero-padded to `n_inputs + 1`, as a `RightHashChain` public input. The circuit requires each Ed25519 input owner to equal a chain element and separately verifies shared P256 ownership on `RingP256`.
 
 <a id="circuit-variants"></a>
@@ -1226,6 +1205,7 @@ derivations.
 | 5 in 3 out | Higher concurrency | 1 SOL fee UTXO, 4 sender input UTXOs, 1 recipient output, 1 SPL change output, 1 SOL change output | Ed25519
 | 5 in 4 out | Higher concurrency, two recipients | 1 SOL fee UTXO, 4 sender input UTXOs, 2 recipient outputs, 1 SPL change output, 1 SOL change output | Ed25519
 | 1 in 8 out | Split UTXO | Split 1 UTXO into up to 8 equal parts; equal parts reduce encrypted data | Ed25519
+| 36 in 2 out | Consolidation | Sweep many small UTXOs into one recipient plus change. Only reachable in a [transaction v1](#transaction-size) message, and only when a caller declares it: automatic shape selection never picks it, so a small transfer is not routed to a circuit twenty times its size | Ed25519
 
 **Ring-authority instantiation.** A separate instantiation proves no owner authorization at all: it is the Solana-only ring variant (no P256 gadget, no in-circuit signature) and keeps every input owner `pk_field` private (omitted from the public input hash). Each input owner is an opaque field element hashed into `owner_hash` exactly like the merge circuit, so both P256- and Ed25519-owned UTXOs can be spent — the prover supplies the owner `pk_field` directly and the proof never checks ownership. The only in-circuit binding is `nullifier_secret` knowledge through `owner_hash`; authorization is the `ring_config` PDA signer plus the ring program's own policy, requiring `ring_authority_transact_is_enabled` set (instruction `ring_authority_transact`). It pairs only with the anonymous owner-tag variant. Because owners do not authorize the spend, value cannot leave the ring here: the public `ring_program_id` is pinned non-zero and **every** non-dummy input *and* output `ring_program_id` must equal it (strict binding, no zero exemption). A default-ring UTXO can neither be spent nor created, so the authority cannot move funds out of the policy ring without an owner-signed path. Supported shapes:
 
@@ -1239,7 +1219,7 @@ derivations.
 
 # Merge Proof - Merge ZK Proof
 
-ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_8_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_8_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
+ZK proof for [`merge_transact`](#merge_transact) and [`merge_ring`](#merge_ring). Consolidates `N` input UTXOs of a single owner and single asset into one output of the same owner, asset, and total amount. Two variants share one skeleton (`prover/server/circuits/spp_merge/shared/transaction.go`): the default merge (verified against `merge_<N>_1`) additionally binds the owner's identity from the user registry record; the policy-ring merge (verified against `merge_ring_<N>_1`) binds the calling ring's `program_id` and the output `ring_data_hash` the ring program selected. The default rail checks the registry record's `merging_enabled == true` (see [`merge_transact`](#merge_transact)); the ring rail is authorized by the ring program.
 
 The proof is a 128-byte vanilla Groth16 `a || b || c` over a single public signal (`public_input_hash`). The merged output is ciphertext-free: its blinding is derived deterministically in-circuit from the owner's nullifier secret and the first input's single-use nullifier (`merge_output_blinding`), and padding slots publish deterministic dummy nullifiers (`merge_dummy_nullifier`), so the owner reconstructs the output on sync without any decryption (see [Merge output indexing](#merge-output-indexing-removed-merge-view-tag)).
 
@@ -1305,6 +1285,14 @@ The single public signal is `public_input_hash`, a Poseidon hash chain over a sh
 | Circuit | Use | Shape |
 | --- | --- | --- |
 | 8 in 1 out (merge) | Reconsolidate fragmented balance | Exactly 8 input slots of the same owner/asset, 1 combined output. Fewer-than-8 real inputs pad with dummy slots (ownership, inclusion, and nullifier derivation skipped; the deterministic dummy nullifier and the zeroed input-hash contribution keep padding indistinguishable). `merge_transact` verifies against `merge_8_1`, `merge_ring` against `merge_ring_8_1`. |
+| 36 in 1 out (merge) | Consolidate a heavily fragmented balance in one transaction | Identical statement at 36 input slots, padding the same way. `merge_transact` verifies against `merge_36_1`, `merge_ring` against `merge_ring_36_1`. |
+
+Merge instruction data carries no circuit selector: the shape is the declared
+nullifier count, and the three per-input vectors must agree on it. The supported
+counts are 8 and 36, and a count outside that set is rejected at decode. 36 is
+the largest round count that fits the tightest merge path -- `merge_ring` under a
+custom ring with a second signer, whose transaction v1 ceiling is 42 inputs --
+with headroom for a heavier ring.
 
 # SPP - Solana Privacy Program
 
@@ -1449,10 +1437,10 @@ operations, and tags 18–21 are maintenance and administration.
 | emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
-| merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
+| merge_transact | Tag 13; consolidates the input slots of a supported merge shape, 8 or 36 (same owner, same asset; dummy slots pad a shorter merge), into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
 | ring_deposit | Tag 14; policy-ring analog of `deposit`; public deposit creating a ring-owned UTXO, authorized by an active, signing `ring_config`. See [`ring_deposit`](#ring_deposit). |
 | ring_transact | Tag 15; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees; checks that the encrypted UTXOs decrypt under the ring auditor key and the recipient keys named in the policy proof |
-| merge_ring | Tag 16; CPI from an active ring program; consolidates the 8 input slots of the fixed merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
+| merge_ring | Tag 16; CPI from an active ring program; consolidates the input slots of a supported merge shape (same owner, same asset, same `ring_program_id`) into one output UTXO that preserves `ring_program_id`. Mirrors `merge_transact` for policy-ring UTXOs. The ring program runs its own authorization before CPI; the merge proof enforces `data_hash = 0` on inputs and output. |
 | ring_authority_transact | Tag 17; checks the ring config is active and signed, then checks the state transition only includes ring-program-owned UTXOs. UTXO owners do not sign; the ring has full control subject to its policy. |
 | close_nullifier_pdas | Tag 18; gated by `protocol_config.forester_authority`; rejected while the tree is paused. Closes one or more nullifier PDAs whose `tree_id` matches and `queue_index < close_before_index`, returning their rent to the tree, then pays `min(close_reimbursement * n, fee_balance)` to `reimbursement_recipient` (must not be program-owned). |
 | set_tree_fees | Tag 19; gated by `protocol_config.fee_authority`; overwrites the tree's `TreeFeeSchedule`; works on paused trees. |
@@ -1468,11 +1456,12 @@ operations, and tags 18–21 are maintenance and administration.
 **Accounts**
 
 The fixed prefix is `payer`, `input_tree`, `output_tree`, the SPP program
-account (for the event self-CPI), the canonical system program, and one
-writable nullifier PDA per input in `inputs` order (after `ring_config` for the
-ring variants). The **owner-signer run** follows: the ed25519 owners of the spent inputs in
-first-occurrence order, each read-only and signing (the payer already occupies
-signer slot 0, so an owner equal to the payer does not repeat). Public
+account (for the event self-CPI), and the canonical system program, followed by
+one writable nullifier PDA per input in `inputs` order (after `ring_config` in
+the ring variants). The **owner-signer run** follows: the ed25519 owners of the
+spent inputs in first-occurrence order, each read-only and signing (the payer
+already occupies signer slot 0, so an owner equal to the payer does not
+repeat). Public
 settlement groups come last, in `interface_transfers` order. A SOL group is
 `(sol_interface, recipient)`. An SPL deposit group is `(mint, spl_interface,
 token_authority, user_token_account, token_program)`, where `token_authority`
@@ -1497,7 +1486,7 @@ aggregate into one proof slot.
 | 4 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
 | 5 | system_program |   |   | canonical System Program |
 | .. | nullifier_pdas | x |   | one per `inputs[i]`, in order: `[b"nullifier", input_tree, nullifier_hash]`, System-owned and empty; an initialized PDA means the nullifier is already pending (`NullifierAlreadyQueued`) |
-| .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
+| .. | owner_signers |   | x | ed25519 input owners (read-only), contiguous signer run of at most `N` accounts; addresses are deduplicated in first-occurrence order with the payer |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
 
 **Instruction data**
@@ -1517,8 +1506,9 @@ struct InputUtxo {
 // Spend authorization is not a per-input field: it comes from the
 // owner-signer run in the accounts array (see UTXO Ownership Check).
 
-/// Owner of an output as a 32-byte value: the published fetch tag and the
-/// preimage of the output's owner public input `hash_bytes_33(0x53 || fetch_tag)`.
+/// Owner of an output as a 32-byte value. `fetch_tag(owner_tag)` is that value,
+/// carried inline or read from the named account: the published fetch tag and
+/// the preimage of the output's owner public input `hash_bytes_33(0x53 || fetch_tag)`.
 enum OwnerTag {
     /// The 32-byte value inline: a recipient/dummy signing pubkey or ring HKDF tag.
     Inline([u8; 32]),
@@ -1556,9 +1546,38 @@ enum InterfaceTransfer {
 }
 
 struct TransactIxData {
-    proof: TransactProof,
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
+    /// Shared `tx_viewing_pk` for every output ciphertext. Copied verbatim into
+    /// the reconstructed `GeneralEvent` so an indexer need not parse the
+    /// per-output `data`. Always present.
+    tx_viewing_pk: P256Pubkey,
+    /// Shared AES `salt` for every output ciphertext (see [AES Nonce
+    /// derivation](#aes-nonce-derivation)). Stored at the transaction level
+    /// alongside `tx_viewing_pk` and copied verbatim into the reconstructed
+    /// `GeneralEvent`, so a wallet derives the per-slot key/nonce without
+    /// parsing the per-output `data`. Always present.
+    salt: [u8; 16],
+    /// Zero or more settlement legs, with a u8 count. Legs for the same
+    /// resolved asset aggregate into one proof slot; a leg netting an asset to
+    /// zero is invalid.
+    interface_transfers: Vec<InterfaceTransfer>,
+    /// Transaction-level application and ring digests. Their option tags and
+    /// contents are part of `external_data_prefix`.
+    data_hash: Option<[u8; 32]>,
+    ring_data_hash: Option<[u8; 32]>,
+    /// All `M` outputs in tree-append order (SPL change, SOL change, then
+    /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and
+    /// enters the proof's output hash chain; dummies carry a real-looking hash,
+    /// so the vector does not reveal the recipient count. The `data` slots follow
+    /// the [Output slot mapping](#output-slot-mapping) coverage convention.
+    outputs: Vec<TransactOutput>,
+    /// Ciphertexts with no output position, republished verbatim in the
+    /// [`GeneralEvent`](#general-event).
+    messages: Vec<MessageData>,
+    // `external_data_hash` hashes the original instruction bytes from
+    // `expiry_unix_ts` through `messages`; fields below are outside that
+    // prefix.
     /// Always present. The SPP and any zk co-proof take it as a public input.
     /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
     /// is supplied directly rather than derived on-chain.
@@ -1566,36 +1585,8 @@ struct TransactIxData {
     /// Circuit selector; picks the verifying key. Not a public input — see
     /// [Circuit Combinations](#circuit-variants).
     circuit: CircuitId,
+    proof: TransactProof,
     inputs: Vec<InputUtxo>,
-    /// Zero or more settlement legs, with a u8 count on the wire. Legs for the
-    /// same resolved asset aggregate into one proof slot; a leg netting an
-    /// asset to zero is invalid.
-    interface_transfers: Vec<InterfaceTransfer>,
-    /// `None` for default-ring `transact`; a ring or co-proof sets a tx-level
-    /// digest of its inputs, hashed into `external_data_hash` (see
-    /// [external_data_hash](#external_data_hash)). Not the per-UTXO fields of the
-    /// same name in [`utxo_hash`](#utxo-hash).
-    data_hash: Option<[u8; 32]>,
-    ring_data_hash: Option<[u8; 32]>,
-    /// Shared `tx_viewing_pk` for every output ciphertext. Bound into
-    /// `external_data_hash` and copied verbatim into the logged `GeneralEvent`
-    /// so an indexer need not parse the per-output `data`. Always present.
-    tx_viewing_pk: P256Pubkey,
-    /// Shared AES `salt` for every output ciphertext (see [AES Nonce
-    /// derivation](#aes-nonce-derivation)). Stored at the transaction level
-    /// alongside `tx_viewing_pk`, bound into `external_data_hash`, and copied
-    /// verbatim into the logged `GeneralEvent`, so a wallet derives the per-slot
-    /// key/nonce without parsing the per-output `data`. Always present.
-    salt: [u8; 16],
-    /// All `M` outputs in tree-append order (SPL change, SOL change, then
-    /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and
-    /// enters the proof's output hash chain; dummies carry a real-looking hash,
-    /// so the vector does not reveal the recipient count. The `data` slots follow
-    /// the [Output slot mapping](#output-slot-mapping) coverage convention.
-    outputs: Vec<TransactOutput>,
-    /// Ciphertexts with no output position, covered by `external_data_hash` and
-    /// republished verbatim in the [`GeneralEvent`](#general-event).
-    messages: Vec<MessageData>,
 }
 ```
 
@@ -1652,53 +1643,51 @@ one proof slot does not remove their individual account metas.
 
 **Event**
 
-The event records the values assigned at execution (input queue sequence numbers, output leaf indices) together with the instruction-data fields an indexer needs. For a transact the [`GeneralEvent`](#general-event) is populated as:
+The event carries **only what execution assigns**. Everything else an indexer
+needs is already in the instruction that emitted it, so it is reconstructed
+rather than logged; the body is a fixed 16 bytes however many inputs and outputs
+the shape has.
 
 ```rust
-GeneralEvent {
-    inputs: instruction_data
-        .inputs
-        .iter()
-        .zip(input_queue_seqs) // assigned at nullifier queue insert
-        .map(|(input, input_queue_seq)| Input {
-            tree: input_tree,
-            input_queue_seq,
-            nullifier: input.nullifier_hash,
-        })
-        .collect(),
-    // One `OutputUtxo` per output, 1:1 with `instruction_data.outputs`; change
-    // positions publish the sender's tag rather than zeros.
-    outputs: instruction_data
-        .outputs
-        .iter()
-        .map(|out| OutputUtxo {
-            view_tag: fetch_tag(&out.owner_tag),
-            utxo_hash: out.utxo_hash,
-            data: out.data.clone().unwrap_or_default(),
-        })
-        .collect(),
-    // Republished verbatim (see [General Event](#general-event)).
-    messages: instruction_data.messages.clone(),
-    // Shared across every output ciphertext; supplied in instruction data.
-    tx_viewing_pk: instruction_data.tx_viewing_pk,
-    salt: instruction_data.salt,
-    first_output_leaf_index,
-    output_tree,
-    // One entry per public leg, in leg order; empty for a shielded transfer.
-    movements: resolved_public_legs
-        .iter()
-        .map(|leg| Movement {
-            is_deposit: leg.is_deposit(),
-            amount: leg.amount(),
-            asset: leg.mint(),
-        })
-        .collect(),
+TransactEvent {
+    /// Queue index of `inputs[0]`. Later inputs are at `first + i`.
+    first_input_queue_seq: u64,
+    /// Leaf index of `outputs[0]`. Later outputs are at `first + i`.
+    first_output_leaf_index: u64,
 }
 ```
 
-`input_queue_seqs` come from `input_tree`; `first_output_leaf_index` comes from
-`output_tree`. `mint` comes from the SPL accounts, and `is_deposit` is the
-public-amount direction proven by the proof (`true` for a deposit).
+Both are safe to extend by position because each counter is monotone and
+incremented once per insert, and a transact writes one input tree and one output
+tree in instruction-data order.
+
+An indexer rebuilds the rest from the parent instruction and its account list:
+
+| Field | Source |
+| --- | --- |
+| `nullifier` per input | `inputs[i].nullifier_hash` |
+| `tree` per input | the instruction's `input_tree` account |
+| `input_queue_seq` per input | `first_input_queue_seq + i` |
+| `utxo_hash`, `data` per output | `outputs[i]` |
+| `view_tag` per output | [`fetch_tag`](#transact) over `outputs[i].owner_tag`, resolving `Account` through the instruction's account list |
+| `output_tree` | the instruction's `output_tree` account |
+| `messages`, `tx_viewing_pk`, `salt` | instruction data, verbatim |
+| public legs | `interface_transfers[i]` paired with its settlement account group |
+
+The settlement groups need no signer information to locate: the program refuses
+any account after the last group, so the settlement region is the tail of the
+account list, and each leg's group size is a function of its kind. The
+owner-signer run in between is skipped.
+
+`merge` shrinks the same way, to `MergeEvent`, which additionally retains
+`output_view_tag`: `merge_transact` reads that tag from the `user_record`
+account rather than from instruction data, so an indexer cannot recover it at
+the historical slot. `ring_merge_transact` takes its tag from `nullifiers[0]`
+instead and leaves the field zero.
+
+`deposit` still logs a whole [`GeneralEvent`](#general-event): its output
+commitments are Poseidon-hashed on chain and its payloads re-encoded rather than
+republished, so instruction data alone does not determine them.
 
 ### `deposit`
 
@@ -2010,7 +1999,7 @@ the instruction and must use a fresh blinding per output.
 
 **Discriminator:** 13
 
-**Description.** Consolidates eight input slots of one owner and asset into one output of the same owner, asset, and total amount; dummy slots pad shorter merges. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
+**Description.** Consolidates the input slots of a supported merge shape, 8 or 36, of one owner and asset into one output of the same owner, asset, and total amount; dummy slots pad shorter merges. Any caller may submit it when the owner's registry record has `merging_enabled == true`. SPP nullifies the inputs and appends the deterministic output, tagged by the owner signing pubkey for [wallet reconstruction](#merge-output-indexing-removed-merge-view-tag).
 
 **Accounts**
 
@@ -2044,13 +2033,16 @@ struct MergeTransactIxData {
     /// [Merge Proof](#merge-proof---merge-zk-proof).
     private_tx_hash: [u8; 32],
     /// Input nullifiers. Inserted into the nullifier queue and part of the
-    /// public input hash. `u8` length prefix; length exactly 8.
+    /// public input hash. `u8` length prefix; the length is the declared merge
+    /// shape, 8 or 36, and is what selects the verifying key.
     nullifiers: Vec<[u8; 32]>,
     /// Refs into `input_tree`'s UTXO-tree root cache, one per input. `u8`
-    /// length prefix; length exactly 8. Every entry must equal entry 0.
+    /// length prefix; same length as `nullifiers`. Every entry must equal
+    /// entry 0.
     utxo_tree_root_index: Vec<u16>,
     /// Refs into `input_tree`'s nullifier-tree root cache, one per input. `u8`
-    /// length prefix; length exactly 8. Every entry must equal entry 0.
+    /// length prefix; same length as `nullifiers`. Every entry must equal
+    /// entry 0.
     nullifier_tree_root_index: Vec<u16>,
 }
 ```
