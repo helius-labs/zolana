@@ -33,6 +33,7 @@ zolana-tree = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 proptest = { workspace = true }
 solana-address = { workspace = true }
+solana-message = { workspace = true }
 solana-rent = { workspace = true }
 zolana-hasher = { workspace = true }
 zolana-tree = { workspace = true }
