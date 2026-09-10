@@ -2,7 +2,11 @@ package protocol
 
 import (
 	"crypto/elliptic"
+	"encoding/json"
 	"math/big"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"zolana/prover/prover-test/poseidon"
@@ -376,5 +380,91 @@ func TestHashRejectsInvalidFieldElements(t *testing.T) {
 	}
 	if _, err := UtxoHash(Utxo{}, fe(7)); err == nil {
 		t.Fatal("expected nil utxo fields to fail")
+	}
+}
+
+func mustHashChain4(t *testing.T, inputs []*big.Int) *big.Int {
+	t.Helper()
+	value, err := HashChain4(inputs)
+	return mustHash(t, value, err)
+}
+
+func TestHashChain4FoldsThreeElementsPerCall(t *testing.T) {
+	full := mustHashChain4(t, []*big.Int{fe(1), fe(2), fe(3), fe(4)})
+	if want := mustPoseidon(t, 5, []*big.Int{fe(1), fe(2), fe(3), fe(4)}); full.Cmp(want) != 0 {
+		t.Fatalf("four elements should be one call: got %s want %s", full, want)
+	}
+
+	padded := mustHashChain4(t, []*big.Int{fe(1), fe(2)})
+	if want := mustPoseidon(t, 5, []*big.Int{fe(1), fe(2), fe(0), fe(0)}); padded.Cmp(want) != 0 {
+		t.Fatalf("two elements should zero pad one call: got %s want %s", padded, want)
+	}
+
+	two := mustHashChain4(t, []*big.Int{fe(1), fe(2), fe(3), fe(4), fe(5)})
+	first := mustPoseidon(t, 5, []*big.Int{fe(1), fe(2), fe(3), fe(4)})
+	if want := mustPoseidon(t, 5, []*big.Int{first, fe(5), fe(0), fe(0)}); two.Cmp(want) != 0 {
+		t.Fatalf("five elements should be two calls: got %s want %s", two, want)
+	}
+}
+
+func TestHashChain4EmptyAndSingle(t *testing.T) {
+	empty := mustHashChain4(t, nil)
+	if empty.Sign() != 0 {
+		t.Fatalf("empty hash chain should be zero, got %s", empty)
+	}
+
+	single := mustHashChain4(t, []*big.Int{fe(123)})
+	if single.Cmp(fe(123)) != 0 {
+		t.Fatalf("single hash chain should return the input, got %s", single)
+	}
+}
+
+func TestHashChain4RejectsInvalidFieldElements(t *testing.T) {
+	if _, err := HashChain4([]*big.Int{fe(1), nil}); err == nil {
+		t.Fatal("expected nil input to fail")
+	}
+	if _, err := HashChain4([]*big.Int{fe(1), new(big.Int).Set(poseidon.Modulus)}); err == nil {
+		t.Fatal("expected modulus-sized input to fail")
+	}
+}
+
+func TestHashChain4SharedKnownAnswerVectors(t *testing.T) {
+	type vector struct {
+		Name   string   `json:"name"`
+		Inputs []string `json:"inputs"`
+		Output string   `json:"output"`
+	}
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate commitments_test.go")
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../../../../test-vectors/hash_chain_4.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors []vector
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors) == 0 {
+		t.Fatal("no vectors")
+	}
+	for _, vector := range vectors {
+		inputs := make([]*big.Int, len(vector.Inputs))
+		for i, input := range vector.Inputs {
+			value, ok := new(big.Int).SetString(input, 16)
+			if !ok {
+				t.Fatalf("%s input %d is not hex", vector.Name, i)
+			}
+			inputs[i] = value
+		}
+		expected, ok := new(big.Int).SetString(vector.Output, 16)
+		if !ok {
+			t.Fatalf("%s output is not hex", vector.Name)
+		}
+		got := mustHashChain4(t, inputs)
+		if got.Cmp(expected) != 0 {
+			t.Fatalf("%s = %064x, want %064x", vector.Name, got, expected)
+		}
 	}
 }

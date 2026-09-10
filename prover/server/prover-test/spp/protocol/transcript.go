@@ -33,6 +33,39 @@ func HashChain(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
+// HashChain4 folds values from left to right three at a time:
+//
+//	h = inputs[0]
+//	for each group g of up to 3 consecutive elements of inputs[1:]:
+//	    h = Poseidon(h, g[0], g[1] or 0, g[2] or 0)
+//
+// Every call is the 4-input permutation; a short trailing group is zero
+// padded. Only chains whose length the compiled circuit fixes may use it.
+func HashChain4(inputs []*big.Int) (*big.Int, error) {
+	if len(inputs) == 0 {
+		return new(big.Int), nil
+	}
+	for i, input := range inputs {
+		if err := validateFieldElement(fmt.Sprintf("input[%d]", i), input); err != nil {
+			return nil, fmt.Errorf("spp: hash chain 4: %w", err)
+		}
+	}
+
+	h := new(big.Int).Set(inputs[0])
+	for start := 1; start < len(inputs); start += 3 {
+		group := []*big.Int{h, new(big.Int), new(big.Int), new(big.Int)}
+		for j := 0; j < 3 && start+j < len(inputs); j++ {
+			group[1+j] = inputs[start+j]
+		}
+		next, err := poseidon.Hash(group)
+		if err != nil {
+			return nil, fmt.Errorf("spp: hash chain 4 step %d: %w", start, err)
+		}
+		h = next
+	}
+	return h, nil
+}
+
 // RightHashChain folds values from right to left. The fixed-width signer
 // transcript uses this direction so the on-chain verifier can start from a
 // precomputed all-zero suffix.
