@@ -1549,12 +1549,10 @@ aggregate into one proof slot.
 struct InputUtxo {
     /// Nullifier of the spent input; inserted into `input_tree`'s nullifier queue.
     nullifier_hash: [u8;32],
-    /// Index into `input_tree`'s nullifier-tree root cache.
-    nullifier_tree_root_index: u16,
-    /// Index into `input_tree`'s UTXO-tree root cache.
-    utxo_tree_root_index: u16,
 }
-// Every input repeats input 0's root-index pair; see Checks.
+// The root indexes every input's proofs were built against are carried once
+// per instruction (`utxo_tree_root_index`, `nullifier_tree_root_index` below);
+// see Checks.
 // Spend authorization is not a per-input field: it comes from the
 // owner-signer run in the accounts array (see UTXO Ownership Check).
 
@@ -1639,6 +1637,10 @@ struct TransactIxData {
     circuit: CircuitId,
     proof: TransactProof,
     inputs: Vec<InputUtxo>,
+    /// Index into `input_tree`'s UTXO-tree root cache, shared by every input.
+    utxo_tree_root_index: u16,
+    /// Index into `input_tree`'s nullifier-tree root cache, shared by every input.
+    nullifier_tree_root_index: u16,
 }
 ```
 
@@ -1683,7 +1685,7 @@ one proof slot does not remove their individual account metas.
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. Every input repeats `inputs[0]`'s `utxo_tree_root_index` and `nullifier_tree_root_index` (else `InputTreeRootIndexMismatch`), and both reference non-stale roots in `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
+5. `utxo_tree_root_index` and `nullifier_tree_root_index` reference non-stale roots in `input_tree`; the one pair serves every input, since SPP spends from a single `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 6. Both tree accounts permit their respective writes: nullifier insertion in `input_tree` and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.
@@ -2130,19 +2132,17 @@ struct MergeTransactIxData {
     /// Input nullifiers. Inserted into the nullifier queue and part of the
     /// public input hash. `u8` length prefix; length exactly 8.
     nullifiers: Vec<[u8; 32]>,
-    /// Refs into `input_tree`'s UTXO-tree root cache, one per input. `u8`
-    /// length prefix; length exactly 8. Every entry must equal entry 0.
-    utxo_tree_root_index: Vec<u16>,
-    /// Refs into `input_tree`'s nullifier-tree root cache, one per input. `u8`
-    /// length prefix; length exactly 8. Every entry must equal entry 0.
-    nullifier_tree_root_index: Vec<u16>,
+    /// Index into `input_tree`'s UTXO-tree root cache, shared by every input.
+    utxo_tree_root_index: u16,
+    /// Index into `input_tree`'s nullifier-tree root cache, shared by every input.
+    nullifier_tree_root_index: u16,
 }
 ```
 
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts`.
-2. Every `utxo_tree_root_index[i]` equals `utxo_tree_root_index[0]` and every `nullifier_tree_root_index[i]` equals `nullifier_tree_root_index[0]` (else `InputTreeRootIndexMismatch`); both reference non-stale roots in `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
+2. `utxo_tree_root_index` and `nullifier_tree_root_index` reference non-stale roots in `input_tree`; the one pair serves every input, since SPP merges from a single `input_tree`. See [Tree Slot Chain](#tree-slot-chain).
 3. Both tree accounts permit their respective writes.
 4. The owner's registry record has `merging_enabled == true` (else `MergeDisabled`).
 5. SPP loads a registry-owned, valid `UserRecord` and hashes its rail-selected signing identity into the public inputs, as defined in [Merge Proof](#merge-proof---merge-zk-proof).
@@ -2155,8 +2155,8 @@ struct MergeTransactIxData {
 
 An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
-Serialized body: `204 + 36·N` bytes (`128`-byte proof, no ciphertext).
-With discriminator, `N = 8`: `493 B`; with `~206 B` transaction overhead: `~699 B`.
+Serialized body: `270 + 32·N` bytes (`192`-byte proof, one root-index pair, no ciphertext).
+With discriminator, `N = 8`: `527 B`; with `~206 B` transaction overhead: `~733 B`.
 
 ### `merge_ring`
 
