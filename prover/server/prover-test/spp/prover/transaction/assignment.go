@@ -145,7 +145,10 @@ func buildProofAssignment(
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, trees)
+	publicInputs, err := buildPublicInputs(shape, payerHash, inputs, outputs, external, privateTxHash, trees)
+	if err != nil {
+		return proofAssignment{}, err
+	}
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
@@ -325,13 +328,14 @@ func buildProofTrees(
 }
 
 func buildPublicInputs(
+	shape protocol.Shape,
 	payerHash *big.Int,
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	external externalValues,
 	privateTxHash *big.Int,
 	trees proofTrees,
-) protocol.PublicInputs {
+) (protocol.PublicInputs, error) {
 	// Padding must reuse an owner identity already bound to real transaction
 	// content.
 	var participantTag *big.Int
@@ -354,6 +358,10 @@ func buildPublicInputs(
 			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
+	signers, err := signerPkHashes(payerHash, inputs.inputOwnerPkHashes, shape.SignerWidth())
+	if err != nil {
+		return protocol.PublicInputs{}, err
+	}
 	return protocol.PublicInputs{
 		Nullifiers:          inputs.nullifiers,
 		OutputUtxoHashes:    outputs.hashes,
@@ -365,14 +373,14 @@ func buildPublicInputs(
 		PublicAmounts:       external.publicSlots.amounts,
 		RingProgramID:       external.ringProgramID,
 		AllowDummyInputs:    big.NewInt(1),
-		SignerPkHashes:      signerPkHashes(payerHash, inputs.inputOwnerPkHashes),
+		SignerPkHashes:      signers,
 		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
-	}
+	}, nil
 }
 
-func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.Int {
-	out := make([]*big.Int, len(inputOwnerPkHashes)+1)
+func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int, width int) ([]*big.Int, error) {
+	out := make([]*big.Int, width)
 	out[0] = new(big.Int).Set(payerHash)
 	seen := []*big.Int{payerHash}
 	next := 1
@@ -390,6 +398,9 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.In
 		if duplicate {
 			continue
 		}
+		if next == width {
+			return nil, fmt.Errorf("spp: more than %d unique owner signers", width-1)
+		}
 		seen = append(seen, owner)
 		out[next] = new(big.Int).Set(owner)
 		next++
@@ -397,5 +408,5 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.In
 	for i := next; i < len(out); i++ {
 		out[i] = big.NewInt(0)
 	}
-	return out
+	return out, nil
 }

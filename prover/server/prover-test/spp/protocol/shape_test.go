@@ -141,3 +141,21 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 		t.Fatal("public input names should not expose mutable package state")
 	}
 }
+
+func TestShapeSignerWidth(t *testing.T) {
+	cases := map[Shape]int{
+		{NInputs: 1, NOutputs: 1}:  2,
+		{NInputs: 5, NOutputs: 4}:  6,
+		{NInputs: 36, NOutputs: 2}: 25,
+	}
+	for shape, want := range cases {
+		if got := shape.SignerWidth(); got != want {
+			t.Fatalf("%s signer width: got %d want %d", shape, got, want)
+		}
+	}
+	for _, shape := range SupportedShapes {
+		if OwnerSignerSlots(shape.NInputs)+shape.NInputs+FixedTransactAddresses > MaxTransactionAddresses {
+			t.Fatalf("%s owner signer slots exceed the address limit", shape)
+		}
+	}
+}

@@ -209,11 +209,12 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(p.SignerPkHashes) != int(p.NInputs)+1 {
+	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
+	if len(p.SignerPkHashes) != shape.SignerWidth() {
 		return nil, fmt.Errorf(
 			"spp: signer pk hash count mismatch: got %d want %d",
 			len(p.SignerPkHashes),
-			p.NInputs+1,
+			shape.SignerWidth(),
 		)
 	}
 	if len(p.PublishedOutputOwnerPkHashes) != len(p.Outputs) {
