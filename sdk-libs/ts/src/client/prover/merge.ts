@@ -26,6 +26,7 @@ import {
   checkedBytes,
   field,
   hashChain,
+  hashChain4,
   poseidon,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
@@ -264,8 +265,8 @@ function assembleMergeUnchecked(
   const treeSlots = inputTreeSlots(inputTree.slot);
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
   const publicInputHash = bigintToBytes(
-    hashChain([
-      hashChain(nullifiers.map(bytesToBigInt)),
+    hashChain4([
+      hashChain4(nullifiers.map(bytesToBigInt)),
       bytesToBigInt(outputHash),
       bytesToBigInt(treeSlotsHashChain(treeSlots)),
       outputTreeIdField,

@@ -7,7 +7,7 @@ import type {
   TransactProof,
 } from "../../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
-import { selectSppShape } from "../../interface/shape.js";
+import { selectSppShape, signerWidth } from "../../interface/shape.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   inputTreeSlots,
@@ -35,6 +35,7 @@ import {
   bytesToBigInt,
   field,
   hashChain,
+  hashChain4,
   hashBytesBigInt,
   poseidon,
   rightHashChain,
@@ -107,7 +108,7 @@ function assembleUnchecked(
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
-  proofInputs.checkShape();
+  const shape = proofInputs.checkShape();
   const realInputs = proofInputs.inputUtxos.filter((input) => !input.isDummy());
   if (realInputs.length === 0) throw new ClientError("CLIENT_NO_INPUTS");
   const outputTreeId = proofInputs.outputTreeId;
@@ -151,7 +152,7 @@ function assembleUnchecked(
   const signerPublicKeyHashes = [
     signerIdentity(proofInputs.payer),
     ...ownerSignerHashes,
-    ...Array.from({ length: inputHashes.length - ownerSignerHashes.length }, () => 0n),
+    ...Array.from({ length: signerWidth(shape) - 1 - ownerSignerHashes.length }, () => 0n),
   ];
   const allowDummyInputs = 1n;
   const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
@@ -448,7 +449,10 @@ export function assembleSlots(
   });
 }
 
-/** Mirrors Rust `PublicInputs::hash`, the signer chain folds from the right. */
+/**
+ * Mirrors Rust `PublicInputs::hash`: the nullifier, output, owner and outer
+ * chains fold three elements per call, the signer chain folds from the right.
+ */
 export function transferPublicInputHash(
   input: Readonly<{
     nullifiers: readonly bigint[];
@@ -464,9 +468,9 @@ export function transferPublicInputHash(
     publishedOutputOwnerPublicKeyHashes: readonly bigint[];
   }>,
 ): bigint {
-  return hashChain([
-    hashChain(input.nullifiers),
-    hashChain(input.outputHashes),
+  return hashChain4([
+    hashChain4(input.nullifiers),
+    hashChain4(input.outputHashes),
     bytesToBigInt(treeSlotsHashChain(input.treeSlots)),
     bytesToBigInt(treeIdField(input.outputTreeId)),
     input.privateTxHash,
@@ -475,7 +479,7 @@ export function transferPublicInputHash(
     input.ringProgramId,
     rightHashChain(input.signerPublicKeyHashes),
     input.allowDummyInputs,
-    hashChain(input.publishedOutputOwnerPublicKeyHashes),
+    hashChain4(input.publishedOutputOwnerPublicKeyHashes),
   ]);
 }
 

@@ -113,6 +113,25 @@ export function hashChain(values: readonly Bytes32[]): Bytes32 {
   return hash;
 }
 
+/**
+ * Folds three elements per Poseidon call. The fold carries no length tag, so it
+ * is injective only over the fixed-length public-input chains of one circuit.
+ */
+export function hashChain4(values: readonly Bytes32[]): Bytes32 {
+  const [first, ...remaining] = values;
+  if (!first) return copy(ZERO_32);
+  let hash = copy(first);
+  for (let index = 0; index < remaining.length; index += 3) {
+    hash = poseidon([
+      hash,
+      remaining[index] ?? ZERO_32,
+      remaining[index + 1] ?? ZERO_32,
+      remaining[index + 2] ?? ZERO_32,
+    ]);
+  }
+  return hash;
+}
+
 export function rightHashChain(values: readonly Bytes32[]): Bytes32 {
   const last = values.at(-1);
   if (!last) return copy(ZERO_32);
