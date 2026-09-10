@@ -65,8 +65,8 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 
 	// 4. Bind the openings to the SPP transaction.
 	api.AssertIsEqual(c.PrivateTxHash, gadget.PoseidonHash(api, []frontend.Variable{
-		hashPrefix(api, inputHashes, c.InputCountSelected[:]),
-		hashPrefix(api, outputHashes, c.OutputCountSelected[:]),
+		hashPrefix4(api, inputHashes, c.InputCountSelected[:]),
+		hashPrefix4(api, outputHashes, c.OutputCountSelected[:]),
 		c.AddressChain,
 		c.ExternalDataHash,
 		c.PrivateTxBlinding,

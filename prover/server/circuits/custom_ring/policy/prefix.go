@@ -8,14 +8,36 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// hashPrefix binds a nonempty prefix of transaction contributions.
-// oneHot[0] selects the first contribution.
-func hashPrefix(api frontend.API, contributions, oneHot []frontend.Variable) frontend.Variable {
-	return extendHashPrefix(api, contributions[0], contributions[1:], oneHot)
+// hashPrefix4 binds a nonempty prefix of transaction contributions with the
+// SPP hash_chain_4 fold: oneHot[k-1] selects hash_chain_4(contributions[:k]).
+// The running state advances once per group of three contributions; a length
+// that ends inside a group is one extra zero-padded call from the group's
+// start, so every selectable value is the 4-input fold SPP publishes.
+func hashPrefix4(api frontend.API, contributions, oneHot []frontend.Variable) frontend.Variable {
+	// 1. Select the head alone for a one-element prefix.
+	head := contributions[0]
+	selected := api.Mul(oneHot[0], head)
+
+	// 2. Hash every prefix length inside each group from the group's head.
+	for start := 1; start < len(contributions); start += 3 {
+		end := min(start+3, len(contributions))
+		for stop := start + 1; stop <= end; stop++ {
+			group := []frontend.Variable{head, 0, 0, 0}
+			copy(group[1:], contributions[start:stop])
+			hash := gadget.PoseidonHash(api, group)
+			selected = api.Add(selected, api.Mul(oneHot[stop-1], hash))
+			if stop == end {
+				head = hash
+			}
+		}
+	}
+	return selected
 }
 
-// extendHashPrefix adds only the selected prefix to a committed head.
-// oneHot[0] selects the unchanged head.
+// extendHashPrefix adds only the selected prefix to a committed head with the
+// binary chain. oneHot[0] selects the unchanged head. The policy hash keeps
+// this fold because the ring program and SDKs recompute it with
+// create_hash_chain_from_slice; only the SPP private tx hash uses hashPrefix4.
 func extendHashPrefix(api frontend.API, head frontend.Variable, values, oneHot []frontend.Variable) frontend.Variable {
 	// 1. Select the unchanged head for an empty extension.
 	chain := head

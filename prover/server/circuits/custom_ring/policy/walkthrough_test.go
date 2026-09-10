@@ -137,8 +137,8 @@ func (s *statement) updateHashes(t *testing.T) {
 		}
 	}
 	s.privateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
-		spptest.MustHashChain(t, inputHashes),
-		spptest.MustHashChain(t, outputHashes),
+		spptest.MustHashChain4(t, inputHashes),
+		spptest.MustHashChain4(t, outputHashes),
 		s.addressChain,
 		s.externalDataHash,
 		s.privateTxBlinding,
