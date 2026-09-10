@@ -98,7 +98,8 @@ pub fn load_user_record(
     let record = UserRecord::try_from_account_data(&data)
         .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let (expected_record, expected_bump) =
-        Address::find_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id);
+        Address::derive_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id)
+            .ok_or(ShieldedPoolError::InvalidUserRecord)?;
     if account.address() != &expected_record || record.bump != expected_bump {
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }
