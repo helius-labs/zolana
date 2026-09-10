@@ -85,14 +85,14 @@ func compileFingerprints(t *testing.T) map[string]fingerprint {
 // prover/server/prover/provingkeys/proving-keys.lock. Regenerate with
 // UPDATE_FINGERPRINTS=1 after a full key rotation.
 var expectedFingerprints = map[string]fingerprint{
-	"transfer_confidential_2_3":   {constraints: 57423, public: 2},
-	"transfer_ring_2_3":           {constraints: 57528, public: 2},
-	"transfer_ring_authority_2_2": {constraints: 53650, public: 2},
-	"transfer_p256_ring_2_3":      {constraints: 202670, public: 2},
+	"transfer_confidential_2_3":   {constraints: 54987, public: 2},
+	"transfer_ring_2_3":           {constraints: 55092, public: 2},
+	"transfer_ring_authority_2_2": {constraints: 51874, public: 2},
+	"transfer_p256_ring_2_3":      {constraints: 200048, public: 2},
 	"custom_ring_policy":          {constraints: 483579, public: 2},
 	"custom_ring_base":            {constraints: 213042, public: 2},
-	"merge_8_1":                   {constraints: 180124, public: 2},
-	"merge_ring_8_1":              {constraints: 180394, public: 2},
+	"merge_8_1":                   {constraints: 178534, public: 2},
+	"merge_ring_8_1":              {constraints: 178567, public: 2},
 	"batch_address-append_40_10":  {constraints: 423683, public: 2},
 }
 
