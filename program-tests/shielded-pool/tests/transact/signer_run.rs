@@ -63,6 +63,36 @@ fn owner_signers_are_first_occurrence_deduplicated_with_payer_first() {
 }
 
 #[test]
+fn owner_signer_run_is_bounded_by_max_signers() {
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    let unique_signer = |index: usize| {
+        let tag = u8::try_from(index + 2).expect("signer tag fits a byte");
+        get_account_view([tag; 32], [0; 32], true, false, false, vec![])
+    };
+    let mut owner_signers: Vec<_> = (0..MAX_SIGNERS - 1).map(unique_signer).collect();
+
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+    proof_inputs
+        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
+        .unwrap();
+    assert_eq!(
+        usize::from(proof_inputs.unique_owner_signer_count),
+        MAX_SIGNERS
+    );
+
+    owner_signers.push(unique_signer(MAX_SIGNERS - 1));
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+    assert_eq!(
+        proof_inputs.fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes),
+        Err(ProgramError::Custom(
+            ShieldedPoolError::InvalidTransactShape as u32
+        ))
+    );
+}
+
+#[test]
 fn owner_hashes_are_reused_between_outputs_and_signers() {
     let utxo_hashes = [[0u8; 32]; 3];
     let outputs = [
