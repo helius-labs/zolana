@@ -54,6 +54,26 @@ func TestShapeValidate(t *testing.T) {
 	}
 }
 
+func TestShapeSignerWidth(t *testing.T) {
+	cases := []struct {
+		nInputs int
+		want    int
+	}{
+		{1, 2},
+		{5, 6},
+		{30, 31},
+		{36, 25},
+	}
+	for _, tc := range cases {
+		if got := (Shape{NInputs: tc.nInputs, NOutputs: 1}).SignerWidth(); got != tc.want {
+			t.Fatalf("signer width for %d inputs: got %d want %d", tc.nInputs, got, tc.want)
+		}
+		if OwnerSignerSlots(tc.nInputs)+tc.nInputs+FixedTransactAddresses > MaxTransactionAddresses {
+			t.Fatalf("owner signer slots for %d inputs exceed the address limit", tc.nInputs)
+		}
+	}
+}
+
 // testInput is the variant-agnostic per-slot test witness: the slimmed shared
 // Input plus the hoisted signals that live in the variant Public structs.
 type testInput struct {
