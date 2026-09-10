@@ -76,7 +76,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let input_count = selected.len();
     let inputs = selected
         .into_iter()
-        .map(|entry| SppProofInputUtxo::new(entry.utxo.clone(), &sender))
+        .map(|entry| SppProofInputUtxo::new(entry.utxo.clone(), &sender).in_tree(entry.tree_id))
         .collect();
     let prepared = CustomRingMerge::new(ctx.ring, &sender, inputs, None)?.prepare();
     let proven = prepared.prove(

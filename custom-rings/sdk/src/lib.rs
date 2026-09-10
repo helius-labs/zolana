@@ -57,8 +57,9 @@ pub use crate::{
         PolicyMatchError, ReaderKey, ReaderKeyError,
     },
     transfer::{
-        AsyncTransferProofEnvironment, CustomRingTransfer, CustomRingTransferInput, DepositError,
-        ProvenTransfer, RingDeposit, RingDepositReceipt, TransferError, TransferProofEnvironment,
+        tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,
+        CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit, RingDepositReceipt,
+        TransferError, TransferProofEnvironment,
     },
 };
 

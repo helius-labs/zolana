@@ -473,14 +473,16 @@ impl Deposited<'_> {
         env.rpc
             .create_and_send_transaction(&[fee], this.payer.pubkey(), &[this.payer])?;
 
+        let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
         let inputs = utxos
             .into_iter()
-            .map(|utxo| SppProofInputUtxo::new(utxo, &sender))
+            .map(|utxo| SppProofInputUtxo::new(utxo, &sender).in_tree(tree_id))
             .collect();
         let mut transfer =
             ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender.pubkey())
                 .with_compact_change()
-                .with_ring_program_id(this.ring.program_id());
+                .with_ring_program_id(this.ring.program_id())
+                .with_output_tree_id(tree_id);
         transfer.send(&this.recipient, SOL_MINT, this.amount)?;
         let prepared = transfer.prepare()?;
         let proven = CustomRingTransfer::new(CustomRingTransferInput {

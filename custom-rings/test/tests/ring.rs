@@ -1820,6 +1820,9 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     assert_ne!(input_tree, env.tree);
     assert_ne!(output_tree, env.tree);
     assert_ne!(input_tree, output_tree);
+    let input_tree_id = env.tree_id(input_tree)?;
+    let output_tree_id = env.tree_id(output_tree)?;
+    assert_ne!(input_tree_id, output_tree_id);
 
     RegisterRing {
         ring,
@@ -1843,16 +1846,19 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     wait_for_merkle_proof(
         indexer,
         input_tree,
-        SppProofInputUtxo::new(utxo.clone(), sender).hash()?,
+        SppProofInputUtxo::new(utxo.clone(), sender)
+            .in_tree(input_tree_id)
+            .hash()?,
     );
 
     let mut transfer = ConfidentialTransfer::new(
         sender.shielded_address()?,
-        vec![SppProofInputUtxo::new(utxo, sender)],
+        vec![SppProofInputUtxo::new(utxo, sender).in_tree(input_tree_id)],
         sender.pubkey(),
     )
     .with_compact_change()
-    .with_ring_program_id(ring_program);
+    .with_ring_program_id(ring_program)
+    .with_output_tree_id(output_tree_id);
     transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
     let prepared = transfer.prepare()?;
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
@@ -1896,7 +1902,9 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     wait_for_merkle_proof(
         indexer,
         output_tree,
-        SppProofInputUtxo::new(received, recipient).hash()?,
+        SppProofInputUtxo::new(received, recipient)
+            .in_tree(output_tree_id)
+            .hash()?,
     );
 
     Ok(())

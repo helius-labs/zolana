@@ -99,6 +99,11 @@ impl TestEnv {
         Ok(creation.tree)
     }
 
+    /// The raw id a tree hashes its UTXOs under.
+    pub fn tree_id(&self, tree: Address) -> Result<u16> {
+        Ok(custom_ring_sdk::tree_id(self.client.rpc(), tree)?)
+    }
+
     /// The tree the cli names by default.
     pub fn register_default_tree(&self) -> Result<Address> {
         Ok(self.tree)
