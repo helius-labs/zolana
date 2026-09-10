@@ -101,15 +101,15 @@ func PrivateTxHash(
 	externalDataHash *big.Int,
 	blinding *big.Int,
 ) (*big.Int, error) {
-	inputChain, err := HashChain(inputUtxoHashes)
+	inputChain, err := HashChain4(inputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash input chain: %w", err)
 	}
-	outputChain, err := HashChain(outputUtxoHashes)
+	outputChain, err := HashChain4(outputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
-	addressChain, err := HashChain(addressNullifiers)
+	addressChain, err := HashChain4(addressNullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash address chain: %w", err)
 	}

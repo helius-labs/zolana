@@ -313,9 +313,9 @@ func TestPrivateTxHashMatchesSpecFormula(t *testing.T) {
 	// expiry_unix_ts is NOT a private_tx_hash input — it is bound through
 	// external_data_hash (tested in the prover's external_data tests).
 	got := mustPrivateTxHash(t, inputs, outputs, addresses, externalDataHash, blinding)
-	inputChain := mustHashChain(t, inputs)
-	outputChain := mustHashChain(t, outputs)
-	addressChain := mustHashChain(t, addresses)
+	inputChain := mustHashChain4(t, inputs)
+	outputChain := mustHashChain4(t, outputs)
+	addressChain := mustHashChain4(t, addresses)
 	want := mustPoseidon(t, 6, []*big.Int{
 		inputChain,
 		outputChain,
