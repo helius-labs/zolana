@@ -573,6 +573,8 @@ describe("address and instruction builders", () => {
           c: new Uint8Array(32) as Bytes32,
         },
         inputs: [],
+        utxoTreeRootIndex: 0,
+        nullifierTreeRootIndex: 0,
         interfaceTransfers: [],
         outputs: [],
         messages: [],

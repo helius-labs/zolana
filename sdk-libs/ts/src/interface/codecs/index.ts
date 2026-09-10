@@ -178,10 +178,7 @@ function writeProof(writer: Writer, proof: TransactProof): void {
 }
 
 function writeInput(writer: Writer, value: InputUtxo): void {
-  writer
-    .bytes(value.nullifierHash, 32, "input.nullifierHash")
-    .u16(value.nullifierTreeRootIndex, "input.nullifierTreeRootIndex")
-    .u16(value.utxoTreeRootIndex, "input.utxoTreeRootIndex");
+  writer.bytes(value.nullifierHash, 32, "input.nullifierHash");
 }
 
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {
@@ -258,6 +255,9 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
   writeProof(writer, value.proof);
   writer.u8(value.inputs.length, "inputs.length");
   for (const input of value.inputs) writeInput(writer, input);
+  writer
+    .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
+    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex");
 }
 
 export function encodeTransactExternalData(value: TransactExternalData): Uint8Array {
@@ -269,16 +269,8 @@ export function encodeTransactInstructionData(value: TransactInstructionData): U
 }
 
 function writeMergeData(writer: Writer, value: MergeTransactInstructionData): void {
-  if (
-    value.nullifiers.length !== MERGE_INPUT_COUNT ||
-    value.utxoTreeRootIndexes.length !== MERGE_INPUT_COUNT ||
-    value.nullifierTreeRootIndexes.length !== MERGE_INPUT_COUNT
-  ) {
-    fail("INTERFACE_INVALID_LENGTH", {
-      nullifiers: value.nullifiers.length,
-      utxoTreeRootIndexes: value.utxoTreeRootIndexes.length,
-      nullifierTreeRootIndexes: value.nullifierTreeRootIndexes.length,
-    });
+  if (value.nullifiers.length !== MERGE_INPUT_COUNT) {
+    fail("INTERFACE_INVALID_LENGTH", { nullifiers: value.nullifiers.length });
   }
   writer
     .u64(value.expiryUnixTs, "expiryUnixTs")
@@ -290,18 +282,15 @@ function writeMergeData(writer: Writer, value: MergeTransactInstructionData): vo
     .bytes(value.privateTxHash, 32, "privateTxHash")
     .u8(value.nullifiers.length, "nullifiers.length");
   for (const nullifier of value.nullifiers) writer.bytes(nullifier, 32, "nullifier");
-  writer.u8(value.utxoTreeRootIndexes.length, "utxoTreeRootIndexes.length");
-  for (const index of value.utxoTreeRootIndexes) writer.u16(index, "utxoTreeRootIndex");
-  writer.u8(value.nullifierTreeRootIndexes.length, "nullifierTreeRootIndexes.length");
-  for (const index of value.nullifierTreeRootIndexes) {
-    writer.u16(index, "nullifierTreeRootIndex");
-  }
+  writer
+    .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
+    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex");
 }
 
 export function encodeMergeTransactInstructionData(
   value: MergeTransactInstructionData,
 ): Uint8Array {
-  return encoded(value, writeMergeData, 556);
+  return encoded(value, writeMergeData, 526);
 }
 
 export function mergeExternalDataHash(

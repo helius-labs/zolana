@@ -94,8 +94,6 @@ export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
 
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
-  readonly nullifierTreeRootIndex: number;
-  readonly utxoTreeRootIndex: number;
 }
 
 export type OwnerTag =
@@ -167,6 +165,8 @@ export interface TransactInstructionData extends TransactExternalData {
   readonly circuit: CircuitId;
   readonly proof: TransactProof;
   readonly inputs: readonly InputUtxo[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }
 
 export type TransactWithdrawal =
@@ -264,6 +264,6 @@ export interface MergeTransactInstructionData {
   readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }

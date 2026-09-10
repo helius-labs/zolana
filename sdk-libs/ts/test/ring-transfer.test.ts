@@ -294,6 +294,8 @@ function ringInstructionData(txHash: Bytes32): TransactInstructionData {
       c: new Uint8Array(32) as Bytes32,
     },
     inputs: [],
+    utxoTreeRootIndex: 0,
+    nullifierTreeRootIndex: 0,
     interfaceTransfers: [],
     outputs: [],
     messages: [],

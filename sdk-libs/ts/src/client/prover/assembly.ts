@@ -191,9 +191,6 @@ function assembleUnchecked(
     payload: common,
   });
 
-  // Every input references the same root history positions: the shielded pool
-  // resolves one input tree slot and rejects an instruction whose inputs
-  // disagree (`InputTreeRootIndexMismatch`).
   const rootIndexes: InputRootIndexes = Object.freeze({
     utxoTree: inputTree.utxoRootIndex,
     nullifierTree: inputTree.nullifierRootIndex,
@@ -218,13 +215,11 @@ function assembleUnchecked(
             details: { got: nullifiers.length, expected: proofInputs.inputUtxos.length },
           });
         }
-        return Object.freeze({
-          nullifierHash: nullifier,
-          nullifierTreeRootIndex: rootIndexes.nullifierTree,
-          utxoTreeRootIndex: rootIndexes.utxoTree,
-        });
+        return Object.freeze({ nullifierHash: nullifier });
       }),
     ),
+    utxoTreeRootIndex: rootIndexes.utxoTree,
+    nullifierTreeRootIndex: rootIndexes.nullifierTree,
     interfaceTransfers: Object.freeze(
       proofInputs.externalData.interfaceTransfers.map((transfer) =>
         transfer.kind === "sol"

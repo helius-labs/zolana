@@ -31,11 +31,7 @@ function filled(byte: number, length: number): Uint8Array {
 }
 
 function input(byte: number): InputUtxo {
-  return {
-    nullifierHash: filled(byte, 32) as Bytes32,
-    nullifierTreeRootIndex: 0,
-    utxoTreeRootIndex: 0,
-  };
+  return { nullifierHash: filled(byte, 32) as Bytes32 };
 }
 
 function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
@@ -51,6 +47,8 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
       c: filled(45, 32) as Bytes32,
     },
     inputs,
+    utxoTreeRootIndex: 0,
+    nullifierTreeRootIndex: 0,
     interfaceTransfers: [],
     outputs: [],
     messages: [],
@@ -152,8 +150,8 @@ describe("nullifier PDA accounts", () => {
       eddsaOwner: true,
       privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,
-      utxoTreeRootIndexes: Array.from({ length: 8 }, () => 0),
-      nullifierTreeRootIndexes: Array.from({ length: 8 }, () => 0),
+      utxoTreeRootIndex: 0,
+      nullifierTreeRootIndex: 0,
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

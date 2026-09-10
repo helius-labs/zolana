@@ -50,8 +50,8 @@ export interface MergeAssembly {
   readonly expiryUnixTs: bigint;
   readonly outputHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
   readonly privateTxHash: Bytes32;
   readonly publicInputHash: Bytes32;
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
@@ -294,14 +294,8 @@ function assembleMergeUnchecked(
     outputRingDataHash: asField(0n),
     ringProgramId: asField(0n),
   });
-  // Every input references the same root history positions; the shielded pool
-  // rejects a merge whose entries disagree.
-  const utxoTreeRootIndexes = Object.freeze(
-    Array.from({ length: MERGE_INPUTS }, () => inputTree.utxoRootIndex),
-  );
-  const nullifierTreeRootIndexes = Object.freeze(
-    Array.from({ length: MERGE_INPUTS }, () => inputTree.nullifierRootIndex),
-  );
+  const utxoTreeRootIndex = inputTree.utxoRootIndex;
+  const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
   const instructionData = (
     proof: MergeTransactInstructionData["proof"],
   ): MergeTransactInstructionData =>
@@ -314,8 +308,8 @@ function assembleMergeUnchecked(
       nullifiers: Object.freeze(
         nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
       ),
-      utxoTreeRootIndexes,
-      nullifierTreeRootIndexes,
+      utxoTreeRootIndex,
+      nullifierTreeRootIndex,
     });
   return Object.freeze({
     proverInputs,
@@ -327,8 +321,8 @@ function assembleMergeUnchecked(
     // data than the one it was proved with.
     outputHash: new Uint8Array(outputHash) as Bytes32,
     nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
-    utxoTreeRootIndexes,
-    nullifierTreeRootIndexes,
+    utxoTreeRootIndex,
+    nullifierTreeRootIndex,
     privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
     publicInputHash,
     externalDataHash,
