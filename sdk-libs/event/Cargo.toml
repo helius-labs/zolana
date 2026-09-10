@@ -12,3 +12,6 @@ borsh = { workspace = true }
 solana-pubkey = { workspace = true }
 zolana-event = { workspace = true }
 zolana-interface = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

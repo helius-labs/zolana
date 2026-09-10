@@ -16,14 +16,6 @@ pub const OUTPUT_TREE: [u8; 32] = [2u8; 32];
 pub const TX_VIEWING_PK: [u8; 33] = [5u8; 33];
 pub const SALT: [u8; 16] = [6u8; 16];
 
-pub fn input(nullifier_byte: u8) -> InputUtxo {
-    InputUtxo {
-        nullifier_hash: [nullifier_byte; 32],
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index: 0,
-    }
-}
-
 pub fn transact_ix(
     inputs: Vec<InputUtxo>,
     outputs: Vec<TransactOutput>,

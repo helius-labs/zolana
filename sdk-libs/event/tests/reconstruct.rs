@@ -4,8 +4,8 @@ mod support;
 
 use solana_pubkey::Pubkey;
 use support::{
-    emit_event_data, emit_instruction, input, input_trees, merge_event, merge_ix, merge_ring_ix,
-    source, transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
+    emit_event_data, emit_instruction, input_trees, merge_event, merge_ix, merge_ring_ix, source,
+    transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
@@ -15,9 +15,17 @@ use zolana_event_parser::{
     indexed_events_from_instruction_groups, reconstruct_general_event, EventDecodeError,
     InstructionGroup, ParsedInstruction,
 };
-use zolana_interface::instruction::{InterfaceTransfer, OwnerTag, TransactOutput};
+use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 
 const OWNER_ACCOUNT_INDEX: u8 = 6;
+
+fn input(nullifier_byte: u8) -> InputUtxo {
+    InputUtxo {
+        nullifier_hash: [nullifier_byte; 32],
+        nullifier_tree_root_index: 0,
+        utxo_tree_root_index: 0,
+    }
+}
 
 fn accounts_with_owner(owner: Pubkey) -> Vec<Pubkey> {
     let mut accounts: Vec<Pubkey> = (0..OWNER_ACCOUNT_INDEX)
