@@ -27,8 +27,8 @@ use zolana_interface::{
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    entry_nullifier, entry_seed, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId,
-    ListNamespace, ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
+    entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
+    ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -306,7 +306,8 @@ pub(crate) struct EntryTransition {
     pub entry: ListEntry,
     pub input: InputUtxo,
     pub input_hash: [u8; 32],
-    pub address_utxo_hash: [u8; 32],
+    /// The address a claim inserts, zero for a spend.
+    pub address_nullifier: [u8; 32],
     pub private_tx_blinding: [u8; 32],
     pub proof: TransactProof,
 }
@@ -349,7 +350,7 @@ impl EntryTransition {
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
             output_hash,
-            self.address_utxo_hash,
+            self.address_nullifier,
             &external_data_hash,
             &self.private_tx_blinding,
         )
@@ -397,14 +398,10 @@ pub(crate) fn entry_address_input(
     list_id: ListId,
     member: &Member,
     tree_id: u16,
-) -> Result<([u8; 32], [u8; 32]), ProgramError> {
-    let seed = entry_seed(list_id, member).map_err(|_| CustomRingError::HashingFailed)?;
-    let address_utxo_hash = owner
-        .address_utxo_hash(&seed, tree_id)
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    let address =
-        entry_nullifier(&address_utxo_hash, &seed).map_err(|_| CustomRingError::HashingFailed)?;
-    Ok((address_utxo_hash, address))
+) -> Result<[u8; 32], ProgramError> {
+    owner
+        .address(list_id, member, tree_id)
+        .map_err(|_| CustomRingError::HashingFailed.into())
 }
 
 /// Forwards `accounts[2..]` to SPP with the namespace PDA raised to a signer.

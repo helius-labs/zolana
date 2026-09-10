@@ -30,8 +30,7 @@ pub fn process_create_entry_ix(
     let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
     parsed.check_mutator(list_id, &member)?;
 
-    let (address_utxo_hash, address) =
-        entry_address_input(&parsed.owner, list_id, &member, parsed.entries_tree_id)?;
+    let address = entry_address_input(&parsed.owner, list_id, &member, parsed.entries_tree_id)?;
     let transact = EntryTransition {
         entry: ListEntry {
             list_id,
@@ -47,7 +46,7 @@ pub fn process_create_entry_ix(
             utxo_tree_root_index: ix.utxo_tree_root_index,
         },
         input_hash: [0u8; 32],
-        address_utxo_hash,
+        address_nullifier: address,
         private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }

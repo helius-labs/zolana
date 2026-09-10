@@ -61,7 +61,7 @@ pub fn process_update_entry_ix(
             utxo_tree_root_index: ix.utxo_tree_root_index,
         },
         input_hash: spent_hash,
-        address_utxo_hash: [0u8; 32],
+        address_nullifier: [0u8; 32],
         private_tx_blinding: ix.private_tx_blinding,
         proof: ix.proof,
     }
