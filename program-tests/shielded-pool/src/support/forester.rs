@@ -11,7 +11,7 @@ use solana_transaction::Transaction;
 use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
@@ -210,7 +210,7 @@ impl NullifierTestForester {
         let new_root = reference.root();
         let mut start_index_bytes = [0u8; 32];
         start_index_bytes[24..].copy_from_slice(&plan.start_index.to_be_bytes());
-        let public_input_hash = create_hash_chain_from_array([
+        let public_input_hash = create_hash_chain_4_from_slice(&[
             plan.current_root,
             new_root,
             plan.leaves_hash_chain,

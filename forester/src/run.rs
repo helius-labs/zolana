@@ -40,7 +40,7 @@ use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signer::Signer;
 use zolana_client::{BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_interface::instruction::BatchUpdateNullifierTreeData;
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::{TreeAccount, TreeFeeSchedule};
@@ -839,7 +839,7 @@ fn build_inputs(
     let mut start_index_bytes = [0u8; 32];
     start_index_bytes[24..].copy_from_slice(&next_index.to_be_bytes());
     let public_input_hash =
-        create_hash_chain_from_array([old_root, new_root, leaves_hash_chain, start_index_bytes])
+        create_hash_chain_4_from_slice(&[old_root, new_root, leaves_hash_chain, start_index_bytes])
             .map_err(|err| anyhow!("public input hash chain: {err:?}"))?;
 
     Ok((
