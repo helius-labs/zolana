@@ -45,7 +45,7 @@ to her proves absence through the cleared entry.
 ## The rule table
 
 `Rule { subject, source, guard }` lives in
-`program-libs/ring-policy/src/rule_table.rs`. A rule screens every live
+`custom-rings/policy/src/rule_table.rs`. A rule screens every live
 `OutputOwner`, `Sender`, or `Asset` of a transfer. Its source is
 `RuleSource::Lists { present, absent }`, two sets of lists, or
 `RuleSource::InlineAssets`. A list rule holds for a subject when any list in
@@ -175,7 +175,7 @@ serves both authorities unless `ring.toml` splits them.
 ## Entries
 
 Entries are standard SPP UTXOs, the derivations are in
-[spec.md](spec.md#utxo-hash). `program-libs/ring-policy/src/entry.rs` fixes
+[spec.md](spec.md#utxo-hash). `custom-rings/policy/src/entry.rs` fixes
 their shape.
 
 `ListNamespace::new` derives the owner hash from the ring's `policy_records`
@@ -271,7 +271,7 @@ The eight `ListId` values fill the circuit's source width, a ninth is a circuit
 and encoding change. A rule names any authority-written list, `Allow`,
 `Block`, `Frozen`, `Reader` and `Approval`. The member-written lists are
 writable and read by no rule, the `ring.toml` grammar refuses their names.
-The sealed `ListSchema` trait in `program-libs/ring-policy/src/schema.rs`
+The sealed `ListSchema` trait in `custom-rings/policy/src/schema.rs`
 fixes a list and its `EntryContent` type, its module doc walks the four
 steps. The keying, the entry shape, the membership proofs, and the circuit
 are reused unchanged.

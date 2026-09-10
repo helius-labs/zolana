@@ -28,7 +28,7 @@ curator bans Mr. Evil. Mr. Crazy transfers.
 
 An **entry** is one list membership fact, an ordinary zero-amount SPP data
 UTXO in the shared state tree, owned by the ring's `b"policy_records"` PDA
-(`program-libs/ring-policy/src/entry.rs`). A parity test pins its hash
+(`custom-rings/policy/src/entry.rs`). A parity test pins its hash
 byte-equal to `ProofInputUtxo`, and a vector test pins the same math against
 the Go circuit. SPP hosts entries unchanged.
 
