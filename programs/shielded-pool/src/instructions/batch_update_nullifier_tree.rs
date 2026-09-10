@@ -3,13 +3,13 @@ use borsh::BorshDeserialize;
 use pinocchio::{AccountView, ProgramResult};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::BatchUpdateNullifierTreeData,
+    error::ShieldedPoolError, event::EventKind, instruction::BatchUpdateNullifierTreeData,
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
 };
 use zolana_tree::TreeAccount;
 
 use crate::instructions::{
-    event::emit_batch_nullifier_append_event,
+    event::emit_event,
     protocol_config::loader::validate_forester_authority,
     shared::{check_reimbursement_recipient, nullifier_tree_error, pay_reimbursement},
 };
@@ -55,7 +55,7 @@ pub fn process_batch_update_nullifier_tree(
     // one. Keep every fallible step (including `pay_reimbursement`) above it.
     if let Some((event, paid)) = applied {
         pay_reimbursement(tree, reimbursement_recipient, paid)?;
-        emit_batch_nullifier_append_event(&event)?;
+        emit_event(EventKind::NullifierTreeUpdate, &event)?;
     }
     Ok(())
 }

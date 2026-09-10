@@ -3,7 +3,7 @@
 
 use borsh::BorshSerialize;
 use solana_pubkey::Pubkey;
-use zolana_event::{encode_event_instruction_with, EventKind, InputTreeSequence, MergeEvent};
+use zolana_event::{encode_event_instruction, EventKind, InputTreeSequence, MergeEvent};
 use zolana_event_parser::ParsedInstruction;
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT},
@@ -105,7 +105,7 @@ pub fn transact_source(
 }
 
 pub fn emit_event_data<T: BorshSerialize>(kind: EventKind, body: &T) -> Vec<u8> {
-    encode_event_instruction_with(kind, body)
+    encode_event_instruction(kind, body)
 }
 
 /// The `EMIT_EVENT` self-CPI one level below its source.

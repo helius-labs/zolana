@@ -1,38 +1,11 @@
-//! `encode_output_data` writes the plaintext body once instead of serializing it
-//! into a `Vec` and copying that `Vec` into the enum payload. These tests pin the
-//! result to the derived-borsh encoding it replaces, so the optimization cannot
-//! change the bytes an indexer or wallet parses.
+//! Output payload encoding and the scheme markers an indexer dispatches on.
 
-use borsh::BorshSerialize;
 use zolana_event::{
     encode_output_data, is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
     OutputDataEncoding, ProoflessOutput, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
-    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 use zolana_event_parser::decode_output_data;
-
-/// The encoding `encode_output_data` replaced: serialize the scheme byte plus the
-/// output into one `Vec`, then let derived borsh wrap that `Vec` in the enum.
-fn reference_encoding(data: &ProoflessOutput) -> Vec<u8> {
-    let mut blob = vec![0u8];
-    data.serialize(&mut blob).expect("serialize output");
-    borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).expect("serialize enum")
-}
-
-#[test]
-fn encoding_matches_derived_borsh_for_every_option_shape() {
-    for data in [
-        minimal(),
-        every_option_present(),
-        every_option_present_but_empty(),
-    ] {
-        assert_eq!(
-            encode_output_data(data.clone()),
-            reference_encoding(&data),
-            "single-write encoding must match the derived-borsh encoding"
-        );
-    }
-}
 
 #[test]
 fn encoded_output_decodes_back() {
@@ -44,29 +17,6 @@ fn encoded_output_decodes_back() {
         let encoded = encode_output_data(data.clone());
         assert_eq!(decode_output_data(&encoded).expect("decode"), data);
     }
-}
-
-/// `PLAINTEXT_OUTPUT_FIXED_LEN` is the capacity reserved before the variable
-/// contents, so it must cover the widest fixed encoding: every option present
-/// with empty vectors. A new `ProoflessOutput` field breaks this.
-#[test]
-fn plaintext_fixed_len_covers_every_option() {
-    assert_eq!(
-        encode_output_data(every_option_present_but_empty()).len(),
-        PLAINTEXT_OUTPUT_FIXED_LEN
-    );
-}
-
-#[test]
-fn variable_contents_extend_the_fixed_length() {
-    let data = every_option_present();
-    let variable = data.utxo_data.as_ref().map_or(0, Vec::len)
-        + data.ring_data.as_ref().map_or(0, Vec::len)
-        + data.memo.as_ref().map_or(0, Vec::len);
-    assert_eq!(
-        encode_output_data(data).len(),
-        PLAINTEXT_OUTPUT_FIXED_LEN + variable
-    );
 }
 
 #[test]
@@ -145,25 +95,5 @@ fn every_option_present_but_empty() -> ProoflessOutput {
         ring_data: Some(Vec::new()),
         memo: Some(Vec::new()),
         ..minimal()
-    }
-}
-
-/// The `VerifiablyEncrypted` variant is reserved for upcoming auditor
-/// encryption flows (custom rings with auditor): pin its wire shape so the
-/// reservation cannot rot while it has no producer.
-#[test]
-fn verifiably_encrypted_round_trips_with_tag_byte_two() {
-    use borsh::BorshDeserialize;
-    use zolana_event::encode_verifiably_encrypted;
-
-    let blob = vec![1u8, 2, 3, 4, 5];
-    let encoded = encode_verifiably_encrypted(blob.clone());
-    assert_eq!(
-        encoded.first(),
-        Some(&OutputDataEncoding::VERIFIABLY_ENCRYPTED_TAG)
-    );
-    match OutputDataEncoding::try_from_slice(&encoded).expect("decode tag 2") {
-        OutputDataEncoding::VerifiablyEncrypted(out) => assert_eq!(out, blob),
-        other => panic!("expected VerifiablyEncrypted, got {other:?}"),
     }
 }

@@ -123,7 +123,7 @@ fn sample_transact_instruction_data() -> Vec<u8> {
 #[test]
 fn indexed_emit_event_round_trip_through_index_events() {
     use solana_pubkey::Pubkey;
-    use zolana_event::{encode_event_instruction_with, InputTreeSequence, TransactEvent};
+    use zolana_event::{encode_event_instruction, InputTreeSequence, TransactEvent};
     use zolana_event_parser::{
         indexed_events_from_instruction_groups, InstructionGroup, ParsedInstruction,
     };
@@ -131,7 +131,7 @@ fn indexed_emit_event_round_trip_through_index_events() {
 
     let spp = Pubkey::new_unique();
     let expected = sample_transact_event();
-    let emit_data = encode_event_instruction_with(
+    let emit_data = encode_event_instruction(
         EventKind::Transact,
         &TransactEvent {
             input_trees: vec![InputTreeSequence {

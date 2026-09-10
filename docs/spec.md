@@ -1446,7 +1446,7 @@ operations, and tags 18–21 are maintenance and administration.
 | create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
 | update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
 | update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
-| emit_event | Tag 10; no-op carrying event bytes in instruction data; SPP self-CPI only. |
+| emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
 | merge_transact | Tag 13; consolidates the 8 input slots of the fixed 8-in/1-out merge shape (same owner, same asset; dummy slots pad a shorter merge) into one output UTXO. Permitted whenever the owner's registry record has `merging_enabled == true`; any caller may submit it, and the merge proof binds the output to the owner's registered signing / viewing keys. Input and output UTXOs are default-ring; extension slots are zero. |
@@ -1647,22 +1647,22 @@ one proof slot does not remove their individual account metas.
 9. Insert each input's `nullifier_hash` into `input_tree`'s nullifier queue and create its nullifier PDA, funded from `input_tree` (`InsufficientNullifierPdaRent` if the tree would fall below `rent_minimum + fee_balance`).
 10. The sender bundle needs no nullifier-tree insertion: input nullifiers already prevent replay. SPP does not check the `data` of any `OutputCiphertext`; a wallet that writes an inconsistent blob only harms itself (sync will fail to decrypt). SPP does not constrain `output_ciphertexts.len()`.
 11. Settle every original leg independently using its full `u64` amount: `is_deposit = true` moves SOL/SPL from the public account into custody, while `false` moves value from custody to the named public account. Aggregation affects proof inputs only; account resolution, settlement, the external-data hash, and event movements retain leg order.
-12. Emit a [`GeneralEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
+12. Emit a [`TransactEvent`](#general-event) via [`emit_event`](#instructions) self-CPI.
 13. An output with nonzero `data_hash` must be owned by a transaction participant (see the UTXO data [check](#spp-proof---solana-privacy-zk-proof)). Spending an input with `utxo_data` uses the normal owner-signed path; SPP enforces no program ownership.
 
 **Event**
 
-The event records the values assigned at execution (input queue sequence numbers, output leaf indices) together with the instruction-data fields an indexer needs. For a transact the [`GeneralEvent`](#general-event) is populated as:
+The [`TransactEvent`](#general-event) contains only the values assigned at execution: input queue sequence numbers, output leaf index, movements. An indexer rebuilds the [`GeneralEvent`](#general-event) from it plus the instruction data and account list of the SPP instruction that sent the self-CPI (for ring CPIs the SPP inner instruction, whose account list resolves `OwnerTag::Account`):
 
 ```rust
 GeneralEvent {
     inputs: instruction_data
         .inputs
         .iter()
-        .zip(input_queue_seqs) // assigned at nullifier queue insert
-        .map(|(input, input_queue_seq)| Input {
-            tree: input_tree,
-            input_queue_seq,
+        .enumerate()
+        .map(|(i, input)| Input {
+            tree: event.input_trees[0].tree,
+            input_queue_seq: event.input_trees[0].first_input_queue_seq + i,
             nullifier: input.nullifier_hash,
         })
         .collect(),
@@ -1682,23 +1682,17 @@ GeneralEvent {
     // Shared across every output ciphertext; supplied in instruction data.
     tx_viewing_pk: instruction_data.tx_viewing_pk,
     salt: instruction_data.salt,
-    first_output_leaf_index,
-    output_tree,
+    first_output_leaf_index: event.first_output_leaf_index,
+    output_tree: event.output_tree,
     // One entry per public leg, in leg order; empty for a shielded transfer.
-    movements: resolved_public_legs
-        .iter()
-        .map(|leg| Movement {
-            is_deposit: leg.is_deposit(),
-            amount: leg.amount(),
-            asset: leg.mint(),
-        })
-        .collect(),
+    movements: event.movements,
 }
 ```
 
-`input_queue_seqs` come from `input_tree`; `first_output_leaf_index` comes from
-`output_tree`. `mint` comes from the SPL accounts, and `is_deposit` is the
-public-amount direction proven by the proof (`true` for a deposit).
+`first_input_queue_seq` comes from `input_tree`; `first_output_leaf_index` from
+`output_tree`. Each movement's `mint` comes from the SPL accounts, and
+`is_deposit` is the public-amount direction proven by the proof (`true` for a
+deposit).
 
 ### `deposit`
 
@@ -1855,12 +1849,47 @@ unchecked.
 
 ### General Event
 
-The event emitted via [`emit_event`](#instructions) self-CPI by state-changing
-instructions. It records the queue sequence numbers and leaf indices assigned at
-execution, which are absent from instruction data, so an indexer can reconstruct
-nullifier insertions and UTXO appends.
+The indexer-facing view of one state-changing instruction. The
+[`emit_event`](#instructions) payload is `[EventKind, borsh(body)]`; the kind
+selects the body:
+
+| Kind | Byte | Body | Emitted by |
+| --- | --- | --- | --- |
+| Deposit | 1 | `GeneralEvent` | `deposit`, `ring_deposit` |
+| Transact | 2 | `TransactEvent` | `transact`, `ring_transact`, `ring_authority_transact` |
+| Merge | 3 | `MergeEvent` | `merge_transact`, `merge_ring` |
+| NullifierTreeUpdate | 4 | batch address-append event | `batch_update_nullifier_tree` |
+
+`TransactEvent` and `MergeEvent` contain only the values assigned at execution
+(queue sequence numbers, leaf indices), which are absent from instruction data.
+An indexer rebuilds the `GeneralEvent` from that body plus the data and account
+list of the instruction that sent the self-CPI, as given in its **Event**.
 
 ```rust
+/// One input tree. Queue inserts are sequential within an instruction, so input
+/// `i` of the tree has `input_queue_seq = first_input_queue_seq + i`. SPP spends
+/// from one `input_tree` today, so the `Vec` holds one entry.
+struct InputTreeSequence {
+    tree: Pubkey,
+    first_input_queue_seq: u64,
+}
+
+struct TransactEvent {
+    input_trees: Vec<InputTreeSequence>,
+    output_tree: Pubkey,
+    first_output_leaf_index: u64,
+    /// See `GeneralEvent::movements`.
+    movements: Vec<Movement>,
+}
+
+struct MergeEvent {
+    input_trees: Vec<InputTreeSequence>,
+    output_tree: Pubkey,
+    output_leaf_index: u64,
+    /// `merge_transact`: the registry `signing_view_tag`; `merge_ring`: `nullifiers[0]`.
+    output_view_tag: [u8; 32],
+}
+
 struct GeneralEvent {
     inputs: Vec<Input>,
     outputs: Vec<OutputUtxo>,
@@ -2065,6 +2094,11 @@ struct MergeTransactIxData {
 6. The 128-byte vanilla Groth16 proof verifies against the [merge public inputs](#merge-proof---merge-zk-proof).
 7. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 8. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`. The output carries no ciphertext: its blinding is `merge_output_blinding(nullifiers[0])` under the owner's nullifier secret, so the owner reconstructs it on sync without decryption.
+9. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = user_record.signing_view_tag`.
+
+**Event**
+
+An indexer rebuilds the [`GeneralEvent`](#general-event) with `inputs` from `nullifiers` (queue sequence numbers counted up from `input_trees[0].first_input_queue_seq`), one output `OutputUtxo { view_tag: event.output_view_tag, utxo_hash: output_utxo_hash, data: [] }`, `first_output_leaf_index = event.output_leaf_index`, zeroed `tx_viewing_pk` and `salt`, empty `messages` and `movements`.
 
 Serialized body: `204 + 36·N` bytes (`128`-byte proof, no ciphertext).
 With discriminator, `N = 8`: `493 B`; with `~206 B` transaction overhead: `~699 B`.
@@ -2075,7 +2109,7 @@ With discriminator, `N = 8`: `493 B`; with `~206 B` transaction overhead: `~699 
 
 **Description.** Policy-ring analog of [`merge_transact`](#merge_transact), invoked via CPI from a ring program. The relationship to `merge_transact` parallels how [`ring_authority_transact`](#ring_authority_transact) relates to [`transact`](#transact). Consolidates `N` input UTXOs sharing the same owner, asset, and `ring_program_id` (matching `ring_config.program_id`) into one output UTXO that preserves `ring_program_id`. The ring program runs its own authorization, including any rules over the input `ring_data_hash` values and its explicitly selected output `ring_data_hash`, before CPI. SPP verifies the merge proof, nullifies inputs, and appends the output. Authorization is delegated to the ring program (the `ring_config` signer); SPP does **not** check the registry `merging_enabled` flag for `merge_ring`.
 
-There is no ciphertext; the ring program selects the output `ring_data_hash`, the merge proof binds it against the output's `ring_data_hash` (folding it with `ring_program_id` into the public-input hash), and the emitted event publishes it as the output's `data` payload.
+There is no ciphertext; the ring program selects the output `ring_data_hash`, the merge proof checks it against the output's `ring_data_hash` and the public-input hash includes it with `ring_program_id`, and the indexer republishes it from the instruction data as the rebuilt output's `data` payload.
 
 **Accounts**
 
@@ -2094,8 +2128,8 @@ There is no ciphertext; the ring program selects the output `ring_data_hash`, th
 [`MergeTransactIxData`](#merge_transact) plus an `output_ring_data_hash: [u8; 32]`
 field: the ring data the calling ring program selected for the output. The merge
 proof asserts it against the output's `ring_data_hash` and folds it into the
-public-input hash; the wallet reads it from the emitted event to reconstruct the
-merged ring output. `merge_ring` indexes the output by the first input's
+public-input hash; the wallet reads it from the rebuilt [`GeneralEvent`](#general-event)
+to reconstruct the merged ring output. `merge_ring` indexes the output by the first input's
 published nullifier — there is no instruction-supplied tag. The ring program
 authorizes the merge, so there is no `user_record` account or registry check; the
 owner identity comes from the witnessed signing key as bound by the input UTXOs.
@@ -2109,6 +2143,7 @@ cleanliness and output-well-formed rules.
 3. Proof verifies against public inputs (the policy-ring variant: inputs share `ring_program_id` = `ring_config.program_id`; output preserves it; `data_hash = 0` on every non-dummy input and on the output).
 4. Append `output_utxo_hash` to `output_tree`'s UTXO sparse Merkle tree.
 5. Insert each input nullifier into `input_tree`'s nullifier queue and create its nullifier PDA as in [`transact`](#transact) — exactly the proof-bound nullifiers, including the deterministic dummy-slot nullifiers (`merge_dummy_nullifier`). Duplicates are rejected, so an input cannot be merged twice; this is the replay protection, in place of the removed single-use `merge_view_tag`.
+6. Emit a [`MergeEvent`](#general-event) via [`emit_event`](#instructions) self-CPI with `output_view_tag = nullifiers[0]`. The reconstructed [`GeneralEvent`](#general-event) is as for [`merge_transact`](#merge_transact) with the output's `data` set to `output_ring_data_hash`.
 
 # Ring Program Interface
 

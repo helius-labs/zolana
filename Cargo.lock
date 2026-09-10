@@ -11079,7 +11079,6 @@ name = "zolana-event"
 version = "0.1.0"
 dependencies = [
  "borsh",
- "solana-pubkey 4.2.1",
  "wincode",
 ]
 

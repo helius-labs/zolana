@@ -153,7 +153,7 @@ pub fn parse_rings_events(
 
 fn is_general_event_source(source_instruction_tag: u8) -> bool {
     // Keep this in sync with shielded-pool processors that call
-    // `emit_general_event` (deposit) or `emit_event` (transact/merge core).
+    // `emit_event` with a GeneralEvent-view kind (Deposit, Transact, Merge).
     // Self-emitting instructions: TRANSACT, RING_TRANSACT,
     // RING_AUTHORITY_TRANSACT (transact core); MERGE_TRANSACT, RING_MERGE_TRANSACT
     // (merge core); DEPOSIT, RING_DEPOSIT (deposit). Missing a tag here silently

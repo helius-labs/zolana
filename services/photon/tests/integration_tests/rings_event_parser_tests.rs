@@ -57,8 +57,8 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction_status_client_types::EncodedConfirmedTransactionWithStatusMeta;
 use zolana_event::{
-    encode_event_instruction_with, encode_output_data, encode_verifiably_encrypted, EventKind,
-    GeneralEvent, Input, InputTreeSequence, MergeEvent, OutputUtxo, ProoflessOutput, SplTransfer,
+    encode_event_instruction, encode_output_data, EventKind, GeneralEvent, Input,
+    InputTreeSequence, MergeEvent, OutputDataEncoding, OutputUtxo, ProoflessOutput, SplTransfer,
     TransactEvent,
 };
 use zolana_indexer_api::{
@@ -86,6 +86,12 @@ const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
 const TEST_TREE: [u8; 32] = [41; 32];
 const TEST_STATE_ROOT_INDEX: u16 = 137;
+
+/// Output payload with the reserved `VerifiablyEncrypted` tag; the parser passes
+/// it through unparsed.
+fn verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
+    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob)).expect("output encoding")
+}
 
 fn only<'a, T>(items: &'a [T], description: &str) -> &'a T {
     assert_eq!(items.len(), 1, "expected exactly one {description}");
@@ -174,9 +180,9 @@ fn parses_encrypted_transfer_event_with_photon_parser() {
     assert_eq!(
         rings_tx.outputs,
         vec![
-            expected_output(0, 2, 8, 18, encode_verifiably_encrypted(vec![1, 2, 3]),),
-            expected_output(1, 3, 9, 19, encode_verifiably_encrypted(vec![4, 5, 6]),),
-            expected_output(2, 4, 10, 20, encode_verifiably_encrypted(vec![7, 8, 9]),),
+            expected_output(0, 2, 8, 18, verifiably_encrypted(vec![1, 2, 3]),),
+            expected_output(1, 3, 9, 19, verifiably_encrypted(vec![4, 5, 6]),),
+            expected_output(2, 4, 10, 20, verifiably_encrypted(vec![7, 8, 9]),),
         ]
     );
 }
@@ -195,7 +201,7 @@ fn parses_ring_transact_event_against_the_spp_inner_instruction() {
             OutputUtxo {
                 view_tag: owner.to_bytes(),
                 utxo_hash: [31; 32],
-                data: encode_verifiably_encrypted(vec![9]),
+                data: verifiably_encrypted(vec![9]),
             },
         ],
         messages: Vec::new(),
@@ -229,7 +235,7 @@ fn parses_ring_transact_event_against_the_spp_inner_instruction() {
                 leaf_index: 8,
                 view_tag: owner.to_bytes(),
                 utxo_hash: [31; 32],
-                payload: encode_verifiably_encrypted(vec![9]),
+                payload: verifiably_encrypted(vec![9]),
             },
         ]
     );
@@ -1993,9 +1999,9 @@ fn encrypted_transfer_transaction_info() -> TransactionInfo {
         GeneralEvent {
             inputs: vec![test_input(4, 25), test_input(5, 26)],
             outputs: vec![
-                test_output(8, 18, encode_verifiably_encrypted(vec![1, 2, 3])),
-                test_output(9, 19, encode_verifiably_encrypted(vec![4, 5, 6])),
-                test_output(10, 20, encode_verifiably_encrypted(vec![7, 8, 9])),
+                test_output(8, 18, verifiably_encrypted(vec![1, 2, 3])),
+                test_output(9, 19, verifiably_encrypted(vec![4, 5, 6])),
+                test_output(10, 20, verifiably_encrypted(vec![7, 8, 9])),
             ],
             messages: Vec::new(),
             tx_viewing_pk: [5; 33],
@@ -2121,7 +2127,7 @@ fn ring_transact_transaction_info(
                 Instruction {
                     program_id,
                     accounts: Vec::new(),
-                    data: encode_event_instruction_with(
+                    data: encode_event_instruction(
                         EventKind::Transact,
                         &transact_event_for(expected),
                     ),
@@ -2183,7 +2189,7 @@ fn rings_transaction_info<T: borsh::BorshSerialize>(
             inner_instructions: vec![Instruction {
                 program_id,
                 accounts: Vec::new(),
-                data: encode_event_instruction_with(event_kind, &event),
+                data: encode_event_instruction(event_kind, &event),
                 stack_height: Some(2),
             }],
         }],

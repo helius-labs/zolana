@@ -1,4 +1,5 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 
 #[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct ProoflessOutput {
@@ -35,15 +36,21 @@ pub struct ProoflessOutputRef<'a> {
     pub memo: Option<&'a [u8]>,
 }
 
-/// Self-contained encryption envelope for one owner-hidden ring deposit.
-#[derive(Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
+/// Encryption record for one owner-hidden ring deposit: sent in `ring_deposit`
+/// instruction data (wincode) and republished in the output payload (borsh).
+#[derive(
+    Clone, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize, SchemaRead, SchemaWrite,
+)]
 pub struct EncryptedRingDepositData {
     pub tx_viewing_pk: [u8; 33],
     pub salt: [u8; 16],
+    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub ciphertext: Vec<u8>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize)]
+/// Borrowed view of [`EncryptedRingDepositData`]: read from the instruction
+/// buffer, written into the output payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, BorshSerialize, SchemaRead)]
 pub struct EncryptedRingDepositDataRef<'a> {
     pub tx_viewing_pk: &'a [u8; 33],
     pub salt: &'a [u8; 16],
@@ -89,7 +96,6 @@ pub const ENCRYPTED_RING_DEPOSIT_SCHEME: u8 = 8;
 impl OutputDataEncoding {
     pub const PLAINTEXT_TAG: u8 = 0;
     pub const ENCRYPTED_TAG: u8 = 1;
-    pub const VERIFIABLY_ENCRYPTED_TAG: u8 = 2;
 }
 
 /// First byte of the encrypted payload for the confidential encryption scheme.
@@ -100,16 +106,6 @@ impl OutputDataEncoding {
 pub const CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 3;
 
 pub const RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG: u8 = 4;
-
-/// Enum tag byte.
-const PLAINTEXT_TAG_LEN: usize = 1;
-/// Enum tag plus the `u32` body length prefix; the body starts here.
-const PLAINTEXT_BODY_OFFSET: usize = PLAINTEXT_TAG_LEN + 4;
-/// Bytes an [`OutputDataEncoding::Plaintext`] payload needs before the variable
-/// `utxo_data` / `ring_data` / `memo` contents: the enum tag, the body length
-/// prefix, the scheme byte, and every fixed [`ProoflessOutput`] field with its
-/// options present. Pinned by `plaintext_fixed_len_covers_every_option`.
-pub const PLAINTEXT_OUTPUT_FIXED_LEN: usize = 224;
 
 /// Returns whether `data` is a structurally valid encrypted output whose first
 /// payload byte selects the confidential encryption scheme.
@@ -126,18 +122,17 @@ pub fn ring_confidential_encrypted_output_body(data: &[u8]) -> Option<&[u8]> {
 }
 
 fn encrypted_output_body(data: &[u8], scheme: u8) -> Option<&[u8]> {
-    if data.len() <= PLAINTEXT_BODY_OFFSET || data[0] != OutputDataEncoding::ENCRYPTED_TAG {
+    let (&encoding_tag, rest) = data.split_first()?;
+    if encoding_tag != OutputDataEncoding::ENCRYPTED_TAG {
         return None;
     }
-    let body_len = u32::from_le_bytes([data[1], data[2], data[3], data[4]]) as usize;
-    (body_len == data.len() - PLAINTEXT_BODY_OFFSET && data[PLAINTEXT_BODY_OFFSET] == scheme)
-        .then(|| &data[PLAINTEXT_BODY_OFFSET + 1..])
+    let (len_bytes, body) = rest.split_first_chunk::<4>()?;
+    let body_len = usize::try_from(u32::from_le_bytes(*len_bytes)).ok()?;
+    let (&scheme_byte, payload) = body.split_first()?;
+    (body_len == body.len() && scheme_byte == scheme).then_some(payload)
 }
 
-/// Serializes to the same bytes as `borsh(OutputDataEncoding::Plaintext(blob))`
-/// where `blob` is the scheme byte followed by `borsh(ProoflessOutput)`, but
-/// writes the body once into one buffer instead of serializing it into a `Vec`
-/// and copying that `Vec` into the enum's length-prefixed payload.
+/// Encodes a proofless deposit output: `Plaintext(scheme 0 || borsh(ProoflessOutput))`.
 pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
     encode_output_data_ref(ProoflessOutputRef {
         owner: &data.owner,
@@ -155,28 +150,10 @@ pub fn encode_output_data(data: ProoflessOutput) -> Vec<u8> {
 
 /// Borrowed counterpart of [`encode_output_data`].
 pub fn encode_output_data_ref(data: ProoflessOutputRef<'_>) -> Vec<u8> {
-    let variable_len = data.utxo_data.map_or(0, <[u8]>::len)
-        + data.ring_data.map_or(0, <[u8]>::len)
-        + data.memo.map_or(0, <[u8]>::len);
-    let mut out = Vec::with_capacity(PLAINTEXT_OUTPUT_FIXED_LEN + variable_len);
-    out.push(OutputDataEncoding::PLAINTEXT_TAG);
-    // Body length, patched in below once the body is written.
-    out.extend_from_slice(&0u32.to_le_bytes());
-    // Plaintext scheme byte, the first byte of the enum's payload.
-    out.push(0);
-    data.serialize(&mut out)
+    let mut blob = vec![0u8];
+    data.serialize(&mut blob)
         .expect("shielded-pool output data serialization is infallible");
-
-    let body_len = u32::try_from(out.len() - PLAINTEXT_BODY_OFFSET)
-        .expect("shielded-pool output data length fits in u32");
-    out.get_mut(PLAINTEXT_TAG_LEN..PLAINTEXT_BODY_OFFSET)
-        .expect("length placeholder written above")
-        .copy_from_slice(&body_len.to_le_bytes());
-    out
-}
-
-pub fn encode_verifiably_encrypted(blob: Vec<u8>) -> Vec<u8> {
-    borsh::to_vec(&OutputDataEncoding::VerifiablyEncrypted(blob))
+    borsh::to_vec(&OutputDataEncoding::Plaintext(blob))
         .expect("shielded-pool output data serialization is infallible")
 }
 

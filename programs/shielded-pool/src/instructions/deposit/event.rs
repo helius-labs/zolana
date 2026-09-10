@@ -2,13 +2,12 @@ use pinocchio::ProgramResult;
 use zolana_interface::{
     event::{
         encode_encrypted_ring_deposit_output_ref, encode_output_data_ref,
-        EncryptedRingDepositDataRef as EventEncryptedRingDepositDataRef,
         EncryptedRingDepositOutputRef, EventKind, GeneralEvent, ProoflessOutputRef, SplTransfer,
     },
     instruction::{DepositEntryRef, OutputUtxo, RingDepositEntryRef},
 };
 
-use crate::instructions::event::emit_general_event;
+use crate::instructions::event::emit_event;
 
 pub(crate) struct ProoflessOutputCtx {
     pub utxo_hash: [u8; 32],
@@ -55,11 +54,7 @@ pub(crate) fn encrypted_ring_output_utxo(
         data_hash: entry.data_hash,
         ring_program_id: &ring_program_id,
         ring_data_hash: entry.ring_data_hash,
-        encrypted: EventEncryptedRingDepositDataRef {
-            tx_viewing_pk: entry.encrypted.tx_viewing_pk,
-            salt: entry.encrypted.salt,
-            ciphertext: entry.encrypted.ciphertext,
-        },
+        encrypted: entry.encrypted,
     });
     OutputUtxo {
         view_tag: *entry.view_tag,
@@ -86,5 +81,5 @@ pub(crate) fn emit_deposit_event(e: DepositEvent) -> ProgramResult {
         output_tree: e.output_tree,
         spl_transfers: e.spl_transfers,
     };
-    emit_general_event(EventKind::Deposit, event)
+    emit_event(EventKind::Deposit, &event)
 }

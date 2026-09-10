@@ -9,11 +9,11 @@ pub use output_utxo::OutputUtxo;
 pub use proofless::{
     confidential_encrypted_output_body, encode_encrypted_ring_deposit_output,
     encode_encrypted_ring_deposit_output_ref, encode_output_data, encode_output_data_ref,
-    encode_verifiably_encrypted, is_confidential_encrypted_output,
-    ring_confidential_encrypted_output_body, EncryptedRingDepositData, EncryptedRingDepositDataRef,
-    EncryptedRingDepositOutput, EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput,
-    ProoflessOutputRef, CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
-    PLAINTEXT_OUTPUT_FIXED_LEN, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
+    is_confidential_encrypted_output, ring_confidential_encrypted_output_body,
+    EncryptedRingDepositData, EncryptedRingDepositDataRef, EncryptedRingDepositOutput,
+    EncryptedRingDepositOutputRef, OutputDataEncoding, ProoflessOutput, ProoflessOutputRef,
+    CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, ENCRYPTED_RING_DEPOSIT_SCHEME,
+    RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
 };
 
 /// The indexer-facing view of one state-changing instruction (spec: General
@@ -156,25 +156,11 @@ impl EventKind {
     }
 }
 
-pub fn encode_event_instruction(kind: EventKind, event: GeneralEvent) -> Vec<u8> {
-    encode_event_instruction_with(kind, &event)
-}
-
-/// Encode an `EMIT_EVENT` instruction for an event whose body is not a
-/// [`GeneralEvent`] (e.g. a batch append event). Layout mirrors
-/// [`encode_event_instruction`]: `[EMIT_EVENT, kind, borsh(payload)]`.
-pub fn encode_event_instruction_with<T: BorshSerialize>(kind: EventKind, payload: &T) -> Vec<u8> {
+/// Encode an `EMIT_EVENT` instruction: `[EMIT_EVENT, kind, borsh(body)]`. The
+/// body type is the one [`EventKind`] documents for `kind`.
+pub fn encode_event_instruction<T: BorshSerialize>(kind: EventKind, body: &T) -> Vec<u8> {
     let mut data = vec![tag::EMIT_EVENT, kind as u8];
-    payload
-        .serialize(&mut data)
-        .expect("shielded-pool event serialization is infallible");
-    data
-}
-
-pub fn encode_event_payload(kind: EventKind, event: &GeneralEvent) -> Vec<u8> {
-    let mut data = vec![kind as u8];
-    event
-        .serialize(&mut data)
+    body.serialize(&mut data)
         .expect("shielded-pool event serialization is infallible");
     data
 }

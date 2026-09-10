@@ -4,9 +4,9 @@ use zolana_interface::{
     event::{Input, InputTreeSequence, MergeEvent},
 };
 
-/// Sequence numbers and leaf index assigned while writing the tree, mirrored into
-/// the emitted event so an indexer can reconstruct the 8 nullifier insertions and
-/// the single output append.
+/// Values assigned while writing the tree. The event contains the first input's
+/// tree and queue sequence number plus the output leaf index; an indexer counts
+/// the remaining 7 insertions up from that sequence.
 pub struct MergeTreeWrite {
     pub inputs: Vec<Input>,
     pub output_leaf_index: u64,

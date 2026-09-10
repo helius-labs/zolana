@@ -8,5 +8,4 @@ publish = false
 
 [dependencies]
 borsh = { workspace = true }
-solana-pubkey = { workspace = true }
 wincode = { workspace = true }

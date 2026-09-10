@@ -4,6 +4,7 @@ use wincode::{
     len::FixIntLen,
     SchemaRead, SchemaWrite,
 };
+pub use zolana_event::{EncryptedRingDepositData, EncryptedRingDepositDataRef};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
@@ -122,15 +123,6 @@ pub struct DepositEntryRef<'a> {
     pub memo: Option<&'a [u8]>,
 }
 
-/// Self-contained recipient-encryption envelope for one ring-deposit output.
-#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
-pub struct EncryptedRingDepositData {
-    pub tx_viewing_pk: [u8; 33],
-    pub salt: [u8; 16],
-    #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
-    pub ciphertext: Vec<u8>,
-}
-
 /// One output of a batched policy-ring deposit.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct RingDepositEntry {
@@ -186,13 +178,6 @@ pub struct RingDepositEntryRef<'a> {
     pub data_hash: Option<&'a [u8; 32]>,
     pub ring_data_hash: &'a [u8; 32],
     pub encrypted: EncryptedRingDepositDataRef<'a>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
-pub struct EncryptedRingDepositDataRef<'a> {
-    pub tx_viewing_pk: &'a [u8; 33],
-    pub salt: &'a [u8; 16],
-    pub ciphertext: &'a [u8],
 }
 
 /// Borrowed on-chain view of [`DepositIxData`]. Entry payloads alias the
