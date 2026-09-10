@@ -23,7 +23,7 @@ import (
 // policy hashing with the same iden3 Poseidon the Rust twins use, and the two
 // SPP trees with the protocol helpers. Solving the compiled R1CS against that
 // witness is the cross-check that the circuit computes what
-// program-libs/ring-policy will recompute.
+// custom-rings/policy will recompute.
 
 // The policy the fixture proves against.
 const (
