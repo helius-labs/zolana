@@ -18,4 +18,18 @@ impl NullifierPda {
     pub fn is_closable(&self, close_before_index: u64) -> bool {
         self.queue_index < close_before_index
     }
+
+    /// Write the record in its account layout: little-endian `queue_index`
+    /// followed by little-endian `tree_id`, the same bytes as the borsh
+    /// encoding. `data` must be exactly [`NULLIFIER_PDA_SIZE`] bytes.
+    pub fn write_to(&self, data: &mut [u8]) -> Option<()> {
+        if data.len() != NULLIFIER_PDA_SIZE {
+            return None;
+        }
+        let (queue_index, rest) = data.split_first_chunk_mut::<8>()?;
+        let tree_id = rest.first_chunk_mut::<2>()?;
+        *queue_index = self.queue_index.to_le_bytes();
+        *tree_id = self.tree_id.to_le_bytes();
+        Some(())
+    }
 }

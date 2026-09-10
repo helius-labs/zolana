@@ -92,13 +92,14 @@ pub fn process_transact_ix(
         transact_accounts.payer,
         transact_accounts.input_tree,
         &mut transact_accounts.nullifier_pdas,
+        ix.inputs.iter().map(|input| &input.nullifier_hash),
         &input_tree_result,
     )?;
     // 9. Append new utxo hashes.
     let tree_write = apply_output_tree(
         transact_accounts.output_tree,
         &ix,
-        input_tree_result.inputs,
+        input_tree_result.input_tree,
         clock.slot,
     )?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
@@ -118,7 +119,7 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write)?;
+    let event = build_transact_event(tree_write);
     emit_event(EventKind::Transact, &event)
 }
 
