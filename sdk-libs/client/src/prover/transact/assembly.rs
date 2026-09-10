@@ -2,7 +2,7 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::solana_owner_identity,
 };
 use zolana_interface::{
@@ -435,8 +435,8 @@ impl PublicInputs<'_> {
         let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
         elements.extend([
-            create_hash_chain_from_slice(self.nullifiers)?,
-            create_hash_chain_from_slice(self.output_hashes)?,
+            create_hash_chain_4_from_slice(self.nullifiers)?,
+            create_hash_chain_4_from_slice(self.output_hashes)?,
             tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.output_tree_id),
             *self.private_tx,
@@ -450,9 +450,9 @@ impl PublicInputs<'_> {
             *self.allow_dummy_inputs,
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
-            elements.push(create_hash_chain_from_slice(output_owner_pk_hashes)?);
+            elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
-        Ok(create_hash_chain_from_slice(&elements)?)
+        Ok(create_hash_chain_4_from_slice(&elements)?)
     }
 }
 
