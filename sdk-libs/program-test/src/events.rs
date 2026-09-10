@@ -96,7 +96,7 @@ impl RingDepositOutput {
 pub fn parsed_instruction_from_compiled(
     account_keys: &[Pubkey],
     instruction: &CompiledInstruction,
-    stack_height: Option<u32>,
+    stack_height: u32,
 ) -> Result<ParsedInstruction, ProgramTestError> {
     let program_id = account_keys
         .get(instruction.program_id_index as usize)
@@ -136,7 +136,7 @@ pub fn parsed_instruction_groups_from_meta(
     let mut groups = outer_instructions
         .iter()
         .map(|instruction| {
-            parsed_instruction_from_compiled(account_keys, instruction, Some(1)).map(|outer| {
+            parsed_instruction_from_compiled(account_keys, instruction, 1).map(|outer| {
                 InstructionGroup {
                     outer,
                     inner: Vec::new(),
@@ -157,7 +157,7 @@ pub fn parsed_instruction_groups_from_meta(
                 parsed_instruction_from_compiled(
                     account_keys,
                     &inner.instruction,
-                    Some(u32::from(inner.stack_height)),
+                    u32::from(inner.stack_height),
                 )
             })
             .collect::<Result<Vec<_>, _>>()?;

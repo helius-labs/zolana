@@ -144,8 +144,8 @@ fn indexed_emit_event_round_trip_through_index_events() {
         },
     );
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(spp, Vec::new(), sample_transact_instruction_data(), Some(1)),
-        inner: vec![ParsedInstruction::new(spp, Vec::new(), emit_data, Some(2))],
+        outer: ParsedInstruction::new(spp, Vec::new(), sample_transact_instruction_data(), 1),
+        inner: vec![ParsedInstruction::new(spp, Vec::new(), emit_data, 2)],
     };
     let events = indexed_events_from_instruction_groups(spp, &[group]);
     assert_eq!(events.len(), 1);

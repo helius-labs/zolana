@@ -22,7 +22,7 @@ pub fn parse_nullifier_tree_batch_updates(
         return Ok(None);
     }
 
-    let groups = to_rings_instruction_groups(&tx.instruction_groups);
+    let groups = to_rings_instruction_groups(&tx.instruction_groups)?;
     let event_sites = find_event_sites(&groups, pda::shielded_pool_program_id(), |source| {
         source == tag::BATCH_UPDATE_NULLIFIER_TREE
     })?;

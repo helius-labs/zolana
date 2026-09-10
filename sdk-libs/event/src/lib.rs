@@ -21,8 +21,8 @@ pub use deposit::{
     proofless_outputs,
 };
 pub use indexed::{
-    event_kind_from_indexed, general_event_from_indexed, indexed_events_from_instruction_groups,
-    instruction_may_emit_events, IndexedEvent,
+    event_kind_from_indexed, event_parent, general_event_from_indexed,
+    indexed_events_from_instruction_groups, instruction_may_emit_events, IndexedEvent,
 };
 pub use instruction::{InstructionGroup, ParsedInstruction};
 pub use reconstruct::{

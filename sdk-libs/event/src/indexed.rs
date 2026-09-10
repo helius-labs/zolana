@@ -74,21 +74,26 @@ fn indexed_event(source: &ParsedInstruction, data: &[u8]) -> IndexedEvent {
 }
 
 /// The instruction that invoked `group.inner[event_index]`: the nearest preceding
-/// inner instruction one stack level up, else the outer instruction. `None`
-/// unless that parent is an SPP event source.
+/// inner instruction one stack level up, else the outer instruction when it sits
+/// at that level. Every indexer must resolve an event's parent through this
+/// function, so the rule lives in one place.
+pub fn event_parent(group: &InstructionGroup, event_index: usize) -> Option<&ParsedInstruction> {
+    let parent_height = group.inner.get(event_index)?.stack_height.checked_sub(1)?;
+    let preceding = group.inner.get(..event_index)?;
+    preceding
+        .iter()
+        .rev()
+        .find(|instruction| instruction.stack_height == parent_height)
+        .or_else(|| (group.outer.stack_height == parent_height).then_some(&group.outer))
+}
+
+/// [`event_parent`] when that parent is an SPP event source.
 fn event_source_parent(
     shielded_pool_program_id: Pubkey,
     group: &InstructionGroup,
     event_index: usize,
 ) -> Option<&ParsedInstruction> {
-    let event_height = group.inner.get(event_index)?.stack_height?;
-    let parent_height = event_height.checked_sub(1)?;
-    let preceding = group.inner.get(..event_index)?;
-    let parent = preceding
-        .iter()
-        .rev()
-        .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer))?;
+    let parent = event_parent(group, event_index)?;
     is_event_source(shielded_pool_program_id, parent).then_some(parent)
 }
 

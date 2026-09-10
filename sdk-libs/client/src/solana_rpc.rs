@@ -312,6 +312,9 @@ fn instruction_groups_from_confirmed_transaction(
     let meta = encoded
         .meta
         .ok_or_else(|| ClientError::Rpc("transaction missing metadata".into()))?;
+    if let Some(err) = &meta.err {
+        return Err(ClientError::TransactionFailed(err.to_string()));
+    }
     let (account_keys, outer_instructions) =
         transaction_message_parts(encoded.transaction, &meta.loaded_addresses)?;
     let inner = match meta.inner_instructions {
@@ -325,7 +328,7 @@ fn instruction_groups_from_confirmed_transaction(
 
     let mut groups = outer_instructions
         .iter()
-        .map(|instruction| parsed_instruction(&account_keys, instruction, Some(1)))
+        .map(|instruction| parsed_instruction(&account_keys, instruction, 1))
         .map(|outer| {
             outer.map(|outer| InstructionGroup {
                 outer,
@@ -411,13 +414,16 @@ fn ui_instruction_to_parsed(
         ));
     };
     let compiled = ui_compiled_instruction_to_compiled(instruction)?;
-    parsed_instruction(account_keys, &compiled, instruction.stack_height)
+    let stack_height = instruction
+        .stack_height
+        .ok_or_else(|| ClientError::Rpc("inner instruction missing stack height".into()))?;
+    parsed_instruction(account_keys, &compiled, stack_height)
 }
 
 fn parsed_instruction(
     account_keys: &[Pubkey],
     instruction: &CompiledInstruction,
-    stack_height: Option<u32>,
+    stack_height: u32,
 ) -> Result<ParsedInstruction, ClientError> {
     let program_id = account_keys
         .get(instruction.program_id_index as usize)

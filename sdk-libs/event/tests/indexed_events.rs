@@ -82,7 +82,7 @@ fn ring_transact_cpi_emit_event_is_indexed() {
     let ring = Pubkey::new_unique();
     for ring_tag in [tag::RING_TRANSACT, tag::RING_AUTHORITY_TRANSACT] {
         let group = InstructionGroup {
-            outer: ParsedInstruction::new(ring, vec![spp], vec![ring_tag], Some(1)),
+            outer: ParsedInstruction::new(ring, vec![spp], vec![ring_tag], 1),
             inner: vec![
                 transact_source(spp, ring_tag, Vec::new(), &one_in_one_out(), 2),
                 emit_instruction(spp, EventKind::Transact, &transact_event(), 3),
@@ -133,7 +133,7 @@ fn unrelated_emit_event_without_event_source_parent_is_ignored() {
     let spp = Pubkey::new_unique();
     let other = Pubkey::new_unique();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(other, Vec::new(), vec![tag::CREATE_TREE], Some(1)),
+        outer: ParsedInstruction::new(other, Vec::new(), vec![tag::CREATE_TREE], 1),
         inner: vec![emit_instruction(
             spp,
             EventKind::Transact,
@@ -169,11 +169,11 @@ fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
 
     assert!(instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(spp, Vec::new(), vec![tag::TRANSACT], None),
+        &ParsedInstruction::new(spp, Vec::new(), vec![tag::TRANSACT], 1),
     ));
     assert!(instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(spp, Vec::new(), vec![tag::MERGE_TRANSACT], None),
+        &ParsedInstruction::new(spp, Vec::new(), vec![tag::MERGE_TRANSACT], 1),
     ));
 
     for ring_tag in [
@@ -185,7 +185,7 @@ fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
         assert!(
             instruction_may_emit_events(
                 spp,
-                &ParsedInstruction::new(ring, vec![spp], vec![ring_tag], None),
+                &ParsedInstruction::new(ring, vec![spp], vec![ring_tag], 1),
             ),
             "ring wrapper tag {ring_tag}"
         );
@@ -193,10 +193,10 @@ fn instruction_may_emit_events_matches_direct_and_ring_wrappers() {
 
     assert!(!instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(ring, Vec::new(), vec![tag::RING_TRANSACT], None),
+        &ParsedInstruction::new(ring, Vec::new(), vec![tag::RING_TRANSACT], 1),
     ));
     assert!(!instruction_may_emit_events(
         spp,
-        &ParsedInstruction::new(ring, vec![spp], vec![tag::TRANSACT], None),
+        &ParsedInstruction::new(ring, vec![spp], vec![tag::TRANSACT], 1),
     ));
 }

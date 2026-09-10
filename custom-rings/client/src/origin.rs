@@ -52,8 +52,6 @@ pub enum OriginError {
     },
     #[error(transparent)]
     Decode(#[from] ClientError),
-    #[error("inner instruction carries no stack height")]
-    MissingStackHeight,
     #[error("inner instruction stack height {0} has no parent")]
     InvalidStackHeight(u32),
     #[error("ring transact instruction data is undecodable {0}")]
@@ -86,7 +84,7 @@ fn ring_instructions_in(
     for group in groups {
         let mut callers = vec![group.outer.program_id];
         for inner in &group.inner {
-            let height = inner.stack_height.ok_or(OriginError::MissingStackHeight)?;
+            let height = inner.stack_height;
             let parent_depth = usize::try_from(height)
                 .ok()
                 .and_then(|height| height.checked_sub(2))

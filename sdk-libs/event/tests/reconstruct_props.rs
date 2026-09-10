@@ -236,7 +236,7 @@ proptest! {
         } else {
             let ring = Pubkey::new_unique();
             InstructionGroup {
-                outer: ParsedInstruction::new(ring, vec![spp], vec![case.source_tag], Some(1)),
+                outer: ParsedInstruction::new(ring, vec![spp], vec![case.source_tag], 1),
                 inner: vec![
                     transact_source(spp, case.source_tag, case.accounts.clone(), &ix, 2),
                     emit_instruction(spp, EventKind::Transact, &event, 3),
@@ -318,7 +318,7 @@ proptest! {
         emit_data in prop::collection::vec(any::<u8>(), 0..512),
     ) {
         let spp = Pubkey::new_unique();
-        let src = ParsedInstruction::new(spp, accounts, source_data, Some(1));
+        let src = ParsedInstruction::new(spp, accounts, source_data, 1);
         let _ = reconstruct_general_event(&src, &emit_data);
     }
 
@@ -331,7 +331,7 @@ proptest! {
         kind in prop::sample::select(vec![EventKind::Transact, EventKind::Merge]),
     ) {
         let spp = Pubkey::new_unique();
-        let src = ParsedInstruction::new(spp, accounts, source_data, Some(1));
+        let src = ParsedInstruction::new(spp, accounts, source_data, 1);
         let emit_data = match kind {
             EventKind::Transact => emit_event_data(
                 kind,

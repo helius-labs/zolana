@@ -18,7 +18,7 @@ pub fn parse_rings_events(
     slot: u64,
 ) -> Result<Option<StateUpdate>, IngesterError> {
     let rings_program_id = pda::shielded_pool_program_id();
-    let groups = to_rings_instruction_groups(&tx.instruction_groups);
+    let groups = to_rings_instruction_groups(&tx.instruction_groups)?;
     let event_sites = find_event_sites(&groups, rings_program_id, is_general_event_source)?;
 
     if event_sites.is_empty() {

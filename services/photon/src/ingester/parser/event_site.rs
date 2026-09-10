@@ -17,7 +17,7 @@ use crate::ingester::{
 use solana_pubkey::Pubkey;
 use zolana_event::{tag, tag::InstructionTag};
 use zolana_event_parser::{
-    InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
+    event_parent, InstructionGroup as RingsInstructionGroup, ParsedInstruction as RingsInstruction,
 };
 
 pub struct EventSite<'a> {
@@ -33,27 +33,37 @@ pub struct EventSite<'a> {
     pub source: &'a RingsInstruction,
 }
 
+/// Event discovery walks stack heights to find an event's parent, so an
+/// instruction without one cannot be placed and the transaction is rejected.
 pub fn to_rings_instruction_groups(
     groups: &[PhotonInstructionGroup],
-) -> Vec<RingsInstructionGroup> {
+) -> Result<Vec<RingsInstructionGroup>, IngesterError> {
     let to_rings_instruction = |instruction: &PhotonInstruction| {
-        RingsInstruction::new(
+        let stack_height = instruction.stack_height.ok_or_else(|| {
+            IngesterError::ParserError(format!(
+                "instruction of program {} is missing its stack height",
+                instruction.program_id
+            ))
+        })?;
+        Ok(RingsInstruction::new(
             instruction.program_id,
             instruction.accounts.clone(),
             instruction.data.clone(),
-            instruction.stack_height,
-        )
+            stack_height,
+        ))
     };
 
     groups
         .iter()
-        .map(|group| RingsInstructionGroup {
-            outer: to_rings_instruction(&group.outer_instruction),
-            inner: group
-                .inner_instructions
-                .iter()
-                .map(to_rings_instruction)
-                .collect(),
+        .map(|group| {
+            Ok(RingsInstructionGroup {
+                outer: to_rings_instruction(&group.outer_instruction)?,
+                inner: group
+                    .inner_instructions
+                    .iter()
+                    .map(to_rings_instruction)
+                    .collect::<Result<Vec<_>, IngesterError>>()?,
+            })
         })
         .collect()
 }
@@ -74,7 +84,7 @@ pub fn find_event_sites<'a>(
                 continue;
             }
 
-            let Some(parent) = event_parent(group, index)? else {
+            let Some(parent) = event_parent(group, index) else {
                 continue;
             };
 
@@ -103,38 +113,6 @@ pub fn find_event_sites<'a>(
     }
 
     Ok(sites)
-}
-
-fn event_parent(
-    group: &RingsInstructionGroup,
-    event_index: usize,
-) -> Result<Option<&RingsInstruction>, IngesterError> {
-    let event_instruction = group.inner.get(event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-    let Some(event_height) = event_instruction.stack_height else {
-        return Ok(None);
-    };
-    let Some(parent_height) = event_height.checked_sub(1) else {
-        return Ok(None);
-    };
-    let previous_instructions = group.inner.get(..event_index).ok_or_else(|| {
-        IngesterError::ParserError(format!(
-            "Rings event parent search index {} is out of bounds for {} inner instructions",
-            event_index,
-            group.inner.len()
-        ))
-    })?;
-
-    Ok(previous_instructions
-        .iter()
-        .rev()
-        .find(|instruction| instruction.stack_height == Some(parent_height))
-        .or_else(|| (group.outer.stack_height == Some(parent_height)).then_some(&group.outer)))
 }
 
 /// Position of the signed `ring_config` account in each ring instruction, or
@@ -181,7 +159,7 @@ mod tests {
             program_id,
             Vec::new(),
             vec![tag_byte, 1, 2, 3],
-            Some(stack_height),
+            stack_height,
         )
     }
 
@@ -330,18 +308,24 @@ mod tests {
         assert_eq!(sites.len(), 1);
     }
 
+    /// Without a height an event's parent is ambiguous, so the transaction is
+    /// rejected rather than resolved against an earlier instruction.
     #[test]
-    fn drops_event_without_stack_height() {
-        let groups = [InstructionGroup {
-            outer: ix(spp(), tag::TRANSACT, 1),
-            inner: vec![ParsedInstruction::new(
-                spp(),
-                Vec::new(),
-                vec![tag::EMIT_EVENT],
-                None,
-            )],
+    fn instruction_without_stack_height_rejects_the_transaction() {
+        let photon_ix = |stack_height: Option<u32>| PhotonInstruction {
+            program_id: spp(),
+            data: vec![tag::TRANSACT],
+            accounts: Vec::new(),
+            stack_height,
+        };
+        let groups = [PhotonInstructionGroup {
+            outer_instruction: photon_ix(Some(1)),
+            inner_instructions: vec![photon_ix(None)],
         }];
 
-        assert!(event_sites(&groups).is_empty());
+        assert!(matches!(
+            to_rings_instruction_groups(&groups),
+            Err(IngesterError::ParserError(_))
+        ));
     }
 }

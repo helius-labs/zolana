@@ -32,6 +32,11 @@ pub enum ClientError {
     #[error("no supported circuit shape holds {n_in} inputs and {n_out} outputs")]
     UnsupportedShape { n_in: usize, n_out: usize },
 
+    /// The transaction executed but failed, so any event it recorded was rolled
+    /// back with its state.
+    #[error("transaction failed: {0}")]
+    TransactionFailed(String),
+
     #[error("spend amount must be greater than zero")]
     ZeroSpendAmount,
 

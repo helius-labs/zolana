@@ -77,7 +77,7 @@ pub fn source(
 ) -> ParsedInstruction {
     let mut data = vec![tag];
     data.extend_from_slice(&ix_bytes);
-    ParsedInstruction::new(program_id, accounts, data, Some(stack_height))
+    ParsedInstruction::new(program_id, accounts, data, stack_height)
 }
 
 pub fn transact_source(
@@ -111,7 +111,7 @@ pub fn emit_instruction<T: BorshSerialize>(
         program_id,
         Vec::new(),
         emit_event_data(kind, body),
-        Some(stack_height),
+        stack_height,
     )
 }
 

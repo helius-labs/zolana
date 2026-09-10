@@ -154,7 +154,7 @@ fn ring_transact_cpi_resolves_owner_accounts_against_the_spp_inner_instruction()
         .map(|_| Pubkey::new_unique())
         .collect();
     let group = InstructionGroup {
-        outer: ParsedInstruction::new(ring, ring_accounts, vec![tag::RING_TRANSACT], Some(1)),
+        outer: ParsedInstruction::new(ring, ring_accounts, vec![tag::RING_TRANSACT], 1),
         inner: vec![
             transact_source(
                 spp,

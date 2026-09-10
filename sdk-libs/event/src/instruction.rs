@@ -2,13 +2,14 @@ use solana_pubkey::Pubkey;
 
 /// One instruction of a confirmed transaction with its account list resolved to
 /// addresses. `stack_height` is `1` for a top-level instruction and grows by one
-/// per CPI level.
+/// per CPI level; event discovery walks it to find an event's parent, so an
+/// adapter must reject transaction metadata that lacks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedInstruction {
     pub program_id: Pubkey,
     pub accounts: Vec<Pubkey>,
     pub data: Vec<u8>,
-    pub stack_height: Option<u32>,
+    pub stack_height: u32,
 }
 
 impl ParsedInstruction {
@@ -16,7 +17,7 @@ impl ParsedInstruction {
         program_id: Pubkey,
         accounts: Vec<Pubkey>,
         data: Vec<u8>,
-        stack_height: Option<u32>,
+        stack_height: u32,
     ) -> Self {
         Self {
             program_id,
