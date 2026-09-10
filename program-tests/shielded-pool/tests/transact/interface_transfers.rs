@@ -375,13 +375,11 @@ fn spl_deposit_requires_depositor_signature() {
     );
 }
 
-/// Grafting an extra account into the settlement group before the token
-/// program lands the stranger in the `token_program` slot, so validation
-/// rejects it as invalid settlement accounts before any CPI runs. The grafted
-/// account must be a fresh pubkey: the runtime deduplicates metas by address,
-/// so a repeated payer would collapse away the shift. (On the transact path an
-/// unsupported token program maps to 7009; `UnsupportedSplTokenProgram` = 7041
-/// is the create_spl_interface surface.)
+/// Grafting an extra account into the settlement group makes the settlement
+/// region one account longer than the legs require, so validation rejects it as
+/// invalid settlement accounts before any group is parsed or any CPI runs. The
+/// grafted account must be a fresh pubkey: the runtime deduplicates metas by
+/// address, so a repeated payer would collapse away the shift.
 #[test]
 fn spl_withdrawal_rejects_a_shifted_token_program_account() {
     let mut pool = Pool::initialized();

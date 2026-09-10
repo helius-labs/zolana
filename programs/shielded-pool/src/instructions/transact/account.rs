@@ -88,9 +88,9 @@ impl<'a> TransactAccounts<'a> {
             .try_fold(0usize, |total, transfer| {
                 total.checked_add(transfer.settlement_account_count())
             })
-            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+            .ok_or(ShieldedPoolError::InvalidSettlementAccounts)?;
         if settlement_accounts.len() != settlement_account_count {
-            return Err(ShieldedPoolError::InvalidTransactShape.into());
+            return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
         let mut iter = AccountIterator::new(settlement_accounts);
         let mut settlements = ArrayVec::new();
