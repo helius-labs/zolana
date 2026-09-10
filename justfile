@@ -247,7 +247,7 @@ ring-rpc-derived:
 # here and in tools/rings-test-deploy.sh, custom-ring-keys.CHECKSUM, the key
 # sha256 below and in proving-keys.lock, verifying_key.rs with its fingerprint
 # test, the vk hash in prove_test.go and the circuit fingerprint test.
-custom-ring-keys-tag := "custom-ring-keys-v4"
+custom-ring-keys-tag := "custom-ring-keys-v5"
 
 ensure-custom-ring-prover-key: build-prover-server
     #!/usr/bin/env bash
@@ -273,7 +273,7 @@ ensure-custom-ring-prover-key: build-prover-server
         --pk "$source_dir/pk.bin" \
         --vk "$source_dir/vk.bin" \
         --output prover/server/proving-keys/custom_ring.key
-    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "f42e87d8402dbbe6104288b6471ecaca28f3a1e8bcd99418138dedcccb64af86" ]]
+    [[ "$(shasum -a 256 prover/server/proving-keys/custom_ring.key | awk '{ print $1 }')" == "7b88eb0b441862e082efba5c035e0137ea96426c065fa4cc6adcf9bb79c4fb5e" ]]
     verify_dir="$(mktemp -d)"
     trap 'rm -rf "$verify_dir"' EXIT
     target/prover-server export-vk \
@@ -638,14 +638,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v7"
+swap-keys-tag := "swap-keys-v8"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v8"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v9"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -768,7 +768,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v4"
+escrow-keys-tag := "escrow-keys-v5"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash

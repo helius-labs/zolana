@@ -6,7 +6,7 @@ use pinocchio::{
 };
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::{Hasher, Poseidon};
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
 
@@ -62,9 +62,11 @@ pub fn process_cancel_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     iter.next_signer_mut("payer")?;
     // The maker signs the cancel; the cancel proof recomputes the order's
     // committed maker_owner_hash from this pubkey (owner_pk_field), so only the
-    // maker can cancel and the maker knows the refund blinding it chose.
+    // maker can cancel and the maker knows the refund blinding it chose. The
+    // identity is tagged as a Solana key, like the owner hash the order commits.
     let maker_owner_pk_field =
-        hash_bytes(iter.next_signer("maker")?.address().as_array()).map_err(SwapError::from)?;
+        solana_owner_identity(iter.next_signer("maker")?.address().as_array())
+            .map_err(SwapError::from)?;
 
     let CancelIxData {
         proof,

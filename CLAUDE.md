@@ -72,6 +72,7 @@ program-tests/
 
 sdk-libs/
   keypair/             -- shielded key material and hashes
+  program/             -- SBF-buildable SDK for programs: on-chain SPP derivations
   program-test/        -- reusable local test/indexer harness
   transaction/         -- wallet, UTXO, encryption, and transaction logic
 

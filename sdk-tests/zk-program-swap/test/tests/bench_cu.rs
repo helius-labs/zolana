@@ -20,7 +20,7 @@ use swap_sdk::{
     instructions::{
         cancel::{Cancel, CancelProofInputParams},
         make::{Make, MakeProofInputParams, OrderMarker, SppTxHashes},
-        take::{Take, TakeProofInputParams},
+        take::{take_blinding_seed, Take, TakeProofInputParams},
         take_verifiable_encryption::{
             TakeVerifiableEncryption, TakeVerifiableEncryptionProofInputParams,
         },
@@ -47,7 +47,7 @@ use zolana_merkle_tree::{indexed::IndexedMerkleTree, MerkleTree};
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
             spp_proof_inputs::BN254_MODULUS_DEC, ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
@@ -93,6 +93,10 @@ fn system_owned_account(lamports: u64) -> Account {
     }
 }
 
+/// Raw id of the fixture tree. `build_tree_fixture` initializes the account with
+/// this id, and every UTXO commitment folds it in.
+const BENCH_TREE_ID: u16 = 0;
+
 fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32], [u8; 32], u16) {
     let mut tree_account_bytes = vec![0u8; tree_account_size()];
     let root_index = leaves.len() as u16;
@@ -102,7 +106,7 @@ fn build_tree_fixture(tree: &Pubkey, leaves: &[[u8; 32]]) -> (Account, [u8; 32],
             TREE_ACCOUNT_DISCRIMINATOR,
             STATE_HEIGHT as u8,
             tree.to_bytes(),
-            0,
+            BENCH_TREE_ID,
             nullifier_tree_params(),
             default_tree_fees(nullifier_tree_params().input_queue_zkp_batch_size)
                 .expect("default tree fees"),
@@ -394,7 +398,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         expiry: EXPIRY,
         take_mode: swap_prover::TAKE_MODE_VERIFIABLE,
     };
-    let order_utxo = OrderUtxo {
+    let mut order_utxo = OrderUtxo {
         terms,
         blinding: random_blinding(),
         source_mint: SOL_MINT,
@@ -406,8 +410,8 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         .expect("order output");
 
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let spend = SppProofInputUtxo::new(input_utxo, &maker);
-    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy()];
+    let spend = SppProofInputUtxo::new(input_utxo, &maker).in_tree(BENCH_TREE_ID);
+    let input_utxos = vec![spend, SppProofInputUtxo::new_dummy().in_tree(BENCH_TREE_ID)];
     let assets = AssetRegistry::default();
 
     let order_utxo_asset = order_output_utxo.asset;
@@ -420,8 +424,17 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         maker.shielded_address().expect("maker address"),
     )
     .expect("change output");
+    let mut transaction_outputs = vec![change, order_output_utxo];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive make output blindings");
+    let [change, order_output_utxo]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("make transaction has two outputs");
+    order_utxo.blinding = order_output_utxo.blinding;
 
-    let order_utxo_hash = order_output_utxo.hash().expect("order output hash");
+    let order_utxo_hash = order_output_utxo
+        .hash(BENCH_TREE_ID)
+        .expect("order output hash");
     let marker_message = OrderMarker {
         order_utxo_hash,
         maker_pubkey: payer.pubkey(),
@@ -437,6 +450,7 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         &[change.clone(), order_output_utxo],
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode make slots");
 
@@ -452,7 +466,9 @@ fn bench_make(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -550,11 +566,12 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
 
     let taker_in = order_utxo.destination_output(taker_address, taker_in_blinding);
     let source_output = order_utxo.source_output(taker_address, source_output_blinding);
-    let destination_output = order_utxo
-        .derived_destination_output(maker_address)
-        .expect("destination output");
+    let destination_output = order_utxo.destination_output(maker_address, random_blinding());
 
-    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
+    let order_input_utxo = order_utxo
+        .to_input_utxo()
+        .expect("order spend")
+        .in_tree(BENCH_TREE_ID);
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -563,11 +580,29 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         ring_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker).in_tree(BENCH_TREE_ID);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![order_input_utxo, taker_spend];
+    let mut transaction_outputs = vec![source_output, destination_output];
+    let blinding_seed = take_blinding_seed(&order_utxo.blinding).expect("take blinding seed");
+    let first_nullifier = input_utxos
+        .first()
+        .expect("order input")
+        .nullifier()
+        .expect("order nullifier");
+    let seed = zolana_transaction::derive_output_blinding_seed(&first_nullifier, &blinding_seed)
+        .expect("take seed");
+    zolana_transaction::instructions::transact::assign_output_blindings(
+        &mut transaction_outputs,
+        &first_nullifier,
+        &seed,
+    )
+    .expect("derive take output blindings");
+    let [source_output, destination_output]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("take transaction has two outputs");
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -575,6 +610,7 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         &[source_output.clone(), destination_output.clone()],
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode take slots");
 
@@ -591,7 +627,9 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -621,6 +659,11 @@ fn bench_take_derived(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenc
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs
+            .private_tx_blinding()
+            .expect("private tx blinding"),
+        input_tree_id: BENCH_TREE_ID,
+        output_tree_id: BENCH_TREE_ID,
     };
 
     let prover = ProverClient::local();
@@ -697,11 +740,10 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
     let source_output = order_utxo.source_output(taker_address, source_output_blinding);
     let destination_output =
         order_utxo.destination_output(maker_address, destination_output_blinding);
-    let destination_ciphertext = order_utxo
-        .destination_ciphertext(&destination_output)
-        .expect("destination ciphertext");
-
-    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
+    let order_input_utxo = order_utxo
+        .to_input_utxo()
+        .expect("order spend")
+        .in_tree(BENCH_TREE_ID);
     let taker_utxo = Utxo {
         owner: taker.signing_pubkey(),
         asset: SOL_MINT,
@@ -710,7 +752,7 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         ring_program_id: None,
         data: Data::default(),
     };
-    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker);
+    let taker_spend = SppProofInputUtxo::new(taker_utxo, &taker).in_tree(BENCH_TREE_ID);
 
     let payer_address = Address::new_from_array(taker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
@@ -719,6 +761,15 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         .confidential_view_tag()
         .expect("maker view tag");
     let input_utxos = vec![order_input_utxo, taker_spend];
+    let mut transaction_outputs = vec![source_output, destination_output];
+    let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)
+        .expect("derive verifiable take output blindings");
+    let [source_output, destination_output]: [_; 2] = transaction_outputs
+        .try_into()
+        .expect("take transaction has two outputs");
+    let destination_ciphertext = order_utxo
+        .destination_ciphertext(&destination_output)
+        .expect("destination ciphertext");
     let transaction_viewing_key =
         get_transaction_viewing_key(&taker, &input_utxos).expect("take transaction viewing key");
 
@@ -726,9 +777,12 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         std::slice::from_ref(&source_output),
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode take source slot");
-    let destination_utxo_hash = destination_output.hash().expect("take output hash");
+    let destination_utxo_hash = destination_output
+        .hash(BENCH_TREE_ID)
+        .expect("take output hash");
     encoded.outputs.push(TransactOutput {
         utxo_hash: destination_utxo_hash,
         owner_tag: OwnerTag::Inline(destination_view_tag),
@@ -750,7 +804,9 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -780,6 +836,11 @@ fn bench_take(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark) {
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs
+            .private_tx_blinding()
+            .expect("private tx blinding"),
+        input_tree_id: BENCH_TREE_ID,
+        output_tree_id: BENCH_TREE_ID,
     };
 
     let prover = ProverClient::local();
@@ -862,13 +923,19 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
     };
     let source_output_blinding = random_blinding();
 
-    let source_output = order_utxo.source_output(maker_address, source_output_blinding);
+    let mut source_output = order_utxo.source_output(maker_address, source_output_blinding);
 
-    let order_input_utxo = order_utxo.to_input_utxo().expect("order spend");
+    let order_input_utxo = order_utxo
+        .to_input_utxo()
+        .expect("order spend")
+        .in_tree(BENCH_TREE_ID);
 
     let payer_address = Address::new_from_array(maker_payer.pubkey().to_bytes());
     let assets = AssetRegistry::default();
     let input_utxos = vec![order_input_utxo];
+    let blinding_seed =
+        prepare_output_blindings(&input_utxos, std::slice::from_mut(&mut source_output))
+            .expect("derive cancel output blinding");
     let transaction_viewing_key =
         get_transaction_viewing_key(&maker, &input_utxos).expect("cancel transaction viewing key");
 
@@ -876,6 +943,7 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         std::slice::from_ref(&source_output),
         &assets,
         &transaction_viewing_key,
+        BENCH_TREE_ID,
     )
     .expect("encode cancel slots");
 
@@ -892,7 +960,9 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
         encoded.output_utxos,
         external_data,
         payer_address,
-    );
+    )
+    .with_blinding_seed(blinding_seed)
+    .with_output_tree_id(BENCH_TREE_ID);
 
     let commitments = spp_proof_inputs
         .input_utxo_hashes()
@@ -921,6 +991,11 @@ fn bench_cancel(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchmark)
             .external_data
             .hash()
             .expect("external data hash"),
+        private_tx_blinding: spp_proof_inputs
+            .private_tx_blinding()
+            .expect("private tx blinding"),
+        input_tree_id: BENCH_TREE_ID,
+        output_tree_id: BENCH_TREE_ID,
     };
 
     let prover = ProverClient::local();

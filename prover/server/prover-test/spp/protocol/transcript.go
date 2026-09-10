@@ -56,14 +56,17 @@ func RightHashChain(inputs []*big.Int) (*big.Int, error) {
 	return h, nil
 }
 
-// PrivateTxHash mirrors PrivateTxHashGadget. addressUtxoHashes is the address
-// category (the UTXO hash of every address slot, 0 for real spends and padding);
-// it has the same length as inputUtxoHashes.
+// PrivateTxHash mirrors PrivateTxHashGadget. addressNullifiers is the address
+// category (the nullifier, i.e. the compressed address, of every address slot;
+// 0 for real spends and padding); it has the same length as inputUtxoHashes.
+// blinding is the transaction's private blinding, which the circuit rejects
+// when zero.
 func PrivateTxHash(
 	inputUtxoHashes []*big.Int,
 	outputUtxoHashes []*big.Int,
-	addressUtxoHashes []*big.Int,
+	addressNullifiers []*big.Int,
 	externalDataHash *big.Int,
+	blinding *big.Int,
 ) (*big.Int, error) {
 	inputChain, err := HashChain(inputUtxoHashes)
 	if err != nil {
@@ -73,7 +76,7 @@ func PrivateTxHash(
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash output chain: %w", err)
 	}
-	addressChain, err := HashChain(addressUtxoHashes)
+	addressChain, err := HashChain(addressNullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash address chain: %w", err)
 	}
@@ -83,6 +86,7 @@ func PrivateTxHash(
 		outputChain,
 		addressChain,
 		externalDataHash,
+		blinding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("spp: private tx hash: %w", err)

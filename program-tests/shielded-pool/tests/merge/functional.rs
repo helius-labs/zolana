@@ -125,7 +125,10 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
     assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, 0));
 
     // Merkle witnesses against the on-chain roots, gated on the local trees.
-    let utxo_hash = utxo.hash(&nullifier_pk, &zero, &zero).expect("utxo hash");
+    let tree_id = env.tree_id;
+    let utxo_hash = utxo
+        .hash(&nullifier_pk, &zero, &zero, tree_id)
+        .expect("utxo hash");
     let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
     let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
     state_tree.append(&utxo_hash).expect("append state leaf");
@@ -171,6 +174,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         nullifier_key: nullifier_key.clone(),
         data_hash: None,
         ring_data_hash: None,
+        tree_id,
         proof: Some(SpendProof {
             state: MerkleProof {
                 leaf: utxo_hash,
@@ -203,6 +207,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
             nullifier_key: nullifier_key.clone(),
             data_hash: None,
             ring_data_hash: None,
+            tree_id,
             proof: None,
             nullifier_proof: Some(to_non_inclusion(dummy_nullifier, &proof)),
         });
@@ -226,6 +231,7 @@ fn merge_collects_the_exact_forester_fee_from_the_payer() {
         expiry_unix_ts: u64::MAX,
         signing_pubkey: owner_public_key,
         nullifier_key,
+        output_tree_id: tree_id,
     }
     .build()
     .expect("build merge witness");

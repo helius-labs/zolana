@@ -16,7 +16,7 @@ function bytesToBigInt(bytes: Uint8Array): bigint {
 // The bounds are checked here rather than left to the module so a rejection
 // still arrives as the `INTERFACE_HASH` its callers catch, with the detail that
 // says which input was wrong.
-function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
+export function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
   if (inputs.length < 1 || inputs.length > MAX_POSEIDON_INPUTS) {
     throw new InterfaceError("INTERFACE_HASH", {
       inputCount: inputs.length,
@@ -32,7 +32,7 @@ function poseidon(inputs: readonly Uint8Array[]): Bytes32 {
   return hash(inputs) as Bytes32;
 }
 
-function rightAlign(bytes: Uint8Array): Bytes32 {
+export function rightAlign(bytes: Uint8Array): Bytes32 {
   const result = new Uint8Array(32);
   result.set(bytes, 32 - bytes.length);
   return result as Bytes32;

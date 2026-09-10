@@ -22,8 +22,8 @@ use zolana_keypair::random_blinding;
 use zolana_transaction::{
     instructions::{
         transact::{
-            encrypt_transaction_data, get_transaction_viewing_key, ExternalData, SppProofInputs,
-            SppProofOutputUtxo,
+            encrypt_transaction_data, get_transaction_viewing_key, prepare_output_blindings,
+            ExternalData, SppProofInputs, SppProofOutputUtxo,
         },
         types::SppProofInputUtxo,
     },
@@ -53,6 +53,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
     let TestEnv {
         client,
         tree,
+        tree_id,
         maker,
         maker_input,
         mut taker,
@@ -80,7 +81,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         };
 
         let maker_address = maker.keypair.shielded_address()?;
-        let order_utxo = OrderUtxo {
+        let mut order_utxo = OrderUtxo {
             terms,
             blinding: random_blinding(),
             source_mint: spl_mint,
@@ -92,7 +93,10 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         // The maker's SPL note is program-owned (signing = swap PDA, nullifier
         // = order key), so the maker wallet can never discover it; the fixture
         // retains it explicitly for exactly this spend (mirrors swap.rs).
-        let input_utxos = vec![maker_input, SppProofInputUtxo::new_dummy()];
+        let input_utxos = vec![
+            maker_input.in_tree(tree_id),
+            SppProofInputUtxo::new_dummy().in_tree(tree_id),
+        ];
 
         let order_utxo_asset = order_output_utxo.asset;
         let leftover =
@@ -100,9 +104,15 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         let change_amount = u64::try_from(leftover)
             .map_err(|_| anyhow!("insufficient order balance: {leftover}"))?;
         let change = SppProofOutputUtxo::new(order_utxo_asset, change_amount, maker_address)?;
+        let mut transaction_outputs = vec![change, order_output_utxo];
+        let blinding_seed = prepare_output_blindings(&input_utxos, &mut transaction_outputs)?;
+        let [change, order_output_utxo]: [_; 2] = transaction_outputs
+            .try_into()
+            .map_err(|_| anyhow!("make transaction must have two outputs"))?;
+        order_utxo.blinding = order_output_utxo.blinding;
 
         let order_utxo_hash = order_output_utxo
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("order output hash: {e:?}"))?;
 
         let transaction_viewing_key = get_transaction_viewing_key(&maker.keypair, &input_utxos)
@@ -112,6 +122,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             &[change.clone(), order_output_utxo],
             &maker.registry,
             &transaction_viewing_key,
+            tree_id,
         )?;
 
         let marker_message = OrderMarker {
@@ -132,7 +143,9 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             encoded_transaction_data.output_utxos,
             external_data,
             maker_address.solana_address()?,
-        );
+        )
+        .with_blinding_seed(blinding_seed)
+        .with_output_tree_id(tree_id);
 
         let spp_tx_hashes = SppTxHashes::new(&spp_proof_inputs)?;
         let spp_proof = client
@@ -198,21 +211,26 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         // proves the published ciphertext encrypts exactly this output.
         let destination_output =
             order_utxo.destination_output(terms.destination, random_blinding());
+        let order_input_utxo = order_utxo
+            .to_input_utxo()
+            .map_err(|e| anyhow!("order spend: {e:?}"))?
+            .in_tree(tree_id);
+        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair).in_tree(tree_id);
+        let inputs = vec![order_input_utxo, taker_spend];
+        let mut transaction_outputs = vec![source_output, destination_output];
+        let blinding_seed = prepare_output_blindings(&inputs, &mut transaction_outputs)?;
+        let [source_output, destination_output]: [_; 2] = transaction_outputs
+            .try_into()
+            .map_err(|_| anyhow!("take transaction must have two outputs"))?;
         let destination_ciphertext = order_utxo
             .destination_ciphertext(&destination_output)
             .map_err(|e| anyhow!("destination ciphertext: {e:?}"))?;
         let source_output_hash = source_output
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("source output hash: {e:?}"))?;
         let destination_output_hash = destination_output
-            .hash()
+            .hash(tree_id)
             .map_err(|e| anyhow!("destination output hash: {e:?}"))?;
-
-        let order_input_utxo = order_utxo
-            .to_input_utxo()
-            .map_err(|e| anyhow!("order spend: {e:?}"))?;
-        let taker_spend = SppProofInputUtxo::new(taker_input_utxo, &taker.keypair);
-        let inputs = vec![order_input_utxo, taker_spend];
 
         let transaction_viewing_key = get_transaction_viewing_key(&taker.keypair, &inputs)
             .map_err(|e| anyhow!("transaction viewing key: {e:?}"))?;
@@ -224,6 +242,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             std::slice::from_ref(&source_output),
             &taker.registry,
             &transaction_viewing_key,
+            tree_id,
         )?;
         let destination_view_tag = terms
             .destination
@@ -251,7 +270,9 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
             encoded.output_utxos,
             external_data,
             taker_address.solana_address()?,
-        );
+        )
+        .with_blinding_seed(blinding_seed)
+        .with_output_tree_id(tree_id);
 
         let take_proof_inputs = TakeVerifiableEncryptionProofInputParams {
             order_utxo,
@@ -262,6 +283,11 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
                 .external_data
                 .hash()
                 .map_err(|e| anyhow!("take external data hash: {e:?}"))?,
+            private_tx_blinding: take_spp_proof_inputs
+                .private_tx_blinding()
+                .map_err(|e| anyhow!("take private tx blinding: {e:?}"))?,
+            input_tree_id: tree_id,
+            output_tree_id: tree_id,
         };
 
         let spp_proof = client

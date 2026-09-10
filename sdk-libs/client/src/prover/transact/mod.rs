@@ -4,7 +4,7 @@ pub mod ring_eddsa;
 pub mod ring_p256;
 pub mod witness;
 
-pub use assembly::{PublicInputs, TransferSpendInput};
+pub use assembly::{assign_spend_output_blindings, PublicInputs, TransferSpendInput};
 pub use eddsa::{TransferProofResult, TransferProver};
 pub use ring_eddsa::{RingTransferProofResult, RingTransferProver};
 pub use ring_p256::{RingTransferP256ProofResult, RingTransferP256Prover};

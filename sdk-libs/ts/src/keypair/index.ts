@@ -1,4 +1,11 @@
-export { initializePoseidon, isPoseidonInitialized } from "../hasher/index.js";
+export {
+  P256_OWNER_TAG,
+  SOLANA_OWNER_TAG,
+  initializePoseidon,
+  isPoseidonInitialized,
+  p256OwnerIdentity,
+  solanaOwnerIdentity,
+} from "../hasher/index.js";
 
 export { randomBlinding, randomSalt } from "./bytes.js";
 export type { Bytes16, Bytes31, Bytes32, Bytes33, Bytes34, Bytes64 } from "./bytes.js";
@@ -37,7 +44,8 @@ export {
 } from "./derivation.js";
 export { poseidon } from "./poseidon.js";
 export { ownerHash, sha256Be, sha256Bytes, splitBigEndian128 } from "./hash.js";
-export { symmetricApply } from "./merge/index.js";
+export { mergePrivateTxBlinding, symmetricApply } from "./merge/index.js";
+export { outputBlindingSeed, privateTxBlinding, transactOutputBlinding } from "./transact/index.js";
 export {
   auditorMessageData,
   auditorViewTag,

@@ -546,6 +546,8 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     inputUtxos: proofInputs.inputUtxos,
     outputs: proofInputs.outputs,
     externalData: createExternalData({ ...external, outputs }),
+    blindingSeed: proofInputs.blindingSeed,
+    outputTreeId: proofInputs.outputTreeId,
   });
 }
 

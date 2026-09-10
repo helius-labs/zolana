@@ -12,11 +12,11 @@ use zolana_interface::{
     pda,
 };
 use zolana_keypair::shielded::ShieldedAddress;
-use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext};
+use zolana_transaction::{owner_utxo_hash, serialization::RingDepositPlaintext, Blinding};
 
 use crate::{
     instructions::RING_TEST_PROGRAM_ID, paths::default_ring_test_program_path,
-    wallet_data::wallet_shield_fields, ProgramTestError, RingDepositOutput, ZolanaProgramTest,
+    wallet_data::wallet_shield_identity, ProgramTestError, RingDepositOutput, ZolanaProgramTest,
 };
 
 pub struct RingDepositBatch {
@@ -169,19 +169,18 @@ impl ZolanaProgramTest {
     pub fn wallet_ring_sol_shield_data(
         lamports: u64,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; 32],
-        position: u8,
+        blinding: Blinding,
     ) -> Result<RingAssetDeposit, ProgramTestError> {
-        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
+        let (view_tag, owner) = wallet_shield_identity(recipient)?;
         Ok(RingAssetDeposit {
             asset: DepositAsset::Sol,
-            view_tag: fields.view_tag,
-            owner_utxo_hash: owner_utxo_hash(&fields.owner, &fields.blinding)?,
+            view_tag,
+            owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount: lamports,
             data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
-                blinding: fields.blinding,
+                blinding,
                 utxo_data: None,
                 memo: None,
                 ring_data: Vec::new(),
@@ -195,23 +194,22 @@ impl ZolanaProgramTest {
         mint: Pubkey,
         user_token: Pubkey,
         recipient: &ShieldedAddress,
-        blinding_seed: &[u8; 32],
-        position: u8,
+        blinding: Blinding,
     ) -> Result<RingAssetDeposit, ProgramTestError> {
-        let fields = wallet_shield_fields(recipient, blinding_seed, position)?;
+        let (view_tag, owner) = wallet_shield_identity(recipient)?;
         Ok(RingAssetDeposit {
             asset: DepositAsset::Spl(DepositSplAccounts {
                 mint,
                 user_token,
                 token_program: Self::token_program_id(),
             }),
-            view_tag: fields.view_tag,
-            owner_utxo_hash: owner_utxo_hash(&fields.owner, &fields.blinding)?,
+            view_tag,
+            owner_utxo_hash: owner_utxo_hash(&owner, &blinding)?,
             amount,
             data_hash: None,
             ring_data_hash: [0u8; 32],
             encrypted: RingDepositPlaintext {
-                blinding: fields.blinding,
+                blinding,
                 utxo_data: None,
                 memo: None,
                 ring_data: Vec::new(),

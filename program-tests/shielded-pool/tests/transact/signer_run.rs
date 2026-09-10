@@ -9,7 +9,9 @@ use shielded_pool_program::testing::{
     SIGNER_ZERO_SUFFIX_CHAINS,
 };
 use zolana_account_checks::account_info::test_account_info::get_account_view;
-use zolana_hasher::{hash_chain::create_right_hash_chain_from_slice, primitives::hash_bytes};
+use zolana_hasher::{
+    hash_chain::create_right_hash_chain_from_slice, primitives::solana_owner_identity,
+};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{CircuitId, ResolvedOutput},
@@ -47,15 +49,15 @@ fn owner_signers_are_first_occurrence_deduplicated_with_payer_first() {
     assert_eq!(proof_inputs.unique_owner_signer_count, 3);
     assert_eq!(
         proof_inputs.signer_pk_hashes[0],
-        hash_bytes(&[1; 32]).unwrap()
+        solana_owner_identity(&[1; 32]).unwrap()
     );
     assert_eq!(
         proof_inputs.signer_pk_hashes[1],
-        hash_bytes(&[2; 32]).unwrap()
+        solana_owner_identity(&[2; 32]).unwrap()
     );
     assert_eq!(
         proof_inputs.signer_pk_hashes[2],
-        hash_bytes(&[3; 32]).unwrap()
+        solana_owner_identity(&[3; 32]).unwrap()
     );
     assert_eq!(proof_inputs.signer_pk_hashes[3], [0; 32]);
 }
@@ -147,7 +149,7 @@ fn confidential_marked_mode_hashes_only_marked_output_tags() {
 
     assert_eq!(
         proof_inputs.output_owner_pk_hashes[0],
-        hash_bytes(&[1; 32]).unwrap()
+        solana_owner_identity(&[1; 32]).unwrap()
     );
     assert_eq!(proof_inputs.output_owner_pk_hashes[1], [0; 32]);
     assert_eq!(proof_inputs.output_owner_pk_hashes[2], [0; 32]);

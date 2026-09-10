@@ -110,8 +110,8 @@ func TestPublicInputNamesMatchSpecSet(t *testing.T) {
 	expected := []string{
 		"nullifiers",
 		"output_utxo_hashes",
-		"utxo_tree_roots",
-		"nullifier_tree_roots",
+		"tree_slots",
+		"output_tree_id",
 		"private_tx_hash",
 		"external_data_hash",
 		"public_asset_0",

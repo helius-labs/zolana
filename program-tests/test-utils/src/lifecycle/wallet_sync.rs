@@ -15,6 +15,7 @@ impl LifecycleHarness {
         // Actors may exist before assets are registered, so refresh the wallet's
         // asset registry before decoding SPL UTXOs.
         let assets = self.assets.clone();
+        let tree_id = self.tree_id;
         let actor = self.actor_mut(name);
         actor.wallet.registry = assets;
         let authority = KeypairWalletAuthority::new(Address::default(), &actor.keypair);
@@ -25,7 +26,7 @@ impl LifecycleHarness {
         let nullifier_pk = actor.keypair.nullifier_key.pubkey()?;
         let mut spendable_hashes: Vec<[u8; 32]> = Vec::new();
         for utxo in &actor.spendable {
-            spendable_hashes.push(utxo.hash(&nullifier_pk, &ZERO, &ZERO)?);
+            spendable_hashes.push(utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?);
         }
         let newly_spendable: Vec<Utxo> = actor
             .wallet

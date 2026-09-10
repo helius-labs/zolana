@@ -1,30 +1,16 @@
 use anyhow::{bail, Result};
-use swap_program::instructions::{shared::u64_right_align, take::TakePublicInput};
-use swap_prover::{
-    OrderTermsProofInput, TakeProofInputs, DESTINATION_BLINDING_DOMAIN, TAKE_MODE_DERIVED,
-};
-use zolana_keypair::hash::poseidon;
+use swap_program::instructions::take::TakePublicInput;
+use swap_prover::{OrderTermsProofInput, TakeProofInputs, TAKE_MODE_DERIVED};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, SppProofOutputUtxo},
-    utxo::Blinding,
+    utxo::{
+        derive_output_blinding_seed, derive_private_tx_blinding, derive_transact_output_blinding,
+    },
     ProofInputUtxo,
 };
 
-use crate::{
-    err,
-    shared::{check_output_utxo, right_align_blinding},
-    state::OrderUtxo,
-};
-
-pub fn derive_destination_blinding(order_utxo_blinding: &Blinding) -> Result<Blinding> {
-    let domain = u64_right_align(DESTINATION_BLINDING_DOMAIN);
-    let derived = poseidon(&[&right_align_blinding(order_utxo_blinding), &domain]).map_err(err)?;
-    // The take circuit derives the blinding with a 31-byte truncation, so
-    // mirror it: zero the top byte of the Poseidon output.
-    let mut blinding = derived;
-    blinding[0] = 0;
-    Ok(blinding)
-}
+use super::take_blinding_seed;
+use crate::{err, shared::check_output_utxo, state::OrderUtxo};
 
 pub struct TakeProofInputParams {
     pub order_utxo: OrderUtxo,
@@ -32,6 +18,13 @@ pub struct TakeProofInputParams {
     pub source_output: SppProofOutputUtxo,
     pub destination_output: SppProofOutputUtxo,
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the order and taker UTXOs are spent from.
+    pub input_tree_id: u16,
+    /// Raw id of the tree the source and destination outputs are appended to.
+    pub output_tree_id: u16,
 }
 
 impl TakeProofInputParams {
@@ -61,18 +54,38 @@ impl TakeProofInputParams {
         if destination_owner != terms.destination {
             bail!("destination output owner does not match the order destination");
         }
-        if self.destination_output.blinding != self.order_utxo.derived_destination_blinding()? {
-            bail!("destination output blinding does not match the derived blinding");
-        }
         if terms.take_mode != TAKE_MODE_DERIVED {
             bail!("order take_mode does not authorize the derived take");
         }
         let order = OrderTermsProofInput::try_from(terms)?;
-        let order_utxo =
-            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
-        let taker_in = ProofInputUtxo::try_from(&self.taker_in).map_err(err)?;
-        let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;
-        let destination_output = ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
+        let order_input = self.order_utxo.to_input_utxo()?.in_tree(self.input_tree_id);
+        let first_nullifier = order_input.nullifier().map_err(err)?;
+        let blinding_seed = take_blinding_seed(&self.order_utxo.blinding)?;
+        let seed = derive_output_blinding_seed(&first_nullifier, &blinding_seed).map_err(err)?;
+        if self.private_tx_blinding
+            != derive_private_tx_blinding(&first_nullifier, &blinding_seed).map_err(err)?
+        {
+            bail!("take blinding seed must derive from the order opening");
+        }
+        for (index, output) in [&self.source_output, &self.destination_output]
+            .into_iter()
+            .enumerate()
+        {
+            if output.blinding
+                != derive_transact_output_blinding(&first_nullifier, &seed, index as u32)
+                    .map_err(err)?
+            {
+                bail!("take output {index} blinding must derive from the order opening");
+            }
+        }
+        let order_utxo = ProofInputUtxo::try_from(&order_input).map_err(err)?;
+        let taker_in =
+            ProofInputUtxo::try_from((&self.taker_in, self.input_tree_id)).map_err(err)?;
+        let source_output =
+            ProofInputUtxo::try_from((&self.source_output, self.output_tree_id)).map_err(err)?;
+        let destination_output =
+            ProofInputUtxo::try_from((&self.destination_output, self.output_tree_id))
+                .map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[
                 order_utxo.hash().map_err(err)?,
@@ -83,24 +96,28 @@ impl TakeProofInputParams {
                 destination_output.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
         let public_input_hash = TakePublicInput {
             private_tx_hash: &private_tx_hash,
             expiry: terms.expiry,
+            first_nullifier: &first_nullifier,
         }
         .hash()
         .map_err(err)?;
         Ok(TakeProofInputs {
             public_input_hash,
             private_tx_hash,
+            first_nullifier,
             order,
             order_utxo,
             taker_in,
             source_output,
             destination_output,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

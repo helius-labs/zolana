@@ -225,6 +225,41 @@ fn transact_rejects_a_stale_utxo_root_index() {
 }
 
 #[test]
+fn transact_rejects_inputs_that_reference_different_utxo_root_indexes() {
+    let mut env = Pool::initialized();
+    // SPP resolves both roots from the single `input_tree`, so the proof binds
+    // one tree slot; an input that names a different UTXO root index than
+    // input 0 would be proven against a root the instruction never resolved.
+    let mut data = transfer_ix_data(2, 3);
+    data.inputs
+        .get_mut(1)
+        .expect("second input")
+        .utxo_tree_root_index = 1;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::InputTreeRootIndexMismatch,
+    );
+}
+
+#[test]
+fn transact_rejects_inputs_that_reference_different_nullifier_root_indexes() {
+    let mut env = Pool::initialized();
+    // Symmetric to the UTXO root index: every input shares `input_tree`'s one
+    // nullifier root.
+    let mut data = transfer_ix_data(2, 3);
+    data.inputs
+        .get_mut(1)
+        .expect("second input")
+        .nullifier_tree_root_index = 1;
+    expect_rejection(
+        &mut env,
+        data,
+        ShieldedPoolError::InputTreeRootIndexMismatch,
+    );
+}
+
+#[test]
 fn transact_rejects_a_paused_tree() {
     let mut env = Pool::initialized();
     let authority = env.authority.insecure_clone();

@@ -3,7 +3,10 @@
 use solana_pubkey::Pubkey;
 use zolana_hasher::Poseidon;
 use zolana_interface::instruction::{deposit_blinding, AssetDeposit};
-use zolana_interface::{pda, state::STATE_HEIGHT};
+use zolana_interface::{
+    pda,
+    state::{read_tree_id, STATE_HEIGHT},
+};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{DepositOutput, ZolanaProgramTest};
 use zolana_transaction::{ProofInputUtxo, SyncWalletAuthority, Wallet, SOL_MINT};
@@ -81,11 +84,16 @@ pub struct SolDepositOracle {
     initial: SolDepositSnapshot,
     accepted: Vec<ExpectedSolDeposit>,
     expected_tree: MerkleTree<Poseidon>,
+    /// The deposit tree's raw id. Deposit commitments are hashed under the id
+    /// of the tree they are appended to, so the model has to read it once.
+    tree_id: u16,
 }
 
 impl SolDepositOracle {
     pub fn capture(program_test: &ZolanaProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
         let initial = SolDepositSnapshot::capture(program_test, tree, depositor);
+        let tree_id =
+            read_tree_id(&program_test.account_data(tree).expect("tree account")).expect("tree id");
         let mut expected_tree = MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0);
         for indexed in program_test.indexer().utxos() {
             expected_tree
@@ -102,6 +110,7 @@ impl SolDepositOracle {
             initial,
             accepted: Vec::new(),
             expected_tree,
+            tree_id,
         }
     }
 
@@ -116,12 +125,17 @@ impl SolDepositOracle {
         // the leaf index the output lands at.
         let expected_blinding = deposit_blinding(&self.tree.to_bytes(), expected_leaf as u64)
             .expect("model deposit blinding");
-        let expected_hash =
-            ProofInputUtxo::new(data.owner, &SOL_MINT, data.amount, &expected_blinding)
-                .expect("model deposit fields")
-                .with_data_hash(data_hash)
-                .hash()
-                .expect("model deposit hash");
+        let expected_hash = ProofInputUtxo::new(
+            data.owner,
+            &SOL_MINT,
+            data.amount,
+            &expected_blinding,
+            self.tree_id,
+        )
+        .expect("model deposit fields")
+        .with_data_hash(data_hash)
+        .hash()
+        .expect("model deposit hash");
         assert_eq!(event.leaf_index, expected_leaf as u64, "event leaf order");
         assert_eq!(event.utxo_hash, expected_hash, "event UTXO hash");
         assert_eq!(event.view_tag, data.view_tag, "event view tag");

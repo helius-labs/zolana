@@ -9,9 +9,7 @@ import (
 	spp "zolana/prover/circuits/spp_transaction/shared"
 )
 
-const DestinationBlindingDomain uint64 = 0x46494C4C44455256
-
-const destinationBlindingBits = 248
+const blindingSeedDomain = 0x53575458 // SWTX; matches the SDK's take_blinding_seed.
 
 type Circuit struct {
 	Public PublicInputs
@@ -21,7 +19,13 @@ type Circuit struct {
 
 func (c *Circuit) Define(api frontend.API) error {
 	api.AssertIsEqual(c.Core.Order.TakeMode, orderterms.TakeModeDerived)
-	api.AssertIsEqual(c.Core.DestinationOutput.Blinding, DeriveDestinationBlinding(api, c.Core.OrderUtxo.Blinding))
+	// Both parties hold the order opening. Binding the root seed and the published
+	// first nullifier makes every payout recoverable without the taker's ciphertext.
+	blindingSeed := gadget.PoseidonHash(api, []frontend.Variable{blindingSeedDomain, c.Core.OrderUtxo.Blinding})
+	seed := spp.DeriveOutputBlindingSeed(api, c.Public.FirstNullifier, blindingSeed)
+	api.AssertIsEqual(c.Core.PrivateTxBlinding, spp.DerivePrivateTxBlinding(api, c.Public.FirstNullifier, blindingSeed))
+	api.AssertIsEqual(c.Core.SourceOutput.Blinding, spp.DeriveOutputBlinding(api, c.Public.FirstNullifier, seed, 0))
+	api.AssertIsEqual(c.Core.DestinationOutput.Blinding, spp.DeriveOutputBlinding(api, c.Public.FirstNullifier, seed, 1))
 
 	c.Core.Check(api, c.Public.PrivateTxHash)
 
@@ -32,23 +36,31 @@ func (c *Circuit) Define(api frontend.API) error {
 type PublicInputs struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
-	PrivateTxHash frontend.Variable
+	PrivateTxHash  frontend.Variable
+	FirstNullifier frontend.Variable
 }
 
 func (p PublicInputs) Check(api frontend.API, expiry frontend.Variable) {
-	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{p.PrivateTxHash, expiry})
+	publicInputHash := gadget.PoseidonHash(api, []frontend.Variable{p.PrivateTxHash, expiry, p.FirstNullifier})
 	api.AssertIsEqual(p.PublicInputHash, publicInputHash)
 }
 
 type Core struct {
 	Order orderterms.OrderTerms
 
-	OrderUtxo         spp.UtxoCircuitFields
-	TakerIn           spp.UtxoCircuitFields
-	SourceOutput      spp.UtxoCircuitFields
-	DestinationOutput spp.UtxoCircuitFields
+	// Each UTXO carries the raw id of the tree it lives in as a sibling witness;
+	// spp.UtxoHashCircuit folds it in as the second Poseidon element.
+	OrderUtxo               spp.UtxoCircuitFields
+	OrderUtxoTreeID         frontend.Variable
+	TakerIn                 spp.UtxoCircuitFields
+	TakerInTreeID           frontend.Variable
+	SourceOutput            spp.UtxoCircuitFields
+	SourceOutputTreeID      frontend.Variable
+	DestinationOutput       spp.UtxoCircuitFields
+	DestinationOutputTreeID frontend.Variable
 
-	ExternalDataHash frontend.Variable
+	ExternalDataHash  frontend.Variable
+	PrivateTxBlinding frontend.Variable
 }
 
 func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
@@ -66,6 +78,7 @@ func (f Core) Check(api frontend.API, privateTxHash frontend.Variable) {
 		SourceOutputUtxoHash:      sourceOutputUtxoHash,
 		DestinationOutputUtxoHash: destinationOutputUtxoHash,
 		ExternalDataHash:          f.ExternalDataHash,
+		PrivateTxBlinding:         f.PrivateTxBlinding,
 		PrivateTxHash:             privateTxHash,
 	}.Check(api)
 }
@@ -76,6 +89,7 @@ type privateTxHashInputs struct {
 	SourceOutputUtxoHash      frontend.Variable
 	DestinationOutputUtxoHash frontend.Variable
 	ExternalDataHash          frontend.Variable
+	PrivateTxBlinding         frontend.Variable
 	PrivateTxHash             frontend.Variable
 }
 
@@ -84,7 +98,14 @@ func (t privateTxHashInputs) Check(api frontend.API) {
 	outputHashes := []frontend.Variable{t.SourceOutputUtxoHash, t.DestinationOutputUtxoHash}
 	addressHashes := []frontend.Variable{frontend.Variable(0), frontend.Variable(0)}
 
-	privateTxHash := spp.PrivateTxHashCircuit(api, inputHashes, outputHashes, addressHashes, t.ExternalDataHash)
+	privateTxHash := spp.PrivateTxHashCircuit(
+		api,
+		inputHashes,
+		outputHashes,
+		addressHashes,
+		t.ExternalDataHash,
+		t.PrivateTxBlinding,
+	)
 	api.AssertIsEqual(privateTxHash, t.PrivateTxHash)
 }
 
@@ -94,7 +115,7 @@ func (f Core) checkOrderInputUtxo(api frontend.API, makerAddressFe frontend.Vari
 	api.AssertIsEqual(f.OrderUtxo.RingProgramID, 0)
 	api.AssertIsEqual(f.OrderUtxo.DataHash, f.Order.DataHash(api, makerAddressFe))
 	api.AssertIsDifferent(f.OrderUtxo.Amount, 0)
-	return spp.UtxoHashCircuit(api, f.OrderUtxo)
+	return spp.UtxoHashCircuit(api, f.OrderUtxo, f.OrderUtxoTreeID)
 }
 
 func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
@@ -104,7 +125,7 @@ func (f Core) checkTakerInputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.TakerIn.DataHash, 0)
 	api.AssertIsEqual(f.TakerIn.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.TakerIn.Amount, f.Order.DestinationAmount)
-	return spp.UtxoHashCircuit(api, f.TakerIn)
+	return spp.UtxoHashCircuit(api, f.TakerIn, f.TakerInTreeID)
 }
 
 func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
@@ -115,7 +136,7 @@ func (f Core) checkSourceOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.SourceOutput.Asset, f.OrderUtxo.Asset)
 	api.AssertIsEqual(f.SourceOutput.Amount, f.OrderUtxo.Amount)
 	api.AssertIsEqual(f.SourceOutput.Owner, f.TakerIn.Owner)
-	return spp.UtxoHashCircuit(api, f.SourceOutput)
+	return spp.UtxoHashCircuit(api, f.SourceOutput, f.SourceOutputTreeID)
 }
 
 func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
@@ -126,14 +147,5 @@ func (f Core) checkDestinationOutputUtxo(api frontend.API) frontend.Variable {
 	api.AssertIsEqual(f.DestinationOutput.Asset, f.Order.DestinationAsset)
 	api.AssertIsEqual(f.DestinationOutput.Amount, f.Order.DestinationAmount)
 	api.AssertIsEqual(f.DestinationOutput.Owner, f.Order.MakerOwnerHash)
-	return spp.UtxoHashCircuit(api, f.DestinationOutput)
-}
-
-func DeriveDestinationBlinding(api frontend.API, orderUtxoBlinding frontend.Variable) frontend.Variable {
-	full := gadget.PoseidonHash(api, []frontend.Variable{
-		orderUtxoBlinding,
-		frontend.Variable(DestinationBlindingDomain),
-	})
-	bits := api.ToBinary(full, 254)
-	return api.FromBinary(bits[:destinationBlindingBits]...)
+	return spp.UtxoHashCircuit(api, f.DestinationOutput, f.DestinationOutputTreeID)
 }

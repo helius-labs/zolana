@@ -25,6 +25,21 @@ func toProofCircuitFields(utxo protocol.Utxo) txcircuit.UtxoCircuitFields {
 	}
 }
 
+// treeSlotVariables assigns the host tree slots to the circuit's public slots.
+// The slice keeps its length and order: an input's private slot index selects
+// by position, so a reordering would repoint every input.
+func treeSlotVariables(slots []protocol.TreeSlot) []txcircuit.TreeSlot {
+	out := make([]txcircuit.TreeSlot, len(slots))
+	for i, slot := range slots {
+		out[i] = txcircuit.TreeSlot{
+			ID:            slot.ID,
+			UtxoRoot:      slot.UtxoRoot,
+			NullifierRoot: slot.NullifierRoot,
+		}
+	}
+	return out
+}
+
 // dummyUtxo returns a dummy UTXO with random blinding. The circuit classifies
 // slots by the domain tag; every other field is zero, so its UTXO hash and
 // derived nullifier are indistinguishable from a real UTXO's on the public

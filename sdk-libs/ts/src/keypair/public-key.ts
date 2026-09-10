@@ -2,7 +2,7 @@ import { p256 } from "@noble/curves/nist.js";
 
 import { type Bytes32, type Bytes33, type Bytes34, checkedBytes, copyBytes } from "./bytes.js";
 import { P256_PUBLIC_KEY_LENGTH, SHIELDED_PUBLIC_KEY_LENGTH } from "./constants.js";
-import { hashBytes } from "../hasher/index.js";
+import { p256OwnerIdentity, solanaOwnerIdentity } from "../hasher/index.js";
 import { KeypairError, wrapKeypairError } from "./error.js";
 
 export type SignatureType = "p256" | "ed25519";
@@ -130,8 +130,17 @@ export class ShieldedPublicKey {
     return copyBytes(this.#bytes.subarray(1, 33)) as ViewTag;
   }
 
+  /**
+   * The algorithm-tagged identity the proof and the shielded pool hash for
+   * this key: the Solana tag over an Ed25519 key, the P256 tag over a P256
+   * x-coordinate. Mirrors Rust `owner_proof_input_hash`.
+   */
   ownerProofInputHash(): Bytes32 {
-    return hashBytes(this.confidentialViewTag()) as Bytes32;
+    return (
+      this.signatureType() === "p256"
+        ? p256OwnerIdentity(this.p256().x())
+        : solanaOwnerIdentity(this.ed25519())
+    ) as Bytes32;
   }
 
   ed25519(): Bytes32 {

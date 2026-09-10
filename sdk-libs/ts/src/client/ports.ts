@@ -130,9 +130,10 @@ export interface KitRpcAccess {
   readonly commitment: Commitment;
 }
 
-/** The pool tree the client builds against. */
+/** The pool tree the client builds against, by address and by the raw id its commitments hash under. */
 export interface TreeContext {
   readonly tree: Address;
+  readonly treeId: number;
 }
 
 /** @internal */

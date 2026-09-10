@@ -45,6 +45,15 @@ type stateWitnesses struct {
 	proofs  map[uint64]protocol.StateTreeWitness
 }
 
+// proofTrees is the tree context of one transaction: the raw ids the utxo
+// hashes are bound to and the public tree slots inputs are spent from. This
+// builder spends from a single tree, so only slot 0 is populated.
+type proofTrees struct {
+	inputTreeID  *big.Int
+	outputTreeID *big.Int
+	slots        []protocol.TreeSlot
+}
+
 // proofAssignment bundles everything buildProofAssignment produces: the circuit
 // witness, the public inputs and their hash, the output-UTXO responses, and the
 // transcript. Returning a struct keeps callers from positionally
@@ -74,11 +83,36 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree)
+	trees, err := buildProofTrees(tx, state, nullifierTree)
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	outputs, err := buildOutputWitnesses(shape, tx.Outputs)
+	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees.inputTreeID)
+	if err != nil {
+		return proofAssignment{}, err
+	}
+	// One private root seed per transaction; each derived blinding is a
+	// domain-separated child of it and the first nullifier. Both children stay
+	// in the witness, so no caller-visible request field carries them. The
+	// output-blinding seed has to exist before the outputs, whose blindings the
+	// circuit derives from it.
+	if len(inputs.nullifiers) == 0 {
+		return proofAssignment{}, fmt.Errorf("spp: blinding seeds need a first nullifier")
+	}
+	firstNullifier := inputs.nullifiers[0]
+	blindingSeed, err := randomBlinding()
+	if err != nil {
+		return proofAssignment{}, fmt.Errorf("spp: blinding seed: %w", err)
+	}
+	outputBlindingSeed, err := protocol.OutputBlindingSeed(firstNullifier, blindingSeed)
+	if err != nil {
+		return proofAssignment{}, err
+	}
+	privateTxBlinding, err := protocol.PrivateTxBlinding(firstNullifier, blindingSeed)
+	if err != nil {
+		return proofAssignment{}, err
+	}
+	outputs, err := buildOutputWitnesses(shape, tx.Outputs, firstNullifier, outputBlindingSeed, trees.outputTreeID)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -91,12 +125,18 @@ func buildProofAssignment(
 		return proofAssignment{}, err
 	}
 	// This builder constructs only real spends and padding dummies, never address
-	// slots, so the address category is all zeros (one per input).
-	addressHashes := make([]*big.Int, shape.NInputs)
-	for i := range addressHashes {
-		addressHashes[i] = big.NewInt(0)
+	// slots, so the address nullifier category is all zeros (one per input).
+	addressNullifiers := make([]*big.Int, shape.NInputs)
+	for i := range addressNullifiers {
+		addressNullifiers[i] = big.NewInt(0)
 	}
-	privateTxHash, err := protocol.PrivateTxHash(inputs.hashes, outputs.privateTxHashes, addressHashes, external.hash)
+	privateTxHash, err := protocol.PrivateTxHash(
+		inputs.hashes,
+		outputs.privateTxHashes,
+		addressNullifiers,
+		external.hash,
+		privateTxBlinding,
+	)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -105,18 +145,13 @@ func buildProofAssignment(
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash)
+	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, trees)
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
 	}
 
-	witness := customRingWitness(
-		inputs,
-		outputs,
-		publicInputs,
-		publicInputHash,
-	)
+	witness := customRingWitness(inputs, outputs, publicInputs, publicInputHash, blindingSeed)
 	transcript := assignmentTranscript{
 		inputHashes:        inputs.hashes,
 		outputHashes:       outputs.hashes,
@@ -154,6 +189,7 @@ func customRingWitness(
 	outputs outputWitnesses,
 	publicInputs protocol.PublicInputs,
 	publicInputHash *big.Int,
+	blindingSeed *big.Int,
 ) frontend.Circuit {
 	var publicAssets, publicAmounts [txcircuit.NPublicSlots]frontend.Variable
 	for i := 0; i < txcircuit.NPublicSlots; i++ {
@@ -164,8 +200,8 @@ func customRingWitness(
 		Public: customring.CustomRingEddsaOnlyPublic{
 			Nullifiers:                   fieldVariables(publicInputs.Nullifiers),
 			OutputHashes:                 fieldVariables(publicInputs.OutputUtxoHashes),
-			UtxoTreeRoots:                fieldVariables(publicInputs.UtxoTreeRoots),
-			NullifierTreeRoots:           fieldVariables(publicInputs.NullifierTreeRoots),
+			TreeSlots:                    treeSlotVariables(publicInputs.TreeSlots),
+			OutputTreeID:                 publicInputs.OutputTreeID,
 			PrivateTxHash:                publicInputs.PrivateTxHash,
 			ExternalDataHash:             publicInputs.ExternalDataHash,
 			PublicAssets:                 publicAssets,
@@ -182,6 +218,7 @@ func customRingWitness(
 			Outputs:             outputs.outputs,
 			OutputOwnerPkHashes: fieldVariables(outputs.outputOwnerPkHashes),
 			OutputNullifierPks:  fieldVariables(outputs.outputNullifierPks),
+			BlindingSeed:        blindingSeed,
 		},
 	}
 }
@@ -207,10 +244,13 @@ func validateProofShape(shape protocol.Shape, tx ProofTransactionRequest) error 
 	if len(tx.Outputs) > shape.NOutputs {
 		return fmt.Errorf("shape %s allows at most %d outputs, got %d", shape, shape.NOutputs, len(tx.Outputs))
 	}
-	// SPP derives the verifying key and public-input padding from the real
-	// counts with the smallest-fit rule, so a locally valid proof built with any
-	// other (merely large-enough) shape would be rejected on-chain.
-	canonical, err := protocol.CanonicalShape(len(tx.Inputs), len(tx.Outputs))
+	// The assignment pads real inputs and outputs up to the shape with dummy
+	// slots, and SPP then sees the padded counts. So the shape must be the
+	// smallest one that holds the real counts: a merely large-enough shape would
+	// pad to a different width than SPP verifies with. Searches every shape a
+	// key exists for, not the client-facing automatic subset -- a caller that
+	// declares a large shape is using it deliberately.
+	canonical, err := protocol.SmallestSupportedShape(len(tx.Inputs), len(tx.Outputs))
 	if err != nil {
 		return err
 	}
@@ -259,12 +299,38 @@ func buildProofNullifierTree(entries []string) (*protocol.NullifierTree, error) 
 	return tree, nil
 }
 
+// buildProofTrees resolves the transaction's tree ids and publishes the one
+// tree it spends from as slot 0. The remaining slots stay all zero; the circuit
+// refuses to select a slot whose roots are zero, so no input can hide in the
+// padding.
+func buildProofTrees(
+	tx ProofTransactionRequest,
+	state stateWitnesses,
+	nullifierTree *protocol.NullifierTree,
+) (proofTrees, error) {
+	inputTreeID := new(big.Int).SetUint64(uint64(tx.InputTreeID))
+	slots, err := protocol.PadTreeSlots(protocol.TreeSlot{
+		ID:            inputTreeID,
+		UtxoRoot:      state.root,
+		NullifierRoot: nullifierTree.Root(),
+	})
+	if err != nil {
+		return proofTrees{}, err
+	}
+	return proofTrees{
+		inputTreeID:  inputTreeID,
+		outputTreeID: new(big.Int).SetUint64(uint64(tx.OutputTreeID)),
+		slots:        slots,
+	}, nil
+}
+
 func buildPublicInputs(
 	payerHash *big.Int,
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	external externalValues,
 	privateTxHash *big.Int,
+	trees proofTrees,
 ) protocol.PublicInputs {
 	// Padding must reuse an owner identity already bound to real transaction
 	// content.
@@ -291,8 +357,8 @@ func buildPublicInputs(
 	return protocol.PublicInputs{
 		Nullifiers:          inputs.nullifiers,
 		OutputUtxoHashes:    outputs.hashes,
-		UtxoTreeRoots:       inputs.utxoRoots,
-		NullifierTreeRoots:  inputs.nullifierTreeRoots,
+		TreeSlots:           trees.slots,
+		OutputTreeID:        trees.outputTreeID,
 		PrivateTxHash:       privateTxHash,
 		ExternalDataHash:    external.hash,
 		PublicAssets:        external.publicSlots.assets,

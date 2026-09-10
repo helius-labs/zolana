@@ -30,6 +30,24 @@ import (
 // NullifierLowValue < Nullifier < NullifierNextValue must hold over canonical
 // field values. Distinctness across slots is unconditional.
 
+// refreshNullifierAttackHashes keeps these fixtures' real outputs and transaction
+// hashes consistent with a changed first nullifier. inputHashes contains zero
+// for each dummy slot and the UTXO hash for each spent input. The P256 caller
+// must then authorize the new private transaction hash and refresh its public hash.
+func refreshNullifierAttackHashes(t testing.TB, assignment *testAssignment, inputHashes []*big.Int) {
+	t.Helper()
+	refreshDerivedOutputBlindings(t, assignment)
+	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
+		t,
+		inputHashes,
+		spptest.ToBigInts(assignment.OutputHashes()),
+		noAddressNullifiers(len(inputHashes)),
+		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
+	)
+	refreshPublicInputHash(t, assignment)
+}
+
 // TestDummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31): a dummy slot whose public
 // Nullifier is NOT the circuit-derived value must not solve, even with a
 // consistent public input hash. The constant 0xF01 stands in for a tree-resident
@@ -41,8 +59,10 @@ func TestDummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
+	assert.SolvingSucceeded(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
+
 	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
-	refreshPublicInputHash(t, assignment)
+	refreshNullifierAttackHashes(t, assignment, []*big.Int{spptest.Fe(0)})
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }
@@ -84,18 +104,19 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 	// outputs 100/100 and recompute their hashes.
 	for i := range assignment.Outputs {
 		assignment.Outputs[i].Utxo.Amount = spptest.Fe(100)
-		assignment.Outputs[i].Hash = spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Outputs[i].Utxo))
+		assignment.Outputs[i].Hash = testUtxoHash(t, circuitFieldsToUtxo(assignment.Outputs[i].Utxo), assignment.OutputTreeID)
 	}
 
 	// Recompute the private tx hash with the duplicated input hash, then refresh
 	// the public input hash so distinctness is the only failing constraint.
-	inputHash := spptest.MustUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo))
+	inputHash := testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[0].Utxo), assignment.inputTreeID(0))
 	assignment.PrivateTxHash = spptest.MustPrivateTxHash(
 		t,
 		[]*big.Int{inputHash, inputHash},
 		spptest.ToBigInts(assignment.OutputHashes()),
-		noAddressHashes(2),
+		noAddressNullifiers(2),
 		spptest.AsBigInt(assignment.ExternalDataHash),
+		assignment.privateTxBlinding(t),
 	)
 	refreshPublicInputHash(t, assignment)
 
@@ -103,17 +124,41 @@ func TestCircuitRejectsSharedNullifierAcrossSlots(t *testing.T) {
 }
 
 // TestP256DummyInputRejectsAttackerChosenNullifier (INV-TRANSACT-31, P256 rail):
-// the RingP256 circuit runs the same shared non-inclusion binding -- a dummy
-// slot whose public Nullifier is NOT the circuit-derived value must not solve,
-// even with a valid P256 authorization and a consistent public input hash.
+// a real P256 spend authorizes the transaction alongside a dummy in slot 0.
+// Changing the dummy's public nullifier must fail only its derived-nullifier
+// binding, with output blindings, transaction hashes, and P256 authorization
+// refreshed to agree with the attacker-chosen value.
 func TestP256DummyInputRejectsAttackerChosenNullifier(t *testing.T) {
 	assert := test.NewAssert(t)
-	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
+	shape := protocol.Shape{NInputs: 2, NOutputs: 2}
 	circuit := MustNewCustomRingP256Circuit(Shape(shape))
-	assignment := buildDummyInputShield(t, 125)
-	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
+	assignment := buildCircuitAssignment(t, shape)
+
+	// Keep the 110-unit spend in slot 1 and replace slot 0 with padding.
+	in := &assignment.Inputs[0]
+	in.Utxo.Domain = spptest.Fe(DummyDomain)
+	in.Utxo.Owner = spptest.Fe(0)
+	in.Utxo.Asset = spptest.Fe(0)
+	in.Utxo.Amount = spptest.Fe(0)
+	in.OwnerPkHash = spptest.Fe(0)
+	in.NullifierSecret = spptest.Fe(0)
+	for i := range assignment.Outputs {
+		assignment.Outputs[i].Utxo.Amount = spptest.Fe(55)
+	}
+
 	owner := spptest.FixedP256Key(t, 11)
+	rewriteInputAsP256(t, assignment, 1, owner)
+	inputHashes := []*big.Int{
+		spptest.Fe(0),
+		testUtxoHash(t, circuitFieldsToUtxo(assignment.Inputs[1].Utxo), assignment.inputTreeID(1)),
+	}
+	refreshNullifierAttackHashes(t, assignment, inputHashes)
 	authorization := authorizeP256(t, assignment, owner, owner)
+	assert.SolvingSucceeded(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
+
+	assignment.Inputs[0].Nullifier = spptest.Fe(0xF01)
+	refreshNullifierAttackHashes(t, assignment, inputHashes)
+	authorization = authorizeP256(t, assignment, owner, owner)
 
 	assert.SolvingFailed(circuit, asCustomRingP256(assignment, authorization), test.WithCurves(ecc.BN254))
 }

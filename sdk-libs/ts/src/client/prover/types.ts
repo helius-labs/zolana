@@ -23,6 +23,16 @@ export interface CircuitUtxo {
   readonly ringProgramId: Field;
 }
 
+/**
+ * One of the `INPUT_TREES` public tree slots of a proof, as the prover reads
+ * it: the raw tree id and the two roots the slot's inputs open against.
+ */
+export interface TreeSlotFields {
+  readonly id: Field;
+  readonly utxoRoot: Field;
+  readonly nullifierRoot: Field;
+}
+
 export interface TransferInput {
   readonly utxo: ProofInputUtxo;
   readonly circuit: CircuitUtxo;
@@ -33,8 +43,8 @@ export interface TransferInput {
   readonly nullifierNextValue: Field;
   readonly nullifierLowPathElements: readonly Field[];
   readonly nullifierLowPathIndex: Field;
-  readonly utxoTreeRoot: Field;
-  readonly nullifierTreeRoot: Field;
+  /** Index into `treeSlots` of the slot this input opens against. */
+  readonly treeSlot: Field;
   readonly nullifier: Field;
   readonly ownerPublicKeyHash: Field;
   readonly nullifierSecret: Field;
@@ -52,8 +62,13 @@ export interface TransferOutput {
 export interface TransferInputs {
   readonly inputs: readonly TransferInput[];
   readonly outputs: readonly TransferOutput[];
+  /** Exactly `INPUT_TREES` entries; the input tree in slot 0, zero slots after it. */
+  readonly treeSlots: readonly TreeSlotFields[];
+  readonly outputTreeId: Field;
   readonly externalDataHash: Field;
   readonly privateTxHash: Field;
+  /** The proof's private root seed; the circuit derives every output blinding from it. */
+  readonly blindingSeed: Field;
   readonly publicAssets: readonly Field[];
   readonly publicAmounts: readonly Field[];
   readonly ringProgramId: Field;
@@ -66,6 +81,9 @@ export interface TransferInputs {
 export interface MergeInputs {
   readonly inputs: readonly TransferInput[];
   readonly output: TransferOutput;
+  /** Exactly `INPUT_TREES` entries; the input tree in slot 0, zero slots after it. */
+  readonly treeSlots: readonly TreeSlotFields[];
+  readonly outputTreeId: Field;
   readonly ownerPublicKeyHash: Field;
   readonly userNullifierPublicKey: Field;
   readonly userNullifierSecret: Field;
@@ -82,6 +100,16 @@ export type ProverInputs = Readonly<{
   payload: TransferInputs;
 }>;
 
+/**
+ * The root history positions every input of one proof references. The
+ * shielded pool requires them equal across inputs, so one pair describes the
+ * whole instruction.
+ */
+export interface InputRootIndexes {
+  readonly utxoTree: number;
+  readonly nullifierTree: number;
+}
+
 export interface AssembledTransfer {
   readonly instructionData: TransactInstructionData;
   readonly proverInputs: ProverInputs;
@@ -89,8 +117,7 @@ export interface AssembledTransfer {
   readonly nullifiers: readonly Bytes32[];
   readonly outputHashes: readonly Bytes32[];
   readonly privateTxHash: Bytes32;
-  /// Per input, `[utxoTreeRootIndex, nullifierTreeRootIndex]`, in input order.
-  readonly inputRootIndexes: readonly (readonly [number, number])[];
+  readonly rootIndexes: InputRootIndexes;
   withProof(proof: TransactProof): TransactInstructionData;
 }
 

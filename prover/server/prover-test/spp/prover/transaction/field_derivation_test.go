@@ -14,6 +14,7 @@ import (
 type fieldDerivationVector struct {
 	ExternalDataHash externalDataHashVector `json:"external_data_hash"`
 	SolanaPkField    solanaPkFieldVector    `json:"solana_pk_hash"`
+	P256OwnerPkHash  p256OwnerPkHashVector  `json:"p256_owner_pk_hash"`
 	NegativeU64      []u64FieldVector       `json:"negative_u64"`
 	PublicSlots      []publicSlotsVector    `json:"public_slots"`
 }
@@ -44,6 +45,11 @@ type interfaceTransferVector struct {
 type solanaPkFieldVector struct {
 	Pubkey string `json:"pubkey"`
 	Hash   string `json:"hash"`
+}
+
+type p256OwnerPkHashVector struct {
+	CompressedPubkey string `json:"compressed_pubkey"`
+	Hash             string `json:"hash"`
 }
 
 type u64FieldVector struct {
@@ -89,6 +95,12 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 		t.Fatalf("solana pk hash: %v", err)
 	}
 	expectField(t, "solana_pk_hash", solanaHash, vector.SolanaPkField.Hash)
+
+	p256OwnerHash, err := protocol.OwnerPkField(mustHexBytes(t, vector.P256OwnerPkHash.CompressedPubkey))
+	if err != nil {
+		t.Fatalf("p256 owner pk hash: %v", err)
+	}
+	expectField(t, "p256_owner_pk_hash", p256OwnerHash, vector.P256OwnerPkHash.Hash)
 
 	for _, item := range vector.NegativeU64 {
 		value := new(big.Int).SetUint64(item.Amount)

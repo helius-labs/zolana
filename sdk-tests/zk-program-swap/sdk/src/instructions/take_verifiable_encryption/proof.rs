@@ -17,6 +17,13 @@ pub struct TakeVerifiableEncryptionProofInputParams {
     pub source_output: SppProofOutputUtxo,
     pub destination_output: SppProofOutputUtxo,
     pub external_data_hash: [u8; 32],
+    /// `SppProofInputs::private_tx_blinding()`, the fifth `private_tx_hash`
+    /// preimage element.
+    pub private_tx_blinding: [u8; 32],
+    /// Raw id of the tree the order and taker UTXOs are spent from.
+    pub input_tree_id: u16,
+    /// Raw id of the tree the source and destination outputs are appended to.
+    pub output_tree_id: u16,
 }
 
 impl TakeVerifiableEncryptionProofInputParams {
@@ -51,10 +58,15 @@ impl TakeVerifiableEncryptionProofInputParams {
         }
         let order = OrderTermsProofInput::try_from(terms)?;
         let order_utxo =
-            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?).map_err(err)?;
-        let taker_in = ProofInputUtxo::try_from(&self.taker_in).map_err(err)?;
-        let source_output = ProofInputUtxo::try_from(&self.source_output).map_err(err)?;
-        let destination_output = ProofInputUtxo::try_from(&self.destination_output).map_err(err)?;
+            ProofInputUtxo::try_from(&self.order_utxo.to_input_utxo()?.in_tree(self.input_tree_id))
+                .map_err(err)?;
+        let taker_in =
+            ProofInputUtxo::try_from((&self.taker_in, self.input_tree_id)).map_err(err)?;
+        let source_output =
+            ProofInputUtxo::try_from((&self.source_output, self.output_tree_id)).map_err(err)?;
+        let destination_output =
+            ProofInputUtxo::try_from((&self.destination_output, self.output_tree_id))
+                .map_err(err)?;
         let private_tx_hash = PrivateTxHash::new(
             &[
                 order_utxo.hash().map_err(err)?,
@@ -65,6 +77,7 @@ impl TakeVerifiableEncryptionProofInputParams {
                 destination_output.hash().map_err(err)?,
             ],
             &self.external_data_hash,
+            &self.private_tx_blinding,
         )
         .hash()
         .map_err(err)?;
@@ -91,6 +104,7 @@ impl TakeVerifiableEncryptionProofInputParams {
             source_output,
             destination_output,
             external_data_hash: self.external_data_hash,
+            private_tx_blinding: self.private_tx_blinding,
         })
     }
 }

@@ -273,6 +273,27 @@ var transferSupportedShapes = [][2]uint32{
 	{5, 3},
 	{5, 4},
 	{1, 8},
+	// Consolidation shape; keep in sync with protocol.SupportedShapes.
+	{36, 2},
+}
+
+// mergeSupportedInputCounts mirrors mergeshared.SupportedInputCounts. Kept here
+// because common must not import the circuit packages; keep in sync with
+// circuits/spp_merge/shared/transaction.go.
+var mergeSupportedInputCounts = []uint32{8, 36}
+
+// mergeKeyPath resolves a merge key file. Merge always produces one output, so
+// only the input count varies across shapes.
+func (m *LazyKeyManager) mergeKeyPath(prefix string, nInputs uint32, nOutputs uint32) string {
+	if nOutputs != 1 {
+		return ""
+	}
+	for _, supported := range mergeSupportedInputCounts {
+		if supported == nInputs {
+			return m.keyPath(fmt.Sprintf("%s_%d_1.key", prefix, nInputs))
+		}
+	}
+	return ""
 }
 
 func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInputs uint32, nOutputs uint32) string {
@@ -287,16 +308,9 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 	case TransferRingAuthorityCircuitType:
 		prefix = "transfer_ring_authority"
 	case MergeCircuitType:
-		// Merge has the single fixed 8-in/1-out shape (see prover/merge).
-		if nInputs == 8 && nOutputs == 1 {
-			return m.keyPath("merge_8_1.key")
-		}
-		return ""
+		return m.mergeKeyPath("merge", nInputs, nOutputs)
 	case MergeRingCircuitType:
-		if nInputs == 8 && nOutputs == 1 {
-			return m.keyPath("merge_ring_8_1.key")
-		}
-		return ""
+		return m.mergeKeyPath("merge_ring", nInputs, nOutputs)
 	default:
 		return ""
 	}

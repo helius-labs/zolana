@@ -61,6 +61,10 @@ fn sample_order() -> OrderTermsProofInput {
     }
 }
 
+/// Both outputs of a make land in the same tree. A non-zero id keeps the test
+/// honest: a dropped tree id would change every commitment.
+const OUTPUT_TREE_ID: u16 = 3;
+
 fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs {
     let mut order = sample_order();
     order.destination_amount = destination_amount;
@@ -70,6 +74,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
         &source_mint,
         1_000,
         &blinding(7),
+        OUTPUT_TREE_ID,
     )
     .expect("order utxo")
     .with_data_hash(order.data_hash().expect("order data hash"));
@@ -78,10 +83,12 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
         &source_mint,
         change_amount,
         &blinding(6),
+        OUTPUT_TREE_ID,
     )
     .expect("change utxo");
     let source_input_hash = fe(5);
     let external_data_hash = fe(8);
+    let private_tx_blinding = fe(21);
     let private_tx_hash = PrivateTxHash::new(
         &[source_input_hash, [0u8; 32]],
         &[
@@ -89,6 +96,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
             order_utxo.hash().expect("order utxo hash"),
         ],
         &external_data_hash,
+        &private_tx_blinding,
     )
     .hash()
     .expect("private tx hash");
@@ -99,6 +107,7 @@ fn build_inputs(destination_amount: u64, change_amount: u64) -> MakeProofInputs 
         change,
         source_input_hash,
         external_data_hash,
+        private_tx_blinding,
     }
 }
 

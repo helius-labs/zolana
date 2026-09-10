@@ -22,6 +22,7 @@ use zolana_keypair::{random_blinding, random_salt, ViewingKey};
 use zolana_program_test::Rejection;
 use zolana_transaction::{
     serialization::confidential::{Confidential, ConfidentialEncode},
+    utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     Data, ExternalData, OwnerCx, SppProofOutputUtxo, Utxo, UtxoSerialization,
 };
 
@@ -177,7 +178,8 @@ impl RingHarness {
 
         // Real input: fetch its inclusion / non-inclusion proofs, exactly as the
         // transfer / merge paths do. The authority supplies the owner's nullifier key.
-        let utxo_hash = input_utxo.hash(&nullifier_pk, &ZERO, &ZERO)?;
+        let tree_id = self.tree_id;
+        let utxo_hash = input_utxo.hash(&nullifier_pk, &ZERO, &ZERO, tree_id)?;
         let nullifier = keypair
             .nullifier_key
             .nullifier(&utxo_hash, &input_utxo.blinding)?;
@@ -189,6 +191,7 @@ impl RingHarness {
             nullifier_key: keypair.nullifier_key.clone(),
             data_hash: None,
             ring_data_hash: None,
+            tree_id,
             proof: Some(SpendProof {
                 state,
                 nullifier: non_inclusion,
@@ -202,18 +205,22 @@ impl RingHarness {
         // owner tag, the exact tag `Wallet::sync`'s confidential scan queries.
         let recipient_address = recipient_keypair.shielded_address()?;
         let recipient_view_tag = recipient_address.signing_pubkey.confidential_view_tag()?;
+        // The circuit re-derives the seed from the blinding seed and the
+        // first nullifier, then asserts every output blinding against it.
+        let blinding_seed = random_blinding();
+        let output_blinding_seed = derive_output_blinding_seed(&nullifier, &blinding_seed)?;
         let output = SppProofOutputUtxo {
             owner_address: Some(recipient_address),
             asset,
             amount,
-            blinding: random_blinding(),
+            blinding: derive_transact_output_blinding(&nullifier, &output_blinding_seed, 0)?,
             ring_program_id: Some(ring),
             ring_data_hash: None,
             data_hash: None,
             owner_tag: None,
             data: Data::default(),
         };
-        let output_hash = output.hash()?;
+        let output_hash = output.hash(tree_id)?;
 
         // Encrypt the output to the recipient under an ephemeral transaction viewing
         // key, the same confidential-recipient encoding a transfer uses, so Photon
@@ -224,6 +231,8 @@ impl RingHarness {
             owner: recipient_address.signing_pubkey,
             assets: &self.assets,
             ring_program_id: Some(ring),
+            // A confidential slot carries its blinding literally.
+            first_nullifier: None,
         };
         // The recipient decrypts a plaintext `Utxo` (the on-chain leaf is the
         // `SppProofOutputUtxo` above); both carry identical fields so their hashes agree.
@@ -268,6 +277,8 @@ impl RingHarness {
         };
 
         let result = RingAuthorityProver {
+            blinding_seed,
+            output_tree_id: tree_id,
             inputs: vec![spend_input],
             outputs: vec![output],
             external_data: external_data.clone(),
@@ -288,14 +299,10 @@ impl RingHarness {
             .nullifiers
             .first()
             .ok_or_else(|| anyhow!("ring-authority witness produced no nullifier"))?;
-        let &(utxo_tree_root_index, nullifier_tree_root_index) = result
-            .input_root_indices
-            .first()
-            .ok_or_else(|| anyhow!("ring-authority witness produced no root indices"))?;
         let inputs = vec![InputUtxo {
             nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
+            nullifier_tree_root_index: result.nullifier_tree_root_index,
+            utxo_tree_root_index: result.utxo_tree_root_index,
         }];
 
         let ix_data = TransactIxData {
