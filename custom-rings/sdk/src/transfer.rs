@@ -153,6 +153,12 @@ pub enum TransferError {
     InvalidTreeDiscriminator,
     #[error("input tree address is required")]
     TreeRequired,
+    #[error("tree {tree} has id {expected}, the transfer was prepared for {found}")]
+    TreeIdMismatch {
+        tree: Address,
+        expected: u16,
+        found: u16,
+    },
     #[error("custom ring config does not exist")]
     MissingRingConfig,
     #[error("the ring has no policy config")]
@@ -262,7 +268,10 @@ impl<'a> CustomRingTransfer<'a> {
         // another program, or not a tree account at all fails here rather than
         // after the indexer has served a full inclusion and non-inclusion proof
         // set that nothing can use.
-        let allow_dummy_inputs = read_dummy_input_policy(environment.rpc, staged.input_tree)?;
+        let input_tree = read_tree_state(environment.rpc, staged.input_tree)?;
+        let output_tree = read_tree_state(environment.rpc, staged.output_tree)?;
+        staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
+        let allow_dummy_inputs = input_tree.allow_dummy_inputs;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.input_tree,
@@ -305,8 +314,10 @@ impl<'a> CustomRingTransfer<'a> {
         let staged = self.stage(config.auditor_pubkey)?;
         // Same ordering reason as the blocking path: validate the tree before
         // asking the indexer for proofs against it.
-        let allow_dummy_inputs =
-            read_dummy_input_policy_async(environment.rpc, staged.input_tree).await?;
+        let input_tree = read_tree_state_async(environment.rpc, staged.input_tree).await?;
+        let output_tree = read_tree_state_async(environment.rpc, staged.output_tree).await?;
+        staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
+        let allow_dummy_inputs = input_tree.allow_dummy_inputs;
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: staged.input_tree,
@@ -448,6 +459,30 @@ struct StagedTransfer {
 }
 
 impl StagedTransfer {
+    /// Every UTXO hash commits to its tree id, a prepared transfer under another id proves nothing.
+    fn check_tree_ids(&self, input_tree_id: u16, output_tree_id: u16) -> Result<(), TransferError> {
+        if let Some(input) = self
+            .proof_inputs
+            .input_utxos
+            .iter()
+            .find(|input| input.tree_id != input_tree_id)
+        {
+            return Err(TransferError::TreeIdMismatch {
+                tree: self.input_tree,
+                expected: input_tree_id,
+                found: input.tree_id,
+            });
+        }
+        if self.proof_inputs.output_tree_id != output_tree_id {
+            return Err(TransferError::TreeIdMismatch {
+                tree: self.output_tree,
+                expected: output_tree_id,
+                found: self.proof_inputs.output_tree_id,
+            });
+        }
+        Ok(())
+    }
+
     fn policy_tier<I: Rpc, R: Rpc>(
         &self,
         environment: &TransferProofEnvironment<'_, I, R>,
@@ -745,19 +780,33 @@ impl RingDeposit<'_> {
     }
 }
 
-fn read_dummy_input_policy<R: Rpc>(rpc: &R, tree: Address) -> Result<bool, TransferError> {
-    dummy_input_policy(rpc.get_account(tree)?, tree)
+/// The raw id of a pool tree, every UTXO in it hashes under this id.
+pub fn tree_id<R: Rpc>(rpc: &R, tree: Address) -> Result<u16, TransferError> {
+    Ok(read_tree_state(rpc, tree)?.tree_id)
 }
 
-async fn read_dummy_input_policy_async<R: AsyncRpc>(
+pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, TransferError> {
+    Ok(read_tree_state_async(rpc, tree).await?.tree_id)
+}
+
+struct TreeState {
+    allow_dummy_inputs: bool,
+    tree_id: u16,
+}
+
+fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
+    tree_state(rpc.get_account(tree)?, tree)
+}
+
+async fn read_tree_state_async<R: AsyncRpc>(
     rpc: &R,
     tree: Address,
-) -> Result<bool, TransferError> {
-    dummy_input_policy(rpc.get_account(tree).await?, tree)
+) -> Result<TreeState, TransferError> {
+    tree_state(rpc.get_account(tree).await?, tree)
 }
 
-/// Reading the policy out of a fetched tree account is transport-independent.
-fn dummy_input_policy(account: Option<Account>, tree: Address) -> Result<bool, TransferError> {
+/// Reading the state out of a fetched tree account is transport-independent.
+fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, TransferError> {
     let mut account = account.ok_or(TransferError::MissingTree)?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
         return Err(TransferError::InvalidTreeOwner);
@@ -766,8 +815,10 @@ fn dummy_input_policy(account: Option<Account>, tree: Address) -> Result<bool, T
         return Err(TransferError::InvalidTreeDiscriminator);
     }
     let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
-    let allow_dummy_inputs = tree_account.allow_dummy_inputs()?;
-    Ok(allow_dummy_inputs)
+    Ok(TreeState {
+        allow_dummy_inputs: tree_account.allow_dummy_inputs()?,
+        tree_id: tree_account.tree_id(),
+    })
 }
 
 struct RingMembership<'a> {
