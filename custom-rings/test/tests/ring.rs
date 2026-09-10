@@ -1804,7 +1804,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
 /// third tree while the policy roots stay bound to the entries tree.
 #[test]
 fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
-    let mut env = setup()?;
+    let env = setup()?;
     let rpc = env.client.rpc();
     let indexer = env.client.indexer();
     let ring_program = custom_ring_program_id()?;
@@ -1861,6 +1861,12 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     .with_output_tree_id(output_tree_id);
     transfer.send(&recipient.shielded_address()?, SOL_MINT, ENTRY_AMOUNT)?;
     let prepared = transfer.prepare()?;
+    let recipient_hash = prepared
+        .outputs
+        .iter()
+        .find(|output| output.amount == ENTRY_AMOUNT)
+        .ok_or_else(|| anyhow!("recipient output"))?
+        .hash(output_tree_id)?;
     let proven = CustomRingTransfer::new(CustomRingTransferInput {
         ring,
         sender,
@@ -1883,29 +1889,17 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
     assert_eq!(indexed.nullifiers.len(), 1, "the input note is spent");
 
-    let recipient_authority = KeypairWalletAuthority::new(Address::default(), recipient);
-    env.recipient.wallet.sync(
-        &recipient_authority,
-        std::slice::from_ref(&indexed),
-        0,
-        DEFAULT_TAG_WINDOW,
-    )?;
-    let received = env
-        .recipient
-        .wallet
-        .utxos
+    // The wallet syncs under tree id 0 only, so the leaf is checked from the slot.
+    let recipient_slot = indexed
+        .output_slots
         .iter()
-        .find(|held| !held.spent && held.utxo.amount == ENTRY_AMOUNT)
-        .map(|held| held.utxo.clone())
-        .ok_or_else(|| anyhow!("recipient output"))?;
-    // The output leaf is provable against output_tree, not the entries tree.
-    wait_for_merkle_proof(
-        indexer,
-        output_tree,
-        SppProofInputUtxo::new(received, recipient)
-            .in_tree(output_tree_id)
-            .hash()?,
+        .find(|slot| slot.output_context.hash == recipient_hash)
+        .ok_or_else(|| anyhow!("recipient output hashed under the output tree id"))?;
+    assert_eq!(
+        recipient_slot.output_context.tree, output_tree,
+        "recipient output tree"
     );
+    wait_for_merkle_proof(indexer, output_tree, recipient_hash);
 
     Ok(())
 }
