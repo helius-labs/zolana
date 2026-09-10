@@ -1,12 +1,18 @@
 use core::mem::{offset_of, size_of};
 
 use zolana_tree::{
-    nullifier_tree::constants::NULLIFIER_TREE_ZKP_BATCHES, NullifierTreeInitParams, TreeAccount,
-    TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
+    nullifier_tree::{
+        constants::NULLIFIER_TREE_ZKP_BATCHES,
+        layout::{NullifierTreeLayout, RootHistory},
+    },
+    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout,
+    TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
 };
 
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 type UtxoLayout = UtxoTreeLayout<UTXO_TREE_HEIGHT>;
+type NullifierLayout = NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES>;
+type NullifierRoots = RootHistory<NULLIFIER_TREE_ZKP_BATCHES>;
 
 #[test]
 fn account_layout_is_pinned() {
@@ -31,6 +37,10 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(UtxoLayout, last_update_slot), 48);
     assert_eq!(offset_of!(UtxoLayout, subtrees), 56);
     assert_eq!(offset_of!(UtxoLayout, root_history), 1_080);
+
+    assert_eq!(offset_of!(NullifierLayout, root_history), 72);
+    assert_eq!(offset_of!(NullifierRoots, current_index), 0);
+    assert_eq!(offset_of!(NullifierRoots, roots), 8);
 }
 
 #[test]

@@ -119,7 +119,7 @@ pub fn recover_tx_viewing_key(
 }
 
 #[must_use]
-/// `Ok(None)` for a slot this audit cannot open: an unparseable payload, another
+/// `Ok(None)` for a slot this audit cannot open: unparseable content, another
 /// encryption scheme, or a ciphertext under a different transaction key.
 struct OutputAudit<'a> {
     tx_key: &'a ViewingKey,

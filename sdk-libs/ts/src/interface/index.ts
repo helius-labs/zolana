@@ -6,7 +6,12 @@ export {
   decodeSplAssetRegistry,
   decodeRingConfig,
 } from "./accounts.js";
-export { decodeTreeFeeSchedule, decodeTreeFees, encodeTreeFeeSchedule } from "./codecs/index.js";
+export {
+  decodeTreeFeeSchedule,
+  decodeTreeFees,
+  decodeTreeHeadRoots,
+  encodeTreeFeeSchedule,
+} from "./codecs/index.js";
 export { MERGE_INPUT_COUNT } from "./constants.js";
 export { InterfaceError, ShieldedPoolError, decodeShieldedPoolError } from "./errors.js";
 export type {
@@ -54,6 +59,8 @@ export {
   NULLIFIER_TREE_HEIGHT,
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
   NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+  NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET,
+  NULLIFIER_ROOT_HISTORY_OFFSET,
   NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
   PROTOCOL_CONFIG_SIZE,
   STATE_HEIGHT,
@@ -65,6 +72,12 @@ export {
   TREE_CREATION_STEP_COUNT,
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
+  UTXO_ROOT_HISTORY_CAPACITY,
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
+  UTXO_ROOT_HISTORY_CURSOR_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
+  UTXO_ROOT_HISTORY_OFFSET,
+  UTXO_SUBTREES_LEN_OFFSET,
   defaultTreeFees,
 } from "./state.js";
 export {

@@ -15,6 +15,7 @@ preserved within each version folder.
 
 Usage:
     generate_lockfile.py <keys-dir> [--out <lockfile>] [--prefix <base-prefix>]
+    generate_lockfile.py <keys-dir> --release <name>... --only-release
 
 Defaults: keys-dir positional,
 out=prover/server/prover/provingkeys/proving-keys.lock (the file the Go
@@ -55,6 +56,11 @@ def main() -> int:
         metavar="NAME",
         help="key built from release assets, pinned but never served from the object store",
     )
+    parser.add_argument(
+        "--only-release",
+        action="store_true",
+        help="repin the --release entries of the existing lockfile, keep the rest and the prefix",
+    )
     args = parser.parse_args()
 
     keys_dir = os.path.abspath(args.keys_dir)
@@ -73,6 +79,9 @@ def main() -> int:
         )
     )
     out = args.out or default_out
+
+    if args.only_release:
+        return pin_release_entries(keys_dir, out, args.release)
 
     names = sorted(n for n in os.listdir(keys_dir) if n.endswith(".key"))
     if not names:
@@ -107,6 +116,25 @@ def main() -> int:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write("\n")
     print(f"wrote {out} ({len(keys)} keys, prefix={prefix})", file=sys.stderr)
+    return 0
+
+
+def pin_release_entries(keys_dir: str, out: str, names: list) -> int:
+    if not names:
+        print("--only-release needs at least one --release name", file=sys.stderr)
+        return 1
+    with open(out) as f:
+        manifest = json.load(f)
+    for name in names:
+        path = os.path.join(keys_dir, name)
+        size = os.path.getsize(path)
+        digest = sha256_file(path)
+        manifest["keys"][name] = {"sha256": digest, "size": size, "source": "release"}
+        print(f"  {name}  {size}  {digest}", file=sys.stderr)
+    with open(out, "w") as f:
+        json.dump(manifest, f, indent=2, sort_keys=True)
+        f.write("\n")
+    print(f"repinned {len(names)} release keys in {out}", file=sys.stderr)
     return 0
 
 

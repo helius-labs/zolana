@@ -4,13 +4,17 @@
 //! `custom-rings/program/tests/common/mod.rs`.
 
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
+use custom_ring_interface::{SetPausedIxData, SourceSpec};
 use custom_ring_sdk::{
-    tag, CreateConfig, CreateConfigIxData, CustomRing, CustomRingProof, CustomRingTransact,
-    CustomRingTransactIxData, Deposit, GrantReadAccess, InitSppRingConfig, ReaderIxData, ReaderKey,
-    ReaderKeyError, RevokeReadAccess, SetAuthority, CONFIG_PDA_SEED, READ_ACCESS_RECORD_PDA_SEED,
+    tag, CreateConfig, CreateConfigIxData, CreatePolicy, CustomRing, CustomRingProof,
+    CustomRingTransact, CustomRingTransactIxData, Deposit, EntryError, GrantReadAccess,
+    InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
+    RevokeReadAccess, SetAuthority, SetPaused, SetPolicyRules, CONFIG_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
+use solana_packet::PACKET_DATA_SIZE;
 use zolana_interface::{
     instruction::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
@@ -21,6 +25,7 @@ use zolana_interface::{
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
 use zolana_keypair::{P256Pubkey, SigningKey, ViewingKey};
+use zolana_ring_policy::{ListId, ListSet, Rule, RuleTable, Subject, MAX_INLINE_ASSETS};
 
 /// The system program is the all-zero address.
 const SYSTEM_PROGRAM: Address = Address::new_from_array([0u8; 32]);
@@ -74,6 +79,7 @@ fn create_config_emits_the_program_account_order_and_auditor_key() {
         payer: payer(),
         authority: authority(),
         auditor_pubkey,
+        has_policy: true,
     }
     .instruction()
     .expect("instruction");
@@ -111,6 +117,7 @@ fn create_config_rejects_reserved_auditor_keys() {
             payer: payer(),
             authority: authority(),
             auditor_pubkey,
+            has_policy: true,
         }
         .instruction();
         assert!(matches!(
@@ -126,6 +133,7 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
 
@@ -145,6 +153,33 @@ fn init_spp_ring_config_emits_the_program_account_order_and_no_body() {
     // The processor rejects any trailing byte, so the tag has to be the whole
     // instruction data.
     assert_eq!(instruction.data, vec![tag::INIT_SPP_RING_CONFIG]);
+}
+
+#[test]
+fn a_policy_ring_registers_with_its_policy_config_as_the_eighth_account() {
+    let audit_only = InitSppRingConfig {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        has_policy: false,
+    }
+    .instruction();
+    let policy = InitSppRingConfig {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        has_policy: true,
+    }
+    .instruction();
+
+    assert_eq!(audit_only.accounts.len(), 7);
+    assert_eq!(policy.accounts.len(), 8);
+    assert_eq!(policy.accounts[..7], audit_only.accounts[..]);
+    assert_eq!(
+        policy.accounts[7],
+        AccountMeta::new_readonly(ring().policy_config_pda(), false)
+    );
+    assert_eq!(policy.data, vec![tag::INIT_SPP_RING_CONFIG]);
 }
 
 fn reader() -> ReaderKey {
@@ -297,16 +332,47 @@ fn set_authority_emits_both_signers_and_the_config() {
 }
 
 #[test]
+fn set_paused_emits_the_authority_the_ring_auth_and_spp() {
+    for paused in [true, false] {
+        let instruction = SetPaused {
+            ring: ring(),
+            authority: authority(),
+            paused,
+        }
+        .instruction()
+        .expect("instruction");
+
+        assert_eq!(instruction.program_id, ring().program_id());
+        assert_eq!(
+            instruction.accounts,
+            vec![
+                AccountMeta::new_readonly(authority(), true),
+                AccountMeta::new_readonly(ring().config_pda(), false),
+                AccountMeta::new(ring().ring_auth_pda(), false),
+                AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
+            ]
+        );
+        let (ix_tag, body) = split_tag(&instruction);
+        assert_eq!(ix_tag, tag::SET_PAUSED);
+        let decoded: SetPausedIxData =
+            wincode::deserialize_exact(body).expect("body is a complete SetPausedIxData");
+        assert_eq!(decoded.paused, u8::from(paused));
+        assert_eq!(instruction.data, vec![tag::SET_PAUSED, u8::from(paused)]);
+    }
+    assert_eq!(SET_PAUSED_COMPUTE_UNIT_LIMIT, 50_000);
+}
+
+#[test]
 fn read_access_record_pda_derives_from_the_hashed_tagged_key() {
     use sha2::Digest;
     for key in [reader(), p256_reader()] {
         let seed_hash: [u8; 32] = sha2::Sha256::digest(key.to_bytes()).into();
-        let (record, _bump) = Address::find_program_address(
+        let (entry, _bump) = Address::find_program_address(
             &[READ_ACCESS_RECORD_PDA_SEED, &seed_hash],
             &ring().program_id(),
         );
-        assert_eq!(ring().read_access_record_pda(&key), record);
-        assert_eq!(key.record_address(&ring().program_id()), record);
+        assert_eq!(ring().read_access_record_pda(&key), entry);
+        assert_eq!(key.entry_address(&ring().program_id()), entry);
     }
     assert_ne!(
         ring().read_access_record_pda(&reader()),
@@ -332,6 +398,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         payer: payer(),
         authority: authority(),
         auditor_pubkey: auditor_pubkey(),
+        has_policy: true,
     }
     .instruction()
     .expect("instruction");
@@ -344,6 +411,7 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
     assert_eq!(
@@ -374,6 +442,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
         ring: ring(),
         payer: payer(),
         authority: authority(),
+        has_policy: false,
     }
     .instruction();
     let init_ring_auth = init.accounts.get(4).expect("ring_auth meta");
@@ -515,6 +584,10 @@ fn output_tree() -> Address {
     Address::new_from_array([42; 32])
 }
 
+fn entries_tree() -> Address {
+    Address::new_from_array([45; 32])
+}
+
 fn owner_signer() -> Address {
     Address::new_from_array([43; 32])
 }
@@ -529,7 +602,7 @@ fn sample_proof() -> CustomRingProof {
     }
 }
 
-/// A representative confidential `RingEddsa` payload carrying the auditor message
+/// Representative confidential `RingEddsa` content carrying the auditor message
 /// the ring proof commits to.
 fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
     TransactIxData {
@@ -552,8 +625,9 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
 }
 
 /// The account list the program's `process_transact_ix` reads: its own
-/// `[payer, config]` prefix followed by SPP's `RING_TRANSACT` list, which the
-/// builder takes from the interface builder instead of re-listing.
+/// `[payer, config, policy_config, entries_tree]` prefix followed by SPP's
+/// `RING_TRANSACT` list, which the builder takes from the interface builder
+/// instead of re-listing.
 #[test]
 fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
     let proof = sample_proof();
@@ -564,13 +638,16 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: Some(entries_tree()),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof,
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact.clone(),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
     assert_eq!(instruction.program_id, ring().program_id());
     assert_eq!(
@@ -578,6 +655,8 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new_readonly(ring().policy_config_pda(), false),
+            AccountMeta::new_readonly(entries_tree(), false),
             AccountMeta::new(payer(), true),
             AccountMeta::new(input_tree(), false),
             AccountMeta::new(output_tree(), false),
@@ -593,7 +672,15 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
     assert_eq!(ix_tag, 3);
     let decoded: CustomRingTransactIxData =
         wincode::deserialize_exact(body).expect("body is a complete CustomRingTransactIxData");
-    assert_eq!(decoded, CustomRingTransactIxData { proof, transact });
+    assert_eq!(
+        decoded,
+        CustomRingTransactIxData {
+            proof,
+            state_root_index: 0,
+            nullifier_root_index: 0,
+            transact,
+        }
+    );
 }
 
 /// `ring_config` is this program's `ring_auth` PDA, and no keypair exists for it:
@@ -606,15 +693,23 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: Some(entries_tree()),
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact_data(Vec::new()),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
-    let ring_config = instruction.accounts.get(7).expect("ring_config meta");
+    // The policy config and entries tree sit before the forwarded SPP list.
+    let ring_config_index = 9;
+    let ring_config = instruction
+        .accounts
+        .get(ring_config_index)
+        .expect("ring_config meta");
     assert_eq!(ring_config.pubkey, ring().ring_auth_pda());
     assert!(!ring_config.is_signer);
 }
@@ -643,9 +738,12 @@ fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: None,
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: Vec::new(),
         proof: sample_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact,
     }
     .instruction()
@@ -677,20 +775,23 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         payer: payer(),
         input_tree: input_tree(),
         output_tree: output_tree(),
+        entries_tree: Some(entries_tree()),
         owner_signers: vec![owner_signer()],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
             TransactSolTransferAccounts { recipient },
         )],
         proof: sample_proof(),
+        state_root_index: 0,
+        nullifier_root_index: 0,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
-    .expect("serialize the custom-ring transact payload");
+    .expect("serialize the custom-ring transact content");
 
     assert_eq!(
         instruction
             .accounts
-            .get(8..)
+            .get(10..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![
@@ -710,5 +811,206 @@ fn ring_instruction_tags_are_stable() {
     assert_eq!(tag::GRANT_READ_ACCESS, 4);
     assert_eq!(tag::REVOKE_READ_ACCESS, 5);
     assert_eq!(tag::SET_AUTHORITY, 6);
+    assert_eq!(tag::SET_PAUSED, 11);
+    assert_eq!(tag::SET_POLICY_RULES, 12);
     assert_eq!(tag::DEPOSIT, 14);
+    assert_eq!(tag::MERGE, 16);
+}
+
+const CURATOR_A: CustomRing = CustomRing::new(Address::new_from_array([20; 32]));
+const CURATOR_B: CustomRing = CustomRing::new(Address::new_from_array([21; 32]));
+const ASSET: [u8; 32] = [77; 32];
+
+/// Two list rules, one of them a group, and an inline asset rule.
+const TABLE: RuleTable = RuleTable::builder()
+    .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+    .rule(Rule::any_of(
+        Subject::Sender,
+        ListSet::single(ListId::Approval),
+        ListSet::single(ListId::Frozen),
+    ))
+    .rule(Rule::allow_only_assets())
+    .inline_assets(&[ASSET])
+    .build();
+
+fn create_policy(rules: &RuleTable, shared_sources: Vec<(ListId, CustomRing)>) -> CreatePolicy<'_> {
+    CreatePolicy {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        entries_tree: entries_tree(),
+        rules,
+        shared_sources,
+    }
+}
+
+fn set_policy_rules(
+    rules: &RuleTable,
+    shared_sources: Vec<(ListId, CustomRing)>,
+) -> SetPolicyRules<'_> {
+    SetPolicyRules {
+        ring: ring(),
+        authority: authority(),
+        rules,
+        shared_sources,
+    }
+}
+
+fn policy_body(instruction: &Instruction, expected_tag: u8) -> PolicyTableIxData {
+    let (ix_tag, body) = split_tag(instruction);
+    assert_eq!(ix_tag, expected_tag);
+    wincode::deserialize_exact(body).expect("body is a complete PolicyTableIxData")
+}
+
+fn spec(list_id: ListId, source: u8) -> SourceSpec {
+    SourceSpec {
+        list_id: list_id as u8,
+        source,
+    }
+}
+
+#[test]
+fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
+    let instruction = create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
+        .instruction()
+        .expect("instruction");
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new(ring().policy_config_pda(), false),
+            AccountMeta::new_readonly(entries_tree(), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+            AccountMeta::new_readonly(ring().program_id(), false),
+            AccountMeta::new_readonly(ring().program_data_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.policy_config_pda(), false),
+        ]
+    );
+    let encoded = TABLE.encode();
+    assert_eq!(
+        policy_body(&instruction, tag::CREATE_POLICY),
+        PolicyTableIxData {
+            sources: vec![
+                spec(ListId::Allow, 0),
+                spec(ListId::Frozen, 1),
+                spec(ListId::Approval, 0),
+            ],
+            rules: encoded.rules[..3].to_vec(),
+            inline_assets: vec![ASSET],
+            inline_limits: vec![0],
+        }
+    );
+    // The group row carries its absent alternative at byte 19.
+    assert_eq!(encoded.rules[1][19], ListSet::single(ListId::Frozen).bits());
+}
+
+#[test]
+fn set_policy_rules_gates_on_the_upgrade_authority_with_the_same_body() {
+    let created = create_policy(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
+        .instruction()
+        .expect("create");
+    let instruction = set_policy_rules(&TABLE, vec![(ListId::Frozen, CURATOR_A)])
+        .instruction()
+        .expect("instruction");
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new(ring().policy_config_pda(), false),
+            AccountMeta::new_readonly(ring().program_id(), false),
+            AccountMeta::new_readonly(ring().program_data_pda(), false),
+            AccountMeta::new_readonly(CURATOR_A.policy_config_pda(), false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::SET_POLICY_RULES);
+    assert_eq!(body, &created.data[1..]);
+}
+
+#[test]
+fn curators_are_indexed_once_in_first_use_order() {
+    let shared = vec![
+        (ListId::Approval, CURATOR_B),
+        (ListId::Frozen, CURATOR_A),
+        (ListId::Allow, CURATOR_B),
+    ];
+    for instruction in [
+        create_policy(&TABLE, shared.clone())
+            .instruction()
+            .expect("create"),
+        set_policy_rules(&TABLE, shared).instruction().expect("set"),
+    ] {
+        let curators: Vec<Address> = instruction
+            .accounts
+            .iter()
+            .rev()
+            .take(2)
+            .rev()
+            .map(|meta| meta.pubkey)
+            .collect();
+        assert_eq!(
+            curators,
+            vec![CURATOR_B.policy_config_pda(), CURATOR_A.policy_config_pda()]
+        );
+        let (_, body) = split_tag(&instruction);
+        let decoded: PolicyTableIxData = wincode::deserialize_exact(body).expect("body");
+        assert_eq!(
+            decoded.sources,
+            vec![
+                spec(ListId::Allow, 1),
+                spec(ListId::Frozen, 2),
+                spec(ListId::Approval, 1),
+            ]
+        );
+    }
+}
+
+#[test]
+fn a_shared_source_the_table_does_not_reference_is_refused() {
+    assert!(matches!(
+        create_policy(&TABLE, vec![(ListId::Block, CURATOR_A)]).instruction(),
+        Err(EntryError::UnreferencedList(ListId::Block))
+    ));
+    assert!(matches!(
+        set_policy_rules(&TABLE, vec![(ListId::Block, CURATOR_A)]).instruction(),
+        Err(EntryError::UnreferencedList(ListId::Block))
+    ));
+}
+
+/// One sender rule per list and a full inline pool, beside eight curator accounts.
+#[test]
+fn a_pin_past_the_legacy_packet_is_refused() {
+    let mut builder = RuleTable::builder();
+    for list_id in ListId::ALL {
+        builder = builder.rule(Rule::require(Subject::Sender, list_id));
+    }
+    let pool = [[9u8; 32]; MAX_INLINE_ASSETS];
+    let full = builder
+        .rule(Rule::allow_only_assets())
+        .inline_assets(&pool)
+        .build();
+    let curated: Vec<(ListId, CustomRing)> = ListId::ALL
+        .into_iter()
+        .map(|list_id| {
+            let curator = CustomRing::new(Address::new_from_array([100 + list_id as u8; 32]));
+            (list_id, curator)
+        })
+        .collect();
+
+    assert!(matches!(
+        create_policy(&full, curated.clone()).instruction(),
+        Err(EntryError::TransactionTooLarge { bytes, limit })
+            if bytes > limit && limit == PACKET_DATA_SIZE
+    ));
+    create_policy(&full, Vec::new())
+        .instruction()
+        .expect("own sources fit");
+    set_policy_rules(&full, curated)
+        .instruction()
+        .expect("the re-pin carries no payer, tree or system account");
 }

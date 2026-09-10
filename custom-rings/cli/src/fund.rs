@@ -1,11 +1,14 @@
 //! Localnet mints what a step needs. Devnet cannot, so an underfunded
 //! authority pauses at the faucet instead of dying mid-pipeline.
 
-use std::io::{self, BufRead, IsTerminal, Write};
-
 use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{ClientError, Rpc};
+
+use crate::{
+    line,
+    ui::{self, Ask, AskError},
+};
 
 /// Fees and the rent of the config, the ring registration and one reader.
 pub const MIN_AUTHORITY_BALANCE: u64 = 50_000_000;
@@ -26,8 +29,8 @@ pub enum FundError {
         holds: u64,
         required: u64,
     },
-    #[error("cannot read the answer")]
-    Prompt(#[source] io::Error),
+    #[error(transparent)]
+    Ask(#[from] AskError),
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -36,6 +39,7 @@ pub enum FundError {
 /// instead of hanging.
 pub fn wait_for_balance<R: Rpc>(
     rpc: &R,
+    ask: &mut dyn Ask,
     authority: Address,
     required: u64,
 ) -> Result<(), FundError> {
@@ -44,43 +48,35 @@ pub fn wait_for_balance<R: Rpc>(
         let holds = rpc.get_balance(authority)?;
         if holds >= required {
             if asked {
-                println!("authority holds {} SOL, continuing", sol(holds));
+                line(
+                    "authority",
+                    format_args!("holds {} SOL, continuing", sol(holds)),
+                );
             }
             return Ok(());
         }
-        if !io::stdin().is_terminal() {
-            return Err(FundError::Underfunded {
-                authority,
-                holds,
-                required,
-            });
+        let underfunded = || FundError::Underfunded {
+            authority,
+            holds,
+            required,
+        };
+        if !ask.interactive() {
+            return Err(underfunded());
         }
-        if !asked {
+        if asked {
+            ui::warn(format!("still short {} SOL", sol(required - holds)));
+        } else {
             println!();
-            println!(
+            ui::warn(format!(
                 "the step needs {} SOL, the authority holds {} SOL",
                 sol(required),
                 sol(holds)
-            );
-            println!("airdrop {} SOL at {FAUCET}", sol(required - holds));
-            println!("  address  {authority}");
-        } else {
-            println!("still short {} SOL", sol(required - holds));
+            ));
+            ui::warn(format!("airdrop {} SOL at {FAUCET}", sol(required - holds)));
+            line("address", authority);
         }
-        print!("press enter to check the balance again, ctrl-c to stop: ");
-        io::stdout().flush().map_err(FundError::Prompt)?;
-        let mut answer = String::new();
-        if io::stdin()
-            .lock()
-            .read_line(&mut answer)
-            .map_err(FundError::Prompt)?
-            == 0
-        {
-            return Err(FundError::Underfunded {
-                authority,
-                holds,
-                required,
-            });
+        if !ask.confirm("check the balance again?", true)? {
+            return Err(underfunded());
         }
         asked = true;
     }
@@ -102,7 +98,21 @@ fn sol(lamports: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::*;
+    use crate::ui::{Answer, Defaults, Scripted};
+
+    /// Grows by three lamports per read.
+    struct Balance(Cell<u64>);
+
+    impl Rpc for Balance {
+        fn get_balance(&self, _address: Address) -> Result<u64, ClientError> {
+            let holds = self.0.get();
+            self.0.set(holds + 3);
+            Ok(holds)
+        }
+    }
 
     #[test]
     fn lamports_print_as_sol() {
@@ -115,39 +125,32 @@ mod tests {
 
     #[test]
     fn a_covered_balance_never_asks() {
-        struct Rich;
-        impl Rpc for Rich {
-            fn get_balance(&self, _address: Address) -> Result<u64, ClientError> {
-                Ok(9)
-            }
-        }
-        // Reaching a prompt would read the harness's stdin and hang.
-        wait_for_balance(&Rich, Address::default(), 9).expect("covered");
+        let mut ask = Scripted::new([]);
+        wait_for_balance(&Balance(Cell::new(9)), &mut ask, Address::default(), 9).expect("covered");
     }
-}
-
-#[cfg(test)]
-mod underfunded {
-    use super::*;
 
     #[test]
     fn a_shortfall_without_a_terminal_is_an_error() {
-        struct Poor;
-        impl Rpc for Poor {
-            fn get_balance(&self, _address: Address) -> Result<u64, ClientError> {
-                Ok(3)
-            }
-        }
-        if io::stdin().is_terminal() {
-            return;
-        }
         assert!(matches!(
-            wait_for_balance(&Poor, Address::default(), 9),
+            wait_for_balance(&Balance(Cell::new(3)), &mut Defaults, Address::default(), 9),
             Err(FundError::Underfunded {
                 holds: 3,
                 required: 9,
                 ..
             })
+        ));
+    }
+
+    #[test]
+    fn a_shortfall_is_rechecked_while_the_operator_says_yes() {
+        let mut ask = Scripted::new([Answer::Yes(true), Answer::Yes(true)]);
+        wait_for_balance(&Balance(Cell::new(3)), &mut ask, Address::default(), 9)
+            .expect("covered after two rechecks");
+        assert!(ask.is_drained());
+        let mut ask = Scripted::new([Answer::Yes(false)]);
+        assert!(matches!(
+            wait_for_balance(&Balance(Cell::new(3)), &mut ask, Address::default(), 9),
+            Err(FundError::Underfunded { holds: 3, .. })
         ));
     }
 }

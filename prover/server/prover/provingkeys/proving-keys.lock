@@ -8,9 +8,14 @@
       "sha256": "e04970f4d8a919cc826076de0ca0bc571b9afd44b0ef283285d3f0e36d54e2c9",
       "size": 3764027068
     },
-    "custom_ring.key": {
-      "sha256": "7b88eb0b441862e082efba5c035e0137ea96426c065fa4cc6adcf9bb79c4fb5e",
-      "size": 57953107,
+    "custom_ring_base.key": {
+      "sha256": "841ded3769cd7a0be089eb9d54d6a8aeaf26c792bfbbacb16158448f698d2003",
+      "size": 58012883,
+      "source": "release"
+    },
+    "custom_ring_policy.key": {
+      "sha256": "aedb480216da0341d9be34e775e941f1b3a4b0d9b1a8a25b25e77c772f2722f0",
+      "size": 145540418,
       "source": "release"
     },
     "merge_36_1.key": {

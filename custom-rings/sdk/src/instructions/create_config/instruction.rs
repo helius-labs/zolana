@@ -20,6 +20,8 @@ pub struct CreateConfig {
     /// prefix other than `0x02`/`0x03`: the circuit witnesses the uncompressed key
     /// and re-compresses it, so no other encoding could ever match a proof.
     pub auditor_pubkey: P256Pubkey,
+    /// A policy ring enforces its compiled rules, an audit-only ring skips them.
+    pub has_policy: bool,
 }
 
 #[derive(Debug, Error)]
@@ -37,6 +39,7 @@ impl CreateConfig {
             payer,
             authority,
             auditor_pubkey,
+            has_policy,
         } = self;
         if zolana_interface::is_reserved_p256_derivation_point(auditor_pubkey.as_bytes()) {
             return Err(CreateConfigError::ReservedAuditorKey);
@@ -45,6 +48,7 @@ impl CreateConfig {
         let mut data = vec![tag::CREATE_CONFIG];
         data.extend_from_slice(&wincode::serialize(&CreateConfigIxData {
             auditor_pubkey: *auditor_pubkey.as_bytes(),
+            has_policy: u8::from(has_policy),
         })?);
 
         Ok(Instruction {

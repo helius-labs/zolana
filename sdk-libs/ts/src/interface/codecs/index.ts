@@ -15,15 +15,24 @@ import type {
   RingConfigAccount,
   TreeFeeSchedule,
   TreeFees,
+  TreeHeadRoots,
 } from "../types.js";
 import { MERGE_INPUT_COUNT } from "../constants.js";
 import type { CreateTreeData, NullifierTreeParams } from "../program.js";
 import {
+  NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET,
+  NULLIFIER_ROOT_HISTORY_OFFSET,
+  NULLIFIER_TREE_ROOT_HISTORY_CAPACITY,
   PROTOCOL_CONFIG_SIZE,
+  STATE_HEIGHT,
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   TREE_FEES_OFFSET,
   TREE_FEE_BALANCE_OFFSET,
+  UTXO_ROOT_HISTORY_CAPACITY,
+  UTXO_ROOT_HISTORY_CURSOR_OFFSET,
+  UTXO_ROOT_HISTORY_OFFSET,
+  UTXO_SUBTREES_LEN_OFFSET,
 } from "../state.js";
 import {
   Reader,
@@ -353,6 +362,60 @@ export function decodeProtocolConfigAccount(bytes: Uint8Array): ProtocolConfigAc
  * The tree header is `discriminator, state, tree_id, padding[4], fees, fee_balance`.
  */
 export function decodeTreeFees(bytes: Uint8Array): TreeFees {
+  const reader = treeAccountReader(bytes, TREE_FEES_OFFSET, TREE_FEE_BALANCE_OFFSET + 8);
+  const fees = readTreeFeeSchedule(reader);
+  const feeBalance = reader.u64("feeBalance");
+  reader.done();
+  return { fees, feeBalance };
+}
+
+/** Mirrors Rust `head_roots`, the nullifier index is the slot before the write cursor. */
+export function decodeTreeHeadRoots(bytes: Uint8Array): TreeHeadRoots {
+  const utxo = treeAccountReader(
+    bytes,
+    UTXO_ROOT_HISTORY_CURSOR_OFFSET,
+    UTXO_SUBTREES_LEN_OFFSET + 1,
+  );
+  const stateRootIndex = utxo.u16("rootHistoryCursor");
+  const written = utxo.u16("rootHistoryLen");
+  const stateCapacity = utxo.u16("rootHistoryCapacity");
+  const subtreesLen = utxo.u8("subtreesLen");
+  utxo.done();
+  if (stateCapacity !== UTXO_ROOT_HISTORY_CAPACITY || subtreesLen !== STATE_HEIGHT) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA");
+  }
+  if (
+    written === 0 ||
+    written > stateCapacity ||
+    stateRootIndex >= stateCapacity ||
+    (written < stateCapacity && stateRootIndex + 1 !== written)
+  ) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { field: "stateRootIndex", actual: stateRootIndex });
+  }
+  const stateRoot = historyRoot(bytes, UTXO_ROOT_HISTORY_OFFSET, stateRootIndex, "stateRoot");
+  const cursor = new Reader(
+    copyBytes(
+      bytes.subarray(
+        NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET,
+        NULLIFIER_ROOT_HISTORY_CURSOR_OFFSET + 8,
+      ),
+    ),
+  ).u64("rootHistoryCursor");
+  const capacity = BigInt(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY);
+  if (cursor >= capacity) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { field: "nullifierRootIndex", actual: cursor });
+  }
+  const nullifierRootIndex = Number((cursor + capacity - 1n) % capacity);
+  const nullifierRoot = historyRoot(
+    bytes,
+    NULLIFIER_ROOT_HISTORY_OFFSET,
+    nullifierRootIndex,
+    "nullifierRoot",
+  );
+  return Object.freeze({ stateRoot, stateRootIndex, nullifierRoot, nullifierRootIndex });
+}
+
+function treeAccountReader(bytes: Uint8Array, start: number, end: number): Reader {
   if (bytes.length !== TREE_ACCOUNT_SIZE) {
     fail("INTERFACE_INVALID_ACCOUNT_DATA", { expected: TREE_ACCOUNT_SIZE, actual: bytes.length });
   }
@@ -363,13 +426,16 @@ export function decodeTreeFees(bytes: Uint8Array): TreeFees {
       actual: discriminator,
     });
   }
-  const reader = new Reader(
-    copyBytes(bytes.subarray(TREE_FEES_OFFSET, TREE_FEE_BALANCE_OFFSET + 8)),
-  );
-  const fees = readTreeFeeSchedule(reader);
-  const feeBalance = reader.u64("feeBalance");
-  reader.done();
-  return { fees, feeBalance };
+  return new Reader(copyBytes(bytes.subarray(start, end)));
+}
+
+function historyRoot(bytes: Uint8Array, offset: number, index: number, field: string): Bytes32 {
+  const start = offset + index * 32;
+  const root = copyBytes(bytes.subarray(start, start + 32), 32, field) as Bytes32;
+  if (root.every((byte) => byte === 0)) {
+    fail("INTERFACE_INVALID_ACCOUNT_DATA", { field, index });
+  }
+  return root;
 }
 
 export function decodeSplAssetCounterAccount(bytes: Uint8Array): SplAssetCounterAccount {

@@ -19,10 +19,30 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReadAccessRecordAlreadyExists as u32, 8116),
+        (ReadAccessEntryAlreadyExists as u32, 8116),
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
+        (PolicyConfigAlreadyInitialized as u32, 8120),
+        (PolicyConfigNotInitialized as u32, 8121),
+        (InvalidPolicyConfigPda as u32, 8122),
+        (InvalidPolicyMember as u32, 8124),
+        (UnauthorizedNamespaceSigner as u32, 8125),
+        (InvalidListId as u32, 8126),
+        (InvalidEntryState as u32, 8127),
+        (InvalidPolicyTree as u32, 8129),
+        (EntryVersionOverflow as u32, 8130),
+        (InvalidNamespacePda as u32, 8131),
+        (InvalidEntriesTree as u32, 8132),
+        (StalePolicyRoot as u32, 8133),
+        (InvalidSource as u32, 8134),
+        (InvalidCuratorPolicyConfig as u32, 8135),
+        (CuratorTreeMismatch as u32, 8136),
+        (CuratorSourceMissing as u32, 8137),
+        (ForeignSource as u32, 8138),
+        (InvalidEntryContent as u32, 8139),
+        (InvalidPolicyRules as u32, 8140),
+        (PolicyGenerationOverflow as u32, 8141),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -49,9 +69,29 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnsupportedCircuit
         | UnauthorizedInitializer
         | TooManyAccounts
-        | ReadAccessRecordAlreadyExists
+        | ReadAccessEntryAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
-        | UnsupportedOutputScheme => {}
+        | UnsupportedOutputScheme
+        | PolicyConfigAlreadyInitialized
+        | PolicyConfigNotInitialized
+        | InvalidPolicyConfigPda
+        | InvalidPolicyMember
+        | UnauthorizedNamespaceSigner
+        | InvalidListId
+        | InvalidEntryState
+        | InvalidPolicyTree
+        | EntryVersionOverflow
+        | InvalidNamespacePda
+        | InvalidEntriesTree
+        | StalePolicyRoot
+        | InvalidSource
+        | InvalidCuratorPolicyConfig
+        | CuratorTreeMismatch
+        | CuratorSourceMissing
+        | ForeignSource
+        | InvalidEntryContent
+        | InvalidPolicyRules
+        | PolicyGenerationOverflow => {}
     }
 }

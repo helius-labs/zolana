@@ -23,7 +23,7 @@ const CONTEXT: RpcContext = Object.freeze({ blockTime: 1_700_000_000n, slot: 0n 
 /** The fake clients build against the default tree, so the address matches the id. */
 const TREE_ID = DEFAULT_TREE_ID;
 const TREE = treeAddress(TREE_ID);
-const BLOCKHASH: LatestBlockhash = Object.freeze({
+export const BLOCKHASH: LatestBlockhash = Object.freeze({
   blockhash: blockhash("11111111111111111111111111111111"),
   lastValidBlockHeight: 1n,
 });
@@ -116,7 +116,12 @@ export function ringTransferClient(
     getLatestBlockhash: async () => BLOCKHASH,
     getAccount: async () => undefined,
     proveRingTransact: notImplemented("proveRingTransact"),
-    proveCustomRing: notImplemented("proveCustomRing"),
+    proveCustomRingPolicy: notImplemented("proveCustomRingPolicy"),
+    proveCustomRingBase: notImplemented("proveCustomRingBase"),
+    getEncryptedUtxosByTags: notImplemented("getEncryptedUtxosByTags"),
+    getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
+    getMerkleProofs: notImplemented("getMerkleProofs"),
+    getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     solanaRpc: solanaRpcReads({}),
     commitment: "confirmed",
     ...overrides,

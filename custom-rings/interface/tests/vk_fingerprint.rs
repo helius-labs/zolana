@@ -1,5 +1,5 @@
 //! Pins a SHA-256 fingerprint over the committed custom-ring verifying key. The key
-//! is a generated artifact (`prover/server/scripts/regenerate_all_vkeys.sh`);
+//! is a generated artifact (`prover/server/scripts/generate_keys_custom_ring.sh`),
 //! a regeneration rewrites an opaque constant file that is effectively
 //! unreviewable by diff. This test turns any VK change into an explicit
 //! one-line re-pin: if it fails, confirm the rotation was intentional and
@@ -31,12 +31,12 @@ fn absorb(preimage: &mut Vec<u8>, name: &str, vk: &Groth16Verifyingkey) {
 }
 
 #[test]
-fn verifying_key_fingerprint_is_pinned() {
+fn policy_verifying_key_fingerprint_is_pinned() {
     let mut preimage = Vec::new();
     absorb(
         &mut preimage,
-        "verifying_key",
-        &custom_ring_interface::verifying_key::VERIFYINGKEY,
+        "policy_verifying_key",
+        &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
     );
     let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -44,7 +44,24 @@ fn verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "0062c56eb35b92d146de8414cceb0580bcc29201daef314350bb5939d17ea885",
-        "verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+        fingerprint, "00c0b9a0ec76a64aeb689a50abcdb88361dd82549ff44047f407df5599757549",
+        "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+    );
+}
+
+#[test]
+fn base_verifying_key_fingerprint_is_pinned() {
+    let mut preimage = Vec::new();
+    absorb(
+        &mut preimage,
+        "base_verifying_key",
+        &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
+    );
+    let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
+    let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+
+    assert_eq!(
+        fingerprint, "00aad717b591551d14a8236ef330e964ec2ad32f2d5951bef72f390412d389aa",
+        "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

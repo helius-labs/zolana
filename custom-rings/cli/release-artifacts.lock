@@ -1,31 +1,36 @@
 {
+  "audit_key": {
+    "asset": "custom-ring-base-key-v0.1.0-alpha.6.key",
+    "sha256": "5a469eca19000e5d023c9c7711beac495e4faf72ab804c635c0d84541ddc3aeb",
+    "size": 89748463
+  },
   "binaries": [
     {
       "arch": "arm64",
-      "asset": "ring-rpc-darwin-arm64-v0.1.0-alpha.2",
+      "asset": "ring-rpc-darwin-arm64-v0.1.0-alpha.6",
       "os": "darwin",
       "role": "ring_rpc",
-      "sha256": "b8edbb77c9da602e13ab43e7e0b1d906222bbb23fa0c1da5e3808cfab3e0051f",
-      "size": 14160704
+      "sha256": "13c9d3ae66f1789ea4eb957f01ec003bbcacc98fb59dfd2b6dbe23388c21d0ad",
+      "size": 14135376
     },
     {
       "arch": "x64",
-      "asset": "ring-rpc-linux-x64-v0.1.0-alpha.2",
+      "asset": "ring-rpc-linux-x64-v0.1.0-alpha.6",
       "os": "linux",
       "role": "ring_rpc",
-      "sha256": "d3b1310f8964405cce3c2c2247b5fea5a6e07b0f13b7138550f1eeb75ba978bb",
-      "size": 17408696
+      "sha256": "b1787fb2d47b1fd84738388b9a27112a516730641449c4332f9357d288b2ed66",
+      "size": 17408624
     }
   ],
   "proving_key": {
-    "asset": "custom-ring-key-v0.1.0-alpha.2.key",
-    "sha256": "506ed2dcfc207c34126de083288457c01609bee3e62184c201e2bdef6ef20249",
-    "size": 89710022
+    "asset": "custom-ring-policy-key-v0.1.0-alpha.6.key",
+    "sha256": "c6c7d8b1c368aec3dcb4b800f17acb4e99953b6786437db76cfb21907b42af8f",
+    "size": 179154007
   },
-  "release_tag": "v0.1.0-alpha.2",
+  "release_tag": "v0.1.0-alpha.6",
   "ring_program": {
-    "asset": "custom-ring-program-v0.1.0-alpha.2.so",
-    "sha256": "041b94f53ff0ee291473b3cf407b7c8b535d87f2beb7a18c48e2034aa2235d81",
-    "size": 175896
+    "asset": "custom-ring-program-v0.1.0-alpha.6.so",
+    "sha256": "a2a9e85c9677b26f9ee8bf60151dca5ce76b3984e00ac16dc8bd159acc591fae",
+    "size": 259144
   }
 }

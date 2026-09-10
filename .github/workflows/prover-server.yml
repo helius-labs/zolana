@@ -57,6 +57,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           private-libs-token: ${{ secrets.PRIVATE_LIBS_TOKEN }}
+      - run: cargo test -p xtask create_release::tests
       - name: Cache the smoke proving key
         uses: actions/cache@v4
         with:

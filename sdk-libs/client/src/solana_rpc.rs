@@ -11,6 +11,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use solana_account::Account;
 use solana_address::Address;
 use solana_commitment_config::CommitmentConfig;
@@ -18,7 +19,14 @@ use solana_hash::Hash;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::{
-    api::config::RpcTransactionConfig, nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
+    api::{
+        config::{
+            RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcTransactionConfig, UiAccountEncoding,
+        },
+        filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
+        response::UiAccount,
+    },
+    nonblocking::rpc_client::RpcClient as NonblockingRpcClient,
     rpc_client::RpcClient,
 };
 use solana_signature::Signature;
@@ -53,6 +61,65 @@ pub struct SolanaRpc {
 
 pub struct AsyncSolanaRpc {
     client: NonblockingRpcClient,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramAccountsFilter {
+    data_size: usize,
+    memcmp: Vec<MemcmpFilter>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MemcmpFilter {
+    offset: usize,
+    bytes: Vec<u8>,
+}
+
+impl ProgramAccountsFilter {
+    pub fn new(data_size: usize) -> Self {
+        Self {
+            data_size,
+            memcmp: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_memcmp(mut self, offset: usize, bytes: impl Into<Vec<u8>>) -> Self {
+        self.memcmp.push(MemcmpFilter {
+            offset,
+            bytes: bytes.into(),
+        });
+        self
+    }
+
+    /// The `getProgramAccounts` config the filtered query sends.
+    pub fn rpc_config(&self) -> RpcProgramAccountsConfig {
+        let memcmp = self.memcmp.iter().map(|memcmp| {
+            let bytes = MemcmpEncodedBytes::Base64(STANDARD.encode(&memcmp.bytes));
+            RpcFilterType::Memcmp(Memcmp::new(memcmp.offset, bytes))
+        });
+        RpcProgramAccountsConfig {
+            filters: Some(
+                std::iter::once(RpcFilterType::DataSize(self.data_size as u64))
+                    .chain(memcmp)
+                    .collect(),
+            ),
+            account_config: RpcAccountInfoConfig {
+                encoding: Some(UiAccountEncoding::Base64),
+                commitment: Some(CommitmentConfig::confirmed()),
+                ..RpcAccountInfoConfig::default()
+            },
+            ..RpcProgramAccountsConfig::default()
+        }
+    }
+
+    pub fn matches(&self, data: &[u8]) -> bool {
+        data.len() == self.data_size
+            && self.memcmp.iter().all(|memcmp| {
+                data.get(memcmp.offset..)
+                    .is_some_and(|window| window.starts_with(&memcmp.bytes))
+            })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -144,6 +211,19 @@ impl SolanaRpc {
 
     pub fn client(&self) -> &RpcClient {
         &self.client
+    }
+
+    /// Every returned account satisfies `filter`, an account outside it fails the call.
+    pub fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        let accounts = self
+            .client
+            .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
+        filtered_program_accounts(&program_id, filter, accounts)
     }
 
     pub fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
@@ -250,6 +330,20 @@ impl AsyncSolanaRpc {
         &self.client
     }
 
+    /// Every returned account satisfies `filter`, an account outside it fails the call.
+    pub async fn get_program_accounts_filtered(
+        &self,
+        program_id: Address,
+        filter: &ProgramAccountsFilter,
+    ) -> Result<Vec<(Address, Account)>, ClientError> {
+        let accounts = self
+            .client
+            .get_program_ui_accounts_with_config(&program_id, filter.rpc_config())
+            .await
+            .map_err(|err| ClientError::Rpc(format!("get_program_accounts {program_id}: {err}")))?;
+        filtered_program_accounts(&program_id, filter, accounts)
+    }
+
     pub async fn genesis_hash(&self) -> Result<[u8; 32], ClientError> {
         self.client
             .get_genesis_hash()
@@ -303,6 +397,29 @@ impl AsyncSolanaRpc {
         let groups = self.fetch_confirmed_instruction_groups(signature).await?;
         transact_output_view_tags_from_instruction_groups(&groups)
     }
+}
+
+fn filtered_program_accounts(
+    program: &Address,
+    filter: &ProgramAccountsFilter,
+    accounts: Vec<(Address, UiAccount)>,
+) -> Result<Vec<(Address, Account)>, ClientError> {
+    accounts
+        .into_iter()
+        .map(|(address, ui_account)| {
+            let account = ui_account.to_account().ok_or_else(|| {
+                ClientError::Rpc(format!(
+                    "get_program_accounts {program} returned account {address} in an unsupported encoding"
+                ))
+            })?;
+            if !filter.matches(&account.data) {
+                return Err(ClientError::Rpc(format!(
+                    "get_program_accounts {program} returned account {address} outside the filter"
+                )));
+            }
+            Ok((address, account))
+        })
+        .collect()
 }
 
 fn instruction_groups_from_confirmed_transaction(

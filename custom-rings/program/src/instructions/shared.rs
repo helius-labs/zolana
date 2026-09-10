@@ -28,6 +28,21 @@ impl PdaCheck<'_> {
         }
         Ok(bump)
     }
+
+    /// The program creates PDA accounts only at the canonical bump, so a
+    /// stored bump that re-derives the address proves canonicality.
+    #[inline(always)]
+    pub fn verify_stored_bump(self, bump: u8) -> Result<(), ProgramError> {
+        let bump = [bump];
+        let mut seeds: [&[u8]; 2] = [&[], &bump];
+        seeds[0] = self.seeds[0];
+        let derived =
+            Address::create_program_address(&seeds, self.program_id).map_err(|_| self.mismatch)?;
+        if !pinocchio::address::address_eq(self.address, &derived) {
+            return Err(self.mismatch.into());
+        }
+        Ok(())
+    }
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
@@ -41,6 +56,10 @@ impl PdaCheck<'_> {
         } = self;
         let _ = (program_id, address, seeds);
         Err(mismatch.into())
+    }
+
+    pub fn verify_stored_bump(self, _bump: u8) -> Result<(), ProgramError> {
+        Err(self.mismatch.into())
     }
 }
 

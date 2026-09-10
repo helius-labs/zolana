@@ -237,6 +237,13 @@ export interface TreeFees {
   readonly feeBalance: bigint;
 }
 
+export interface TreeHeadRoots {
+  readonly stateRoot: Bytes32;
+  readonly stateRootIndex: number;
+  readonly nullifierRoot: Bytes32;
+  readonly nullifierRootIndex: number;
+}
+
 export interface SplAssetCounterAccount {
   readonly nextId: bigint;
 }
