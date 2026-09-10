@@ -27,8 +27,6 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -36,6 +34,8 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
@@ -51,8 +51,8 @@ fn merge_data() -> MergeTransactIxData {
         eddsa_owner: true,
         private_tx_hash: [0u8; 32],
         nullifiers: merge_nullifiers(),
-        utxo_tree_root_index: vec![0; 8],
-        nullifier_tree_root_index: vec![0; 8],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 

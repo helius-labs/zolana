@@ -178,6 +178,8 @@ mod tests {
             ring_data_hash: None,
             outputs: Vec::new(),
             messages: Vec::new(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         }
     }
 
@@ -355,8 +357,6 @@ mod tests {
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
             })
             .collect();
         let builder = Transact {

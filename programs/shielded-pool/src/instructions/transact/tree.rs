@@ -2,11 +2,9 @@ use crate::instructions::shared::caused_by;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
-    error::ShieldedPoolError,
-    event::InputTreeSequence,
-    instruction::instruction_data::transact::{InputUtxo, TransactIxDataRef},
-    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    tree_slot::TreeSlot,
+    error::ShieldedPoolError, event::InputTreeSequence,
+    instruction::instruction_data::transact::TransactIxDataRef,
+    state::discriminator::TREE_ACCOUNT_DISCRIMINATOR, tree_slot::TreeSlot,
 };
 use zolana_tree::TreeAccount;
 
@@ -21,8 +19,9 @@ use crate::instructions::{
 /// queue.
 ///
 /// The circuit publishes `INPUT_TREES` slots, but SPP spends from one
-/// `input_tree`, so every input must reference the same pair of root indexes:
-/// the roots they resolve to fill slot 0 and the remaining slots stay zero.
+/// `input_tree`, so the instruction carries one pair of root indexes for every
+/// input: the roots they resolve to fill slot 0 and the remaining slots stay
+/// zero.
 #[profile]
 pub(crate) fn apply_input_tree(
     input_tree_account: &mut AccountView,
@@ -37,7 +36,7 @@ pub(crate) fn apply_input_tree(
     )
     .map_err(tree_error)?;
     let allow_dummy_inputs = bool_field(input_tree.allow_dummy_inputs().map_err(tree_error)?);
-    let tree_slot = resolve_input_tree_slot(&input_tree, &ix.inputs)?;
+    let tree_slot = resolve_input_tree_slot(&input_tree, ix)?;
     proof_inputs.assign_input_tree(tree_slot, allow_dummy_inputs);
 
     let first_input_queue_seq = queue_nullifiers(
@@ -85,28 +84,21 @@ pub(crate) fn queue_nullifiers<'n>(
 }
 
 /// The one populated tree slot of a spend: `input_tree`'s id and the roots at
-/// the indexes every input references. An input whose indexes differ from
-/// input 0's is `InputTreeRootIndexMismatch`.
+/// the instruction's root-index pair.
 pub(crate) fn resolve_input_tree_slot(
     input_tree: &TreeAccount<'_>,
-    inputs: &[InputUtxo],
+    ix: &TransactIxDataRef<'_>,
 ) -> Result<TreeSlot, ProgramError> {
-    let first = inputs
-        .first()
-        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-    if inputs.iter().any(|input| {
-        input.utxo_tree_root_index != first.utxo_tree_root_index
-            || input.nullifier_tree_root_index != first.nullifier_tree_root_index
-    }) {
-        return Err(ShieldedPoolError::InputTreeRootIndexMismatch.into());
+    if ix.inputs.is_empty() {
+        return Err(ShieldedPoolError::InvalidTransactShape.into());
     }
     Ok(TreeSlot {
         id: input_tree.tree_id_array(),
         utxo_root: input_tree
-            .get_utxo_tree_root(first.utxo_tree_root_index)
+            .get_utxo_tree_root(ix.utxo_tree_root_index)
             .map_err(tree_error)?,
         nullifier_root: input_tree
-            .get_nullifier_tree_root(first.nullifier_tree_root_index)
+            .get_nullifier_tree_root(ix.nullifier_tree_root_index)
             .map_err(tree_error)?,
     })
 }

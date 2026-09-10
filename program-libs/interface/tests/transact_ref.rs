@@ -70,9 +70,9 @@ fn transact_ref_decode_only_allocates_element_vectors() {
         proof: TransactProof::zeroed(),
         inputs: vec![InputUtxo {
             nullifier_hash: [5; 32],
-            nullifier_tree_root_index: 6,
-            utxo_tree_root_index: 7,
         }],
+        utxo_tree_root_index: 7,
+        nullifier_tree_root_index: 6,
         interface_transfers: vec![InterfaceTransfer::SolDeposit { amount: 8 }],
         data_hash: Some([9; 32]),
         ring_data_hash: None,

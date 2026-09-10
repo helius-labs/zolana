@@ -233,6 +233,8 @@ mod tests {
             circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
             proof: TransactProof::zeroed(),
             inputs: Vec::new(),
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         }
         .serialize()
         .unwrap()

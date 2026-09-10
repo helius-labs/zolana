@@ -131,9 +131,9 @@ fn ix_data(proof: TransactProof) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 2,
-            utxo_tree_root_index: 3,
         }],
+        utxo_tree_root_index: 3,
+        nullifier_tree_root_index: 2,
         interface_transfers: vec![
             InterfaceTransfer::SolWithdrawal { amount: 5 },
             InterfaceTransfer::SplDeposit {
@@ -163,6 +163,11 @@ fn assert_ref_matches_owned(view: &TransactIxDataRef, owned: &TransactIxData) {
     assert_eq!(view.salt, &owned.salt);
     assert_eq!(view.proof, owned.proof);
     assert_eq!(view.inputs, owned.inputs);
+    assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
+    assert_eq!(
+        view.nullifier_tree_root_index,
+        owned.nullifier_tree_root_index
+    );
     assert_eq!(view.interface_transfers, owned.interface_transfers);
     assert_eq!(view.data_hash, owned.data_hash);
     assert_eq!(view.ring_data_hash, owned.ring_data_hash);

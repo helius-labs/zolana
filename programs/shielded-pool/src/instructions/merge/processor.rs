@@ -190,37 +190,22 @@ pub(crate) fn process_merge_core(
 /// Resolve `input_tree`'s roots into the proof's tree slot and insert every
 /// nullifier into its queue, returning the first input's queue sequence
 /// number. `from_bytes` already enforced a supported merge shape. The circuit
-/// publishes `INPUT_TREES` slots, but SPP spends from one `input_tree`, so every
-/// input must reference the same pair of root indexes
-/// (`InputTreeRootIndexMismatch` otherwise): the roots they resolve to fill
-/// slot 0 and the remaining slots stay zero.
+/// publishes `INPUT_TREES` slots, but SPP spends from one `input_tree`, so the
+/// instruction carries one pair of root indexes for every input: the roots
+/// they resolve to fill slot 0 and the remaining slots stay zero.
 #[inline(never)]
 fn apply_input_tree(
     tree: &mut TreeAccount<'_>,
     ix: &MergeTransactIxDataRef<'_>,
     derived: &mut MergeProofInputs,
 ) -> Result<u64, ProgramError> {
-    let shape = ShieldedPoolError::InvalidMergeShape;
-    let utxo_tree_root_index = *ix.utxo_tree_root_index.first().ok_or(shape)?;
-    let nullifier_tree_root_index = *ix.nullifier_tree_root_index.first().ok_or(shape)?;
-    if ix
-        .utxo_tree_root_index
-        .iter()
-        .any(|index| *index != utxo_tree_root_index)
-        || ix
-            .nullifier_tree_root_index
-            .iter()
-            .any(|index| *index != nullifier_tree_root_index)
-    {
-        return Err(ShieldedPoolError::InputTreeRootIndexMismatch.into());
-    }
     derived.tree_slot = TreeSlot {
         id: tree.tree_id_array(),
         utxo_root: tree
-            .get_utxo_tree_root(utxo_tree_root_index)
+            .get_utxo_tree_root(ix.utxo_tree_root_index)
             .map_err(tree_error)?,
         nullifier_root: tree
-            .get_nullifier_tree_root(nullifier_tree_root_index)
+            .get_nullifier_tree_root(ix.nullifier_tree_root_index)
             .map_err(tree_error)?,
     };
 

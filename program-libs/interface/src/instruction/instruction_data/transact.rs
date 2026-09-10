@@ -35,8 +35,6 @@ impl TransactProof {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct InputUtxo {
     pub nullifier_hash: [u8; 32],
-    pub nullifier_tree_root_index: u16,
-    pub utxo_tree_root_index: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -179,6 +177,8 @@ pub struct TransactIxData {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
 }
 
 impl TransactIxData {
@@ -241,6 +241,8 @@ pub struct TransactIxDataRef<'a> {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
 }
 
 impl<'a> TransactIxDataRef<'a> {

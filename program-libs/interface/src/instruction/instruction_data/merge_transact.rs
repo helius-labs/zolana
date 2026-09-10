@@ -53,10 +53,8 @@ pub struct MergeTransactIxData {
     pub private_tx_hash: [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub utxo_tree_root_index: Vec<u16>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub nullifier_tree_root_index: Vec<u16>,
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
 }
 
 impl MergeTransactIxData {
@@ -89,10 +87,8 @@ pub struct MergeTransactIxDataRef<'a> {
     pub private_tx_hash: &'a [u8; 32],
     #[wincode(with = "containers::Vec<[u8; 32], FixIntLen<u8>>")]
     pub nullifiers: Vec<[u8; 32]>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub utxo_tree_root_index: Vec<u16>,
-    #[wincode(with = "containers::Vec<u16, FixIntLen<u8>>")]
-    pub nullifier_tree_root_index: Vec<u16>,
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
 }
 
 impl<'a> MergeTransactIxDataRef<'a> {
@@ -103,11 +99,7 @@ impl<'a> MergeTransactIxDataRef<'a> {
     }
 
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        let input_count = self.nullifiers.len();
-        if self.utxo_tree_root_index.len() != input_count
-            || self.nullifier_tree_root_index.len() != input_count
-            || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count)
-        {
+        if !MERGE_SUPPORTED_INPUT_COUNTS.contains(&self.nullifiers.len()) {
             return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
@@ -152,8 +144,8 @@ mod tests {
             nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
                 .map(|i| [i; 32])
                 .collect(),
-            utxo_tree_root_index: (0..MERGE_DEFAULT_INPUT_COUNT as u16).collect(),
-            nullifier_tree_root_index: (10..10 + MERGE_DEFAULT_INPUT_COUNT as u16).collect(),
+            utxo_tree_root_index: 4,
+            nullifier_tree_root_index: 10,
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
         }
@@ -170,6 +162,7 @@ mod tests {
         assert_eq!(view.proof.c, &owned.proof.c);
         assert_eq!(view.output_utxo_hash, &owned.output_utxo_hash);
         assert_eq!(view.nullifiers, owned.nullifiers);
+        assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
         assert_eq!(
             view.nullifier_tree_root_index,
             owned.nullifier_tree_root_index
@@ -182,9 +175,7 @@ mod tests {
     fn fixed_shape_wire_length_matches_the_protocol_contract() {
         let bytes = data().serialize().expect("serialize merge instruction");
 
-        // expiry(8) || proof(192) || output_hash(32) || eddsa_owner(1) ||
-        // private_tx_hash(32) || 3 vecs with u8 lens.
-        assert_eq!(bytes.len(), 268 + 36 * MERGE_DEFAULT_INPUT_COUNT);
+        assert_eq!(bytes.len(), 270 + 32 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]
