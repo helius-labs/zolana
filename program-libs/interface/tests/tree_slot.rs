@@ -173,3 +173,55 @@ fn input_flags_reject_out_of_range_indexes_and_oversized_shapes() {
         Err(ShieldedPoolError::InvalidTransactShape)
     );
 }
+
+/// Cross-language vectors for the packed element: the Go circuit, the Go host
+/// and the TypeScript client pin the same file, so a packing change that is
+/// not mirrored everywhere fails here first.
+#[test]
+fn input_flags_match_the_cross_language_vectors() {
+    #[derive(serde::Deserialize)]
+    struct InputFlagsVectors {
+        input_trees: usize,
+        vectors: Vec<InputFlagsVector>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct InputFlagsVector {
+        name: String,
+        allow_dummy_inputs: bool,
+        tree_indexes: Vec<u8>,
+        input_flags: String,
+        input_flags_decimal: String,
+    }
+
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../test-vectors/input_flags.json"
+    );
+    let json = std::fs::read_to_string(path).expect("read test-vectors/input_flags.json");
+    let pinned: InputFlagsVectors = serde_json::from_str(&json).expect("parse input_flags.json");
+    assert_eq!(pinned.input_trees, INPUT_TREES);
+    assert!(!pinned.vectors.is_empty());
+
+    for vector in &pinned.vectors {
+        let expected: Vec<u8> = vector
+            .input_flags
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| {
+                let pair = core::str::from_utf8(pair).expect("hex digits are ascii");
+                u8::from_str_radix(pair, 16).expect("hex byte")
+            })
+            .collect();
+        let decimal: u128 = vector
+            .input_flags_decimal
+            .parse()
+            .expect("decimal input_flags");
+
+        let packed = pack_input_flags(vector.allow_dummy_inputs, vector.tree_indexes.clone())
+            .unwrap_or_else(|error| panic!("vector {} failed to pack: {error:?}", vector.name));
+
+        assert_eq!(packed.as_slice(), expected, "vector {}", vector.name);
+        assert_eq!(packed, flags_field(decimal), "vector {}", vector.name);
+    }
+}

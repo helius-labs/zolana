@@ -32,6 +32,8 @@ zolana-tree = { workspace = true, optional = true }
 [dev-dependencies]
 bytemuck = { workspace = true }
 proptest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 solana-address = { workspace = true }
 solana-message = { workspace = true }
 solana-rent = { workspace = true }

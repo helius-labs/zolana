@@ -11215,6 +11215,8 @@ dependencies = [
  "bytemuck",
  "groth16-solana",
  "proptest",
+ "serde",
+ "serde_json",
  "solana-address 2.6.1",
  "solana-instruction",
  "solana-message",
