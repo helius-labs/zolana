@@ -19,7 +19,8 @@ use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
         tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
-        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxData, TransactOutput,
+        TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -31,7 +32,7 @@ use zolana_keypair::{
 use zolana_ring_policy::RuleTable;
 use zolana_transaction::{
     instructions::transact::{
-        encode_confidential_slots, ChangeLayout, PreparedTransfer, SppProofOutputUtxo,
+        encode_confidential_slots, ChangeLayout, ExternalData, PreparedTransfer, SppProofOutputUtxo,
     },
     owner_utxo_hash, AssetRegistry, Data, EncryptedScheme, RingDepositPlaintext, TransactionError,
     Utxo,
@@ -145,6 +146,8 @@ pub enum TransferError {
     #[error(transparent)]
     Instruction(#[from] wincode::Error),
     #[error(transparent)]
+    DelegateInstruction(#[from] crate::DelegateInstructionError),
+    #[error(transparent)]
     Encoding(#[from] std::io::Error),
     #[error("indexer returned an incomplete proof set")]
     IncompleteProofSet,
@@ -196,6 +199,12 @@ pub enum TransferError {
     ForeignRing(Address),
     #[error("a default-ring note carries ring data")]
     RingDataOutsideRing,
+    #[error("the ring has no delegate")]
+    MissingDelegate,
+    #[error("the ring's delegate is {0}")]
+    UnauthorizedDelegate(Address),
+    #[error("inputs and outputs of {0} differ")]
+    UnbalancedMove(Address),
 }
 
 impl From<PolicyMatchError> for TransferError {
@@ -411,7 +420,10 @@ impl<'a> CustomRingTransfer<'a> {
         let salt = random_salt();
         let slots = encode_confidential_slots(&prepared.outputs, assets, &tx_viewing_key, salt)?;
         let mut proof_inputs = prepared.finalize(tx_viewing_key.pubkey(), salt, slots)?;
-        frame_dummy_outputs(&mut proof_inputs)?;
+        frame_dummy_outputs(
+            &proof_inputs.output_utxos,
+            &mut proof_inputs.external_data.outputs,
+        )?;
         proof_inputs.external_data.messages = vec![auditor_message.to_message_data(&auditor_pk)];
         // RING_TRANSACT is folded into external_data_hash and from there into
         // private_tx_hash, so it must be bound before anything hashes external data.
@@ -432,9 +444,60 @@ impl<'a> CustomRingTransfer<'a> {
     }
 }
 
+pub(crate) struct PolicyTierInput<'a> {
+    pub ring: CustomRing,
+    pub inputs: &'a [SppProofInputUtxo],
+    pub outputs: &'a [SppProofOutputUtxo],
+    pub output_tree_id: u16,
+}
+
+impl PolicyTierInput<'_> {
+    pub fn read<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<Tier, TransferError> {
+        let policy_config = self
+            .ring
+            .read_policy_config(rpc)?
+            .ok_or(TransferError::MissingPolicyConfig)?;
+        let table = policy_config_table(&policy_config)?;
+        let witness = self.witness(&table, &policy_config).build(indexer, rpc)?;
+        Ok(Tier::policy(&policy_config, witness))
+    }
+
+    pub async fn read_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<Tier, TransferError> {
+        let policy_config = self
+            .ring
+            .read_policy_config_async(rpc)
+            .await?
+            .ok_or(TransferError::MissingPolicyConfig)?;
+        let table = policy_config_table(&policy_config)?;
+        let witness = self
+            .witness(&table, &policy_config)
+            .build_async(indexer, rpc)
+            .await?;
+        Ok(Tier::policy(&policy_config, witness))
+    }
+
+    fn witness<'s>(
+        &'s self,
+        policy: &'s RuleTable,
+        policy_config: &'s PolicyConfig,
+    ) -> CustomRingWitnessInput<'s> {
+        CustomRingWitnessInput {
+            policy,
+            policy_config,
+            inputs: self.inputs,
+            outputs: self.outputs,
+            output_tree_id: self.output_tree_id,
+        }
+    }
+}
+
 /// A policy ring proves the folded statement over its entries-tree roots, an
 /// audit-only ring proves the audit statement alone.
-enum Tier {
+pub(crate) enum Tier {
     Base,
     Policy {
         policy_hash: [u8; 32],
@@ -502,46 +565,27 @@ impl StagedTransfer {
         &self,
         environment: &TransferProofEnvironment<'_, I, R>,
     ) -> Result<Tier, TransferError> {
-        let policy_config = self
-            .ring
-            .read_policy_config(environment.rpc)?
-            .ok_or(TransferError::MissingPolicyConfig)?;
-        let table = policy_config_table(&policy_config)?;
-        let witness = self
-            .policy_inputs(&table, &policy_config)
-            .build(environment.indexer, environment.rpc)?;
-        Ok(Tier::policy(&policy_config, witness))
+        PolicyTierInput {
+            ring: self.ring,
+            inputs: &self.proof_inputs.input_utxos,
+            outputs: &self.proof_inputs.output_utxos,
+            output_tree_id: self.proof_inputs.output_tree_id,
+        }
+        .read(environment.indexer, environment.rpc)
     }
 
     async fn policy_tier_async<I: AsyncRpc, R: AsyncRpc>(
         &self,
         environment: &AsyncTransferProofEnvironment<'_, I, R>,
     ) -> Result<Tier, TransferError> {
-        let policy_config = self
-            .ring
-            .read_policy_config_async(environment.rpc)
-            .await?
-            .ok_or(TransferError::MissingPolicyConfig)?;
-        let table = policy_config_table(&policy_config)?;
-        let witness = self
-            .policy_inputs(&table, &policy_config)
-            .build_async(environment.indexer, environment.rpc)
-            .await?;
-        Ok(Tier::policy(&policy_config, witness))
-    }
-
-    fn policy_inputs<'s>(
-        &'s self,
-        policy: &'s RuleTable,
-        policy_config: &'s PolicyConfig,
-    ) -> CustomRingWitnessInput<'s> {
-        CustomRingWitnessInput {
-            policy,
-            policy_config,
+        PolicyTierInput {
+            ring: self.ring,
             inputs: &self.proof_inputs.input_utxos,
             outputs: &self.proof_inputs.output_utxos,
             output_tree_id: self.proof_inputs.output_tree_id,
         }
+        .read_async(environment.indexer, environment.rpc)
+        .await
     }
 
     /// Builds the SPP ring witness over the message-bearing external data, then
@@ -575,35 +619,13 @@ impl StagedTransfer {
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
         }
         .build()?;
-        let private_tx_hash = ring_result.private_tx_hash.try_into()?;
-        let request = match tier {
-            Tier::Base => TierRequest::Base(self.pending_proof.finish_base(private_tx_hash)?),
-            Tier::Policy {
-                policy_hash,
-                entries_tree,
-                witness,
-            } => {
-                let external_data_hash = self
-                    .proof_inputs
-                    .external_data
-                    .hash()
-                    .map_err(|_| TransferError::PolicyHashing)?;
-                let roots = witness.roots;
-                let private_tx_blinding = self.proof_inputs.private_tx_blinding()?;
-                let request = self.pending_proof.finish(
-                    private_tx_hash,
-                    &external_data_hash,
-                    &private_tx_blinding,
-                    *witness,
-                    &policy_hash,
-                )?;
-                TierRequest::Policy {
-                    request: Box::new(request),
-                    entries_tree,
-                    roots,
-                }
-            }
-        };
+        let request = TierRequest::build(
+            tier,
+            self.pending_proof,
+            ring_result.private_tx_hash.try_into()?,
+            &self.proof_inputs.external_data,
+            self.proof_inputs.private_tx_blinding()?,
+        )?;
         Ok((
             request,
             WitnessedTransfer {
@@ -623,7 +645,7 @@ impl StagedTransfer {
 
 /// The tier's prover request, with the accounts and roots the instruction binds
 /// for it.
-enum TierRequest {
+pub(crate) enum TierRequest {
     Base(CustomRingBaseProofRequest),
     Policy {
         request: Box<CustomRingPolicyProofRequest>,
@@ -649,7 +671,42 @@ impl ProveRequest for TierRequest {
 }
 
 impl TierRequest {
-    fn proven(self, proof: Proof) -> Result<TierProof, TransferError> {
+    /// Closes the auditor encryption over the `private_tx_hash` the SPP witness fixed.
+    pub fn build(
+        tier: Tier,
+        pending: PendingCustomRingProof,
+        private_tx_hash: crate::CustomRingPrivateTxHash,
+        external_data: &ExternalData,
+        private_tx_blinding: [u8; 32],
+    ) -> Result<Self, TransferError> {
+        Ok(match tier {
+            Tier::Base => Self::Base(pending.finish_base(private_tx_hash)?),
+            Tier::Policy {
+                policy_hash,
+                entries_tree,
+                witness,
+            } => {
+                let external_data_hash = external_data
+                    .hash()
+                    .map_err(|_| TransferError::PolicyHashing)?;
+                let roots = witness.roots;
+                let request = pending.finish(
+                    private_tx_hash,
+                    &external_data_hash,
+                    &private_tx_blinding,
+                    *witness,
+                    &policy_hash,
+                )?;
+                Self::Policy {
+                    request: Box::new(request),
+                    entries_tree,
+                    roots,
+                }
+            }
+        })
+    }
+
+    pub fn proven(self, proof: Proof) -> Result<TierProof, TransferError> {
         let proof = to_instruction_proof(proof)?;
         Ok(match self {
             Self::Base(_) => TierProof::Base(proof),
@@ -667,13 +724,43 @@ impl TierRequest {
 }
 
 /// The tier's proof in the instruction's wire encoding.
-enum TierProof {
+pub(crate) enum TierProof {
     Base(CustomRingProof),
     Policy {
         proof: CustomRingProof,
         entries_tree: Address,
         roots: TransactRoots,
     },
+}
+
+pub(crate) struct TierBinding {
+    pub proof: CustomRingProof,
+    pub entries_tree: Option<Address>,
+    pub state_root_index: u16,
+    pub nullifier_root_index: u16,
+}
+
+impl TierProof {
+    pub fn binding(self) -> TierBinding {
+        match self {
+            Self::Base(proof) => TierBinding {
+                proof,
+                entries_tree: None,
+                state_root_index: 0,
+                nullifier_root_index: 0,
+            },
+            Self::Policy {
+                proof,
+                entries_tree,
+                roots,
+            } => TierBinding {
+                proof,
+                entries_tree: Some(entries_tree),
+                state_root_index: roots.state_index,
+                nullifier_root_index: roots.nullifier_index,
+            },
+        }
+    }
 }
 
 /// Both witnesses built and the auditor encryption closed over the transfer's
@@ -701,25 +788,27 @@ impl WitnessedTransfer {
         spp_proof: TransactProof,
         ring: TierProof,
     ) -> Result<ProvenTransfer, TransferError> {
-        let (proof, entries_tree, state_root_index, nullifier_root_index) = match ring {
-            TierProof::Base(proof) => (proof, None, 0, 0),
-            TierProof::Policy {
-                proof,
-                entries_tree,
-                roots,
-            } => (
-                proof,
-                Some(entries_tree),
-                roots.state_index,
-                roots.nullifier_index,
-            ),
-        };
+        let TierBinding {
+            proof,
+            entries_tree,
+            state_root_index,
+            nullifier_root_index,
+        } = ring.binding();
+        let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
         Ok(ProvenTransfer {
             tx_viewing_key: self.tx_viewing_key,
-            data: RingEddsaInstructionData {
-                proof_inputs: &self.proof_inputs,
-                result: &self.ring_result,
+            data: RingInstructionData {
+                external_data: &self.proof_inputs.external_data,
+                nullifiers: &self.ring_result.nullifiers,
+                nullifier_tree_root_index: self.ring_result.nullifier_tree_root_index,
+                utxo_tree_root_index: self.ring_result.utxo_tree_root_index,
+                private_tx_hash: self.ring_result.private_tx_hash,
                 proof: spp_proof,
+                circuit: CircuitId::RingEddsa(
+                    n_inputs as u8,
+                    self.proof_inputs.external_data.outputs.len() as u8,
+                    N_PUBLIC_SLOTS as u8,
+                ),
             }
             .assemble()?,
             proof,
@@ -810,16 +899,16 @@ pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, T
     Ok(read_tree_state_async(rpc, tree).await?.tree_id)
 }
 
-struct TreeState {
-    allow_dummy_inputs: bool,
-    tree_id: u16,
+pub(crate) struct TreeState {
+    pub allow_dummy_inputs: bool,
+    pub tree_id: u16,
 }
 
-fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
+pub(crate) fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
     tree_state(rpc.get_account(tree)?, tree)
 }
 
-async fn read_tree_state_async<R: AsyncRpc>(
+pub(crate) async fn read_tree_state_async<R: AsyncRpc>(
     rpc: &R,
     tree: Address,
 ) -> Result<TreeState, TransferError> {
@@ -842,14 +931,14 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     })
 }
 
-struct RingMembership<'a> {
-    program_id: Address,
-    inputs: &'a [SppProofInputUtxo],
-    outputs: &'a [SppProofOutputUtxo],
+pub(crate) struct RingMembership<'a> {
+    pub program_id: Address,
+    pub inputs: &'a [SppProofInputUtxo],
+    pub outputs: &'a [SppProofOutputUtxo],
 }
 
 impl RingMembership<'_> {
-    fn validate(self) -> Result<(), TransferError> {
+    pub fn validate(self) -> Result<(), TransferError> {
         let foreign = self
             .inputs
             .iter()
@@ -896,11 +985,13 @@ fn validate_transfer_accounts(
 }
 
 /// A dummy copies the length of a real slot with its ring binding, else of the first real slot.
-fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), TransferError> {
-    let templates: Vec<(bool, usize)> = proof_inputs
-        .output_utxos
+pub(crate) fn frame_dummy_outputs(
+    outputs: &[SppProofOutputUtxo],
+    encoded: &mut [TransactOutput],
+) -> Result<(), TransferError> {
+    let templates: Vec<(bool, usize)> = outputs
         .iter()
-        .zip(&proof_inputs.external_data.outputs)
+        .zip(encoded.iter())
         .filter(|(output, _)| !output.is_dummy())
         .map(|(output, encoded)| {
             encoded
@@ -910,11 +1001,7 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
                 .ok_or(TransferError::InvalidDummyOutput)
         })
         .collect::<Result<_, _>>()?;
-    for (output, encoded) in proof_inputs
-        .output_utxos
-        .iter()
-        .zip(&mut proof_inputs.external_data.outputs)
-    {
+    for (output, encoded) in outputs.iter().zip(encoded.iter_mut()) {
         if !output.is_dummy() {
             continue;
         }
@@ -958,10 +1045,10 @@ struct SpendQueries {
 }
 
 #[must_use = "use the updated transfer"]
-struct RingSpendInputs<'a, I> {
-    indexer: &'a I,
-    tree: Address,
-    spends: &'a [SppProofInputUtxo],
+pub(crate) struct RingSpendInputs<'a, I> {
+    pub indexer: &'a I,
+    pub tree: Address,
+    pub spends: &'a [SppProofInputUtxo],
 }
 
 impl<'a, I> RingSpendInputs<'a, I> {
@@ -987,7 +1074,7 @@ impl<'a, I> RingSpendInputs<'a, I> {
 }
 
 impl<I: AsyncRpc> RingSpendInputs<'_, I> {
-    async fn load_async(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+    pub async fn load_async(self) -> Result<Vec<TransferSpendInput>, TransferError> {
         let SpendQueries {
             utxo_hashes,
             nullifiers,
@@ -1007,7 +1094,7 @@ impl<I: AsyncRpc> RingSpendInputs<'_, I> {
 }
 
 impl<I: Rpc> RingSpendInputs<'_, I> {
-    fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
+    pub fn load(self) -> Result<Vec<TransferSpendInput>, TransferError> {
         let SpendQueries {
             utxo_hashes,
             nullifiers,
@@ -1060,42 +1147,41 @@ impl<I> RingSpendInputs<'_, I> {
     }
 }
 
+/// Built from the prover result, the witness and the wire content commit to the same values.
 #[must_use]
-struct RingEddsaInstructionData<'a> {
-    proof_inputs: &'a SppProofInputs,
-    result: &'a RingTransferProofResult,
-    proof: TransactProof,
+pub(crate) struct RingInstructionData<'a> {
+    pub external_data: &'a ExternalData,
+    pub nullifiers: &'a [[u8; 32]],
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
+    pub private_tx_hash: [u8; 32],
+    pub proof: TransactProof,
+    pub circuit: CircuitId,
 }
 
-impl RingEddsaInstructionData<'_> {
-    fn assemble(self) -> Result<TransactIxData, TransferError> {
-        let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
+impl RingInstructionData<'_> {
+    pub fn assemble(self) -> Result<TransactIxData, TransferError> {
         // SPP resolves both roots from one `input_tree`, so every input slot --
         // dummies included -- carries the same pair of root indexes.
         let inputs: Vec<InputUtxo> = self
-            .result
             .nullifiers
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: self.result.nullifier_tree_root_index,
-                utxo_tree_root_index: self.result.utxo_tree_root_index,
+                nullifier_tree_root_index: self.nullifier_tree_root_index,
+                utxo_tree_root_index: self.utxo_tree_root_index,
             })
             .collect();
-        if inputs.len() != n_inputs {
+        if inputs.len() != usize::from(self.circuit.num_inputs()) {
             return Err(TransferError::IncompleteInputSet);
         }
 
-        let external = &self.proof_inputs.external_data;
+        let external = self.external_data;
         Ok(TransactIxData {
             proof: self.proof,
             expiry_unix_ts: external.expiry_unix_ts,
-            private_tx_hash: self.result.private_tx_hash,
-            circuit: CircuitId::RingEddsa(
-                n_inputs as u8,
-                external.outputs.len() as u8,
-                N_PUBLIC_SLOTS as u8,
-            ),
+            private_tx_hash: self.private_tx_hash,
+            circuit: self.circuit,
             inputs,
             interface_transfers: external
                 .interface_transfers
@@ -1448,7 +1534,11 @@ mod tests {
         };
         let (ring_len, default_len) = (real_len(true), real_len(false));
         assert_ne!(ring_len, default_len);
-        frame_dummy_outputs(&mut proof_inputs).expect("mixed framing");
+        frame_dummy_outputs(
+            &proof_inputs.output_utxos,
+            &mut proof_inputs.external_data.outputs,
+        )
+        .expect("mixed framing");
         assert!(proof_inputs
             .output_utxos
             .iter()
@@ -1501,7 +1591,11 @@ mod tests {
             .find(|(output, _)| !output.is_dummy())
             .and_then(|(_, output)| output.data.as_ref().map(Vec::len))
             .expect("real output data");
-        frame_dummy_outputs(&mut proof_inputs).expect("dummy framing");
+        frame_dummy_outputs(
+            &proof_inputs.output_utxos,
+            &mut proof_inputs.external_data.outputs,
+        )
+        .expect("dummy framing");
         let lengths = proof_inputs
             .external_data
             .outputs

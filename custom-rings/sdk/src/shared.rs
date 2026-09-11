@@ -2,8 +2,8 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    CoSigner, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER,
-    POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    CoSigner, Delegate, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER,
+    DELEGATE, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -40,6 +40,12 @@ pub struct CustomRingCoSigner {
     pub scope: u8,
     /// Per mint, SOL under the zero address.
     pub thresholds: Vec<(Address, u64)>,
+}
+
+/// The key that moves notes between members on the authority rail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CustomRingDelegate {
+    pub delegate: Address,
 }
 
 /// A mint's public-leg caps over fixed windows, zero caps do not bind.
@@ -119,6 +125,14 @@ impl CustomRing {
 
     pub fn cosigner_pda(self) -> Address {
         Address::find_program_address(&[CoSigner::SEED], &self.program_id).0
+    }
+
+    pub fn delegate_pda(self) -> Address {
+        self.delegate_pda_with_bump().0
+    }
+
+    fn delegate_pda_with_bump(self) -> (Address, u8) {
+        Address::find_program_address(&[Delegate::SEED], &self.program_id)
     }
 
     /// SOL under the zero address.
@@ -230,6 +244,43 @@ impl CustomRing {
                 .iter()
                 .map(|row| (row.mint, row.amount()))
                 .collect(),
+        }))
+    }
+
+    /// `None` when the ring has no delegate.
+    pub fn read_delegate<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
+        let address = self.delegate_pda();
+        self.decode_delegate(address, rpc.get_account(address)?)
+    }
+
+    /// The async twin of [`Self::read_delegate`], over [`AsyncRpc`].
+    pub async fn read_delegate_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
+        let address = self.delegate_pda();
+        self.decode_delegate(address, rpc.get_account(address).await?)
+    }
+
+    fn decode_delegate(
+        self,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
+        let Some(delegate) = AccountRead::decode::<Delegate>(self.program_id, address, account)?
+        else {
+            return Ok(None);
+        };
+        if delegate.bump != self.delegate_pda_with_bump().1
+            || delegate.delegate == Address::default()
+        {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(CustomRingDelegate {
+            delegate: delegate.delegate,
         }))
     }
 
@@ -449,6 +500,14 @@ impl ReadableAccount for ReadAccessRecord {
 
 impl ReadableAccount for CoSigner {
     const DISCRIMINATOR: u8 = CO_SIGNER;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for Delegate {
+    const DISCRIMINATOR: u8 = DELEGATE;
 
     fn discriminator(self) -> u8 {
         self.discriminator
@@ -676,6 +735,42 @@ mod tests {
             .hash(&source_map(&config).expect("map"))
             .expect("hash");
         config
+    }
+
+    #[test]
+    fn delegate_read_rejects_substituted_state() {
+        let key = Address::new_from_array([47; 32]);
+        let address = ring().delegate_pda();
+        let value = Delegate {
+            discriminator: DELEGATE,
+            delegate: key,
+            bump: ring().delegate_pda_with_bump().1,
+        };
+        let valid = AccountRpc {
+            address,
+            account: Some(account(&value)),
+        };
+        assert_eq!(
+            ring()
+                .read_delegate(&valid)
+                .expect("valid delegate")
+                .expect("delegate"),
+            CustomRingDelegate { delegate: key }
+        );
+        let mut wrong_bump = value;
+        wrong_bump.bump ^= 1;
+        let mut zero_key = value;
+        zero_key.delegate = Address::default();
+        for value in [wrong_bump, zero_key] {
+            let rpc = AccountRpc {
+                address,
+                account: Some(account(&value)),
+            };
+            assert!(matches!(
+                ring().read_delegate(&rpc),
+                Err(AccountReadError::InvalidAccount { .. })
+            ));
+        }
     }
 
     #[test]

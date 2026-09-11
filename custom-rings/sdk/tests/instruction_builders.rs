@@ -7,10 +7,11 @@ use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{SetCoSignerIxData, SetPausedIxData, SourceSpec};
 use custom_ring_sdk::{
     tag, ClearCoSigner, ClearSpendWindow, CreateConfig, CreateConfigIxData, CreatePolicy,
-    CustomRing, CustomRingProof, CustomRingTransact, CustomRingTransactIxData, Deposit, EntryError,
-    GrantReadAccess, InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
-    RevokeReadAccess, SetAuthority, SetCoSigner, SetPaused, SetPolicyRules, SetSpendWindow,
-    CONFIG_PDA_SEED, COSIGN_WITHDRAWALS, READ_ACCESS_RECORD_PDA_SEED,
+    CustomRing, CustomRingDelegateTransact, CustomRingProof, CustomRingTransact,
+    CustomRingTransactIxData, DelegateInstructionError, Deposit, EntryError, GrantReadAccess,
+    InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
+    RevokeReadAccess, SetAuthority, SetCoSigner, SetDelegate, SetPaused, SetPolicyRules,
+    SetSpendWindow, CONFIG_PDA_SEED, COSIGN_WITHDRAWALS, READ_ACCESS_RECORD_PDA_SEED,
     SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
@@ -1165,6 +1166,89 @@ fn clear_spend_window_closes_into_the_rent_recipient() {
     let (ix_tag, body) = split_tag(&instruction);
     assert_eq!(ix_tag, tag::CLEAR_SPEND_WINDOW);
     assert_eq!(body, mint.as_array());
+}
+
+#[test]
+fn set_delegate_runs_under_the_upgrade_authority() {
+    let delegate = Address::new_from_array([47; 32]);
+    let instruction = SetDelegate {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        delegate,
+    }
+    .instruction();
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new(ring().delegate_pda(), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+            AccountMeta::new_readonly(ring().program_id(), false),
+            AccountMeta::new_readonly(ring().program_data_pda(), false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::SET_DELEGATE);
+    assert_eq!(ix_tag, 24);
+    assert_eq!(body, delegate.as_array());
+}
+
+/// `[payer, config, cosigner_pda, cosigner, delegate_pda, delegate(s)]` then
+/// the policy accounts precede SPP's authority rail list, a public leg never
+/// builds.
+#[test]
+fn delegate_transact_places_the_delegate_before_the_policy_accounts() {
+    let delegate = Address::new_from_array([47; 32]);
+    let build = |legs: Vec<InterfaceTransfer>| {
+        CustomRingDelegateTransact {
+            ring: ring(),
+            payer: payer(),
+            input_tree: input_tree(),
+            output_tree: output_tree(),
+            entries_tree: Some(entries_tree()),
+            cosigner: None,
+            delegate,
+            proof: sample_proof(),
+            transact: transact_data(legs),
+            state_root_index: 0,
+            nullifier_root_index: 0,
+        }
+        .instruction()
+    };
+    let instruction = build(Vec::new()).expect("delegate transact");
+    assert_eq!(
+        instruction
+            .accounts
+            .get(..9)
+            .expect("prefix metas")
+            .to_vec(),
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new_readonly(ring().cosigner_pda(), false),
+            AccountMeta::new_readonly(ring().cosigner_pda(), false),
+            AccountMeta::new_readonly(ring().delegate_pda(), false),
+            AccountMeta::new_readonly(delegate, true),
+            AccountMeta::new_readonly(ring().policy_config_pda(), false),
+            AccountMeta::new_readonly(entries_tree(), false),
+            AccountMeta::new(payer(), true),
+        ]
+    );
+    assert_eq!(
+        instruction.accounts.get(13).expect("ring_config meta"),
+        &AccountMeta::new_readonly(ring().ring_auth_pda(), false)
+    );
+    let (ix_tag, _) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::DELEGATE_TRANSACT);
+    assert_eq!(ix_tag, 25);
+    assert!(matches!(
+        build(vec![InterfaceTransfer::SolWithdrawal { amount: 1 }]),
+        Err(DelegateInstructionError::PublicLeg)
+    ));
 }
 
 /// Unset, the slot repeats `cosigner_pda` and the layout never moves.

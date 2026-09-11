@@ -1,5 +1,6 @@
 pub mod cosigner;
 pub mod create_config;
+pub mod delegate;
 pub mod deposit;
 pub mod entry;
 pub mod grant_read_access;
