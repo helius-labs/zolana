@@ -62,11 +62,12 @@ pub struct SplTransfer {
 }
 
 /// One input tree spent by a `transact`/`merge`: the tree and the queue sequence
-/// number assigned to its first spent input. Every later input of that tree takes
-/// `first_input_queue_seq + position`, its rank within that tree's contiguous
-/// run of inputs: queue inserts are sequential within one instruction. A
-/// `transact` writes one entry per declared input tree, in the instruction's
-/// tree-context order; `merge` spends from one tree and writes one entry.
+/// number assigned to the first input spent from it. Every later input of that
+/// tree takes `first_input_queue_seq` plus its rank among the inputs of the same
+/// tree: queue inserts are sequential within one instruction. `transact` writes
+/// one entry per tree its inputs name, in `tree_contexts` order, so an input's
+/// `tree_index` selects its entry; `merge` spends from one tree and writes a
+/// single entry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, BorshDeserialize, BorshSerialize)]
 pub struct InputTreeSequence {
     pub tree: [u8; 32],
