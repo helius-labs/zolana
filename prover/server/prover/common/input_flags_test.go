@@ -93,6 +93,33 @@ func TestPackInputFlagsRejectsUnrepresentableIndex(t *testing.T) {
 	}
 }
 
+func TestValidateInputFlags(t *testing.T) {
+	slots := []*big.Int{big.NewInt(0), big.NewInt(1)}
+	flags, err := PackInputFlags(true, slots)
+	if err != nil {
+		t.Fatalf("pack input flags: %v", err)
+	}
+	if err := ValidateInputFlags(flags, slots); err != nil {
+		t.Fatalf("packed flags rejected: %v", err)
+	}
+	// Flags that publish a different routing than the request's private
+	// selectors are a request error, not a proving failure.
+	if err := ValidateInputFlags(flags, []*big.Int{big.NewInt(0), big.NewInt(2)}); err == nil {
+		t.Fatal("expected a tree index mismatch to be rejected")
+	}
+	// Nothing may live above the packed width.
+	wide := new(big.Int).SetBit(flags, 1+txcircuit.TreeIndexBits*len(slots), 1)
+	if err := ValidateInputFlags(wide, slots); err == nil {
+		t.Fatal("expected a bit above the packed width to be rejected")
+	}
+	if err := ValidateInputFlags(nil, slots); err == nil {
+		t.Fatal("expected missing input flags to be rejected")
+	}
+	if err := ValidateInputFlags(big.NewInt(-1), slots); err == nil {
+		t.Fatal("expected negative input flags to be rejected")
+	}
+}
+
 func treeIndexFields(indexes []uint8) []*big.Int {
 	out := make([]*big.Int, len(indexes))
 	for i, index := range indexes {

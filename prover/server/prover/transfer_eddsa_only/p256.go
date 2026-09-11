@@ -201,6 +201,7 @@ func (p *P256TransferParameters) ValidateShape() error {
 		Outputs:      p.Outputs,
 		TreeSlots:    p.TreeSlots,
 		OutputTreeID: p.OutputTreeID,
+		InputFlags:   p.InputFlags,
 	}).ValidateShape()
 }
 

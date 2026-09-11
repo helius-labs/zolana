@@ -29,3 +29,28 @@ func PackInputFlags(allowDummyInputs bool, treeIndexes []*big.Int) (*big.Int, er
 	}
 	return flags, nil
 }
+
+// ValidateInputFlags checks that the request's packed InputFlags publishes
+// exactly the per-input tree indexes the request also sends as the private
+// slot selectors, and carries nothing above the packed width. The circuit
+// asserts the same, so failing here turns an opaque proving error into a
+// request error.
+func ValidateInputFlags(inputFlags *big.Int, inputSlots []*big.Int) error {
+	if inputFlags == nil {
+		return fmt.Errorf("spp: inputFlags is required")
+	}
+	if inputFlags.Sign() < 0 {
+		return fmt.Errorf("spp: inputFlags %v is negative", inputFlags)
+	}
+	want, err := PackInputFlags(inputFlags.Bit(0) == 1, inputSlots)
+	if err != nil {
+		return err
+	}
+	if inputFlags.Cmp(want) != 0 {
+		return fmt.Errorf(
+			"spp: inputFlags 0x%s does not pack the per-input tree slots (want 0x%s)",
+			inputFlags.Text(16), want.Text(16),
+		)
+	}
+	return nil
+}
