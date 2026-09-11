@@ -1,5 +1,7 @@
 # AWS browser demo
 
+Live demo: https://d11pqvzf0b88yp.cloudfront.net/
+
 `template.yaml` creates a private S3 bucket and an HTTPS CloudFront distribution
 with COOP/COEP headers on the document, worker scripts and runtime assets. It
 also preserves the demo's existing same-origin devnet API proxies. No backend

@@ -44,4 +44,4 @@ done < <(find "$dist" -type f -name '*.wasm' -print0)
 aws_ s3 cp "$dist/index.html" "s3://$bucket/index.html" \
   --content-type text/html --cache-control 'no-cache,max-age=0,must-revalidate' --only-show-errors
 aws_ cloudfront create-invalidation --distribution-id "$distribution" --paths '/' '/index.html' --output json
-printf 'Demo: %s/\nRelease: %s/releases/%s/\nBucket: %s\nDistribution: %s\n' "$url" "$url" "$release" "$bucket" "$distribution"
+printf 'Demo: %s/\nRelease: %s/releases/%s/index.html\nBucket: %s\nDistribution: %s\n' "$url" "$url" "$release" "$bucket" "$distribution"
