@@ -1,6 +1,8 @@
 import { AccountRole, address } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
+import prefixVector from "../../../test-vectors/transact_account_prefix.json" with { type: "json" };
+
 import {
   mergeTransactInstruction,
   nullifierPdaAccounts,
@@ -10,6 +12,7 @@ import {
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
 import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js";
 import type {
+  Address,
   Bytes16,
   Bytes32,
   Bytes33,
@@ -25,6 +28,13 @@ const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
 const RING_AUTH = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const SYSTEM = address("11111111111111111111111111111111");
+const PREFIX_ADDRESSES = new Map<string, Address>([
+  ["payer", PAYER],
+  ["outputTree", OUTPUT_TREE],
+  ["program", SHIELDED_POOL_PROGRAM_ID],
+  ["systemProgram", SYSTEM],
+  ["ringConfig", RING_AUTH],
+]);
 
 function filled(byte: number, length: number): Uint8Array {
   return new Uint8Array(length).fill(byte);
@@ -87,7 +97,7 @@ describe("nullifier PDA accounts", () => {
     });
   });
 
-  it("places one writable PDA per input after the system program in transact", async () => {
+  it("places one writable PDA per input after the fixed prefix and input tree in transact", async () => {
     const inputs = [input(71), input(72)];
     const instruction = await transactInstruction({
       payer: PAYER,
@@ -98,12 +108,15 @@ describe("nullifier PDA accounts", () => {
     });
 
     const [first, second] = await nullifierPdas(inputs);
+    expect(
+      instruction.accounts?.slice(0, prefixVector.transact.length).map((meta) => meta.address),
+    ).toEqual(prefixVector.transact.map((name) => PREFIX_ADDRESSES.get(name)));
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
       [first, AccountRole.WRITABLE],
       [second, AccountRole.WRITABLE],
       [SOL_INTERFACE, AccountRole.WRITABLE],
@@ -111,7 +124,7 @@ describe("nullifier PDA accounts", () => {
     ]);
   });
 
-  it("keeps ring_config at index 5 and puts the PDAs before the owner signers", async () => {
+  it("keeps ring_config at index 4 and puts the PDAs before the owner signers", async () => {
     const inputs = [input(71), input(72)];
     const accounts = await ringTransactAccounts({
       payer: PAYER,
@@ -123,13 +136,16 @@ describe("nullifier PDA accounts", () => {
     });
 
     const [first, second] = await nullifierPdas(inputs);
+    expect(accounts.slice(0, prefixVector.ringTransact.length).map((meta) => meta.address)).toEqual(
+      prefixVector.ringTransact.map((name) => PREFIX_ADDRESSES.get(name)),
+    );
     expect(accounts.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING_AUTH, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
       [first, AccountRole.WRITABLE],
       [second, AccountRole.WRITABLE],
       [OWNER, AccountRole.READONLY_SIGNER],

@@ -15,11 +15,11 @@ use crate::{
 /// Builder for the `ring_authority_transact` instruction: a ring-authority state
 /// transition (freeze, thaw, permanent-delegate transfer) over ring-owned UTXOs.
 /// The account layout matches `ring_transact` (the loader reuses
-/// `RingTransactAccounts`): `payer`, one input tree per declared tree context,
-/// `output_tree`, the
-/// SPP and System Program accounts, the `RingConfig` (the ring's
+/// `RingTransactAccounts`): `payer`, `output_tree`, the SPP and System Program
+/// accounts, the `RingConfig` (the ring's
 /// `ring_auth` PDA, which must have `ring_authority_transact_is_enabled` set),
-/// one writable nullifier PDA per input (in `inputs` order), then optional
+/// one input tree per declared tree context, one writable nullifier PDA per
+/// input (in `inputs` order), then optional
 /// settlement accounts.
 pub struct RingAuthorityTransact {
     pub payer: Pubkey,
@@ -56,18 +56,18 @@ impl RingAuthorityTransact {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let mut accounts = vec![AccountMeta::new(self.payer, true)];
+        let mut accounts = vec![
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(ring_config, auth_signer),
+        ];
         accounts.extend(
             self.input_trees
                 .iter()
                 .map(|input_tree| AccountMeta::new(*input_tree, false)),
         );
-        accounts.extend([
-            AccountMeta::new(self.output_tree, false),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(ring_config, auth_signer),
-        ]);
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),

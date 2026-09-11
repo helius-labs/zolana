@@ -1,0 +1,4 @@
+{
+  "transact": ["payer", "outputTree", "program", "systemProgram"],
+  "ringTransact": ["payer", "outputTree", "program", "systemProgram", "ringConfig"]
+}

@@ -74,7 +74,7 @@ impl RingTransactProof {
         .instruction();
         *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
         ix.accounts
-            .insert(5, AccountMeta::new_readonly(self.ring_config, true));
+            .insert(4, AccountMeta::new_readonly(self.ring_config, true));
         ix
     }
 }

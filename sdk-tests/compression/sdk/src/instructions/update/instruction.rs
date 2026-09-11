@@ -54,10 +54,10 @@ impl Update {
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
-            AccountMeta::new(input_tree, false),
             AccountMeta::new(output_tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
+            AccountMeta::new(input_tree, false),
         ];
         accounts.extend(nullifier_pda_accounts(&input_tree, [&input.nullifier_hash]));
         accounts.push(AccountMeta::new_readonly(account_pda(&payer), false));

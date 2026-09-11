@@ -37,9 +37,9 @@ pub enum TransactInterfaceTransferAccounts {
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
-/// program loader (`TransactAccounts::validate_and_parse`): `payer`, one input
-/// tree per declared tree context (in context order), `output_tree`, the SPP
-/// and System Program accounts, one writable nullifier PDA per input (in
+/// program loader (`TransactAccounts::validate_and_parse`): `payer`,
+/// `output_tree`, the SPP and System Program accounts, one input tree per
+/// declared tree context (in context order), one writable nullifier PDA per input (in
 /// `inputs` order), owner signers, then the ordered interface-transfer account
 /// groups.
 pub struct Transact {
@@ -157,17 +157,17 @@ impl Transact {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let mut accounts = vec![AccountMeta::new(self.payer, true)];
+        let mut accounts = vec![
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+        ];
         accounts.extend(
             self.input_trees
                 .iter()
                 .map(|input_tree| AccountMeta::new(*input_tree, false)),
         );
-        accounts.extend([
-            AccountMeta::new(self.output_tree, false),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-        ]);
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),
@@ -241,10 +241,10 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
+                input_tree,
                 owner_signer,
                 SOL_INTERFACE_PUBKEY,
                 recipient,
@@ -283,10 +283,10 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
+                input_tree,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
                 spl.mint,
                 spl.spl_interface,
@@ -337,10 +337,10 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
+                input_tree,
                 SOL_INTERFACE_PUBKEY,
                 sol_depositor,
                 SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
@@ -387,7 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn nullifier_pdas_follow_system_program_and_precede_owner_signers() {
+    fn nullifier_pdas_follow_input_trees_and_precede_owner_signers() {
         let recipient = Pubkey::new_unique();
         let owner_signer = Pubkey::new_unique();
         let input_tree = Pubkey::new_unique();
@@ -417,10 +417,10 @@ mod tests {
             ix.accounts,
             vec![
                 AccountMeta::new(builder.payer, true),
-                AccountMeta::new(input_tree, false),
                 AccountMeta::new(builder.output_tree, false),
                 AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
                 AccountMeta::new_readonly(Pubkey::default(), false),
+                AccountMeta::new(input_tree, false),
                 AccountMeta::new(nullifier_pda(&nullifiers[0]), false),
                 AccountMeta::new(nullifier_pda(&nullifiers[1]), false),
                 AccountMeta::new_readonly(owner_signer, true),

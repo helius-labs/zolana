@@ -28,7 +28,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-02: tree accounts must be writable**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_non_writable_tree_meta`
   - Kind: precondition
-  - Statement: `transact` can only succeed when the second and third accounts (`input_tree`, `output_tree`) are writable.
+  - Statement: `transact` can only succeed when `output_tree` (index 1) and every input tree in the dynamic run after the fixed prefix are writable.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:33-34` (`fn validate_and_parse`)
   - Error: account-checks error / `TreeError::NotWritable` path
   - Severity: High
@@ -82,7 +82,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [ ] **INV-TRANSACT-40: input/output tree split**
   - Partial coverage: all functional tests exercise the two-account layout; no test asserts distinct input/output trees.
   - Kind: precondition
-  - Statement: the account layout is `payer` (signer), `input_tree` (writable), `output_tree` (writable); both trees are loaded with owner/discriminator/pause checks; nullifiers queue into the input tree (which also supplies both root histories and the `allow_dummy_inputs` flag and receives the forester fee), outputs append to the output tree, and the emitted event records the output tree's address. The program does not require the two to be the same account. (Replaces the single-`tree` wording of INV-TRANSACT-02/03.)
+  - Statement: the account layout is `payer` (signer), `output_tree` (writable), SPP, System Program, optional ring config, input trees, nullifier PDAs, owner signers, and settlement groups; all trees are loaded with owner/discriminator/pause checks; nullifiers queue into the input tree (which also supplies both root histories and the `allow_dummy_inputs` flag and receives the forester fee), outputs append to the output tree, and the emitted event records the output tree's address. The program does not require the two to be the same account. (Replaces the single-`tree` wording of INV-TRANSACT-02/03.)
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:32-36`, `transact/processor.rs:77-98`, `transact/tree.rs`
   - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001` / `ShieldedPoolError::TreePaused = 7013`
   - Severity: High
@@ -91,7 +91,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-41: trailing system program account is mandatory**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_wrong_trailing_system_program_account` (merge-side unit also exists, see INV-MERGE-18)
   - Kind: precondition
-  - Statement: after the settlement groups, the next account must be the system program (kept in the account keys so the forester-fee Transfer CPI resolves); any other address returns Err.
+  - Statement: the fixed prefix account at index 3 must be the system program (kept in the account keys so the forester-fee Transfer CPI resolves); any other address returns Err.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:115-118` (`fn from_iter`)
   - Error: `ShieldedPoolError::InvalidSystemProgram = 7028`
   - Severity: Medium

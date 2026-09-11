@@ -14,9 +14,9 @@ use crate::{
 
 /// Builder for the `ring_transact` instruction, the confidential policy-ring analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
-/// loader (`RingTransactAccounts::validate_and_parse`): `payer`, one input tree
-/// per declared tree context, `output_tree`, the SPP and System Program accounts, the `RingConfig` account
-/// (the ring's `ring_auth` PDA), one writable nullifier PDA per input (in
+/// loader (`RingTransactAccounts::validate_and_parse`): `payer`, `output_tree`,
+/// the SPP and System Program accounts, the `RingConfig` account (the ring's
+/// `ring_auth` PDA), one input tree per declared tree context, then one writable nullifier PDA per input (in
 /// `inputs` order), owner signers, then optional settlement accounts.
 pub struct RingTransact {
     pub payer: Pubkey,
@@ -55,18 +55,18 @@ impl RingTransact {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let mut accounts = vec![AccountMeta::new(self.payer, true)];
+        let mut accounts = vec![
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new_readonly(ring_config, auth_signer),
+        ];
         accounts.extend(
             self.input_trees
                 .iter()
                 .map(|input_tree| AccountMeta::new(*input_tree, false)),
         );
-        accounts.extend([
-            AccountMeta::new(self.output_tree, false),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-            AccountMeta::new_readonly(Pubkey::default(), false),
-            AccountMeta::new_readonly(ring_config, auth_signer),
-        ]);
         accounts.extend(transact_nullifier_pda_accounts(
             &self.input_trees,
             self.data.inputs.iter(),

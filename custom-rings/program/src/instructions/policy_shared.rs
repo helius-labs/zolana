@@ -227,10 +227,10 @@ impl<'a> MutationAccounts<'a> {
         let config = iter.next_account("config")?;
         let policy_config = iter.next_account("policy_config")?;
         let payer = iter.next_signer_mut("payer")?;
-        let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
         let system_program = iter.next_account("system_program")?;
+        let input_tree = iter.next_mut("input_tree")?;
         let _nullifier_pda = iter.next_mut("nullifier_pda")?;
         let entries = iter.next_account("entries")?;
         if !iter.iterator_is_empty() {

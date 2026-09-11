@@ -204,7 +204,7 @@ fn ring_instruction(
         }
         .cpi_instruction()
     };
-    ix.accounts.get_mut(5).expect("ring config meta").pubkey = ring_config.pubkey();
+    ix.accounts.get_mut(4).expect("ring config meta").pubkey = ring_config.pubkey();
     ix
 }
 
@@ -279,7 +279,7 @@ fn transact_rejects_an_unsupported_proof_shape() {
 fn transact_rejects_a_wrong_trailing_system_program_account() {
     let mut env = Pool::initialized();
     // INV-TRANSACT-41: the loader reads the canonical system program as the
-    // last account of the fixed prefix (index 4, after the SPP program at 3);
+    // last account of the fixed prefix (index 3, after the SPP program at 2);
     // a wrong key in that slot must be rejected at account parsing, before any
     // tree write or proof check.
     let impostor = Pubkey::new_unique();
@@ -295,7 +295,7 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         data: transfer_ix_data(2, 3),
     }
     .instruction();
-    ix.accounts.get_mut(4).expect("system program meta").pubkey = impostor;
+    ix.accounts.get_mut(3).expect("system program meta").pubkey = impostor;
     expect_ix_rejection(
         &mut env,
         ix,
@@ -324,7 +324,7 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
     // The `ring_config` signature IS the ring authorization (see
     // merge/contract.rs): without it the flag must be rejected before the
     // config is even loaded (so the account does not need to exist).
-    ix.accounts.get_mut(5).expect("ring config meta").is_signer = false;
+    ix.accounts.get_mut(4).expect("ring config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,
@@ -350,7 +350,11 @@ fn transact_rejects_a_non_writable_tree_meta() {
         data: transfer_ix_data(2, 3),
     }
     .instruction();
-    for meta in ix.accounts.iter_mut().skip(1).take(2) {
+    for meta in ix
+        .accounts
+        .iter_mut()
+        .filter(|meta| meta.pubkey == env.tree)
+    {
         meta.is_writable = false;
     }
     expect_ix_rejection(
@@ -708,7 +712,7 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
         },
     }
     .cpi_instruction();
-    ix.accounts.get_mut(5).expect("ring config meta").is_signer = false;
+    ix.accounts.get_mut(4).expect("ring config meta").is_signer = false;
 
     expect_ix_rejection(
         &mut env,
@@ -854,6 +858,43 @@ fn transact_rejects_an_empty_tree_context_list() {
     // rejected before any account is touched.
     let data = multi_tree_ix_data(&[0, 0], 0);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTreeContextCount);
+}
+
+#[test]
+fn transact_rejects_input_trees_inserted_into_the_fixed_prefix() {
+    for tree_count in 1..=MAX_INPUT_TREES {
+        let mut env = Pool::initialized();
+        let mut input_trees = vec![env.tree];
+        if tree_count == 2 {
+            input_trees.push(
+                env.rpc
+                    .create_tree(&env.authority)
+                    .expect("second input tree"),
+            );
+        }
+        let indexes = if tree_count == 1 { [0, 0] } else { [0, 1] };
+        let mut ix = Transact {
+            payer: env.rpc.payer.pubkey(),
+            input_trees,
+            output_tree: env.tree,
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data: multi_tree_ix_data(&indexes, tree_count),
+        }
+        .instruction();
+        // Move the input trees back between payer and output_tree. The parser
+        // must reject this order before any tree or nullifier account changes.
+        ix.accounts
+            .get_mut(1..4 + tree_count)
+            .expect("prefix and trees")
+            .rotate_right(tree_count);
+        expect_ix_rejection(
+            &mut env,
+            ix,
+            &[],
+            Rejection::new(solana_instruction::error::InstructionError::IncorrectProgramId),
+        );
+    }
 }
 
 #[test]

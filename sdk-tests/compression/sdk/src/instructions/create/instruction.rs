@@ -42,9 +42,9 @@ impl Create {
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
+            AccountMeta::new(tree, false),
         ];
         accounts.extend(nullifier_pda_accounts(&tree, [&nullifier]));
         accounts.push(AccountMeta::new_readonly(pda, false));

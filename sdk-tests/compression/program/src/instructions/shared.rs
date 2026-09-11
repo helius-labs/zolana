@@ -50,7 +50,6 @@ impl<'a> TransitionAccounts<'a> {
         if !address_eq(payer.address(), authority.address()) {
             return Err(CompressionError::InvalidAuthority.into());
         }
-        let input_tree = iter.next_account("input_tree")?;
         let output_tree = iter.next_account("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
         if !address_eq(spp_program.address(), &SPP_PROGRAM) {
@@ -60,6 +59,7 @@ impl<'a> TransitionAccounts<'a> {
         if system_program.address() != &Address::default() {
             return Err(CompressionError::InvalidAccounts.into());
         }
+        let input_tree = iter.next_account("input_tree")?;
         let nullifier_pda = iter.next_mut("nullifier_pda")?;
         let owner_pda = iter.next_account("owner_pda")?;
         if !address_eq(owner_pda.address(), &pda) {

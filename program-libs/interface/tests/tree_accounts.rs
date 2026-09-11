@@ -72,6 +72,32 @@ fn every_spend_builder_has_the_exact_account_layout() {
     let ring_auth = pda::ring_auth(&ring_program_id).0;
     let owner_signer = Pubkey::new_unique();
     let user_record = Pubkey::new_unique();
+    let prefix_vector: std::collections::BTreeMap<String, Vec<String>> = serde_json::from_str(
+        include_str!("../../../test-vectors/transact_account_prefix.json"),
+    )
+    .expect("shared account prefix vector");
+    let prefix_addresses = std::collections::BTreeMap::from([
+        ("payer", payer),
+        ("outputTree", output_tree),
+        ("program", PROGRAM_ID_PUBKEY),
+        ("systemProgram", Pubkey::default()),
+        ("ringConfig", ring_auth),
+    ]);
+    let assert_prefix = |accounts: &[AccountMeta], variant: &str| {
+        let names = prefix_vector.get(variant).expect("prefix variant");
+        let expected: Vec<_> = names
+            .iter()
+            .map(|name| *prefix_addresses.get(name.as_str()).expect("prefix account"))
+            .collect();
+        assert_eq!(
+            accounts
+                .iter()
+                .take(names.len())
+                .map(|meta| meta.pubkey)
+                .collect::<Vec<_>>(),
+            expected,
+        );
+    };
     let nullifiers = [[11u8; 32], [22u8; 32]];
     let nullifier_pda_metas = nullifier_pdas(&input_tree, &nullifiers);
 
@@ -86,14 +112,15 @@ fn every_spend_builder_has_the_exact_account_layout() {
     .instruction();
     let mut expected_transact = vec![
         AccountMeta::new(payer, true),
-        AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
         AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(input_tree, false),
     ];
     expected_transact.extend(nullifier_pda_metas.clone());
     expected_transact.push(AccountMeta::new_readonly(owner_signer, true));
     assert_eq!(transact.accounts, expected_transact);
+    assert_prefix(&transact.accounts, "transact");
 
     let ring = RingTransact {
         payer,
@@ -107,15 +134,16 @@ fn every_spend_builder_has_the_exact_account_layout() {
     .cpi_instruction();
     let mut expected_ring = vec![
         AccountMeta::new(payer, true),
-        AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
         AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new_readonly(ring_auth, true),
+        AccountMeta::new(input_tree, false),
     ];
     expected_ring.extend(nullifier_pda_metas.clone());
     expected_ring.push(AccountMeta::new_readonly(owner_signer, true));
     assert_eq!(ring.accounts, expected_ring);
+    assert_prefix(&ring.accounts, "ringTransact");
 
     let ring_authority = RingAuthorityTransact {
         payer,
@@ -128,14 +156,15 @@ fn every_spend_builder_has_the_exact_account_layout() {
     .cpi_instruction();
     let mut expected_ring_authority = vec![
         AccountMeta::new(payer, true),
-        AccountMeta::new(input_tree, false),
         AccountMeta::new(output_tree, false),
         AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
         AccountMeta::new_readonly(ring_auth, true),
+        AccountMeta::new(input_tree, false),
     ];
     expected_ring_authority.extend(nullifier_pda_metas);
     assert_eq!(ring_authority.accounts, expected_ring_authority);
+    assert_prefix(&ring_authority.accounts, "ringTransact");
 
     let merge_data = merge_data();
     let merge_nullifier_pdas = nullifier_pdas(&input_tree, &merge_data.nullifiers);
@@ -202,10 +231,10 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
         vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(ring_auth, false),
+            AccountMeta::new(tree, false),
         ]
     );
 
@@ -367,17 +396,17 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
         vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(tree, false),
         ]
     );
 }
 
-/// A spend across two trees: the tree run sits at position 1 in context order,
+/// A spend across two trees: the tree run follows the fixed prefix in context order,
 /// and every nullifier PDA is derived under the tree its input selected.
 #[test]
-fn transact_builder_lays_out_the_tree_run_and_derives_pdas_per_input_tree() {
+fn transact_builders_lay_out_the_tree_run_and_derive_pdas_per_input_tree() {
     let payer = Pubkey::new_unique();
     let first_tree = Pubkey::new_unique();
     let second_tree = Pubkey::new_unique();
@@ -418,7 +447,7 @@ fn transact_builder_lays_out_the_tree_run_and_derives_pdas_per_input_tree() {
         output_tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
-        data,
+        data: data.clone(),
     }
     .instruction();
 
@@ -426,14 +455,46 @@ fn transact_builder_lays_out_the_tree_run_and_derives_pdas_per_input_tree() {
         instruction.accounts,
         vec![
             AccountMeta::new(payer, true),
-            AccountMeta::new(first_tree, false),
-            AccountMeta::new(second_tree, false),
             AccountMeta::new(output_tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(first_tree, false),
+            AccountMeta::new(second_tree, false),
             AccountMeta::new(pda::nullifier_pda(&first_tree, &first_nullifier).0, false),
             AccountMeta::new(pda::nullifier_pda(&second_tree, &second_nullifier).0, false),
             AccountMeta::new(pda::nullifier_pda(&second_tree, &third_nullifier).0, false),
         ]
     );
+
+    let ring_program_id = Pubkey::new_unique();
+    let ring_auth = pda::ring_auth(&ring_program_id).0;
+    data.circuit = CircuitId::RingEddsa(3, 2, 3);
+    let ring = RingTransact {
+        payer,
+        input_trees: vec![first_tree, second_tree],
+        output_tree,
+        ring_program_id,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: data.clone(),
+    };
+    data.circuit = CircuitId::RingAuthority(3, 2, 3);
+    let authority = RingAuthorityTransact {
+        payer,
+        input_trees: vec![first_tree, second_tree],
+        output_tree,
+        ring_program_id,
+        interface_transfer_accounts: Vec::new(),
+        data,
+    };
+    for (actual, auth_signer) in [
+        (ring.instruction(), false),
+        (ring.cpi_instruction(), true),
+        (authority.instruction(), false),
+        (authority.cpi_instruction(), true),
+    ] {
+        let mut expected = instruction.accounts.clone();
+        expected.insert(4, AccountMeta::new_readonly(ring_auth, auth_signer));
+        assert_eq!(actual.accounts, expected);
+    }
 }

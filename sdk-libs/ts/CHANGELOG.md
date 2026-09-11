@@ -23,6 +23,10 @@ Breaking
 
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
   three or more trees across separate transactions.
+- `transactInstruction` and `ringTransactAccounts` place input trees after
+  `payer`, `output_tree`, SPP, System Program, and the optional ring config,
+  immediately before nullifier PDAs → update manual account lists and CPI
+  callers to the same order.
 - Every builder returns a version 1 transaction and `TRANSACTION_SIZE_LIMIT` is
   4096 (was 1232) → send through an RPC and a validator that accept version 1,
   which Agave does from 4.2, and read transactions back with

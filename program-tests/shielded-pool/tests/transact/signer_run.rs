@@ -149,16 +149,16 @@ fn consolidation_ix_bytes() -> Vec<u8> {
     .expect("serialize transact ix")
 }
 
-/// `payer`, `input_tree`, `output_tree`, the program, the system program, one
+/// `payer`, `output_tree`, the program, the system program, `input_tree`, one
 /// nullifier PDA per input, then `owner_signer_count` distinct signers.
 fn consolidation_accounts(owner_signer_count: usize) -> Vec<AccountView> {
     let pool = SHIELDED_POOL_PROGRAM_ID;
     let mut accounts = vec![
         get_account_view([1; 32], [0; 32], true, true, false, vec![]),
-        get_account_view([2; 32], pool, false, true, false, vec![]),
         get_account_view([3; 32], pool, false, true, false, vec![]),
         get_account_view(pool, [0; 32], false, false, true, vec![]),
         get_account_view([0; 32], [0; 32], false, false, true, vec![]),
+        get_account_view([2; 32], pool, false, true, false, vec![]),
     ];
     accounts.extend(
         (0..36u8)

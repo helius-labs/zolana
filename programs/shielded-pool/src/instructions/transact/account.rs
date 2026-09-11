@@ -31,10 +31,10 @@ pub struct TransactAccounts<'a> {
 
 impl<'a> TransactAccounts<'a> {
     /// 1. payer - mut signer
-    /// 2. T input trees - mut, one per declared tree context, in context order
-    ///    2 + T: output tree - mut
-    ///    3 + T: self program - program id match
-    ///    4 + T: system program - program id match
+    /// 2. output tree - mut
+    /// 3. self program - program id match
+    /// 4. system program - program id match
+    /// 5. T input trees - mut, one per declared tree context, in context order
     ///    5 + T: I nullifier PDAs - mut, one per input in `inputs` order
     ///    5 + T + I: N signers - signer
     ///    5 + T + I + N: transfer settlement accounts -
@@ -45,9 +45,9 @@ impl<'a> TransactAccounts<'a> {
         let mut iter = AccountIterator::new(accounts);
 
         let payer: &AccountView = iter.next_signer("payer")?;
-        let input_trees = parse_input_trees(&mut iter, ix)?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
+        let input_trees = parse_input_trees(&mut iter, ix)?;
 
         Self::from_iter(iter, ix, payer, input_trees, output_tree, true)
     }
@@ -190,8 +190,8 @@ pub struct RingTransactAccounts;
 
 impl RingTransactAccounts {
     /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
-    /// `payer`, the input-tree run, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), one writable nullifier PDA per input
+    /// `payer`, `output_tree`, SPP, System Program, the `RingConfig`
+    /// account (the ring's `ring_auth` PDA), the input-tree run, one writable nullifier PDA per input
     /// in `inputs` order, then owner signers and settlement
     /// accounts. Returns the parsed transact accounts and the ring's
     /// `program_id`, read from the validated, unpaused `RingConfig` (never
@@ -205,7 +205,6 @@ impl RingTransactAccounts {
     ) -> Result<(Box<TransactAccounts<'a>>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
-        let input_trees = parse_input_trees(&mut iter, ix)?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
         // The `ring_config` must sign (only the ring program can sign for its
@@ -219,6 +218,7 @@ impl RingTransactAccounts {
         if require_ring_authority_enabled && !ring_authority_is_enabled {
             return Err(ShieldedPoolError::RingAuthorityTransactDisabled.into());
         }
+        let input_trees = parse_input_trees(&mut iter, ix)?;
         // Ring authority instruction does not require any signatures.
         let allow_owner_signers = !require_ring_authority_enabled;
         let transact_accounts = TransactAccounts::from_iter(
@@ -233,7 +233,7 @@ impl RingTransactAccounts {
     }
 }
 
-/// The input-tree run at account position 1: one writable tree per declared
+/// The input-tree run after the fixed prefix: one writable tree per declared
 /// tree context, in context order. A count outside `1..=MAX_INPUT_TREES` and a tree
 /// passed twice are rejected here, so every context resolves to its own tree
 /// and no tree is credited or queued twice in one instruction.

@@ -1105,10 +1105,10 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
 
     // A structurally valid RingConfig at a keypair address: `load_ring_config`
     // accepts it, and the keypair signs in place of a ring's `ring_auth` PDA.
-    // The ring loader reads it after the SPP + system-program prefix (index 5).
+    // The ring loader reads it after the SPP + system-program prefix (index 4).
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
 
     let error = env
         .rpc
@@ -1154,7 +1154,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
 
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -1204,7 +1204,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut wrong_ring_ix = base_ix.clone();
     wrong_ring_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
@@ -1222,7 +1222,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same ring proof with the bound ring's config succeeds");
@@ -1266,7 +1266,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut wrong_ring_ix = base_ix.clone();
     wrong_ring_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
@@ -1284,7 +1284,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same ring-authority proof with the bound ring's config succeeds");
@@ -1317,7 +1317,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 
     let ring_config = write_signed_ring_config(&mut env, ring, true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
             &[ix],
@@ -1434,7 +1434,7 @@ fn ring_transact_accepts_the_consolidation_shape() {
 
     let ring_config = write_signed_ring_config(&mut env, ring, false);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(

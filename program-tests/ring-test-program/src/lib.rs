@@ -42,7 +42,7 @@ pub fn process_instruction(
 /// Forward a ring instruction to SPP verbatim, signing the ring's `ring_auth`
 /// PDA. The client lays out the same accounts for the call into this fixture and
 /// for the CPI into SPP (only the target program id and the `ring_auth` signer
-/// flag differ). Transact fixes the SPP account at index 3, while the other
+/// flag differ). Transact fixes the SPP account at index 2, while the other
 /// forwarded instruction families retain their own layouts, so this shared
 /// forwarder locates the SPP account by address. We rebuild the SPP instruction
 /// from the received account views, flip the `ring_auth` account to a signer, and

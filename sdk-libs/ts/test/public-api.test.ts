@@ -580,11 +580,11 @@ describe("address and instruction builders", () => {
       },
     });
 
-    expect(instruction.accounts?.[1]).toMatchObject({
+    expect(instruction.accounts?.[4]).toMatchObject({
       address: TREE,
       role: AccountRole.WRITABLE,
     });
-    expect(instruction.accounts?.[2]).toMatchObject({
+    expect(instruction.accounts?.[1]).toMatchObject({
       address: OWNER,
       role: AccountRole.WRITABLE,
     });

@@ -381,10 +381,10 @@ async function transactAccounts(
 ): Promise<Meta[]> {
   const accounts = [
     meta(payer, true, true),
-    meta(inputTree, false, true),
     meta(outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
+    meta(inputTree, false, true),
     ...(await nullifierPdaAccounts(
       inputTree,
       inputs.map((input) => input.nullifierHash),
@@ -418,7 +418,7 @@ export async function transactInstruction(
 /**
  * Mirrors Rust `RingTransact::instruction`. `ringAuth` is unsigned here, the ring
  * program signs it inside its CPI. `inputs` are the payload's spent inputs; their
- * nullifier PDAs follow `ringAuth`.
+ * input tree and nullifier PDAs follow the fixed prefix ending in `ringAuth`.
  */
 export async function ringTransactAccounts(
   input: Readonly<{
@@ -433,11 +433,11 @@ export async function ringTransactAccounts(
 ): Promise<readonly Meta[]> {
   return [
     meta(input.payer, true, true),
-    meta(input.inputTree, false, true),
     meta(input.outputTree, false, true),
     meta(SHIELDED_POOL_PROGRAM_ID, false, false),
     meta(SYSTEM_PROGRAM, false, false),
     meta(input.ringAuth, false, false),
+    meta(input.inputTree, false, true),
     ...(await nullifierPdaAccounts(
       input.inputTree,
       input.inputs.map((spentInput) => spentInput.nullifierHash),

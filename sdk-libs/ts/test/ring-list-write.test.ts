@@ -307,9 +307,9 @@ describe("entry instructions", () => {
       [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [ENTRIES_TREE, AccountRole.WRITABLE],
-      [ENTRIES_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
+      [ENTRIES_TREE, AccountRole.WRITABLE],
       [await nullifierPdaAddress(ENTRIES_TREE, filled(9)), AccountRole.WRITABLE],
       [await ringPolicyNamespaceAddress(RING), AccountRole.READONLY],
     ]);

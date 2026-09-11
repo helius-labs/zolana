@@ -85,9 +85,9 @@ fn assert_rejected_without_sol_movement(
     let mut accounts = vec![
         AccountMeta::new(payer, true),
         AccountMeta::new(pool.tree, false),
-        AccountMeta::new(pool.tree, false),
         AccountMeta::new_readonly(zolana_interface::PROGRAM_ID_PUBKEY, false),
         AccountMeta::new_readonly(Pubkey::default(), false),
+        AccountMeta::new(pool.tree, false),
     ];
     accounts.extend(data.inputs.iter().map(|input| {
         AccountMeta::new(

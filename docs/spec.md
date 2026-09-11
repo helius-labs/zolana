@@ -1540,13 +1540,13 @@ operations, and tags 18–21 are maintenance and administration.
 
 **Accounts**
 
-The fixed prefix is `payer`, one input tree account per `tree_contexts` entry in
-declaration order, `output_tree`, the SPP program account (for the event
-self-CPI), the canonical system program, and one writable nullifier PDA per
-input in `inputs` order (after `ring_config` for the ring variants). The input
-tree run is variable length, so everything after it shifts by
-`tree_contexts.len() - 1` relative to a single-tree spend; the instruction data
-declares the length, so nothing is inferred from the account count. The **owner-signer run** follows: the ed25519 owners of the spent inputs in
+The fixed prefix is `payer`, `output_tree`, the SPP program account (for the
+event self-CPI), and the canonical system program, followed by `ring_config`
+for the ring variants. Next come one input tree account per `tree_contexts`
+entry in declaration order and one writable nullifier PDA per input in
+`inputs` order. The instruction data declares both dynamic run lengths; the
+prefix positions do not depend on the number of trees or inputs. The
+**owner-signer run** follows: the ed25519 owners of the spent inputs in
 first-occurrence order, each read-only and signing (the payer already occupies
 signer slot 0, so an owner equal to the payer does not repeat). Public
 settlement groups come last, in `interface_transfers` order. A SOL group is
@@ -1568,10 +1568,11 @@ aggregate into one proof slot.
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | payer |   | x | user, or an optional relayer (transfer/withdraw); signer-run slot 0 |
-| 2.. | input_trees | x |   | one per `tree_contexts` entry, in declaration order; each supplies the two historical roots its entry indexes, receives the nullifiers of the inputs that select it, and fills its tree slot. The same account may not appear twice |
-| .. | output_tree | x |   | receives output UTXO commitments; may equal an input tree |
-| .. | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
-| .. | system_program |   |   | canonical System Program |
+| 2 | output_tree | x |   | receives output UTXO commitments; may equal an input tree |
+| 3 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| 4 | system_program |   |   | canonical System Program |
+| 5 (ring variants only) | ring_config |   | x | the ring's `ring_auth` PDA |
+| 5.. (6.. for ring variants) | input_trees | x |   | one per `tree_contexts` entry, in declaration order; each supplies the two historical roots its entry indexes, receives the nullifiers of the inputs that select it, and fills its tree slot. The same account may not appear twice |
 | .. | nullifier_pdas | x |   | one per `inputs[i]`, in order: `[b"nullifier", tree, nullifier_hash]` where `tree` is the input's selected tree, System-owned and empty; an initialized PDA means the nullifier is already pending (`NullifierAlreadyQueued`) |
 | .. | owner_signers |   | x | first-occurrence ed25519 input owners (read-only), at most `MAX_SIGNERS - 1` |
 | .. | public-leg groups |   |   | one group per `u8`-counted entry in `interface_transfers`, in order, using the layouts above |
