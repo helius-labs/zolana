@@ -5,11 +5,9 @@ a participant who proves compliance without revealing the transfer. Hold it as
 one idea, membership checks move out of program code and into the transfer
 proof.
 
-The naive ring stores its lists in accounts and checks the recipient in the
-processor. That design's flaw is exposure. The program reads the recipient in
-clear and the ring loses anonymity. Instead the ring pins one hash of its
-rules, and the transfer proof shows the rules hold against lists in SPP's own
-trees.
+The naive ring checks the recipient in the processor, reads it in clear and
+loses anonymity. Instead the ring pins one hash of its rules, and the transfer
+proof shows the rules hold against lists in SPP's own trees.
 
 ## The model
 
@@ -30,7 +28,8 @@ Seven terms carry the whole design.
 - The **writer** (`Writer`) of a list is the party that may mutate its list,
   the ring authority or the member.
 - The **answers** array is the transfer proof's set of entry checks, one
-  slot per distinct `(list, member, mode)` triple the rules need.
+  slot per distinct `(list, member, mode)` triple the rules need, the circuit
+  names them list facts.
 - The **source map** binds each referenced list to the namespace serving
   it, the ring's own or a curator ring's.
 
@@ -106,20 +105,30 @@ The form is canonical. A rule with a present set is `Present` primary and
 carries its absent set in byte 19, a rule with absent lists only is `Absent`
 primary with byte 19 zero. `Rule::decode` refuses every other row, the
 stored rows are exactly what `encoded` emits. The circuit range-checks the
-components and re-derives the row by weighted sum (`ruleShift` in
+components and re-derives the row by weighted sum (`ruleWeights` in
 `prover/server/circuits/custom_ring/policy/constants.go`).
 
-A velocity table bounds the outflow of one sender per mint over a fixed
-window and puts a single transfer above a threshold under dual control. It
-is `window_slots` and up to `MAX_VELOCITY_ASSETS` rows of `VelocityRow {
-asset, cap, cosign_above }`, a zero cap leaves the mint uncapped and a zero
-threshold never asks the co-signer. Rows and a window come together, a row
-names a nonzero mint once and carries at least one bound. The rows pin with
-the rules and move only under the upgrade authority.
+A velocity table bounds a sender's outflow per mint and puts a single
+transfer above a threshold under dual control. It is `window_slots` and up
+to `MAX_VELOCITY_ASSETS` rows of `VelocityRow { asset, cap, cosign_above }`,
+a zero cap leaves the mint uncapped and a zero threshold never asks the
+co-signer. A zero window caps each transfer alone with no record, a nonzero
+window carries the counters across it. A window without rows is refused, a
+row names a nonzero mint once and carries at least one bound. The rows pin
+with the rules and move only under the upgrade authority.
 
 ```toml
 [policy.velocity]
 window_slots = 216000
+rows = [
+  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
+]
+```
+
+Dropping `window_slots` caps each transfer on its own with no record.
+
+```toml
+[policy.velocity]
 rows = [
   { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
 ]
@@ -247,7 +256,8 @@ self-manage a member-written list.
 
 ## Spend records
 
-A spend record is the second record kind under the namespace PDA, a
+A windowed velocity ring keeps a spend record per member, a per-transfer cap
+ring keeps none. A spend record is the second record kind under the namespace PDA, a
 zero-amount SOL data note in the entries tree keyed by the member's identity
 through `SPEND_ADDRESS_DOMAIN`, so no list instruction reaches it. Its
 plaintext is `member || version || window || counters_commitment ||
@@ -324,10 +334,12 @@ response mixes roots. Presence is an inclusion proof of the entry's
 Absence is a non-inclusion proof of the pair's address, or the same two
 proofs over the cleared entry.
 
-The public input chains the audit statement with `policy_hash`, `state_root`,
-and `nullifier_root` (`custom-rings/interface/src/public_input.rs`). The
-program resolves both roots from the history indices in the instruction data
-and verifies one proof.
+The public input chains the eight audit elements with `policy_hash`,
+`state_root`, `nullifier_root`, `entries_tree_id`, `ring_id`,
+`namespace_owner_hash`, `window_index` and `approval_required`, sixteen in
+all (`custom-rings/interface/src/policy_public_input.rs`). The program
+resolves both roots from the history indices in the instruction data and
+verifies one proof.
 
 A ring is one of two tiers, pinned by the config `has_policy` flag that transact
 dispatches on. A policy ring proves the folded audit-and-policy statement above.
@@ -352,9 +364,10 @@ are reused unchanged.
 
 `zolana-ring new` asks, in order, for the ring name, the service URLs of both
 clusters and the target. It then offers common policy options and an advanced
-rule builder. Finishing without an option creates an audit-only ring; any
+rule builder. Finishing without an option creates an audit-only ring, any
 option creates a policy ring, and `configure policy later` creates one with an
-empty table. A policy uses the SPP default entries tree without asking and
+empty table. The options build list rules, a velocity table or a co-signer
+comes from `--policy-from` or a hand-written `ring.toml`. A policy uses the SPP default entries tree without asking and
 writes that address explicitly to `ring.toml`. Each option compiles as one
 unit when added. After `finish`, the wizard derives the lists the rules read
 and asks for those sources only. The wizard prints the `ring.toml` it will
@@ -425,6 +438,8 @@ the cli loads and re-renders.
 - [`velocity-window`](../custom-rings/examples/velocity-window/ring.toml)
   caps each sender's SOL outflow per window and demands the co-signer above
   a threshold.
+- [`transfer-cap`](../custom-rings/examples/transfer-cap/ring.toml) caps each
+  transfer's SOL outflow on its own with no window and no record.
 
 ## Pitfalls
 
@@ -504,13 +519,13 @@ the cli loads and re-renders.
   whose tier differs from the chain (`TierDrift`).
 - The program reads a config account of another size as uninitialized, the
   SDK refuses it.
-- A velocity ring keeps every note of a transfer in its entries tree, takes
-  no deposit leg on a transfer, closes the delegate rail and needs a
-  registered record before a member's first transfer. Windows are fixed, a
-  boundary admits up to twice the cap. A member spends only its own notes in
-  one transfer. The record publishes the member's identity and lineage. The
-  TypeScript SDK refuses a transfer on a velocity ring, the record slots are
-  assembled by the Rust SDK only.
+- A windowed velocity ring keeps every note of a transfer in its entries
+  tree, takes no deposit leg on a transfer, closes the delegate rail and
+  needs a registered record before a member's first transfer. A per-transfer
+  cap ring keeps none of these, each transfer stands alone against its cap.
+  Windows are fixed, a boundary admits up to twice the cap. A member spends
+  only its own notes in one transfer. The record publishes the member's
+  identity and lineage.
 
 ## The cycle
 

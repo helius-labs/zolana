@@ -710,7 +710,7 @@ regen-swap-keys:
     done
 
 # Rotate both ring proving keys with their verifying keys and lock entries,
-# then repin vk_fingerprint.rs and run release-custom-rings.
+# then repin the circuit fingerprints and run release-custom-rings.
 regen-custom-ring-keys:
     prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
 

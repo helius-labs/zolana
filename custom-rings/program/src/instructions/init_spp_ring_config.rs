@@ -45,10 +45,8 @@ pub fn process_init_spp_ring_config_ix(
 
     let instruction_data = encode_instruction(
         tag::CREATE_RING_CONFIG,
-        // The authority-transact rail is governance-owned and starts off; this
-        // ring never wants it, since every transaction has to carry an auditor
-        // proof. The config is also created inert on a permissioned pool, so
-        // governance admits the ring with `set_ring_activation` afterwards.
+        // The authority rail starts off, governance enables it with
+        // `set_ring_activation`. The config is created inert on a permissioned pool.
         &CreateRingConfigData {
             program_id: *program_id,
             // SPP admin actions on the ring pass only through the ring program.

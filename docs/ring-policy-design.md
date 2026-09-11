@@ -16,10 +16,6 @@ policy is a proof obligation over the presence or absence of such accounts,
 attached to the transfer statement. Everything else binds the proof to the
 true list state and the true transaction.
 
-The direct ancestor is the plaintext compressed-account example, commit
-`20388c26`. Each mechanism below reuses it exactly or extends it in a named
-way. Anchors cite the branch head `0742613e`.
-
 The running example is a blocklist ring. Its pinned table holds one rule,
 forbid `OutputOwner` in `Block`. A curator ring serves the `Block` list. The
 curator bans Mr. Evil. Mr. Crazy transfers.
@@ -32,7 +28,7 @@ UTXO in the shared state tree, owned by the ring's `b"policy_records"` PDA
 byte-equal to `ProofInputUtxo`, and a vector test pins the same math against
 the Go circuit. SPP hosts entries unchanged.
 
-Three ancestor mechanisms carry over exactly:
+Three mechanisms fix the entry:
 
 - The owner is `Poseidon(solana_owner_identity(pda), Poseidon(0))`, the example's
   `PdaOwner` with the zero nullifier secret. Every entry nullifier is
@@ -163,8 +159,12 @@ One hash binds table and map together:
 ```
 policy_hash = chain(POLICY_TABLE_DOMAIN, POLICY_VERSION,
                     (list_id_1, owner_1) ... (list_id_8, owner_8),
-                    len, rule_1 ... rule_len, inline_members)
+                    len, rule_1 ... rule_len,
+                    (inline_member, inline_limit) ...,
+                    window_slots, (asset, cap, cosign_above) ...)
 ```
+
+`POLICY_VERSION` is 5 and moves with any change of the preimage.
 
 `chain` is the left fold `acc = Poseidon(acc, next)`. All eight slots enter
 unconditionally, empty slots as zeros. Hashing only referenced slots would
@@ -228,7 +228,7 @@ and ring transaction authority cannot exercise each other.
 
 One proof serves audit and policy. The v3 audit statement is an exported
 block, and its eight-element hash chain is a strict prefix of the new
-statement. The public input is one hash chain over eleven elements:
+statement. The public input is one hash chain over sixteen elements:
 
 ```
 private_tx_hash,
@@ -236,7 +236,9 @@ tx_viewing_pk_lo, tx_viewing_pk_hi,
 auditor_pk_lo, auditor_pk_hi,
 eph_pk_lo, eph_pk_hi,
 ct_hash,
-policy_hash, state_root, nullifier_root
+policy_hash, state_root, nullifier_root,
+entries_tree_id, ring_id, namespace_owner_hash,
+window_index, approval_required
 ```
 
 The program recomputes this chain from accounts it trusts and runs one
@@ -247,7 +249,7 @@ the range checker the audit block instantiates, a shape the on-chain
 verifier requires.
 
 A ring chooses its tier at `create_config`. A ring with a `[policy]` table is
-a policy ring and proves the eleven-element statement above, an empty table
+a policy ring and proves the sixteen-element statement above, an empty table
 included. A ring without one is audit-only and proves the eight-element prefix
 against a lighter circuit and verifying key.
 The tier is the config `has_policy` flag, pinned at `create_config` and
@@ -257,7 +259,7 @@ transfer on either tier.
 
 The audit-only circuit treats `private_tx_hash` as a pass-through wire.
 The policy circuit cannot. It witnesses full slot openings for every input
-and output and recomputes `private_tx_hash` from them (`openings.go`). The
+and output and recomputes `private_tx_hash` from them (`transaction.go`). The
 recompute is the subject-integrity binding. With a pass-through, a wallet
 paying a blocked member would witness the openings of an innocent
 transaction. It would satisfy every rule over those and let the real hash
@@ -266,7 +268,7 @@ forces the screened owners, assets, and amounts to be the preimage of the
 same hash the SPP statement binds.
 
 The **answers** array serves the entry-sourced rules, ten slots, each one
-entry fact proven under both roots (`answers.go`). One answer proves one of
+entry fact proven under both roots (`list_facts.go`). One answer proves one of
 three facts:
 
 - Present and current. The entry leaf is included under the state root,
@@ -296,7 +298,7 @@ matching slots would resolve to the sum of two owners, a fabricated owner
 whose entries nobody created. Disabled answers resolve to garbage no
 downstream assertion reads.
 
-Coverage closes the plane (`eval.go`). Every live slot instance of every
+Coverage closes the plane (`evaluate.go`). Every live slot instance of every
 enabled entry-sourced rule demands an enabled answer carrying that member
 under one of the rule's lists in that list's mode. Coverage answers an
 inline rule against the inline member table instead. A rule
@@ -313,8 +315,8 @@ output that names an owner. Nonzero change is such an output, it names the
 sender. A transfer whose inputs exactly cover its outputs emits no change
 under the compact layout. Such a sender passes an `OutputOwner` table
 untouched, `Sender` rules exist to close that. Public interface legs live
-inside `external_data_hash`, an opaque wire. The policy plane covers
-shielded slot flows only.
+inside `external_data_hash`, opaque to the policy plane, and the policy plane
+covers shielded slot flows only.
 
 ## Roots and revocation
 
@@ -402,9 +404,8 @@ sender, the delegate's key never enters the openings. The rail requires
 every UTXO to carry the ring id, and entries hash with the zero ring id, so
 a delegate cannot consume or create an entry.
 
-**Velocity** bounds a sender's outflow per mint over a fixed window. A
-velocity transfer has one authenticated sender and no deposit legs, and for
-each mint
+**Velocity** bounds a sender's outflow per mint. A velocity transfer has one
+authenticated sender and no deposit legs, and for each mint
 
 ```
 inputs_m  = change_m + payments_m + withdrawals_m + exits_m
@@ -422,15 +423,18 @@ the PDA signing beside the sender. SPP's owner-signed ring circuit accepts a
 zero-amount data UTXO the PDA owns with the zero nullifier secret as input
 and output next to the money, in the default ring or inside the ring, and
 refuses it without the PDA signature (`spend_record_test.go`). The record's
-data hash commits `H(window, H(salt, counters))` with the window and the
-commitment public, so an expired record is consumed without opening its
-counters and a record from a future window is refused. The policy circuit
+data hash commits the address, the member, the version, the window and the
+counters commitment flat, the window and the commitment public, so an expired
+record is consumed without opening its counters and a record from a future
+window is refused. The policy circuit
 pins the two record slots, exactly one input and one output open to the
 namespace owner at the sender's record address, the input at the latest
 version, the output at version plus one, every other opening a different
 owner, and excludes them from rule evaluation. A window boundary admits up
 to twice the cap. Windows are indexed by slot and reset the counters, a
-sliding window would need spend history.
+sliding window would need spend history. A row with no window keeps no
+record, the circuit caps each transfer's `outflow_m` on its own and binds
+`window_index` to zero.
 
 ## Rejected designs
 
@@ -484,7 +488,7 @@ makes reuse inexpressible.
   ring's spendable UTXOs are not confined to it and may live in any
   registered tree.
 - The shape is fixed at five inputs, four outputs, ten answers, sixteen
-  rules, eight sources, eight inline asset-limit pairs. The answers array is the
+  rules, eight sources, eight inline asset-limit pairs, eight velocity rows. The answers array is the
   per-transfer screening budget, larger transfers must split.
 - The builder rejects any table carrying `ExitDestination`.
 - A rule-less ring still resolves and windows roots. Its clients fetch

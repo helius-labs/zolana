@@ -44,6 +44,8 @@ the pause move with it.
 Readers are on-chain records, so the same proposal flow grants a regulator a
 passkey without anyone sharing a key.
 
+## Controls
+
 A co-signer is a second Solana key the authority sets with `zolana-ring
 cosigner set`, scoped to transfers, deposits, withdrawals or any mix. Every
 transact and merge is a transfer and a public leg adds its class, so a
@@ -77,12 +79,13 @@ move up to twice the cap. Every transact and ring deposit names one window
 account per public leg, the SDKs derive them from the legs.
 
 A velocity policy bounds what one sender moves out of its own balance per
-mint over a window, shielded payments, exits and withdrawals alike, and
-demands the co-signer on any single transfer above a threshold. The
-`[policy.velocity]` table of `ring.toml` names the window length in slots
-and up to eight rows of mint, cap and co-sign threshold, a zero cap leaves
-the mint uncapped and a zero threshold never asks. The rows are part of the
-pinned table, only the upgrade authority moves them. Each member registers a
+mint, shielded payments, exits and withdrawals alike, and demands the
+co-signer on any single transfer above a threshold. The `[policy.velocity]`
+table of `ring.toml` holds up to eight rows of mint, cap and co-sign
+threshold, a zero cap leaves the mint uncapped and a zero threshold never
+asks, and only the upgrade authority moves them. A row with no window caps
+each transfer on its own, no record and no registration. A `window_slots`
+line instead sums the outflow over fixed windows, each member registers a
 spend record once with `zolana-ring spend register`, a zero-amount note the
 ring's namespace owns in the entries tree, and every transfer of that member
 spends the record into its successor inside the same proof, carrying the
@@ -98,12 +101,12 @@ refuse to send a transfer the proof marks for approval without
 Every transfer encrypts its transaction viewing key to the auditor under a
 fresh ephemeral key and publishes the ciphertext as an SPP message. The ring
 program accepts the transfer only with a proof that the ciphertext holds the
-key behind the transfer's published viewing key. SPP folds the message into
+key behind the transfer's published viewing key. SPP binds the message into
 the transfer's own proof, so a transfer cannot publish one ciphertext and prove
 another. The auditor decrypts one message per transaction and opens every
 output with it.
 
-The order is fixed by the hashes. SPP folds the messages into
+The order is fixed by the hashes. SPP hashes the messages into
 `external_data_hash` and that into `private_tx_hash`, and `private_tx_hash` is
 a public input of the custom-ring circuit. `CustomRingTransfer::prove`
 therefore encrypts the message first, runs the SPP proof over the
@@ -162,8 +165,8 @@ the ring directory, `ring.toml` with the answers and
 keypair. `--silent` takes every default, an audit-only ring. `--policy-from
 <file>` takes the `[policy]` table of a `ring.toml`, an example's included,
 checks it on both clusters and skips the policy option questions. It creates
-the authority keypair when the answer keeps the default
-`~/.config/solana/id.json` and no file is there; any other path is the
+the authority keypair when `--authority-keypair` keeps the default
+`~/.config/solana/id.json` and no file is there, any other path is the
 operator's and a missing one is only reported. A curated list is picked from
 the catalogue, the bundled `cli/catalogue.toml` per cluster merged with every
 ring registered with SPP on the target that pins a policy,
@@ -245,13 +248,12 @@ transaction hash. They do not prove that decrypted output plaintext opens its
 commitment. The RPC reports what it decrypts and marks unreadable slots. It
 cannot prove that reported values equal the committed UTXOs.
 
-A velocity ring keeps every note in its entries tree, takes no deposit leg on
-a transfer and closes the delegate rail. A spend record publishes the
-member's identity and its lineage in the clear, so an observer who knows an
-identity can count that member's transfers, not their amounts. The window is
-fixed, a sender may move up to twice the cap across one boundary. The
-TypeScript SDK refuses a transfer on a velocity ring, the record slots are
-assembled by the Rust SDK only.
+A windowed velocity ring keeps every note in its entries tree, takes no
+deposit leg on a transfer and closes the delegate rail, a per-transfer cap
+ring keeps none of these. A spend record publishes the member's identity and
+its lineage in the clear, so an observer who knows an identity can count that
+member's transfers, not their amounts. The window is fixed, a sender may move
+up to twice the cap across one boundary.
 
 ## Reading a ring
 
@@ -260,7 +262,7 @@ ring, the time, a nonce and the page, a wallet as a message and a passkey
 through WebAuthn, and gets the opened transactions back. The timestamp must be
 within sixty seconds of the server's clock and a nonce is accepted once. Every
 reader needs a read access record, the config authority has no implicit
-access. A browser page needs its origin allowed on the RPC. The wire contract
+access. A browser page needs its origin allowed on the RPC. The JSON-RPC contract
 is in `services/ring-rpc/README.md`.
 
 ## Building on it
@@ -289,9 +291,8 @@ only matches the auditor view tag and needs no ring support. A transaction
 belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller.
 
-The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`) proves
-audit-only rings and policy rings with an empty table, a rules-bearing ring
-fails with `RING_RULES_UNSUPPORTED`. It spends from `client.tree` only and
+The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
+proves audit-only rings and policy rings, spends from `client.tree` only and
 takes `entriesRoots` when the pinned entries tree is another tree. Its lookup
 table builder reads the tier and the entries tree from the chain,
 `fetchRingPolicyConfig` reads the rows and the generation, and
