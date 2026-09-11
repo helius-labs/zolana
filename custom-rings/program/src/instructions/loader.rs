@@ -59,7 +59,7 @@ pub fn load_read_access_record<'a>(
     account: &'a AccountView,
     reader: &ReaderKeyBytes,
 ) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
-    let entry = load_account::<ReadAccessRecord>(program_id, account)?;
+    let record = load_account::<ReadAccessRecord>(program_id, account)?;
     let seed_hash =
         ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
@@ -69,10 +69,10 @@ pub fn load_read_access_record<'a>(
         mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
-    if entry.reader != *reader || entry.bump != bump {
+    if record.reader != *reader || record.bump != bump {
         return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
-    Ok(entry)
+    Ok(record)
 }
 
 /// Require the shielded-pool program to be among `accounts` and executable.

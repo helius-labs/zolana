@@ -367,12 +367,12 @@ fn read_access_record_pda_derives_from_the_hashed_tagged_key() {
     use sha2::Digest;
     for key in [reader(), p256_reader()] {
         let seed_hash: [u8; 32] = sha2::Sha256::digest(key.to_bytes()).into();
-        let (entry, _bump) = Address::find_program_address(
+        let (record, _bump) = Address::find_program_address(
             &[READ_ACCESS_RECORD_PDA_SEED, &seed_hash],
             &ring().program_id(),
         );
-        assert_eq!(ring().read_access_record_pda(&key), entry);
-        assert_eq!(key.entry_address(&ring().program_id()), entry);
+        assert_eq!(ring().read_access_record_pda(&key), record);
+        assert_eq!(key.record_address(&ring().program_id()), record);
     }
     assert_ne!(
         ring().read_access_record_pda(&reader()),

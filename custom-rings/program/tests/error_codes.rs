@@ -19,7 +19,7 @@ fn error_codes_are_stable() {
         (UnsupportedCircuit as u32, 8113),
         (UnauthorizedInitializer as u32, 8114),
         (TooManyAccounts as u32, 8115),
-        (ReadAccessEntryAlreadyExists as u32, 8116),
+        (ReadAccessRecordAlreadyExists as u32, 8116),
         (InvalidReadAccessRecord as u32, 8117),
         (InvalidReaderKey as u32, 8118),
         (UnsupportedOutputScheme as u32, 8119),
@@ -69,7 +69,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnsupportedCircuit
         | UnauthorizedInitializer
         | TooManyAccounts
-        | ReadAccessEntryAlreadyExists
+        | ReadAccessRecordAlreadyExists
         | InvalidReadAccessRecord
         | InvalidReaderKey
         | UnsupportedOutputScheme

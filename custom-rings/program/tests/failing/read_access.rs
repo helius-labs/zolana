@@ -33,7 +33,7 @@ fn grant_read_access_writes_the_record() {
             .iter()
             .find(|(key, _)| key == &entry)
             .map(|(_, account)| account.clone())
-            .expect("read access entry in result");
+            .expect("read access record in result");
         assert_eq!(written.owner, program_id());
         assert_eq!(written.data.len(), core::mem::size_of::<ReadAccessRecord>());
         assert_eq!(
@@ -147,7 +147,7 @@ fn double_grant_is_rejected() {
     fixture.set_account("read_access_record", initialized_reader_account(&reader()));
     fixture.expect_err(
         &mollusk,
-        custom(CustomRingError::ReadAccessEntryAlreadyExists),
+        custom(CustomRingError::ReadAccessRecordAlreadyExists),
     );
 }
 

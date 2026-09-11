@@ -97,7 +97,7 @@ impl CustomRing {
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
-        reader.entry_address(&self.program_id)
+        reader.record_address(&self.program_id)
     }
 
     /// The ring authority PDA. SPP stores the ring config under this address and

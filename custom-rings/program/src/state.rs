@@ -103,7 +103,7 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
 impl Account for ReadAccessRecord {
     const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessEntryAlreadyExists;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
     const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
 
     fn discriminator(&self) -> u8 {
@@ -111,12 +111,12 @@ impl Account for ReadAccessRecord {
     }
 }
 
-pub(crate) struct ReadAccessEntryInitParams {
+pub(crate) struct ReadAccessRecordInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
 }
 
-impl ReadAccessEntryInitParams {
+impl ReadAccessRecordInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(

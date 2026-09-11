@@ -171,7 +171,7 @@ pub enum PolicyCommand {
 pub enum ReaderCommand {
     /// A base58 Solana key or the 66-hex P-256 key of a passkey.
     Grant { reader: ReaderKey },
-    /// Close the reader's entry, the rent returns to the authority.
+    /// Close the reader's record, the rent returns to the authority.
     Revoke { reader: ReaderKey },
 }
 

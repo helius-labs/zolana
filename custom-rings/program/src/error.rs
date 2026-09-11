@@ -43,9 +43,9 @@ pub enum CustomRingError {
     UnauthorizedInitializer = 8114,
     #[error("forwarded account list exceeds the CPI account limit")]
     TooManyAccounts = 8115,
-    #[error("read access entry already exists")]
-    ReadAccessEntryAlreadyExists = 8116,
-    #[error("read access entry account is invalid")]
+    #[error("read access record already exists")]
+    ReadAccessRecordAlreadyExists = 8116,
+    #[error("read access record account is invalid")]
     InvalidReadAccessRecord = 8117,
     #[error("reader key cannot authorize reads")]
     InvalidReaderKey = 8118,
