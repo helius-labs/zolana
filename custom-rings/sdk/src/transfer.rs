@@ -57,6 +57,7 @@ pub struct CustomRingTransfer<'a> {
     input_tree: Option<Address>,
     output_tree: Option<Address>,
     assets: Option<&'a AssetRegistry>,
+    cosigner: Option<Address>,
 }
 
 pub struct CustomRingTransferInput<'a> {
@@ -99,6 +100,8 @@ pub struct ProvenTransfer {
     /// History entries a policy statement binds, zero without rules.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    /// The ring's co-signer, a signer of the transaction when set.
+    pub cosigner: Option<Address>,
     payer: Address,
     input_tree: Address,
     output_tree: Address,
@@ -116,6 +119,8 @@ pub struct RingDeposit<'a> {
     pub tree: Address,
     pub asset: DepositAsset,
     pub amount: u64,
+    /// The ring's co-signer when its scope covers deposits.
+    pub cosigner: Option<&'a dyn Signer>,
 }
 
 pub struct RingDepositReceipt {
@@ -221,7 +226,15 @@ impl<'a> CustomRingTransfer<'a> {
             input_tree: None,
             output_tree: None,
             assets: None,
+            cosigner: None,
         }
+    }
+
+    /// The ring's co-signer, a signer of the transaction when set.
+    #[must_use = "use the updated transfer"]
+    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
+        self.cosigner = Some(cosigner);
+        self
     }
 
     /// The tree the spent notes live in, and where outputs land unless
@@ -414,6 +427,7 @@ impl<'a> CustomRingTransfer<'a> {
             program_id,
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
+            cosigner: self.cosigner,
         })
     }
 }
@@ -456,6 +470,7 @@ struct StagedTransfer {
     program_id: Address,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
+    cosigner: Option<Address>,
 }
 
 impl StagedTransfer {
@@ -600,6 +615,7 @@ impl StagedTransfer {
                 output_tree: self.output_tree,
                 interface_transfer_accounts: self.interface_transfer_accounts,
                 ring: self.ring,
+                cosigner: self.cosigner,
             },
         ))
     }
@@ -671,6 +687,7 @@ struct WitnessedTransfer {
     output_tree: Address,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
+    cosigner: Option<Address>,
 }
 
 impl WitnessedTransfer {
@@ -710,6 +727,7 @@ impl WitnessedTransfer {
             interface_transfer_accounts: self.interface_transfer_accounts,
             state_root_index,
             nullifier_root_index,
+            cosigner: self.cosigner,
             payer: self.payer,
             input_tree: self.input_tree,
             output_tree: self.output_tree,
@@ -727,6 +745,7 @@ impl ProvenTransfer {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             entries_tree: self.entries_tree,
+            cosigner: self.cosigner,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),
             proof: self.proof,
@@ -762,10 +781,12 @@ impl RingDeposit<'_> {
             tree: self.tree,
             depositor: self.payer.pubkey(),
             deposits: vec![deposit],
+            cosigner: self.cosigner.map(Signer::pubkey),
         }
         .instruction()?;
-        let signature =
-            rpc.create_and_send_transaction(&[ix], self.payer.pubkey(), &[self.payer])?;
+        let mut signers = vec![self.payer];
+        signers.extend(self.cosigner);
+        let signature = rpc.create_and_send_transaction(&[ix], self.payer.pubkey(), &signers)?;
         Ok(RingDepositReceipt {
             signature,
             utxo: Utxo {

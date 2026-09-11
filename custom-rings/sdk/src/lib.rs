@@ -13,10 +13,12 @@ mod witness;
 
 pub use custom_ring_interface::{
     tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, COSIGN_DEPOSITS, COSIGN_SCOPE_MASK,
+    COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
     CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
     SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
 };
 
@@ -28,6 +30,7 @@ pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
     instructions::{
+        cosigner::{ClearCoSigner, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
         deposit::Deposit,
         entry::{
@@ -53,8 +56,8 @@ pub use crate::{
         },
     },
     shared::{
-        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingConfig,
-        PolicyMatchError, ReaderKey, ReaderKeyError,
+        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
+        CustomRingConfig, PolicyMatchError, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,

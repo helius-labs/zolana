@@ -1,3 +1,4 @@
+pub mod cosigner;
 pub mod create_config;
 pub mod deposit;
 pub mod entry;

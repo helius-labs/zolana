@@ -2,8 +2,8 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    PolicyConfig, ReadAccessRecord, RingProgramConfig, POLICY_CONFIG, READ_ACCESS_RECORD,
-    RING_PROGRAM_CONFIG,
+    CoSigner, PolicyConfig, ReadAccessRecord, RingProgramConfig, CO_SIGNER, POLICY_CONFIG,
+    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -31,6 +31,15 @@ pub struct CustomRingConfig {
     /// A policy ring enforces its compiled rules, an audit-only ring proves only
     /// the audit statement.
     pub has_policy: bool,
+}
+
+/// The ring's second signature, `scope` is a subset of the `COSIGN_*` bits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomRingCoSigner {
+    pub signer: Address,
+    pub scope: u8,
+    /// Per mint, SOL under the zero address.
+    pub thresholds: Vec<(Address, u64)>,
 }
 
 #[derive(Debug, Error)]
@@ -96,6 +105,10 @@ impl CustomRing {
         Address::find_program_address(&[NAMESPACE_PDA_SEED], &self.program_id).0
     }
 
+    pub fn cosigner_pda(self) -> Address {
+        Address::find_program_address(&[CoSigner::SEED], &self.program_id).0
+    }
+
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
         reader.entry_address(&self.program_id)
     }
@@ -154,6 +167,48 @@ impl CustomRing {
             authority: config.authority,
             auditor_pubkey,
             has_policy: config.has_policy != 0,
+        }))
+    }
+
+    /// `None` when the ring has no co-signer.
+    pub fn read_cosigner<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
+        let address = self.cosigner_pda();
+        self.decode_cosigner(address, rpc.get_account(address)?)
+    }
+
+    /// The async twin of [`Self::read_cosigner`], over [`AsyncRpc`].
+    pub async fn read_cosigner_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
+        let address = self.cosigner_pda();
+        self.decode_cosigner(address, rpc.get_account(address).await?)
+    }
+
+    fn decode_cosigner(
+        self,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
+        let Some(cosigner) = AccountRead::decode::<CoSigner>(self.program_id, address, account)?
+        else {
+            return Ok(None);
+        };
+        let bump = Address::find_program_address(&[CoSigner::SEED], &self.program_id).1;
+        if cosigner.bump != bump {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(CustomRingCoSigner {
+            signer: cosigner.signer,
+            scope: cosigner.scope,
+            thresholds: cosigner
+                .thresholds()
+                .iter()
+                .map(|row| (row.mint, row.amount()))
+                .collect(),
         }))
     }
 
@@ -320,6 +375,14 @@ impl ReadableAccount for PolicyConfig {
 
 impl ReadableAccount for ReadAccessRecord {
     const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for CoSigner {
+    const DISCRIMINATOR: u8 = CO_SIGNER;
 
     fn discriminator(self) -> u8 {
         self.discriminator

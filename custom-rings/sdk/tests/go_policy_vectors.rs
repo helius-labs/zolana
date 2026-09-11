@@ -322,6 +322,7 @@ fn the_policy_transact_carries_the_policy_config() {
     use custom_ring_sdk::CustomRing;
     let ring = CustomRing::new(solana_address::Address::new_from_array([3u8; 32]));
     let instruction = custom_ring_sdk::CustomRingTransact {
+        cosigner: None,
         ring,
         payer: solana_address::Address::new_from_array([1u8; 32]),
         input_tree: solana_address::Address::new_from_array([2u8; 32]),
@@ -344,7 +345,8 @@ fn the_policy_transact_carries_the_policy_config() {
     .expect("build the policy transact");
     assert_eq!(instruction.accounts[0].pubkey, [1u8; 32].into());
     assert_eq!(instruction.accounts[1].pubkey, ring.config_pda());
-    assert_eq!(instruction.accounts[2].pubkey, ring.policy_config_pda());
+    assert_eq!(instruction.accounts[2].pubkey, ring.cosigner_pda());
+    assert_eq!(instruction.accounts[4].pubkey, ring.policy_config_pda());
 }
 
 fn transact_payload() -> zolana_interface::instruction::instruction_data::transact::TransactIxData {

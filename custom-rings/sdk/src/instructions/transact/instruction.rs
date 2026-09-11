@@ -5,14 +5,16 @@ use zolana_interface::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
 
-use crate::CustomRing;
+use crate::{instructions::cosigner::cosigner_metas, CustomRing};
 
 #[must_use]
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP content it forwards.
 ///
-/// A policy ring prepends `[payer, config, policy_config, entries_tree]` to SPP's
-/// own `RING_TRANSACT` list, an audit-only ring prepends just `[payer, config]`.
+/// A policy ring prepends `[payer, config, cosigner_pda, cosigner, policy_config,
+/// entries_tree]` to SPP's own `RING_TRANSACT` list, an audit-only ring prepends
+/// just `[payer, config, cosigner_pda, cosigner]`. The `cosigner` slot signs
+/// only when the ring has a co-signer, else it repeats `cosigner_pda`.
 /// The config holds the auditor key the public-input hash is recomputed against,
 /// and a policy ring's `entries_tree` is the only tree the policy roots are read
 /// from. Everything after the prefix is forwarded to SPP position for
@@ -31,6 +33,8 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
+    /// The ring's co-signer, a signer of the transaction when set.
+    pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
@@ -56,6 +60,7 @@ impl CustomRingTransact {
             input_tree,
             output_tree,
             entries_tree,
+            cosigner,
             owner_signers,
             interface_transfer_accounts,
             proof,
@@ -78,9 +83,10 @@ impl CustomRingTransact {
         let spp_accounts = ring.instruction().accounts;
         let transact = ring.data;
 
-        let mut accounts = Vec::with_capacity(4 + spp_accounts.len());
+        let mut accounts = Vec::with_capacity(6 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
+        accounts.extend(cosigner_metas(deployment, cosigner));
         if let Some(entries_tree) = entries_tree {
             accounts.push(AccountMeta::new_readonly(
                 deployment.policy_config_pda(),
