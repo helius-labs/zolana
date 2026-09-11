@@ -181,6 +181,9 @@ impl MergeProver {
             return Err(ClientError::NoInputs);
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
+        // Merge resolves roots from one input tree per instruction, so the
+        // whole padded run shares a single root-index pair.
+        let input_tree_context = assembled_inputs.single_tree_context()?;
 
         // Dummy slots publish deterministic nullifiers derived from the
         // owner's nullifier secret and the first real nullifier; override the
@@ -270,8 +273,8 @@ impl MergeProver {
             nullifiers: assembled_inputs.nullifiers,
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: self.output_tree_id,
-            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
-            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
+            utxo_tree_root_index: input_tree_context.utxo_tree_root_index,
+            nullifier_tree_root_index: input_tree_context.nullifier_tree_root_index,
             head,
             output_hash,
             private_tx_hash: private_tx,
