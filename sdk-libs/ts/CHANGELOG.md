@@ -99,9 +99,8 @@ Breaking
   so each tree owns one contiguous run, pass `treeContexts` in that order and
   `[slot]` to `inputTreeSlots`, and run a program and prover from this release;
   merge keeps its single input tree and its root position pair.
-- `TREE_ACCOUNT_SIZE` is 40,080 and `StateDiscriminator.treeAccount` is 2, so
-  a tree account created by an earlier release is not read as a tree → create
-  the pool tree with this release.
+- `TREE_ACCOUNT_SIZE` is 40,080, so a tree account created by an earlier
+  release is not read as a tree → create the pool tree with this release.
 - `externalDataHash` takes the transact fields as the instruction encodes
   them (`ExternalDataHashInput` extends the new `TransactExternalData`), with
   `outputs` carrying their `OwnerTag`, one `resolvedOwnerTags` entry per

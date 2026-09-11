@@ -2,7 +2,7 @@ import { unsignedBigint } from "./internal.js";
 import type { TreeFeeSchedule } from "./types.js";
 
 export const StateDiscriminator = Object.freeze({
-  treeAccount: 2,
+  treeAccount: 1,
   protocolConfig: 3,
   ringConfig: 4,
   splAssetRegistry: 5,

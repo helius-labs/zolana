@@ -134,7 +134,7 @@ fn state_sizes_and_discriminators_are_stable() {
     }
 
     let discriminators = [
-        (discriminator::TREE_ACCOUNT_DISCRIMINATOR, 2),
+        (discriminator::TREE_ACCOUNT_DISCRIMINATOR, 1),
         (discriminator::PROTOCOL_CONFIG, 3),
         (discriminator::RING_CONFIG, 4),
         (discriminator::SPL_ASSET_REGISTRY, 5),
