@@ -14,7 +14,7 @@ use zolana_transaction::SOL_MINT;
 
 use zolana_client::{
     error::ClientError,
-    rpc::{compile_v1_message, AsyncRpc, ComputeBudgetConfig, Rpc},
+    rpc::{compile_message, AsyncRpc, ComputeBudgetConfig, Rpc},
 };
 
 /// Prepared direct proofless SOL shield.
@@ -148,7 +148,7 @@ pub fn deposit<R: Rpc>(
         signers.push(depositor);
     }
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         core::slice::from_ref(&ix),
         payer_address,
         &signers,
@@ -174,7 +174,7 @@ fn unsigned_deposit_message(
     instruction: Instruction,
     blockhash: solana_hash::Hash,
 ) -> Result<VersionedMessage, ClientError> {
-    compile_v1_message(
+    compile_message(
         &payer,
         core::slice::from_ref(&instruction),
         blockhash,
@@ -224,7 +224,7 @@ mod tests {
             Ok((Hash::default(), 0))
         }
 
-        fn process_versioned_transaction(
+        fn process_transaction(
             &self,
             transaction: VersionedTransaction,
         ) -> Result<Signature, ClientError> {

@@ -23,7 +23,7 @@ use zolana_transaction::{
 
 use super::{MergeRingRecord, RingHarness, SpendSlot, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
-    localnet::{pack_merge_proof, send_transaction_v1, ZERO},
+    localnet::{pack_merge_proof, send_transaction, ZERO},
     nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
@@ -337,7 +337,7 @@ impl RingHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let send_result = send_transaction_v1(
+        let send_result = send_transaction(
             &mut self.rpc,
             &[compute_budget, merge_ix.clone()],
             &payer.pubkey(),
@@ -403,7 +403,7 @@ impl RingHarness {
             // instead of dropping it as an already-processed signature. In a v1
             // transaction that difference sits in the message header.
             let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
-            match send_transaction_v1(
+            match send_transaction(
                 &mut self.rpc,
                 &[replay_budget, merge_ix],
                 &payer.pubkey(),
@@ -520,7 +520,7 @@ impl RingHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        match send_transaction_v1(
+        match send_transaction(
             &mut self.rpc,
             &[compute_budget, merge_ix],
             &payer.pubkey(),

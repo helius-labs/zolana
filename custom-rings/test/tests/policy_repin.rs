@@ -11,7 +11,7 @@ use custom_ring_test_validator::{
         owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
         RingNotes, APPROVAL_OR_UNBLOCKED, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
-    shared::{send_v1_expecting_rejection, ExpectRejection, TestEnv},
+    shared::{send_expecting_rejection, ExpectRejection, TestEnv},
 };
 use solana_signer::Signer;
 use zolana_client::ProverClient;
@@ -125,7 +125,7 @@ fn the_upgrade_authority_re_pins_the_table_of_a_live_ring() -> Result<()> {
     );
 
     // 4. The proof over the old hash fails verification, its note stays unspent.
-    let rejection = send_v1_expecting_rejection(rpc, sender, stale.instruction()?)?;
+    let rejection = send_expecting_rejection(rpc, sender, stale.instruction()?)?;
     Rejection::custom(CustomRingError::ProofVerificationFailed as u32)
         .at(0)
         .assert_client(&rejection);

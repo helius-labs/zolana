@@ -109,7 +109,7 @@ fn phase_shield(env: &mut CycleEnv) -> TestResult<PayerShield> {
     }
     .instruction()
     .map_err(|err| anyhow!("deposit instruction: {err}"))?;
-    let shield_sig = send_transaction_v1(
+    let shield_sig = send_transaction(
         &mut env.rpc,
         &[shield_ix],
         &env.payer.pubkey(),
@@ -361,7 +361,7 @@ fn phase_shielded_transfer(
         data: transfer_ix_data,
     }
     .instruction();
-    let transfer_sig = send_transaction_v1(
+    let transfer_sig = send_transaction(
         &mut env.rpc,
         &[transfer_ix],
         &env.payer.pubkey(),
@@ -563,7 +563,7 @@ fn phase_unshield(
         data: withdraw_ix_data,
     }
     .instruction();
-    let withdraw_sig = send_transaction_v1(
+    let withdraw_sig = send_transaction(
         &mut env.rpc,
         &[withdraw_ix],
         &env.payer.pubkey(),

@@ -149,7 +149,7 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         data,
     }
     .instruction();
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         core::slice::from_ref(&merge_ix),
         Address::new_from_array(payer.pubkey().to_bytes()),
         &[payer],

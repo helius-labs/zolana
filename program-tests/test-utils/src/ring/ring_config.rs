@@ -21,7 +21,7 @@ use zolana_smart_account_client::execute_sync_ix;
 
 use super::RingHarness;
 use crate::{
-    localnet::send_transaction_v1,
+    localnet::send_transaction,
     smart_account::standard_accounts,
     test_validator_asserts::{
         assert_account_unchanged, assert_optional_account_unchanged, fetch_account,
@@ -75,7 +75,7 @@ impl RingHarness {
         let sync = execute_sync_ix(&accounts.ring_settings, 0, &[self.ring_key.pubkey()], &[ix]);
         let payer = self.payer.insecure_clone();
         let ring_key = self.ring_key.insecure_clone();
-        send_transaction_v1(
+        send_transaction(
             &mut self.rpc,
             &[sync],
             &payer.pubkey(),
@@ -148,7 +148,7 @@ impl RingHarness {
         }
         .instruction();
         let payer = self.payer.insecure_clone();
-        send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &authority])?;
+        send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &authority])?;
         Ok(())
     }
 
@@ -169,7 +169,7 @@ impl RingHarness {
         }
         .instruction();
         let payer = self.payer.insecure_clone();
-        send_transaction_v1(
+        send_transaction(
             &mut self.rpc,
             &[ix],
             &payer.pubkey(),
@@ -197,7 +197,7 @@ impl RingHarness {
         }
         .instruction();
         let payer = self.payer.insecure_clone();
-        match send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &stale]) {
+        match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer, &stale]) {
             Ok(_) => Err(anyhow!("stale owner update unexpectedly succeeded")),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::UnauthorizedCaller).assert_client(&error);
@@ -233,7 +233,7 @@ impl RingHarness {
             .get_mut(2)
             .ok_or_else(|| anyhow!("missing ring config account meta"))?;
         meta.pubkey = payer.pubkey();
-        match send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer]) {
+        match send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer]) {
             Ok(_) => Err(anyhow!(
                 "invalid ring authority create unexpectedly succeeded"
             )),

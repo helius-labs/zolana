@@ -3,7 +3,7 @@ mod shared;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use shared::{send_v1, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
+use shared::{send, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
     index::index_taker,
     instructions::{
@@ -170,7 +170,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         }
         .instruction()?;
 
-        let make_signature = send_v1(client.rpc(), &maker.keypair, make_ix)?;
+        let make_signature = send(client.rpc(), &maker.keypair, make_ix)?;
         client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
@@ -309,7 +309,7 @@ fn make_and_take_verifiable_encryption() -> Result<()> {
         }
         .instruction()?;
 
-        let take_signature = send_v1(client.rpc(), &taker.keypair, take_ix)?;
+        let take_signature = send(client.rpc(), &taker.keypair, take_ix)?;
         client
             .confirm_private_transaction_sync(take_signature)
             .map_err(|e| anyhow!("confirm take indexed: {e:?}"))?;

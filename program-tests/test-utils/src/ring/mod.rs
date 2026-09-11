@@ -35,7 +35,7 @@ use zolana_transaction::{
 
 use crate::{
     harness::{BootstrapConfig, LocalnetHarness},
-    localnet::{send_transaction_v1, ZERO},
+    localnet::{send_transaction, ZERO},
     test_validator_asserts::{wait_for_merkle_proofs, wait_for_non_inclusion_proofs},
 };
 
@@ -166,7 +166,7 @@ impl RingHarness {
             ],
             data: encode_instruction(tag::CREATE_RING_CONFIG, &data),
         };
-        let signature = send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
         Ok((ring_auth, signature))
     }
 

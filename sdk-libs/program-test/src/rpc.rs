@@ -6,9 +6,7 @@ use solana_keypair::Signer;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
-use zolana_client::{
-    compile_v1_message, sign_versioned_transaction, ClientError, ComputeBudgetConfig, Rpc,
-};
+use zolana_client::{compile_message, sign_transaction, ClientError, ComputeBudgetConfig, Rpc};
 
 use crate::{
     events::{index_events, indexed_events_from_meta, IndexedEvent},
@@ -58,8 +56,8 @@ impl ZolanaProgramTest {
         // deduplicates repeated instructions signed over the same blockhash.
         self.svm.expire_blockhash();
         let blockhash = self.svm.latest_blockhash();
-        let message = compile_v1_message(payer, ixs, blockhash, compute_budget)?;
-        self.send_indexed(sign_versioned_transaction(message, signers)?)
+        let message = compile_message(payer, ixs, blockhash, compute_budget)?;
+        self.send_indexed(sign_transaction(message, signers)?)
     }
 
     fn send_indexed(

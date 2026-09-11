@@ -418,7 +418,7 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::Transaction;
-    use zolana_client::{v1_transaction_size, V1TransactionSize};
+    use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
     use zolana_interface::instruction::instruction_data::MERGE_SUPPORTED_INPUT_COUNTS;
     use zolana_interface::{
         instruction::{
@@ -598,20 +598,16 @@ fn tx_size(args: Vec<String>) {
             .len()
     };
 
-    let v1_tx_size = |instructions: &[Instruction]| -> V1TransactionSize {
-        v1_transaction_size(
-            &payer_pk,
-            instructions,
-            signature_count(&payer_pk, instructions),
-        )
-        .expect("compile the v1 message")
+    let v1_tx_size = |instructions: &[Instruction]| -> TransactionSize {
+        transaction_size(&payer_pk, instructions, ComputeBudgetConfig::new(1_400_000))
+            .expect("compile the v1 message")
     };
 
     // v1 has two ceilings and a transaction has to clear both, so a cell reports
     // wire bytes and account addresses together: a wide spend adds a nullifier
     // PDA per input, and the 64-address cap is what binds first at those shapes
     // even while the bytes are comfortable.
-    let v1_cell = |legacy: usize, v1: V1TransactionSize| -> String {
+    let v1_cell = |legacy: usize, v1: TransactionSize| -> String {
         // `OVER` means no format can carry the row. Between the two ceilings a
         // row exceeds 1,232 bytes and is still perfectly sendable as v1, which
         // is why the legacy column stays rather than the table collapsing to
@@ -632,9 +628,9 @@ fn tx_size(args: Vec<String>) {
     struct ShapeSizes {
         ix_len: usize,
         transfer_legacy: usize,
-        transfer_v1: V1TransactionSize,
+        transfer_v1: TransactionSize,
         shield_legacy: usize,
-        shield_v1: V1TransactionSize,
+        shield_v1: TransactionSize,
     }
 
     let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
@@ -657,7 +653,7 @@ fn tx_size(args: Vec<String>) {
         // it adjusts the wire sizes and leaves the address counts alone.
         let adj = serialized_proof_len as isize - TRANSACT_PROOF_LEN as isize;
         let adjust = |v: usize| (v as isize + adj) as usize;
-        let adjust_v1 = |size: V1TransactionSize| V1TransactionSize {
+        let adjust_v1 = |size: TransactionSize| TransactionSize {
             bytes: adjust(size.bytes),
             addresses: size.addresses,
         };
@@ -1021,26 +1017,6 @@ fn tx_size(args: Vec<String>) {
             v1_cell(sync_legacy, v1_tx_size(std::slice::from_ref(&sync_ix))),
         );
     }
-}
-
-/// The signatures a transaction over `instructions` will carry: the fee payer
-/// plus every other account an instruction marks as a signer.
-///
-/// `v1_transaction_size` cannot read this off an unsigned message, and every
-/// signature missed under-reports the wire size by 64 bytes.
-fn signature_count(
-    payer: &solana_pubkey::Pubkey,
-    instructions: &[solana_instruction::Instruction],
-) -> usize {
-    let mut signers = vec![*payer];
-    for instruction in instructions {
-        for meta in &instruction.accounts {
-            if meta.is_signer && !signers.contains(&meta.pubkey) {
-                signers.push(meta.pubkey);
-            }
-        }
-    }
-    signers.len()
 }
 
 fn transfer_accounts(

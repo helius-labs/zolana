@@ -67,7 +67,7 @@ pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
 
     let (user_record, _bump) = user_record_pda(&owner);
     let instructions = [set_merging_enabled(user_record, owner, enabled)];
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         Address::new_from_array(owner.to_bytes()),
         &[&material.funding],

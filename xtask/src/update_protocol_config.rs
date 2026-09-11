@@ -289,7 +289,7 @@ pub fn run(options: Options) -> Result<()> {
     let mut transaction_signers: Vec<&dyn Signer> = vec![&payer];
     transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
     let signature = rpc
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
             &transaction_signers,

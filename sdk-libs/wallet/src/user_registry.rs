@@ -21,7 +21,7 @@ use zolana_user_registry_interface::{
 use crate::actions::ResolvedAddress;
 use zolana_client::{
     error::ClientError,
-    rpc::{compile_v1_message, AsyncRpc, ComputeBudgetConfig, Rpc},
+    rpc::{compile_message, AsyncRpc, ComputeBudgetConfig, Rpc},
 };
 
 /// Compact low-S P-256 ECDSA signature (`r || s`) over SHA-256 of the message
@@ -93,7 +93,7 @@ pub fn ensure_registered<R: Rpc>(
         }
         let proof = key_binding_proof(owner, keypair)?;
         let ixs = update_key_instructions(user_record, owner, &data, proof)?;
-        return Ok(Some(rpc.create_and_send_v1_transaction(
+        return Ok(Some(rpc.create_and_send_transaction(
             &ixs,
             owner_address,
             &[funding],
@@ -103,7 +103,7 @@ pub fn ensure_registered<R: Rpc>(
 
     let proof = key_binding_proof(owner, keypair)?;
     let ixs = register_instructions(user_record, owner, data, proof)?;
-    Ok(Some(rpc.create_and_send_v1_transaction(
+    Ok(Some(rpc.create_and_send_transaction(
         &ixs,
         owner_address,
         &[funding],
@@ -159,7 +159,7 @@ pub fn register_if_absent<R: Rpc>(
 
     let proof = key_binding_proof(owner, keypair)?;
     let ixs = register_instructions(user_record, owner, data, proof)?;
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &ixs,
         Address::new_from_array(owner.to_bytes()),
         &[funding],
@@ -251,7 +251,7 @@ fn unsigned_registration_message(
     instructions: &[Instruction],
     blockhash: solana_hash::Hash,
 ) -> Result<VersionedMessage, ClientError> {
-    compile_v1_message(
+    compile_message(
         &owner,
         instructions,
         blockhash,
@@ -1034,7 +1034,7 @@ mod tests {
             Ok((solana_hash::Hash::default(), 0))
         }
 
-        fn process_versioned_transaction(
+        fn process_transaction(
             &self,
             transaction: solana_transaction::versioned::VersionedTransaction,
         ) -> Result<Signature, ClientError> {

@@ -764,7 +764,7 @@ impl RingDeposit<'_> {
             deposits: vec![deposit],
         }
         .instruction()?;
-        let signature = rpc.create_and_send_v1_transaction(
+        let signature = rpc.create_and_send_transaction(
             core::slice::from_ref(&ix),
             self.payer.pubkey(),
             &[self.payer],

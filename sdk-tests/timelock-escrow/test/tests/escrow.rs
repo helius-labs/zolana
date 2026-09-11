@@ -2,7 +2,7 @@ mod shared;
 
 use anyhow::{anyhow, Result};
 use shared::{
-    send_v1, setup, TestEnv, LOCK_AMOUNT, SHIELD_AMOUNT, SPP_RELAYER_DEADLINE, UNLOCK_TIMESTAMP,
+    send, setup, TestEnv, LOCK_AMOUNT, SHIELD_AMOUNT, SPP_RELAYER_DEADLINE, UNLOCK_TIMESTAMP,
 };
 use timelock_escrow_sdk::{
     instructions::{
@@ -138,7 +138,7 @@ fn escrow_then_withdraw() -> Result<()> {
     }
     .instruction()?;
 
-    let signature = send_v1(client.rpc(), &creator.keypair, escrow_ix)?;
+    let signature = send(client.rpc(), &creator.keypair, escrow_ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm escrow indexed: {e:?}"))?;
@@ -246,7 +246,7 @@ fn escrow_then_withdraw() -> Result<()> {
     }
     .instruction()?;
 
-    let signature = send_v1(client.rpc(), &creator.keypair, withdraw_ix)?;
+    let signature = send(client.rpc(), &creator.keypair, withdraw_ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm withdraw indexed: {e:?}"))?;

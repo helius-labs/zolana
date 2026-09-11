@@ -52,7 +52,7 @@ fn create_pair_then_update_price() -> Result<()> {
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
     env.client
         .rpc()
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &[create_pair_ix],
             authority_solana.pubkey(),
             &[&authority_solana],
@@ -105,7 +105,7 @@ fn create_pair_then_update_price() -> Result<()> {
     .map_err(|e| anyhow!("update_price instruction: {e:?}"))?;
     env.client
         .rpc()
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &[update_price_ix],
             authority_solana.pubkey(),
             &[&authority_solana],

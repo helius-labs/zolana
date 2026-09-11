@@ -15,7 +15,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::MAX_TRANSACTION_SIZE;
-use zolana_client::v1_transaction_size;
+use zolana_client::{transaction_size, ComputeBudgetConfig};
 use zolana_interface::{
     instruction::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
@@ -1019,8 +1019,12 @@ fn the_largest_pin_is_past_a_legacy_packet_and_inside_a_v1_transaction() {
         .instruction()
         .expect("the largest pin fits a v1 transaction");
     // The payer and the upgrade authority sign it.
-    let measured = v1_transaction_size(&payer(), core::slice::from_ref(&instruction), 2)
-        .expect("the pin compiles into a v1 message");
+    let measured = transaction_size(
+        &payer(),
+        core::slice::from_ref(&instruction),
+        ComputeBudgetConfig::new(custom_ring_interface::CREATE_POLICY_COMPUTE_UNIT_LIMIT),
+    )
+    .expect("the pin compiles into a v1 message");
     assert!(
         measured.bytes > LEGACY_PACKET_DATA_SIZE,
         "a pin this size was refused while the bound was the legacy packet"

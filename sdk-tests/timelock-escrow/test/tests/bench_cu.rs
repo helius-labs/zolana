@@ -26,8 +26,8 @@ use timelock_escrow_sdk::{
     state::{EscrowTerms, EscrowUtxo},
 };
 use zolana_client::{
-    v1_transaction_size, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    transaction_size, ComputeBudgetConfig, MerkleContext, MerkleProof, NonInclusionProof,
+    ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -278,19 +278,6 @@ fn proving_time_table(spp: Duration, circuit: Duration) -> SectionTable {
     }
 }
 
-/// Every signature the transaction carries: the fee payer, plus each distinct
-/// other signer the instruction names. Miss one and the measured wire size is
-/// 64 bytes short.
-fn signature_count(ix: &Instruction, payer: &Pubkey) -> usize {
-    let mut signers = vec![*payer];
-    for meta in ix.accounts.iter().filter(|meta| meta.is_signer) {
-        if !signers.contains(&meta.pubkey) {
-            signers.push(meta.pubkey);
-        }
-    }
-    signers.len()
-}
-
 /// The instruction measured against both packet ceilings. The legacy row keeps
 /// its compute-budget prefix because a legacy transaction had to buy its budget
 /// with an instruction; v1 states the same ceilings in the message header, so
@@ -303,9 +290,13 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
         .expect("serialize legacy")
         .len();
 
-    let v1 = v1_transaction_size(payer, std::slice::from_ref(ix), signature_count(ix, payer))
-        .expect("measure v1 transaction")
-        .bytes;
+    let v1 = transaction_size(
+        payer,
+        std::slice::from_ref(ix),
+        ComputeBudgetConfig::new(1_400_000),
+    )
+    .expect("measure v1 transaction")
+    .bytes;
 
     SectionTable {
         title: "Transaction Size".into(),

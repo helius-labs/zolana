@@ -31,8 +31,7 @@ use zolana_transaction::{
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
     localnet::{
-        send_transaction_v1, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION,
-        ZERO,
+        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
     },
     spl::create_token_account,
     test_validator_asserts::{
@@ -501,7 +500,7 @@ impl RingHarness {
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let instructions = [compute_budget, transfer_ix.clone()];
-        let signature = send_transaction_v1(
+        let signature = send_transaction(
             &mut self.rpc,
             &instructions,
             &fee_payer.pubkey(),
@@ -889,7 +888,7 @@ impl RingHarness {
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
-        match send_transaction_v1(
+        match send_transaction(
             &mut self.rpc,
             &[compute_budget, transfer_ix],
             &fee_payer.pubkey(),

@@ -10,7 +10,7 @@ use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{compile_v1_message, sign_versioned_transaction, ComputeBudgetConfig};
+use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
 use zolana_keypair::SigningKey;
 use zolana_user_registry_interface::{
     instruction::{
@@ -81,15 +81,14 @@ impl UserRegistryTestRig {
         let mut all_signers: Vec<&dyn Signer> = Vec::with_capacity(signers.len() + 1);
         all_signers.push(&payer);
         all_signers.extend(signers.iter().map(|signer| *signer as &dyn Signer));
-        let message = compile_v1_message(
+        let message = compile_message(
             &payer.pubkey(),
             instructions,
             self.svm.latest_blockhash(),
             ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
         .expect("compile the v1 message");
-        let transaction =
-            sign_versioned_transaction(message, &all_signers).expect("sign the v1 transaction");
+        let transaction = sign_transaction(message, &all_signers).expect("sign the v1 transaction");
         self.svm.send_transaction(transaction).map_err(Box::new)
     }
 

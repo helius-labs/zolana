@@ -225,7 +225,7 @@ fn phase_queue_nullifiers(env: &mut ForesterEnv) -> TestResult<Vec<[u8; 32]>> {
         }
         .instruction()
         .map_err(|err| anyhow!("deposit instruction: {err}"))?;
-        let sig = send_transaction_v1(
+        let sig = send_transaction(
             &mut env.rpc,
             &[shield_ix],
             &env.payer.pubkey(),
@@ -378,7 +378,7 @@ fn queue_nullifiers_once(env: &mut ForesterEnv, ctx: &mut QueueContext, i: u64) 
     .instruction();
     let queue_next_before = nullifier_queue_next_index(&env.rpc, &env.tree_pubkey)?;
     let tree_before = fetch_tree_account(env)?;
-    let sig = send_transaction_v1(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
+    let sig = send_transaction(&mut env.rpc, &[tx_ix], &env.payer.pubkey(), &[&env.payer])?;
     print_signature(&format!("queue_nullifiers_{i}"), &sig);
 
     assert_nullifier_pda(

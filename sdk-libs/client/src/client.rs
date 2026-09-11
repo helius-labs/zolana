@@ -47,13 +47,12 @@ fn check_service_url(url: &str, field: &'static str) -> Result<(), ClientError> 
 use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
-use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction::{versioned::VersionedTransaction, Transaction as SolanaTransaction};
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_interface::instruction::{Transact, TransactInterfaceTransferAccounts, TransactIxData};
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
@@ -68,7 +67,7 @@ use crate::{
     },
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
-        compile_v1_message, AsyncRpc, ComputeBudgetConfig, GetEncryptedUtxosByTagsResponse,
+        compile_message, AsyncRpc, ComputeBudgetConfig, GetEncryptedUtxosByTagsResponse,
         GetMerkleProofsResponse, GetNonInclusionProofsResponse,
         GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
         GetShieldedTransactionsByTagsResponse, ProveResult, Rpc, ShieldedTransactionStream,
@@ -349,7 +348,7 @@ impl<R: Rpc> ZolanaClient<R> {
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
         let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
-        build_unsigned_v1_message(
+        build_unsigned_message(
             self.compute_budget(),
             fee_payer,
             TransactTrees {
@@ -388,7 +387,7 @@ impl<R: Rpc> ZolanaClient<R> {
         )?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
-        build_unsigned_v1_message(
+        build_unsigned_message(
             self.compute_budget(),
             fee_payer,
             TransactTrees {
@@ -441,7 +440,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let proof = self.async_prover.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        build_unsigned_v1_message(
+        build_unsigned_message(
             self.compute_budget(),
             fee_payer,
             TransactTrees {
@@ -530,16 +529,9 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
         self.rpc.health().await
     }
 
-    async fn send_transaction(
-        &self,
-        transaction: &SolanaTransaction,
-    ) -> Result<Signature, ClientError> {
-        self.rpc.send_transaction(transaction).await
-    }
-
     async fn send_transaction_with_config(
         &self,
-        transaction: &SolanaTransaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         self.rpc
@@ -547,35 +539,11 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
-    async fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        self.rpc
-            .send_versioned_transaction_with_config(transaction, config)
-            .await
-    }
-
     async fn process_transaction(
-        &self,
-        transaction: SolanaTransaction,
-    ) -> Result<Signature, ClientError> {
-        self.rpc.process_transaction(transaction).await
-    }
-
-    async fn process_transaction_with_context(
-        &self,
-        transaction: SolanaTransaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        self.rpc.process_transaction_with_context(transaction).await
-    }
-
-    async fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        self.rpc.process_versioned_transaction(transaction).await
+        self.rpc.process_transaction(transaction).await
     }
 
     async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
@@ -804,46 +772,19 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
         self.rpc.health()
     }
 
-    fn send_transaction(&self, transaction: &SolanaTransaction) -> Result<Signature, ClientError> {
-        self.rpc.send_transaction(transaction)
-    }
-
     fn send_transaction_with_config(
         &self,
-        transaction: &SolanaTransaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         self.rpc.send_transaction_with_config(transaction, config)
     }
 
-    fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        self.rpc
-            .send_versioned_transaction_with_config(transaction, config)
-    }
-
     fn process_transaction(
-        &self,
-        transaction: SolanaTransaction,
-    ) -> Result<Signature, ClientError> {
-        self.rpc.process_transaction(transaction)
-    }
-
-    fn process_transaction_with_context(
-        &self,
-        transaction: SolanaTransaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        self.rpc.process_transaction_with_context(transaction)
-    }
-
-    fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        self.rpc.process_versioned_transaction(transaction)
+        self.rpc.process_transaction(transaction)
     }
 
     fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
@@ -1007,7 +948,7 @@ struct TransactTrees {
     output_tree: Address,
 }
 
-fn build_unsigned_v1_message(
+fn build_unsigned_message(
     compute_budget: ComputeBudgetConfig,
     fee_payer: Pubkey,
     trees: TransactTrees,
@@ -1033,7 +974,7 @@ fn build_unsigned_v1_message(
     // The transact is the only instruction: a v1 message states its compute
     // ceiling and its priority fee in the header, so nothing rides along to
     // set them.
-    compile_v1_message(
+    compile_message(
         &fee_payer,
         core::slice::from_ref(&transact_ix),
         recent_blockhash,
@@ -1306,7 +1247,7 @@ mod tests {
         thread,
     };
 
-    use crate::rpc::{sign_versioned_transaction, MAX_LOADED_ACCOUNTS_DATA_SIZE};
+    use crate::rpc::{sign_transaction, MAX_LOADED_ACCOUNTS_DATA_SIZE};
 
     use serde_json::{json, Value};
     use solana_keypair::Keypair;
@@ -1550,9 +1491,8 @@ mod tests {
             })
             .expect("finish");
         let signers: Vec<&dyn Signer> = vec![&payer];
-        let transaction =
-            sign_versioned_transaction(message, &signers).expect("sign the v1 transaction");
-        let result = Rpc::process_versioned_transaction(client.rpc(), transaction).expect("send");
+        let transaction = sign_transaction(message, &signers).expect("sign the v1 transaction");
+        let result = Rpc::process_transaction(client.rpc(), transaction).expect("send");
         client
             .confirm_private_transaction_sync(result)
             .expect("indexed");
@@ -1958,7 +1898,7 @@ mod tests {
             Ok((Hash::new_from_array([4u8; 32]), 100))
         }
 
-        fn send_versioned_transaction_with_config(
+        fn send_transaction_with_config(
             &self,
             transaction: &VersionedTransaction,
             _config: RpcSendTransactionConfig,
@@ -1967,7 +1907,7 @@ mod tests {
             Ok(self.signature)
         }
 
-        fn process_versioned_transaction(
+        fn process_transaction(
             &self,
             transaction: VersionedTransaction,
         ) -> Result<Signature, ClientError> {

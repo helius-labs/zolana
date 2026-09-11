@@ -5,7 +5,7 @@ use custom_ring_interface::{PolicyTableIxData, SourceSpec};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::v1::MAX_TRANSACTION_SIZE;
-use zolana_client::v1_transaction_size;
+use zolana_client::{transaction_size, ComputeBudgetConfig};
 use zolana_ring_policy::{ListId, Rule, RuleTable};
 
 use crate::{instructions::entry::EntryError, CustomRing};
@@ -90,12 +90,13 @@ impl PolicyTableBody {
 /// The transaction **v1** message the instruction rides in, alone: v1 states
 /// its compute ceilings in the message header, so no compute-budget
 /// instruction takes up room beside it.
-pub(crate) struct V1Transaction {
+pub(crate) struct SizedTransaction {
     pub payer: Address,
+    pub compute_budget: ComputeBudgetConfig,
     pub instruction: Instruction,
 }
 
-impl V1Transaction {
+impl SizedTransaction {
     /// Signatures included, the bound the runtime applies to the whole
     /// transaction.
     ///
@@ -103,11 +104,10 @@ impl V1Transaction {
     /// addresses, and a policy table names seven fixed accounts plus one
     /// curator per referenced list, which cannot reach that.
     pub(crate) fn fit(self) -> Result<Instruction, EntryError> {
-        let signatures = signature_count(&self.payer, &self.instruction);
-        let size = v1_transaction_size(
+        let size = transaction_size(
             &self.payer,
             core::slice::from_ref(&self.instruction),
-            signatures,
+            self.compute_budget,
         )
         .map_err(|error| EntryError::TransactionCompile(Box::new(error)))?;
         if size.bytes > MAX_TRANSACTION_SIZE {
@@ -120,34 +120,15 @@ impl V1Transaction {
     }
 }
 
-/// The fee payer plus every distinct signer the instruction names.
-///
-/// The measurement takes the signature count as an input because an unsigned
-/// message cannot tell it, and each signature the builder forgets under-reports
-/// the transaction by 64 bytes.
-fn signature_count(payer: &Address, instruction: &Instruction) -> usize {
-    let mut signers = vec![*payer];
-    for signer in instruction
-        .accounts
-        .iter()
-        .filter(|meta| meta.is_signer)
-        .map(|meta| meta.pubkey)
-    {
-        if !signers.contains(&signer) {
-            signers.push(signer);
-        }
-    }
-    signers.len()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn transaction(data_len: usize) -> V1Transaction {
+    fn transaction(data_len: usize) -> SizedTransaction {
         let payer = Address::new_from_array([1u8; 32]);
-        V1Transaction {
+        SizedTransaction {
             payer,
+            compute_budget: ComputeBudgetConfig::new(200_000),
             instruction: Instruction {
                 program_id: Address::new_from_array([2u8; 32]),
                 accounts: vec![AccountMeta::new(payer, true)],
@@ -160,12 +141,14 @@ mod tests {
     /// instruction between the two is sendable and must not be refused.
     #[test]
     fn the_bound_counts_the_whole_signed_transaction() {
-        let instruction = transaction(3900).fit().expect("fits");
-        assert_eq!(instruction.data.len(), 3900);
+        // One payer/signature, one program, and the configured header leave
+        // exactly 3,913 bytes for this instruction's payload.
+        let instruction = transaction(3913).fit().expect("fits exactly");
+        assert_eq!(instruction.data.len(), 3913);
         assert!(matches!(
-            transaction(4100).fit(),
+            transaction(3914).fit(),
             Err(EntryError::TransactionTooLarge { bytes, limit })
-                if bytes > limit && limit == MAX_TRANSACTION_SIZE
+                if bytes == MAX_TRANSACTION_SIZE + 1 && limit == MAX_TRANSACTION_SIZE
         ));
     }
 }

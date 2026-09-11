@@ -18,7 +18,7 @@ use dynamic_swap_sdk::{
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
 use shared::{
-    escrow_authority_identity, get_slot_with_retry, send_v1, setup, DESTINATION_ASSET_ID,
+    escrow_authority_identity, get_slot_with_retry, send, setup, DESTINATION_ASSET_ID,
     SOURCE_ASSET_ID, USER_SPL_SHIELD,
 };
 use solana_signer::Signer;
@@ -92,7 +92,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
         env.client
             .rpc()
-            .create_and_send_v1_transaction(
+            .create_and_send_transaction(
                 &[create_pair_ix],
                 authority_solana.pubkey(),
                 &[&authority_solana],
@@ -174,7 +174,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         .instruction();
         env.client
             .rpc()
-            .create_and_send_v1_transaction(
+            .create_and_send_transaction(
                 &[split_ix],
                 user_solana.pubkey(),
                 &[&user_solana],
@@ -407,7 +407,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         .instruction()
         .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-        send_v1(env.client.rpc(), &authority_solana, &[&user_solana], ix)
+        send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
             .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
 
         escrow
@@ -657,7 +657,7 @@ fn create_escrow_underwater_then_refund() -> Result<()> {
         }
         .instruction()
         .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
-        send_v1(env.client.rpc(), &authority_solana, &[], settle_ix)
+        send(env.client.rpc(), &authority_solana, &[], settle_ix)
             .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
         (recipient_out_hash, maker_counter_hash, maker_source_hash)

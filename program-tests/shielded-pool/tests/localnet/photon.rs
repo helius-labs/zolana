@@ -14,7 +14,7 @@ use shielded_pool_tests::support::{
     forester::{ForesterAuthority, NullifierTestForester},
     localnet::{
         account_lamports, build_sol_transfer_witness, initialize_pool, on_chain_roots,
-        print_signature, send_transaction_v1, LocalnetPool, SolTransferWitness,
+        print_signature, send_transaction, LocalnetPool, SolTransferWitness,
         SolTransferWitnessArgs,
     },
 };

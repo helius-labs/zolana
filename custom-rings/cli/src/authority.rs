@@ -145,7 +145,7 @@ pub fn run(ctx: &mut Context, command: AuthorityCommand) -> Result<(), Authority
             }
             .instruction()];
             ctx.rpc
-                .create_and_send_v1_transaction(
+                .create_and_send_transaction(
                     &instructions,
                     authority.pubkey(),
                     &[&authority, &new_authority],

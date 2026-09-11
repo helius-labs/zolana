@@ -60,7 +60,7 @@ pub(crate) fn run_transfer(opts: TransferOptions) -> Result<()> {
     )?;
     let signature = client
         .rpc()
-        .send_versioned_transaction_with_config(&transaction, send_config())?;
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     let mode = if transfer.recipient.is_public_withdrawal() {
         "withdraw"
@@ -150,7 +150,7 @@ pub(crate) fn run_split(opts: SplitOptions) -> Result<()> {
     )?;
     let signature = client
         .rpc()
-        .send_versioned_transaction_with_config(&transaction, send_config())?;
+        .send_transaction_with_config(&transaction, send_config())?;
     client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok split parts={} amount={} mint={} signature={}",

@@ -49,7 +49,7 @@ pub fn create_associated_token_account_with_program<R: Rpc>(
     let ata = builder.address();
     let ix = builder.instruction();
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         core::slice::from_ref(&ix),
         payer_address,
         &[payer],
@@ -82,7 +82,7 @@ mod tests {
             Ok((Hash::default(), 0))
         }
 
-        fn process_versioned_transaction(
+        fn process_transaction(
             &self,
             transaction: VersionedTransaction,
         ) -> Result<Signature, ClientError> {

@@ -22,7 +22,7 @@ use zolana_program_test::{
     create_tree_instructions, index_events, IndexedEvent, IndexedTransaction, ParsedInstruction,
     TestIndexer,
 };
-pub use zolana_test_utils::localnet::send_transaction_v1;
+pub use zolana_test_utils::localnet::send_transaction;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
     external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
@@ -48,7 +48,7 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
     let create_config = protocol_config_instruction(&authority);
     print_signature(
         "create_protocol_config",
-        &send_transaction_v1(rpc, &[create_config], &authority.pubkey(), &[&authority])?,
+        &send_transaction(rpc, &[create_config], &authority.pubkey(), &[&authority])?,
     );
 
     let create_tree = create_tree_instructions(
@@ -61,7 +61,7 @@ pub fn initialize_pool(rpc: &mut SolanaRpc) -> Result<LocalnetPool> {
     )?;
     print_signature(
         "create_tree",
-        &send_transaction_v1(
+        &send_transaction(
             rpc,
             &create_tree.instructions,
             &payer.pubkey(),
@@ -215,7 +215,7 @@ pub fn send_indexed(
     signers: &[&Keypair],
 ) -> Result<IndexedTransaction> {
     let produces_events = produces_shielded_events(program_id, instructions);
-    let signature = send_transaction_v1(rpc, instructions, payer, signers)?;
+    let signature = send_transaction(rpc, instructions, payer, signers)?;
     let events = if produces_events {
         fetch_indexed_events(rpc, indexer, program_id, &signature)?
     } else {

@@ -1,7 +1,7 @@
 mod shared;
 
 use anyhow::{anyhow, Result};
-use shared::{send_cosigned_v1, setup, TestEnv, BUY_USDC, SELL_SOL};
+use shared::{send_cosigned, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
@@ -93,7 +93,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     }
     .instruction();
 
-    let signature = send_cosigned_v1(client.rpc(), &maker_solana, &taker_solana, ix)?;
+    let signature = send_cosigned(client.rpc(), &maker_solana, &taker_solana, ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm settlement indexed: {e:?}"))?;

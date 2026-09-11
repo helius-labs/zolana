@@ -68,4 +68,4 @@ pub use crate::{
 /// field means zero rather than a default.
 pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
 #[cfg(feature = "solana-rpc")]
-pub use crate::v1::{SendV1Error, TransactV1};
+pub use crate::v1::{SendError, TransactSend};

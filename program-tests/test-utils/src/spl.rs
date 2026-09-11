@@ -65,7 +65,7 @@ pub fn create_mint<R: Rpc>(rpc: &R, payer: &Keypair) -> Result<Pubkey, ClientErr
         accounts: vec![AccountMeta::new(mint.pubkey(), false)],
         data,
     };
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[create_ix, init_ix],
         to_address(&payer.pubkey()),
         &[payer, &mint],
@@ -100,7 +100,7 @@ pub fn create_token_account<R: Rpc>(
         ],
         data,
     };
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[create_ix, init_ix],
         to_address(&payer.pubkey()),
         &[payer, &account],
@@ -128,7 +128,7 @@ pub fn mint_to<R: Rpc>(
         ],
         data,
     };
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[ix],
         to_address(&payer.pubkey()),
         &[payer],
@@ -147,7 +147,7 @@ pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), 
             authority: authority.pubkey(),
         }
         .instruction();
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &[ix],
             to_address(&authority.pubkey()),
             &[authority],
@@ -184,7 +184,7 @@ impl RegisterSplAsset<'_> {
                 }
                 .instruction()],
             );
-            rpc.create_and_send_v1_transaction(
+            rpc.create_and_send_transaction(
                 &[counter],
                 payer,
                 &[self.payer, self.authority],
@@ -202,7 +202,7 @@ impl RegisterSplAsset<'_> {
             }
             .instruction()],
         );
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &[interface],
             payer,
             &[self.payer, self.authority],
@@ -227,7 +227,7 @@ pub fn create_spl_interface<R: Rpc>(
         token_program: token_program_id(),
     }
     .instruction();
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[ix],
         to_address(&authority.pubkey()),
         &[authority],

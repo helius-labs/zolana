@@ -13,7 +13,7 @@ use zolana_hasher::hash_chain::create_hash_chain_from_array;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
-use zolana_test_utils::localnet::send_transaction_v1;
+use zolana_test_utils::localnet::send_transaction;
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
@@ -73,7 +73,7 @@ impl NullifierTestForester {
             solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
                 1_400_000,
             );
-        let signature = send_transaction_v1(
+        let signature = send_transaction(
             rpc,
             &[compute_budget, execute],
             &fee_payer,
@@ -94,7 +94,7 @@ impl NullifierTestForester {
         plan_batches(tree, authority.smart_account(), nullifiers)?
             .into_iter()
             .map(|batch| {
-                Ok(send_transaction_v1(
+                Ok(send_transaction(
                     rpc,
                     &[batch.instruction()],
                     &member,

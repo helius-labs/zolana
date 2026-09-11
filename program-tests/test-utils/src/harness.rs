@@ -31,7 +31,7 @@ use zolana_tree::NullifierTreeInitParams;
 
 use crate::{
     localnet::{
-        send_transaction_v1, start_shielded_pool_localnet, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
+        send_transaction, start_shielded_pool_localnet, DEFAULT_INDEXER_URL, DEFAULT_RPC_URL,
     },
     smart_account::{self, StandardAccounts, StandardSigners},
     spl::{create_mint, create_token_account},
@@ -273,7 +273,7 @@ impl<D> LocalnetHarness<D> {
                 ring: ring_key.pubkey(),
             },
         ) {
-            send_transaction_v1(rpc, &[ix], &payer.pubkey(), &[&payer])?;
+            send_transaction(rpc, &[ix], &payer.pubkey(), &[&payer])?;
         }
 
         // The protocol vault is the loader upgrade authority and authorizes
@@ -314,7 +314,7 @@ impl<D> LocalnetHarness<D> {
         .instruction();
         match &upgrade_authority_keypair {
             Some(keypair) => {
-                send_transaction_v1(
+                send_transaction(
                     rpc,
                     &[create_config_ix],
                     &payer.pubkey(),
@@ -328,7 +328,7 @@ impl<D> LocalnetHarness<D> {
                     &[authority.pubkey()],
                     &[create_config_ix],
                 );
-                send_transaction_v1(
+                send_transaction(
                     rpc,
                     &[create_config_sync],
                     &payer.pubkey(),
@@ -376,7 +376,7 @@ impl<D> LocalnetHarness<D> {
             &[setup.tree_key.pubkey()],
             &create.instructions(),
         );
-        send_transaction_v1(
+        send_transaction(
             rpc,
             &steps,
             &setup.payer.pubkey(),
@@ -451,7 +451,7 @@ impl<D> LocalnetHarness<D> {
                 }
                 .instruction();
                 let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
-                send_transaction_v1(
+                send_transaction(
                     &mut self.rpc,
                     &[sync_ix],
                     &payer.pubkey(),
@@ -466,7 +466,7 @@ impl<D> LocalnetHarness<D> {
             }
             .instruction();
             let sync_ix = execute_sync_ix(&protocol_settings, 0, &[authority.pubkey()], &[ix]);
-            send_transaction_v1(
+            send_transaction(
                 &mut self.rpc,
                 &[sync_ix],
                 &payer.pubkey(),

@@ -14,13 +14,13 @@ use zolana_tree::TreeAccount;
 
 use crate::{
     init_protocol::{load_keypair, to_address, Cluster},
-    tree_fees::{at_cost_for_transaction_size, print_schedule, ForesterClose, TransactionSize},
+    tree_fees::{at_cost_for_transaction_size, print_schedule, ForesterClose},
     update_protocol_config::find_vault_settings,
 };
 
 enum FeeSource {
     Explicit(TreeFeeSchedule),
-    TransactionSize(TransactionSize),
+    AtCost,
 }
 
 pub struct Options {
@@ -44,7 +44,7 @@ impl Options {
         let mut fee_per_nullifier = None;
         let mut append_reimbursement = None;
         let mut close_reimbursement = None;
-        let mut transaction_size = None;
+        let mut at_cost = false;
         let mut yes = false;
         let mut dry_run = false;
 
@@ -88,15 +88,7 @@ impl Options {
                 "--close-reimbursement" => {
                     close_reimbursement = Some(parse_u64(args.next(), "--close-reimbursement"));
                 }
-                "--transaction-size" => {
-                    let value = args
-                        .next()
-                        .unwrap_or_else(|| usage_and_exit("--transaction-size missing value"));
-                    transaction_size = Some(
-                        TransactionSize::parse(&value)
-                            .unwrap_or_else(|e| usage_and_exit(&e.to_string())),
-                    );
-                }
+                "--at-cost" => at_cost = true,
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -110,21 +102,21 @@ impl Options {
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
         let fee_signer = fee_signer.unwrap_or_else(|| usage_and_exit("--fee-signer is required"));
         let explicit = [fee_per_nullifier, append_reimbursement, close_reimbursement];
-        let fees = match (transaction_size, explicit) {
-            (Some(_), explicit) if explicit.iter().any(Option::is_some) => usage_and_exit(
-                "--transaction-size derives the schedule; do not combine it with lamport flags",
+        let fees = match (at_cost, explicit) {
+            (true, explicit) if explicit.iter().any(Option::is_some) => usage_and_exit(
+                "--at-cost derives the schedule; do not combine it with lamport flags",
             ),
-            (Some(size), _) => FeeSource::TransactionSize(size),
+            (true, _) => FeeSource::AtCost,
             (
-                None,
+                false,
                 [Some(fee_per_nullifier), Some(append_reimbursement), Some(close_reimbursement)],
             ) => FeeSource::Explicit(TreeFeeSchedule {
                 fee_per_nullifier,
                 append_reimbursement,
                 close_reimbursement,
             }),
-            (None, _) => usage_and_exit(
-                "pass --transaction-size, or all of --fee-per-nullifier, \
+            (false, _) => usage_and_exit(
+                "pass --at-cost, or all of --fee-per-nullifier, \
                  --append-reimbursement and --close-reimbursement",
             ),
         };
@@ -190,7 +182,7 @@ fn resolve_fees(
 ) -> Result<TreeFeeSchedule> {
     match options.fees {
         FeeSource::Explicit(fees) => Ok(fees),
-        FeeSource::TransactionSize(size) => {
+        FeeSource::AtCost => {
             let forester_authority = Pubkey::new_from_array(config.forester_authority.to_bytes());
             let settings = find_vault_settings(rpc, &forester_authority)?;
             let forester_close = ForesterClose {
@@ -198,9 +190,9 @@ fn resolve_fees(
                 member,
                 tree: options.tree,
             };
-            let closes_per_transaction = forester_close.closes_per_transaction(size)?;
+            let closes_per_transaction = forester_close.closes_per_transaction()?;
             let fees = at_cost_for_transaction_size(zkp_batch_size, closes_per_transaction)?;
-            print_schedule(size, closes_per_transaction, &fees);
+            print_schedule(closes_per_transaction, &fees);
             Ok(fees)
         }
     }
@@ -267,7 +259,7 @@ pub fn run(options: Options) -> Result<()> {
 
     let instructions = [instruction];
     let signature = rpc
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
             &[&payer, &fee_signer],
@@ -313,17 +305,13 @@ fn print_help() {
     println!("  --payer <KEYPAIR_PATH>                outer fee payer (required)");
     println!("  --fee-signer <KEYPAIR_PATH>           a member of the fee authority (required)");
     println!("  --tree <PUBKEY>                       tree account (default: tree 0)");
-    println!("  --transaction-size <v0|v1>            derive the at-cost schedule from the size");
-    println!("                                        limit of the forester's close transactions");
-    println!(
-        "                                        (1232 or 4096 bytes) and the tree's batch size"
-    );
+    println!("  --at-cost                             derive the schedule from what a close");
+    println!("                                        batch costs: the 4096-byte transaction");
+    println!("                                        limit and the tree's batch size");
     println!("  --fee-per-nullifier <LAMPORTS>        charged per queued nullifier");
     println!("  --append-reimbursement <LAMPORTS>     paid per applied ZKP batch");
     println!("  --close-reimbursement <LAMPORTS>      paid per closed nullifier PDA");
-    println!(
-        "                                        (all three required without --transaction-size)"
-    );
+    println!("                                        (all three required without --at-cost)");
     println!("  --yes                                 confirm mainnet sends");
     println!("  --dry-run                             print current state, send nothing");
     println!("  -h | --help                           print this help");

@@ -32,7 +32,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-// `Rpc` is in scope for send_versioned_transaction_with_config, which is a
+// `Rpc` is in scope for send_transaction_with_config, which is a
 // trait method rather than an inherent one on SolanaRpc.
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
@@ -516,7 +516,7 @@ fn worker(
         timing.prove_ms = mark.elapsed().as_millis() as u64;
 
         let mark = Instant::now();
-        let signature = match client.rpc().send_versioned_transaction_with_config(
+        let signature = match client.rpc().send_transaction_with_config(
             &transfer,
             RpcSendTransactionConfig {
                 skip_preflight: true,

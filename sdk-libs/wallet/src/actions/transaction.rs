@@ -37,7 +37,7 @@ use crate::{
 use zolana_client::{
     client::ZolanaClient,
     error::ClientError,
-    rpc::{sign_versioned_transaction, AsyncRpc, Rpc},
+    rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
 };
 
@@ -844,7 +844,7 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
     let message = client
         .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
         .await?;
-    sign_versioned_transaction(
+    sign_transaction(
         message,
         &native_signers(fee_payer, additional_native_signers),
     )
@@ -902,7 +902,7 @@ pub fn sign_private_transaction_sync_with_signers<
         let _t = timing::Phase::start("finish_submission", 0);
         client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?
     };
-    sign_versioned_transaction(
+    sign_transaction(
         message,
         &native_signers(fee_payer, additional_native_signers),
     )

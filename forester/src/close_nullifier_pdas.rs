@@ -5,14 +5,13 @@ use solana_account::Account;
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::v1;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
 use zolana_client::{
-    compile_v1_message, sign_versioned_transaction, v1_transaction_size, ComputeBudgetConfig,
+    compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
 };
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
@@ -20,22 +19,10 @@ use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
 
-/// The wire ceiling a close batch is packed against.
-///
-/// The forester sends v1, so it packs against 4,096 bytes rather than the
-/// legacy 1,232-byte packet. This is not a free win to take later: the on-chain
-/// fee schedule already assumes it. `xtask`'s protocol init writes the close
-/// reimbursement as `ceil(5000 / closes_per_transaction)` sized from
-/// `TransactionSize::V1`, so a forester packing to the legacy limit collected
-/// less than the one base fee it paid on every batch.
-pub const TRANSACTION_SIZE_LIMIT: usize = v1::MAX_TRANSACTION_SIZE;
-
 /// A close batch is one instruction and one signature, so its budget is the
 /// implicit per-instruction default a legacy transaction used to receive.
 const CLOSE_COMPUTE_BUDGET: ComputeBudgetConfig = ComputeBudgetConfig::for_instruction_count(1);
 
-/// The fee payer signs, and nothing else does.
-const CLOSE_SIGNATURES: usize = 1;
 pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 
 pub struct CloseNullifierPdasOptions {
@@ -90,28 +77,25 @@ impl CloseNullifierPdasBatch {
         )
     }
 
-    /// The wire size of the batch as it will actually be sent, signature
-    /// included. The signature is the part a compiled message cannot tell you
-    /// about, and omitting it under-reports by 64 bytes.
-    pub fn serialized_size(&self) -> Result<usize> {
-        v1_transaction_size(
+    /// Wire bytes and account count with the same header budget used to submit.
+    pub fn size(&self) -> Result<TransactionSize> {
+        transaction_size(
             &self.forester.member,
             &[self.instruction()],
-            CLOSE_SIGNATURES,
+            CLOSE_COMPUTE_BUDGET,
         )
-        .map(|size| size.bytes)
         .map_err(|err| anyhow!("measure close-nullifier-pdas transaction: {err}"))
     }
 
     pub fn fits(&self) -> Result<bool> {
-        Ok(self.serialized_size()? <= TRANSACTION_SIZE_LIMIT)
+        Ok(self.size()?.fits())
     }
 
     fn submit(&self, rpc: &RpcClient, member: &Keypair) -> Result<Signature> {
         let blockhash = rpc
             .get_latest_blockhash()
             .map_err(|err| anyhow!("fetch latest blockhash: {err}"))?;
-        let message = compile_v1_message(
+        let message = compile_message(
             &self.forester.member,
             &[self.instruction()],
             blockhash,
@@ -119,7 +103,7 @@ impl CloseNullifierPdasBatch {
         )
         .map_err(|err| anyhow!("compile close-nullifier-pdas message: {err}"))?;
         let signers: Vec<&dyn Signer> = vec![member];
-        let transaction = sign_versioned_transaction(message, &signers)
+        let transaction = sign_transaction(message, &signers)
             .map_err(|err| anyhow!("sign close-nullifier-pdas transaction: {err}"))?;
         rpc.send_and_confirm_transaction(&transaction)
             .map_err(|err| anyhow!("close {} nullifier PDAs: {err}", self.nullifiers.len()))
@@ -170,7 +154,7 @@ fn nullifier_pda_capacity(tree: Pubkey, forester: ForesterSmartAccount) -> Resul
         }
         return Ok(capacity);
     }
-    bail!("legacy transaction size limit did not bound nullifier PDA account count")
+    bail!("transaction limits did not bound nullifier PDA account count")
 }
 
 pub fn retain_open_accounts(

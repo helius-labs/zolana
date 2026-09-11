@@ -26,7 +26,7 @@ use zolana_transaction::{
 
 use super::{RingDepositRecord, RingHarness, SplRingDepositAccounts};
 use crate::{
-    localnet::send_transaction_v1,
+    localnet::send_transaction,
     spl::mint_to,
     test_validator_asserts::{
         assert_account_unchanged, assert_ring_deposit, fetch_account, token_amount,
@@ -120,8 +120,7 @@ impl RingHarness {
         }
         .instruction()
         .expect("deposit instruction");
-        let signature =
-            send_transaction_v1(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
         let blinding = self.indexed_deposit_blinding(&data, signature)?;
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
@@ -158,7 +157,7 @@ impl RingHarness {
             deposits: vec![data.clone()],
         }
         .instruction()?;
-        let signature = send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
         let blinding = self.indexed_deposit_blinding(&data, signature)?;
         let owner = self.actor(name).keypair.signing_pubkey();
         self.actor_mut(name).spendable.push(Utxo {
@@ -193,8 +192,7 @@ impl RingHarness {
             deposits: vec![data.clone()],
         }
         .instruction()?;
-        let signature =
-            send_transaction_v1(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor])?;
 
         // Make the ring-owned UTXO spendable for `name` so later ring_transact /
         // merge_ring operations can consume it (its ring_program_id is the ring the
@@ -258,7 +256,7 @@ impl RingHarness {
             deposits: vec![data.clone()],
         }
         .instruction()?;
-        let signature = send_transaction_v1(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
+        let signature = send_transaction(&mut self.rpc, &[ix], &payer.pubkey(), &[&payer])?;
 
         let owner = self.actor(name).keypair.signing_pubkey();
         let ring = Address::new_from_array(self.ring_program_id.to_bytes());
@@ -378,7 +376,7 @@ impl RingHarness {
             .get_mut(2)
             .ok_or_else(|| anyhow!("missing ring config account meta"))?;
         meta.pubkey = depositor.pubkey();
-        match send_transaction_v1(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor]) {
+        match send_transaction(&mut self.rpc, &[ix], &depositor.pubkey(), &[&depositor]) {
             Ok(_) => Err(anyhow!("wrong-signer ring deposit unexpectedly succeeded")),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::InvalidRingConfig).assert_client(&error);

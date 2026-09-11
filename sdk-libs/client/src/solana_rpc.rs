@@ -30,7 +30,7 @@ use solana_rpc_client::{
     rpc_client::RpcClient,
 };
 use solana_signature::Signature;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::{
     option_serializer::OptionSerializer, EncodedConfirmedTransactionWithStatusMeta,
     EncodedTransaction, TransactionStatus, UiCompiledInstruction, UiInstruction, UiLoadedAddresses,
@@ -670,23 +670,14 @@ impl Rpc for SolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_health: {err}")))
     }
 
-    fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        self.client
-            .send_and_confirm_transaction(transaction)
-            .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "send_transaction",
-                source,
-            })
-    }
-
     fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        // Sends and returns; it does not confirm. `send_transaction` is the
-        // send-and-confirm one. The two were the same call, so a caller asking
-        // for a config also bought a confirmation wait it never requested.
+        // Sends and returns; it does not confirm, matching the legacy
+        // `send_transaction_with_config` above rather than the confirming
+        // `process_transaction` below.
         self.client
             .send_transaction_with_config(transaction, config)
             .map_err(|source| ClientError::SolanaRpcTransaction {
@@ -695,30 +686,14 @@ impl Rpc for SolanaRpc {
             })
     }
 
-    fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        // Sends and returns; it does not confirm, matching the legacy
-        // `send_transaction_with_config` above rather than the confirming
-        // `process_versioned_transaction` below.
-        self.client
-            .send_transaction_with_config(transaction, config)
-            .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "send_versioned_transaction_with_config",
-                source,
-            })
-    }
-
-    fn process_versioned_transaction(
+    fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
         self.client
             .send_and_confirm_transaction(&transaction)
             .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "process_versioned_transaction",
+                operation: "process_transaction",
                 source,
             })
     }
@@ -840,23 +815,11 @@ impl AsyncRpc for AsyncSolanaRpc {
             .map_err(|err| ClientError::Rpc(format!("get_health: {err}")))
     }
 
-    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        self.client
-            .send_and_confirm_transaction(transaction)
-            .await
-            .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "send_transaction",
-                source,
-            })
-    }
-
     async fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: solana_rpc_client_api::config::RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
-        // Sends and returns, matching the blocking path: `send_transaction` is
-        // the send-and-confirm one.
         self.client
             .send_transaction_with_config(transaction, config)
             .await
@@ -866,21 +829,7 @@ impl AsyncRpc for AsyncSolanaRpc {
             })
     }
 
-    async fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        self.client
-            .send_transaction_with_config(transaction, config)
-            .await
-            .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "send_versioned_transaction_with_config",
-                source,
-            })
-    }
-
-    async fn process_versioned_transaction(
+    async fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
@@ -888,7 +837,7 @@ impl AsyncRpc for AsyncSolanaRpc {
             .send_and_confirm_transaction(&transaction)
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
-                operation: "process_versioned_transaction",
+                operation: "process_transaction",
                 source,
             })
     }

@@ -52,7 +52,7 @@ pub use prover::{
     TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
-pub use rpc::{compile_v1_message, sign_versioned_transaction, ComputeBudgetConfig};
+pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
@@ -66,7 +66,7 @@ pub use settlement::SettlementAccountValidation;
 pub use solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
 };
-pub use transaction_size::{v1_transaction_size, V1TransactionSize};
+pub use transaction_size::{transaction_size, TransactionSize};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

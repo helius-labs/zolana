@@ -19,8 +19,8 @@ pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
 /// To run the close path at cost this would be `ceil(5000 / closes_per_transaction)`.
 /// A forester pays one 5,000-lamport base fee per transaction and closes as many
 /// PDAs as fit in it, so the per-close figure only means anything against a
-/// transaction size: 109 closes fit a 4,096-byte v1 transaction
-/// (`forester::close_nullifier_pdas` pins that), which would make it 46.
+/// transaction size and account count: 57 closes fit a transaction with 64
+/// accounts (`forester::close_nullifier_pdas` pins that), which would make it 88.
 pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 0;
 
 /// Fee schedule that exactly covers the default reimbursements for one zkp

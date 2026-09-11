@@ -225,7 +225,7 @@ hash (`policy_config_table`), `client_rules_match` compares a table of the
 caller's with the stored rows. `prove_async` serves both tiers. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
 transaction, and no address lookup table rescues it because its instruction
-data alone passes the 1232-byte packet. `TransactV1` submits it as a
+data alone passes the 1232-byte packet. `TransactSend` submits it as a
 transaction v1 message, which carries 4096 bytes and states its compute
 ceilings in the header rather than in a prepended instruction.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens

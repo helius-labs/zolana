@@ -33,15 +33,15 @@ use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
     CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-    RingDepositReceipt, SetAuthority, SetPaused, TransactV1, TransferError,
+    RingDepositReceipt, SetAuthority, SetPaused, TransactSend, TransferError,
     TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
     policy::EMPTY,
     shared::{
-        custom_ring_program_id, prover_url, send, send_v1_expecting_rejection, setup,
-        ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
+        custom_ring_program_id, prover_url, send, send_expecting_rejection, setup, ExpectRejection,
+        RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
     },
 };
 use solana_address::Address;
@@ -275,7 +275,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
         .with_context(|| format!("connect to prover {prover}"))?;
 
     // 7+8. Both send paths the lifecycle uses work on this validator: the
-    //      harness helper and the SDK's `TransactV1` (the path the oversized
+    //      harness helper and the SDK's `TransactSend` (the path the oversized
     //      ring transact needs). Both build transaction v1 messages, whose
     //      4096-byte limit is what a ring transact needs; this validator must
     //      accept the format at all. Each probe is asserted by its lamport
@@ -300,7 +300,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
         "harness v1 transfer credited the sender"
     );
 
-    TransactV1 {
+    TransactSend {
         payer: &env.payer,
         signers: &[],
         instruction: solana_system_interface::instruction::transfer(
@@ -375,7 +375,7 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
 
     // 2. Once the config exists its authority alone is accepted, even after
     //    the deployer hands it over.
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[
             CreateConfig {
                 ring,
@@ -715,7 +715,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     *tampered_byte ^= 1;
 
     let tree_before = fetch_account(rpc, &env.tree)?;
-    let rejection = send_v1_expecting_rejection(
+    let rejection = send_expecting_rejection(
         rpc,
         &env.sender.keypair,
         CustomRingTransact {
@@ -738,7 +738,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .assert_client(&rejection);
     assert_account_unchanged(rpc, &env.tree, &tree_before)?;
 
-    let transaction = TransactV1 {
+    let transaction = TransactSend {
         payer: &env.sender.keypair,
         signers: &[],
         instruction: proven.instruction()?,
@@ -922,7 +922,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 11. The config authority hands over, only the new key pauses the ring.
     let successor = env.funded_keypair()?;
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[SetAuthority {
             ring,
             authority,
@@ -1031,7 +1031,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     })?;
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
 
-    let transaction = TransactV1 {
+    let transaction = TransactSend {
         payer: &env.sender.keypair,
         signers: &[],
         instruction: proven.instruction()?,
@@ -1739,7 +1739,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         rpc,
         prover: &prover,
     })?;
-    let signature = TransactV1 {
+    let signature = TransactSend {
         payer: sender,
         signers: &[],
         instruction: proven.instruction()?,
@@ -1883,7 +1883,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         rpc,
         prover: &prover,
     })?;
-    let signature = TransactV1 {
+    let signature = TransactSend {
         payer: sender,
         signers: &[],
         instruction: proven.instruction()?,
@@ -2038,7 +2038,7 @@ impl RingTransfer<'_> {
             rpc,
             prover,
         })?;
-        let signature = TransactV1 {
+        let signature = TransactSend {
             payer: self.sender,
             signers: &[],
             instruction: proven.instruction()?,
@@ -2141,7 +2141,7 @@ impl AsyncHopParity<'_> {
             "each proof draws its own blindings, salt and auditor ciphertext"
         );
 
-        let signature = TransactV1 {
+        let signature = TransactSend {
             payer: self.sender,
             signers: &[],
             instruction: proven.instruction()?,

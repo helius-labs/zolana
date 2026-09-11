@@ -27,9 +27,7 @@ use zolana_test_utils::smart_account::{
 };
 use zolana_tree::TreeFeeSchedule;
 
-use crate::tree_fees::{
-    at_cost_for_transaction_size, print_schedule, ForesterClose, TransactionSize,
-};
+use crate::tree_fees::{at_cost_for_transaction_size, print_schedule, ForesterClose};
 
 const VAULT_FUNDING_BUFFER_LAMPORTS: u64 = 10_000_000;
 
@@ -103,7 +101,6 @@ pub struct Options {
     protocol_signers: Vec<PathBuf>,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
-    transaction_size: TransactionSize,
     yes: bool,
     dry_run: bool,
 }
@@ -116,7 +113,6 @@ impl Options {
         let mut protocol_signers = Vec::new();
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
-        let mut transaction_size = TransactionSize::V1;
         let mut yes = false;
         let mut dry_run = false;
 
@@ -173,13 +169,6 @@ impl Options {
                     };
                     *slot = Some(key);
                 }
-                "--transaction-size" => {
-                    let value = args
-                        .next()
-                        .unwrap_or_else(|| usage_and_exit("--transaction-size missing value"));
-                    transaction_size = TransactionSize::parse(&value)
-                        .unwrap_or_else(|e| usage_and_exit(&e.to_string()));
-                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -228,7 +217,6 @@ impl Options {
             protocol_signers,
             upgrade_authority,
             reuse_settings,
-            transaction_size,
             yes,
             dry_run,
         }
@@ -518,7 +506,7 @@ fn create_smart_account_with_retry(
             role,
             0,
         )];
-        match rpc.create_and_send_v1_transaction(
+        match rpc.create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
             &[payer],
@@ -655,7 +643,7 @@ fn fund_protocol_vault(
             .map_err(|e| anyhow!("airdrop to protocol vault {vault} failed: {e}"))?;
     } else {
         let instructions = [system_transfer_ix(&payer.pubkey(), vault, lamports)];
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
             &[payer],
@@ -798,7 +786,7 @@ fn send_protocol_config(
     let signature = match initialization_authority {
         InitializationAuthority::Keypair(keypair) => {
             let instructions = [create_config_ix];
-            rpc.create_and_send_v1_transaction(
+            rpc.create_and_send_transaction(
                 &instructions,
                 to_address(&payer.pubkey()),
                 &[payer, keypair],
@@ -816,7 +804,7 @@ fn send_protocol_config(
             )];
             let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
             transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
-            rpc.create_and_send_v1_transaction(
+            rpc.create_and_send_transaction(
                 &instructions,
                 to_address(&payer.pubkey()),
                 &transaction_signers,
@@ -863,7 +851,7 @@ fn send_asset_counter(
     let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
     transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
     let signature = rpc
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &instructions,
             to_address(&payer.pubkey()),
             &transaction_signers,
@@ -907,7 +895,7 @@ fn create_tree(
         &create.instructions(),
     );
     let signature = rpc
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &steps,
             to_address(&payer.pubkey()),
             &[payer, protocol_signer],
@@ -972,7 +960,7 @@ pub fn run(options: Options) -> Result<()> {
         member: signers.payer.pubkey(),
         tree: pda::tree(tree_id),
     };
-    let closes_per_transaction = forester_close.closes_per_transaction(options.transaction_size)?;
+    let closes_per_transaction = forester_close.closes_per_transaction()?;
     let fees = at_cost_for_transaction_size(
         nullifier_tree_params().input_queue_zkp_batch_size,
         closes_per_transaction,
@@ -1001,7 +989,7 @@ pub fn run(options: Options) -> Result<()> {
     }
     println!("protocol_config={}", pda::protocol_config());
     println!("spl_asset_counter={}", pda::spl_asset_counter());
-    print_schedule(options.transaction_size, closes_per_transaction, &fees);
+    print_schedule(closes_per_transaction, &fees);
 
     if options.dry_run {
         if let Some(initialization_authority) = dry_run_initialization_authority {
@@ -1125,11 +1113,6 @@ fn print_help() {
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
     println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
     println!("  --forester-settings <PUBKEY>          expected role members");
-    println!("  --transaction-size <v0|v1>            size limit of the forester's close");
-    println!("                                        transactions (1232 or 4096 bytes); sets");
-    println!(
-        "                                        the tree's default fee schedule. default: v1"
-    );
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");

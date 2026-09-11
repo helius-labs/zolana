@@ -147,7 +147,7 @@ fn create_mint(rpc: &SolanaRpc, authority: &Keypair, token_program: Pubkey) -> R
     };
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
     let instructions = [create_ix, init_ix];
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
         &[authority, &mint],
@@ -180,7 +180,7 @@ fn mint_to(
         data,
     }];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
         &[authority],
@@ -204,7 +204,7 @@ fn ensure_asset_counter(rpc: &SolanaRpc, authority: &Keypair) -> Result<()> {
     }
     .instruction()];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
         &[authority],
@@ -235,7 +235,7 @@ fn ensure_spl_interface(
     }
     .instruction()];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         payer,
         &[authority],

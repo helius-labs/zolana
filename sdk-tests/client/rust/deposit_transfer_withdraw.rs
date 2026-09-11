@@ -70,7 +70,7 @@ fn main() -> Result<()> {
 
         // 2. Send and confirm like any Solana transaction; the landed slot gates
         // the indexer fetch below.
-        let signature = client.create_and_send_v1_transaction(
+        let signature = client.create_and_send_transaction(
             &[deposit_ix],
             sender.pubkey(),
             &[&sender],
@@ -143,7 +143,7 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
-        let signature = client.create_and_send_v1_transaction(
+        let signature = client.create_and_send_transaction(
             &[transfer_ix],
             sender.pubkey(),
             &[&sender],
@@ -239,7 +239,7 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction.
-        let signature = client.create_and_send_v1_transaction(
+        let signature = client.create_and_send_transaction(
             &[withdraw_ix],
             sender.pubkey(),
             &[&sender],

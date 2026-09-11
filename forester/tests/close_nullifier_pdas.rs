@@ -1,15 +1,18 @@
 use anyhow::anyhow;
 use forester::close_nullifier_pdas::{
     collect_queued_pages, plan_batches, retain_open_accounts, CloseNullifierPdasBatch,
-    ForesterSmartAccount, TRANSACTION_SIZE_LIMIT,
+    ForesterSmartAccount,
 };
 use solana_account::Account;
-use solana_message::VersionedMessage;
+use solana_message::{
+    v1::{MAX_ADDRESSES, MAX_TRANSACTION_SIZE},
+    VersionedMessage,
+};
 // `zolana_api::Hash` below is a queue element's hash, not a blockhash.
 use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
-use zolana_client::{compile_v1_message, ComputeBudgetConfig};
+use zolana_client::{compile_message, ComputeBudgetConfig};
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
@@ -35,7 +38,7 @@ fn element(seq: u64) -> NullifierQueueElement {
 }
 
 #[test]
-fn plan_fills_each_transaction_up_to_the_v1_size_limit() {
+fn plan_fills_each_transaction_up_to_the_account_limit() {
     let tree = Pubkey::new_unique();
     let forester = forester();
     let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
@@ -45,7 +48,16 @@ fn plan_fills_each_transaction_up_to_the_v1_size_limit() {
 
     for batch in &batches {
         assert!(!batch.nullifiers.is_empty());
-        assert!(batch.serialized_size().unwrap() <= TRANSACTION_SIZE_LIMIT);
+        assert!(batch.fits().unwrap());
+        compile_message(
+            &forester.member,
+            &[batch.instruction()],
+            Blockhash::default(),
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .unwrap()
+        .sanitize()
+        .expect("every planned batch must sanitize");
     }
     for pair in batches.windows(2) {
         let [full, next] = pair else {
@@ -58,7 +70,7 @@ fn plan_fills_each_transaction_up_to_the_v1_size_limit() {
             forester,
             nullifiers: overfilled,
         };
-        assert!(overfilled.serialized_size().unwrap() > TRANSACTION_SIZE_LIMIT);
+        assert!(!overfilled.fits().unwrap());
         assert_eq!(full.nullifiers.len(), nullifier_pdas_per_transaction);
     }
 
@@ -83,9 +95,7 @@ fn plan_of_nothing_is_empty() {
 fn batch_instruction_matches_the_interface_builder() {
     let tree = Pubkey::new_unique();
     let forester = forester();
-    // Wide enough to still split under the v1 ceiling: 40 nullifiers needed two
-    // legacy transactions and fit in a single v1 one, which is the point of the
-    // change but leaves the split untested.
+    // Exercise multiple batches with the full account list in each instruction.
     let nullifiers: Vec<[u8; 32]> = (0..200).map(nullifier).collect();
 
     let batches = plan_batches(tree, forester, &nullifiers).unwrap();
@@ -133,7 +143,7 @@ fn batch_instruction_matches_the_interface_builder() {
         // A v1 message carries its compute ceiling in the header, so the close
         // is the only instruction; under legacy a compute-budget instruction
         // would have preceded it.
-        let message = compile_v1_message(
+        let message = compile_message(
             &forester.member,
             &[batch.instruction()],
             Blockhash::default(),
@@ -223,23 +233,33 @@ fn queued_pages_reject_a_sequence_gap() {
     assert!(err.to_string().contains("sequence gap"));
 }
 
-/// The close reimbursement written into a tree's fee schedule is
-/// `ceil(5000 / closes_per_transaction)`, so the number of closes a batch holds
-/// is a protocol-economic constant, not an implementation detail. Pin it: if
-/// the instruction grows and this drops, every tree created afterwards
-/// under-reimburses the forester until the default is re-derived.
 #[test]
-fn a_v1_transaction_holds_one_hundred_and_nine_closes() {
+fn close_capacity_stops_before_message_sanitization_fails() {
     let tree = Pubkey::new_unique();
     let forester = forester();
     let nullifiers: Vec<[u8; 32]> = (0..400).map(nullifier).collect();
 
     let batches = plan_batches(tree, forester, &nullifiers).unwrap();
 
-    assert_eq!(
-        batches.first().unwrap().nullifiers.len(),
-        109,
-        "re-derive zolana_interface::state::tree::DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS \
-         as ceil(5000 / this) before changing it"
-    );
+    let full = batches.first().unwrap();
+    assert_eq!(full.nullifiers.len(), 57);
+    assert_eq!(full.size().unwrap().addresses, usize::from(MAX_ADDRESSES));
+    let mut overfilled = CloseNullifierPdasBatch {
+        tree,
+        forester,
+        nullifiers: full.nullifiers.clone(),
+    };
+    overfilled.nullifiers.push(nullifier(57));
+    let size = overfilled.size().unwrap();
+    assert!(size.bytes < MAX_TRANSACTION_SIZE);
+    assert_eq!(size.addresses, usize::from(MAX_ADDRESSES) + 1);
+    assert!(!overfilled.fits().unwrap());
+    let message = compile_message(
+        &forester.member,
+        &[overfilled.instruction()],
+        Blockhash::default(),
+        ComputeBudgetConfig::for_instruction_count(1),
+    )
+    .unwrap();
+    assert!(message.sanitize().is_err());
 }

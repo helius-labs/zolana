@@ -195,7 +195,7 @@ fn the_backend_accepts_a_v1_transaction() -> Result<()> {
     assert_eq!(decoded.signatures, transaction.signatures);
     println!("v1 transaction serializes to {} bytes", bytes.len());
 
-    rpc.process_versioned_transaction(transaction)
+    rpc.process_transaction(transaction)
         .context("send the v1 transaction")?;
     Ok(())
 }
@@ -225,7 +225,7 @@ fn the_backend_enforces_the_v1_header_compute_limit() -> Result<()> {
             .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE),
     )?;
 
-    let Err(error) = rpc.process_versioned_transaction(transaction) else {
+    let Err(error) = rpc.process_transaction(transaction) else {
         panic!(
             "a v1 transaction declaring a one-unit compute ceiling confirmed, so the backend \
              ignored the header and fell back to the legacy per-instruction default: it parses \
@@ -260,7 +260,7 @@ fn the_backend_charges_the_v1_header_priority_fee() -> Result<()> {
         blockhash,
         workable_config().with_priority_fee(PRIORITY_FEE_LAMPORTS),
     )?;
-    rpc.process_versioned_transaction(transaction)
+    rpc.process_transaction(transaction)
         .context("send the v1 transaction carrying a priority fee")?;
 
     let after = rpc.get_balance(payer_address).context("balance after")?;

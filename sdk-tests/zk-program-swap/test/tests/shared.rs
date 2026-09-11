@@ -153,7 +153,7 @@ pub fn setup() -> Result<TestEnv> {
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &[ix],
             payer_address,
             &[&payer],
@@ -182,7 +182,7 @@ pub fn setup() -> Result<TestEnv> {
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[create_config_sync],
         payer_address,
         &[&payer, &authority],
@@ -203,7 +203,7 @@ pub fn setup() -> Result<TestEnv> {
         &[tree_creation_authority.pubkey()],
         &tree_creation.instructions,
     );
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
@@ -228,7 +228,7 @@ pub fn setup() -> Result<TestEnv> {
             &[authority.pubkey()],
             &[counter_ix],
         );
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &[counter_sync],
             payer_address,
             &[&payer, &authority],
@@ -247,7 +247,7 @@ pub fn setup() -> Result<TestEnv> {
         &[authority.pubkey()],
         &[interface_ix],
     );
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[interface_sync],
         payer_address,
         &[&payer, &authority],
@@ -383,8 +383,8 @@ pub fn setup() -> Result<TestEnv> {
 // carries the compute ceilings in the message header rather than in a
 // compute-budget instruction. An unset ceiling means zero, not a default, so
 // both are written. `payer` signs and pays.
-pub fn send_v1(rpc: &SolanaRpc, payer: &dyn Signer, ix: Instruction) -> Result<Signature> {
-    Ok(rpc.create_and_send_v1_transaction(
+pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ix: Instruction) -> Result<Signature> {
+    Ok(rpc.create_and_send_transaction(
         std::slice::from_ref(&ix),
         payer.pubkey(),
         &[payer],

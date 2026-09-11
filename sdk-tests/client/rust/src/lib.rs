@@ -108,7 +108,7 @@ pub fn setup() -> Result<SetupContext> {
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_v1_transaction(
+        rpc.create_and_send_transaction(
             &[ix],
             payer_address,
             &[&payer],
@@ -137,7 +137,7 @@ pub fn setup() -> Result<SetupContext> {
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &[create_config_sync],
         payer_address,
         &[&payer, &authority],
@@ -158,7 +158,7 @@ pub fn setup() -> Result<SetupContext> {
         &[tree_creation_authority.pubkey()],
         &tree_creation.instructions,
     );
-    rpc.create_and_send_v1_transaction(
+    rpc.create_and_send_transaction(
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],

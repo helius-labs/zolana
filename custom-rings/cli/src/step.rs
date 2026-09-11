@@ -103,7 +103,7 @@ impl IdempotentStep<'_> {
             .chain(self.co_signers.iter().copied())
             .collect();
         self.rpc
-            .create_and_send_v1_transaction(
+            .create_and_send_transaction(
                 instructions,
                 self.authority.pubkey(),
                 &signers,

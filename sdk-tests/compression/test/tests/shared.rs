@@ -131,7 +131,7 @@ pub fn send_from(
         Some(price) => budget.with_compute_unit_price(price),
         None => budget,
     };
-    Ok(env.rpc.create_and_send_v1_transaction(
+    Ok(env.rpc.create_and_send_transaction(
         std::slice::from_ref(&instruction),
         payer.pubkey(),
         &[payer],

@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
     EntryProofEnvironment, PolicyConfig, ProvenTransfer, ReadEntry, RingDeposit,
-    RingDepositReceipt, TransactV1, TransferError, TransferProofEnvironment, UpdateEntry,
+    RingDepositReceipt, TransactSend, TransferError, TransferProofEnvironment, UpdateEntry,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
 };
 use solana_keypair::Keypair;
@@ -182,7 +182,7 @@ impl PolicyTransfer<'_> {
             .first()
             .ok_or_else(|| anyhow!("transfer output"))?
             .utxo_hash;
-        let signature = TransactV1 {
+        let signature = TransactSend {
             payer,
             signers: &[],
             instruction: proven.instruction()?,
@@ -254,7 +254,7 @@ impl EntryWrite<'_> {
         } else {
             vec![self.fee_payer, &env.payer]
         };
-        let signature = rpc.create_and_send_v1_transaction(
+        let signature = rpc.create_and_send_transaction(
             &instructions,
             self.fee_payer.pubkey(),
             &signers,

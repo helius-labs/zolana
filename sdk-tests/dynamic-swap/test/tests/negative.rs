@@ -69,7 +69,7 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
     env.client
         .rpc()
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &[create_pair_ix],
             authority_solana.pubkey(),
             &[authority_solana],
@@ -111,7 +111,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
     let err = env
         .client
         .rpc()
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &[zero_ix],
             authority_solana.pubkey(),
             &[&authority_solana],
@@ -135,7 +135,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
     let err = env
         .client
         .rpc()
-        .create_and_send_v1_transaction(
+        .create_and_send_transaction(
             &[intruder_ix],
             authority_solana.pubkey(),
             &[&authority_solana, &intruder],

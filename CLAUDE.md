@@ -145,7 +145,7 @@ carrying transaction simply fits.
   constant per language: `solana_message::v1::MAX_TRANSACTION_SIZE` in Rust,
   `TRANSACTION_SIZE_LIMIT` in `sdk-libs/ts`. Do not hand-roll a third.
 - **The budget lives in the message header**, not in compute-budget
-  instructions. Build through `zolana_client::compile_v1_message` and
+  instructions. Build through `zolana_client::compile_message` and
   `ComputeBudgetConfig`; never construct a `v1::TransactionConfig` at a call
   site.
 - **An unset header field is zero, not a default.** Omitting either the
@@ -158,7 +158,7 @@ carrying transaction simply fits.
   existing bids bill what they always did.
 - **Signing rejects a repeated signer**, where legacy partial signing tolerated
   one. That bites whenever the fee payer also owns a shielded input, so sign
-  through `zolana_client::sign_versioned_transaction`, which deduplicates.
+  through `zolana_client::sign_transaction`, which deduplicates.
 - **Read back at `max_supported_transaction_version: 1`.** A v1 transaction
   requested at 0 comes back as an error rather than as the transaction.
 - v1 loads no addresses, but the RPC decode path still honours
@@ -167,7 +167,7 @@ carrying transaction simply fits.
 
 There is a second ceiling that moves with the shape rather than the bytes:
 **v1 allows 64 account addresses**, and a wide spend adds one nullifier PDA per
-input. `zolana_client::v1_transaction_size` reports both, and `xtask tx-size`
+input. `zolana_client::transaction_size` reports both, and `xtask tx-size`
 prints them per shape.
 
 ### The localnet runtime is surfpool

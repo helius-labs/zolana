@@ -98,7 +98,7 @@ pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBu
 /// Deliberately no address lookup table: v1 has none, and a large shape's
 /// instruction data alone exceeds the legacy 1232-byte limit, so a table would
 /// not have rescued it either.
-pub fn send_transaction_v1(
+pub fn send_transaction(
     rpc: &mut SolanaRpc,
     ixs: &[Instruction],
     payer: &Pubkey,
@@ -109,7 +109,7 @@ pub fn send_transaction_v1(
         .iter()
         .map(|signer| *signer as &dyn Signer)
         .collect();
-    rpc.create_and_send_v1_transaction(&instructions, *payer, &signers, budget)
+    rpc.create_and_send_transaction(&instructions, *payer, &signers, budget)
 }
 
 /// Normalized paths to build products and test data rooted at the workspace.

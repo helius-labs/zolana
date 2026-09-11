@@ -91,7 +91,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
     let merge = proven.instruction(tree, tree, payer.pubkey());
-    let signature = ctx.rpc.create_and_send_v1_transaction(
+    let signature = ctx.rpc.create_and_send_transaction(
         &[merge],
         payer.pubkey(),
         &[&payer],

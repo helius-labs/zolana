@@ -207,7 +207,7 @@ impl Deposit<'_> {
             signers.push(authority);
         }
         let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-        let signature = rpc.create_and_send_v1_transaction(
+        let signature = rpc.create_and_send_transaction(
             &[ix],
             payer_address,
             &signers,

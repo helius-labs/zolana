@@ -63,7 +63,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
                     signers.push(initialization_keypair);
                 }
             }
-            let signature = rpc.create_and_send_v1_transaction(
+            let signature = rpc.create_and_send_transaction(
                 &instructions,
                 authority_address,
                 &signers,
@@ -85,7 +85,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
     };
     let tree = create.tree();
     let instructions = create.instructions();
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         authority_address,
         &[&material.funding],
@@ -118,7 +118,7 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
         fees,
     }
     .instruction()];
-    let signature = rpc.create_and_send_v1_transaction(
+    let signature = rpc.create_and_send_transaction(
         &instructions,
         Address::new_from_array(authority.to_bytes()),
         &[&material.funding],

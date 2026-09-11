@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use futures::Stream;
 use solana_account::Account;
 use solana_address::Address;
-use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
@@ -12,7 +11,7 @@ use solana_message::{v1, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
@@ -123,7 +122,7 @@ fn priority_fee_lamports(cu_price_micro_lamports: u64, cu_limit: u32) -> u64 {
 ///
 /// v1 takes no compute-budget instructions, which is where the ceilings in
 /// `compute_budget` would otherwise go, and it has no address lookup tables.
-pub fn compile_v1_message(
+pub fn compile_message(
     payer: &Address,
     instructions: &[Instruction],
     recent_blockhash: Hash,
@@ -146,7 +145,7 @@ pub fn compile_v1_message(
 /// repeat. A fee payer that also owns a shielded input is one account key but
 /// two entries in the caller's list, so the duplicates are dropped here rather
 /// than at every call site.
-pub fn sign_versioned_transaction(
+pub fn sign_transaction(
     message: VersionedMessage,
     signers: &[&dyn Signer],
 ) -> Result<VersionedTransaction, ClientError> {
@@ -354,48 +353,25 @@ pub trait Rpc {
 
     // ===== Transactions =====
 
-    fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("send_transaction"))
-    }
-
     fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         Err(unsupported("send_transaction_with_config"))
     }
 
-    fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("send_versioned_transaction_with_config"))
-    }
-
-    fn process_transaction(&self, transaction: Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("process_transaction"))
-    }
-
-    fn process_transaction_with_context(
-        &self,
-        transaction: Transaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        Err(unsupported("process_transaction_with_context"))
-    }
-
-    fn process_versioned_transaction(
+    fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_versioned_transaction"))
+        Err(unsupported("process_transaction"))
     }
 
     /// Build, sign, and send a v1 transaction: the only format this client
     /// sends, because it lifts the 1,232-byte legacy packet ceiling to 4,096
     /// bytes and carries its budget in the message header.
-    fn create_and_send_v1_transaction(
+    fn create_and_send_transaction(
         &self,
         instructions: &[Instruction],
         payer: Address,
@@ -403,8 +379,8 @@ pub trait Rpc {
         compute_budget: ComputeBudgetConfig,
     ) -> Result<Signature, ClientError> {
         let (blockhash, _) = self.get_latest_blockhash()?;
-        let message = compile_v1_message(&payer, instructions, blockhash, compute_budget)?;
-        self.process_versioned_transaction(sign_versioned_transaction(message, signers)?)
+        let message = compile_message(&payer, instructions, blockhash, compute_budget)?;
+        self.process_transaction(sign_transaction(message, signers)?)
     }
 
     // ===== Misc =====
@@ -590,45 +566,19 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("health"))
     }
 
-    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("send_transaction"))
-    }
-
     async fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         Err(unsupported("send_transaction_with_config"))
     }
 
-    async fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("send_versioned_transaction_with_config"))
-    }
-
     async fn process_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_transaction"))
-    }
-
-    async fn process_transaction_with_context(
-        &self,
-        transaction: Transaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        Err(unsupported("process_transaction_with_context"))
-    }
-
-    async fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_versioned_transaction"))
+        Err(unsupported("process_transaction"))
     }
 
     async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
@@ -828,7 +778,7 @@ mod tests {
                 solana_instruction::AccountMeta::new(other.pubkey(), true),
             ],
         );
-        let message = compile_v1_message(
+        let message = compile_message(
             &payer.pubkey(),
             core::slice::from_ref(&instruction),
             Hash::default(),
@@ -837,8 +787,8 @@ mod tests {
         .expect("compile");
 
         let signers: Vec<&dyn Signer> = vec![&payer, &other, &payer];
-        let transaction = sign_versioned_transaction(message, &signers)
-            .expect("a repeated signer must not fail signing");
+        let transaction =
+            sign_transaction(message, &signers).expect("a repeated signer must not fail signing");
         assert_eq!(transaction.signatures.len(), 2);
     }
 }

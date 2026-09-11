@@ -2,14 +2,14 @@ use custom_ring_interface::{tag, CreateEntryIxData, UpdateEntryIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
-use zolana_client::{ClientError, ProverClient, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, ProverClient, Rpc};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
 
 use crate::{
     instructions::{
         entry::proof::{EntryDraft, EntryProof, EntryProofError, EntryWitness},
-        policy_table::{PolicyTable, V1Transaction},
+        policy_table::{PolicyTable, SizedTransaction},
     },
     CustomRing,
 };
@@ -75,8 +75,11 @@ impl CreatePolicy<'_> {
             AccountMeta::new_readonly(ring.program_data_pda(), false),
         ];
         accounts.extend(body.curator_accounts());
-        V1Transaction {
+        SizedTransaction {
             payer,
+            compute_budget: ComputeBudgetConfig::new(
+                custom_ring_interface::CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            ),
             instruction: Instruction {
                 program_id: ring.program_id(),
                 accounts,

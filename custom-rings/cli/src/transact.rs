@@ -6,7 +6,7 @@ use std::{
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput,
     DepositAsset, DepositError, EntryProofEnvironment, PolicyMatchError, RingDeposit,
-    RingDepositReceipt, SendV1Error, TransactV1, TransferError, TransferProofEnvironment,
+    RingDepositReceipt, SendError, TransactSend, TransferError, TransferProofEnvironment,
 };
 use solana_address::Address;
 use solana_signature::Signature;
@@ -110,7 +110,7 @@ pub enum TransactError {
     #[error(transparent)]
     Transfer(#[from] TransferError),
     #[error(transparent)]
-    SendV1(#[from] SendV1Error),
+    Send(#[from] SendError),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
@@ -465,14 +465,14 @@ impl Deposited<'_> {
             deposits,
         } = self;
         let sender = this.sender;
-        // `TransactV1` pays and signs with the sender alone, so the configured
+        // `TransactSend` pays and signs with the sender alone, so the configured
         // payer has to fund the sender up front instead of paying the transact.
         let fee = solana_system_interface::instruction::transfer(
             &this.payer.pubkey(),
             &sender.pubkey(),
             SENDER_FEE_BUDGET,
         );
-        env.rpc.create_and_send_v1_transaction(
+        env.rpc.create_and_send_transaction(
             &[fee],
             this.payer.pubkey(),
             &[this.payer],
@@ -499,7 +499,7 @@ impl Deposited<'_> {
         .with_tree(this.tree)
         .with_assets(this.assets)
         .prove(env)?;
-        let transact = TransactV1 {
+        let transact = TransactSend {
             payer: &sender,
             signers: &[],
             instruction: proven.instruction()?,
