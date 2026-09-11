@@ -225,7 +225,8 @@ the table from the policy config and trusts its rows only under the pinned
 hash (`policy_config_table`), `client_rules_match` compares a table of the
 caller's with the stored rows. `prove_async` serves both tiers. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
-transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
+transaction, `TransactV1` submits it as a transaction v1 message, whose limit is
+4096 bytes and which carries its compute ceilings in the message header.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. The indexer
 only matches the auditor view tag and needs no ring support. A transaction

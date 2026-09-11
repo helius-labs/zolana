@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
     EntryProofEnvironment, PolicyConfig, ProvenTransfer, ReadEntry, RingDeposit,
-    RingDepositReceipt, TransferError, TransferProofEnvironment, UpdateEntry, V0WithLookupTable,
+    RingDepositReceipt, TransactV1, TransferError, TransferProofEnvironment, UpdateEntry,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
 };
 use solana_compute_budget_interface::ComputeBudgetInstruction;
@@ -183,7 +183,7 @@ impl PolicyTransfer<'_> {
             .first()
             .ok_or_else(|| anyhow!("transfer output"))?
             .utxo_hash;
-        let signature = V0WithLookupTable {
+        let signature = TransactV1 {
             payer,
             signers: &[],
             instruction: proven.instruction()?,

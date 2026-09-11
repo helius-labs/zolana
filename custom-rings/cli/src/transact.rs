@@ -6,7 +6,7 @@ use std::{
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput,
     DepositAsset, DepositError, EntryProofEnvironment, PolicyMatchError, RingDeposit,
-    RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    RingDepositReceipt, SendV1Error, TransactV1, TransferError, TransferProofEnvironment,
 };
 use solana_address::Address;
 use solana_signature::Signature;
@@ -108,7 +108,7 @@ pub enum TransactError {
     #[error(transparent)]
     Transfer(#[from] TransferError),
     #[error(transparent)]
-    SendV0(#[from] SendV0Error),
+    SendV1(#[from] SendV1Error),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
@@ -493,7 +493,7 @@ impl Deposited<'_> {
         .with_tree(this.tree)
         .with_assets(this.assets)
         .prove(env)?;
-        let transact = V0WithLookupTable {
+        let transact = TransactV1 {
             payer: &sender,
             signers: &[],
             instruction: proven.instruction()?,

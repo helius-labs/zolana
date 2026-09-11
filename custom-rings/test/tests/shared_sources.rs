@@ -12,7 +12,7 @@ use custom_ring_test_validator::{
         owner_member, policy_config, CuratedRings, EntryTarget, EntryWrite, PolicyTransfer,
         RingNotes, BLOCK_ONLY, DEPOSIT, TRANSFER_AMOUNT,
     },
-    shared::{send, send_v0_expecting_rejection, RegisterRing, Tier},
+    shared::{send, send_v1_expecting_rejection, RegisterRing, Tier},
 };
 use solana_signer::Signer;
 use zolana_client::ProverClient;
@@ -112,9 +112,9 @@ fn a_curator_sourced_blocklist_governs_the_subscriber_ring() -> Result<()> {
         rpc,
         prover: &prover,
     })?;
-    let rejection = send_v0_expecting_rejection(rpc, &env.payer, foreign.instruction()?)?;
+    let rejection = send_v1_expecting_rejection(rpc, &env.payer, foreign.instruction()?)?;
     Rejection::custom(CustomRingError::ForeignSource as u32)
-        .at(1)
+        .at(0)
         .assert_client(&rejection);
 
     // 6. Clearing the entry re-admits the transfer through the cleared-entry
