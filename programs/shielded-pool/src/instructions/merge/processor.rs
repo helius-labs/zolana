@@ -30,7 +30,6 @@ use crate::instructions::{
     shared::{
         bool_field, check_field_element, check_field_elements, check_not_expired, tree_error,
     },
-    transact::tree::queue_nullifiers,
 };
 
 pub(crate) struct MergeCoreAccounts<'a> {
@@ -209,7 +208,15 @@ fn apply_input_tree(
             .map_err(tree_error)?,
     };
 
-    queue_nullifiers(tree, ix.nullifiers.iter())
+    let mut first = None;
+    for nullifier in &ix.nullifiers {
+        let queue_index = tree
+            .nullifier_tree()
+            .insert_nullifier_into_queue(nullifier)
+            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
+        first.get_or_insert(queue_index);
+    }
+    first.ok_or(ShieldedPoolError::InvalidTransactShape.into())
 }
 
 fn apply_output_tree(

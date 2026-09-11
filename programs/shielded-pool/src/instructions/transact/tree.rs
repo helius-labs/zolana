@@ -31,8 +31,8 @@ use crate::instructions::{
 /// 6. Reject unmatched tree contexts, input groups or PDA accounts.
 /// 7. Assign the tree slots and packed input flags to the proof inputs.
 ///
-/// Inputs are grouped by tree, so each tree owns one contiguous group of inputs
-/// and [`queue_nullifiers`] still sees consecutive queue numbers per tree. The
+/// Inputs are grouped by tree, so each tree owns one contiguous group of inputs.
+/// The tree library assigns consecutive queue numbers within each group. The
 /// circuit applies its single dummy-input bit to every input slot whichever
 /// tree it selected, so the published policy is the conjunction over all input
 /// trees: anything weaker would relax the gate of the tightest tree.
@@ -75,10 +75,15 @@ pub(crate) fn apply_input_trees(
                 .map_err(|_| shape)?;
 
             // 3. Queue its nullifiers and credit its insertion fee.
-            let first_input_queue_seq = queue_nullifiers(
-                &mut input_tree,
-                tree_inputs.iter().map(|input| &input.nullifier_hash),
-            )?;
+            let mut first = None;
+            for input in tree_inputs {
+                let queue_index = input_tree
+                    .nullifier_tree()
+                    .insert_nullifier_into_queue(&input.nullifier_hash)
+                    .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
+                first.get_or_insert(queue_index);
+            }
+            let first_input_queue_seq = first.ok_or(shape)?;
             let forester_fee = input_tree
                 .credit_insertion_fee(tree_inputs.len() as u64)
                 .map_err(tree_error)?;
@@ -128,31 +133,6 @@ pub(crate) fn apply_input_trees(
     )?;
     proof_inputs.assign_input_trees(tree_slots, input_flags);
     Ok(sequences)
-}
-
-/// Insert every nullifier into `tree`'s queue and return the sequence number
-/// of the first. The nullifier PDAs and the event derive input `i`'s number as
-/// `first + i` within its tree's input group, so a queue that hands out anything but
-/// consecutive numbers is rejected rather than recorded wrongly.
-pub(crate) fn queue_nullifiers<'n>(
-    tree: &mut TreeAccount<'_>,
-    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
-) -> Result<u64, ProgramError> {
-    let mut first = None;
-    for (position, nullifier) in (0u64..).zip(nullifiers) {
-        let queue_index = tree
-            .nullifier_tree()
-            .insert_nullifier_into_queue(nullifier)
-            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
-        let expected = first
-            .get_or_insert(queue_index)
-            .checked_add(position)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        if queue_index != expected {
-            return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into());
-        }
-    }
-    first.ok_or(ShieldedPoolError::InvalidTransactShape.into())
 }
 
 /// One populated tree slot: the tree's id and the roots at its context's
