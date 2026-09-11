@@ -243,7 +243,8 @@ export async function createRingPolicyInstruction(
       entriesTree: Address;
     }>,
 ): Promise<Instruction> {
-  const [policyConfig, programData, body] = await Promise.all([
+  const [config, policyConfig, programData, body] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
     ringPolicyConfigAddress(input.ringProgramId),
     ringProgramDataAddress(input.ringProgramId),
     policyTableBody(input),
@@ -253,6 +254,7 @@ export async function createRingPolicyInstruction(
     accounts: [
       meta(input.payer, true, true),
       meta(input.authority, true, false),
+      meta(config, false, false),
       meta(policyConfig, false, true),
       meta(input.entriesTree, false, false),
       meta(SYSTEM_PROGRAM, false, false),

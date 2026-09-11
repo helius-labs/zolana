@@ -1,7 +1,7 @@
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::UpgradeAuthorityCheck,
+        loader::{load_config, UpgradeAuthorityCheck},
         policy_shared::{compute_policy_hash, namespace_pda, BoundTable, TableBinding},
         shared::PdaCheck,
     },
@@ -33,6 +33,7 @@ pub fn process_create_policy_ix(
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
+    let config = iter.next_account("config")?;
     let policy_config = iter.next_mut("policy_config")?;
     let entries_tree = iter.next_account("entries_tree")?;
     let system_program = iter.next_account("system_program")?;
@@ -42,6 +43,9 @@ pub fn process_create_policy_ix(
 
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
+    }
+    if load_config(program_id, config)?.has_policy == 0 {
+        return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
     let entries_tree_id = check_entries_tree(entries_tree)?;
     UpgradeAuthorityCheck {

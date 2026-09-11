@@ -582,6 +582,32 @@ pub fn initialized_entries_tree_account_with_roots(rotations: u16) -> Account {
     account
 }
 
+/// The initialized tree after `rotations` nonzero UTXO roots.
+pub fn initialized_entries_tree_account_with_state_roots(rotations: u16) -> Account {
+    let mut account = initialized_entries_tree_account();
+    {
+        let mut tree = entries_tree_view(&mut account);
+        let utxo = tree.utxo_tree();
+        let capacity = utxo.root_history.len();
+        for rotation in 1..=rotations {
+            let mut root = [0u8; 32];
+            root[..2].copy_from_slice(&rotation.to_le_bytes());
+            let next = (usize::from(utxo.root_history_cursor) + 1) % capacity;
+            utxo.root_history[next] = root;
+            utxo.root_history_cursor = next as u16;
+            utxo.root_history_len = (usize::from(utxo.root_history_len) + 1).min(capacity) as u16;
+        }
+    }
+    account
+}
+
+pub fn utxo_root_cursor(account: &Account) -> u16 {
+    let mut account = account.clone();
+    entries_tree_view(&mut account)
+        .utxo_tree()
+        .root_history_cursor
+}
+
 pub fn paused_entries_tree_account() -> Account {
     let mut account = initialized_entries_tree_account();
     entries_tree_view(&mut account).set_paused(true);
@@ -615,8 +641,9 @@ pub fn create_policy_fixture() -> Fixture {
     create_policy_fixture_with(&table_ix_data(&RuleTable::empty(), &[]))
 }
 
-/// Green `create_policy` fixture, `[payer(w,s), authority(s), policy_config(w),
-/// entries_tree, system_program, program, program_data]`, curators trail.
+/// Green `create_policy` fixture, `[payer(w,s), authority(s), config,
+/// policy_config(w), entries_tree, system_program, program, program_data]`,
+/// curators trail.
 pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::CREATE_POLICY, table),
@@ -630,6 +657,11 @@ pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
                 label: "authority",
                 meta: AccountMeta::new_readonly(authority(), true),
                 account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
             },
             Slot {
                 label: "policy_config",
@@ -775,10 +807,11 @@ pub fn default_entry_member() -> [u8; 32] {
 
 /// The entry a mutation writes, `writer` signs as the payer.
 pub struct EntryFixture {
-    pub list_id: ListId,
+    pub list_byte: u8,
     pub writer: Pubkey,
     pub member: [u8; 32],
     pub state: u8,
+    pub spent_state: u8,
     pub content_hash: [u8; 32],
 }
 
@@ -786,10 +819,11 @@ impl EntryFixture {
     /// Active with unit content.
     pub fn new(list_id: ListId, writer: Pubkey) -> Self {
         Self {
-            list_id,
+            list_byte: list_id as u8,
             writer,
             member: default_entry_member(),
             state: 1,
+            spent_state: 1,
             content_hash: [0u8; 32],
         }
     }
@@ -798,7 +832,7 @@ impl EntryFixture {
         let mut data = vec![tag::CREATE_ENTRY];
         data.extend_from_slice(
             &wincode::serialize(&CreateEntryIxData {
-                list_id: self.list_id as u8,
+                list_id: self.list_byte,
                 member: self.member,
                 state: self.state,
                 content_hash: self.content_hash,
@@ -818,9 +852,9 @@ impl EntryFixture {
         let mut data = vec![tag::UPDATE_ENTRY];
         data.extend_from_slice(
             &wincode::serialize(&UpdateEntryIxData {
-                list_id: self.list_id as u8,
+                list_id: self.list_byte,
                 member: self.member,
-                spent_state: 1,
+                spent_state: self.spent_state,
                 spent_content_hash: [0u8; 32],
                 spent_version,
                 spent_blinding: [0u8; 32],
@@ -866,11 +900,15 @@ fn config_account_with(authority: Pubkey, auditor_pubkey: [u8; 33], has_policy: 
 }
 
 pub fn create_config_data(auditor_pubkey: [u8; 33]) -> Vec<u8> {
+    create_config_data_with_tier(auditor_pubkey, 1)
+}
+
+pub fn create_config_data_with_tier(auditor_pubkey: [u8; 33], has_policy: u8) -> Vec<u8> {
     let mut data = vec![tag::CREATE_CONFIG];
     data.extend_from_slice(
         &wincode::serialize(&CreateConfigIxData {
             auditor_pubkey,
-            has_policy: 1,
+            has_policy,
         })
         .expect("serialize create_config data"),
     );

@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8141 range is reserved for the ring program and is collision-free
+/// The 8100..8142 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -93,6 +93,8 @@ pub enum CustomRingError {
     InvalidPolicyRules = 8140,
     #[error("policy generation overflows")]
     PolicyGenerationOverflow = 8141,
+    #[error("an audit-only ring takes no policy")]
+    PolicyOnAuditOnlyRing = 8142,
 }
 
 impl From<CustomRingError> for ProgramError {

@@ -140,7 +140,8 @@ takes a name in a rule. The rows compile in order through
 `RuleTableBuilder`. One released binary serves every ring.
 
 `create_policy` carries the rows, the inline assets and the source specs
-(`PolicyTableIxData`) and is signed by the upgrade authority. It binds each
+(`PolicyTableIxData`), is signed by the upgrade authority and refuses an
+audit-only ring, the tier is fixed at `create_config`. It binds each
 referenced list to its namespace, stores the rows in `PolicyConfig.rules`
 (`EncodedRuleTable`) beside the map, pins `policy_hash` over both, and writes
 `generation` one with the current slot in `generation_slot`. `set_policy_rules`

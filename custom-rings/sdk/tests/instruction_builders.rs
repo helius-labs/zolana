@@ -881,6 +881,7 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
         vec![
             AccountMeta::new(payer(), true),
             AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),

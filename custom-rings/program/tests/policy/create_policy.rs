@@ -6,10 +6,10 @@ use zolana_account_checks::AccountError;
 use zolana_ring_policy::{EncodedRuleTable, ListId, Rule, RuleTable, Subject};
 
 use crate::common::{
-    consumed, create_policy_fixture, create_policy_fixture_with, entries_tree,
-    entries_tree_account, largest_table, namespace_pda, own_source_slots, own_specs,
-    policy_hash_for, program_id, setup_mollusk, stored_policy_config, table_ix_data, PINNED_RULES,
-    WARPED_SLOT,
+    audit_only_config_account, auditor_pubkey, authority, consumed, create_policy_fixture,
+    create_policy_fixture_with, entries_tree, entries_tree_account, largest_table, namespace_pda,
+    own_source_slots, own_specs, policy_hash_for, program_id, setup_mollusk, stored_policy_config,
+    table_ix_data, PINNED_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -213,4 +213,37 @@ fn a_short_account_list_is_rejected() {
         &mollusk,
         ProgramError::Custom(u32::from(AccountError::NotEnoughAccountKeys)),
     );
+}
+
+/// The tier is fixed at `create_config`.
+#[test]
+fn create_policy_on_an_audit_only_ring_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    fixture.set_account(
+        "config",
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::PolicyOnAuditOnlyRing));
+}
+
+#[test]
+fn create_policy_with_a_wrong_system_program_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    fixture.substitute(
+        "system_program",
+        solana_pubkey::Pubkey::new_from_array([73; 32]),
+    );
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSystemProgram));
+}
+
+#[test]
+fn an_entries_tree_too_short_for_its_id_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_policy_fixture();
+    let mut short = entries_tree_account();
+    short.data.truncate(short.data.len() - 1);
+    fixture.set_account("entries_tree", short);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidEntriesTree));
 }

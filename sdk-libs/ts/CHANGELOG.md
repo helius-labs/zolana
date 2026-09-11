@@ -226,8 +226,9 @@ Added
   and `buildRingSetPolicySourceTransaction` pin, replace and re-source a
   ring's rule table, `createRingPolicyInstruction`,
   `setRingPolicyRulesInstruction` and `setRingPolicySourceInstruction` build
-  the instructions with `RingSharedSource` curators, the create and rules
-  builders refuse an audit-only ring with `RING_POLICY_TIER_MISMATCH`, and a
+  the instructions with `RingSharedSource` curators, the create instruction
+  carries the ring config so the program refuses an audit-only ring, the
+  create and rules builders refuse one with `RING_POLICY_TIER_MISMATCH`, and a
   curator on another entries tree, without the list, or named twice for one
   list is refused with `RING_POLICY_SOURCE_INVALID` before the transaction is
   compiled.

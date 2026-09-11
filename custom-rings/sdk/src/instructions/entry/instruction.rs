@@ -66,6 +66,7 @@ impl CreatePolicy<'_> {
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
             AccountMeta::new(ring.policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree, false),
             AccountMeta::new_readonly(Address::default(), false),

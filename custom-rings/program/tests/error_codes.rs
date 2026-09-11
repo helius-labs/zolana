@@ -43,6 +43,7 @@ fn error_codes_are_stable() {
         (InvalidEntryContent as u32, 8139),
         (InvalidPolicyRules as u32, 8140),
         (PolicyGenerationOverflow as u32, 8141),
+        (PolicyOnAuditOnlyRing as u32, 8142),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -92,6 +93,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ForeignSource
         | InvalidEntryContent
         | InvalidPolicyRules
-        | PolicyGenerationOverflow => {}
+        | PolicyGenerationOverflow
+        | PolicyOnAuditOnlyRing => {}
     }
 }
