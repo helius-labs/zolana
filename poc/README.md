@@ -212,6 +212,8 @@ the Cache API, but the prepared key is rebuilt when the worker or shape changes.
 
 ### One-second target on a device
 
+[Open the deployed device benchmark](https://d11pqvzf0b88yp.cloudfront.net/releases/device-bench-20260911-1/benchmark.html).
+
 [Desktop reference measurements and phase breakdown](web/benchmark-results/2026-09-11.md).
 
 Open `/benchmark.html` on the served build. For a versioned AWS deployment use
