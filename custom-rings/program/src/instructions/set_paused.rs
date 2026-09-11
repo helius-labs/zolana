@@ -37,5 +37,10 @@ pub fn process_set_paused_ix(
     let instruction_data =
         encode_instruction(tag::UPDATE_RING_CONFIG, &UpdateRingConfigData { paused });
     // The ring auth PDA is also SPP's ring authority.
-    cpi_spp_signed(program_id, &[&*ring_auth, &*ring_auth], &instruction_data)
+    cpi_spp_signed(
+        program_id,
+        &[&*ring_auth, &*ring_auth],
+        &instruction_data,
+        None,
+    )
 }

@@ -12,5 +12,6 @@ pub mod set_authority;
 pub mod set_paused;
 pub mod set_policy_rules;
 pub mod set_policy_source;
+pub mod spend;
 pub mod spend_window;
 pub mod transact;

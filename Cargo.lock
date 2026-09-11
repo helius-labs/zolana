@@ -11326,6 +11326,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-ring-client",
+ "zolana-ring-policy",
  "zolana-transaction",
 ]
 

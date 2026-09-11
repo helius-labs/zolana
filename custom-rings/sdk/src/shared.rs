@@ -724,6 +724,7 @@ mod tests {
             entries_tree: Address::new_from_array([5u8; 32]),
             entries_tree_id: [0; 2],
             namespace_bump: 0,
+            namespace_owner_hash: [0u8; 32],
             bump: Address::find_program_address(&[PolicyConfig::SEED], &ring().program_id()).1,
             sources,
             rules: table.encode(),

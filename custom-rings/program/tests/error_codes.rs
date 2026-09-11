@@ -55,6 +55,11 @@ fn error_codes_are_stable() {
         (DelegatePublicLeg as u32, 8152),
         (DelegateAlreadySet as u32, 8153),
         (InvalidDelegate as u32, 8154),
+        (VelocityDepositLeg as u32, 8155),
+        (InvalidSpendRecord as u32, 8156),
+        (DelegateOnVelocityRing as u32, 8157),
+        (ApprovalWithoutCoSigner as u32, 8158),
+        (VelocityDisabled as u32, 8159),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -116,6 +121,11 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | UnauthorizedDelegate
         | DelegatePublicLeg
         | DelegateAlreadySet
-        | InvalidDelegate => {}
+        | InvalidDelegate
+        | VelocityDepositLeg
+        | InvalidSpendRecord
+        | DelegateOnVelocityRing
+        | ApprovalWithoutCoSigner
+        | VelocityDisabled => {}
     }
 }

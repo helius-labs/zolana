@@ -13,9 +13,10 @@ use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{ProverClient, Rpc};
+use zolana_interface::SOL_ASSET_FIELD;
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{
-    EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject,
+    EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject, VelocityRow,
 };
 use zolana_test_utils::test_validator_asserts::{wait_for_indexed_utxo, wait_for_merkle_proof};
 use zolana_transaction::{
@@ -43,6 +44,20 @@ pub const BLOCK_ONLY: RuleTable = RuleTable::builder()
 
 pub const TOKEN_BLOCK: RuleTable = RuleTable::builder()
     .rule(Rule::forbid(Subject::Asset, ListId::Block))
+    .build();
+
+pub const VELOCITY_WINDOW_SLOTS: u64 = 1_000_000;
+pub const VELOCITY_CAP: u64 = 650_000_000;
+pub const VELOCITY_COSIGN_ABOVE: u64 = 300_000_000;
+
+/// SOL outflow capped per window, dual control above the threshold.
+pub const VELOCITY: RuleTable = RuleTable::builder()
+    .window_slots(VELOCITY_WINDOW_SLOTS)
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
     .build();
 
 /// An Approval entry or no Block entry admits an output owner.

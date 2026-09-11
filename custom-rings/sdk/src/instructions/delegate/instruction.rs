@@ -115,6 +115,7 @@ impl CustomRingDelegateTransact {
             proof,
             state_root_index,
             nullifier_root_index,
+            approval_required: 0,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

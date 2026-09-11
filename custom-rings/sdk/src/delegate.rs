@@ -347,6 +347,7 @@ impl StagedDelegateTransfer {
             inputs: &self.prepared.inputs,
             outputs: &self.prepared.outputs,
             output_tree_id: self.prepared.output_tree_id,
+            velocity: None,
         }
     }
 
@@ -419,6 +420,7 @@ impl WitnessedDelegateTransfer {
             entries_tree,
             state_root_index,
             nullifier_root_index,
+            approval_required: _,
         } = ring.binding();
         let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {

@@ -12,3 +12,5 @@ mod mutator;
 mod set_policy_rules;
 #[path = "policy/transact.rs"]
 mod transact;
+#[path = "policy/velocity.rs"]
+mod velocity;

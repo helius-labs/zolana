@@ -7,8 +7,12 @@ use pinocchio::{
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use zolana_ring_policy::NAMESPACE_PDA_SEED;
 
 use crate::error::CustomRingError;
+#[cfg(any(target_os = "solana", target_arch = "bpf"))]
+use crate::instructions::policy_shared::namespace_address;
 
 /// Refunds the rent and closes, `mismatch` when the recipient is the account.
 pub(crate) fn close_into(
@@ -105,8 +109,12 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     program_id: &Address,
     accounts: &[A],
     data: &[u8],
+    namespace_bump: Option<u8>,
 ) -> ProgramResult {
     let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
+    let namespace = namespace_bump
+        .map(|bump| namespace_address(program_id, bump))
+        .transpose()?;
     if !accounts
         .iter()
         .any(|account| account.as_ref().address() == &ring_auth)
@@ -121,7 +129,9 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
         .iter()
         .map(|account| {
             let account = account.as_ref();
-            let is_signer = account.is_signer() || account.address() == &ring_auth;
+            let is_signer = account.is_signer()
+                || account.address() == &ring_auth
+                || namespace.is_some_and(|namespace| account.address() == &namespace);
             InstructionAccount::new(account.address(), account.is_writable(), is_signer)
         })
         .collect();
@@ -134,10 +144,23 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     };
     let bump = [bump];
     let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(bump.as_ref())];
-    let signer = Signer::from(seeds.as_ref());
+    let ring_signer = Signer::from(seeds.as_ref());
     // Upper bound: a five-mint ring deposit carries the fixed prefix, ring_auth
     // and five SPL settlement groups.
-    invoke_signed_with_slice(&instruction, accounts, core::slice::from_ref(&signer))
+    match namespace_bump {
+        Some(namespace_bump) => {
+            let namespace_bump = [namespace_bump];
+            let namespace_seeds = [
+                Seed::from(NAMESPACE_PDA_SEED),
+                Seed::from(namespace_bump.as_ref()),
+            ];
+            let signers = [ring_signer, Signer::from(namespace_seeds.as_ref())];
+            invoke_signed_with_slice(&instruction, accounts, &signers)
+        }
+        None => {
+            invoke_signed_with_slice(&instruction, accounts, core::slice::from_ref(&ring_signer))
+        }
+    }
 }
 
 #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
@@ -146,6 +169,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     _program_id: &Address,
     _accounts: &[A],
     _data: &[u8],
+    _namespace_bump: Option<u8>,
 ) -> ProgramResult {
     Err(CustomRingError::InvalidShieldedPoolProgram.into())
 }

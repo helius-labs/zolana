@@ -19,6 +19,7 @@ use zolana_interface::{
     state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
     SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_ring_policy::ListNamespace;
 
 /// Only the program upgrade authority pins a table.
 #[inline(never)]
@@ -64,6 +65,9 @@ pub fn process_create_policy_ix(
     }
 
     let (own_namespace, namespace_bump) = namespace_pda(program_id)?;
+    let namespace_owner_hash = ListNamespace::new(own_namespace.as_array())
+        .map_err(|_| CustomRingError::HashingFailed)?
+        .owner_hash;
     let BoundTable { rules, sources } = TableBinding {
         table: &ix,
         curators,
@@ -94,6 +98,7 @@ pub fn process_create_policy_ix(
         entries_tree_id,
         namespace_bump,
         bump,
+        namespace_owner_hash,
         sources,
         rules,
         generation_slot,

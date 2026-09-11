@@ -10,6 +10,8 @@ pub const MAX_RULES: usize = 16;
 pub const MAX_INLINE_ASSETS: usize = 8;
 /// Source slots, one per list the enum can name.
 pub const MAX_SOURCES: usize = 8;
+/// One counter per mint a spend record carries.
+pub const MAX_VELOCITY_ASSETS: usize = 8;
 /// Answer slots per transfer, a circuit width.
 pub const ANSWER_SLOTS: usize = 10;
 /// Input slots the policy opens per transfer, a circuit width.
@@ -17,7 +19,7 @@ pub const POLICY_INPUT_SLOTS: usize = 5;
 /// Output slots the policy opens per transfer, a circuit width.
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 4;
+pub const POLICY_VERSION: u8 = 5;
 
 /// Distinct sender keys and live outputs of one transfer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +107,11 @@ pub enum RuleTableError {
     NonCanonicalAlternative,
     InlineWithAlternative,
     NonZeroPadding,
+    TooManyVelocityAssets,
+    VelocityWithoutWindow,
+    ZeroVelocityAsset,
+    DuplicateVelocityAsset,
+    VelocityRowWithoutBound,
 }
 
 impl RuleTableError {
@@ -139,6 +146,11 @@ impl RuleTableError {
             Self::NonCanonicalAlternative => "an alternative beside an absent primary",
             Self::InlineWithAlternative => "an inline rule with an alternative",
             Self::NonZeroPadding => "padding past the counts is not zero",
+            Self::TooManyVelocityAssets => "a ninth velocity mint",
+            Self::VelocityWithoutWindow => "velocity rows and a window come together",
+            Self::ZeroVelocityAsset => "a velocity row names no mint",
+            Self::DuplicateVelocityAsset => "velocity mints must be unique",
+            Self::VelocityRowWithoutBound => "a velocity row needs a cap or a co-sign threshold",
         }
     }
 }
@@ -499,6 +511,22 @@ impl Rule {
     }
 }
 
+/// One velocity mint, a zero `cap` or `cosign_above` leaves that bound off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VelocityRow {
+    pub asset: [u8; 32],
+    pub cap: u64,
+    pub cosign_above: u64,
+}
+
+impl VelocityRow {
+    const EMPTY: Self = Self {
+        asset: [0u8; 32],
+        cap: 0,
+        cosign_above: 0,
+    };
+}
+
 /// The circuit can enforce every instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleTable {
@@ -507,6 +535,10 @@ pub struct RuleTable {
     inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     inline_limits: [u64; MAX_INLINE_ASSETS],
     inline_len: u8,
+    /// Zero disables velocity, else the fixed window length in slots.
+    window_slots: u64,
+    velocity: [VelocityRow; MAX_VELOCITY_ASSETS],
+    velocity_len: u8,
 }
 
 impl RuleTable {
@@ -517,6 +549,9 @@ impl RuleTable {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_len: 0,
+            window_slots: 0,
+            velocity: [VelocityRow::EMPTY; MAX_VELOCITY_ASSETS],
+            velocity_len: 0,
         }
     }
 
@@ -526,7 +561,21 @@ impl RuleTable {
             rule_count: 0,
             member_count: 0,
             limit_count: 0,
+            velocity_count: 0,
         }
+    }
+
+    pub const fn window_slots(&self) -> u64 {
+        self.window_slots
+    }
+
+    pub fn velocity(&self) -> &[VelocityRow] {
+        &self.velocity[..usize::from(self.velocity_len)]
+    }
+
+    /// The mints the counters track, in row order.
+    pub fn velocity_assets(&self) -> impl Iterator<Item = [u8; 32]> + '_ {
+        self.velocity().iter().map(|row| row.asset)
     }
 
     pub fn rules(&self) -> &[Rule] {
@@ -577,6 +626,11 @@ impl RuleTable {
             inline_count: self.inline_len,
             inline_assets: self.inline_assets,
             inline_limits: self.inline_limits.map(u64::to_be_bytes),
+            window_slots: self.window_slots.to_be_bytes(),
+            velocity_count: self.velocity_len,
+            velocity_assets: self.velocity.map(|row| row.asset),
+            velocity_caps: self.velocity.map(|row| row.cap.to_be_bytes()),
+            velocity_cosign: self.velocity.map(|row| row.cosign_above.to_be_bytes()),
         };
         for (row, rule) in encoded.rules.iter_mut().zip(self.rules()) {
             *row = rule.encoded();
@@ -598,6 +652,7 @@ pub struct RuleTableBuilder {
     rule_count: usize,
     member_count: usize,
     limit_count: usize,
+    velocity_count: usize,
 }
 
 impl RuleTableBuilder {
@@ -636,9 +691,53 @@ impl RuleTableBuilder {
         self
     }
 
+    #[must_use]
+    pub const fn window_slots(mut self, window_slots: u64) -> Self {
+        self.table.window_slots = window_slots;
+        self
+    }
+
+    #[must_use]
+    pub const fn velocity(mut self, rows: &[VelocityRow]) -> Self {
+        let mut i = 0;
+        while i < rows.len() {
+            if self.velocity_count < MAX_VELOCITY_ASSETS {
+                self.table.velocity[self.velocity_count] = rows[i];
+            }
+            self.velocity_count += 1;
+            i += 1;
+        }
+        self
+    }
+
     pub const fn try_build(mut self) -> Result<RuleTable, RuleTableError> {
         if self.rule_count > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
+        }
+        if self.velocity_count > MAX_VELOCITY_ASSETS {
+            return Err(RuleTableError::TooManyVelocityAssets);
+        }
+        if (self.table.window_slots == 0) != (self.velocity_count == 0) {
+            return Err(RuleTableError::VelocityWithoutWindow);
+        }
+        self.table.velocity_len = self.velocity_count as u8;
+        let mut v = 0;
+        while v < self.velocity_count {
+            let row = self.table.velocity[v];
+            if is_zero(&row.asset) {
+                return Err(RuleTableError::ZeroVelocityAsset);
+            }
+            if row.cap == 0 && row.cosign_above == 0 {
+                return Err(RuleTableError::VelocityRowWithoutBound);
+            }
+            let mut w = 0;
+            while w < v {
+                if equal(&self.table.velocity[w].asset, &row.asset) {
+                    return Err(RuleTableError::DuplicateVelocityAsset);
+                }
+                w += 1;
+            }
+            v += 1;
         }
         if self.member_count > MAX_INLINE_ASSETS {
             return Err(RuleTableError::TooManyInlineAssets);
@@ -762,6 +861,14 @@ pub struct EncodedRuleTable {
     pub inline_count: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [[u8; 8]; MAX_INLINE_ASSETS],
+    /// Big endian, zero disables velocity.
+    pub window_slots: [u8; 8],
+    pub velocity_count: u8,
+    pub velocity_assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
+    /// Big endian.
+    pub velocity_caps: [[u8; 8]; MAX_VELOCITY_ASSETS],
+    /// Big endian.
+    pub velocity_cosign: [[u8; 8]; MAX_VELOCITY_ASSETS],
 }
 
 impl EncodedRuleTable {
@@ -774,7 +881,16 @@ impl EncodedRuleTable {
             inline_count: 0,
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [[0u8; 8]; MAX_INLINE_ASSETS],
+            window_slots: [0u8; 8],
+            velocity_count: 0,
+            velocity_assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
+            velocity_caps: [[0u8; 8]; MAX_VELOCITY_ASSETS],
+            velocity_cosign: [[0u8; 8]; MAX_VELOCITY_ASSETS],
         }
+    }
+
+    pub const fn window_slots(&self) -> u64 {
+        u64::from_be_bytes(self.window_slots)
     }
 
     pub fn from_parts(rows: &[[u8; 32]], inline: &[[u8; 32]]) -> Result<Self, RuleTableError> {
@@ -787,6 +903,19 @@ impl EncodedRuleTable {
         inline: &[[u8; 32]],
         limits: &[u64],
     ) -> Result<Self, RuleTableError> {
+        Self::from_parts_with_velocity(rows, inline, limits, 0, &[])
+    }
+
+    pub fn from_parts_with_velocity(
+        rows: &[[u8; 32]],
+        inline: &[[u8; 32]],
+        limits: &[u64],
+        window_slots: u64,
+        velocity: &[VelocityRow],
+    ) -> Result<Self, RuleTableError> {
+        if velocity.len() > MAX_VELOCITY_ASSETS {
+            return Err(RuleTableError::TooManyVelocityAssets);
+        }
         if rows.len() > MAX_RULES {
             return Err(RuleTableError::TooManyRules);
         }
@@ -816,7 +945,28 @@ impl EncodedRuleTable {
         for (dst, limit) in encoded_limits.iter_mut().zip(limits) {
             *dst = limit.to_be_bytes();
         }
+        encoded.window_slots = window_slots.to_be_bytes();
+        encoded.velocity_count = velocity.len() as u8;
+        for (index, row) in velocity.iter().enumerate() {
+            encoded.velocity_assets[index] = row.asset;
+            encoded.velocity_caps[index] = row.cap.to_be_bytes();
+            encoded.velocity_cosign[index] = row.cosign_above.to_be_bytes();
+        }
         Ok(encoded)
+    }
+
+    pub fn velocity_rows(&self) -> Result<Vec<VelocityRow>, RuleTableError> {
+        let count = usize::from(self.velocity_count);
+        if count > MAX_VELOCITY_ASSETS {
+            return Err(RuleTableError::TooManyVelocityAssets);
+        }
+        Ok((0..count)
+            .map(|index| VelocityRow {
+                asset: self.velocity_assets[index],
+                cap: u64::from_be_bytes(self.velocity_caps[index]),
+                cosign_above: u64::from_be_bytes(self.velocity_cosign[index]),
+            })
+            .collect())
     }
 
     pub fn decode(&self) -> Result<RuleTable, RuleTableError> {
@@ -837,8 +987,22 @@ impl EncodedRuleTable {
         {
             return Err(RuleTableError::NonZeroPadding);
         }
+        let velocity = self.velocity_rows()?;
+        let velocity_padding = self.velocity_assets[velocity.len()..]
+            .iter()
+            .any(|slot| *slot != [0u8; 32])
+            || self.velocity_caps[velocity.len()..]
+                .iter()
+                .chain(&self.velocity_cosign[velocity.len()..])
+                .any(|slot| *slot != [0u8; 8]);
+        if velocity_padding {
+            return Err(RuleTableError::NonZeroPadding);
+        }
         let decoded_limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
-        let mut builder = RuleTable::builder().inline_assets(members);
+        let mut builder = RuleTable::builder()
+            .inline_assets(members)
+            .window_slots(self.window_slots())
+            .velocity(&velocity);
         if decoded_limits.iter().any(|limit| *limit != 0) {
             builder = builder.inline_limits(&decoded_limits);
         }
@@ -874,7 +1038,10 @@ impl EncodedRuleTable {
         {
             return Err(PolicyHashError::MissingSource(list_id));
         }
-        let mut elements = Vec::with_capacity(3 + 2 * MAX_SOURCES + rows.len() + 2 * members.len());
+        let velocity = self.velocity_rows().map_err(PolicyHashError::Table)?;
+        let mut elements = Vec::with_capacity(
+            4 + 2 * MAX_SOURCES + rows.len() + 2 * members.len() + 3 * velocity.len(),
+        );
         elements.push(POLICY_TABLE_DOMAIN);
         elements.push(field_u8(POLICY_VERSION));
         for slot in sources.slots() {
@@ -886,6 +1053,12 @@ impl EncodedRuleTable {
         for (member, limit) in members.iter().zip(limits) {
             elements.push(*member);
             elements.push(field_u64(u64::from_be_bytes(*limit)));
+        }
+        elements.push(field_u64(self.window_slots()));
+        for row in &velocity {
+            elements.push(row.asset);
+            elements.push(field_u64(row.cap));
+            elements.push(field_u64(row.cosign_above));
         }
         create_hash_chain_from_slice(&elements).map_err(|_| PolicyHashError::Hashing)
     }
@@ -914,7 +1087,7 @@ struct Counted<'a> {
     limits: &'a [[u8; 8]],
 }
 
-const _: () = assert!(EncodedRuleTable::SIZE == 834);
+const _: () = assert!(EncodedRuleTable::SIZE == 1227);
 const _: () = assert!(core::mem::align_of::<EncodedRuleTable>() == 1);
 
 #[cfg(test)]

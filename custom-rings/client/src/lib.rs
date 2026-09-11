@@ -24,6 +24,7 @@
 //! are public on-chain anyway, so an auditor reads those from the deposit
 //! instruction or event rather than by decryption.
 
+mod counters;
 mod decrypt;
 mod deposit;
 mod encryption;
@@ -36,6 +37,10 @@ mod types;
 #[cfg(feature = "solana-rpc")]
 pub use crate::origin::{ConfirmedTransaction, ORIGIN_TRANSACTION_CONFIG};
 pub use crate::{
+    counters::{
+        counters_message, decrypt_counters, encrypt_counters, find_counters_message,
+        SpendCountersError, SPEND_COUNTERS_SLOT_INDEX,
+    },
     decrypt::TransactionAudit,
     deposit::{ring_deposits_in, RingDeposit},
     encryption::{auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage},
@@ -48,6 +53,6 @@ pub use crate::{
         Ed25519ReaderKey, P256ReaderKey, ReaderKey, ReaderKeyError, READ_ACCESS_RECORD_PDA_SEED,
     },
     scan::{AuditedPage, RingAudit, RingEnvironment, RingScan, RingScanPage},
-    types::{AuditedOutput, AuditedTransaction},
+    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 pub use custom_ring_interface::AUDITOR_MESSAGE_LEN;

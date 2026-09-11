@@ -4,12 +4,13 @@
 use bytemuck::Zeroable;
 use custom_ring_interface::{
     tag, CoSigner, CreateConfigIxData, CreateEntryIxData, Delegate, PolicyConfig,
-    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, SetCoSignerIxData,
-    SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow, UpdateEntryIxData,
-    WithdrawalThreshold, WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
-    DELEGATE, DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
-    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
-    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterSpendIxData, RingProgramConfig,
+    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow,
+    UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold, WithdrawalThresholdIxData,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
+    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
+    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -23,14 +24,14 @@ use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::instruction_data::{
         deposit::{DepositAssetKind, RingDepositEntry, RingDepositIxData},
-        transact::TransactProof,
+        transact::{OwnerTag, TransactOutput, TransactProof},
     },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_ring_policy::{
-    ListId, ListNamespace, Rule, RuleTable, SourceMap, SourceOwner, Subject, MAX_INLINE_ASSETS,
-    MAX_SOURCES, NAMESPACE_PDA_SEED,
+    ListId, ListNamespace, Member, Rule, RuleTable, SourceMap, SourceOwner, SpendCounters,
+    SpendRecord, Subject, VelocityRow, MAX_INLINE_ASSETS, MAX_SOURCES, NAMESPACE_PDA_SEED,
 };
 use zolana_tree::TreeAccount;
 
@@ -685,6 +686,19 @@ pub const PINNED_RULES: RuleTable = RuleTable::builder()
     .inline_assets(&[[3u8; 32], [4u8; 32]])
     .build();
 
+pub const VELOCITY_ASSET: [u8; 32] = [3u8; 32];
+pub const VELOCITY_CAP: u64 = 1000;
+pub const VELOCITY_WINDOW_SLOTS: u64 = 100;
+
+pub const VELOCITY_RULES: RuleTable = RuleTable::builder()
+    .window_slots(VELOCITY_WINDOW_SLOTS)
+    .velocity(&[VelocityRow {
+        asset: VELOCITY_ASSET,
+        cap: VELOCITY_CAP,
+        cosign_above: 0,
+    }])
+    .build();
+
 pub const INLINE_POOL: [[u8; 32]; MAX_INLINE_ASSETS] = [
     [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [7u8; 32], [8u8; 32],
 ];
@@ -795,6 +809,7 @@ impl PolicyConfigFixture<'_> {
             entries_tree_id: ENTRIES_TREE_ID.to_le_bytes(),
             namespace_bump: namespace_pda_of(self.ring).1,
             bump: policy_config_pda_of(self.ring).1,
+            namespace_owner_hash: namespace_owner_of(self.ring).owner_hash,
             sources: self.sources,
             rules: self.rules.encode(),
             generation: 1u32.to_le_bytes(),
@@ -814,6 +829,37 @@ impl PolicyConfigFixture<'_> {
 pub fn initialized_policy_config_account() -> Account {
     let empty = RuleTable::empty();
     policy_config_account_with(&empty, own_source_slots(&empty))
+}
+
+pub fn velocity_policy_config_account() -> Account {
+    policy_config_account_with(&VELOCITY_RULES, own_source_slots(&VELOCITY_RULES))
+}
+
+fn namespace_owner_of(ring: Pubkey) -> ListNamespace {
+    ListNamespace::new(namespace_pda_of(ring).0.as_array()).expect("namespace owner")
+}
+
+/// The record `register_spend` writes for `tag` at window zero.
+pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
+    let owner = namespace_owner_of(program_id());
+    let member = Member::owner_tag(&tag).expect("member");
+    let record = SpendRecord {
+        member,
+        version: 0,
+        window: 0,
+        counters_commitment: SpendCounters::zero(&[]).commitment().expect("commitment"),
+        blinding: [7u8; 32],
+    };
+    let address = owner
+        .spend_address(&member, ENTRIES_TREE_ID)
+        .expect("spend address");
+    TransactOutput {
+        utxo_hash: record
+            .utxo_hash(&owner, &address, ENTRIES_TREE_ID)
+            .expect("record leaf"),
+        owner_tag: OwnerTag::Inline(namespace_pda().0.to_bytes()),
+        data: Some(record.to_output_data().to_vec()),
+    }
 }
 
 pub fn policy_config_account_with(
@@ -957,6 +1003,16 @@ pub fn table_ix_data(rules: &RuleTable, specs: &[SourceSpec]) -> PolicyTableIxDa
         rules: rules.rules().iter().map(Rule::encoded).collect(),
         inline_assets: rules.inline_assets().to_vec(),
         inline_limits: rules.inline_limits().to_vec(),
+        window_slots: rules.window_slots(),
+        velocity: rules
+            .velocity()
+            .iter()
+            .map(|row| VelocityRowIxData {
+                asset: row.asset,
+                cap: row.cap,
+                cosign_above: row.cosign_above,
+            })
+            .collect(),
     }
 }
 
@@ -1191,6 +1247,22 @@ impl EntryFixture {
         );
         Fixture::new(data, entry_mutation_slots(policy_config, self.writer))
     }
+}
+
+/// `payer` registers its own identity over the entry mutation layout.
+pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
+    let mut data = vec![tag::REGISTER_SPEND];
+    data.extend_from_slice(
+        &wincode::serialize(&RegisterSpendIxData {
+            blinding: [0u8; 32],
+            private_tx_blinding: [0u8; 32],
+            nullifier_tree_root_index: 0,
+            utxo_tree_root_index: 0,
+            proof: TransactProof::zeroed(),
+        })
+        .expect("register_spend data"),
+    );
+    Fixture::new(data, entry_mutation_slots(policy_config, payer))
 }
 
 /// An initialized policy-ring config as this program would have written it.

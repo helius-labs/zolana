@@ -55,6 +55,8 @@ pub struct CustomRingTransact {
     /// History entries a policy statement binds, unread by a ring without rules.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    /// The dual control bit the velocity statement proves, the co-signer then signs.
+    pub approval_required: bool,
 }
 
 impl CustomRingTransact {
@@ -72,6 +74,7 @@ impl CustomRingTransact {
             transact,
             state_root_index,
             nullifier_root_index,
+            approval_required,
         } = self;
 
         let windows: Vec<AccountMeta> = window_metas(
@@ -90,7 +93,15 @@ impl CustomRingTransact {
         };
         // `.instruction()` (not `.cpi_instruction()`) is the client-facing form:
         // it targets a ring program and leaves `ring_config` unsigned.
-        let spp_accounts = ring.instruction().accounts;
+        let mut spp_accounts = ring.instruction().accounts;
+        // The program raises the namespace PDA as a signer inside its CPI.
+        let namespace = deployment.namespace_pda();
+        for meta in spp_accounts
+            .iter_mut()
+            .filter(|meta| meta.pubkey == namespace)
+        {
+            meta.is_signer = false;
+        }
         let transact = ring.data;
 
         let mut accounts = Vec::with_capacity(6 + spp_accounts.len());
@@ -113,6 +124,7 @@ impl CustomRingTransact {
             proof,
             state_root_index,
             nullifier_root_index,
+            approval_required: u8::from(approval_required),
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

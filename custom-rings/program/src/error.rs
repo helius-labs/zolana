@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8154 range is reserved for the ring program and is collision-free
+/// The 8100..8159 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -117,6 +117,16 @@ pub enum CustomRingError {
     DelegateAlreadySet = 8153,
     #[error("delegate account is invalid")]
     InvalidDelegate = 8154,
+    #[error("a velocity transfer settles no deposit leg")]
+    VelocityDepositLeg = 8155,
+    #[error("the spend record output does not match its plaintext")]
+    InvalidSpendRecord = 8156,
+    #[error("the delegate rail is closed on a velocity ring")]
+    DelegateOnVelocityRing = 8157,
+    #[error("dual control needs a configured co-signer")]
+    ApprovalWithoutCoSigner = 8158,
+    #[error("the ring has no velocity window")]
+    VelocityDisabled = 8159,
 }
 
 impl From<CustomRingError> for ProgramError {

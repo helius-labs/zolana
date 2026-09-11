@@ -60,10 +60,25 @@ pub(crate) fn require_cosigner(
     if !in_scope {
         return Ok(());
     }
+    check_signature(signer, &cosigner.signer)
+}
+
+/// The approval bit demands the co-signer whatever its scope.
+pub(crate) fn require_approval(
+    program_id: &Address,
+    cosigner_account: &AccountView,
+    signer: &AccountView,
+) -> Result<(), ProgramError> {
+    let cosigner = load_cosigner(program_id, cosigner_account)?
+        .ok_or(CustomRingError::ApprovalWithoutCoSigner)?;
+    check_signature(signer, &cosigner.signer)
+}
+
+fn check_signature(signer: &AccountView, cosigner: &Address) -> Result<(), ProgramError> {
     if !signer.is_signer() {
         return Err(CustomRingError::MissingCoSigner.into());
     }
-    if signer.address() != &cosigner.signer {
+    if signer.address() != cosigner {
         return Err(CustomRingError::UnauthorizedCoSigner.into());
     }
     Ok(())

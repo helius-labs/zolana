@@ -13,14 +13,15 @@ pub mod state;
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use instruction::{
     tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,
-    PolicyTableIxData, ReaderIxData, SetCoSignerIxData, SetPausedIxData, SetPolicySourceIxData,
-    SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, WithdrawalThresholdIxData,
-    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+    PolicyTableIxData, ReaderIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,
+    SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, VelocityRowIxData,
+    WithdrawalThresholdIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
-    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
-    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_COMPUTE_UNIT_LIMIT, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
+    SET_DELEGATE_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
 };
 pub use policy_public_input::CustomRingPolicyPublicInput;
 pub use state::{

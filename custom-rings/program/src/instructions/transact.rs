@@ -2,7 +2,12 @@ use custom_ring_interface::{
     CustomRingBasePublicInput, CustomRingPolicyPublicInput, CustomRingTransactIxData,
     AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{
+    address::address_eq,
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, Address, ProgramResult,
+};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
@@ -10,12 +15,14 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
+use zolana_ring_policy::{ring_id_field, ListNamespace};
 
 use crate::{
     error::CustomRingError,
     instructions::{
-        cosign::{require_cosigner, Demand},
+        cosign::{require_approval, require_cosigner, Demand},
         loader::{load_config, load_policy_config, validate_spp_program},
+        policy_shared::{namespace_address, verify_spend_record_output},
         public_legs::{apply_spend_windows, PublicLegs},
         roots::load_roots,
         shared::cpi_spp_signed,
@@ -27,14 +34,15 @@ use crate::{
 /// `RING_TRANSACT` with the `ring_auth` PDA as signer.
 ///
 /// The config `has_policy` flag pins the tier and no client input can override
-/// it. A policy ring verifies the folded eleven-element statement over the
-/// pinned policy hash and the entries-tree roots, its accounts
+/// it. A policy ring verifies the folded sixteen-element statement over the
+/// pinned policy hash, the entries-tree roots and the spend window, its accounts
 /// `[payer(w,s), config, cosigner_pda, cosigner, policy_config, entries_tree(r)]`
 /// precede one spend window slot per public leg and the SPP list. A base ring
 /// verifies just the eight-element audit statement against the base verifying
 /// key, its accounts are `[payer(w,s), config, cosigner_pda, cosigner]`. Only
 /// the SPP `RING_TRANSACT` list is forwarded, position for position, with
-/// `ring_config` gaining a signature.
+/// `ring_config` gaining a signature and, on a velocity ring, the namespace
+/// PDA owning the record slots.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -104,8 +112,14 @@ pub(crate) fn verify_and_forward(
         proof,
         state_root_index,
         nullifier_root_index,
+        approval_required,
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let approval_required = match approval_required {
+        0 => false,
+        1 => true,
+        _ => return Err(CustomRingError::InvalidInstructionData.into()),
+    };
     if rail == Rail::Delegate && !transact.interface_transfers.is_empty() {
         return Err(CustomRingError::DelegatePublicLeg.into());
     }
@@ -116,13 +130,23 @@ pub(crate) fn verify_and_forward(
         let config = load_config(program_id, config_account)?;
         (config.auditor_pubkey, config.has_policy)
     };
-    let policy_accounts = if has_policy != 0 {
+    let policy = if has_policy != 0 {
         let policy_config_account = iter.next_account("policy_config")?;
         let entries_tree_account = iter.next_account("entries_tree")?;
-        Some((policy_config_account, entries_tree_account))
+        let binding = PolicyBinding::load(program_id, policy_config_account)?;
+        Some((binding, entries_tree_account))
     } else {
         None
     };
+    let velocity = policy
+        .as_ref()
+        .is_some_and(|(binding, _)| binding.window_slots != 0);
+    if velocity && rail == Rail::Delegate {
+        return Err(CustomRingError::DelegateOnVelocityRing.into());
+    }
+    if approval_required && !velocity {
+        return Err(CustomRingError::InvalidInstructionData.into());
+    }
 
     // The forwarded list is validated before the pairing so a malformed account
     // list costs no verification.
@@ -148,12 +172,21 @@ pub(crate) fn verify_and_forward(
         settlements,
     )?);
     require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
+    if velocity && demand.legs.has_deposits() {
+        return Err(CustomRingError::VelocityDepositLeg.into());
+    }
     apply_spend_windows(program_id, windows, &demand.legs)?;
 
     if !rail.accepts(transact.circuit) {
         return Err(CustomRingError::UnsupportedCircuit.into());
     }
-    if transact.outputs.iter().any(|output| {
+    // The last output of a velocity transfer is the plaintext record.
+    let money_outputs = match (velocity, transact.outputs.split_last()) {
+        (true, Some((_, money))) => money,
+        (true, None) => return Err(CustomRingError::InvalidSpendRecord.into()),
+        (false, _) => transact.outputs.as_slice(),
+    };
+    if money_outputs.iter().any(|output| {
         !output
             .data
             .as_deref()
@@ -182,21 +215,40 @@ pub(crate) fn verify_and_forward(
         commitment_pok: &proof.commitment_pok,
     };
 
-    match policy_accounts {
-        Some((policy_config_account, entries_tree_account)) => {
-            let (policy_hash, entries_tree, entries_tree_id) = {
-                let policy = load_policy_config(program_id, policy_config_account)?;
-                (
-                    policy.policy_hash,
-                    policy.entries_tree,
-                    policy.entries_tree_id(),
-                )
+    let namespace = match policy {
+        Some((binding, entries_tree_account)) => {
+            let namespace = if velocity {
+                let record = transact
+                    .outputs
+                    .last()
+                    .ok_or(CustomRingError::InvalidSpendRecord)?;
+                verify_spend_record_output(
+                    record,
+                    &ListNamespace {
+                        owner_hash: binding.namespace_owner_hash,
+                    },
+                    &namespace_address(program_id, binding.namespace_bump)?,
+                    binding.entries_tree_id,
+                )?;
+                require_entries_tree(spp_accounts, &binding.entries_tree)?;
+                if approval_required {
+                    require_approval(program_id, cosigner_account, cosigner)?;
+                }
+                Some(binding.namespace_bump)
+            } else {
+                None
             };
+            let window_index = match binding.window_slots {
+                0 => 0,
+                window_slots => Clock::get()?.slot / window_slots,
+            };
+            let ring_id =
+                ring_id_field(program_id.as_array()).map_err(|_| CustomRingError::HashingFailed)?;
             // The borrow drops before the CPI below, else SPP faults borrowing the
             // aliased money tree.
             let roots = load_roots(
                 entries_tree_account,
-                &entries_tree,
+                &binding.entries_tree,
                 state_root_index,
                 nullifier_root_index,
             )?;
@@ -204,15 +256,20 @@ pub(crate) fn verify_and_forward(
                 compressed,
                 CustomRingPolicyPublicInput {
                     audit,
-                    policy_hash: &policy_hash,
+                    policy_hash: &binding.policy_hash,
                     state_root: &roots.state,
                     nullifier_root: &roots.nullifier,
-                    entries_tree_id,
+                    entries_tree_id: binding.entries_tree_id,
+                    ring_id: &ring_id,
+                    namespace_owner_hash: &binding.namespace_owner_hash,
+                    window_index,
+                    approval_required,
                 }
                 .hash()
                 .map_err(|_| CustomRingError::HashingFailed)?,
                 &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
             )?;
+            namespace
         }
         None => {
             verify_groth16(
@@ -220,8 +277,9 @@ pub(crate) fn verify_and_forward(
                 audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
                 &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
             )?;
+            None
         }
-    }
+    };
 
     // Reserialized from the parsed struct rather than sliced out of `data`: the
     // proof is verified against the parsed content, so the bytes SPP sees must be
@@ -232,7 +290,46 @@ pub(crate) fn verify_and_forward(
     let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
     instruction_data.push(rail.spp_tag());
     instruction_data.extend_from_slice(&transact_bytes);
-    cpi_spp_signed(program_id, spp_accounts, &instruction_data)
+    cpi_spp_signed(program_id, spp_accounts, &instruction_data, namespace)
+}
+
+/// Copied out of the policy config before the entries tree is borrowed.
+struct PolicyBinding {
+    policy_hash: [u8; 32],
+    entries_tree: Address,
+    entries_tree_id: u16,
+    namespace_owner_hash: [u8; 32],
+    namespace_bump: u8,
+    window_slots: u64,
+}
+
+impl PolicyBinding {
+    #[inline(never)]
+    fn load(program_id: &Address, account: &AccountView) -> Result<Self, ProgramError> {
+        let policy = load_policy_config(program_id, account)?;
+        Ok(Self {
+            policy_hash: policy.policy_hash,
+            entries_tree: policy.entries_tree,
+            entries_tree_id: policy.entries_tree_id(),
+            namespace_owner_hash: policy.namespace_owner_hash,
+            namespace_bump: policy.namespace_bump,
+            window_slots: policy.rules.window_slots(),
+        })
+    }
+}
+
+/// SPP reads its input and output trees at slots one and two.
+fn require_entries_tree(spp_accounts: &[AccountView], entries_tree: &Address) -> ProgramResult {
+    let trees = spp_accounts
+        .get(1..3)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if trees
+        .iter()
+        .any(|tree| !address_eq(tree.address(), entries_tree))
+    {
+        return Err(CustomRingError::InvalidPolicyTree.into());
+    }
+    Ok(())
 }
 
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out

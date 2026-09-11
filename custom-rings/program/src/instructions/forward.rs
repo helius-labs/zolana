@@ -55,5 +55,5 @@ pub fn process_spp_forward_ix(
     };
     require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
     apply_spend_windows(program_id, windows, &demand.legs)?;
-    cpi_spp_signed(program_id, spp_accounts, data)
+    cpi_spp_signed(program_id, spp_accounts, data, None)
 }

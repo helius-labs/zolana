@@ -19,9 +19,13 @@ use zolana_transaction::{
     ShieldedTransaction,
 };
 
+use zolana_event::MessageData;
+use zolana_ring_policy::SpendRecord;
+
 use crate::{
+    counters::{decrypt_counters, find_counters_message},
     error::AuditError,
-    types::{AuditedOutput, AuditedTransaction},
+    types::{AuditedOutput, AuditedSpendRecord, AuditedTransaction},
 };
 
 #[must_use]
@@ -52,21 +56,33 @@ impl TransactionAudit<'_> {
         }
 
         let mut outputs = Vec::new();
+        let mut spend_records = Vec::new();
         let mut undecryptable_slots = Vec::new();
         for (position, slot) in self.transaction.output_slots.iter().enumerate() {
             let slot_index =
                 u32::try_from(position).map_err(|_| AuditError::SlotIndexOverflow(position))?;
-            match (OutputAudit {
+            let opened = OutputAudit {
                 tx_key: &tx_key,
                 slot,
                 salt,
                 slot_index,
                 assets: self.assets,
-            })
-            .run()?
-            {
-                Some(output) => outputs.push(output),
-                None => undecryptable_slots.push(slot_index),
+            }
+            .run()?;
+            match (opened, spend_record(slot)) {
+                (Some(output), _) => outputs.push(output),
+                (None, Some(record)) => spend_records.push(AuditedSpendRecord {
+                    slot_index,
+                    counters: opened_counters(
+                        &tx_key,
+                        salt,
+                        &self.transaction.messages,
+                        slot,
+                        &record,
+                    ),
+                    record,
+                }),
+                (None, None) => undecryptable_slots.push(slot_index),
             }
         }
 
@@ -75,6 +91,7 @@ impl TransactionAudit<'_> {
             slot: self.transaction.slot,
             tx_viewing_pk,
             outputs,
+            spend_records,
             undecryptable_slots,
         })
     }
@@ -168,6 +185,25 @@ impl OutputAudit<'_> {
             ring_program_id: plaintext.ring_program_id,
         }))
     }
+}
+
+fn spend_record(slot: &OutputSlot) -> Option<SpendRecord> {
+    let OutputDataEncoding::Plaintext(content) = slot.output_data()? else {
+        return None;
+    };
+    SpendRecord::from_record_bytes(&content)
+}
+
+fn opened_counters(
+    tx_key: &ViewingKey,
+    salt: [u8; SALT_LEN],
+    messages: &[MessageData],
+    slot: &OutputSlot,
+    record: &SpendRecord,
+) -> Option<zolana_ring_policy::SpendCounters> {
+    let message = find_counters_message(messages, &slot.view_tag)?;
+    let counters = decrypt_counters(tx_key, &message.data, salt).ok()?;
+    (counters.commitment().ok()? == record.counters_commitment).then_some(counters)
 }
 
 /// Reduces the recovered 32 bytes modulo the P-256 group order `n`.

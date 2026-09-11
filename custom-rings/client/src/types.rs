@@ -7,6 +7,7 @@ use solana_signature::Signature;
 use std::fmt;
 use zeroize::Zeroizing;
 use zolana_keypair::P256Pubkey;
+use zolana_ring_policy::{SpendCounters, SpendRecord};
 
 #[derive(PartialEq, Eq)]
 /// One output slot the auditor opened with the recovered transaction viewing
@@ -51,10 +52,21 @@ pub struct AuditedTransaction {
     /// auditor message.
     pub tx_viewing_pk: P256Pubkey,
     pub outputs: Vec<AuditedOutput>,
+    /// The sender's spend record a velocity transfer publishes in the clear.
+    pub spend_records: Vec<AuditedSpendRecord>,
     /// Positions of output slots this audit could not open as a confidential
     /// plaintext: dummy slots (random bytes by construction), slots published
     /// under another encryption scheme, and slots encrypted to a different
     /// transaction key. They are reported rather than fatal because every real
     /// transfer pads its output list with dummies.
     pub undecryptable_slots: Vec<u32>,
+}
+
+/// A plaintext record slot and the counters published under the transaction key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AuditedSpendRecord {
+    pub slot_index: u32,
+    pub record: SpendRecord,
+    /// `None` when no message under the record's tag opens to its commitment.
+    pub counters: Option<SpendCounters>,
 }

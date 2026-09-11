@@ -666,6 +666,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
         proof,
         state_root_index: 0,
         nullifier_root_index: 0,
+        approval_required: false,
         transact: transact.clone(),
     }
     .instruction()
@@ -702,6 +703,7 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             proof,
             state_root_index: 0,
             nullifier_root_index: 0,
+            approval_required: 0,
             transact,
         }
     );
@@ -724,6 +726,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
         proof: sample_proof(),
         state_root_index: 0,
         nullifier_root_index: 0,
+        approval_required: false,
         transact: transact_data(Vec::new()),
     }
     .instruction()
@@ -770,6 +773,7 @@ fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
         proof: sample_proof(),
         state_root_index: 0,
         nullifier_root_index: 0,
+        approval_required: false,
         transact,
     }
     .instruction()
@@ -810,6 +814,7 @@ fn custom_ring_transact_forwards_settlement_accounts() {
         proof: sample_proof(),
         state_root_index: 0,
         nullifier_root_index: 0,
+        approval_required: false,
         transact: transact_data(vec![InterfaceTransfer::SolWithdrawal { amount: 5 }]),
     }
     .instruction()
@@ -932,6 +937,8 @@ fn create_policy_pins_the_rows_with_one_source_per_referenced_list() {
             rules: encoded.rules[..3].to_vec(),
             inline_assets: vec![ASSET],
             inline_limits: vec![0],
+            window_slots: 0,
+            velocity: Vec::new(),
         }
     );
     // The group row carries its absent alternative at byte 19.
@@ -1275,6 +1282,7 @@ fn the_cosigner_slot_signs_only_when_set() {
             transact: transact_data(Vec::new()),
             state_root_index: 0,
             nullifier_root_index: 0,
+            approval_required: false,
         }
         .instruction()
         .expect("instruction")

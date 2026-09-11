@@ -33,6 +33,16 @@ pub enum EntryError {
     TransactionTooLarge { bytes: usize, limit: usize },
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
+    #[error(transparent)]
+    AccountRead(#[from] crate::AccountReadError),
+    #[error(transparent)]
+    PolicyMatch(#[from] crate::PolicyMatchError),
+    #[error("the ring has no policy config")]
+    MissingPolicyConfig,
+    #[error("the ring has no velocity window")]
+    VelocityDisabled,
+    #[error("the member already registered a spend record")]
+    SpendRecordExists,
 }
 
 /// Pins the table and its source map, signed by the upgrade authority.

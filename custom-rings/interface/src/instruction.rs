@@ -31,6 +31,7 @@ pub mod tag {
     pub const SET_DELEGATE: u8 = 24;
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     pub const DELEGATE_TRANSACT: u8 = 25;
+    pub const REGISTER_SPEND: u8 = 26;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -107,6 +108,8 @@ pub struct CustomRingTransactIxData {
     pub proof: CustomRingProof,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    /// The dual control bit the policy statement binds, zero without velocity.
+    pub approval_required: u8,
     pub transact: TransactIxData,
 }
 
@@ -124,7 +127,15 @@ pub struct SourceSpec {
     pub source: u8,
 }
 
-/// One source per list the rules reference.
+/// One velocity mint, zero leaves a bound off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct VelocityRowIxData {
+    pub asset: [u8; 32],
+    pub cap: u64,
+    pub cosign_above: u64,
+}
+
+/// One source per list the rules reference, a zero `window_slots` carries no velocity rows.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct PolicyTableIxData {
     #[wincode(with = "containers::Vec<SourceSpec, FixIntLen<u8>>")]
@@ -135,6 +146,22 @@ pub struct PolicyTableIxData {
     pub inline_assets: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u64, FixIntLen<u8>>")]
     pub inline_limits: Vec<u64>,
+    pub window_slots: u64,
+    #[wincode(with = "containers::Vec<VelocityRowIxData, FixIntLen<u8>>")]
+    pub velocity: Vec<VelocityRowIxData>,
+}
+
+pub const REGISTER_SPEND_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
+
+/// The payer is the member, the program derives the record content.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct RegisterSpendIxData {
+    /// The SPP output blinding, the proof fails unless it is the derived one.
+    pub blinding: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
+    pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
 }
 
 /// One hash over the stored rows plus one curator verification.

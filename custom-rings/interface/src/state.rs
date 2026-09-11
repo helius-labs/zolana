@@ -220,6 +220,8 @@ pub struct PolicyConfig {
     pub entries_tree_id: [u8; 2],
     pub namespace_bump: u8,
     pub bump: u8,
+    /// The shielded owner of every record the ring's namespace holds.
+    pub namespace_owner_hash: [u8; 32],
     /// Non-empty exactly for the lists `rules` references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
     pub rules: EncodedRuleTable,
@@ -258,8 +260,8 @@ impl PolicyConfig {
 }
 
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 1179);
+const _: () = assert!(PolicyConfig::SIZE == 1604);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 333);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1167);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1171);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 365);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1592);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1596);

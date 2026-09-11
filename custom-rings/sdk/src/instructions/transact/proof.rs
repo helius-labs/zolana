@@ -169,6 +169,10 @@ impl PendingCustomRingProof {
             state_root: &witness.roots.state,
             nullifier_root: &witness.roots.nullifier,
             entries_tree_id: witness.entries_tree_id,
+            ring_id: &witness.velocity.ring_id,
+            namespace_owner_hash: &witness.velocity.namespace_owner_hash,
+            window_index: witness.velocity.window_index,
+            approval_required: witness.velocity.approval_required,
         }
         .hash()
         .map_err(|_| CustomRingProofInputError::Hashing)?;
@@ -202,6 +206,7 @@ impl PendingCustomRingProof {
                 state_root: witness.roots.state,
                 nullifier_root: witness.roots.nullifier,
                 entries_tree_id: witness.entries_tree_id,
+                velocity: witness.velocity,
                 answers: witness.answers,
             },
         )
@@ -259,7 +264,7 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CustomRingOpening, SourceOwnerEntry};
+    use super::super::{CustomRingOpening, SourceOwnerEntry, VelocityWitness};
     use super::*;
     use crate::witness::{CustomRingWitness, TransactRoots};
     use custom_ring_interface::CustomRingPolicyPublicInput;
@@ -298,6 +303,7 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
+            velocity: VelocityWitness::off([10u8; 32], [11u8; 32]),
             answers: Vec::new(),
         }
     }
@@ -346,6 +352,10 @@ mod tests {
             state_root: &state,
             nullifier_root: &nullifier,
             entries_tree_id: 0,
+            ring_id: &[10u8; 32],
+            namespace_owner_hash: &[11u8; 32],
+            window_index: 0,
+            approval_required: false,
         }
         .hash()
         .expect("public input hash");
