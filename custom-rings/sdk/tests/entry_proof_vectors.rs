@@ -1,10 +1,10 @@
 //! Vectors shared with `sdk-libs/ts/test/ring-list-write.test.ts`.
 
 use zolana_client::{PublicInputs, PublicTransfers};
-use zolana_hasher::primitives::{right_align, solana_owner_identity};
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
     INPUT_TREES,
 };
 use zolana_ring_policy::{entry_nullifier, EntryState, ListEntry, ListId, ListNamespace, Member};
@@ -114,7 +114,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
         external_data_hash: &external,
         public_transfers: &PublicTransfers::default(),
         ring_program_id: &[0u8; 32],
-        allow_dummy_inputs: &right_align(&1u64.to_be_bytes()),
+        input_flags: &pack_input_flags(true, [0u8]).expect("input flags"),
         signer_pk_hashes: &[payer_hash, namespace_hash],
         output_owner_pk_hashes: Some(&[namespace_hash]),
     }

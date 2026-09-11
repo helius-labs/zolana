@@ -9,6 +9,7 @@ use solana_signer::Signer;
 use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
+    input_utxos,
     prover::{Delivery, ProveRequest},
     AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, Proof,
     ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
@@ -18,8 +19,8 @@ use zolana_client::{
 use zolana_interface::event::OutputDataEncoding;
 use zolana_interface::{
     instruction::{
-        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, InputUtxo,
-        RingAssetDeposit, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
+        tag::RING_TRANSACT, CircuitId, DepositAsset, DepositBuildError, RingAssetDeposit,
+        TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
     },
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -1049,14 +1050,7 @@ struct RingEddsaInstructionData<'a> {
 impl RingEddsaInstructionData<'_> {
     fn assemble(self) -> Result<TransactIxData, TransferError> {
         let n_inputs = self.proof_inputs.check_shape()?.n_inputs();
-        let inputs: Vec<InputUtxo> = self
-            .result
-            .nullifiers
-            .iter()
-            .map(|nullifier_hash| InputUtxo {
-                nullifier_hash: *nullifier_hash,
-            })
-            .collect();
+        let inputs = input_utxos(&self.result.nullifiers, &self.result.input_tree_indexes)?;
         if inputs.len() != n_inputs {
             return Err(TransferError::IncompleteInputSet);
         }
@@ -1072,8 +1066,7 @@ impl RingEddsaInstructionData<'_> {
                 N_PUBLIC_SLOTS as u8,
             ),
             inputs,
-            utxo_tree_root_index: self.result.utxo_tree_root_index,
-            nullifier_tree_root_index: self.result.nullifier_tree_root_index,
+            tree_contexts: self.result.tree_contexts.clone(),
             interface_transfers: external
                 .interface_transfers
                 .iter()

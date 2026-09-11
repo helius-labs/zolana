@@ -7,6 +7,9 @@ use p256::{
 };
 use solana_address::Address;
 use zolana_hasher::primitives::{hash_bytes, p256_owner_identity};
+use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
+};
 use zolana_keypair::{hash::sha256, Curve};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers},
@@ -20,9 +23,8 @@ use crate::{
         field::be,
         resolve_shape,
         transact::assembly::{
-            assemble_inputs, assemble_outputs, bool_field,
-            confidential_marked_output_owner_pk_hashes, validate_output_blindings, OwnerMode,
-            PublicInputs, TransferSpendInput,
+            assemble_inputs, assemble_outputs, confidential_marked_output_owner_pk_hashes,
+            validate_output_blindings, OwnerMode, PublicInputs, TransferSpendInput,
         },
         Shape, TransferP256Inputs, TreeSlotFields,
     },
@@ -52,10 +54,11 @@ pub struct RingTransferP256ProofResult {
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
-    /// Index into `input_tree`'s UTXO root cache, shared by every input.
-    pub utxo_tree_root_index: u16,
-    /// Index into `input_tree`'s nullifier root cache, shared by every input.
-    pub nullifier_tree_root_index: u16,
+    /// One root-index pair per input tree, in the order the tree accounts are
+    /// passed. An input selects its pair with its `tree_index`.
+    pub tree_contexts: Vec<TreeContext>,
+    /// Each input's index into `tree_contexts`, parallel to `nullifiers`.
+    pub input_tree_indexes: Vec<u8>,
     /// Raw P256 x-coordinate carried in `CircuitId::RingP256` when the shared
     /// owner spends a default-ring UTXO. Address slots never set it.
     pub default_owner_tag: Option<[u8; 32]>,
@@ -72,6 +75,10 @@ impl RingTransferP256Prover {
         }
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingP256)?;
+        let input_flags = pack_input_flags(
+            self.allow_dummy_inputs,
+            assembled_inputs.input_tree_indexes.iter().copied(),
+        )?;
         let first_nullifier = assembled_inputs
             .nullifiers
             .first()
@@ -132,7 +139,7 @@ impl RingTransferP256Prover {
             external_data_hash: &external_data_hash,
             public_transfers: &self.public_transfers,
             ring_program_id: &ring_program_id,
-            allow_dummy_inputs: &bool_field(self.allow_dummy_inputs),
+            input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&published_output_owner_pk_hashes),
         }
@@ -157,7 +164,7 @@ impl RingTransferP256Prover {
             public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
             ring_program_id: be(&ring_program_id),
             signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
-            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: published_output_owner_pk_hashes
                 .iter()
                 .map(be)
@@ -171,8 +178,8 @@ impl RingTransferP256Prover {
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
-            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
-            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
+            tree_contexts: assembled_inputs.tree_contexts,
+            input_tree_indexes: assembled_inputs.input_tree_indexes,
             default_owner_tag,
         })
     }

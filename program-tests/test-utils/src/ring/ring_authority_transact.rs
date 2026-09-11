@@ -6,14 +6,13 @@ use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ProverClient, PublicTransfers, RingAuthorityProver, Shape, SpendProof, TransferSpendInput,
+    input_utxos, ProverClient, PublicTransfers, RingAuthorityProver, Shape, SpendProof,
+    TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
-        },
+        instruction_data::transact::{CircuitId, OwnerTag, TransactOutput, TransactProof},
         tag::RING_AUTHORITY_TRANSACT,
         RingAuthorityTransact, TransactIxData,
     },
@@ -295,14 +294,10 @@ impl RingHarness {
         // root indices are computed once and shared with the proof, so the witness and
         // the instruction commit to identical values. The authority rail carries no
         // per-input signer: the `ring_config` PDA signs on-chain instead.
-        let nullifier_hash = *result
-            .nullifiers
-            .first()
-            .ok_or_else(|| anyhow!("ring-authority witness produced no nullifier"))?;
-        let inputs = vec![InputUtxo {
-            nullifier_hash,
-            tree_index: 0,
-        }];
+        if result.nullifiers.is_empty() {
+            return Err(anyhow!("ring-authority witness produced no nullifier"));
+        }
+        let inputs = input_utxos(&result.nullifiers, &result.input_tree_indexes)?;
 
         let ix_data = TransactIxData {
             proof: pack_transact_proof(&proof)?,
@@ -314,10 +309,7 @@ impl RingHarness {
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
             inputs,
-            tree_contexts: vec![TreeContext {
-                utxo_tree_root_index: result.utxo_tree_root_index,
-                nullifier_tree_root_index: result.nullifier_tree_root_index,
-            }],
+            tree_contexts: result.tree_contexts.clone(),
             interface_transfers: external_data
                 .interface_transfers
                 .iter()

@@ -9,7 +9,7 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
+    input_utxos, ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
     RingTransferProver, Shape, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
 };
 use zolana_interface::{
@@ -558,12 +558,9 @@ impl RingHarness {
                     // zeroed one is rejected at the encoding check.
                     assemble_ix_data(
                         proof_inputs,
-                        &result.nullifiers,
+                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                         result.private_tx_hash,
-                        (
-                            result.utxo_tree_root_index,
-                            result.nullifier_tree_root_index,
-                        ),
+                        result.tree_contexts.clone(),
                         RingRail::P256,
                         proof,
                         Some(Bsb22Commitment {
@@ -575,12 +572,9 @@ impl RingHarness {
                 } else {
                     assemble_ix_data(
                         proof_inputs,
-                        &result.nullifiers,
+                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                         result.private_tx_hash,
-                        (
-                            result.utxo_tree_root_index,
-                            result.nullifier_tree_root_index,
-                        ),
+                        result.tree_contexts.clone(),
                         RingRail::Eddsa,
                         proof,
                         None,
@@ -623,12 +617,9 @@ impl RingHarness {
                 };
                 assemble_ix_data(
                     proof_inputs,
-                    &result.nullifiers,
+                    input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                     result.private_tx_hash,
-                    (
-                        result.utxo_tree_root_index,
-                        result.nullifier_tree_root_index,
-                    ),
+                    result.tree_contexts.clone(),
                     wire_rail,
                     proof,
                     Some(commitment),
@@ -862,12 +853,9 @@ impl RingHarness {
         let result = prover.build()?;
         let data = assemble_ix_data(
             &proof_inputs,
-            &result.nullifiers,
+            input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
             result.private_tx_hash,
-            (
-                result.utxo_tree_root_index,
-                result.nullifier_tree_root_index,
-            ),
+            result.tree_contexts.clone(),
             RingRail::Eddsa,
             TransactProof::zeroed(),
             None,
@@ -1144,30 +1132,21 @@ impl RingHarness {
 #[allow(clippy::too_many_arguments)]
 fn assemble_ix_data(
     proof_inputs: &SppProofInputs,
-    nullifiers: &[[u8; 32]],
+    inputs: Vec<InputUtxo>,
     private_tx_hash: [u8; 32],
-    root_indices: (u16, u16),
+    tree_contexts: Vec<TreeContext>,
     rail: RingRail,
     proof: TransactProof,
     commitment: Option<Bsb22Commitment>,
     default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    if nullifiers.len() != n_inputs {
+    if inputs.len() != n_inputs {
         return Err(anyhow!(
             "witness input count {} does not match shape {n_inputs}",
-            nullifiers.len()
+            inputs.len()
         ));
     }
-
-    let (utxo_tree_root_index, nullifier_tree_root_index) = root_indices;
-    let inputs: Vec<InputUtxo> = nullifiers
-        .iter()
-        .map(|nullifier_hash| InputUtxo {
-            nullifier_hash: *nullifier_hash,
-            tree_index: 0,
-        })
-        .collect();
 
     let external = &proof_inputs.external_data;
     let n_outputs = external.outputs.len() as u8;
@@ -1191,10 +1170,7 @@ fn assemble_ix_data(
         private_tx_hash,
         circuit,
         inputs,
-        tree_contexts: vec![TreeContext {
-            utxo_tree_root_index,
-            nullifier_tree_root_index,
-        }],
+        tree_contexts,
         interface_transfers: external
             .interface_transfers
             .iter()

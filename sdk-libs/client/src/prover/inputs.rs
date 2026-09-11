@@ -57,8 +57,8 @@ pub struct TransferInput {
 
 impl TransferInput {
     /// Padding input over the sender's chosen random `blinding` (secret 0). It
-    /// sits in tree slot 0 and is hashed under the input tree's `tree_id`; the
-    /// caller supplies the owner hash. The circuit skips ownership and state
+    /// is hashed under `tree_id`, the tree it was assigned; the caller supplies
+    /// the owner hash and the tree slot. The circuit skips ownership and state
     /// inclusion for it but still checks nullifier non-inclusion, so the
     /// nullifier returned here must be the one the caller fetched a
     /// non-inclusion witness for.
@@ -181,7 +181,9 @@ pub struct TransferInputs {
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub ring_program_id: BigUint,
     pub signer_pk_hashes: Vec<BigUint>,
-    pub allow_dummy_inputs: BigUint,
+    /// The dummy-input policy packed with every input's tree index, from
+    /// `zolana_interface::tree_slot::pack_input_flags`.
+    pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
     pub public_input_hash: BigUint,
 }
@@ -217,7 +219,9 @@ pub struct TransferP256Inputs {
     pub public_amounts: [BigUint; N_PUBLIC_SLOTS],
     pub ring_program_id: BigUint,
     pub signer_pk_hashes: Vec<BigUint>,
-    pub allow_dummy_inputs: BigUint,
+    /// The dummy-input policy packed with every input's tree index, from
+    /// `zolana_interface::tree_slot::pack_input_flags`.
+    pub input_flags: BigUint,
     pub published_output_owner_pk_hashes: Vec<BigUint>,
     pub public_input_hash: BigUint,
 }

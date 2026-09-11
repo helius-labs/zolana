@@ -453,7 +453,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         ring_program_id: be(&zero),
         signer_pk_hashes,
-        allow_dummy_inputs: be(&fe(1)),
+        input_flags: be(&fe(1)),
         published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
@@ -864,7 +864,7 @@ pub fn build_spl_withdrawal(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_hashes),
     }

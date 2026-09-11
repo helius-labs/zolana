@@ -1,4 +1,7 @@
 use num_bigint::BigUint;
+use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
+};
 use zolana_transaction::{
     instructions::transact::{PrivateTxHash, PublicTransfers},
     utxo::{derive_output_blinding_seed, derive_private_tx_blinding},
@@ -41,10 +44,11 @@ pub struct TransferProofResult {
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
-    /// Index into `input_tree`'s UTXO root cache, shared by every input.
-    pub utxo_tree_root_index: u16,
-    /// Index into `input_tree`'s nullifier root cache, shared by every input.
-    pub nullifier_tree_root_index: u16,
+    /// One root-index pair per input tree, in the order the tree accounts are
+    /// passed. An input selects its pair with its `tree_index`.
+    pub tree_contexts: Vec<TreeContext>,
+    /// Each input's index into `tree_contexts`, parallel to `nullifiers`.
+    pub input_tree_indexes: Vec<u8>,
 }
 
 impl TransferProver {
@@ -57,6 +61,10 @@ impl TransferProver {
             });
         }
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::ConfidentialEddsa)?;
+        let input_flags = pack_input_flags(
+            self.allow_dummy_inputs,
+            assembled_inputs.input_tree_indexes.iter().copied(),
+        )?;
         let first_nullifier = assembled_inputs
             .nullifiers
             .first()
@@ -83,7 +91,7 @@ impl TransferProver {
             external_data_hash: &external_data_hash,
             public_transfers: &self.public_transfers,
             ring_program_id: &[0u8; 32],
-            allow_dummy_inputs: &super::assembly::bool_field(self.allow_dummy_inputs),
+            input_flags: &input_flags,
             signer_pk_hashes: &self.signer_pk_hashes,
             output_owner_pk_hashes: Some(&assembled_outputs.output_owner_pk_hashes),
         }
@@ -101,7 +109,7 @@ impl TransferProver {
             public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: self.signer_pk_hashes.iter().map(be).collect(),
-            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: assembled_outputs
                 .output_owner_pk_hashes
                 .iter()
@@ -116,8 +124,8 @@ impl TransferProver {
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
-            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
-            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
+            tree_contexts: assembled_inputs.tree_contexts,
+            input_tree_indexes: assembled_inputs.input_tree_indexes,
         })
     }
 }
