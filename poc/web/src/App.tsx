@@ -113,7 +113,7 @@ export function App(): React.ReactElement {
     await instance.start(() => new ProverWorker());
     wasmRef.current = instance;
     setActiveThreads(instance.threads);
-    append(instance.threads === 0 ? "Original Go prover ready" : `Mopro ready: ${String(instance.threads)} proving threads`);
+    append(instance.threads === 0 ? "Original Go prover ready" : `Mopro Arkworks ready: ${String(instance.threads)} proving threads`);
     return instance;
   }, [append, config, threads]);
 
@@ -253,7 +253,7 @@ export function App(): React.ReactElement {
 
   const busy = status === "starting" || status === "running";
   const loadSample = useCallback(async () => {
-    const response = await fetch("/fixtures/transfer-2x3.json");
+    const response = await fetch(`${import.meta.env.BASE_URL}fixtures/transfer-2x3.json`);
     if (!response.ok) throw new Error("Sample request is missing. Run the demo staging script.");
     const text = await response.text();
     JSON.parse(text);
@@ -304,8 +304,8 @@ export function App(): React.ReactElement {
       <header className="demo-header">
         <div className="eyebrow">ZOLANA / MOPRO</div>
         <h1>Prove it in your browser.</h1>
-        <p>A real Zolana confidential-transfer proof, generated locally with the new Mopro prover and verified by gnark.</p>
-        <div className="runtime-pill"><span className="dot" />{activeThreads === undefined ? "Ready to initialize" : activeThreads === 0 ? "Go fallback · 1 thread" : `Mopro · ${activeThreads} workers`} <span>·</span> {crossOriginIsolated ? "Cross-origin isolated" : "Isolation unavailable"}</div>
+        <p>A real Zolana confidential-transfer proof, generated locally with Mopro’s Arkworks accelerator and verified by gnark.</p>
+        <div className="runtime-pill"><span className="dot" />{activeThreads === undefined ? "Ready to initialize" : activeThreads === 0 ? "Go fallback · 1 thread" : `Mopro Arkworks · ${activeThreads} workers`} <span>·</span> {crossOriginIsolated ? "Cross-origin isolated" : "Isolation unavailable"}</div>
       </header>
 
       <section className="panel proof-panel" aria-label="Local proof playground">
@@ -439,7 +439,7 @@ export function App(): React.ReactElement {
           </label>
         </div>
         <p className="hint">
-          Mopro accelerates curve arithmetic and FFTs. Zolana keeps its existing witnesses, proof format and on-chain verification.
+          Mopro uses published Arkworks crates for curve arithmetic and FFTs. Go solves the witness. Zolana keeps its existing witnesses, proof format and on-chain verification.
         </p>
       </section>
 

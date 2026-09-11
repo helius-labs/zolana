@@ -29,9 +29,6 @@ type proofKernel interface {
 	commitment(index int, knowledge bool, values []fr.Element) (curve.G1Affine, error)
 	close()
 }
-type witnessKernel interface {
-	solveParts(witness []fr.Element) (kernelParts, bool, error)
-}
 
 func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, fullWitness witness.Witness, opts ...backend.ProverOption) (*native.Proof, error) {
 	opt, err := backend.NewProverConfig(opts...)
@@ -45,15 +42,6 @@ func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, 
 	commitmentInfo := r1cs.CommitmentInfo.(constraint.Groth16Commitments)
 
 	proof := &native.Proof{Commitments: make([]curve.G1Affine, len(commitmentInfo))}
-	if fast, ok := kernel.(witnessKernel); ok && len(commitmentInfo) == 0 && len(opt.SolverOpts) == 0 {
-		parts, used, err := fast.solveParts(fullWitness.Vector().(fr.Vector))
-		if err != nil {
-			return nil, fmt.Errorf("accelerated witness solving: %w", err)
-		}
-		if used {
-			return assembleAcceleratedProof(pk, proof, parts)
-		}
-	}
 
 	solverOpts := opt.SolverOpts[:len(opt.SolverOpts):len(opt.SolverOpts)]
 

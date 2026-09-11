@@ -1,6 +1,6 @@
 // Stage a built Mopro kernel and local test artifacts. No downloads or key setup.
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,11 @@ const publicDir = join(root, 'poc/web/public');
 const accelerator = join(resolve(bindings), 'gnark/accelerator');
 for (const file of ['gnark_kernel.js', 'gnark_kernel_bg.wasm', 'LICENSE-APACHE', 'LICENSE-MIT']) {
   if (!(await stat(join(accelerator, file))).isFile()) throw new Error(`Missing Mopro artifact: ${file}`);
+}
+
+const kernelSource = await readFile(join(accelerator, 'gnark_kernel.js'), 'utf8');
+if (kernelSource.includes('set_solver(') || !kernelSource.includes('parts(sa, sb, sk, a, b, c)')) {
+  throw new Error('This demo requires the Arkworks kernel from Mopro feat/gnark-web-arkworks');
 }
 
 const sample = await readFile(resolve(samplePath), 'utf8');
@@ -43,6 +48,7 @@ if (!available.some(({ name }) => name === 'transfer_confidential_2_3.key')) {
 await mkdir(join(publicDir, 'prover'), { recursive: true });
 await mkdir(join(publicDir, 'keys'), { recursive: true });
 await mkdir(join(publicDir, 'fixtures'), { recursive: true });
+await rm(join(publicDir, 'prover/accelerator'), { recursive: true, force: true });
 await cp(accelerator, join(publicDir, 'prover/accelerator'), { recursive: true });
 for (const { source, name } of available) await cp(source, join(publicDir, 'keys', name));
 await writeFile(join(publicDir, 'keys/manifest.json'), JSON.stringify(manifest, null, 2) + '\n');

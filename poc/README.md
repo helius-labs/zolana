@@ -5,9 +5,9 @@ Mopro's threaded Rust arithmetic kernel and Zolana's gnark witness builder.
 This branch starts from PR #187 (`17a420f4a92bfd894b34661f2b5842f6b2137289`).
 
 The Mopro prover source is in
-[`sergeytimoshin/mopro`, branch `feat/gnark-web`](https://github.com/sergeytimoshin/mopro/tree/feat/gnark-web).
+[`sergeytimoshin/mopro`, branch `feat/gnark-web-arkworks`](https://github.com/sergeytimoshin/mopro/tree/feat/gnark-web-arkworks).
 Follow that branch's
-[gnark web setup](https://github.com/sergeytimoshin/mopro/blob/feat/gnark-web/docs/docs/setup/web-wasm-setup.md#gnark-groth16-bn254)
+[gnark web setup](https://github.com/sergeytimoshin/mopro/blob/feat/gnark-web-arkworks/docs/docs/setup/web-wasm-setup.md#gnark-groth16-bn254)
 to produce `MoproWasmBindings`. Until the web build helper is released, install
 the CLI from that checkout and explicitly patch the generated app's `mopro-ffi`
 dependency to the same local checkout, as shown in the setup instructions.
@@ -22,7 +22,8 @@ experimental-accelerator = true
 
 Default Mopro builds omit the gnark accelerator.
 This demo adapts the Go bridge to
-Zolana's gnark 0.15 keys and reuses the built Rust kernel.
+Zolana's gnark 0.15 keys and reuses the built Rust kernel. Witness solving stays
+in Go; the accelerator uses published Arkworks 0.5 crates for FFTs and MSMs.
 
 ```
 poc/core     shared: shapes, benchmark model, wasm prover transport, flow driver
@@ -146,28 +147,22 @@ per-step timings, and **Export CSV** dumps them.
 `poc-keys` needs the keys present locally (`just build-prover-server` fetches
 them per `provingkeys/proving-keys.lock`).
 
-## Deployment baseline
+## AWS deployment
 
-This branch is configured and tested locally. PR #187's Fly image does not yet
-stage the new Mopro kernel or local sample; those artifacts must be added to its
-build before deploying this version. No hosted service was changed.
+The browser proof playground is hosted on private S3 behind CloudFront. The
+[deployment instructions](web/deploy/aws/README.md) build a versioned release
+with the Arkworks accelerator, matching Go runtime, pinned proving keys and a
+local test request. CloudFront supplies HTTPS and COOP/COEP headers for workers.
+The sample generates and verifies proofs locally without submitting transactions.
 
-```sh
-just poc-deploy           # fly deploy, app and region in poc/web/fly.toml
-```
+The hosted page opens on the devnet preset. Same-origin `/devnet/indexer` and
+`/devnet/prover` paths proxy the existing devnet services. Deploying this page
+does not deploy or update the validator, indexer, prover server or programs;
+full transaction flows still require a compatible stack and funded wallet.
+Service URLs remain editable in the advanced connection settings.
 
-The image builds the wasm prover and the page, and nginx proxies `/keys/` to
-the CloudFront folder the lockfile pins, so the keys stay same-origin without
-shipping them in the image, and `/devnet/indexer` and `/devnet/prover` to the
-devnet services, which speak plaintext HTTP an HTTPS page cannot call. The hosted
-page opens on the devnet preset. The three service URLs are editable and persist
-in the browser, so a tester points the flow at any stack they can reach. A
-non-loopback indexer or prover must be HTTPS, the SDK refuses plaintext otherwise.
-
-The flow pays from a funding wallet the page generates and keeps in browser
-storage. On a localnet it airdrops to itself. On devnet, send SOL to the address
-the page shows. Devnet currently runs the program from before the nullifier tree
-change, so the flow stops at the missing state tree until devnet is redeployed.
+The older Fly Dockerfile is retained but does not stage the Arkworks kernel or
+sample. Use the AWS release scripts for this version.
 
 ## Running the mobile app
 
