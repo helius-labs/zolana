@@ -27,14 +27,17 @@ fn set_authority_writes_the_new_authority() {
         .find(|(key, _)| key == &config_pda().0)
         .map(|(_, account)| account.clone())
         .expect("config in result");
-    let config = bytemuck::from_bytes::<RingProgramConfig>(&written.data);
-    assert_eq!(config.discriminator, RING_PROGRAM_CONFIG);
+    // Nothing after create_config writes the tier or the auditor.
     assert_eq!(
-        config.authority,
-        Address::new_from_array(new_authority().to_bytes())
+        bytemuck::from_bytes::<RingProgramConfig>(&written.data),
+        &RingProgramConfig {
+            discriminator: RING_PROGRAM_CONFIG,
+            authority: Address::new_from_array(new_authority().to_bytes()),
+            auditor_pubkey: auditor_pubkey(2),
+            bump: config_pda().1,
+            has_policy: 1,
+        }
     );
-    assert_eq!(config.auditor_pubkey, auditor_pubkey(2));
-    assert_eq!(config.bump, config_pda().1);
 }
 
 #[test]

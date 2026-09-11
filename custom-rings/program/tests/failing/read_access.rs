@@ -383,3 +383,11 @@ fn revoke_into_a_readonly_rent_recipient_is_rejected() {
         ProgramError::Custom(u32::from(AccountError::AccountNotMutable)),
     );
 }
+
+#[test]
+fn revoke_into_a_rent_recipient_at_the_lamport_ceiling_is_rejected() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = revoke_read_access_fixture(&reader());
+    fixture.set_account("rent_recipient", account(u64::MAX));
+    fixture.expect_err(&mollusk, ProgramError::ArithmeticOverflow);
+}

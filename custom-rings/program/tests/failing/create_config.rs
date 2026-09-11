@@ -8,9 +8,9 @@ use zolana_account_checks::AccountError;
 use zolana_test_utils::mollusk::expect_err_exact;
 
 use crate::common::{
-    account, auditor_pubkey, authority, config_pda, create_config_data, create_config_fixture,
-    create_config_fixture_deployed_by, initialized_config_account, program_data_account,
-    program_id, setup_mollusk,
+    account, auditor_pubkey, authority, config_pda, create_config_data,
+    create_config_data_with_tier, create_config_fixture, create_config_fixture_deployed_by,
+    initialized_config_account, program_data_account, program_id, setup_mollusk,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -247,4 +247,38 @@ fn a_program_account_without_program_state_is_rejected_exactly() {
     let mut fixture = create_config_fixture(auditor_pubkey(2));
     fixture.set_account("program", program_data_account(Some(&authority())));
     fixture.expect_err(&mollusk, custom(CustomRingError::UnauthorizedInitializer));
+}
+
+#[test]
+fn a_tier_above_one_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(2));
+    *fixture.data_mut() = create_config_data_with_tier(auditor_pubkey(2), 2);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
+}
+
+#[test]
+fn create_config_stores_an_audit_only_tier() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_config_fixture(auditor_pubkey(2));
+    *fixture.data_mut() = create_config_data_with_tier(auditor_pubkey(2), 0);
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let (config, bump) = config_pda();
+    let written = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &config)
+        .map(|(_, account)| account.clone())
+        .expect("config account in result");
+    assert_eq!(
+        bytemuck::from_bytes::<RingProgramConfig>(&written.data),
+        &RingProgramConfig {
+            discriminator: RING_PROGRAM_CONFIG,
+            authority: pinocchio::Address::new_from_array(authority().to_bytes()),
+            auditor_pubkey: auditor_pubkey(2),
+            bump,
+            has_policy: 0,
+        }
+    );
 }
