@@ -33,8 +33,8 @@ use zolana_transaction::{
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
     localnet::{
-        send_transaction, send_transaction_fitting, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-        SPL_CHANGE_POSITION, ZERO,
+        send_transaction_v1, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION,
+        ZERO,
     },
     spl::create_token_account,
     test_validator_asserts::{
@@ -503,7 +503,12 @@ impl RingHarness {
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let instructions = [compute_budget, transfer_ix.clone()];
-        let signature = send_transaction_fitting(&mut self.rpc, &instructions, &fee_payer, &[])?;
+        let signature = send_transaction_v1(
+            &mut self.rpc,
+            &instructions,
+            &fee_payer.pubkey(),
+            &[&fee_payer],
+        )?;
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
         // indexed transaction by the sender's view tag instead.
@@ -876,7 +881,7 @@ impl RingHarness {
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
-        match send_transaction(
+        match send_transaction_v1(
             &mut self.rpc,
             &[compute_budget, transfer_ix],
             &fee_payer.pubkey(),
@@ -887,7 +892,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
@@ -960,7 +965,7 @@ impl RingHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                Rejection::pool(expected).at(1).assert_client(client_error);
+                Rejection::pool(expected).at(0).assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }
@@ -1116,7 +1121,7 @@ impl RingHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())

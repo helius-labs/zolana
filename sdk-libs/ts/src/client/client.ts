@@ -91,7 +91,21 @@ import {
   type SpendProof,
 } from "./rpc.js";
 
-const DEFAULT_TRANSACT_CU_LIMIT = 300_000;
+/**
+ * Compute-unit ceiling a private transaction is submitted with unless the
+ * caller overrides it, matching Rust's `DEFAULT_TRANSACT_CU_LIMIT`.
+ *
+ * It covers the widest supported shape on the most expensive rail: a 36-input
+ * P256 ring transact measures 390,450 CU in `CU_BENCHMARK.md`, the P256 rail
+ * paying for a BSB22 Pedersen proof-of-knowledge pairing the other rails do
+ * not. The headroom above that absorbs the nullifier PDAs' canonical bump
+ * search, which varies with tree state rather than with shape.
+ *
+ * Under transaction v1 this rides in the message header, and requested units
+ * rather than consumed ones set the priority fee, so a caller sending only
+ * small shapes should pass a lower `computeUnitLimit`.
+ */
+const DEFAULT_TRANSACT_CU_LIMIT = 450_000;
 const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
 export interface ZolanaClientConfig {

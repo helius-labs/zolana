@@ -297,7 +297,7 @@ impl SolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
             };
             match self.client.get_transaction_with_config(signature, config) {
                 Ok(transaction) => return Ok(transaction),
@@ -361,7 +361,7 @@ impl AsyncSolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
             };
             match self
                 .client

@@ -23,7 +23,7 @@ use zolana_transaction::{
 
 use super::{MergeRingRecord, RingHarness, SpendSlot, SECOND_RING_TEST_PROGRAM_ID};
 use crate::{
-    localnet::{pack_merge_proof, send_transaction, ZERO},
+    localnet::{pack_merge_proof, send_transaction_v1, ZERO},
     nullifier_pda::assert_nullifier_pdas,
     test_validator_asserts::{
         assert_account_unchanged, assert_merge_ring, fetch_account, wait_for_indexed_transaction,
@@ -337,7 +337,7 @@ impl RingHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let send_result = send_transaction(
+        let send_result = send_transaction_v1(
             &mut self.rpc,
             &[compute_budget, merge_ix.clone()],
             &payer.pubkey(),
@@ -351,10 +351,11 @@ impl RingHarness {
                     ))
                 }
                 Err(error) => {
-                    // The mismatched proof must fail in the SPP instruction
-                    // (index 1, after the compute-budget instruction).
+                    // The mismatched proof must fail in the SPP instruction, the
+                    // only one a v1 transaction carries: its compute ceilings
+                    // live in the message header.
                     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                        .at(1)
+                        .at(0)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                     self.actor_mut(name).spendable.extend(inputs);
@@ -397,8 +398,12 @@ impl RingHarness {
             // their post-success state, so capturing the post-success tree covers
             // every other non-fee-payer account a replay could mutate.
             let tree_after_success = fetch_account(&self.rpc, &self.tree)?;
+            // A budget one unit below the original keeps the replayed message
+            // distinct from the landed one, so the runtime reaches the program
+            // instead of dropping it as an already-processed signature. In a v1
+            // transaction that difference sits in the message header.
             let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
-            match send_transaction(
+            match send_transaction_v1(
                 &mut self.rpc,
                 &[replay_budget, merge_ix],
                 &payer.pubkey(),
@@ -406,11 +411,11 @@ impl RingHarness {
             ) {
                 Ok(_) => return Err(anyhow!("replayed ring merge unexpectedly succeeded")),
                 Err(error) => {
-                    // The replay must fail in the SPP instruction (index 1,
-                    // after the compute-budget instruction): every nullifier
-                    // already has an initialized nullifier PDA.
+                    // The replay must fail in the SPP instruction, the only one
+                    // the transaction carries: every nullifier already has an
+                    // initialized nullifier PDA.
                     Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued)
-                        .at(1)
+                        .at(0)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
                     assert_nullifier_pdas(&self.rpc, &self.tree, &input_nullifiers)?;
@@ -515,7 +520,7 @@ impl RingHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        match send_transaction(
+        match send_transaction_v1(
             &mut self.rpc,
             &[compute_budget, merge_ix],
             &payer.pubkey(),
@@ -526,7 +531,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())

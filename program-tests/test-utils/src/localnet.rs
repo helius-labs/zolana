@@ -1,21 +1,20 @@
 use anyhow::Result;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
 use solana_instruction::Instruction;
 use solana_keypair::{read_keypair_file, Keypair};
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
+use solana_message::{v1, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::versioned::VersionedTransaction;
 use std::{
     collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
-use zolana_client::{ClientError, Proof, ProofCompressed, Rpc, SolanaRpc};
+use zolana_client::{
+    transaction_size::v1_transaction_size, ClientError, Proof, ProofCompressed, Rpc, SolanaRpc,
+};
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 use zolana_user_registry_interface::user_registry_program_id;
@@ -38,101 +37,98 @@ pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
     Ok(ProofCompressed::try_from(*proof)?.to_merge_proof()?)
 }
 
-pub fn send_transaction(
+/// The largest budget the runtime grants a single transaction.
+pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+/// What the runtime grants per instruction when nothing asks for a budget.
+pub const DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION: u32 = 200_000;
+/// The v1 header has no implicit default: leaving this unset would load zero
+/// bytes of account data.
+pub const LOADED_ACCOUNTS_DATA_SIZE_LIMIT: u32 = 64 * 1024 * 1024;
+
+const COMPUTE_BUDGET_REQUEST_HEAP_FRAME: u8 = 1;
+const COMPUTE_BUDGET_SET_UNIT_LIMIT: u8 = 2;
+
+/// A v1 message carries its compute ceilings in the header, so a compute-budget
+/// instruction in the list would only spend bytes the wide shapes cannot spare.
+/// Lift what one carries into the config and drop it from the list. An unset
+/// config field means zero rather than a default, so both ceilings are always
+/// written; without an explicit limit the runtime's per-instruction default is
+/// reproduced so a send keeps the budget it had.
+#[track_caller]
+pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, v1::TransactionConfig) {
+    let mut compute_unit_limit = None;
+    let mut heap_size = None;
+    let mut kept: Vec<Instruction> = Vec::with_capacity(ixs.len());
+    for instruction in ixs {
+        if instruction.program_id != solana_compute_budget_interface::ID {
+            kept.push(instruction.clone());
+            continue;
+        }
+        let (discriminant, value) = instruction
+            .data
+            .split_first()
+            .expect("a compute-budget instruction carries a discriminant");
+        let value = value
+            .get(..4)
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes)
+            .expect("a compute-budget instruction carries a u32");
+        match *discriminant {
+            COMPUTE_BUDGET_SET_UNIT_LIMIT => compute_unit_limit = Some(value),
+            COMPUTE_BUDGET_REQUEST_HEAP_FRAME => heap_size = Some(value),
+            other => panic!("compute-budget instruction {other} has no v1 header field"),
+        }
+    }
+    let compute_unit_limit = compute_unit_limit.unwrap_or_else(|| {
+        u32::try_from(kept.len())
+            .ok()
+            .and_then(|count| count.checked_mul(DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION))
+            .unwrap_or(MAX_COMPUTE_UNIT_LIMIT)
+            .min(MAX_COMPUTE_UNIT_LIMIT)
+    });
+    let mut config = v1::TransactionConfig::empty()
+        .with_compute_unit_limit(compute_unit_limit)
+        .with_loaded_accounts_data_size_limit(LOADED_ACCOUNTS_DATA_SIZE_LIMIT);
+    if let Some(heap_size) = heap_size {
+        config = config.with_heap_size(heap_size);
+    }
+    (kept, config)
+}
+
+/// Send as a transaction **v1** message, the only format whose 4 KB limit fits a
+/// large transact shape.
+///
+/// Deliberately no address lookup table: v1 has none, and a large shape's
+/// instruction data alone exceeds the legacy 1232-byte limit, so a table would
+/// not have rescued it either.
+pub fn send_transaction_v1(
     rpc: &mut SolanaRpc,
     ixs: &[Instruction],
     payer: &Pubkey,
     signers: &[&Keypair],
 ) -> std::result::Result<Signature, ClientError> {
+    let (instructions, config) = split_compute_budget(ixs);
     let (blockhash, _) = rpc.get_latest_blockhash()?;
-    let message = Message::new(ixs, Some(payer));
-    let transaction = Transaction::new(signers, message, blockhash);
-    rpc.send_transaction(&transaction)
-}
-
-const SLOT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
-const PACKET_DATA_SIZE: usize = 1232;
-
-pub fn legacy_transaction_len(ixs: &[Instruction], payer: &Pubkey) -> usize {
-    let message = Message::new(ixs, Some(payer));
-    1 + 64 * usize::from(message.header.num_required_signatures) + message.serialize().len()
-}
-
-pub fn send_transaction_fitting(
-    rpc: &mut SolanaRpc,
-    ixs: &[Instruction],
-    payer: &Keypair,
-    signers: &[&Keypair],
-) -> std::result::Result<Signature, ClientError> {
-    if legacy_transaction_len(ixs, &payer.pubkey()) <= PACKET_DATA_SIZE {
-        let mut all_signers: Vec<&Keypair> = vec![payer];
-        all_signers.extend(signers.iter().copied());
-        return send_transaction(rpc, ixs, &payer.pubkey(), &all_signers);
-    }
-    send_transaction_with_lookup_table(rpc, ixs, payer, signers)
-}
-
-pub fn lookup_table_addresses(ixs: &[Instruction]) -> Vec<Pubkey> {
-    let mut addresses = Vec::new();
-    for address in ixs.iter().flat_map(|ix| {
-        ix.accounts
-            .iter()
-            .filter(|meta| !meta.is_signer)
-            .map(|meta| meta.pubkey)
-            .chain(std::iter::once(ix.program_id))
-    }) {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-    addresses
-}
-
-pub fn send_transaction_with_lookup_table(
-    rpc: &mut SolanaRpc,
-    ixs: &[Instruction],
-    payer: &Keypair,
-    signers: &[&Keypair],
-) -> std::result::Result<Signature, ClientError> {
-    let addresses = lookup_table_addresses(ixs);
-    let recent_slot = rpc.get_slot()?;
-    wait_past_slot(rpc, recent_slot)?;
-    let (create, table_address) = create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
-    let extend = extend_lookup_table(
-        table_address,
-        payer.pubkey(),
-        Some(payer.pubkey()),
-        addresses.clone(),
-    );
-    send_transaction(rpc, &[create, extend], &payer.pubkey(), &[payer])?;
-    let extended_slot = rpc.get_slot()?;
-    wait_past_slot(rpc, extended_slot)?;
-    let table = AddressLookupTableAccount {
-        key: table_address,
-        addresses,
-    };
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    let message = v0::Message::try_compile(
-        &payer.pubkey(),
-        ixs,
-        std::slice::from_ref(&table),
-        blockhash,
-    )
-    .map_err(|error| ClientError::Rpc(error.to_string()))?;
-    let mut all_signers: Vec<&dyn Signer> = vec![payer];
-    all_signers.extend(signers.iter().map(|signer| *signer as &dyn Signer));
-    let transaction = VersionedTransaction::try_new(VersionedMessage::V0(message), &all_signers)
+    let message = v1::Message::try_compile_with_config(payer, &instructions, blockhash, config)
+        .map_err(|error| ClientError::TransactionCompile(error.to_string()))?;
+    let signers: Vec<&dyn Signer> = signers
+        .iter()
+        .map(|signer| *signer as &dyn Signer)
+        .collect();
+    let transaction = VersionedTransaction::try_new(VersionedMessage::V1(message), &signers)
         .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
     rpc.process_versioned_transaction(transaction)
 }
 
-fn wait_past_slot(rpc: &SolanaRpc, slot: u64) -> std::result::Result<(), ClientError> {
-    loop {
-        if rpc.get_slot()? > slot {
-            return Ok(());
-        }
-        std::thread::sleep(SLOT_POLL_INTERVAL);
-    }
+/// Wire size of the v1 transaction [`send_transaction_v1`] would build, without
+/// the compute-budget instructions it lifts into the header.
+pub fn v1_transaction_len(
+    ixs: &[Instruction],
+    payer: &Pubkey,
+    signatures: usize,
+) -> std::result::Result<usize, ClientError> {
+    let (instructions, _) = split_compute_budget(ixs);
+    Ok(v1_transaction_size(payer, &instructions, signatures)?.bytes)
 }
 
 /// Normalized paths to build products and test data rooted at the workspace.
