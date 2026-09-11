@@ -165,7 +165,9 @@ hash into the public input chain.
 ## Roles
 
 The **upgrade authority** deploys the binary, pins the table at
-`create_policy` and replaces it with `set_policy_rules`. The **config
+`create_policy`, replaces it with `set_policy_rules` and sets the delegate
+once. The **delegate** moves notes between members over the authority rail
+and never withdraws. The **config
 authority** writes the authority-written lists, re-points sources, grants
 readers, sets or clears the co-signer and the spend windows, and pauses the
 ring. The **co-signer**

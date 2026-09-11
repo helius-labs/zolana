@@ -55,6 +55,18 @@ flags applies it, `cosigner clear` closes the account and a ring without one
 demands nothing. The transact, transfer and merge commands take
 `--cosigner-keypair`.
 
+A delegate is a Solana key the upgrade authority sets once with `zolana-ring
+delegate set` and no instruction replaces or removes. It moves notes between
+members over the shielded pool's authority rail, proving the same audit or
+policy statement a member's transfer proves, with the members' identities as
+the screened parties. The ring refuses a public leg on that rail, so a
+delegate never withdraws, and the shielded pool refuses the rail until
+governance enables it for the ring with `set_ring_activation`. The delegate
+must hold the nullifier key of every note it moves, a custodial ring
+provisions the members' keys to it. A transfer-scoped co-signer gates a
+delegate move like any transfer. A compromised delegate is contained by
+governance disabling the rail or the authority pausing the ring.
+
 A spend window caps what the ring settles publicly in one mint. `zolana-ring
 window set --mint sol --slots 216000 --withdrawal-cap 1000000000` counts every
 public deposit and withdrawal of the mint over fixed windows of that many

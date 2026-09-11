@@ -32,9 +32,11 @@ use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CON
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AsyncTransferProofEnvironment, ClearSpendWindow, CreateConfig, CustomRing,
-    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer,
-    RingDeposit, RingDepositReceipt, SendV0Error, SetAuthority, SetCoSigner, SetPaused,
-    SetSpendWindow, TransferError, TransferProofEnvironment, V0WithLookupTable, COSIGN_WITHDRAWALS,
+    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DelegateOutput,
+    DelegateTransfer, DelegateTransferInput, DepositError, ProvenDelegateTransfer, ProvenTransfer,
+    RingDeposit, RingDepositReceipt, SendV0Error, SetAuthority, SetCoSigner, SetDelegate,
+    SetPaused, SetSpendWindow, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    COSIGN_WITHDRAWALS,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -1715,6 +1717,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
         ring_program_id: Some(ring_program),
     };
+    let recipient_final_blinding = recipient_final_note.blinding;
     let withdrawal = RingTransfer {
         ring,
         sender,
@@ -1763,6 +1766,109 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
             (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
         ],
         "recipient wallet after the withdrawal"
+    );
+
+    // 7. The delegate re-owns the recipient's final note to the sender over the
+    //    authority rail, refused until governance enables the rail.
+    let delegate = Keypair::new();
+    send(
+        rpc,
+        &env.payer,
+        &[SetDelegate {
+            ring,
+            payer: env.payer.pubkey(),
+            authority: env.payer.pubkey(),
+            delegate: delegate.pubkey(),
+        }
+        .instruction()],
+    )?;
+    let tree_id = custom_ring_sdk::tree_id(rpc, env.tree)?;
+    let moved = || -> Result<ProvenDelegateTransfer> {
+        Ok(DelegateTransfer::new(DelegateTransferInput {
+            ring,
+            delegate: delegate.pubkey(),
+            payer: env.payer.pubkey(),
+            inputs: vec![Note {
+                owner: recipient,
+                asset: usdc,
+                amount: USDC_FINAL_SEND,
+                blinding: recipient_final_blinding,
+                ring_program_id: Some(ring_program),
+            }
+            .spend()
+            .in_tree(tree_id)],
+            outputs: vec![DelegateOutput {
+                recipient: sender_address,
+                asset: usdc,
+                amount: USDC_FINAL_SEND,
+            }],
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets)
+        .prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover: &prover,
+        })?)
+    };
+    match (V0WithLookupTable {
+        payer: &env.payer,
+        signers: &[&delegate],
+        instruction: moved()?.instruction()?,
+    })
+    .send(rpc)
+    {
+        Err(SendV0Error::Send(error)) => assert!(
+            format!("{error:?}").contains(&format!(
+                "Custom({})",
+                ShieldedPoolError::RingAuthorityTransactDisabled as u32
+            )),
+            "disabled rail refused for another reason {error:?}"
+        ),
+        Err(other) => return Err(anyhow!("disabled rail move failed to send {other}")),
+        Ok(signature) => return Err(anyhow!("disabled rail move {signature} landed")),
+    }
+    env.enable_authority_rail(ring)?;
+    let proven = moved()?;
+    let moved_note = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_FINAL_SEND,
+        blinding: proven.outputs[0].blinding,
+        ring_program_id: Some(ring_program),
+    };
+    let signature = V0WithLookupTable {
+        payer: &env.payer,
+        signers: &[&delegate],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![moved_note.audited(0)?],
+        "delegate move outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![
+            (usdc, USDC_EXIT_AMOUNT, None),
+            (usdc, USDC_HOP_AMOUNT, Some(ring_program)),
+            (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
+        ],
+        "recipient wallet after the delegate move"
     );
 
     Ok(())
