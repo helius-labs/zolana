@@ -21,7 +21,7 @@ use zolana_interface::{
     shape::Shape,
     tree_slot::{populated_tree_slots_hash_chain, tree_id_field, TreeSlot},
     verifying_keys::OutputOwnerMode,
-    MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, MAX_TRANSACT_INPUTS, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
 };
 
 use crate::instructions::{settlement::Settlement, verifier};
@@ -109,23 +109,24 @@ impl OwnerHashCache {
 const ASSIGNED_OUTPUT_OWNERS: u8 = 1 << 0;
 const ASSIGNED_OWNER_SIGNERS: u8 = 1 << 1;
 const ASSIGNED_PUBLIC_TRANSFERS: u8 = 1 << 2;
-const ASSIGNED_INPUT_TREE: u8 = 1 << 3;
+const ASSIGNED_INPUT_TREES: u8 = 1 << 3;
 const ASSIGNED_EXTERNAL_DATA: u8 = 1 << 4;
 const ASSIGNED_RING_PROGRAM: u8 = 1 << 5;
 const ASSIGNED_OUTPUT_TREE: u8 = 1 << 6;
 const ALL_ASSIGNMENTS: u8 = ASSIGNED_OUTPUT_OWNERS
     | ASSIGNED_OWNER_SIGNERS
     | ASSIGNED_PUBLIC_TRANSFERS
-    | ASSIGNED_INPUT_TREE
+    | ASSIGNED_INPUT_TREES
     | ASSIGNED_EXTERNAL_DATA
     | ASSIGNED_RING_PROGRAM
     | ASSIGNED_OUTPUT_TREE;
 
 #[derive(Debug)]
 pub struct TransactProofInputs {
-    /// Tree slot 0: `input_tree`'s id and the roots every input references.
-    /// The circuit's remaining `INPUT_TREES - 1` slots stay all zero.
-    pub tree_slot: TreeSlot,
+    /// One populated slot per declared input tree, in context order: the
+    /// tree's id and the roots its context resolved. The circuit's remaining
+    /// slots stay all zero.
+    pub tree_slots: RefArrayVec<TreeSlot, INPUT_TREES>,
     /// `tree_id_field` of the tree every output is appended to.
     pub output_tree_id: [u8; 32],
     pub signer_pk_hashes: [[u8; 32]; MAX_SIGNERS],
@@ -134,7 +135,9 @@ pub struct TransactProofInputs {
     pub public_slot_assets: [[u8; 32]; N_PUBLIC_SLOTS],
     pub public_slot_amounts: [i128; N_PUBLIC_SLOTS],
     pub ring_program_id: [u8; 32],
-    pub allow_dummy_inputs: [u8; 32],
+    /// The dummy-input policy in bit 0 and every input's tree index above it
+    /// (`zolana_interface::tree_slot::pack_input_flags`).
+    pub input_flags: [u8; 32],
     /// Number of unique entries at the head of `signer_pk_hashes` (payer
     /// first); the remaining slots are zero padding. Public only so the moved
     /// circuit-vector tests can pin the assembly; production code writes it
@@ -150,7 +153,7 @@ impl TransactProofInputs {
             assignments |= ASSIGNED_RING_PROGRAM;
         }
         Self {
-            tree_slot: TreeSlot::ZERO,
+            tree_slots: RefArrayVec::new(),
             output_tree_id: [0u8; 32],
             signer_pk_hashes: [[0u8; 32]; MAX_SIGNERS],
             output_owner_pk_hashes: [[0u8; 32]; MAX_OUTPUTS],
@@ -158,7 +161,7 @@ impl TransactProofInputs {
             public_slot_assets: [[0u8; 32]; N_PUBLIC_SLOTS],
             public_slot_amounts: [0i128; N_PUBLIC_SLOTS],
             ring_program_id: [0u8; 32],
-            allow_dummy_inputs: [0u8; 32],
+            input_flags: [0u8; 32],
             unique_owner_signer_count: 0,
             assignments,
         }
@@ -169,11 +172,15 @@ impl TransactProofInputs {
         self.assignments |= ASSIGNED_RING_PROGRAM;
     }
 
-    /// Assign `input_tree`'s slot and its dummy-input policy.
-    pub(crate) fn assign_input_tree(&mut self, tree_slot: TreeSlot, allow_dummy_inputs: [u8; 32]) {
-        self.tree_slot = tree_slot;
-        self.allow_dummy_inputs = allow_dummy_inputs;
-        self.assignments |= ASSIGNED_INPUT_TREE;
+    /// Assign the populated tree slots and the packed input flags.
+    pub(crate) fn assign_input_trees(
+        &mut self,
+        tree_slots: RefArrayVec<TreeSlot, INPUT_TREES>,
+        input_flags: [u8; 32],
+    ) {
+        self.tree_slots = tree_slots;
+        self.input_flags = input_flags;
+        self.assignments |= ASSIGNED_INPUT_TREES;
     }
 
     pub(crate) fn assign_output_tree_id(&mut self, tree_id: u16) {
@@ -437,12 +444,13 @@ impl<'a> TransactProof<'a> {
             create_hash_chain_4_from_slice_ref(utxo_hashes.as_slice())?
         };
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
-        // The circuit's `TreeSlotsHashChain` over `[slot0, 0, 0, 0, 0]`: one
-        // slot hash folded onto the precomputed four-slot zero suffix.
+        // The circuit's `TreeSlotsHashChain` over the populated slots followed
+        // by zeroed ones: each populated slot hash folded onto the precomputed
+        // zero suffix of the unused remainder.
         fields.extend_from_slice(&[
             nullifier_chain,
             output_chain,
-            populated_tree_slots_hash_chain(core::slice::from_ref(&self.derived.tree_slot))?,
+            populated_tree_slots_hash_chain(self.derived.tree_slots.as_slice())?,
             self.derived.output_tree_id,
             *self.ix.private_tx_hash,
         ]);
@@ -466,7 +474,7 @@ impl<'a> TransactProof<'a> {
         fields.extend_from_slice(&[
             self.derived.ring_program_id,
             fixed_signer_hash_chain(unique_signer_pk_hashes, signer_width)?,
-            self.derived.allow_dummy_inputs,
+            self.derived.input_flags,
         ]);
         if self.ix.circuit.output_owner_mode() != OutputOwnerMode::None {
             fields.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);

@@ -2,7 +2,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 
 use crate::{
-    instruction::{tag, InterfaceTransfer, TransactIxData},
+    instruction::{tag, InputUtxo, InterfaceTransfer, TransactIxData},
     pda, MAX_INTERFACE_TRANSFERS, PROGRAM_ID_PUBKEY, SHIELDED_POOL_CPI_AUTHORITY_PUBKEY,
     SOL_INTERFACE_PUBKEY,
 };
@@ -37,13 +37,15 @@ pub enum TransactInterfaceTransferAccounts {
 }
 
 /// Builder for the `transact` instruction. The account layout mirrors the
-/// program loader (`TransactAccounts::validate_and_parse`): `payer`,
-/// `input_tree`, `output_tree`, the SPP and System Program accounts, one
-/// writable nullifier PDA per input (in `inputs` order), owner signers, then
-/// the ordered interface-transfer account groups.
+/// program loader (`TransactAccounts::validate_and_parse`): `payer`, one input
+/// tree per declared tree context (in context order), `output_tree`, the SPP
+/// and System Program accounts, one writable nullifier PDA per input (in
+/// `inputs` order), owner signers, then the ordered interface-transfer account
+/// groups.
 pub struct Transact {
     pub payer: Pubkey,
-    pub input_tree: Pubkey,
+    /// One tree per `data.tree_contexts` entry, in the same order.
+    pub input_trees: Vec<Pubkey>,
     pub output_tree: Pubkey,
     pub owner_signers: Vec<Pubkey>,
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
@@ -108,7 +110,11 @@ pub(super) fn append_interface_transfer_accounts(
     }
 }
 
-/// One writable nullifier-PDA account per nullifier, preserving input order.
+/// One writable nullifier-PDA account per nullifier, all derived under one
+/// tree, preserving input order. Single-tree instructions (`merge_transact`,
+/// `merge_ring`, `close_nullifier_pdas`) use this directly; a `transact` uses
+/// [`transact_nullifier_pda_accounts`], which derives each PDA under its own
+/// input's tree.
 pub fn nullifier_pda_accounts<'a>(
     input_tree: &Pubkey,
     nullifiers: impl IntoIterator<Item = &'a [u8; 32]>,
@@ -116,6 +122,28 @@ pub fn nullifier_pda_accounts<'a>(
     nullifiers
         .into_iter()
         .map(|nullifier| AccountMeta::new(pda::nullifier_pda(input_tree, nullifier).0, false))
+        .collect()
+}
+
+/// One writable nullifier-PDA account per input, in input order, each derived
+/// under the tree its `tree_index` selects from `input_trees`. Panics on an
+/// index outside `input_trees`, which the program rejects as
+/// `InputTreeIndexOutOfRange`.
+pub fn transact_nullifier_pda_accounts<'a>(
+    input_trees: &[Pubkey],
+    inputs: impl IntoIterator<Item = &'a InputUtxo>,
+) -> Vec<AccountMeta> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            let input_tree = input_trees
+                .get(usize::from(input.tree_index))
+                .expect("input tree_index must reference a declared input tree");
+            AccountMeta::new(
+                pda::nullifier_pda(input_tree, &input.nullifier_hash).0,
+                false,
+            )
+        })
         .collect()
 }
 
@@ -129,16 +157,20 @@ impl Transact {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let mut accounts = vec![
-            AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.input_tree, false),
+        let mut accounts = vec![AccountMeta::new(self.payer, true)];
+        accounts.extend(
+            self.input_trees
+                .iter()
+                .map(|input_tree| AccountMeta::new(*input_tree, false)),
+        );
+        accounts.extend([
             AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
-        ];
-        accounts.extend(nullifier_pda_accounts(
-            &self.input_tree,
-            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+        ]);
+        accounts.extend(transact_nullifier_pda_accounts(
+            &self.input_trees,
+            self.data.inputs.iter(),
         ));
         accounts.extend(
             self.owner_signers
@@ -191,9 +223,10 @@ mod tests {
     fn single_sol_withdrawal_preserves_account_indices() {
         let recipient = Pubkey::new_unique();
         let owner_signer = Pubkey::new_unique();
+        let input_tree = Pubkey::new_unique();
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -208,7 +241,7 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.input_tree,
+                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
@@ -223,6 +256,7 @@ mod tests {
 
     #[test]
     fn single_spl_withdrawal_preserves_account_indices() {
+        let input_tree = Pubkey::new_unique();
         let spl = TransactSplWithdrawalAccounts {
             mint: Pubkey::new_unique(),
             spl_interface: Pubkey::new_unique(),
@@ -231,7 +265,7 @@ mod tests {
         };
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -249,7 +283,7 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.input_tree,
+                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
@@ -264,6 +298,7 @@ mod tests {
 
     #[test]
     fn ordered_mixed_transfers_share_one_system_program() {
+        let input_tree = Pubkey::new_unique();
         let sol_depositor = Pubkey::new_unique();
         let spl = TransactSplWithdrawalAccounts {
             mint: Pubkey::new_unique(),
@@ -274,7 +309,7 @@ mod tests {
         let sol_recipient = Pubkey::new_unique();
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![
@@ -302,7 +337,7 @@ mod tests {
             keys,
             vec![
                 builder.payer,
-                builder.input_tree,
+                input_tree,
                 builder.output_tree,
                 PROGRAM_ID_PUBKEY,
                 Pubkey::default(),
@@ -324,6 +359,7 @@ mod tests {
 
     #[test]
     fn spl_deposit_omits_cpi_authority_and_marks_depositor_signer() {
+        let input_tree = Pubkey::new_unique();
         let spl = TransactSplDepositAccounts {
             mint: Pubkey::new_unique(),
             spl_interface: Pubkey::new_unique(),
@@ -333,7 +369,7 @@ mod tests {
         };
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(spl)],
@@ -366,7 +402,7 @@ mod tests {
             .collect();
         let builder = Transact {
             payer: Pubkey::new_unique(),
-            input_tree,
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: vec![owner_signer],
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -398,9 +434,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "equal lengths")]
     fn rejects_transfer_account_count_mismatch() {
+        let input_tree = Pubkey::new_unique();
         Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -412,9 +449,10 @@ mod tests {
     #[test]
     #[should_panic(expected = "interface transfer type")]
     fn rejects_transfer_account_tag_mismatch() {
+        let input_tree = Pubkey::new_unique();
         Transact {
             payer: Pubkey::new_unique(),
-            input_tree: Pubkey::new_unique(),
+            input_trees: vec![input_tree],
             output_tree: Pubkey::new_unique(),
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

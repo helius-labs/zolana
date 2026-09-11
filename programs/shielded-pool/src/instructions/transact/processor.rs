@@ -14,6 +14,7 @@ use zolana_interface::{
             CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
         },
         tag::InstructionTag,
+        validate_input_tree_contexts,
     },
     N_PUBLIC_SLOTS,
 };
@@ -22,11 +23,11 @@ use super::{
     account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::settle_interface_transfers,
-    tree::{apply_input_tree, apply_output_tree},
+    tree::{apply_input_trees, apply_output_tree, input_runs},
 };
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::create_nullifier_pdas,
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     settlement::Settlement,
     shared::{check_field_element, check_field_elements, check_not_expired},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
@@ -46,8 +47,9 @@ pub fn process_transact_ix(
     // 1. Deserialize instruction data.
     let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
-    // 2. Validate declared circuit type.
+    // 2. Validate declared circuit type and the declared input trees.
     validate_circuit_type(&ix, instruction)?;
+    validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
 
     // 3. Check proof is not expired.
     let clock = Clock::get()?;
@@ -86,22 +88,15 @@ pub fn process_transact_ix(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve the input tree's roots and insert nullifiers into queue.
-    let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    create_nullifier_pdas(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_pdas,
-        ix.inputs.iter().map(|input| &input.nullifier_hash),
-        &input_tree_result,
-    )?;
-    // 9. Append new utxo hashes.
-    let tree_write = apply_output_tree(
-        transact_accounts.output_tree,
+    // 8. Resolve each input tree's roots and insert its nullifiers into queue.
+    let input_tree_results = apply_input_trees(
+        transact_accounts.input_trees.as_mut_slice(),
         &ix,
-        input_tree_result.input_tree,
-        clock.slot,
+        &mut proof_inputs,
     )?;
+    create_input_tree_nullifier_pdas(&ix, &mut transact_accounts, &input_tree_results)?;
+    // 9. Append new utxo hashes.
+    let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
     let tag = [instruction as u8];
@@ -119,8 +114,49 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write);
+    let event = build_transact_event(tree_write, &input_tree_results);
     emit_event(EventKind::Transact, &event)
+}
+
+/// Create each tree's run of nullifier PDAs with that tree's queue result. The
+/// per-tree fee accounting in `create_nullifier_pdas` (the forester fee riding
+/// on the first PDA's `CreateAccount`, with a Transfer CPI fallback that must
+/// precede any direct lamport move on the tree) is per tree, so every tree runs
+/// the same single-tree body over its own contiguous run.
+#[inline(never)]
+fn create_input_tree_nullifier_pdas(
+    ix: &TransactIxDataRef<'_>,
+    accounts: &mut TransactAccounts<'_>,
+    input_tree_results: &[InputTreeResult],
+) -> ProgramResult {
+    let TransactAccounts {
+        payer,
+        input_trees,
+        nullifier_pdas,
+        ..
+    } = accounts;
+    let mut remaining = nullifier_pdas.as_mut_slice();
+    for ((input_tree, result), run) in input_trees
+        .iter_mut()
+        .zip(input_tree_results)
+        .zip(input_runs(ix))
+    {
+        let (run_pdas, rest) = core::mem::take(&mut remaining)
+            .split_at_mut_checked(run.len())
+            .ok_or(ShieldedPoolError::InvalidNullifierPda)?;
+        create_nullifier_pdas(
+            payer,
+            input_tree,
+            run_pdas,
+            run.iter().map(|input| &input.nullifier_hash),
+            result,
+        )?;
+        remaining = rest;
+    }
+    if !remaining.is_empty() {
+        return Err(ShieldedPoolError::InvalidNullifierPda.into());
+    }
+    Ok(())
 }
 
 #[inline(never)]
@@ -204,7 +240,7 @@ mod tests {
     use super::*;
     use zolana_hasher::{sha256::Sha256BE, Hasher};
     use zolana_interface::instruction::instruction_data::transact::{
-        OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
     };
 
     const ACCOUNT_OWNER_INDEX: u8 = 3;
@@ -233,8 +269,10 @@ mod tests {
             circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
             proof: TransactProof::zeroed(),
             inputs: Vec::new(),
-            utxo_tree_root_index: 0,
-            nullifier_tree_root_index: 0,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
         }
         .serialize()
         .unwrap()
