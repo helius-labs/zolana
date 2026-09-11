@@ -99,53 +99,22 @@ node poc/web/scripts/stage-mopro.mjs \
 npm run poc:dev
 ```
 
-Open **http://127.0.0.1:5178/** and click **Generate & verify proof**, or
-**Benchmark 5 proofs** for a median. The sample stays local; this does not submit
-a transaction. Key preparation is measured separately from proving.
+Open **http://127.0.0.1:5178/** and click **Generate proof**. Choose
+**Benchmark** for five verified proofs and their median proving time. The page
+only runs the prover: it does not create a wallet or connect to a blockchain.
+Preparation happens on the first run; later proofs reuse the decoded key.
 
-**Proving threads** defaults to **Automatic**: use the CPU thread count reported
-by `navigator.hardwareConcurrency`, capped at 18, or 4 when unavailable. This is
-a starting configuration, not an autotuning benchmark. Browsers can report fewer
-threads than the machine has. Select **Custom thread count** to experiment, or
-**Original Go prover** to compare the original single-threaded implementation.
-Changing modes or counts clears the prover and its deserialized key.
+**Options** contains automatic/custom thread selection, the Go baseline, and a
+JSON input editor. Automatic uses the CPU count reported by the browser, capped
+at 18. **View proof** shows the proof, verification and preparation timings, and
+the engine used. Proof JSON can also be downloaded. **Cancel** stops an active
+run; the next run starts a fresh prover.
 
 The staging script accepts an unpacked Mopro npm package as well as a bindings
 directory. It validates supplied keys against this checkout's lockfile before
-copying them; the 2x3 key is required, other transfer and merge keys are optional.
-The sample must be a valid local test request for these keys. The existing
-`verify-wasm-prover.mjs` script can capture such a request from a localnet.
-
-Additional tools are under **Localnet transfers, key benchmarks & connection settings**.
-
-**Proving-key benchmark — no validator needed.** Fetches and deserializes each
-shape's key in the wasm instance and reports the cold-start cost of local
-proving.
-
-```sh
-just build-prover-wasm    # compile the wasm module + copy wasm_exec.js
-just poc-keys             # link proving keys into poc/web/public/keys
-npm run poc:dev            # requires the Mopro kernel staged above
-```
-
-Then click **Benchmark proving keys**.
-
-**Full shield → transfer → unshield — needs the stack.**
-
-```sh
-just poc-up               # validator + Photon + prover, protocol accounts preloaded
-just poc-web              # reads the same ports the stack bound
-```
-
-Click **Run shield → transfer → unshield**. It sweeps note counts 1–5; each maps
-to the shape its transfer leg lands on. Each transfer spends enough to require
-all of that run's equal notes and keeps half a note for the withdrawal. The table
-labels the actual transfer shape observed in the prover request, including padding.
-Results stream into the table with
-per-step timings, and **Export CSV** dumps them.
-
-`poc-keys` needs the keys present locally (`just build-prover-server` fetches
-them per `provingkeys/proving-keys.lock`).
+copying them; the 2x3 key is required. The sample must be a valid local test
+request for those keys. `verify-wasm-prover.mjs` can capture such a request from
+a localnet independently of this UI.
 
 ## AWS deployment
 
@@ -157,11 +126,9 @@ with the Arkworks accelerator, matching Go runtime, pinned proving keys and a
 local test request. CloudFront supplies HTTPS and COOP/COEP headers for workers.
 The sample generates and verifies proofs locally without submitting transactions.
 
-The hosted page opens on the devnet preset. Same-origin `/devnet/indexer` and
-`/devnet/prover` paths proxy the existing devnet services. Deploying this page
-does not deploy or update the validator, indexer, prover server or programs;
-full transaction flows still require a compatible stack and funded wallet.
-Service URLs remain editable in the advanced connection settings.
+The hosted UI only uses same-origin runtime assets, keys and the sample. It
+makes no RPC, indexer or remote-prover requests. Existing devnet proxy routes
+are retained by the hosting stack for compatibility with earlier releases.
 
 The older Fly Dockerfile is retained but does not stage the Arkworks kernel or
 sample. Use the AWS release scripts for this version.
@@ -226,7 +193,8 @@ MOPRO_BROWSER_PROOFS=../../target/mopro-browser-ui/proofs.json \
 
 The browser test exercises automatic and custom thread counts, the original Go
 prover, five-proof benchmarking, invalid-witness rejection and recovery, and the
-mobile layout. It saves screenshots and proofs under `target/mopro-browser-ui/`.
+mobile layout, cancellation, dialog focus, and absence of external API requests.
+It saves screenshots and proofs under `target/mopro-browser-ui/`.
 The Go test independently verifies those browser proofs using native gnark.
 
 Local Brave measurements on the same 2x3 sample (September 10, 2026):

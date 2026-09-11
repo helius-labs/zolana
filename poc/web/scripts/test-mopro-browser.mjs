@@ -1,68 +1,146 @@
-import assert from 'node:assert/strict';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { Builder, By, until } from 'selenium-webdriver';
-import chrome from 'selenium-webdriver/chrome.js';
-const out = fileURLToPath(new URL('../../../target/mopro-browser-ui/', import.meta.url));
-await mkdir(out, {recursive:true});
-const options = new chrome.Options().addArguments('--headless', '--window-size=1440,1100');
+import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { Builder, By, until } from "selenium-webdriver";
+import chrome from "selenium-webdriver/chrome.js";
+
+const out =
+  process.env.DEMO_REPORT_DIR ||
+  fileURLToPath(new URL("../../../target/mopro-browser-ui/", import.meta.url));
+await mkdir(out, { recursive: true });
+const options = new chrome.Options().addArguments("--headless", "--window-size=1440,1100");
 if (process.env.CHROME_BIN) options.setChromeBinaryPath(process.env.CHROME_BIN);
-const driver = await new Builder().forBrowser('chrome').setChromeOptions(options).build();
+if (process.env.CHROME_NO_SANDBOX === "1") options.addArguments("--no-sandbox");
+const driver = await new Builder().forBrowser("chrome").setChromeOptions(options).build();
 const proofs = [];
-async function button(text) { return driver.findElement(By.xpath(`//button[normalize-space(.)='${text}']`)); }
-async function run(label) {
-  await (await button(label)).click();
-  await driver.wait(async () => (await driver.findElements(By.css('[role="alert"]'))).length || (await driver.findElements(By.css('.verified'))).length, 180000);
-  const errors = await driver.findElements(By.css('[role="alert"]'));
-  if (errors.length) throw new Error(await errors[0].getText());
-  await driver.wait(async () => (await driver.findElement(By.css('.proof-panel [role="status"]')).getText()).includes('Proof generated'), 180000);
-  const proof = await driver.findElement(By.css('.proof-output pre')).getText();
+const results = [];
+const button = (text) => driver.findElement(By.xpath(`//button[normalize-space(.)='${text}']`));
+const openOptions = () => driver.findElement(By.css('button[aria-label="Options"]')).click();
+const closeOptions = () => driver.findElement(By.css('button[aria-label="Close options"]')).click();
+async function editValue(element, value) {
+  await driver.executeScript(
+    function (el, next) {
+      const proto =
+        el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, next);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    element,
+    value,
+  );
+}
+async function run(expectedEngine) {
+  await driver.findElement(By.css(".main-action .primary-button")).click();
+  await driver.wait(async () => {
+    const errors = await driver.findElements(By.css('[role="alert"]'));
+    if (errors.length) throw new Error(await errors[0].getText());
+    return (await driver.findElements(By.css(".verified"))).length > 0;
+  }, 180000);
+  await (await button("View proof")).click();
+  const details = await driver.findElement(By.css(".proof-facts")).getText();
+  assert.ok(details.includes(expectedEngine), details);
+  const proof = await driver.findElement(By.css(".proof-json")).getText();
   proofs.push(JSON.parse(proof));
-  console.log(label, await driver.findElement(By.css('.metrics')).getText());
+  results.push({ details, result: await driver.findElement(By.css(".result-area")).getText() });
+  await driver.findElement(By.css('button[aria-label="Close proof"]')).click();
+  console.log(results.at(-1).result.replaceAll("\n", " "));
 }
 try {
-  await driver.get(process.env.DEMO_URL || 'http://127.0.0.1:5178/');
-  await driver.wait(until.elementLocated(By.css('textarea[aria-label="Proof request JSON"]')),30000);
-  await driver.wait(async () => (await driver.findElement(By.css('textarea')).getAttribute('value')).length > 100, 30000);
-  assert.equal(await driver.executeScript('return crossOriginIsolated'), true);
-  const mode = await driver.findElement(By.css('select[aria-label="Proving threads"]'));
-  assert.equal(await mode.getAttribute('value'), 'auto');
-  const automaticThreads = await driver.executeScript('return Math.min(18, navigator.hardwareConcurrency || 4)');
-  await run('Generate & verify proof');
-  assert.ok((await driver.findElement(By.css('.runtime-pill')).getText()).includes(`${automaticThreads} workers`));
-  await writeFile(out+'desktop.png', await driver.takeScreenshot(), 'base64');
-  await run('Benchmark 5 proofs');
-  assert.match(await driver.findElement(By.css('.metrics')).getText(), /5 proofs generated/);
-  await driver.findElement(By.css('.request-editor summary')).click();
-  const textarea = await driver.findElement(By.css('textarea'));
-  const invalid = JSON.parse(await textarea.getAttribute('value')); invalid.publicInputHash = '0x01';
-  // Use the DOM setter and input event so React observes the edited request.
-  await driver.executeScript(function(el,value){ const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set; set.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); }, textarea, JSON.stringify(invalid));
-  await (await button('Generate & verify proof')).click();
-  await driver.wait(until.elementLocated(By.css('[role="alert"]')),180000);
-  assert.equal((await driver.findElements(By.css('.verified'))).length,0);
-  console.log('Invalid witness rejected');
-  await (await button('Load sample request')).click();
-  await run('Generate & verify proof');
+  await driver.get(process.env.DEMO_URL || "http://127.0.0.1:5178/");
+  await driver.wait(until.elementLocated(By.css(".primary-button")), 30000);
+  await driver.wait(async () => (await button("Generate proof")).isEnabled(), 30000);
+  const visible = await driver.findElement(By.css("body")).getText();
+  assert.doesNotMatch(visible, /Cross-origin|Funding|Endpoints|localnet|transaction/i);
+  assert.equal(await driver.executeScript("return crossOriginIsolated"), true);
+  const automaticThreads = await driver.executeScript(
+    "return Math.min(18, navigator.hardwareConcurrency || 4)",
+  );
+  await writeFile(`${out}/desktop-idle.png`, await driver.takeScreenshot(), "base64");
+
+  await (await button("Generate proof")).click();
+  await (await button("Cancel")).click();
+  await driver.wait(
+    async () =>
+      (await driver.findElement(By.css(".result-area")).getText()).includes("Ready when you are"),
+    10000,
+  );
+  await run(`Arkworks · ${automaticThreads} threads`);
+  await writeFile(`${out}/desktop-result.png`, await driver.takeScreenshot(), "base64");
+  await (await button("Benchmark")).click();
+  await run(`Arkworks · ${automaticThreads} threads`);
+  assert.match(await driver.findElement(By.css(".verified")).getText(), /5 proofs verified/);
+  await (await button("Single proof")).click();
+
+  await openOptions();
+  await driver.findElement(By.css(".input-details summary")).click();
+  const textarea = await driver.findElement(By.id("proof-input"));
+  const invalid = JSON.parse(await textarea.getAttribute("value"));
+  invalid.publicInputHash = "0x01";
+  await editValue(textarea, JSON.stringify(invalid));
+  await closeOptions();
+  await (await button("Generate proof")).click();
+  await driver.wait(until.elementLocated(By.css('[role="alert"]')), 180000);
+  assert.equal((await driver.findElements(By.css(".verified"))).length, 0);
+  await openOptions();
+  await (await button("Restore sample")).click();
+  await driver.wait(
+    async () => JSON.parse(await textarea.getAttribute("value")).publicInputHash !== "0x01",
+    10000,
+  );
+  await closeOptions();
+  await run(`Arkworks · ${automaticThreads} threads`);
+
+  await openOptions();
+  const mode = await driver.findElement(By.id("proving-mode"));
   await mode.findElement(By.css('option[value="custom"]')).click();
-  assert.equal((await driver.findElements(By.css('.verified'))).length,0);
-  const workers = await driver.findElement(By.css('input[aria-label="Thread count"]'));
-  await driver.executeScript(function(el){ const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; set.call(el,'2'); el.dispatchEvent(new Event('input',{bubbles:true})); }, workers);
-  await run('Generate & verify proof');
-  assert.match(await driver.findElement(By.css('.runtime-pill')).getText(), /2 workers/);
+  await editValue(await driver.findElement(By.id("thread-count")), "2");
+  await closeOptions();
+  await run("Arkworks · 2 threads");
+  await openOptions();
   await mode.findElement(By.css('option[value="go"]')).click();
-  await run('Generate & verify proof');
-  assert.match(await driver.findElement(By.css('.runtime-pill')).getText(), /Go fallback/);
+  await closeOptions();
+  await run("Go");
+  await openOptions();
   await mode.findElement(By.css('option[value="auto"]')).click();
-  assert.equal((await driver.findElements(By.css('.verified'))).length,0);
-  await driver.manage().window().setRect({width:390,height:844});
-  await driver.executeScript('window.scrollTo(0,0)');
-  assert.equal(await driver.executeScript('return document.documentElement.scrollWidth > innerWidth'),false);
-  await writeFile(out+'mobile.png', await driver.takeScreenshot(),'base64');
-  await writeFile(out+'proofs.json',JSON.stringify(proofs,null,2));
-  console.log('Browser UI, automatic/custom threads, Go fallback, invalid-witness recovery and mobile layout passed.');
+  await closeOptions();
+
+  const requests = await driver.executeScript(
+    'return performance.getEntriesByType("resource").map(r=>r.name)',
+  );
+  assert.ok(requests.some((url) => url.includes("prover.worker")));
+  assert.ok(
+    requests.every(
+      (url) =>
+        new URL(url).origin === new URL(process.env.DEMO_URL || "http://127.0.0.1:5178/").origin,
+    ),
+  );
+  assert.ok(requests.every((url) => !/\/devnet\//.test(url)));
+  await driver.manage().window().setRect({ width: 390, height: 844 });
+  assert.equal(
+    await driver.executeScript("return document.documentElement.scrollWidth > innerWidth"),
+    false,
+  );
+  await writeFile(`${out}/mobile.png`, await driver.takeScreenshot(), "base64");
+  await openOptions();
+  await writeFile(`${out}/mobile-options.png`, await driver.takeScreenshot(), "base64");
+  await driver.actions().sendKeys("\uE00C").perform();
+  assert.equal(
+    await driver.executeScript('return !!document.querySelector("dialog[open]")'),
+    false,
+  );
+  assert.equal(
+    await driver.executeScript('return document.activeElement.getAttribute("aria-label")'),
+    "Options",
+  );
+  await writeFile(`${out}/proofs.json`, JSON.stringify(proofs, null, 2));
+  await writeFile(`${out}/results.json`, JSON.stringify(results, null, 2));
+  console.log(
+    "PASS: proving, benchmark, cancellation, invalid input recovery, automatic/custom threads, Go, mobile dialog, focus return, and no external API requests.",
+  );
 } catch (error) {
-  await writeFile(out+'failure.png', await driver.takeScreenshot(),'base64');
-  console.error(await driver.findElement(By.css('body')).getText());
+  await writeFile(`${out}/failure.png`, await driver.takeScreenshot(), "base64");
+  console.error(await driver.findElement(By.css("body")).getText());
   throw error;
-} finally { await driver.quit(); }
+} finally {
+  await driver.quit();
+}
