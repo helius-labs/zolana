@@ -109,8 +109,25 @@ stored rows are exactly what `encoded` emits. The circuit range-checks the
 components and re-derives the row by weighted sum (`ruleShift` in
 `prover/server/circuits/custom_ring/policy/constants.go`).
 
+A velocity table bounds the outflow of one sender per mint over a fixed
+window and puts a single transfer above a threshold under dual control. It
+is `window_slots` and up to `MAX_VELOCITY_ASSETS` rows of `VelocityRow {
+asset, cap, cosign_above }`, a zero cap leaves the mint uncapped and a zero
+threshold never asks the co-signer. Rows and a window come together, a row
+names a nonzero mint once and carries at least one bound. The rows pin with
+the rules and move only under the upgrade authority.
+
+```toml
+[policy.velocity]
+window_slots = 216000
+rows = [
+  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
+]
+```
+
 `EncodedRuleTable::hash` chains `POLICY_TABLE_DOMAIN`, `POLICY_VERSION`, the
-eight source slots, the rule count, every row, and the inline asset-limit pairs. The
+eight source slots, the rule count, every row, the inline asset-limit pairs,
+the window length and every velocity row as mint, cap and threshold. The
 count closes the variable-length preimage. The source map ties the table to
 the entries serving each list. `POLICY_VERSION` moves with any change of the
 row encoding.
@@ -167,12 +184,14 @@ hash into the public input chain.
 The **upgrade authority** deploys the binary, pins the table at
 `create_policy`, replaces it with `set_policy_rules` and sets the delegate
 once. The **delegate** moves notes between members over the authority rail
-and never withdraws. The **config
+and never withdraws, a velocity ring closes the rail. The **config
 authority** writes the authority-written lists, re-points sources, grants
 readers, sets or clears the co-signer and the spend windows, and pauses the
 ring. The **co-signer**
-signs beside the sender on the operations its scope names and decides
-nothing else. A **curator** is a ring whose lists other rings
+signs beside the sender on the operations its scope names and on every
+transfer the velocity statement marks for approval, and decides
+nothing else. A **member** of a velocity ring registers its own spend record
+once and spends it with every transfer. A **curator** is a ring whose lists other rings
 read, it writes its own entries and nothing on its subscribers. The
 **operator** answers `zolana-ring new` and holds the ring directory, one key
 serves both authorities unless `ring.toml` splits them.
@@ -224,6 +243,50 @@ any other signer. A member of a member-written list is the Solana key whose
 owner tag hashes to the member. The ring admits the eddsa rail only, a P-256
 identity can be listed by the authority but cannot transact in the ring or
 self-manage a member-written list.
+
+## Spend records
+
+A spend record is the second record kind under the namespace PDA, a
+zero-amount SOL data note in the entries tree keyed by the member's identity
+through `SPEND_ADDRESS_DOMAIN`, so no list instruction reaches it. Its
+plaintext is `member || version || window || counters_commitment ||
+blinding`, `SpendRecord::data_hash` binds it to its derived address and the
+program checks every published record against the leaf it names. The
+counters, `SpendCounters { salt, assets, spent }`, stay behind
+`HashChain(salt, (asset, spent) x 8)`, each counter bound to its mint and
+never to a table position.
+
+`register_spend` claims the member's address at version zero under the
+current window with the zero counters, the payer's Solana key is the member
+and the program derives every field but the blinding. From then on only the member's
+own transfer writes the record. The transfer carries the record as the last
+input and the last output of its SPP transact, the namespace PDA raised as
+one more owner signer inside the program's CPI, and the policy circuit pins
+the two slots at the sender's address, the input at the latest version, the
+output at version plus one, every other opening a different owner. Money
+inputs open to one identity, that identity is the record's member.
+
+For each row the circuit charges `outflow = inputs of the mint - change the
+sender keeps inside the ring`, payments, exits and withdrawals alike, and
+writes `spent' = (record.window == window ? spent : 0) + outflow` into the
+successor under a fresh salt, `spent' <= cap` where the cap is nonzero. The
+program derives `window = slot / window_slots` and binds it into the public
+input beside the ring id, the namespace owner and the approval bit, the bit
+the circuit sets when any `outflow > cosign_above`. The program then demands
+the configured co-signer, `ApprovalWithoutCoSigner` when the ring has none.
+A record from a future window is refused, an expired one is consumed from
+its published commitment alone.
+
+The successor's counters ride the transfer in a message under the
+transaction viewing key, tagged with the namespace, before the auditor
+message. The sender derives that key from the transfer's first nullifier and
+recovers the counters for its next transfer, the auditor recovers it from
+the audit ciphertext and reports the record with its counters, or without
+them when no message opens to the commitment. `ReadSpendRecord` walks the
+lineage like an entry, `RegisterSpend` proves the claim, and
+`CustomRingTransfer::prove` reads the record, the slot and the counters
+before it stages the slots, refusing `SpendRecordMissing`,
+`SpendCountersUnknown` and `VelocityCapExceeded` before any prover round.
 
 ## Sources
 
@@ -321,6 +384,11 @@ hash, then the tree, then every source, and exits non-zero on a difference.
 the upgrade authority, `--yes` skips the confirmation. A changed
 `entries_tree` is refused, the tree is fixed at `init`.
 
+`spend register` claims the sender's spend record on a velocity ring and
+`spend show` prints its live version, window and commitment. `transact` and
+`transfer` register the sender before its first transfer and refuse a
+transfer the proof marks for approval unless `--cosigner-keypair` is given.
+
 `list add|clear|show <list>` names the member with `--owner <tag>` or
 `--asset <mint>`, exactly one, and `sol` is the native token. `add` and
 `clear` mutate the ring's own entries, a list a curator serves is refused
@@ -353,6 +421,9 @@ the cli loads and re-renders.
 - [`asset-allowlist-owner-threshold`](../custom-rings/examples/asset-allowlist-owner-threshold/ring.toml)
   admits one mint inline and demands `Allow` from an owner receiving more
   than the threshold.
+- [`velocity-window`](../custom-rings/examples/velocity-window/ring.toml)
+  caps each sender's SOL outflow per window and demands the co-signer above
+  a threshold.
 
 ## Pitfalls
 
@@ -432,6 +503,13 @@ the cli loads and re-renders.
   whose tier differs from the chain (`TierDrift`).
 - The program reads a config account of another size as uninitialized, the
   SDK refuses it.
+- A velocity ring keeps every note of a transfer in its entries tree, takes
+  no deposit leg on a transfer, closes the delegate rail and needs a
+  registered record before a member's first transfer. Windows are fixed, a
+  boundary admits up to twice the cap. A member spends only its own notes in
+  one transfer. The record publishes the member's identity and lineage. The
+  TypeScript SDK refuses a transfer on a velocity ring, the record slots are
+  assembled by the Rust SDK only.
 
 ## The cycle
 

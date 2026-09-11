@@ -76,6 +76,23 @@ closes the account. Windows are fixed, so a burst across one boundary can
 move up to twice the cap. Every transact and ring deposit names one window
 account per public leg, the SDKs derive them from the legs.
 
+A velocity policy bounds what one sender moves out of its own balance per
+mint over a window, shielded payments, exits and withdrawals alike, and
+demands the co-signer on any single transfer above a threshold. The
+`[policy.velocity]` table of `ring.toml` names the window length in slots
+and up to eight rows of mint, cap and co-sign threshold, a zero cap leaves
+the mint uncapped and a zero threshold never asks. The rows are part of the
+pinned table, only the upgrade authority moves them. Each member registers a
+spend record once with `zolana-ring spend register`, a zero-amount note the
+ring's namespace owns in the entries tree, and every transfer of that member
+spends the record into its successor inside the same proof, carrying the
+counters forward within the window and resetting them at a boundary. The
+counters travel encrypted under the transaction viewing key, so the sender
+and the auditor read them and the chain sees only their commitment. The
+`transact` and `transfer` commands register the sender on first use and
+refuse to send a transfer the proof marks for approval without
+`--cosigner-keypair`.
+
 ## How auditor visibility works
 
 Every transfer encrypts its transaction viewing key to the auditor under a
@@ -227,6 +244,14 @@ The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its
 commitment. The RPC reports what it decrypts and marks unreadable slots. It
 cannot prove that reported values equal the committed UTXOs.
+
+A velocity ring keeps every note in its entries tree, takes no deposit leg on
+a transfer and closes the delegate rail. A spend record publishes the
+member's identity and its lineage in the clear, so an observer who knows an
+identity can count that member's transfers, not their amounts. The window is
+fixed, a sender may move up to twice the cap across one boundary. The
+TypeScript SDK refuses a transfer on a velocity ring, the record slots are
+assembled by the Rust SDK only.
 
 ## Reading a ring
 
