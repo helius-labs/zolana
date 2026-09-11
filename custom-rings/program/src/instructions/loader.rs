@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::PolicyConfig;
+use custom_ring_interface::{CoSigner, PolicyConfig};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -51,6 +51,33 @@ pub fn load_policy_config<'a>(
     }
     .verify_stored_bump(config.bump)?;
     Ok(config)
+}
+
+/// `Ok(None)` for the canonical address with no account, the ring has no co-signer.
+#[inline(always)]
+pub fn load_cosigner<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Option<Ref<'a, CoSigner>>, ProgramError> {
+    if account.data_len() == 0 {
+        PdaCheck {
+            program_id,
+            address: account.address(),
+            seeds: &[CoSigner::SEED],
+            mismatch: CustomRingError::InvalidCoSigner,
+        }
+        .verify()?;
+        return Ok(None);
+    }
+    let cosigner = load_account::<CoSigner>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[CoSigner::SEED],
+        mismatch: CustomRingError::InvalidCoSigner,
+    }
+    .verify_stored_bump(cosigner.bump)?;
+    Ok(Some(cosigner))
 }
 
 #[inline(always)]

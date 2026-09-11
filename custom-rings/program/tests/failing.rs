@@ -2,6 +2,8 @@ mod common;
 
 #[path = "failing/compute_units.rs"]
 mod compute_units;
+#[path = "failing/cosigner.rs"]
+mod cosigner;
 #[path = "failing/create_config.rs"]
 mod create_config;
 #[path = "failing/deposit.rs"]

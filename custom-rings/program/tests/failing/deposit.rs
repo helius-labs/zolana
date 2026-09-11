@@ -40,7 +40,8 @@ fn oversized_account_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = deposit_fixture();
     let mut filler = 100u8;
-    while fixture.instruction().accounts.len() <= MAX_CPI_ACCOUNTS {
+    // The two co-signer slots stay behind, only the rest is forwarded.
+    while fixture.instruction().accounts.len() - 2 <= MAX_CPI_ACCOUNTS {
         filler += 1;
         fixture.push(Slot {
             label: "filler",

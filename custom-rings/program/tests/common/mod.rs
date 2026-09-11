@@ -3,10 +3,12 @@
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    tag, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData, ReadAccessRecord,
-    ReaderKeyBytes, RingProgramConfig, SetPausedIxData, SourceSlot, SourceSpec, UpdateEntryIxData,
-    CONFIG_PDA_SEED, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519,
-    READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    tag, CoSigner, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData,
+    ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, SetCoSignerIxData, SetPausedIxData,
+    SourceSlot, SourceSpec, UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdIxData,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
+    POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -99,6 +101,10 @@ impl Fixture {
 
     pub fn unsign(&mut self, label: &str) {
         self.meta_mut(label).is_signer = false;
+    }
+
+    pub fn sign(&mut self, label: &str) {
+        self.meta_mut(label).is_signer = true;
     }
 
     pub fn set_writable(&mut self, label: &str, writable: bool) {
@@ -249,6 +255,136 @@ pub fn config_pda() -> (Pubkey, u8) {
 
 pub fn ring_auth_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[RING_AUTH_PDA_SEED], &program_id())
+}
+
+pub fn cosigner_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[CO_SIGNER_PDA_SEED], &program_id())
+}
+
+pub fn cosigner() -> Pubkey {
+    Pubkey::new_from_array([37u8; 32])
+}
+
+pub fn cosigner_account(scope: u8, thresholds: &[(Pubkey, u64)]) -> Account {
+    let mut rows = [WithdrawalThreshold {
+        mint: Address::new_from_array([0; 32]),
+        amount: [0; 8],
+    }; MAX_CO_SIGNER_THRESHOLDS];
+    for (row, (mint, amount)) in rows.iter_mut().zip(thresholds) {
+        *row = WithdrawalThreshold {
+            mint: Address::new_from_array(mint.to_bytes()),
+            amount: amount.to_le_bytes(),
+        };
+    }
+    let state = CoSigner {
+        discriminator: CO_SIGNER,
+        signer: Address::new_from_array(cosigner().to_bytes()),
+        scope,
+        threshold_count: thresholds.len() as u8,
+        thresholds: rows,
+        bump: cosigner_pda().1,
+    };
+    Account {
+        lamports: 3_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// `[cosigner_pda, cosigner]`, the second unsigned until a test signs it.
+fn cosigner_slots() -> [Slot; 2] {
+    [
+        Slot {
+            label: "cosigner_pda",
+            meta: AccountMeta::new_readonly(cosigner_pda().0, false),
+            account: account(0),
+        },
+        Slot {
+            label: "cosigner",
+            meta: AccountMeta::new_readonly(cosigner(), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+pub fn set_cosigner_data(signer: Pubkey, scope: u8, thresholds: &[(Pubkey, u64)]) -> Vec<u8> {
+    let mut data = vec![tag::SET_CO_SIGNER];
+    data.extend_from_slice(
+        &wincode::serialize(&SetCoSignerIxData {
+            signer: signer.to_bytes(),
+            scope,
+            thresholds: thresholds
+                .iter()
+                .map(|(mint, amount)| WithdrawalThresholdIxData {
+                    mint: mint.to_bytes(),
+                    amount: *amount,
+                })
+                .collect(),
+        })
+        .expect("serialize set_cosigner data"),
+    );
+    data
+}
+
+/// `[payer(w,s), authority(s), config, cosigner_pda(w), system_program]`.
+pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "cosigner_pda",
+                meta: AccountMeta::new(cosigner_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
+            system_program_slot(),
+        ],
+    )
+}
+
+/// `[authority(s), config, cosigner_pda(w), rent_recipient(w)]`.
+pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
+    Fixture::new(
+        vec![tag::CLEAR_CO_SIGNER],
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "cosigner_pda",
+                meta: AccountMeta::new(cosigner_pda().0, false),
+                account: existing,
+            },
+            Slot {
+                label: "rent_recipient",
+                meta: AccountMeta::new(rent_recipient(), false),
+                account: account(1_000_000_000),
+            },
+        ],
+    )
 }
 
 pub fn program_data_pda() -> Pubkey {
@@ -1019,9 +1155,12 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
 /// sol_interface]`. The instruction data starts with SPP's own `RING_DEPOSIT`
 /// tag, which the ring forwards verbatim.
 pub fn deposit_fixture() -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
     Fixture::new(
         vec![tag::DEPOSIT],
         vec![
+            cosigner_pda,
+            cosigner,
             Slot {
                 label: "tree",
                 meta: AccountMeta::new(Pubkey::new_from_array([51; 32]), false),
@@ -1049,6 +1188,7 @@ pub fn deposit_fixture() -> Fixture {
 }
 
 pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
     Fixture::new(
         data,
         vec![
@@ -1062,6 +1202,8 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
             },
+            cosigner_pda,
+            cosigner,
             Slot {
                 label: "policy_config",
                 meta: AccountMeta::new_readonly(policy_config_pda().0, false),
@@ -1103,6 +1245,7 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
 /// An audit-only transact fixture, the policy_config and entries_tree accounts
 /// the policy path reads are absent.
 pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
     Fixture::new(
         data,
         vec![
@@ -1116,6 +1259,8 @@ pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 meta: AccountMeta::new_readonly(config_pda().0, false),
                 account: config,
             },
+            cosigner_pda,
+            cosigner,
             Slot {
                 label: "spp_payer",
                 meta: AccountMeta::new(payer(), true),

@@ -43,6 +43,11 @@ fn error_codes_are_stable() {
         (InvalidEntryContent as u32, 8139),
         (InvalidPolicyRules as u32, 8140),
         (PolicyGenerationOverflow as u32, 8141),
+        (MissingCoSigner as u32, 8143),
+        (UnauthorizedCoSigner as u32, 8144),
+        (InvalidCoSignerScope as u32, 8145),
+        (InvalidCoSigner as u32, 8146),
+        (InvalidCoSignerThresholds as u32, 8147),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -92,6 +97,11 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | ForeignSource
         | InvalidEntryContent
         | InvalidPolicyRules
-        | PolicyGenerationOverflow => {}
+        | PolicyGenerationOverflow
+        | MissingCoSigner
+        | UnauthorizedCoSigner
+        | InvalidCoSignerScope
+        | InvalidCoSigner
+        | InvalidCoSignerThresholds => {}
     }
 }

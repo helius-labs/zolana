@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8141 range is reserved for the ring program and is collision-free
+/// The 8100..8147 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7047) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -93,6 +93,16 @@ pub enum CustomRingError {
     InvalidPolicyRules = 8140,
     #[error("policy generation overflows")]
     PolicyGenerationOverflow = 8141,
+    #[error("the operation needs the co-signer's signature")]
+    MissingCoSigner = 8143,
+    #[error("the signer is not the ring's co-signer")]
+    UnauthorizedCoSigner = 8144,
+    #[error("co-signer scope must be a nonzero subset of the scope bits")]
+    InvalidCoSignerScope = 8145,
+    #[error("co-signer account is invalid")]
+    InvalidCoSigner = 8146,
+    #[error("co-signer thresholds exceed the table or repeat a mint")]
+    InvalidCoSignerThresholds = 8147,
 }
 
 impl From<CustomRingError> for ProgramError {

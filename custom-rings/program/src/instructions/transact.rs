@@ -14,6 +14,7 @@ use zolana_interface::instruction::{
 use crate::{
     error::CustomRingError,
     instructions::{
+        cosign::{require_cosigner, Demand},
         loader::{load_config, load_policy_config, validate_spp_program},
         roots::load_roots,
         shared::cpi_spp_signed,
@@ -27,11 +28,12 @@ use crate::{
 /// The config `has_policy` flag pins the tier and no client input can override
 /// it. A policy ring verifies the folded eleven-element statement over the
 /// pinned policy hash and the entries-tree roots, its accounts
-/// `[payer(w,s), config, policy_config, entries_tree(r)]` precede the SPP list.
-/// A base ring verifies just the eight-element audit statement against the
-/// base verifying key, its accounts are `[payer(w,s), config]`. Only the SPP
-/// `RING_TRANSACT` list is forwarded, position for position, with `ring_config`
-/// gaining a signature.
+/// `[payer(w,s), config, cosigner_pda, cosigner, policy_config, entries_tree(r)]`
+/// precede the SPP list. A base ring verifies just the eight-element audit
+/// statement against the base verifying key, its accounts are
+/// `[payer(w,s), config, cosigner_pda, cosigner]`. Only the SPP `RING_TRANSACT`
+/// list is forwarded, position for position, with `ring_config` gaining a
+/// signature.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -41,6 +43,8 @@ pub fn process_transact_ix(
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
+    let cosigner_account = iter.next_account("cosigner_pda")?;
+    let cosigner = iter.next_account("cosigner")?;
 
     let CustomRingTransactIxData {
         proof,
@@ -67,6 +71,22 @@ pub fn process_transact_ix(
     // list costs no verification.
     let spp_accounts = iter.remaining_mut()?;
     validate_spp_program(spp_accounts)?;
+    let settlement_len: usize = transact
+        .interface_transfers
+        .iter()
+        .map(|leg| leg.settlement_account_count())
+        .sum();
+    let settlements = spp_accounts
+        .len()
+        .checked_sub(settlement_len)
+        .and_then(|start| spp_accounts.get(start..))
+        .ok_or(CustomRingError::InvalidInstructionData)?;
+    require_cosigner(
+        program_id,
+        cosigner_account,
+        cosigner,
+        &Demand::transact(&transact.interface_transfers, settlements)?,
+    )?;
 
     if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());

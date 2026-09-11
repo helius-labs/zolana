@@ -1,5 +1,8 @@
 use bytemuck::{from_bytes_mut, Pod};
-use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
+use custom_ring_interface::{
+    CoSigner, PolicyConfig, SourceSlot, WithdrawalThreshold, CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS,
+    N_SOURCE_SLOTS, POLICY_CONFIG,
+};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -173,11 +176,49 @@ impl PolicyConfigInitParams {
     }
 }
 
+impl Account for CoSigner {
+    const DISCRIMINATOR: u8 = CO_SIGNER;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidCoSigner;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct CoSignerInitParams {
+    pub signer: Address,
+    pub scope: u8,
+    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub threshold_count: u8,
+    pub bump: u8,
+}
+
+impl CoSignerInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub const fn value(self) -> CoSigner {
+        CoSigner {
+            discriminator: CO_SIGNER,
+            signer: self.signer,
+            scope: self.scope,
+            threshold_count: self.threshold_count,
+            thresholds: self.thresholds,
+            bump: self.bump,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}
+    impl Sealed for super::CoSigner {}
 }
 
 #[inline(always)]

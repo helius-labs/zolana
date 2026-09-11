@@ -23,6 +23,9 @@ pub mod tag {
     pub const SET_POLICY_SOURCE: u8 = 10;
     pub const SET_PAUSED: u8 = 11;
     pub const SET_POLICY_RULES: u8 = 12;
+    /// Ring-local tags above every SPP wire tag the dispatcher aliases.
+    pub const SET_CO_SIGNER: u8 = 20;
+    pub const CLEAR_CO_SIGNER: u8 = 21;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -30,6 +33,7 @@ pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
@@ -48,6 +52,21 @@ pub struct ReaderIxData {
 pub struct SetPausedIxData {
     /// 1 pauses the ring on SPP, 0 resumes it, any other value is rejected.
     pub paused: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct WithdrawalThresholdIxData {
+    pub mint: [u8; 32],
+    pub amount: u64,
+}
+
+/// `scope` is a nonzero subset of the `COSIGN_*` bits.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetCoSignerIxData {
+    pub signer: [u8; 32],
+    pub scope: u8,
+    #[wincode(with = "containers::Vec<WithdrawalThresholdIxData, FixIntLen<u8>>")]
+    pub thresholds: Vec<WithdrawalThresholdIxData>,
 }
 
 /// Groth16 proof of the custom-ring circuit. The circuit's emulated P256

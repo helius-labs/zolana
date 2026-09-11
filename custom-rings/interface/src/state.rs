@@ -57,6 +57,65 @@ const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
 
+pub const CO_SIGNER_PDA_SEED: &[u8] = b"cosigner";
+/// First byte of an initialized co-signer account.
+pub const CO_SIGNER: u8 = 4;
+pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
+
+/// Scope bits of [`CoSigner`], a transact is always a transfer and a public
+/// leg adds its class.
+pub const COSIGN_TRANSFERS: u8 = 1;
+pub const COSIGN_DEPOSITS: u8 = 2;
+pub const COSIGN_WITHDRAWALS: u8 = 4;
+pub const COSIGN_SCOPE_MASK: u8 = COSIGN_TRANSFERS | COSIGN_DEPOSITS | COSIGN_WITHDRAWALS;
+
+/// Withdrawals of `mint` in one transaction summed above `amount` need the
+/// co-signer, a withdrawn mint without a row always does.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct WithdrawalThreshold {
+    pub mint: Address,
+    /// Little endian.
+    pub amount: [u8; 8],
+}
+
+/// The ring's optional second signature, absent account means no requirement.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct CoSigner {
+    pub discriminator: u8,
+    pub signer: Address,
+    pub scope: u8,
+    pub threshold_count: u8,
+    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub bump: u8,
+}
+
+impl WithdrawalThreshold {
+    pub const fn amount(&self) -> u64 {
+        u64::from_le_bytes(self.amount)
+    }
+}
+
+impl CoSigner {
+    pub const SEED: &'static [u8] = CO_SIGNER_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub fn thresholds(&self) -> &[WithdrawalThreshold] {
+        &self.thresholds[..usize::from(self.threshold_count).min(MAX_CO_SIGNER_THRESHOLDS)]
+    }
+
+    pub fn threshold(&self, mint: &Address) -> Option<u64> {
+        self.thresholds()
+            .iter()
+            .find(|row| &row.mint == mint)
+            .map(WithdrawalThreshold::amount)
+    }
+}
+
+const _: () = assert!(CoSigner::SIZE == 356);
+const _: () = assert!(core::mem::align_of::<CoSigner>() == 1);
+
 /// Seed of the account pinning the policy hash and the source map.
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
 /// First byte of an initialized policy config.
