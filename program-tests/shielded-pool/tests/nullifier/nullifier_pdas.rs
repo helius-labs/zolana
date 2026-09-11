@@ -14,8 +14,8 @@ use zolana_interface::{
     },
     pda,
     state::{
-        tree_account_size, TreeFeeSchedule, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
-        NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        tree_account_size, TreeFeeSchedule, AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
+        NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
@@ -666,12 +666,11 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
     payer_after + CLOSE_TRANSACTION_FEE - payer_before
 }
 
-/// The at-cost close reimbursement for a 4,096-byte transaction v1: a forester
-/// pays one 5,000-lamport base fee and closes 109 PDAs in it. The protocol
-/// default is zero, so a schedule that actually pays has to be set here -- and
-/// `close_with_a_zero_schedule_pays_nothing_and_still_closes` below covers the
-/// default.
-const AT_COST_CLOSE_REIMBURSEMENT: u64 = 46;
+/// The canonical at-cost close reimbursement. The protocol default is zero
+/// (maintenance is sponsored), so a schedule that actually pays has to be set
+/// here -- and `close_with_a_zero_schedule_pays_nothing_and_still_closes`
+/// below covers the default.
+const AT_COST_CLOSE_REIMBURSEMENT: u64 = AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS;
 
 #[test]
 fn close_pays_the_closer_from_the_fee_balance() {
@@ -714,7 +713,7 @@ fn close_pays_only_what_the_fee_balance_holds() {
         .expect("set a paying fee schedule");
     let nullifiers = [fe(1), fe(2), fe(3)];
 
-    // Below the 138 lamports three closes are owed, so the balance binds.
+    // Below the 264 lamports three closes are owed, so the balance binds.
     let paid = close_funded(&mut env, 100, &nullifiers);
 
     assert_eq!(paid, 100, "a short fee balance pays out in full and stops");

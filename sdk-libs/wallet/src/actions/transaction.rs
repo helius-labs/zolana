@@ -8,7 +8,7 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::{Shape, SPP_AUTO_SHAPES},
+    shape::Shape,
     MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
@@ -18,7 +18,7 @@ use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::{
-            ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
+            auto_shapes, ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SettlementTarget, SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -628,8 +628,7 @@ fn select_bounded_inputs(
     if amount == 0 {
         return Err(ClientError::ZeroSpendAmount);
     }
-    let max_inputs = SPP_AUTO_SHAPES
-        .iter()
+    let max_inputs = auto_shapes()
         .map(|shape| shape.n_inputs())
         .max()
         .unwrap_or(0);

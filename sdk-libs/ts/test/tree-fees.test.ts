@@ -74,21 +74,17 @@ const FEE_BYTES = Uint8Array.of(
 );
 
 describe("tree fee schedule", () => {
-  it("prices the default schedule at exact batch cost, rounded up", () => {
-    expect(DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS).toBe(5_000n);
-    expect(DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS).toBe(170n);
-    expect(defaultTreeFees(250n)).toEqual({
-      feePerNullifier: 190n,
-      appendReimbursement: 5_000n,
-      closeReimbursement: 170n,
-    });
-    expect(defaultTreeFees(10n).feePerNullifier).toBe(670n);
-    expect(defaultTreeFees(3n).feePerNullifier).toBe(1837n);
-    expect(defaultTreeFees(0n)).toEqual({
+  it("sponsors the default schedule at every batch size", () => {
+    expect(DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS).toBe(0n);
+    expect(DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS).toBe(0n);
+    const sponsored = {
       feePerNullifier: 0n,
       appendReimbursement: 0n,
       closeReimbursement: 0n,
-    });
+    };
+    for (const batchSize of [250n, 10n, 3n, 1n, 0n]) {
+      expect(defaultTreeFees(batchSize)).toEqual(sponsored);
+    }
     expect(() => defaultTreeFees(-1n)).toThrow();
   });
 

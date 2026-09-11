@@ -18,10 +18,11 @@ use zolana_interface::{
         CircuitId, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof as ProofData, TreeContext,
     },
-    shape::{owner_signer_slots, Shape, SPP_CONSOLIDATION_SHAPE},
+    shape::{owner_signer_slots, Shape},
     verifying_keys::OutputOwnerMode,
     SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_transaction::instructions::transact::SPP_CONSOLIDATION_SHAPE;
 
 #[test]
 fn incomplete_proof_inputs_are_rejected() {

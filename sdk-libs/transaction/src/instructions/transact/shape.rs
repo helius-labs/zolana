@@ -1,10 +1,21 @@
-pub use zolana_interface::shape::{Shape, SPP_AUTO_SHAPES, SPP_SUPPORTED_SHAPES};
+pub use zolana_interface::shape::{Shape, SPP_SUPPORTED_SHAPES};
 
 use crate::error::TransactionError;
 
-pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
-    SPP_AUTO_SHAPES
+/// The consolidation shape: supported, but only reached by declaring it.
+pub const SPP_CONSOLIDATION_SHAPE: Shape = Shape::IN36_OUT2;
+
+/// Shapes automatic selection may pick: every supported shape except the
+/// consolidation one, which costs a 36-input proof and is only ever reached by
+/// declaring it.
+pub fn auto_shapes() -> impl Iterator<Item = Shape> {
+    SPP_SUPPORTED_SHAPES
         .into_iter()
+        .filter(|shape| *shape != SPP_CONSOLIDATION_SHAPE)
+}
+
+pub fn canonical_shape(n_in: usize, n_out: usize) -> Result<Shape, TransactionError> {
+    auto_shapes()
         .find(|s| n_in <= s.n_inputs() && n_out <= s.n_outputs())
         .ok_or(TransactionError::UnsupportedShape { n_in, n_out })
 }
@@ -46,8 +57,9 @@ mod tests {
 
     #[test]
     fn automatic_resolution_never_reaches_the_consolidation_shape() {
-        assert!(!SPP_AUTO_SHAPES.contains(&Shape::IN36_OUT2));
+        assert!(!auto_shapes().any(|shape| shape == Shape::IN36_OUT2));
         assert!(SPP_SUPPORTED_SHAPES.contains(&Shape::IN36_OUT2));
+        assert_eq!(auto_shapes().count(), SPP_SUPPORTED_SHAPES.len() - 1);
         assert!(canonical_shape(6, 2).is_err());
         assert!(canonical_shape(1, 9).is_err());
         assert_eq!(canonical_shape(1, 1).unwrap(), Shape::IN1_OUT1);

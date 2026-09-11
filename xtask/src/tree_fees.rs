@@ -5,7 +5,9 @@ use zolana_interface::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeFeeSchedule;
 
-pub const BASE_TRANSACTION_FEE_LAMPORTS: u64 = 5_000;
+/// One transaction base fee, the cost a forester carries for one batch append.
+pub const BASE_TRANSACTION_FEE_LAMPORTS: u64 =
+    zolana_interface::state::AT_COST_APPEND_REIMBURSEMENT_LAMPORTS;
 
 #[derive(Clone, Copy, Debug)]
 pub struct ForesterClose {

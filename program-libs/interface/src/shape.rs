@@ -57,10 +57,6 @@ impl Shape {
         }
     }
 
-    const fn is(&self, other: Shape) -> bool {
-        self.n_inputs == other.n_inputs && self.n_outputs == other.n_outputs
-    }
-
     pub const fn n_inputs(&self) -> usize {
         self.n_inputs
     }
@@ -101,41 +97,20 @@ pub const fn owner_signer_slots(n_inputs: usize) -> usize {
     }
 }
 
-/// Widest public signer vector over [`SPP_SUPPORTED_SHAPES`].
-pub const MAX_SIGNERS: usize = max_signer_width(&SPP_SUPPORTED_SHAPES);
+/// Widest public signer vector over [`SPP_SUPPORTED_SHAPES`]; the program sizes
+/// its fixed signer buffers from it.
+pub const MAX_SIGNERS: usize = 25;
 
-pub const fn max_signer_width(mut shapes: &[Shape]) -> usize {
-    let mut max = 0;
+/// The buffer bounds hold for every supported shape, or the build fails.
+const _: () = {
+    let mut shapes: &[Shape] = &SPP_SUPPORTED_SHAPES;
     while let Some((shape, rest)) = shapes.split_first() {
-        if shape.signer_width() > max {
-            max = shape.signer_width();
-        }
+        assert!(shape.signer_width() <= MAX_SIGNERS);
+        assert!(shape.n_inputs <= crate::MAX_TRANSACT_INPUTS);
+        assert!(shape.n_outputs <= crate::MAX_OUTPUTS);
         shapes = rest;
     }
-    max
-}
-
-pub const fn max_inputs(mut shapes: &[Shape]) -> usize {
-    let mut max = 0;
-    while let Some((shape, rest)) = shapes.split_first() {
-        if shape.n_inputs > max {
-            max = shape.n_inputs;
-        }
-        shapes = rest;
-    }
-    max
-}
-
-pub const fn max_outputs(mut shapes: &[Shape]) -> usize {
-    let mut max = 0;
-    while let Some((shape, rest)) = shapes.split_first() {
-        if shape.n_outputs > max {
-            max = shape.n_outputs;
-        }
-        shapes = rest;
-    }
-    max
-}
+};
 
 /// Shapes the SPP prover has keys for. Slot-signed transactions declare their
 /// exact shape (they do not pad), so they validate against this full set rather
@@ -153,32 +128,3 @@ pub const SPP_SUPPORTED_SHAPES: [Shape; 11] = [
     Shape::IN1_OUT8,
     Shape::IN36_OUT2,
 ];
-
-/// The consolidation shape: supported, but only reached by declaring it.
-pub const SPP_CONSOLIDATION_SHAPE: Shape = Shape::IN36_OUT2;
-
-/// [`SPP_SUPPORTED_SHAPES`] minus [`SPP_CONSOLIDATION_SHAPE`]: the shapes
-/// automatic selection may pick.
-pub const SPP_AUTO_SHAPES: [Shape; SPP_SUPPORTED_SHAPES.len() - 1] = auto_shapes();
-
-const fn auto_shapes() -> [Shape; SPP_SUPPORTED_SHAPES.len() - 1] {
-    let mut auto = [SPP_CONSOLIDATION_SHAPE; SPP_SUPPORTED_SHAPES.len() - 1];
-    let mut written = 0;
-    let mut remaining: &[Shape] = &SPP_SUPPORTED_SHAPES;
-    while let Some((shape, rest)) = remaining.split_first() {
-        if !shape.is(SPP_CONSOLIDATION_SHAPE) {
-            assert!(
-                written < auto.len(),
-                "SPP_SUPPORTED_SHAPES must list the consolidation shape exactly once"
-            );
-            auto[written] = *shape;
-            written += 1;
-        }
-        remaining = rest;
-    }
-    assert!(
-        written == auto.len(),
-        "SPP_SUPPORTED_SHAPES must list the consolidation shape exactly once"
-    );
-    auto
-}

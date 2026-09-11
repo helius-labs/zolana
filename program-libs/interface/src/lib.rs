@@ -54,9 +54,10 @@ pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
 pub const MAX_INTERFACE_TRANSFERS: usize = 32;
 
 /// Maximum number of outputs any supported transact circuit shape publishes.
-pub const MAX_OUTPUTS: usize = shape::max_outputs(&shape::SPP_SUPPORTED_SHAPES);
+pub const MAX_OUTPUTS: usize = 8;
 
-pub const MAX_TRANSACT_INPUTS: usize = shape::max_inputs(&shape::SPP_SUPPORTED_SHAPES);
+/// Maximum number of inputs any supported transact circuit shape spends.
+pub const MAX_TRANSACT_INPUTS: usize = 36;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

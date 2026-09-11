@@ -422,6 +422,10 @@ Changed
   owner as a second signer, fits the transaction it did not fit before.
 - `RingTransferClient` no longer requires `solanaRpc` and `commitment`, the ring
   transfer builders read what they need through the ports they already took.
+- `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
+  `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are 0, so `defaultTreeFees` returns an
+  all-zero schedule at every batch size and a transact pays no per-nullifier fee
+  into the tree it spends from.
 
 Fixed
 
