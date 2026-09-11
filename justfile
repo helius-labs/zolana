@@ -625,7 +625,7 @@ test-cli:
 
 # Build the tree bench program with profiling enabled, then run the mollusk
 # harness that profiles zolana-tree init/deserialize/append/nullifier-insert.
-bench-tree:
+bench-tree: build-prover-server
     cargo build-sbf --manifest-path bench/tree/Cargo.toml --features bench
     cargo test -p tree-bench --test bench_cu -- --ignored --nocapture
 
@@ -634,7 +634,7 @@ bench-tree:
 # profiling .so. Build the plain programs, stash the plain shielded-pool .so,
 # then overwrite target/deploy with the profiling build before running. Clone the
 # SPL Token program from mainnet so mollusk can run the SPL deposit's CPI.
-bench-shielded-pool: build-programs
+bench-shielded-pool: build-programs build-prover-server
     cp target/deploy/shielded_pool_program.so target/deploy/shielded_pool_program_plain.so
     cargo build-sbf --tools-version {{sbf-tools-version}} \
         --sbf-out-dir target/deploy \
