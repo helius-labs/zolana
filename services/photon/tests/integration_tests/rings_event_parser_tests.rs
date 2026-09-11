@@ -71,7 +71,7 @@ use zolana_interface::instruction::{
     TransactOutput, TransactProof, TreeContext,
 };
 use zolana_interface::{
-    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
+    instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, NullifierTreeProof},
     pda,
     state::{
         default_tree_fees, discriminator::TREE_ACCOUNT_DISCRIMINATOR, nullifier_tree_params,
@@ -2362,9 +2362,9 @@ fn batch_update_transaction_info(tree: Pubkey) -> TransactionInfo {
         new_root: [9; 32],
         old_root: [8; 32],
         zkp_batch_index: 0,
-        compressed_proof: CompressedProof {
+        proof: NullifierTreeProof {
             a: [1; 32],
-            b: [2; 64],
+            b: [2; 128],
             c: [3; 32],
         },
     };

@@ -704,9 +704,9 @@ fn drain_once(
                 let proof = prover
                     .prove_batch_address_append(&inputs)
                     .map_err(|err| anyhow!("prove zkp-batch {zkp_index}: {err}"))?;
-                let compressed_proof = ProofCompressed::try_from(proof)
+                let batch_update_proof = ProofCompressed::try_from(proof)
                     .and_then(|proof| proof.to_nullifier_tree_proof())
-                    .map_err(|err| anyhow!("compress proof for zkp-batch {zkp_index}: {err:?}"))?;
+                    .map_err(|err| anyhow!("encode proof for zkp-batch {zkp_index}: {err:?}"))?;
 
                 let signature = batch_update_nullifier_tree_once(ForestParams {
                     rpc_url,
@@ -721,7 +721,7 @@ fn drain_once(
                         // (= batch_size / zkp_batch_size), well within `u16`, so
                         // the cast cannot truncate.
                         zkp_batch_index: zkp_index as u16,
-                        compressed_proof,
+                        proof: batch_update_proof,
                     },
                 })
                 .map_err(|err| anyhow!("submit zkp-batch {zkp_index}: {err}"))?;

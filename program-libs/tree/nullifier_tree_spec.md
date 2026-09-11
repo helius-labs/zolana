@@ -230,9 +230,13 @@ struct BatchUpdateNullifierTreeData {
     new_root: [u8; 32],
     old_root: [u8; 32],
     zkp_batch_index: u16,
-    compressed_proof: CompressedProof, // a[32] || b[64] || c[32]
+    proof: NullifierTreeProof, // a[32] || b[128] || c[32]
 }
 ```
+
+`a` and `c` are compressed G1 points, `b` is the raw big-endian G2 point, so
+the program decompresses only the two G1 points and skips the G2 decompression
+syscall. Same encoding as the `transact` and `merge` proofs.
 
 **Proof statement**
 

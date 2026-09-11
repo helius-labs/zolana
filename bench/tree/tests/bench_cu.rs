@@ -196,7 +196,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed_proof = ProofCompressed::try_from(proof)
+            let proof = ProofCompressed::try_from(proof)
                 .unwrap()
                 .to_nullifier_tree_proof()
                 .unwrap();
@@ -204,7 +204,7 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
-                compressed_proof,
+                proof,
             });
             new_root
         } else {

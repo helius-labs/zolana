@@ -12,7 +12,7 @@ pub mod set_tree_fees;
 pub mod transact;
 
 #[cfg(feature = "tree")]
-pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
+pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, NullifierTreeProof};
 #[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{

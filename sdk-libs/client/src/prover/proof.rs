@@ -7,7 +7,7 @@ use zolana_interface::instruction::{
         merge_transact::MergeProof,
         transact::{Bsb22Commitment, TransactProof},
     },
-    CompressedProof,
+    NullifierTreeProof,
 };
 
 use crate::error::ClientError;
@@ -127,27 +127,27 @@ impl ProofCompressed {
         })
     }
 
-    /// `b` in the 64-byte compressed G2 encoding, for the formats that still
-    /// carry the proof fully compressed (the nullifier-tree batch update and
-    /// the custom-ring proof).
+    /// `b` in the 64-byte compressed G2 encoding, for the one format that
+    /// still carries the proof fully compressed: the custom-ring policy proof.
     pub fn compressed_b(&self) -> Result<[u8; 64], ClientError> {
         alt_bn128_g2_compress_be(&self.b)
             .map_err(|e| ClientError::ProofParse(format!("failed to compress proof_b: {e:?}")))
     }
 
-    /// The fully compressed proof of a nullifier-tree batch update. The batch
-    /// address-append circuit is vanilla Groth16, so a BSB22 commitment is
-    /// rejected (wrong circuit?).
-    pub fn to_nullifier_tree_proof(&self) -> Result<CompressedProof, ClientError> {
+    /// The proof of a nullifier-tree batch update ([`NullifierTreeProof`]):
+    /// compressed G1 points and a raw G2 point, as for transact and merge. The
+    /// batch address-append circuit is vanilla Groth16, so a BSB22 commitment
+    /// is rejected (wrong circuit?).
+    pub fn to_nullifier_tree_proof(&self) -> Result<NullifierTreeProof, ClientError> {
         if self.commitment.is_some() {
             return Err(ClientError::ProofParse(
                 "batch update proof carries an unexpected BSB22 commitment (wrong circuit?)"
                     .to_string(),
             ));
         }
-        Ok(CompressedProof {
+        Ok(NullifierTreeProof {
             a: self.a,
-            b: self.compressed_b()?,
+            b: self.b,
             c: self.c,
         })
     }
@@ -292,22 +292,22 @@ mod tests {
         174, 90, 17, 19, 189, 62, 147, 152, 18,
     ];
 
+    /// The batch update carries `b` raw, as transact and merge do, so the
+    /// program pays no G2 decompression syscall.
     #[test]
-    fn to_nullifier_tree_proof_compresses_b() {
+    fn to_nullifier_tree_proof_keeps_b_raw() {
         let proof = ProofCompressed {
             b: G2,
             commitment: None,
             ..proof_with_commitment()
         };
-        let compressed = proof
+        let batch_update = proof
             .to_nullifier_tree_proof()
             .expect("vanilla proof maps to a batch update proof");
 
-        let mut expected_b = [0u8; 64];
-        expected_b.copy_from_slice(&G2[..64]);
-        assert_eq!(compressed.a, [1u8; 32]);
-        assert_eq!(compressed.b, expected_b);
-        assert_eq!(compressed.c, [3u8; 32]);
+        assert_eq!(batch_update.a, [1u8; 32]);
+        assert_eq!(batch_update.b, G2);
+        assert_eq!(batch_update.c, [3u8; 32]);
     }
 
     #[test]

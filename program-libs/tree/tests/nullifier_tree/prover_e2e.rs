@@ -9,7 +9,7 @@ use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, constants::NULLIFIER_TREE_INIT_ROOT_40,
     error::NullifierTreeError, init::NullifierTreeInitParams, layout::NullifierTreeLayout,
-    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::CompressedProof,
+    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::NullifierTreeProof,
 };
 
 const HEIGHT: u32 = 40;
@@ -111,7 +111,7 @@ impl NullifierForester {
         let proof = ProverClient::local()
             .prove_batch_address_append(&inputs)
             .unwrap();
-        let compressed_proof = ProofCompressed::try_from(proof)
+        let proof = ProofCompressed::try_from(proof)
             .unwrap()
             .to_nullifier_tree_proof()
             .unwrap();
@@ -119,7 +119,7 @@ impl NullifierForester {
             new_root,
             old_root,
             zkp_batch_index: zkp_index as u16,
-            compressed_proof,
+            proof,
         };
         let result = account
             .update_tree_from_queue(TREE_PUBKEY, instruction_data)
@@ -170,7 +170,7 @@ impl NullifierForester {
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed_proof = ProofCompressed::try_from(proof)
+            let proof = ProofCompressed::try_from(proof)
                 .unwrap()
                 .to_nullifier_tree_proof()
                 .unwrap();
@@ -178,7 +178,7 @@ impl NullifierForester {
                 new_root,
                 old_root,
                 zkp_batch_index: zkp_index as u16,
-                compressed_proof,
+                proof,
             };
             prepared.push(PreparedUpdate {
                 instruction,
@@ -552,9 +552,9 @@ fn nullifier_tree_submit_index_errors() {
         new_root: [0u8; 32],
         old_root: [0u8; 32],
         zkp_batch_index: 0,
-        compressed_proof: CompressedProof {
+        proof: NullifierTreeProof {
             a: [0u8; 32],
-            b: [0u8; 64],
+            b: [0u8; 128],
             c: [0u8; 32],
         },
     };

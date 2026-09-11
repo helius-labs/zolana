@@ -133,7 +133,7 @@ impl NullifierTestForester {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: compressed.a,
                 b: compressed.b,
                 c: compressed.c,
@@ -148,9 +148,9 @@ impl NullifierTestForester {
                 new_root: batch_update.new_root,
                 old_root: batch_update.old_root,
                 zkp_batch_index: batch_update.zkp_batch_index,
-                compressed_proof_a: batch_update.compressed_proof.a,
-                compressed_proof_b: batch_update.compressed_proof.b,
-                compressed_proof_c: batch_update.compressed_proof.c,
+                proof_a: batch_update.proof.a,
+                proof_b: batch_update.proof.b,
+                proof_c: batch_update.proof.c,
             }
             .instruction(),
             batch_values.len(),

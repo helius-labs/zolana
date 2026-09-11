@@ -30,9 +30,9 @@ fn batch_update_instruction(authority: Pubkey, tree: Pubkey) -> solana_instructi
         new_root: [1u8; 32],
         old_root: [2u8; 32],
         zkp_batch_index: 0,
-        compressed_proof_a: [0u8; 32],
-        compressed_proof_b: [0u8; 64],
-        compressed_proof_c: [0u8; 32],
+        proof_a: [0u8; 32],
+        proof_b: [0u8; 128],
+        proof_c: [0u8; 32],
     }
     .instruction()
 }
@@ -124,9 +124,9 @@ fn batch_update_rejects_a_non_canonical_root() {
             new_root,
             old_root,
             zkp_batch_index: 0,
-            compressed_proof_a: [0u8; 32],
-            compressed_proof_b: [0u8; 64],
-            compressed_proof_c: [0u8; 32],
+            proof_a: [0u8; 32],
+            proof_b: [0u8; 128],
+            proof_c: [0u8; 32],
         }
         .instruction();
         let error = rpc
@@ -170,9 +170,9 @@ fn batch_update_rejects_a_proof_for_an_unready_zkp_batch() {
         new_root: [1u8; 32],
         old_root: [2u8; 32],
         zkp_batch_index: u16::MAX,
-        compressed_proof_a: [0u8; 32],
-        compressed_proof_b: [0u8; 64],
-        compressed_proof_c: [0u8; 32],
+        proof_a: [0u8; 32],
+        proof_b: [0u8; 128],
+        proof_c: [0u8; 32],
     }
     .instruction();
     let error = rpc

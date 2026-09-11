@@ -7,7 +7,7 @@ use zolana_hasher::{
 
 use crate::nullifier_tree::{
     batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,
-    proof::CompressedProof,
+    proof::NullifierTreeProof,
 };
 #[cfg(feature = "verify")]
 use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_update};
@@ -18,7 +18,7 @@ pub struct InstructionDataBatchNullifyInputs {
     pub new_root: [u8; 32],
     pub old_root: [u8; 32],
     pub zkp_batch_index: u16,
-    pub compressed_proof: CompressedProof,
+    pub proof: NullifierTreeProof,
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
@@ -113,11 +113,7 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
             leaves_hash_chain,
             next_index_bytes,
         ])?;
-        verify_batch_update(
-            zkp_batch_size,
-            public_input_hash,
-            &instruction_data.compressed_proof,
-        )?;
+        verify_batch_update(zkp_batch_size, public_input_hash, &instruction_data.proof)?;
 
         // 4. Store the cached update at its zkp batch index. old_root is the
         //    prover's public input; apply checks it against the account tree

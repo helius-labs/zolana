@@ -19,7 +19,7 @@ pub use instruction_data::{
 };
 #[cfg(feature = "tree")]
 pub use instruction_data::{
-    BatchUpdateNullifierTreeData, CompressedProof, CreateTreeData, SetTreeFeesData,
+    BatchUpdateNullifierTreeData, CreateTreeData, NullifierTreeProof, SetTreeFeesData,
 };
 pub use zolana_event::{tag, tag::InstructionTag};
 
