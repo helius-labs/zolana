@@ -167,7 +167,9 @@ hash into the public input chain.
 The **upgrade authority** deploys the binary, pins the table at
 `create_policy` and replaces it with `set_policy_rules`. The **config
 authority** writes the authority-written lists, re-points sources, grants
-readers and pauses the ring. A **curator** is a ring whose lists other rings
+readers, sets or clears the co-signer and pauses the ring. The **co-signer**
+signs beside the sender on the operations its scope names and decides
+nothing else. A **curator** is a ring whose lists other rings
 read, it writes its own entries and nothing on its subscribers. The
 **operator** answers `zolana-ring new` and holds the ring directory, one key
 serves both authorities unless `ring.toml` splits them.

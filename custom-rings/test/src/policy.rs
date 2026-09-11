@@ -114,6 +114,7 @@ impl RingNotes<'_> {
                     tree: self.env.tree,
                     asset: DepositAsset::Sol,
                     amount: self.amount,
+                    cosigner: None,
                 }
                 .send(rpc)?;
                 let leaf = SppProofInputUtxo::new(utxo.clone(), self.owner).hash()?;

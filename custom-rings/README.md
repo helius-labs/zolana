@@ -44,6 +44,17 @@ the pause move with it.
 Readers are on-chain records, so the same proposal flow grants a regulator a
 passkey without anyone sharing a key.
 
+A co-signer is a second Solana key the authority sets with `zolana-ring
+cosigner set`, scoped to transfers, deposits, withdrawals or any mix. Every
+transact and merge is a transfer and a public leg adds its class, so a
+transfer cannot hide behind a small deposit. Withdrawals carry per-mint
+thresholds summed over the legs of one transaction, a withdrawn mint without
+a threshold always needs the co-signer. The `[cosigner]` table of `ring.toml`
+holds the key, the scope names and the thresholds, `cosigner set` without
+flags applies it, `cosigner clear` closes the account and a ring without one
+demands nothing. The transact, transfer and merge commands take
+`--cosigner-keypair`.
+
 ## How auditor visibility works
 
 Every transfer encrypts its transaction viewing key to the auditor under a
