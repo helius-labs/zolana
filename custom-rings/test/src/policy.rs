@@ -60,6 +60,15 @@ pub const VELOCITY: RuleTable = RuleTable::builder()
     }])
     .build();
 
+/// SOL outflow capped per transfer, dual control above the threshold, no window.
+pub const TRANSFER_CAP: RuleTable = RuleTable::builder()
+    .velocity(&[VelocityRow {
+        asset: SOL_ASSET_FIELD,
+        cap: VELOCITY_CAP,
+        cosign_above: VELOCITY_COSIGN_ABOVE,
+    }])
+    .build();
+
 /// An Approval entry or no Block entry admits an output owner.
 pub const APPROVAL_OR_UNBLOCKED: RuleTable = RuleTable::builder()
     .rule(Rule::any_of(

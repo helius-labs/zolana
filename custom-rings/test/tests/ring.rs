@@ -41,7 +41,7 @@ use custom_ring_sdk::{
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
-    policy::{EMPTY, VELOCITY, VELOCITY_CAP, VELOCITY_COSIGN_ABOVE},
+    policy::{EMPTY, TRANSFER_CAP, VELOCITY, VELOCITY_CAP, VELOCITY_COSIGN_ABOVE},
     shared::{
         custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
         ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
@@ -2133,6 +2133,149 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         Err(TransferError::VelocityCapExceeded { cap, spent, .. }) => {
             assert_eq!(cap, VELOCITY_CAP);
             assert_eq!(spent, FIRST_SEND + SECOND_SEND + THIRD_SEND);
+        }
+        Err(other) => return Err(anyhow!("expected the cap refusal, got {other}")),
+        Ok(_) => return Err(anyhow!("the capped send was proven")),
+    }
+    Ok(())
+}
+
+/// Each transfer's SOL outflow stands alone against the cap, the threshold
+/// demands the co-signer, and no record accompanies the send.
+#[test]
+fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
+    const UNDER_THRESHOLD: u64 = 250_000_000;
+    const OVER_THRESHOLD: u64 = 350_000_000;
+    const OVER_CAP: u64 = 700_000_000;
+    const DEPOSITS: [u64; 3] = [300_000_000, 400_000_000, 800_000_000];
+    const _: () = assert!(UNDER_THRESHOLD <= VELOCITY_COSIGN_ABOVE);
+    const _: () = assert!(OVER_THRESHOLD > VELOCITY_COSIGN_ABOVE && OVER_THRESHOLD <= VELOCITY_CAP);
+    const _: () = assert!(OVER_CAP > VELOCITY_CAP);
+
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let auditor = ViewingKey::new();
+    let auditor_pk = auditor.pubkey();
+    let auditor_tag = auditor_view_tag(&auditor_pk);
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor_pk,
+        tier: Tier::policy(&TRANSFER_CAP, env.tree),
+    }
+    .send(rpc)?;
+    let prover = ProverClient::local();
+    let sender = &env.sender.keypair;
+    let sender_address = sender.pubkey();
+    let recipient = env.recipient.keypair.shielded_address()?;
+
+    let mut notes = Vec::with_capacity(DEPOSITS.len());
+    for amount in DEPOSITS {
+        let RingDepositReceipt { utxo, .. } = RingDeposit {
+            ring,
+            payer: sender,
+            recipient: sender,
+            tree: env.tree,
+            asset: DepositAsset::Sol,
+            amount,
+            cosigner: None,
+        }
+        .send(rpc)?;
+        notes.push(utxo);
+    }
+    let prepare = |input: Utxo, amount: u64| -> Result<PreparedTransfer> {
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address()?,
+            vec![SppProofInputUtxo::new(input, sender)],
+            sender_address,
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring_program);
+        transfer.send(&recipient, SOL_MINT, amount)?;
+        Ok(transfer.prepare()?)
+    };
+    let prove = |prepared: PreparedTransfer, cosigner: Option<Address>| {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring,
+            sender,
+            prepared,
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets);
+        if let Some(cosigner) = cosigner {
+            transfer = transfer.with_cosigner(cosigner);
+        }
+        transfer.prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover: &prover,
+        })
+    };
+
+    // 1. A send below the threshold lands with no approval and no record.
+    let proven = prove(prepare(notes[0].clone(), UNDER_THRESHOLD)?, None)?;
+    assert!(
+        !proven.approval_required,
+        "an under-threshold send asks nobody"
+    );
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    wait_for_indexed_transaction(indexer, auditor_tag, signature);
+
+    // 2. Above the threshold the chain refuses the send until the co-signer signs.
+    let cosigner = Keypair::new();
+    send(
+        rpc,
+        &env.payer,
+        &[SetCoSigner {
+            ring,
+            payer: env.payer.pubkey(),
+            authority: env.payer.pubkey(),
+            signer: cosigner.pubkey(),
+            scope: COSIGN_WITHDRAWALS,
+            thresholds: Vec::new(),
+        }
+        .instruction()?],
+    )?;
+    let proven = prove(
+        prepare(notes[1].clone(), OVER_THRESHOLD)?,
+        Some(cosigner.pubkey()),
+    )?;
+    assert!(
+        proven.approval_required,
+        "an over-threshold send asks the co-signer"
+    );
+    let rejection = send_v0_expecting_rejection(rpc, sender, proven.instruction()?)?;
+    Rejection::custom(CustomRingError::MissingCoSigner as u32)
+        .at(1)
+        .assert_client(&rejection);
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[&cosigner],
+        instruction: prove(
+            prepare(notes[1].clone(), OVER_THRESHOLD)?,
+            Some(cosigner.pubkey()),
+        )?
+        .instruction()?,
+    }
+    .send(rpc)?;
+    wait_for_indexed_transaction(indexer, auditor_tag, signature);
+
+    // 3. A single send above the cap is refused before any proof.
+    match prove(
+        prepare(notes[2].clone(), OVER_CAP)?,
+        Some(cosigner.pubkey()),
+    ) {
+        Err(TransferError::VelocityCapExceeded { cap, spent, .. }) => {
+            assert_eq!(cap, VELOCITY_CAP);
+            assert_eq!(spent, OVER_CAP);
         }
         Err(other) => return Err(anyhow!("expected the cap refusal, got {other}")),
         Ok(_) => return Err(anyhow!("the capped send was proven")),
