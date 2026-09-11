@@ -54,6 +54,8 @@ import { fetchRingConfigs } from "./config.js";
 import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
+import type { SignerAccount } from "../interface/instructions/index.js";
+
 import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
@@ -83,6 +85,8 @@ export interface RingTransferTransactionParams {
   readonly outputTree?: Address;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
+  /** The ring's co-signer when its scope covers the operation. */
+  readonly cosigner?: SignerAccount;
   readonly computeUnitLimit?: number;
   readonly computeUnitPriceMicroLamports?: bigint;
 }
@@ -250,6 +254,7 @@ type RingSpendParams = Pick<
   | "amount"
   | "outputTree"
   | "lookupTable"
+  | "cosigner"
   | "computeUnitLimit"
   | "computeUnitPriceMicroLamports"
 >;
@@ -355,6 +360,7 @@ async function buildRingSpend<R>(
           data: proven.data,
           ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
           ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
+          ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         }),
         fetchRingLookupTable(
           {

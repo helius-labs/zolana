@@ -93,6 +93,15 @@ export async function ringAuthAddress(ringProgramId: Address): Promise<Address> 
   return address;
 }
 
+/** Mirrors Rust `CustomRing::cosigner_pda`, uninitialized when the ring has no co-signer. */
+export async function ringCoSignerAddress(ringProgramId: Address): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("cosigner")],
+  });
+  return address;
+}
+
 export async function protocolConfigAddress(): Promise<Address> {
   return (await derive("protocol_config"))[0];
 }

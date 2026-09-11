@@ -6,16 +6,20 @@ import {
 } from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
-import { meta, type SignerAccount } from "../interface/instructions/index.js";
-import { addressBytes } from "../interface/internal.js";
-import { ringAuthAddress } from "../interface/pda/index.js";
+import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
+import { Writer, addressBytes } from "../interface/internal.js";
+import { ringAuthAddress, ringCoSignerAddress } from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 
 import {
+  RING_COSIGN_SCOPE_MASK,
+  RING_COSIGN_THRESHOLD_SLOTS,
+  type RingCoSigner,
   type RingPolicyConfig,
   type RingProgramConfig,
+  decodeRingCoSigner,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
 } from "./codecs.js";
@@ -25,6 +29,8 @@ const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
+const SET_CO_SIGNER_TAG = 20;
+const CLEAR_CO_SIGNER_TAG = 21;
 
 export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
   return (await ringConfigPda(ringProgramId))[0];
@@ -126,6 +132,104 @@ export async function fetchRingConfigs(
   if (!config.hasPolicy) return Object.freeze({ hasPolicy: false, config });
   const policy = await fetchRingPolicyConfig(client, ringProgramId, context);
   return Object.freeze({ hasPolicy: true, config, policy });
+}
+
+/** Mirrors Rust `CustomRing::read_cosigner`, `undefined` when the ring has no co-signer. */
+export async function fetchRingCoSigner(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingCoSigner | undefined> {
+  const address = await ringCoSignerAddress(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined) return undefined;
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const [, bump] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("cosigner")],
+  });
+  const cosigner = decodeRingCoSigner(account.data);
+  if (cosigner.bump !== bump) {
+    throw new RingError("RING_CO_SIGNER_INVALID", { details: { ringProgramId, address } });
+  }
+  return cosigner;
+}
+
+/** Mirrors Rust `SetCoSigner`, creates or replaces the co-signer under the config authority. */
+export async function setRingCoSignerInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    signer: Address;
+    /** A nonzero subset of the `RING_COSIGN_*` bits. */
+    scope: number;
+    /** Per mint, SOL under the zero address. */
+    thresholds?: readonly { readonly mint: Address; readonly above: bigint }[];
+  }>,
+): Promise<Instruction> {
+  const thresholds = input.thresholds ?? [];
+  if (
+    input.scope === 0 ||
+    (input.scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
+    thresholds.length > RING_COSIGN_THRESHOLD_SLOTS ||
+    new Set(thresholds.map((row) => row.mint)).size !== thresholds.length
+  ) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { scope: input.scope, thresholds: thresholds.length },
+    });
+  }
+  const [config, cosigner] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+  ]);
+  const writer = new Writer()
+    .u8(SET_CO_SIGNER_TAG, "tag")
+    .bytes(addressBytes(input.signer, "signer"), 32, "signer")
+    .u8(input.scope, "scope")
+    .u8(thresholds.length, "thresholdCount");
+  for (const row of thresholds) {
+    writer.bytes(addressBytes(row.mint, "mint"), 32, "mint").u64(row.above, "above");
+  }
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(cosigner, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data: writer.finish(),
+  };
+}
+
+/** Mirrors Rust `ClearCoSigner`. */
+export async function clearRingCoSignerInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    authority: SignerAccount;
+    rentRecipient: Address;
+  }>,
+): Promise<Instruction> {
+  const [config, cosigner] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(cosigner, false, true),
+      meta(input.rentRecipient, false, true),
+    ],
+    data: Uint8Array.of(CLEAR_CO_SIGNER_TAG),
+  };
 }
 
 /** Mirrors Rust `SetAuthority`. Both authorities sign, a mistyped address cannot strand the config. */

@@ -34,7 +34,21 @@ export {
   decodeRingProgramConfig,
 } from "./codecs.js";
 export { ringRole, type RingRole } from "./role.js";
-export type { RingPolicyConfig, RingPolicySource, RingProgramConfig } from "./codecs.js";
+export type {
+  RingCoSigner,
+  RingPolicyConfig,
+  RingPolicySource,
+  RingProgramConfig,
+} from "./codecs.js";
+export {
+  RING_COSIGN_DEPOSITS,
+  RING_COSIGN_SCOPE_MASK,
+  RING_COSIGN_THRESHOLD_SLOTS,
+  RING_COSIGN_TRANSFERS,
+  RING_COSIGN_WITHDRAWALS,
+  decodeRingCoSigner,
+} from "./codecs.js";
+export { ringCoSignerAddress } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
 export {
   LIST_IDS,
@@ -94,7 +108,10 @@ export {
   ringPolicyConfigAddress,
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
+  clearRingCoSignerInstruction,
+  fetchRingCoSigner,
   setRingAuthorityInstruction,
+  setRingCoSignerInstruction,
   setRingPausedInstruction,
 } from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";

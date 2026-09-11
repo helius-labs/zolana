@@ -4,6 +4,7 @@ import { AccountRole, type Address, type Instruction } from "@solana/kit";
 import {
   SYSTEM_PROGRAM,
   meta,
+  ringCoSignerMetas,
   ringTransactAccounts,
   type SignerAccount,
 } from "../interface/instructions/index.js";
@@ -18,6 +19,7 @@ import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
+  ringCoSignerAddress,
 } from "../interface/pda/index.js";
 import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
@@ -143,7 +145,7 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`. */
+/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`, `[cosigner_pda, cosigner]` follow the config. */
 export async function ringTransactInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -163,12 +165,15 @@ export async function ringTransactInstruction(
     ownerSigners?: readonly SignerAccount[];
     /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
     withdrawal?: TransactWithdrawal;
+    /** The ring's co-signer, a signer when set. */
+    cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
-  const [config, ringAuth] = await Promise.all([
+  const [config, ringAuth, cosignerPda] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
   const pool = await ringTransactAccounts({
@@ -200,6 +205,7 @@ export async function ringTransactInstruction(
         ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
       },
       { address: config, role: AccountRole.READONLY },
+      ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
       ...pool,
     ],

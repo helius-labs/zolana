@@ -34,6 +34,7 @@ import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
+  ringCoSignerAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -309,15 +310,22 @@ export async function ringDepositInstruction(
     tree: Address;
     depositor: SignerAccount;
     deposits: readonly RingAssetDeposit[];
+    /** The ring's co-signer, a signer when set. */
+    cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
+  const [ringAuth, cosignerPda] = await Promise.all([
+    ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+  ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
     input.depositor,
     layout,
-    await ringAuthAddress(input.ringProgramId),
+    ringAuth,
   );
+  accounts.unshift(...ringCoSignerMetas(cosignerPda, input.cosigner));
   return instruction(
     tagged(
       InstructionTag.ringDeposit,
@@ -343,6 +351,17 @@ export async function ringDepositInstruction(
     accounts,
     input.ringProgramId,
   );
+}
+
+/** `[cosigner_pda, cosigner]`, unset the slot repeats the PDA, a top-level slot inherits the message signer flag of its address. */
+export function ringCoSignerMetas(
+  cosignerPda: Address,
+  cosigner: SignerAccount | undefined,
+): Meta[] {
+  return [
+    meta(cosignerPda, false, false),
+    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
+  ];
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {

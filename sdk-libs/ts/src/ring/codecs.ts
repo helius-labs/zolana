@@ -43,8 +43,27 @@ export interface RingPolicyConfig {
   readonly generationSlot: bigint;
 }
 
+/** Mirrors Rust `CoSigner`, `scope` is a subset of the `RING_COSIGN_*` bits. */
+export interface RingCoSigner {
+  readonly signer: Address;
+  readonly scope: number;
+  readonly bump: number;
+  /** Per mint, SOL under the zero address, a withdrawn mint without a row always needs the co-signer. */
+  readonly thresholds: readonly { readonly mint: Address; readonly above: bigint }[];
+}
+
+export const RING_COSIGN_TRANSFERS = 1;
+export const RING_COSIGN_DEPOSITS = 2;
+export const RING_COSIGN_WITHDRAWALS = 4;
+export const RING_COSIGN_SCOPE_MASK = 7;
+/** Rust `MAX_CO_SIGNER_THRESHOLDS`. */
+export const RING_COSIGN_THRESHOLD_SLOTS = 8;
+
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
 const RING_PROGRAM_CONFIG_SIZE = 68;
+/** Rust `CO_SIGNER` and `CoSigner::SIZE`. */
+const RING_CO_SIGNER_DISCRIMINATOR = 4;
+const RING_CO_SIGNER_SIZE = 356;
 
 export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   if (data.length !== RING_PROGRAM_CONFIG_SIZE || data[0] !== RING_PROGRAM_CONFIG_DISCRIMINATOR) {
@@ -60,6 +79,35 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   const hasPolicy = reader.u8("hasPolicy") !== 0;
   reader.done();
   return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy });
+}
+
+export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
+  if (data.length !== RING_CO_SIGNER_SIZE || data[0] !== RING_CO_SIGNER_DISCRIMINATOR) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const signer = encodeBase58(reader.bytes(32, "signer"));
+  const scope = reader.u8("scope");
+  const count = reader.u8("thresholdCount");
+  if (
+    scope === 0 ||
+    (scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
+    count > RING_COSIGN_THRESHOLD_SLOTS
+  ) {
+    throw new RingError("RING_CO_SIGNER_INVALID", { details: { scope, count } });
+  }
+  const thresholds = [];
+  for (let slot = 0; slot < RING_COSIGN_THRESHOLD_SLOTS; slot += 1) {
+    const mint = encodeBase58(reader.bytes(32, "mint"));
+    const above = reader.u64("above");
+    if (slot < count) thresholds.push(Object.freeze({ mint, above }));
+  }
+  const bump = reader.u8("bump");
+  reader.done();
+  return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
