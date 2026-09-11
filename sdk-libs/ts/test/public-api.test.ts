@@ -284,12 +284,12 @@ describe("public package surface", () => {
     expect(Object.keys(transaction!.signatures)).toEqual([owner]);
   });
 
-  it("uses an optional fee payer as the message fee payer", async () => {
+  it("uses an optional payer for rent and fee and keeps the owner as a signer", async () => {
     const keypair = ShieldedKeypair.fromKeypair(
       SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
     );
     const owner = keypair.shieldedAddress().solanaAddress();
-    const feePayer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
+    const payer = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
     const transaction = await buildRegistrationTransaction({
       client: {
         getAccount: vi.fn(async () => undefined),
@@ -300,11 +300,32 @@ describe("public package surface", () => {
       },
       owner,
       address: keypair.shieldedAddress(),
-      feePayer,
+      payer,
     });
 
     expect(transaction).toBeDefined();
-    expect(Object.keys(transaction!.signatures)[0]).toBe(feePayer);
+    expect(Object.keys(transaction!.signatures)).toEqual([payer, owner]);
+  });
+
+  it("defaults the payer to the owner", async () => {
+    const keypair = ShieldedKeypair.fromKeypair(
+      SigningKey.fromEd25519Bytes(new Uint8Array(32).fill(2) as Bytes32),
+    );
+    const owner = keypair.shieldedAddress().solanaAddress();
+    const transaction = await buildRegistrationTransaction({
+      client: {
+        getAccount: vi.fn(async () => undefined),
+        getLatestBlockhash: vi.fn(async () => ({
+          blockhash: BLOCKHASH,
+          lastValidBlockHeight: 1n,
+        })),
+      },
+      owner,
+      address: keypair.shieldedAddress(),
+    });
+
+    expect(transaction).toBeDefined();
+    expect(Object.keys(transaction!.signatures)).toEqual([owner]);
   });
 
   it("rejects P256 registration before building or reading RPC state", async () => {

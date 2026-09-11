@@ -390,7 +390,7 @@ export async function buildRegistrationTransaction(
     client: AccountReader & BlockhashProvider;
     owner: Address;
     address: ShieldedAddress;
-    feePayer?: Address;
+    payer?: Address;
   }>,
   context?: RequestContext,
 ): Promise<Transaction | undefined> {
@@ -403,11 +403,12 @@ export async function buildRegistrationTransaction(
       { rpc: input.client, owner: input.owner, pda },
       context,
     );
-    const instruction = registrationInstruction(input.owner, input.address, pda, existing);
+    const payer = input.payer ?? input.owner;
+    const instruction = registrationInstruction(input.owner, payer, input.address, pda, existing);
     if (instruction === undefined) return undefined;
     const lifetime = await input.client.getLatestBlockhash(context);
     return compileUnsignedTransaction({
-      feePayer: input.feePayer ?? input.owner,
+      feePayer: payer,
       lifetime,
       instructions: [instruction],
     });
@@ -450,6 +451,7 @@ export async function buildSetMergingEnabledTransaction(
 
 function registrationInstruction(
   owner: Address,
+  payer: Address,
   shieldedAddress: ShieldedAddress,
   pda: Readonly<{ address: Address; bump: number }>,
   existing: UserRecord | undefined,
@@ -463,12 +465,12 @@ function registrationInstruction(
     programAddress: USER_REGISTRY_PROGRAM_ID,
     accounts: [
       { address: pda.address, role: AccountRole.WRITABLE },
-      {
-        address: owner,
-        role: existing === undefined ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER,
-      },
+      { address: owner, role: AccountRole.READONLY_SIGNER },
       ...(existing === undefined
-        ? [{ address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const }]
+        ? [
+            { address: payer, role: AccountRole.WRITABLE_SIGNER as const },
+            { address: SYSTEM_PROGRAM, role: AccountRole.READONLY as const },
+          ]
         : []),
     ],
     data: concat(

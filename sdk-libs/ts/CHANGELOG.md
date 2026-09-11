@@ -76,12 +76,14 @@ Breaking
   deposited UTXO from the indexer after the deposit lands, since the blinding,
   and therefore the hash, depend on the leaf index assigned when the transaction
   executes.
+- The user-registry `register` instruction takes a `payer` writable signer
+  after `owner` and no longer debits `owner` → a transaction built against the
+  previous three-account layout fails with `NotEnoughAccountKeys`.
 
 Added
 
-- `buildRegistrationTransaction({ feePayer })` lets an account other than
-  the owner pay the transaction fee; the owner still signs, and on a first
-  registration still funds the record's rent.
+- `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
+  rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.

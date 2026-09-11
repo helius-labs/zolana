@@ -65,7 +65,8 @@ impl LifecycleHarness {
             viewing_pubkey: *keypair.viewing_pubkey().as_bytes(),
         };
         let user_record = user_record_pda(&owner.pubkey()).0;
-        let register_ix = register(user_record, owner.pubkey(), register_data);
+        let payer = owner.pubkey();
+        let register_ix = register(user_record, owner.pubkey(), payer, register_data);
         send_transaction(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
 
         // Opt the record into merging. When enabled, any caller may run

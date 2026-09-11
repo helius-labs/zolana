@@ -195,11 +195,9 @@ if (registration !== undefined) {
 }
 ```
 
-`feePayer` is optional and defaults to `owner`. A sponsor pays the transaction
-fee only. The owner still signs, and a first registration still funds the
-record's rent from the owner, so the transaction needs two signatures.
-Onboarding an owner with zero SOL needs a separate payer account on the
-program.
+`payer` is optional and defaults to `owner`. A sponsor passed as `payer` funds
+the record's rent and pays the transaction fee. The owner still signs but needs
+no SOL, so the transaction carries two signatures.
 
 `buildRegistrationTransaction` returns `undefined` when that owner is already
 registered with the same keys. A recipient that never submitted this

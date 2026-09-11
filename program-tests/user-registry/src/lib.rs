@@ -148,10 +148,23 @@ pub fn build_register_ix(
     nullifier_pubkey: [u8; 32],
     viewing_pubkey: [u8; 33],
 ) -> Instruction {
+    let payer = owner;
+    build_sponsored_register_ix(owner, payer, owner_p256, nullifier_pubkey, viewing_pubkey)
+}
+
+/// `register` funded by `payer` instead of `owner`.
+pub fn build_sponsored_register_ix(
+    owner: &Pubkey,
+    payer: &Pubkey,
+    owner_p256: Option<[u8; 33]>,
+    nullifier_pubkey: [u8; 32],
+    viewing_pubkey: [u8; 33],
+) -> Instruction {
     let (user_record, _bump) = user_record_pda(owner);
     user_registry_instruction::register(
         user_record,
         *owner,
+        *payer,
         RegisterData {
             owner_p256,
             nullifier_pubkey,

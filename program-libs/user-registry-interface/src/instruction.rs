@@ -82,13 +82,21 @@ mod builders {
         data
     }
 
-    /// Accounts: `[user_record (writable), owner (writable signer), system_program]`,
-    /// followed by the Instructions sysvar when `owner_p256` is present.
-    pub fn register(user_record: Pubkey, owner: Pubkey, data: RegisterData) -> Instruction {
+    /// Accounts: `[user_record (writable), owner (signer), payer (writable
+    /// signer), system_program]`, followed by the Instructions sysvar when
+    /// `owner_p256` is present. `payer` funds the record's rent and may equal
+    /// `owner`; the message compiler merges the two metas into one signer.
+    pub fn register(
+        user_record: Pubkey,
+        owner: Pubkey,
+        payer: Pubkey,
+        data: RegisterData,
+    ) -> Instruction {
         let has_p256_owner = data.owner_p256.is_some();
         let mut accounts = vec![
             AccountMeta::new(user_record, false),
-            AccountMeta::new(owner, true),
+            AccountMeta::new_readonly(owner, true),
+            AccountMeta::new(payer, true),
             AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
         ];
         if has_p256_owner {
@@ -180,7 +188,8 @@ mod tests {
             viewing_pubkey: [2u8; 33],
         };
 
-        let register = builders::register(record, owner, data.clone());
+        let payer = owner;
+        let register = builders::register(record, owner, payer, data.clone());
         let update = builders::update_keys(
             record,
             owner,
@@ -199,5 +208,29 @@ mod tests {
             update.accounts.last().unwrap().pubkey,
             builders::INSTRUCTIONS_SYSVAR_ID
         );
+    }
+
+    #[cfg(feature = "solana")]
+    #[test]
+    fn register_lists_owner_as_readonly_signer_and_payer_as_writable_signer() {
+        let record = Pubkey::new_unique();
+        let owner = Pubkey::new_unique();
+        let payer = Pubkey::new_unique();
+        let data = RegisterData {
+            owner_p256: None,
+            nullifier_pubkey: [0u8; 32],
+            viewing_pubkey: [2u8; 33],
+        };
+
+        let ix = builders::register(record, owner, payer, data);
+
+        assert_eq!(ix.accounts.len(), 4);
+        assert_eq!(ix.accounts[0].pubkey, record);
+        assert!(ix.accounts[0].is_writable && !ix.accounts[0].is_signer);
+        assert_eq!(ix.accounts[1].pubkey, owner);
+        assert!(ix.accounts[1].is_signer && !ix.accounts[1].is_writable);
+        assert_eq!(ix.accounts[2].pubkey, payer);
+        assert!(ix.accounts[2].is_signer && ix.accounts[2].is_writable);
+        assert_eq!(ix.accounts[3].pubkey, Pubkey::default());
     }
 }

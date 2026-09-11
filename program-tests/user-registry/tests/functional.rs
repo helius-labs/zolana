@@ -1,9 +1,11 @@
 mod common;
 
+use solana_keypair::Keypair;
 use solana_signer::Signer;
 use user_registry_tests::{
-    build_register_ix, build_set_merging_enabled_ix, build_update_keys_ix, build_update_keys_ixs,
-    p256_binding_signature, user_registry_program_id, UserRecord, UserRegistryTestRig,
+    build_register_ix, build_set_merging_enabled_ix, build_sponsored_register_ix,
+    build_update_keys_ix, build_update_keys_ixs, p256_binding_signature, user_registry_program_id,
+    UserRecord, UserRegistryTestRig,
 };
 use zolana_user_registry_interface::user_record_pda;
 
@@ -61,6 +63,53 @@ fn register_supports_a_prefunded_pda_and_an_absent_p256_key() {
         .expect("record account");
     assert_eq!(account.owner, user_registry_program_id());
     assert_eq!(account.data.len(), UserRecord::SIZE);
+}
+
+/// A sponsor in the payer slot funds the record's rent, so an owner holding
+/// 0 SOL can be registered. The rig's payer covers the transaction fee, so the
+/// sponsor's balance drops by exactly the rent.
+#[test]
+fn register_lets_a_sponsor_fund_the_record() {
+    let mut rig = UserRegistryTestRig::new();
+    let owner = Keypair::new();
+    let sponsor = funded_keypair(&mut rig);
+    let value = keys(3);
+    let rent = rig.svm.minimum_balance_for_rent_exemption(UserRecord::SIZE);
+    let sponsor_before = rig
+        .svm
+        .get_balance(&sponsor.pubkey())
+        .expect("sponsor balance");
+
+    rig.send(
+        build_sponsored_register_ix(
+            &owner.pubkey(),
+            &sponsor.pubkey(),
+            None,
+            value.nullifier,
+            value.viewing,
+        ),
+        &[&owner, &sponsor],
+    )
+    .expect("sponsored register");
+
+    let record = rig.record(&owner.pubkey());
+    assert_eq!(record.owner, owner.pubkey());
+    assert_eq!(record.nullifier_pubkey, value.nullifier);
+    assert_eq!(record.viewing_pubkey, value.viewing);
+
+    let account = rig
+        .svm
+        .get_account(&user_record_pda(&owner.pubkey()).0)
+        .expect("record account");
+    assert_eq!(account.owner, user_registry_program_id());
+    assert_eq!(account.data.len(), UserRecord::SIZE);
+    assert_eq!(account.lamports, rent);
+    assert_eq!(rig.svm.get_balance(&owner.pubkey()).unwrap_or(0), 0);
+    let sponsor_after = rig
+        .svm
+        .get_balance(&sponsor.pubkey())
+        .expect("sponsor balance");
+    assert_eq!(sponsor_before - sponsor_after, rent);
 }
 
 /// Clearing the P256 key (`owner_p256: Some -> None`) shortens the borsh body

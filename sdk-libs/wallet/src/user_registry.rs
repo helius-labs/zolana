@@ -102,7 +102,8 @@ pub fn ensure_registered<R: Rpc>(
     }
 
     let proof = key_binding_proof(owner, keypair)?;
-    let ixs = register_instructions(user_record, owner, data, proof)?;
+    let payer = owner;
+    let ixs = register_instructions(user_record, owner, payer, data, proof)?;
     Ok(Some(rpc.create_and_send_transaction(
         &ixs,
         owner_address,
@@ -157,7 +158,8 @@ pub fn register_if_absent<R: Rpc>(
     }
 
     let proof = key_binding_proof(owner, keypair)?;
-    let ixs = register_instructions(user_record, owner, data, proof)?;
+    let payer = owner;
+    let ixs = register_instructions(user_record, owner, payer, data, proof)?;
     let signature = rpc.create_and_send_transaction(
         &ixs,
         Address::new_from_array(owner.to_bytes()),
@@ -171,11 +173,9 @@ pub fn register_if_absent<R: Rpc>(
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
 ///
-/// `fee_payer` is the transaction fee payer. `None` uses `owner`. A sponsor
-/// covers the fee only: the owner still signs, and a first registration still
-/// funds the record's rent from the owner, so the transaction needs two
-/// signatures. Onboarding an owner with zero SOL needs a separate payer
-/// account on the program.
+/// `payer` funds the record's rent on a first registration and pays the
+/// transaction fee. `None` uses `owner`. With a sponsor the owner still signs
+/// but needs no SOL, so the transaction carries two signatures.
 ///
 /// Returns `Ok(None)` when the on-chain record already matches `address`.
 pub async fn build_registration_transaction<R: AsyncRpc>(
@@ -183,16 +183,17 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
-    fee_payer: Option<Pubkey>,
+    payer: Option<Pubkey>,
 ) -> Result<Option<SolanaTransaction>, ClientError> {
+    let payer = payer.unwrap_or(owner);
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
-    let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
+    let Some(instructions) = registration_instructions(owner, payer, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
     Ok(Some(unsigned_registration_transaction(
-        fee_payer.unwrap_or(owner),
+        payer,
         instructions,
         blockhash,
     )))
@@ -203,26 +204,25 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
 ///
-/// `fee_payer` is the transaction fee payer. `None` uses `owner`. A sponsor
-/// covers the fee only: the owner still signs, and a first registration still
-/// funds the record's rent from the owner, so the transaction needs two
-/// signatures. Onboarding an owner with zero SOL needs a separate payer
-/// account on the program.
+/// `payer` funds the record's rent on a first registration and pays the
+/// transaction fee. `None` uses `owner`. With a sponsor the owner still signs
+/// but needs no SOL, so the transaction carries two signatures.
 pub fn build_registration_transaction_sync<R: Rpc>(
     rpc: &R,
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
-    fee_payer: Option<Pubkey>,
+    payer: Option<Pubkey>,
 ) -> Result<Option<SolanaTransaction>, ClientError> {
+    let payer = payer.unwrap_or(owner);
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
-    let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
+    let Some(instructions) = registration_instructions(owner, payer, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash()?;
     Ok(Some(unsigned_registration_transaction(
-        fee_payer.unwrap_or(owner),
+        payer,
         instructions,
         blockhash,
     )))
@@ -230,6 +230,7 @@ pub fn build_registration_transaction_sync<R: Rpc>(
 
 fn registration_instructions(
     owner: Pubkey,
+    payer: Pubkey,
     data: RegisterData,
     existing: Option<UserRecord>,
     proof: Option<P256KeyBindingProof>,
@@ -253,7 +254,7 @@ fn registration_instructions(
                 viewing_pubkey: data.viewing_pubkey,
             },
         )),
-        None => Some(register(user_record, owner, data)),
+        None => Some(register(user_record, owner, payer, data)),
     }
     .expect("non-current registration always has an instruction");
 
@@ -332,11 +333,12 @@ fn update_key_instructions(
 fn register_instructions(
     user_record: Pubkey,
     owner: Pubkey,
+    payer: Pubkey,
     data: RegisterData,
     proof: Option<P256KeyBindingProof>,
 ) -> Result<Vec<Instruction>, ClientError> {
     let owner_p256 = data.owner_p256;
-    let ix = register(user_record, owner, data);
+    let ix = register(user_record, owner, payer, data);
     compose_key_binding_instructions(user_record, owner, ix, owner_p256, proof)
 }
 
@@ -809,9 +811,9 @@ mod tests {
     }
 
     #[test]
-    fn registration_builder_uses_optional_fee_payer() {
+    fn registration_builder_uses_optional_payer_for_rent_and_fee() {
         let owner = Pubkey::new_unique();
-        let fee_payer = Pubkey::new_unique();
+        let payer = Pubkey::new_unique();
         let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
             .expect("ed25519 keypair");
         let address = keypair.shielded_address().expect("shielded address");
@@ -820,12 +822,44 @@ mod tests {
             owner,
             &address,
             None,
-            Some(fee_payer),
+            Some(payer),
         )
         .expect("build registration")
         .expect("registration required");
 
-        assert_eq!(transaction.message.account_keys[0], fee_payer);
+        // Legacy key order: writable signers, readonly signers, then non-signers.
+        let message = &transaction.message;
+        assert_eq!(message.header.num_required_signatures, 2);
+        assert_eq!(message.header.num_readonly_signed_accounts, 1);
+        assert_eq!(message.account_keys[0], payer);
+        assert_eq!(message.account_keys[1], owner);
+        assert_eq!(message.instructions.len(), 1);
+        let register_ix = &message.instructions[0];
+        assert_eq!(
+            message.account_keys[usize::from(register_ix.accounts[1])],
+            owner
+        );
+        assert_eq!(
+            message.account_keys[usize::from(register_ix.accounts[2])],
+            payer
+        );
+    }
+
+    #[test]
+    fn registration_builder_defaults_payer_to_owner() {
+        let owner = Pubkey::new_unique();
+        let keypair = ShieldedKeypair::from_keypair(SigningKey::from_ed25519_bytes(&[7u8; 32]))
+            .expect("ed25519 keypair");
+        let address = keypair.shielded_address().expect("shielded address");
+        let transaction =
+            build_registration_transaction_sync(&MockRpc::default(), owner, &address, None, None)
+                .expect("build registration")
+                .expect("registration required");
+
+        let message = &transaction.message;
+        assert_eq!(message.account_keys[0], owner);
+        assert_eq!(message.header.num_required_signatures, 1);
+        assert_eq!(message.header.num_readonly_signed_accounts, 0);
     }
 
     #[test]
