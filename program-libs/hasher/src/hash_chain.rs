@@ -78,12 +78,6 @@ pub fn create_hash_chain_4_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], H
     create_hash_chain_4(inputs.iter())
 }
 
-/// Borrowed-slice variant of [`create_hash_chain_4_from_slice`]; see its
-/// security note.
-pub fn create_hash_chain_4_from_slice_ref(inputs: &[&[u8; 32]]) -> Result<[u8; 32], HasherError> {
-    create_hash_chain_4(inputs.iter().copied())
-}
-
 static HASH_CHAIN_4_PADDING: [u8; 32] = [0u8; 32];
 
 /// Iterator variant of [`create_hash_chain_4_from_slice`]; see its security

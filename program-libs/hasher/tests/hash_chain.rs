@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 use zolana_hasher::{
     hash_chain::{
-        create_hash_chain_4, create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref,
-        create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
-        create_two_inputs_hash_chain,
+        create_hash_chain_4, create_hash_chain_4_from_slice, create_hash_chain_from_slice,
+        create_hash_chain_from_slice_ref, create_two_inputs_hash_chain,
     },
     Hasher, HasherError, Poseidon,
 };
@@ -81,7 +80,7 @@ fn committed_hash_chain_4_vectors_match() {
 
 /// Every committed entry is a known-answer test for all entry points; the
 /// iterator used by the on-chain public-input assembly must agree with the
-/// slice variants.
+/// slice API.
 #[test]
 fn hash_chain_4_matches_every_committed_vector() {
     let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
@@ -93,7 +92,6 @@ fn hash_chain_4_matches_every_committed_vector() {
             .map(|input| hex::decode(input).unwrap().try_into().unwrap())
             .collect();
         let expected: [u8; 32] = hex::decode(&vector.output).unwrap().try_into().unwrap();
-        let refs: Vec<&[u8; 32]> = inputs.iter().collect();
         assert_eq!(
             create_hash_chain_4(inputs.iter()).unwrap(),
             expected,
@@ -104,12 +102,6 @@ fn hash_chain_4_matches_every_committed_vector() {
             create_hash_chain_4_from_slice(&inputs).unwrap(),
             expected,
             "vector {}",
-            vector.name
-        );
-        assert_eq!(
-            create_hash_chain_4_from_slice_ref(&refs).unwrap(),
-            expected,
-            "vector {} via slice_ref",
             vector.name
         );
     }
@@ -178,11 +170,11 @@ fn hash_chain_4_zero_element_is_positional() {
 fn hash_chain_4_empty_and_single_element_match_the_binary_chain() {
     let empty: [[u8; 32]; 0] = [];
     assert_eq!(create_hash_chain_4_from_slice(&empty).unwrap(), [0u8; 32]);
-    assert_eq!(create_hash_chain_4_from_slice_ref(&[]).unwrap(), [0u8; 32]);
+    assert_eq!(create_hash_chain_4(empty.iter()).unwrap(), [0u8; 32]);
     let single = [7u8; 32];
     assert_eq!(create_hash_chain_4_from_slice(&[single]).unwrap(), single);
     assert_eq!(
-        create_hash_chain_4_from_slice_ref(&[&single]).unwrap(),
+        create_hash_chain_4(core::iter::once(&single)).unwrap(),
         single
     );
     assert_eq!(
