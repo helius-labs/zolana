@@ -192,7 +192,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let assets = self.policy.inline_assets();
         let limits = self.policy.inline_limits();
         let mut totals = [0u128; MAX_INLINE_ASSETS];
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -212,11 +212,31 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
+    /// A windowed ring carries the record as its last input and output.
+    fn has_record(&self) -> bool {
+        self.velocity.window_slots != 0
+    }
+
+    /// Rule subjects skip the record slot the circuit excludes.
+    fn rule_inputs(&self) -> &[SppProofInputUtxo] {
+        match self.has_record() {
+            true => &self.inputs[..self.inputs.len().saturating_sub(1)],
+            false => self.inputs,
+        }
+    }
+
+    fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
+        match self.has_record() {
+            true => &self.outputs[..self.outputs.len().saturating_sub(1)],
+            false => self.outputs,
+        }
+    }
+
     /// The total the subject value receives across live outputs, aggregated per
     /// owner or per asset as the circuit does.
     fn subject_total(&self, subject: Subject, member: &Member) -> Result<u128, TransferError> {
         let mut total: u128 = 0;
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -236,13 +256,13 @@ impl<'a> CustomRingWitnessInput<'a> {
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
         match rule.subject {
             Subject::OutputOwner => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter_map(|output| output.owner_address.as_ref())
                 .map(|address| owner_member(address.signing_pubkey.owner_proof_input_hash()))
                 .collect(),
             Subject::Sender => self
-                .inputs
+                .rule_inputs()
                 .iter()
                 .filter(|spend| !spend.is_dummy())
                 .map(|spend| owner_member(spend.utxo.owner.owner_proof_input_hash()))
@@ -250,7 +270,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             // The circuit ranges asset rules over live outputs, using the same
             // hashed mint field as output_opening.
             Subject::Asset => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter(|output| output.owner_address.is_some())
                 .map(|output| {

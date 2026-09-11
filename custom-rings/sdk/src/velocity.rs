@@ -156,6 +156,65 @@ impl Outflows<'_> {
     }
 }
 
+/// The rows charged for one transfer, shared by both velocity modes.
+#[derive(Debug)]
+pub(crate) struct RowCharges {
+    pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
+    pub row_count: u8,
+    pub spent: [u64; MAX_VELOCITY_ASSETS],
+    pub approval_required: bool,
+}
+
+/// Charges each row's outflow, `previous` supplied only inside a live window.
+pub(crate) struct ChargeRows<'a> {
+    pub rows: &'a [VelocityRow],
+    pub outflows: &'a Outflows<'a>,
+    pub previous: Option<&'a SpendCounters>,
+}
+
+impl ChargeRows<'_> {
+    pub(crate) fn charge(self) -> Result<RowCharges, TransferError> {
+        let mut charges = RowCharges {
+            rows: [VelocityRow {
+                asset: [0u8; 32],
+                cap: 0,
+                cosign_above: 0,
+            }; MAX_VELOCITY_ASSETS],
+            row_count: self.rows.len() as u8,
+            spent: [0u64; MAX_VELOCITY_ASSETS],
+            approval_required: false,
+        };
+        for (index, row) in self.rows.iter().enumerate() {
+            charges.rows[index] = *row;
+            let outflow = self.outflows.outflow(&row.asset)?;
+            let previous = self
+                .previous
+                .map_or(0, |counters| counters.spent(&row.asset));
+            let spent = previous
+                .checked_add(outflow)
+                .ok_or(TransferError::VelocityOverflow)?;
+            if row.cap != 0 && spent > row.cap {
+                return Err(TransferError::VelocityCapExceeded {
+                    asset: row.asset,
+                    cap: row.cap,
+                    spent,
+                });
+            }
+            charges.approval_required |= row.cosign_above != 0 && outflow > row.cosign_above;
+            charges.spent[index] = spent;
+        }
+        Ok(charges)
+    }
+}
+
+/// A field element below the modulus, the Poseidon commitment rejects the rest.
+fn canonical_salt() -> [u8; 32] {
+    let mut salt = [0u8; 32];
+    OsRng.fill_bytes(&mut salt);
+    salt[0] = 0;
+    salt
+}
+
 pub(crate) struct VelocityPlan {
     pub input: SppProofInputUtxo,
     pub output: SppProofOutputUtxo,
@@ -182,34 +241,18 @@ impl VelocityPlanInput<'_> {
         let facts = self.facts;
         let shape = record_shape(self.money_shape)?;
         let same_window = facts.live.record.window == facts.window_index;
-        let mut rows = [VelocityRow {
-            asset: [0u8; 32],
-            cap: 0,
-            cosign_above: 0,
-        }; MAX_VELOCITY_ASSETS];
+        let previous = facts.counters.as_ref().filter(|_| same_window);
+        let charges = ChargeRows {
+            rows: &facts.rows,
+            outflows: &self.outflows,
+            previous,
+        }
+        .charge()?;
         let mut next = SpendCounters::zero(&[]);
-        OsRng.fill_bytes(&mut next.salt);
-        let mut approval_required = false;
-        for (index, row) in facts.rows.iter().enumerate() {
-            rows[index] = *row;
-            let outflow = self.outflows.outflow(&row.asset)?;
-            let previous = match (&facts.counters, same_window) {
-                (Some(counters), true) => counters.spent(&row.asset),
-                _ => 0,
-            };
-            let spent = previous
-                .checked_add(outflow)
-                .ok_or(TransferError::VelocityOverflow)?;
-            if row.cap != 0 && spent > row.cap {
-                return Err(TransferError::VelocityCapExceeded {
-                    asset: row.asset,
-                    cap: row.cap,
-                    spent,
-                });
-            }
-            approval_required |= row.cosign_above != 0 && outflow > row.cosign_above;
-            next.assets[index] = row.asset;
-            next.spent[index] = spent;
+        next.salt = canonical_salt();
+        for index in 0..usize::from(charges.row_count) {
+            next.assets[index] = charges.rows[index].asset;
+            next.spent[index] = charges.spent[index];
         }
         let commitment = next
             .commitment()
@@ -279,13 +322,13 @@ impl VelocityPlanInput<'_> {
         let opened = facts.counters.unwrap_or_else(|| SpendCounters::zero(&[]));
         let witness = VelocityWitness {
             window_slots: facts.window_slots,
-            rows,
-            row_count: facts.rows.len() as u8,
+            rows: charges.rows,
+            row_count: charges.row_count,
             ring_id: ring_id_field(self.outflows.ring.as_array())
                 .map_err(|_| TransferError::PolicyHashing)?,
             namespace_owner_hash: facts.owner.owner_hash,
             window_index: facts.window_index,
-            approval_required,
+            approval_required: charges.approval_required,
             record: SpendRecordWitness {
                 version: spent.version,
                 window: spent.window,
@@ -328,6 +371,63 @@ pub(crate) fn record_shape(money: Shape) -> Result<Shape, TransferError> {
 mod tests {
     use super::*;
 
+    fn mint() -> Address {
+        Address::new_from_array([9u8; 32])
+    }
+
+    fn row_asset() -> [u8; 32] {
+        *Member::asset(&mint()).expect("asset member").as_bytes()
+    }
+
+    fn money_input(amount: u64) -> SppProofInputUtxo {
+        SppProofInputUtxo {
+            utxo: Utxo {
+                owner: PublicKey::from_pda(&Address::new_from_array([7u8; 32])),
+                asset: mint(),
+                amount,
+                blinding: [0u8; 32],
+                ring_program_id: None,
+                data: Data::default(),
+            },
+            nullifier_key: NullifierKey::from_secret([0u8; 31]),
+            data_hash: None,
+            ring_data_hash: None,
+            tree_id: 0,
+        }
+    }
+
+    fn charge(
+        amount: u64,
+        cap: u64,
+        cosign_above: u64,
+        previous: Option<u64>,
+    ) -> Result<RowCharges, TransferError> {
+        let inputs = [money_input(amount)];
+        let outputs: [SppProofOutputUtxo; 0] = [];
+        let outflows = Outflows {
+            sender: Member::owner_tag(&[1u8; 32]).expect("sender"),
+            ring: Address::default(),
+            inputs: &inputs,
+            outputs: &outputs,
+        };
+        let row = VelocityRow {
+            asset: row_asset(),
+            cap,
+            cosign_above,
+        };
+        let counters = previous.map(|spent| {
+            let mut counters = SpendCounters::zero(&[row_asset()]);
+            counters.spent[0] = spent;
+            counters
+        });
+        ChargeRows {
+            rows: &[row],
+            outflows: &outflows,
+            previous: counters.as_ref(),
+        }
+        .charge()
+    }
+
     #[test]
     fn the_record_takes_the_slot_after_the_money() {
         assert_eq!(record_shape(Shape::IN1_OUT1).unwrap(), Shape::IN2_OUT2);
@@ -335,5 +435,69 @@ mod tests {
         assert_eq!(record_shape(Shape::IN2_OUT3).unwrap(), Shape::IN4_OUT4);
         assert_eq!(record_shape(Shape::IN4_OUT3).unwrap(), Shape::IN5_OUT4);
         assert!(record_shape(Shape::IN4_OUT4).is_err());
+    }
+
+    #[test]
+    fn a_transfer_under_the_cap_charges_its_outflow() {
+        let charges = charge(100, 1000, 0, None).expect("under the cap");
+        assert_eq!(charges.spent[0], 100);
+        assert!(!charges.approval_required);
+    }
+
+    #[test]
+    fn a_transfer_at_the_cap_passes() {
+        let charges = charge(1000, 1000, 0, None).expect("at the cap");
+        assert_eq!(charges.spent[0], 1000);
+    }
+
+    #[test]
+    fn a_transfer_over_the_cap_is_refused_with_its_outflow() {
+        let error = charge(1001, 1000, 0, None).expect_err("over the cap");
+        assert!(matches!(
+            error,
+            TransferError::VelocityCapExceeded {
+                asset,
+                cap: 1000,
+                spent: 1001,
+            } if asset == row_asset()
+        ));
+    }
+
+    #[test]
+    fn the_threshold_reads_the_outflow_alone() {
+        assert!(charge(600, 0, 500, None).expect("above").approval_required);
+        assert!(!charge(500, 0, 500, None).expect("at").approval_required);
+    }
+
+    #[test]
+    fn a_supplied_previous_adds_to_the_charge() {
+        assert_eq!(charge(100, 0, 0, Some(50)).expect("windowed").spent[0], 150);
+        assert_eq!(charge(100, 0, 0, None).expect("per transfer").spent[0], 100);
+    }
+
+    #[test]
+    fn a_previous_over_the_cap_is_refused() {
+        let error = charge(600, 1000, 0, Some(500)).expect_err("cumulative over the cap");
+        assert!(matches!(
+            error,
+            TransferError::VelocityCapExceeded { spent: 1100, .. }
+        ));
+    }
+
+    #[test]
+    fn the_salt_stays_below_the_modulus() {
+        for _ in 0..1000 {
+            assert_eq!(canonical_salt()[0], 0);
+        }
+    }
+
+    #[test]
+    fn a_per_transfer_witness_carries_the_rows_and_no_record() {
+        let charges = charge(100, 1000, 0, None).expect("charges");
+        let witness = VelocityWitness::per_transfer(&charges, [1u8; 32], [2u8; 32]);
+        assert_eq!(witness.window_slots, 0);
+        assert_eq!(witness.window_index, 0);
+        assert_eq!(witness.row_count, 1);
+        assert_eq!(witness.record, SpendRecordWitness::default());
     }
 }

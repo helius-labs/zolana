@@ -40,6 +40,8 @@ const PER_ASSET_POLICY_HASH: &str =
     "147185d7c6d876ba091e8acae3e69c1645f4643acda6cfd9ea6cdafa016eeb4f";
 const VELOCITY_POLICY_HASH: &str =
     "2d96453d73209cd609d19ab14231b05dbb8d8ed29768688def4532b60c7fc5f2";
+const TRANSFER_CAP_POLICY_HASH: &str =
+    "02b5331bf9893711ac35472612ec905ee41ccabb0a07998fd9cd902f280f16e0";
 /// The Go velocity fixture, version four inside window three spent into version five.
 const SPEND_ADDRESS: &str = "0a01f0d4758639415a4c9c37e42d1878ea52f3f7e3821aed313835aec0850586";
 const SPEND_COMMITMENT: &str = "2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76";
@@ -272,6 +274,23 @@ fn velocity_rows_hash_to_the_go_fixture() {
     assert_eq!(
         table.hash(&map).expect("velocity hash"),
         hex32(VELOCITY_POLICY_HASH)
+    );
+}
+
+#[test]
+fn transfer_cap_rows_hash_to_the_go_fixture() {
+    let table = RuleTable::builder()
+        .rule(Rule::require(Subject::OutputOwner, ListId::Allow))
+        .velocity(&[VelocityRow {
+            asset: ASSET_MEMBERS[0],
+            cap: 5000,
+            cosign_above: 600,
+        }])
+        .build();
+    let map = SourceMap::new(&[(ListId::Allow, owner().owner_hash)]).expect("one source");
+    assert_eq!(
+        table.hash(&map).expect("transfer cap hash"),
+        hex32(TRANSFER_CAP_POLICY_HASH)
     );
 }
 

@@ -9,7 +9,7 @@ use thiserror::Error;
 use zolana_interface::pda;
 use zolana_ring_policy::{
     Guard, ListId, ListSet, Member, MemberError, Mode, Rule, RuleSource, RuleTable, RuleTableError,
-    Subject, VelocityRow, Writer, MAX_INLINE_ASSETS, MAX_RULES, MAX_VELOCITY_ASSETS,
+    Subject, VelocityMode, VelocityRow, Writer, MAX_INLINE_ASSETS, MAX_RULES, MAX_VELOCITY_ASSETS,
 };
 
 use crate::config::{Base58Address, PerCluster, Target};
@@ -35,7 +35,8 @@ pub type Sources = BTreeMap<ListName, Base58Address>;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VelocitySpec {
-    /// Windows start at multiples of it, the counters reset at each.
+    /// Absent caps each transfer alone, else the window the counters reset at.
+    #[serde(default)]
     pub window_slots: u64,
     pub rows: Vec<VelocityRowSpec>,
 }
@@ -694,7 +695,7 @@ impl PolicyRows {
 pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> {
     rows.build(rows.rules.len()).map_err(|error| match error {
         RuleTableError::TooManyVelocityAssets
-        | RuleTableError::VelocityWithoutWindow
+        | RuleTableError::WindowWithoutVelocity
         | RuleTableError::ZeroVelocityAsset
         | RuleTableError::DuplicateVelocityAsset
         | RuleTableError::VelocityRowWithoutBound => PolicyError::VelocityRefused {
@@ -714,13 +715,17 @@ fn first_refusal(rows: &PolicyRows, error: RuleTableError) -> usize {
 }
 
 /// One sentence per velocity row, the wording every listing shares.
-pub fn describe_velocity(row: &VelocityRow) -> String {
+pub fn describe_velocity(row: &VelocityRow, mode: VelocityMode) -> String {
     let asset = hex::encode(&row.asset[..4]);
+    let per = match mode {
+        VelocityMode::PerWindow { .. } => "per window",
+        _ => "per transfer",
+    };
     match (row.cap, row.cosign_above) {
         (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),
-        (cap, 0) => format!("asset {asset}.. is capped at {cap} per window"),
+        (cap, 0) => format!("asset {asset}.. is capped at {cap} {per}"),
         (cap, cosign) => format!(
-            "asset {asset}.. is capped at {cap} per window and needs the co-signer above {cosign} per transfer"
+            "asset {asset}.. is capped at {cap} {per} and needs the co-signer above {cosign} per transfer"
         ),
     }
 }
@@ -788,6 +793,53 @@ mod tests {
             Err(PolicyError::UnknownList { name }) if name == "Allow"
         ));
         assert!(ListName(ListId::Allow) < ListName(ListId::Approval));
+    }
+
+    #[test]
+    fn rows_without_a_window_cap_each_transfer() {
+        let policy = compiled(&format!(
+            r#"
+entries_tree = "{CURATOR}"
+
+[velocity]
+rows = [{{ asset = "{MINT}", cap = 1000 }}]
+"#
+        ))
+        .expect("compiles");
+        assert_eq!(policy.rules.velocity_mode(), VelocityMode::PerTransfer);
+        assert_eq!(policy.rules.window_slots(), 0);
+    }
+
+    #[test]
+    fn a_window_without_rows_is_refused() {
+        let error = compiled(&format!(
+            r#"
+entries_tree = "{CURATOR}"
+
+[velocity]
+window_slots = 100
+rows = []
+"#
+        ))
+        .expect_err("a window needs rows");
+        assert!(matches!(
+            error,
+            PolicyError::VelocityRefused { message } if message == "a window needs velocity rows"
+        ));
+    }
+
+    #[test]
+    fn the_description_reads_the_mode() {
+        let row = VelocityRow {
+            asset: [3u8; 32],
+            cap: 1000,
+            cosign_above: 0,
+        };
+        assert!(describe_velocity(&row, VelocityMode::PerTransfer).contains("per transfer"));
+        assert!(
+            describe_velocity(&row, VelocityMode::PerWindow { window_slots: 100 })
+                .contains("per window")
+        );
     }
 
     #[test]

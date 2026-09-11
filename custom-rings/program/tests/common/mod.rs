@@ -708,6 +708,14 @@ pub const VELOCITY_RULES: RuleTable = RuleTable::builder()
     }])
     .build();
 
+pub const TRANSFER_CAP_RULES: RuleTable = RuleTable::builder()
+    .velocity(&[VelocityRow {
+        asset: VELOCITY_ASSET,
+        cap: VELOCITY_CAP,
+        cosign_above: 0,
+    }])
+    .build();
+
 pub const INLINE_POOL: [[u8; 32]; MAX_INLINE_ASSETS] = [
     [1u8; 32], [2u8; 32], [3u8; 32], [4u8; 32], [5u8; 32], [6u8; 32], [7u8; 32], [8u8; 32],
 ];
@@ -842,6 +850,10 @@ pub fn initialized_policy_config_account() -> Account {
 
 pub fn velocity_policy_config_account() -> Account {
     policy_config_account_with(&VELOCITY_RULES, own_source_slots(&VELOCITY_RULES))
+}
+
+pub fn transfer_cap_policy_config_account() -> Account {
+    policy_config_account_with(&TRANSFER_CAP_RULES, own_source_slots(&TRANSFER_CAP_RULES))
 }
 
 fn namespace_owner_of(ring: Pubkey) -> ListNamespace {

@@ -15,7 +15,7 @@ use crate::common::{
     namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
     specs_with_block_source, stored_policy_config, table_ix_data, PINNED_RULES, RELEASED_RULES,
-    WARPED_SLOT,
+    TRANSFER_CAP_RULES, WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -67,6 +67,31 @@ fn invalid_rows_are_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
     table.rules[0][31] = 9;
+    let fixture = set_policy_rules_fixture(released_config(), &table);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyRules));
+}
+
+#[test]
+fn rows_without_a_window_pin_under_the_next_generation() {
+    let (mollusk, _) = setup_mollusk();
+    let table = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
+    let config = stored_policy_config(
+        &mollusk,
+        &set_policy_rules_fixture(released_config(), &table),
+    );
+    assert_eq!(config.rules, TRANSFER_CAP_RULES.encode());
+    assert!(matches!(
+        config.rules.velocity_mode(),
+        zolana_ring_policy::VelocityMode::PerTransfer
+    ));
+}
+
+#[test]
+fn a_window_without_rows_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut table = table_ix_data(&PINNED_RULES, &own_specs(&PINNED_RULES));
+    table.window_slots = 5;
+    table.velocity.clear();
     let fixture = set_policy_rules_fixture(released_config(), &table);
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyRules));
 }

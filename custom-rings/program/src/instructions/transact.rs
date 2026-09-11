@@ -15,7 +15,7 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
-use zolana_ring_policy::{ring_id_field, ListNamespace};
+use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
 
 use crate::{
     error::CustomRingError,
@@ -138,13 +138,16 @@ pub(crate) fn verify_and_forward(
     } else {
         None
     };
-    let velocity = policy
+    let rows_on = policy
         .as_ref()
-        .is_some_and(|(binding, _)| binding.window_slots != 0);
-    if velocity && rail == Rail::Delegate {
+        .is_some_and(|(binding, _)| !matches!(binding.velocity, VelocityMode::Off));
+    let record_mode = policy
+        .as_ref()
+        .is_some_and(|(binding, _)| matches!(binding.velocity, VelocityMode::PerWindow { .. }));
+    if rows_on && rail == Rail::Delegate {
         return Err(CustomRingError::DelegateOnVelocityRing.into());
     }
-    if approval_required && !velocity {
+    if approval_required && !rows_on {
         return Err(CustomRingError::InvalidInstructionData.into());
     }
 
@@ -172,7 +175,7 @@ pub(crate) fn verify_and_forward(
         settlements,
     )?);
     require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
-    if velocity && demand.legs.has_deposits() {
+    if rows_on && demand.legs.has_deposits() {
         return Err(CustomRingError::VelocityDepositLeg.into());
     }
     apply_spend_windows(program_id, windows, &demand.legs)?;
@@ -180,8 +183,8 @@ pub(crate) fn verify_and_forward(
     if !rail.accepts(transact.circuit) {
         return Err(CustomRingError::UnsupportedCircuit.into());
     }
-    // The last output of a velocity transfer is the plaintext record.
-    let money_outputs = match (velocity, transact.outputs.split_last()) {
+    // A windowed ring carries the plaintext record as its last output.
+    let money_outputs = match (record_mode, transact.outputs.split_last()) {
         (true, Some((_, money))) => money,
         (true, None) => return Err(CustomRingError::InvalidSpendRecord.into()),
         (false, _) => transact.outputs.as_slice(),
@@ -217,7 +220,7 @@ pub(crate) fn verify_and_forward(
 
     let namespace = match policy {
         Some((binding, entries_tree_account)) => {
-            let namespace = if velocity {
+            let namespace = if record_mode {
                 let record = transact
                     .outputs
                     .last()
@@ -231,16 +234,16 @@ pub(crate) fn verify_and_forward(
                     binding.entries_tree_id,
                 )?;
                 require_entries_tree(spp_accounts, &binding.entries_tree)?;
-                if approval_required {
-                    require_approval(program_id, cosigner_account, cosigner)?;
-                }
                 Some(binding.namespace_bump)
             } else {
                 None
             };
-            let window_index = match binding.window_slots {
-                0 => 0,
-                window_slots => Clock::get()?.slot / window_slots,
+            if approval_required {
+                require_approval(program_id, cosigner_account, cosigner)?;
+            }
+            let window_index = match binding.velocity {
+                VelocityMode::PerWindow { window_slots } => Clock::get()?.slot / window_slots,
+                _ => 0,
             };
             let ring_id =
                 ring_id_field(program_id.as_array()).map_err(|_| CustomRingError::HashingFailed)?;
@@ -300,7 +303,7 @@ struct PolicyBinding {
     entries_tree_id: u16,
     namespace_owner_hash: [u8; 32],
     namespace_bump: u8,
-    window_slots: u64,
+    velocity: VelocityMode,
 }
 
 impl PolicyBinding {
@@ -313,7 +316,7 @@ impl PolicyBinding {
             entries_tree_id: policy.entries_tree_id(),
             namespace_owner_hash: policy.namespace_owner_hash,
             namespace_bump: policy.namespace_bump,
-            window_slots: policy.rules.window_slots(),
+            velocity: policy.rules.velocity_mode(),
         })
     }
 }

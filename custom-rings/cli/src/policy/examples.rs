@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use zolana_ring_policy::{Guard, RuleSource};
+use zolana_ring_policy::{Guard, RuleSource, VelocityMode};
 
 use crate::{
     config::{RingConfig, Target},
@@ -11,7 +11,7 @@ use crate::{
     policy::{SourceSpec, SubjectName},
 };
 
-const EXAMPLES: [&str; 8] = [
+const EXAMPLES: [&str; 9] = [
     "audit-only",
     "empty-policy",
     "own-blocklist",
@@ -20,6 +20,7 @@ const EXAMPLES: [&str; 8] = [
     "asset-allowlist-owner-threshold",
     "token-blocklist",
     "velocity-window",
+    "transfer-cap",
 ];
 
 fn path(name: &str) -> PathBuf {
@@ -42,6 +43,7 @@ struct Forms {
     empty_table: bool,
     audit_only: bool,
     velocity: bool,
+    transfer_cap: bool,
 }
 
 #[test]
@@ -72,7 +74,11 @@ fn every_example_loads_and_compiles_on_both_clusters() {
                 forms.assets |= matches!(rule.source, RuleSource::InlineAssets);
             }
             forms.assets |= !compiled.rules.inline_assets().is_empty();
-            forms.velocity |= compiled.rules.window_slots() != 0;
+            forms.velocity |= matches!(
+                compiled.rules.velocity_mode(),
+                VelocityMode::PerWindow { .. }
+            );
+            forms.transfer_cap |= compiled.rules.velocity_mode() == VelocityMode::PerTransfer;
         }
         forms.empty_table |= policy.rules.is_empty();
         forms.entries_tree |= policy.entries_tree.is_some();
@@ -112,4 +118,5 @@ fn every_example_loads_and_compiles_on_both_clusters() {
     assert!(forms.empty_table, "an example pins an empty table");
     assert!(forms.audit_only, "an example carries no policy table");
     assert!(forms.velocity, "an example bounds spending per window");
+    assert!(forms.transfer_cap, "an example caps each transfer");
 }

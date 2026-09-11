@@ -108,7 +108,7 @@ pub enum RuleTableError {
     InlineWithAlternative,
     NonZeroPadding,
     TooManyVelocityAssets,
-    VelocityWithoutWindow,
+    WindowWithoutVelocity,
     ZeroVelocityAsset,
     DuplicateVelocityAsset,
     VelocityRowWithoutBound,
@@ -147,7 +147,7 @@ impl RuleTableError {
             Self::InlineWithAlternative => "an inline rule with an alternative",
             Self::NonZeroPadding => "padding past the counts is not zero",
             Self::TooManyVelocityAssets => "a ninth velocity mint",
-            Self::VelocityWithoutWindow => "velocity rows and a window come together",
+            Self::WindowWithoutVelocity => "a window needs velocity rows",
             Self::ZeroVelocityAsset => "a velocity row names no mint",
             Self::DuplicateVelocityAsset => "velocity mints must be unique",
             Self::VelocityRowWithoutBound => "a velocity row needs a cap or a co-sign threshold",
@@ -527,6 +527,30 @@ impl VelocityRow {
     };
 }
 
+/// How the velocity rows bound spending.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VelocityMode {
+    Off,
+    /// Each transfer's outflow per mint stays under the row's cap.
+    PerTransfer,
+    /// Row counters carry across a fixed window the record commits.
+    PerWindow {
+        window_slots: u64,
+    },
+}
+
+impl VelocityMode {
+    const fn of(window_slots: u64, velocity_len: u8) -> Self {
+        if velocity_len == 0 {
+            Self::Off
+        } else if window_slots == 0 {
+            Self::PerTransfer
+        } else {
+            Self::PerWindow { window_slots }
+        }
+    }
+}
+
 /// The circuit can enforce every instance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RuleTable {
@@ -535,7 +559,7 @@ pub struct RuleTable {
     inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     inline_limits: [u64; MAX_INLINE_ASSETS],
     inline_len: u8,
-    /// Zero disables velocity, else the fixed window length in slots.
+    /// Zero caps each transfer alone, else the window the counters carry over.
     window_slots: u64,
     velocity: [VelocityRow; MAX_VELOCITY_ASSETS],
     velocity_len: u8,
@@ -567,6 +591,10 @@ impl RuleTable {
 
     pub const fn window_slots(&self) -> u64 {
         self.window_slots
+    }
+
+    pub const fn velocity_mode(&self) -> VelocityMode {
+        VelocityMode::of(self.window_slots, self.velocity_len)
     }
 
     pub fn velocity(&self) -> &[VelocityRow] {
@@ -717,8 +745,8 @@ impl RuleTableBuilder {
         if self.velocity_count > MAX_VELOCITY_ASSETS {
             return Err(RuleTableError::TooManyVelocityAssets);
         }
-        if (self.table.window_slots == 0) != (self.velocity_count == 0) {
-            return Err(RuleTableError::VelocityWithoutWindow);
+        if self.table.window_slots != 0 && self.velocity_count == 0 {
+            return Err(RuleTableError::WindowWithoutVelocity);
         }
         self.table.velocity_len = self.velocity_count as u8;
         let mut v = 0;
@@ -861,7 +889,7 @@ pub struct EncodedRuleTable {
     pub inline_count: u8,
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [[u8; 8]; MAX_INLINE_ASSETS],
-    /// Big endian, zero disables velocity.
+    /// Big endian, zero caps each transfer alone.
     pub window_slots: [u8; 8],
     pub velocity_count: u8,
     pub velocity_assets: [[u8; 32]; MAX_VELOCITY_ASSETS],
@@ -891,6 +919,10 @@ impl EncodedRuleTable {
 
     pub const fn window_slots(&self) -> u64 {
         u64::from_be_bytes(self.window_slots)
+    }
+
+    pub const fn velocity_mode(&self) -> VelocityMode {
+        VelocityMode::of(self.window_slots(), self.velocity_count)
     }
 
     pub fn from_parts(rows: &[[u8; 32]], inline: &[[u8; 32]]) -> Result<Self, RuleTableError> {

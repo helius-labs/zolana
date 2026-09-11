@@ -29,7 +29,9 @@ use zolana_keypair::{
     random_blinding, random_salt, KeypairError, P256Pubkey, ShieldedKeypair, ViewingKey,
     ViewingKeyTrait,
 };
-use zolana_ring_policy::{ring_id_field, ListNamespace, Member, RuleTable};
+use zolana_ring_policy::{
+    ring_id_field, ListNamespace, Member, RuleTable, VelocityMode, VelocityRow,
+};
 use zolana_transaction::{
     instructions::transact::{
         encode_confidential_slots, ChangeLayout, ExternalData, PreparedTransfer, SppProofOutputUtxo,
@@ -43,7 +45,9 @@ use crate::{
     instructions::spend::ReadSpendRecord,
     instructions::transact::VelocityWitness,
     policy_config_table, to_instruction_proof,
-    velocity::{Outflows, VelocityContext, VelocityFacts, VelocityPlan, VelocityPlanInput},
+    velocity::{
+        ChargeRows, Outflows, VelocityContext, VelocityFacts, VelocityPlan, VelocityPlanInput,
+    },
     witness::{list_entry, CustomRingWitness, CustomRingWitnessInput, TransactRoots},
     AccountReadError, CustomRing, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
     CustomRingProof, CustomRingProofError, CustomRingProofInputError, CustomRingProofParams,
@@ -310,16 +314,17 @@ impl<'a> CustomRingTransfer<'a> {
                 .read_policy_config(environment.rpc)?
                 .ok_or(TransferError::MissingPolicyConfig)?;
             let table = policy_config_table(&policy_config)?;
-            let facts = match self.velocity_lookup(&policy_config, &table)? {
-                Some(lookup) => Some(lookup.read(environment.indexer, environment.rpc)?),
-                None => None,
-            };
-            Some((policy_config, table, facts))
+            let limit = self
+                .spend_limit(&policy_config, &table)?
+                .read(environment.indexer, environment.rpc)?;
+            Some((policy_config, table, limit))
         } else {
             None
         };
-        let facts = policy.as_ref().and_then(|(_, _, facts)| facts.as_ref());
-        let staged = self.stage(config.auditor_pubkey, facts)?;
+        let limit = policy
+            .as_ref()
+            .map_or(&SpendLimit::Unbounded, |(_, _, limit)| limit);
+        let staged = self.stage(config.auditor_pubkey, limit)?;
         // The tree is read and validated first. A tree that is absent, owned by
         // another program, or not a tree account at all fails here rather than
         // after the indexer has served a full inclusion and non-inclusion proof
@@ -375,20 +380,18 @@ impl<'a> CustomRingTransfer<'a> {
                 .await?
                 .ok_or(TransferError::MissingPolicyConfig)?;
             let table = policy_config_table(&policy_config)?;
-            let facts = match self.velocity_lookup(&policy_config, &table)? {
-                Some(lookup) => Some(
-                    lookup
-                        .read_async(environment.indexer, environment.rpc)
-                        .await?,
-                ),
-                None => None,
-            };
-            Some((policy_config, table, facts))
+            let limit = self
+                .spend_limit(&policy_config, &table)?
+                .read_async(environment.indexer, environment.rpc)
+                .await?;
+            Some((policy_config, table, limit))
         } else {
             None
         };
-        let facts = policy.as_ref().and_then(|(_, _, facts)| facts.as_ref());
-        let staged = self.stage(config.auditor_pubkey, facts)?;
+        let limit = policy
+            .as_ref()
+            .map_or(&SpendLimit::Unbounded, |(_, _, limit)| limit);
+        let staged = self.stage(config.auditor_pubkey, limit)?;
         // Same ordering reason as the blocking path: validate the tree before
         // asking the indexer for proofs against it.
         let input_tree = read_tree_state_async(environment.rpc, staged.input_tree).await?;
@@ -432,40 +435,46 @@ impl<'a> CustomRingTransfer<'a> {
         )
     }
 
-    fn velocity_lookup(
+    fn spend_limit(
         &self,
         policy_config: &PolicyConfig,
         table: &RuleTable,
-    ) -> Result<Option<VelocityLookup<'_>>, TransferError> {
-        if table.window_slots() == 0 {
-            return Ok(None);
-        }
-        let namespace = self.ring.namespace_pda();
-        let sender = self
-            .prepared
-            .owner
-            .signing_pubkey
-            .owner_proof_input_hash()
-            .map_err(|_| TransferError::PolicyHashing)?;
-        Ok(Some(VelocityLookup {
-            read: ReadSpendRecord {
-                entries_tree: policy_config.entries_tree,
-                entries_tree_id: policy_config.entries_tree_id(),
-                namespace,
-                member: Member::owner_identity(&sender)
-                    .map_err(|_| TransferError::PolicyHashing)?,
-            },
-            context: VelocityContext {
-                namespace,
-                owner: ListNamespace {
-                    owner_hash: policy_config.namespace_owner_hash,
-                },
-                entries_tree_id: policy_config.entries_tree_id(),
-                window_slots: table.window_slots(),
+    ) -> Result<SpendLimitLookup<'_>, TransferError> {
+        match table.velocity_mode() {
+            VelocityMode::Off => Ok(SpendLimitLookup::Unbounded),
+            VelocityMode::PerTransfer => Ok(SpendLimitLookup::PerTransfer {
                 rows: table.velocity().to_vec(),
-                sender: self.sender,
-            },
-        }))
+                namespace_owner_hash: policy_config.namespace_owner_hash,
+            }),
+            VelocityMode::PerWindow { window_slots } => {
+                let namespace = self.ring.namespace_pda();
+                let sender = self
+                    .prepared
+                    .owner
+                    .signing_pubkey
+                    .owner_proof_input_hash()
+                    .map_err(|_| TransferError::PolicyHashing)?;
+                Ok(SpendLimitLookup::PerWindow(Box::new(VelocityLookup {
+                    read: ReadSpendRecord {
+                        entries_tree: policy_config.entries_tree,
+                        entries_tree_id: policy_config.entries_tree_id(),
+                        namespace,
+                        member: Member::owner_identity(&sender)
+                            .map_err(|_| TransferError::PolicyHashing)?,
+                    },
+                    context: VelocityContext {
+                        namespace,
+                        owner: ListNamespace {
+                            owner_hash: policy_config.namespace_owner_hash,
+                        },
+                        entries_tree_id: policy_config.entries_tree_id(),
+                        window_slots,
+                        rows: table.velocity().to_vec(),
+                        sender: self.sender,
+                    },
+                })))
+            }
+        }
     }
 
     /// Everything before the first read: validation, the transaction viewing
@@ -474,7 +483,7 @@ impl<'a> CustomRingTransfer<'a> {
     fn stage(
         self,
         auditor_pk: P256Pubkey,
-        velocity: Option<&VelocityFacts>,
+        limit: &SpendLimit,
     ) -> Result<StagedTransfer, TransferError> {
         let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
         let output_tree = self.output_tree.unwrap_or(input_tree);
@@ -500,18 +509,44 @@ impl<'a> CustomRingTransfer<'a> {
             .get_transaction_viewing_key(&prepared.first_nullifier)?;
         let salt = random_salt();
         let money_outputs = prepared.outputs.len();
-        let plan = match velocity {
-            Some(facts) => {
-                let sender = prepared
-                    .owner
-                    .signing_pubkey
-                    .owner_proof_input_hash()
+        let sender_identity = || -> Result<Member, TransferError> {
+            let sender = prepared
+                .owner
+                .signing_pubkey
+                .owner_proof_input_hash()
+                .map_err(|_| TransferError::PolicyHashing)?;
+            Member::owner_identity(&sender).map_err(|_| TransferError::PolicyHashing)
+        };
+        let (plan, velocity_witness) = match limit {
+            SpendLimit::Unbounded => (None, None),
+            SpendLimit::PerTransfer {
+                rows,
+                namespace_owner_hash,
+            } => {
+                let outflows = Outflows {
+                    sender: sender_identity()?,
+                    ring: program_id,
+                    inputs: &prepared.inputs,
+                    outputs: &prepared.outputs,
+                };
+                let charges = ChargeRows {
+                    rows,
+                    outflows: &outflows,
+                    previous: None,
+                }
+                .charge()?;
+                let ring_id = ring_id_field(program_id.as_array())
                     .map_err(|_| TransferError::PolicyHashing)?;
+                let witness =
+                    VelocityWitness::per_transfer(&charges, ring_id, *namespace_owner_hash);
+                (None, Some(witness))
+            }
+            SpendLimit::PerWindow(facts) => {
+                let facts: &VelocityFacts = facts;
                 let plan = VelocityPlanInput {
                     facts,
                     outflows: Outflows {
-                        sender: Member::owner_identity(&sender)
-                            .map_err(|_| TransferError::PolicyHashing)?,
+                        sender: sender_identity()?,
                         ring: program_id,
                         inputs: &prepared.inputs,
                         outputs: &prepared.outputs,
@@ -524,9 +559,9 @@ impl<'a> CustomRingTransfer<'a> {
                 }
                 .plan()?;
                 append_record_slots(&mut prepared, &plan)?;
-                Some(plan)
+                let witness = plan.witness;
+                (Some(plan), Some(witness))
             }
-            None => None,
         };
 
         // ORDER MATTERS. The auditor message has to be inside `external_data`
@@ -581,7 +616,65 @@ impl<'a> CustomRingTransfer<'a> {
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
             cosigner: self.cosigner,
-            velocity: plan.map(|plan| plan.witness),
+            velocity: velocity_witness,
+        })
+    }
+}
+
+/// The spend limit resolved from the table before any indexer read.
+enum SpendLimitLookup<'a> {
+    Unbounded,
+    PerTransfer {
+        rows: Vec<VelocityRow>,
+        namespace_owner_hash: [u8; 32],
+    },
+    PerWindow(Box<VelocityLookup<'a>>),
+}
+
+/// The spend limit with the windowed record read.
+enum SpendLimit {
+    Unbounded,
+    PerTransfer {
+        rows: Vec<VelocityRow>,
+        namespace_owner_hash: [u8; 32],
+    },
+    PerWindow(Box<VelocityFacts>),
+}
+
+impl<'a> SpendLimitLookup<'a> {
+    fn read<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<SpendLimit, TransferError> {
+        Ok(match self {
+            Self::Unbounded => SpendLimit::Unbounded,
+            Self::PerTransfer {
+                rows,
+                namespace_owner_hash,
+            } => SpendLimit::PerTransfer {
+                rows,
+                namespace_owner_hash,
+            },
+            Self::PerWindow(lookup) => {
+                SpendLimit::PerWindow(Box::new((*lookup).read(indexer, rpc)?))
+            }
+        })
+    }
+
+    async fn read_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<SpendLimit, TransferError> {
+        Ok(match self {
+            Self::Unbounded => SpendLimit::Unbounded,
+            Self::PerTransfer {
+                rows,
+                namespace_owner_hash,
+            } => SpendLimit::PerTransfer {
+                rows,
+                namespace_owner_hash,
+            },
+            Self::PerWindow(lookup) => {
+                SpendLimit::PerWindow(Box::new((*lookup).read_async(indexer, rpc).await?))
+            }
         })
     }
 }
@@ -694,7 +787,9 @@ impl PolicyTierInput<'_> {
     {
         let velocity = match self.velocity {
             Some(velocity) => velocity,
-            None if table.window_slots() != 0 => return Err(TransferError::DelegateOnVelocityRing),
+            None if !table.velocity().is_empty() => {
+                return Err(TransferError::DelegateOnVelocityRing)
+            }
             None => VelocityWitness::off(
                 ring_id_field(self.ring.program_id().as_array())
                     .map_err(|_| TransferError::PolicyHashing)?,

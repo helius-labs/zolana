@@ -12,5 +12,7 @@ mod mutator;
 mod set_policy_rules;
 #[path = "policy/transact.rs"]
 mod transact;
+#[path = "policy/transfer_cap.rs"]
+mod transfer_cap;
 #[path = "policy/velocity.rs"]
 mod velocity;

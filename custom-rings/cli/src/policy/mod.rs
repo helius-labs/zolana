@@ -19,7 +19,7 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_ring_policy::RuleTable;
+use zolana_ring_policy::{RuleTable, VelocityMode};
 
 use crate::{
     catalogue::{CuratorCheck, CuratorError},
@@ -274,15 +274,18 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
 }
 
 fn print_velocity(table: &RuleTable) {
-    if table.window_slots() == 0 {
+    let mode = table.velocity_mode();
+    if matches!(mode, VelocityMode::Off) {
         return;
     }
-    line(
-        "velocity",
-        format_args!("windows of {} slots", table.window_slots()),
-    );
+    match mode {
+        VelocityMode::PerWindow { window_slots } => {
+            line("velocity", format_args!("windows of {window_slots} slots"))
+        }
+        _ => line("velocity", format_args!("each transfer")),
+    }
     for row in table.velocity() {
-        line("velocity", describe_velocity(row));
+        line("velocity", describe_velocity(row, mode));
     }
 }
 

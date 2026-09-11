@@ -44,15 +44,18 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     }
     if let Some(velocity) = &spec.velocity {
         let mut table = Table::new();
-        table
-            .decor_mut()
-            .set_prefix("\n# A sender's outflow per mint over a window, windows start at multiples of the length and reset the counters.\n");
-        let slots =
-            i64::try_from(velocity.window_slots).map_err(|_| PolicyError::ThresholdTooLarge {
-                rule: 0,
-                amount: velocity.window_slots,
+        table.decor_mut().set_prefix(
+            "\n# A sender's outflow per mint, capped alone or over a window of slots.\n",
+        );
+        if velocity.window_slots != 0 {
+            let slots = i64::try_from(velocity.window_slots).map_err(|_| {
+                PolicyError::ThresholdTooLarge {
+                    rule: 0,
+                    amount: velocity.window_slots,
+                }
             })?;
-        table.insert("window_slots", value(slots));
+            table.insert("window_slots", value(slots));
+        }
         let rows: Array = velocity
             .rows
             .iter()

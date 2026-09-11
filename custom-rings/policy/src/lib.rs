@@ -21,8 +21,9 @@ pub use member::{Member, MemberError};
 pub use rule_table::{
     AnswerLoad, EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable,
     RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner,
-    Subject, VelocityRow, ANSWER_SLOTS, GUARANTEED_LOAD, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
-    MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_VERSION,
+    Subject, VelocityMode, VelocityRow, ANSWER_SLOTS, GUARANTEED_LOAD, MAX_INLINE_ASSETS,
+    MAX_RULES, MAX_SOURCES, MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS,
+    POLICY_VERSION,
 };
 pub use spend::{
     ring_id_field, spend_seed, SpendCounters, SpendRecord, SPEND_COUNTERS_LEN, SPEND_RECORD_LEN,

@@ -108,6 +108,24 @@ pub struct VelocityWitness {
 }
 
 impl VelocityWitness {
+    /// Rows without a window carry the charges, no record accompanies them.
+    pub(crate) fn per_transfer(
+        charges: &crate::velocity::RowCharges,
+        ring_id: [u8; 32],
+        namespace_owner_hash: [u8; 32],
+    ) -> Self {
+        Self {
+            window_slots: 0,
+            rows: charges.rows,
+            row_count: charges.row_count,
+            ring_id,
+            namespace_owner_hash,
+            window_index: 0,
+            approval_required: charges.approval_required,
+            record: SpendRecordWitness::default(),
+        }
+    }
+
     /// A ring without a window still binds its id and namespace.
     pub fn off(ring_id: [u8; 32], namespace_owner_hash: [u8; 32]) -> Self {
         Self {
