@@ -23,7 +23,7 @@ use zolana_interface::instruction::instruction_data::{
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof,
+        TransactOutput, TransactProof, TreeContext,
     },
 };
 
@@ -72,7 +72,19 @@ mod strategies {
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-        any::<[u8; 32]>().prop_map(|nullifier_hash| InputUtxo { nullifier_hash })
+        (any::<[u8; 32]>(), any::<u8>()).prop_map(|(nullifier_hash, tree_index)| InputUtxo {
+            nullifier_hash,
+            tree_index,
+        })
+    }
+
+    pub fn tree_context() -> impl Strategy<Value = TreeContext> {
+        (any::<u16>(), any::<u16>()).prop_map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
+                utxo_tree_root_index,
+                nullifier_tree_root_index,
+            },
+        )
     }
 
     pub fn transact_output() -> impl Strategy<Value = TransactOutput> {
@@ -115,13 +127,13 @@ mod strategies {
                 prop::collection::vec(transact_output(), 0..=8),
                 prop::collection::vec(message_data(), 0..=3),
             ),
-            (any::<u16>(), any::<u16>()),
+            prop::collection::vec(tree_context(), 0..=5),
         )
             .prop_map(
                 |(
                     (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
-                    (utxo_tree_root_index, nullifier_tree_root_index),
+                    tree_contexts,
                 )| TransactIxData {
                     expiry_unix_ts,
                     private_tx_hash,
@@ -135,8 +147,7 @@ mod strategies {
                     ring_data_hash,
                     outputs,
                     messages,
-                    utxo_tree_root_index,
-                    nullifier_tree_root_index,
+                    tree_contexts,
                 },
             )
     }
@@ -190,11 +201,7 @@ fn assert_ref_matches_owned(
     prop_assert_eq!(view.salt, &owned.salt);
     prop_assert_eq!(view.proof, owned.proof);
     prop_assert_eq!(&view.inputs, &owned.inputs);
-    prop_assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
-    prop_assert_eq!(
-        view.nullifier_tree_root_index,
-        owned.nullifier_tree_root_index
-    );
+    prop_assert_eq!(&view.tree_contexts, &owned.tree_contexts);
     prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
     prop_assert_eq!(view.data_hash, owned.data_hash);
     prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
@@ -261,7 +268,8 @@ proptest! {
             + wincode::serialize(&owned.proof).expect("serialize proof").len()
             + 1
             + inputs_len
-            + 4;
+            + 1
+            + 4 * owned.tree_contexts.len();
         let prefix = bytes.get(..bytes.len() - tail_len).expect("prefix in bytes");
         let start = leading.len();
         let mut buffer = leading;

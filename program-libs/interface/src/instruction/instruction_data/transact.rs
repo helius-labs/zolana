@@ -7,7 +7,7 @@ pub use zolana_event::{
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
-use crate::{error::ShieldedPoolError, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
+use crate::{error::ShieldedPoolError, INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
 /// The Groth16 proof carried by a `transact` instruction: `a` and `c` are
 /// compressed G1 points (32 bytes each), `b` is the raw big-endian G2 point
@@ -31,10 +31,23 @@ impl TransactProof {
     }
 }
 
-/// One spent input UTXO (spec: `transact` `InputUtxo`).
+/// One input tree's root indexes (spec: `transact` `TreeContext`). The
+/// instruction declares one context per tree its inputs are spent from, in
+/// account order; an input selects its context by index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct TreeContext {
+    pub utxo_tree_root_index: u16,
+    pub nullifier_tree_root_index: u16,
+}
+
+/// One spent input UTXO (spec: `transact` `InputUtxo`). `tree_index` selects
+/// the input's tree from `TransactIxData::tree_contexts`; the proof binds the
+/// same index, so an input cannot be proven against one tree and nullified in
+/// another.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct InputUtxo {
     pub nullifier_hash: [u8; 32],
+    pub tree_index: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
@@ -113,6 +126,48 @@ pub fn validate_interface_transfers(
     Ok(())
 }
 
+/// Validate the declared input trees against the inputs that reference them.
+///
+/// Inputs are grouped by tree: `tree_index` is non-decreasing, so every tree
+/// owns one contiguous run of inputs and the program can queue a run's
+/// nullifiers in a single pass per tree. Combined with the requirement that
+/// every declared context is referenced, the index sequence starts at zero and
+/// grows by at most one, so a gap means a declared tree no input spends from.
+pub fn validate_input_tree_contexts(
+    inputs: &[InputUtxo],
+    tree_contexts: &[TreeContext],
+) -> Result<(), ShieldedPoolError> {
+    let context_count = tree_contexts.len();
+    if context_count == 0 || context_count > INPUT_TREES {
+        return Err(ShieldedPoolError::InvalidTreeContextCount);
+    }
+    let mut previous: Option<u8> = None;
+    for input in inputs {
+        if usize::from(input.tree_index) >= context_count {
+            return Err(ShieldedPoolError::InputTreeIndexOutOfRange);
+        }
+        match previous {
+            Some(previous) if input.tree_index < previous => {
+                return Err(ShieldedPoolError::InputsNotGroupedByTree);
+            }
+            Some(previous) if input.tree_index > previous.saturating_add(1) => {
+                return Err(ShieldedPoolError::UnreferencedTreeContext);
+            }
+            None if input.tree_index != 0 => {
+                return Err(ShieldedPoolError::UnreferencedTreeContext);
+            }
+            _ => {}
+        }
+        previous = Some(input.tree_index);
+    }
+    let last_context = u8::try_from(context_count.saturating_sub(1))
+        .map_err(|_| ShieldedPoolError::InvalidTreeContextCount)?;
+    if previous != Some(last_context) {
+        return Err(ShieldedPoolError::UnreferencedTreeContext);
+    }
+    Ok(())
+}
+
 /// How an output's owner tag is carried on the wire (spec: `transact`
 /// `OwnerTag`). The resolved 32-byte value is hashed into the OWNER public input
 /// and republished as the event `view_tag`. `Inline` embeds the tag directly
@@ -177,8 +232,10 @@ pub struct TransactIxData {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    pub utxo_tree_root_index: u16,
-    pub nullifier_tree_root_index: u16,
+    /// One entry per input tree, in the order the tree accounts are passed.
+    /// Sits after `inputs` so it stays outside the external-data prefix.
+    #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
+    pub tree_contexts: Vec<TreeContext>,
 }
 
 impl TransactIxData {
@@ -241,8 +298,8 @@ pub struct TransactIxDataRef<'a> {
     pub proof: TransactProof,
     #[wincode(with = "containers::Vec<InputUtxo, FixIntLen<u8>>")]
     pub inputs: Vec<InputUtxo>,
-    pub utxo_tree_root_index: u16,
-    pub nullifier_tree_root_index: u16,
+    #[wincode(with = "containers::Vec<TreeContext, FixIntLen<u8>>")]
+    pub tree_contexts: Vec<TreeContext>,
 }
 
 impl<'a> TransactIxDataRef<'a> {

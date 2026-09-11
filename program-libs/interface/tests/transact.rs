@@ -3,14 +3,14 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            fetch_tag, validate_interface_transfers, Bsb22Commitment, CircuitId,
-            ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
+            fetch_tag, validate_input_tree_contexts, validate_interface_transfers, Bsb22Commitment,
+            CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
             RingP256ProofData, TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
-            MAX_EXTERNAL_DATA_HASH_SLICES,
+            TreeContext, MAX_EXTERNAL_DATA_HASH_SLICES,
         },
         tag,
     },
-    MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
+    INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
 };
 
 /// The selector is a 2-byte little-endian enum tag followed by its three
@@ -131,9 +131,12 @@ fn ix_data(proof: TransactProof) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(1, 3, 3),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
+            tree_index: 0,
         }],
-        utxo_tree_root_index: 3,
-        nullifier_tree_root_index: 2,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 3,
+            nullifier_tree_root_index: 2,
+        }],
         interface_transfers: vec![
             InterfaceTransfer::SolWithdrawal { amount: 5 },
             InterfaceTransfer::SplDeposit {
@@ -163,11 +166,7 @@ fn assert_ref_matches_owned(view: &TransactIxDataRef, owned: &TransactIxData) {
     assert_eq!(view.salt, &owned.salt);
     assert_eq!(view.proof, owned.proof);
     assert_eq!(view.inputs, owned.inputs);
-    assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
-    assert_eq!(
-        view.nullifier_tree_root_index,
-        owned.nullifier_tree_root_index
-    );
+    assert_eq!(view.tree_contexts, owned.tree_contexts);
     assert_eq!(view.interface_transfers, owned.interface_transfers);
     assert_eq!(view.data_hash, owned.data_hash);
     assert_eq!(view.ring_data_hash, owned.ring_data_hash);
@@ -206,7 +205,15 @@ fn owned_serialize_matches_ref_parse() {
 
 #[test]
 fn rejects_retired_field_bearing_payload() {
-    let owned = ix_data(proof());
+    // The retired field shifts every following field, so the inputs length
+    // prefix lands on a proof byte: 0xff there demands more bytes than the
+    // payload holds, which keeps the shifted encoding unparseable rather than
+    // accidentally decoding as a different valid message.
+    let owned = ix_data(TransactProof {
+        a: [1u8; 32],
+        b: [0xffu8; 128],
+        c: [3u8; 32],
+    });
     let current = owned.serialize().unwrap();
     let (_, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&current).unwrap();
     let field_offset = prefix.len() + 32 + 5;
@@ -371,5 +378,77 @@ fn external_data_preimage_rejects_slice_overflow() {
             MAX_EXTERNAL_DATA_HASH_SLICES,
             MAX_EXTERNAL_DATA_HASH_SLICES + 1
         ))
+    );
+}
+
+fn inputs(tree_indexes: &[u8]) -> Vec<InputUtxo> {
+    tree_indexes
+        .iter()
+        .map(|tree_index| InputUtxo {
+            nullifier_hash: [*tree_index; 32],
+            tree_index: *tree_index,
+        })
+        .collect()
+}
+
+fn tree_contexts(count: usize) -> Vec<TreeContext> {
+    (0..count)
+        .map(|index| TreeContext {
+            utxo_tree_root_index: index as u16,
+            nullifier_tree_root_index: index as u16,
+        })
+        .collect()
+}
+
+#[test]
+fn input_tree_contexts_accept_contiguous_runs_up_to_the_slot_count() {
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0]), &tree_contexts(1)),
+        Ok(())
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 0, 1, 1, 1, 2]), &tree_contexts(3)),
+        Ok(())
+    );
+    let every_slot: Vec<u8> = (0..INPUT_TREES as u8).collect();
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&every_slot), &tree_contexts(INPUT_TREES)),
+        Ok(())
+    );
+}
+
+#[test]
+fn input_tree_contexts_reject_every_invalid_grouping() {
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0]), &[]),
+        Err(ShieldedPoolError::InvalidTreeContextCount)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0]), &tree_contexts(INPUT_TREES + 1)),
+        Err(ShieldedPoolError::InvalidTreeContextCount)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 2]), &tree_contexts(2)),
+        Err(ShieldedPoolError::InputTreeIndexOutOfRange)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
+        Err(ShieldedPoolError::InputsNotGroupedByTree)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 2]), &tree_contexts(3)),
+        Err(ShieldedPoolError::UnreferencedTreeContext)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[0, 0]), &tree_contexts(2)),
+        Err(ShieldedPoolError::UnreferencedTreeContext)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&inputs(&[1]), &tree_contexts(2)),
+        Err(ShieldedPoolError::UnreferencedTreeContext)
+    );
+    assert_eq!(
+        validate_input_tree_contexts(&[], &tree_contexts(1)),
+        Err(ShieldedPoolError::UnreferencedTreeContext)
     );
 }

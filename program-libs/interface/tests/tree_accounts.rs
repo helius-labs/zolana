@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
     nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
-    Transact, TransactIxData, TransactProof,
+    Transact, TransactIxData, TransactProof, TreeContext,
 };
 use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
@@ -27,6 +27,7 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
+                tree_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -34,8 +35,10 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 

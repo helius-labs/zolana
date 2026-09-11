@@ -162,7 +162,9 @@ impl Transact {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::transact::{CircuitId, InputUtxo, TransactProof};
+    use crate::instruction::instruction_data::transact::{
+        CircuitId, InputUtxo, TransactProof, TreeContext,
+    };
 
     fn empty_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
         TransactIxData {
@@ -178,8 +180,10 @@ mod tests {
             ring_data_hash: None,
             outputs: Vec::new(),
             messages: Vec::new(),
-            utxo_tree_root_index: 0,
-            nullifier_tree_root_index: 0,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
         }
     }
 
@@ -357,6 +361,7 @@ mod tests {
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
+                tree_index: 0,
             })
             .collect();
         let builder = Transact {
