@@ -4,6 +4,7 @@ pub mod authority;
 pub mod catalogue;
 pub mod config;
 pub mod cosigner;
+pub mod delegate;
 pub mod deploy;
 pub mod error;
 pub mod file;
@@ -115,6 +116,9 @@ pub enum Command {
     /// Set, clear or show a mint's spend window.
     #[command(subcommand)]
     Window(WindowCommand),
+    /// Set or show the permanent delegate, or move a note as the delegate.
+    #[command(subcommand)]
+    Delegate(DelegateCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -192,6 +196,28 @@ pub enum CosignerCommand {
     /// Close the co-signer account, the rent returns to the authority.
     Clear,
     Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DelegateCommand {
+    /// Set the delegate once, signed by the upgrade authority.
+    Set {
+        #[arg(long)]
+        delegate: Address,
+    },
+    Show,
+    /// Deposit lamports to a throwaway member and re-own them to a shielded address.
+    Move {
+        /// The recipient's base58 shielded address.
+        to: ShieldedAddress,
+        #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
+        amount: u64,
+        #[arg(long)]
+        delegate_keypair: PathBuf,
+        /// The co-signer keypair when the ring's co-signer scope covers transfers.
+        #[arg(long)]
+        cosigner_keypair: Option<PathBuf>,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -617,6 +643,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Reader(command) => reader::run(&mut ctx, command)?,
         Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
         Command::Window(command) => window::run(&mut ctx, command)?,
+        Command::Delegate(command) => delegate::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,

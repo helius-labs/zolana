@@ -244,15 +244,15 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
 }
 
 /// Opened only after the ring rpc serves the configured auditor.
-struct Session {
-    authority: solana_keypair::Keypair,
-    ring_rpc: RingRpcClient,
-    indexer: ZolanaIndexer,
-    prover: zolana_client::ProverClient,
+pub(crate) struct Session {
+    pub authority: solana_keypair::Keypair,
+    pub ring_rpc: RingRpcClient,
+    pub indexer: ZolanaIndexer,
+    pub prover: zolana_client::ProverClient,
 }
 
 impl Session {
-    fn open(ctx: &mut Context, deposited: u64) -> Result<Self, TransactError> {
+    pub fn open(ctx: &mut Context, deposited: u64) -> Result<Self, TransactError> {
         let needed = deposited
             .saturating_add(SENDER_FEE_BUDGET)
             .saturating_add(PAYER_FEE_BUDGET);
