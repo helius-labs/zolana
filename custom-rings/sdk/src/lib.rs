@@ -20,6 +20,7 @@ pub use custom_ring_interface::{
     READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
     SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
     SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
@@ -49,6 +50,7 @@ pub use crate::{
         set_paused::SetPaused,
         set_policy_rules::SetPolicyRules,
         set_policy_source::{SetSourceOwner, SourceOwner},
+        spend_window::{ClearSpendWindow, SetSpendWindow},
         transact::{
             to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
             CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
@@ -57,7 +59,7 @@ pub use crate::{
     },
     shared::{
         client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
-        CustomRingConfig, PolicyMatchError, ReaderKey, ReaderKeyError,
+        CustomRingConfig, CustomRingSpendWindow, PolicyMatchError, ReaderKey, ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,

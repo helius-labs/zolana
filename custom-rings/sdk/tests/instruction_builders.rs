@@ -6,11 +6,12 @@
 use curve25519_dalek::constants::{ED25519_BASEPOINT_POINT, EIGHT_TORSION};
 use custom_ring_interface::{SetCoSignerIxData, SetPausedIxData, SourceSpec};
 use custom_ring_sdk::{
-    tag, ClearCoSigner, CreateConfig, CreateConfigIxData, CreatePolicy, CustomRing,
-    CustomRingProof, CustomRingTransact, CustomRingTransactIxData, Deposit, EntryError,
+    tag, ClearCoSigner, ClearSpendWindow, CreateConfig, CreateConfigIxData, CreatePolicy,
+    CustomRing, CustomRingProof, CustomRingTransact, CustomRingTransactIxData, Deposit, EntryError,
     GrantReadAccess, InitSppRingConfig, PolicyTableIxData, ReaderIxData, ReaderKey, ReaderKeyError,
-    RevokeReadAccess, SetAuthority, SetCoSigner, SetPaused, SetPolicyRules, CONFIG_PDA_SEED,
-    COSIGN_WITHDRAWALS, READ_ACCESS_RECORD_PDA_SEED, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    RevokeReadAccess, SetAuthority, SetCoSigner, SetPaused, SetPolicyRules, SetSpendWindow,
+    CONFIG_PDA_SEED, COSIGN_WITHDRAWALS, READ_ACCESS_RECORD_PDA_SEED,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -428,9 +429,9 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
     }
     .instruction()
     .expect("single SOL deposit");
-    // The `[cosigner_pda, cosigner]` prefix precedes the forwarded list.
+    // `[cosigner_pda, cosigner, window]` precede the forwarded list.
     assert_eq!(
-        deposit.accounts.get(4).expect("ring_config meta").pubkey,
+        deposit.accounts.get(5).expect("ring_config meta").pubkey,
         ring_auth
     );
 }
@@ -494,6 +495,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
         vec![
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
+            AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
             AccountMeta::new(tree, false),
             AccountMeta::new(depositor, true),
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
@@ -569,7 +571,18 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(6..)
+            .get(2..4)
+            .expect("window metas")
+            .to_vec(),
+        vec![
+            AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
+            AccountMeta::new(ring().spend_window_pda(&mint), false),
+        ]
+    );
+    assert_eq!(
+        instruction
+            .accounts
+            .get(8..)
             .expect("settlement metas")
             .to_vec(),
         vec![
@@ -802,9 +815,13 @@ fn custom_ring_transact_forwards_settlement_accounts() {
     .expect("serialize the custom-ring transact content");
 
     assert_eq!(
+        instruction.accounts.get(6).expect("window meta"),
+        &AccountMeta::new(ring().spend_window_pda(&Address::default()), false)
+    );
+    assert_eq!(
         instruction
             .accounts
-            .get(12..)
+            .get(13..)
             .expect("owner signer and settlement metas")
             .to_vec(),
         vec![
@@ -1087,6 +1104,67 @@ fn clear_cosigner_closes_into_the_rent_recipient() {
         ]
     );
     assert_eq!(instruction.data, vec![tag::CLEAR_CO_SIGNER]);
+}
+
+#[test]
+fn set_spend_window_creates_or_replaces_under_the_config_authority() {
+    let mint = Address::new_from_array([60; 32]);
+    let instruction = SetSpendWindow {
+        ring: ring(),
+        payer: payer(),
+        authority: authority(),
+        mint,
+        window_slots: 100,
+        deposit_cap: 0,
+        withdrawal_cap: 9,
+    }
+    .instruction()
+    .expect("instruction");
+
+    assert_eq!(instruction.program_id, ring().program_id());
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer(), true),
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new(ring().spend_window_pda(&mint), false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::SET_SPEND_WINDOW);
+    let mut expected = mint.to_bytes().to_vec();
+    expected.extend_from_slice(&100u64.to_le_bytes());
+    expected.extend_from_slice(&0u64.to_le_bytes());
+    expected.extend_from_slice(&9u64.to_le_bytes());
+    assert_eq!(body, expected.as_slice());
+}
+
+#[test]
+fn clear_spend_window_closes_into_the_rent_recipient() {
+    let mint = Address::new_from_array([60; 32]);
+    let rent_recipient = Address::new_from_array([38; 32]);
+    let instruction = ClearSpendWindow {
+        ring: ring(),
+        authority: authority(),
+        mint,
+        rent_recipient,
+    }
+    .instruction();
+
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new_readonly(authority(), true),
+            AccountMeta::new_readonly(ring().config_pda(), false),
+            AccountMeta::new(ring().spend_window_pda(&mint), false),
+            AccountMeta::new(rent_recipient, false),
+        ]
+    );
+    let (ix_tag, body) = split_tag(&instruction);
+    assert_eq!(ix_tag, tag::CLEAR_SPEND_WINDOW);
+    assert_eq!(body, mint.as_array());
 }
 
 /// Unset, the slot repeats `cosigner_pda` and the layout never moves.

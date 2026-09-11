@@ -4,8 +4,12 @@ use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
+use zolana_transaction::SOL_MINT;
 
-use crate::{instructions::cosigner::cosigner_metas, CustomRing};
+use crate::{
+    instructions::{cosigner::cosigner_metas, spend_window::window_metas},
+    CustomRing,
+};
 
 #[must_use]
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
@@ -13,8 +17,9 @@ use crate::{instructions::cosigner::cosigner_metas, CustomRing};
 ///
 /// A policy ring prepends `[payer, config, cosigner_pda, cosigner, policy_config,
 /// entries_tree]` to SPP's own `RING_TRANSACT` list, an audit-only ring prepends
-/// just `[payer, config, cosigner_pda, cosigner]`. The `cosigner` slot signs
-/// only when the ring has a co-signer, else it repeats `cosigner_pda`.
+/// just `[payer, config, cosigner_pda, cosigner]`, then one spend window slot
+/// per public leg. The `cosigner` slot signs only when the ring has a
+/// co-signer, else it repeats `cosigner_pda`.
 /// The config holds the auditor key the public-input hash is recomputed against,
 /// and a policy ring's `entries_tree` is the only tree the policy roots are read
 /// from. Everything after the prefix is forwarded to SPP position for
@@ -69,6 +74,11 @@ impl CustomRingTransact {
             nullifier_root_index,
         } = self;
 
+        let windows: Vec<AccountMeta> = window_metas(
+            deployment,
+            interface_transfer_accounts.iter().map(settled_mint),
+        )
+        .collect();
         let ring = RingTransact {
             payer,
             input_tree,
@@ -96,6 +106,7 @@ impl CustomRingTransact {
             // tree.
             accounts.push(AccountMeta::new_readonly(entries_tree, false));
         }
+        accounts.extend(windows);
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {
@@ -113,5 +124,13 @@ impl CustomRingTransact {
             accounts,
             data,
         })
+    }
+}
+
+fn settled_mint(accounts: &TransactInterfaceTransferAccounts) -> Address {
+    match accounts {
+        TransactInterfaceTransferAccounts::Sol(_) => SOL_MINT,
+        TransactInterfaceTransferAccounts::SplDeposit(spl) => spl.mint,
+        TransactInterfaceTransferAccounts::SplWithdrawal(spl) => spl.mint,
     }
 }

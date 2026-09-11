@@ -174,6 +174,16 @@ impl DepositLayout {
         })
     }
 
+    /// The settled mints in asset order, SOL under the zero address.
+    pub(super) fn mints(&self) -> Vec<Pubkey> {
+        let mut mints = Vec::with_capacity(self.asset_count());
+        if self.has_sol {
+            mints.push(Pubkey::default());
+        }
+        mints.extend(self.spl_groups.iter().map(|spl| spl.mint));
+        mints
+    }
+
     pub(super) fn asset_kinds(&self) -> Vec<DepositAssetKind> {
         let mut assets = Vec::with_capacity(self.asset_count());
         if self.has_sol {

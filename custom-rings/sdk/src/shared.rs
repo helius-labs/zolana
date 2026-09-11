@@ -2,8 +2,8 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    CoSigner, PolicyConfig, ReadAccessRecord, RingProgramConfig, CO_SIGNER, POLICY_CONFIG,
-    READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    CoSigner, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER,
+    POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -40,6 +40,18 @@ pub struct CustomRingCoSigner {
     pub scope: u8,
     /// Per mint, SOL under the zero address.
     pub thresholds: Vec<(Address, u64)>,
+}
+
+/// A mint's public-leg caps over fixed windows, zero caps do not bind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomRingSpendWindow {
+    pub mint: Address,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub deposited: u64,
+    pub withdrawn: u64,
 }
 
 #[derive(Debug, Error)]
@@ -107,6 +119,15 @@ impl CustomRing {
 
     pub fn cosigner_pda(self) -> Address {
         Address::find_program_address(&[CoSigner::SEED], &self.program_id).0
+    }
+
+    /// SOL under the zero address.
+    pub fn spend_window_pda(self, mint: &Address) -> Address {
+        self.spend_window_pda_with_bump(mint).0
+    }
+
+    fn spend_window_pda_with_bump(self, mint: &Address) -> (Address, u8) {
+        Address::find_program_address(&[SpendWindow::SEED, mint.as_array()], &self.program_id)
     }
 
     pub fn read_access_record_pda(self, reader: &ReaderKey) -> Address {
@@ -209,6 +230,51 @@ impl CustomRing {
                 .iter()
                 .map(|row| (row.mint, row.amount()))
                 .collect(),
+        }))
+    }
+
+    /// `None` when the mint is uncapped.
+    pub fn read_spend_window<R: Rpc>(
+        self,
+        rpc: &R,
+        mint: &Address,
+    ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
+        let address = self.spend_window_pda(mint);
+        self.decode_spend_window(mint, address, rpc.get_account(address)?)
+    }
+
+    /// The async twin of [`Self::read_spend_window`], over [`AsyncRpc`].
+    pub async fn read_spend_window_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+        mint: &Address,
+    ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
+        let address = self.spend_window_pda(mint);
+        self.decode_spend_window(mint, address, rpc.get_account(address).await?)
+    }
+
+    fn decode_spend_window(
+        self,
+        mint: &Address,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
+        let Some(window) = AccountRead::decode::<SpendWindow>(self.program_id, address, account)?
+        else {
+            return Ok(None);
+        };
+        let bump = self.spend_window_pda_with_bump(mint).1;
+        if window.mint != *mint || window.bump != bump || window.window_slots() == 0 {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(CustomRingSpendWindow {
+            mint: window.mint,
+            window_slots: window.window_slots(),
+            deposit_cap: window.deposit_cap(),
+            withdrawal_cap: window.withdrawal_cap(),
+            window_start_slot: window.window_start_slot(),
+            deposited: window.deposited(),
+            withdrawn: window.withdrawn(),
         }))
     }
 
@@ -383,6 +449,14 @@ impl ReadableAccount for ReadAccessRecord {
 
 impl ReadableAccount for CoSigner {
     const DISCRIMINATOR: u8 = CO_SIGNER;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for SpendWindow {
+    const DISCRIMINATOR: u8 = SPEND_WINDOW;
 
     fn discriminator(self) -> u8 {
         self.discriminator
@@ -602,6 +676,59 @@ mod tests {
             .hash(&source_map(&config).expect("map"))
             .expect("hash");
         config
+    }
+
+    #[test]
+    fn spend_window_read_rejects_substituted_state() {
+        let mint = Address::new_from_array([60; 32]);
+        let address = ring().spend_window_pda(&mint);
+        let value = SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint,
+            window_slots: 100u64.to_le_bytes(),
+            deposit_cap: 7u64.to_le_bytes(),
+            withdrawal_cap: 0u64.to_le_bytes(),
+            window_start_slot: 1200u64.to_le_bytes(),
+            deposited: 1u64.to_le_bytes(),
+            withdrawn: 0u64.to_le_bytes(),
+            bump: ring().spend_window_pda_with_bump(&mint).1,
+        };
+        let valid = AccountRpc {
+            address,
+            account: Some(account(&value)),
+        };
+        assert_eq!(
+            ring()
+                .read_spend_window(&valid, &mint)
+                .expect("valid window")
+                .expect("window"),
+            CustomRingSpendWindow {
+                mint,
+                window_slots: 100,
+                deposit_cap: 7,
+                withdrawal_cap: 0,
+                window_start_slot: 1200,
+                deposited: 1,
+                withdrawn: 0,
+            }
+        );
+
+        let mut wrong_mint = value;
+        wrong_mint.mint = Address::new_from_array([61; 32]);
+        let mut wrong_bump = value;
+        wrong_bump.bump ^= 1;
+        let mut zero_window = value;
+        zero_window.window_slots = [0; 8];
+        for value in [wrong_mint, wrong_bump, zero_window] {
+            let rpc = AccountRpc {
+                address,
+                account: Some(account(&value)),
+            };
+            assert!(matches!(
+                ring().read_spend_window(&rpc, &mint),
+                Err(AccountReadError::InvalidAccount { .. })
+            ));
+        }
     }
 
     #[test]
