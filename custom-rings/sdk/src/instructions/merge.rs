@@ -18,9 +18,7 @@ use zolana_transaction::{
 
 use crate::CustomRing;
 
-pub use zolana_client::{
-    MergeRingProver as CustomRingMergeProver, MergeRingWitness as CustomRingMergeWitness,
-};
+pub use zolana_client::{MergeRingProver, MergeRingWitness};
 pub use zolana_transaction::instructions::merge::MERGE_INPUTS;
 
 /// A merge plan whose inputs and output are bound to one custom ring.
@@ -103,8 +101,8 @@ impl PreparedCustomRingMerge {
         nullifier_key: NullifierKey,
         proofs: Vec<SpendProof>,
         dummy_nullifier_proofs: Vec<NonInclusionProof>,
-    ) -> CustomRingMergeWitness {
-        CustomRingMergeWitness {
+    ) -> MergeRingWitness {
+        MergeRingWitness {
             prepared: self.inner,
             nullifier_key,
             proofs,
@@ -132,12 +130,9 @@ impl PreparedCustomRingMerge {
                 .get_non_inclusion_proofs(input_tree, dummy_nullifiers, None)?
                 .proofs
         };
-        let result = CustomRingMergeProver::try_from(self.witness(
-            nullifier_key,
-            proofs,
-            dummy_nullifier_proofs,
-        ))?
-        .build()?;
+        let result =
+            MergeRingProver::try_from(self.witness(nullifier_key, proofs, dummy_nullifier_proofs))?
+                .build()?;
         let proof = env.prover.prove_merge_ring(&result.inputs)?;
         let proof = ProofCompressed::try_from(proof)?.to_merge_proof()?;
 

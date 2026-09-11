@@ -38,8 +38,8 @@ pub use crate::{
         init_spp_ring_config::InitSppRingConfig,
         merge::{
             CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
-            CustomRingMergeProver, CustomRingMergeWitness, PreparedCustomRingMerge,
-            ProvenCustomRingMerge, MERGE_INPUTS,
+            MergeRingProver, MergeRingWitness, PreparedCustomRingMerge, ProvenCustomRingMerge,
+            MERGE_INPUTS,
         },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,
