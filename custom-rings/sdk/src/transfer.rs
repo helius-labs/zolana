@@ -10,8 +10,8 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 use zolana_client::{
     prover::{Delivery, ProveRequest},
-    AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, Proof,
-    ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
+    AsyncProverClient, AsyncRpc, ClientError, ComputeBudgetConfig, MerkleProof, NonInclusionProof,
+    Proof, ProofCompressed, ProverClient, RingTransferProofResult, RingTransferProver, Rpc,
     SettlementAccountValidation, Shape, SpendProof, SppProofInputUtxo, SppProofInputs,
     TransferInputs, TransferSpendInput,
 };
@@ -764,8 +764,12 @@ impl RingDeposit<'_> {
             deposits: vec![deposit],
         }
         .instruction()?;
-        let signature =
-            rpc.create_and_send_transaction(&[ix], self.payer.pubkey(), &[self.payer])?;
+        let signature = rpc.create_and_send_transaction(
+            core::slice::from_ref(&ix),
+            self.payer.pubkey(),
+            &[self.payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
         Ok(RingDepositReceipt {
             signature,
             utxo: Utxo {

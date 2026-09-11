@@ -13,9 +13,10 @@ dist/
 /.env
 /forester/target/
 /forester/test-ledger/
-/forester/.surfpool/
 /forester/logs/
-/.surfpool/
+# surfpool writes its logs beside whatever directory it was started from, so
+# this is not anchored to the repository root.
+.surfpool/
 test-ledger
 .DS_Store
 /.idea

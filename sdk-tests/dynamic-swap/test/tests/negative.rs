@@ -9,7 +9,7 @@ use shared::{escrow_authority_identity, setup, TestEnv, DESTINATION_ASSET_ID, SO
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::Rpc;
+use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
 
 const PRICE: u64 = 5;
@@ -73,6 +73,7 @@ fn create_pair(env: &TestEnv, authority_solana: &dyn Signer, price: u64) -> Resu
             &[create_pair_ix],
             authority_solana.pubkey(),
             &[authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
     Ok(pair)
@@ -110,7 +111,12 @@ fn zero_price_and_authority_checks() -> Result<()> {
     let err = env
         .client
         .rpc()
-        .create_and_send_transaction(&[zero_ix], authority_solana.pubkey(), &[&authority_solana])
+        .create_and_send_transaction(
+            &[zero_ix],
+            authority_solana.pubkey(),
+            &[&authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
         .err()
         .ok_or_else(|| anyhow!("update_price to 0 must fail"))?;
     assert_custom_error("update_price zero", &anyhow!("{err:?}"), INVALID_PRICE);
@@ -133,6 +139,7 @@ fn zero_price_and_authority_checks() -> Result<()> {
             &[intruder_ix],
             authority_solana.pubkey(),
             &[&authority_solana, &intruder],
+            ComputeBudgetConfig::for_instruction_count(1),
         )
         .err()
         .ok_or_else(|| anyhow!("non-authority update_price must fail"))?;

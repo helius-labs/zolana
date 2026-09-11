@@ -6,9 +6,9 @@ const TREE_ID: u16 = 11;
 const ZKP_BATCH_SIZE: u64 = 250;
 
 const EXACT: TreeFeeSchedule = TreeFeeSchedule {
-    fee_per_nullifier: 190,
+    fee_per_nullifier: 66,
     append_reimbursement: 5_000,
-    close_reimbursement: 170,
+    close_reimbursement: 46,
 };
 
 fn init_tree(bytes: &mut [u8], fees: TreeFeeSchedule) -> Result<TreeAccount<'_>, TreeError> {
@@ -25,12 +25,12 @@ fn init_tree(bytes: &mut [u8], fees: TreeFeeSchedule) -> Result<TreeAccount<'_>,
 
 #[test]
 fn at_cost_derives_the_smallest_solvent_fee() {
-    assert_eq!(TreeFeeSchedule::at_cost(250, 5_000, 170), Some(EXACT));
-    let small = TreeFeeSchedule::at_cost(10, 5_000, 170).unwrap();
-    assert_eq!(small.fee_per_nullifier, 670);
+    assert_eq!(TreeFeeSchedule::at_cost(250, 5_000, 46), Some(EXACT));
+    let small = TreeFeeSchedule::at_cost(10, 5_000, 46).unwrap();
+    assert_eq!(small.fee_per_nullifier, 546);
     let rounded = TreeFeeSchedule::at_cost(3, 10, 0).unwrap();
     assert_eq!(rounded.fee_per_nullifier, 4);
-    assert_eq!(TreeFeeSchedule::at_cost(0, 5_000, 170), None);
+    assert_eq!(TreeFeeSchedule::at_cost(0, 5_000, 46), None);
     assert_eq!(TreeFeeSchedule::at_cost(250, u64::MAX, 170), None);
 }
 
@@ -59,17 +59,17 @@ fn init_stores_an_insolvent_schedule() {
 fn set_fee_schedule_keeps_the_balance() {
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = init_tree(&mut bytes, EXACT).unwrap();
-    assert_eq!(tree.credit_insertion_fee(3), Ok(570));
+    assert_eq!(tree.credit_insertion_fee(3), Ok(198));
     let doubled = TreeFeeSchedule {
-        fee_per_nullifier: 380,
+        fee_per_nullifier: 132,
         append_reimbursement: 10_000,
-        close_reimbursement: 340,
+        close_reimbursement: 92,
     };
     tree.set_fee_schedule(doubled);
     assert_eq!(tree.fees(), doubled);
-    assert_eq!(tree.fee_balance(), 570);
-    assert_eq!(tree.credit_insertion_fee(1), Ok(380));
-    assert_eq!(tree.fee_balance(), 950);
+    assert_eq!(tree.fee_balance(), 198);
+    assert_eq!(tree.credit_insertion_fee(1), Ok(132));
+    assert_eq!(tree.fee_balance(), 330);
 }
 
 #[test]
@@ -90,11 +90,11 @@ fn take_append_reimbursement_pays_up_to_the_balance() {
     assert_eq!(tree.take_append_reimbursement(1), 0);
 
     tree.credit_insertion_fee(ZKP_BATCH_SIZE).unwrap();
-    assert_eq!(tree.fee_balance(), 47_500);
+    assert_eq!(tree.fee_balance(), 16_500);
     assert_eq!(tree.take_append_reimbursement(1), 5_000);
-    assert_eq!(tree.fee_balance(), 42_500);
+    assert_eq!(tree.fee_balance(), 11_500);
 
-    assert_eq!(tree.take_append_reimbursement(9), 42_500);
+    assert_eq!(tree.take_append_reimbursement(9), 11_500);
     assert_eq!(tree.fee_balance(), 0);
     assert_eq!(tree.take_append_reimbursement(1), 0);
 }
@@ -104,11 +104,13 @@ fn take_close_reimbursement_pays_up_to_the_balance() {
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = init_tree(&mut bytes, EXACT).unwrap();
     tree.credit_insertion_fee(2).unwrap();
-    assert_eq!(tree.fee_balance(), 380);
+    assert_eq!(tree.fee_balance(), 132);
 
-    assert_eq!(tree.take_close_reimbursement(1), 170);
-    assert_eq!(tree.fee_balance(), 210);
-    assert_eq!(tree.take_close_reimbursement(2), 210);
+    assert_eq!(tree.take_close_reimbursement(1), 46);
+    assert_eq!(tree.fee_balance(), 86);
+    // Two closes cost 92, more than the 86 left, so the balance is paid out and
+    // the shortfall is simply not covered.
+    assert_eq!(tree.take_close_reimbursement(2), 86);
     assert_eq!(tree.fee_balance(), 0);
     assert_eq!(tree.take_close_reimbursement(1), 0);
 }
@@ -118,7 +120,7 @@ fn take_reimbursement_saturates_to_the_balance() {
     let mut bytes = vec![0u8; TreeAccount::account_size()];
     let mut tree = init_tree(&mut bytes, EXACT).unwrap();
     tree.credit_insertion_fee(1).unwrap();
-    assert_eq!(tree.take_close_reimbursement(u64::MAX), 190);
+    assert_eq!(tree.take_close_reimbursement(u64::MAX), 66);
     assert_eq!(tree.fee_balance(), 0);
 }
 

@@ -5,7 +5,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda,
@@ -146,8 +146,13 @@ fn create_mint(rpc: &SolanaRpc, authority: &Keypair, token_program: Pubkey) -> R
         data,
     };
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature =
-        rpc.create_and_send_transaction(&[create_ix, init_ix], payer, &[authority, &mint])?;
+    let instructions = [create_ix, init_ix];
+    let signature = rpc.create_and_send_transaction(
+        &instructions,
+        payer,
+        &[authority, &mint],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )?;
     println!(
         "ok create_mint mint={} signature={signature}",
         mint.pubkey()
@@ -165,7 +170,7 @@ fn mint_to(
 ) -> Result<()> {
     let mut data = vec![SPL_TOKEN_MINT_TO_DISCRIMINATOR];
     data.extend_from_slice(&amount.to_le_bytes());
-    let ix = Instruction {
+    let instructions = [Instruction {
         program_id: token_program,
         accounts: vec![
             AccountMeta::new(*mint, false),
@@ -173,9 +178,14 @@ fn mint_to(
             AccountMeta::new_readonly(authority.pubkey(), true),
         ],
         data,
-    };
+    }];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_transaction(&[ix], payer, &[authority])?;
+    let signature = rpc.create_and_send_transaction(
+        &instructions,
+        payer,
+        &[authority],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )?;
     println!("ok mint_to amount={amount} signature={signature}");
     Ok(())
 }
@@ -189,12 +199,17 @@ fn ensure_asset_counter(rpc: &SolanaRpc, authority: &Keypair) -> Result<()> {
         println!("ok spl_asset_counter account={counter} status=exists");
         return Ok(());
     }
-    let ix = CreateAssetCounter {
+    let instructions = [CreateAssetCounter {
         authority: authority.pubkey(),
     }
-    .instruction();
+    .instruction()];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_transaction(&[ix], payer, &[authority])?;
+    let signature = rpc.create_and_send_transaction(
+        &instructions,
+        payer,
+        &[authority],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )?;
     println!("ok create_asset_counter account={counter} signature={signature}");
     Ok(())
 }
@@ -213,14 +228,19 @@ fn ensure_spl_interface(
         println!("ok spl_interface mint={mint} registry={registry} status=exists");
         return Ok(());
     }
-    let ix = CreateSplInterface {
+    let instructions = [CreateSplInterface {
         authority: authority.pubkey(),
         mint: *mint,
         token_program,
     }
-    .instruction();
+    .instruction()];
     let payer = Address::new_from_array(authority.pubkey().to_bytes());
-    let signature = rpc.create_and_send_transaction(&[ix], payer, &[authority])?;
+    let signature = rpc.create_and_send_transaction(
+        &instructions,
+        payer,
+        &[authority],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )?;
     println!("ok create_spl_interface mint={mint} registry={registry} signature={signature}");
     Ok(())
 }

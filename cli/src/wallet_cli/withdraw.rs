@@ -56,7 +56,7 @@ pub(crate) fn run_withdraw(opts: WithdrawOptions) -> Result<()> {
         &client,
         &ctx.material.funding,
     )?;
-    let signature = client.rpc().send_transaction(&transaction)?;
+    let signature = client.rpc().process_transaction(transaction)?;
     client.confirm_private_transaction_sync(signature)?;
     println!(
         "ok withdraw amount={} mint={} to={} signature={}",

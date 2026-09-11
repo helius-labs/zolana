@@ -3,7 +3,7 @@ mod shared;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use shared::{send_v0_with_lookup_table, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
+use shared::{send, setup, TestEnv, DESTINATION_AMOUNT, SOURCE_AMOUNT};
 use swap_sdk::{
     index::index_maker,
     instructions::{
@@ -167,7 +167,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        let make_signature = send_v0_with_lookup_table(client.rpc(), &maker.keypair, make_ix)?;
+        let make_signature = send(client.rpc(), &maker.keypair, make_ix)?;
         client
             .confirm_private_transaction_sync(make_signature)
             .map_err(|e| anyhow!("confirm make indexed: {e:?}"))?;
@@ -262,7 +262,7 @@ fn make_and_cancel_swap_inline() -> Result<()> {
         }
         .instruction()?;
 
-        let cancel_signature = send_v0_with_lookup_table(client.rpc(), &maker.keypair, cancel_ix)?;
+        let cancel_signature = send(client.rpc(), &maker.keypair, cancel_ix)?;
         client
             .confirm_private_transaction_sync(cancel_signature)
             .map_err(|e| anyhow!("confirm cancel indexed: {e:?}"))?;

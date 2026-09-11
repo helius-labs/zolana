@@ -3,9 +3,9 @@ use shielded_pool_tests::support::{
     transact::{proof_env, tree_progress},
 };
 
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     instruction::instruction_data::merge_transact::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
     state::{default_tree_fees, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE},
@@ -43,9 +43,12 @@ fn merge_at_input_count(input_count: usize, real_input_count: usize) {
 
     let (utxo_next_before, nullifier_next_before) = tree_progress(&pool.rpc, &tree);
     let (_, fee_balance_before) = tree_fees(&pool.rpc, &tree).expect("tree fees");
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(MERGE_COMPUTE_UNIT_LIMIT);
     pool.rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
+        )
         .expect("merge with a valid proof");
 
     let (utxo_next_after, nullifier_next_after) = tree_progress(&pool.rpc, &tree);
@@ -57,7 +60,7 @@ fn merge_at_input_count(input_count: usize, real_input_count: usize) {
     );
 
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    const FEE_PER_NULLIFIER: u64 = 190;
+    const FEE_PER_NULLIFIER: u64 = 20;
     let (fees, fee_balance_after) = tree_fees(&pool.rpc, &tree).expect("tree fees");
     assert_eq!(
         fees,

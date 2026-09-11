@@ -13,7 +13,7 @@ const TREE_ID: u16 = 11;
 const FEES: TreeFeeSchedule = TreeFeeSchedule {
     fee_per_nullifier: 190,
     append_reimbursement: 5_000,
-    close_reimbursement: 170,
+    close_reimbursement: 46,
 };
 
 fn leaf(i: u8) -> [u8; 32] {

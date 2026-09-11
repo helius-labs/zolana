@@ -7,7 +7,7 @@ use std::{
 
 use thiserror::Error;
 
-pub const ANZA_INSTALL: &str = r#"install the Anza toolchain with sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)""#;
+pub const ANZA_INSTALL: &str = r#"install the Anza toolchain with sh -c "$(curl -sSfL https://release.anza.xyz/v4.2.2/install)""#;
 
 pub const SOLANA: Tool = Tool {
     name: "solana",

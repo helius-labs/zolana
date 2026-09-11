@@ -14,7 +14,8 @@ use custom_ring_sdk::{
 };
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_packet::PACKET_DATA_SIZE;
+use solana_message::v1::MAX_TRANSACTION_SIZE;
+use zolana_client::{transaction_size, ComputeBudgetConfig};
 use zolana_interface::{
     instruction::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
@@ -982,9 +983,21 @@ fn a_shared_source_the_table_does_not_reference_is_refused() {
     ));
 }
 
-/// One sender rule per list and a full inline pool, beside eight curator accounts.
+/// The legacy packet the builders used to measure against, before the pin
+/// moved to a transaction v1 message.
+const LEGACY_PACKET_DATA_SIZE: usize = 1232;
+
+/// One sender rule per list and a full inline pool, beside a curator account
+/// per list.
+///
+/// This pin is past the legacy packet, so the old bound refused it and a v1
+/// transaction carries it with kilobytes to spare. The body is capped at
+/// `MAX_RULES` rows of 32 bytes plus `MAX_INLINE_ASSETS` assets and limits, and
+/// the account list at one curator per list, so even the largest legal pin
+/// stays far under the v1 ceiling: the guard the builders keep now only catches
+/// a shape the table format itself forbids.
 #[test]
-fn a_pin_past_the_legacy_packet_is_refused() {
+fn the_largest_pin_is_past_a_legacy_packet_and_inside_a_v1_transaction() {
     let mut builder = RuleTable::builder();
     for list_id in ListId::ALL {
         builder = builder.rule(Rule::require(Subject::Sender, list_id));
@@ -1002,11 +1015,22 @@ fn a_pin_past_the_legacy_packet_is_refused() {
         })
         .collect();
 
-    assert!(matches!(
-        create_policy(&full, curated.clone()).instruction(),
-        Err(EntryError::TransactionTooLarge { bytes, limit })
-            if bytes > limit && limit == PACKET_DATA_SIZE
-    ));
+    let instruction = create_policy(&full, curated.clone())
+        .instruction()
+        .expect("the largest pin fits a v1 transaction");
+    // The payer and the upgrade authority sign it.
+    let measured = transaction_size(
+        &payer(),
+        core::slice::from_ref(&instruction),
+        ComputeBudgetConfig::new(custom_ring_interface::CREATE_POLICY_COMPUTE_UNIT_LIMIT),
+    )
+    .expect("the pin compiles into a v1 message");
+    assert!(
+        measured.bytes > LEGACY_PACKET_DATA_SIZE,
+        "a pin this size was refused while the bound was the legacy packet"
+    );
+    assert!(measured.bytes <= MAX_TRANSACTION_SIZE);
+    assert!(measured.fits());
     create_policy(&full, Vec::new())
         .instruction()
         .expect("own sources fit");

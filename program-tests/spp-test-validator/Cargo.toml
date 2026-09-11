@@ -5,8 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-# Only the explicit `lifecycle` and `proof_cu` test targets build; both consume
-# the shared fixture from `zolana-test-utils` (`lifecycle` module).
+# Only the explicit `lifecycle`, `proof_cu` and `transaction_v1` test targets
+# build. `lifecycle` and `proof_cu` consume the shared fixture from
+# `zolana-test-utils`; `transaction_v1` probes the backend runtime alone.
 autotests = false
 
 [dependencies]
@@ -20,8 +21,15 @@ zolana-test-utils = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]
+bincode = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
+solana-hash = { workspace = true }
+solana-instruction = { workspace = true }
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
 
 [[test]]
 name = "lifecycle"
@@ -30,3 +38,7 @@ path = "tests/lifecycle.rs"
 [[test]]
 name = "proof_cu"
 path = "tests/proof_cu.rs"
+
+[[test]]
+name = "transaction_v1"
+path = "tests/transaction_v1.rs"

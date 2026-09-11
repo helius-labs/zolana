@@ -15,12 +15,9 @@ use dynamic_swap_sdk::{
     prover::DynamicSwapProverClient,
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
-use shared::{
-    escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair,
-    wait_until,
-};
+use shared::{escrow_authority_identity, get_slot_with_retry, send, setup_with_pair, wait_until};
 use solana_signer::Signer;
-use zolana_client::Rpc;
+use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_interface::instruction::Transact;
 use zolana_keypair::random_blinding;
 use zolana_test_utils::test_validator_asserts::wait_for_indexed_utxo;
@@ -154,7 +151,12 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .instruction();
             env.client
                 .rpc()
-                .create_and_send_transaction(&[split_ix], user_solana.pubkey(), &[&user_solana])
+                .create_and_send_transaction(
+                    &[split_ix],
+                    user_solana.pubkey(),
+                    &[&user_solana],
+                    ComputeBudgetConfig::for_instruction_count(1),
+                )
                 .map_err(|e| anyhow!("send split transact: {e:?}"))?;
 
             // Re-sync and select the freshly created exact-`ORDER_AMOUNT` note
@@ -389,7 +391,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .instruction()
             .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-            send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[&user_solana], ix)
+            send(env.client.rpc(), &authority_solana, &[&user_solana], ix)
                 .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
 
             escrow
@@ -665,7 +667,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         }
         .instruction()
         .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
-        send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[], settle_ix)
+        send(env.client.rpc(), &authority_solana, &[], settle_ix)
             .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
         (recipient_out_hash, maker_counter_hash, maker_source_hash)

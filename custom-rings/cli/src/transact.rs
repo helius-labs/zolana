@@ -6,13 +6,15 @@ use std::{
 use custom_ring_sdk::{
     policy_config_table, AccountReadError, CustomRing, CustomRingTransfer, CustomRingTransferInput,
     DepositAsset, DepositError, EntryProofEnvironment, PolicyMatchError, RingDeposit,
-    RingDepositReceipt, SendV0Error, TransferError, TransferProofEnvironment, V0WithLookupTable,
+    RingDepositReceipt, SendError, TransactSend, TransferError, TransferProofEnvironment,
 };
 use solana_address::Address;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexer};
+use zolana_client::{
+    ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, SppProofInputUtxo, ZolanaIndexer,
+};
 use zolana_interface::pda;
 use zolana_keypair::{shielded::ShieldedAddress, KeypairError, ShieldedKeypair};
 use zolana_ring_client::{ReaderKey, ReaderKeyError};
@@ -108,7 +110,7 @@ pub enum TransactError {
     #[error(transparent)]
     Transfer(#[from] TransferError),
     #[error(transparent)]
-    SendV0(#[from] SendV0Error),
+    Send(#[from] SendError),
     #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
@@ -463,15 +465,19 @@ impl Deposited<'_> {
             deposits,
         } = self;
         let sender = this.sender;
-        // The instruction does not fit a packet with a separate fee payer, so
-        // the sender pays its own v0 transaction and the lookup table behind it.
+        // `TransactSend` pays and signs with the sender alone, so the configured
+        // payer has to fund the sender up front instead of paying the transact.
         let fee = solana_system_interface::instruction::transfer(
             &this.payer.pubkey(),
             &sender.pubkey(),
             SENDER_FEE_BUDGET,
         );
-        env.rpc
-            .create_and_send_transaction(&[fee], this.payer.pubkey(), &[this.payer])?;
+        env.rpc.create_and_send_transaction(
+            &[fee],
+            this.payer.pubkey(),
+            &[this.payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
 
         let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
         let inputs = utxos
@@ -493,7 +499,7 @@ impl Deposited<'_> {
         .with_tree(this.tree)
         .with_assets(this.assets)
         .prove(env)?;
-        let transact = V0WithLookupTable {
+        let transact = TransactSend {
             payer: &sender,
             signers: &[],
             instruction: proven.instruction()?,

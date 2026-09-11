@@ -54,7 +54,7 @@ fn init_zeroes_reserved_header() {
     let fees = TreeFeeSchedule {
         fee_per_nullifier: 190,
         append_reimbursement: 5_000,
-        close_reimbursement: 170,
+        close_reimbursement: 46,
     };
 
     {

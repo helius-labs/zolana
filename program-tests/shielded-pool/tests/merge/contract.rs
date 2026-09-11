@@ -3,10 +3,10 @@ use shielded_pool_tests::support::{
 };
 
 use solana_account::Account;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -164,12 +164,17 @@ fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
 
     let data = merge_ix_data_at_input_count(MAX_MERGE_INPUTS);
     let ix = merge_instruction(&rpc, &tree, record, data);
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("a dummy proof must not verify");
+    // The merge is the only instruction the transaction carries: v1 states the
+    // raised ceiling in the message header instead of an instruction.
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-        .at(1)
+        .at(0)
         .assert_litesvm(error);
 }
 
@@ -378,15 +383,19 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     // The eight nullifier PDA creations precede proof verification, so the default
     // 200k budget no longer reaches it.
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("a merge past the capacity threshold must be rejected");
     // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
     // flag is false while the merge proof assumes true, so the capacity
-    // overflow now fails at proof verification.
+    // overflow now fails at proof verification. The merge is the only
+    // instruction the transaction carries.
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-        .at(1)
+        .at(0)
         .assert_litesvm(error);
     rpc.last_transaction_trace()
         .expect("capacity-gate transaction trace")
@@ -424,12 +433,16 @@ fn default_rail_merge_rejects_a_zeroed_proof_exactly() {
 
     let ix = merge_instruction(&rpc, &tree, record, merge_ix_data(true));
     // Proof verification needs more than the 200k default budget.
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("a zeroed default-rail merge proof must be rejected");
+    // The merge is the only instruction the transaction carries.
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-        .at(1)
+        .at(0)
         .assert_litesvm(error);
     assert_eq!(
         rpc.account_data(&tree).expect("tree data"),
@@ -455,12 +468,16 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
         c: [0xFF; 32],
     };
     let ix = merge_instruction(&rpc, &tree, record, data);
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("undecompressable merge proof points must be rejected");
+    // The merge is the only instruction the transaction carries.
     Rejection::pool(ShieldedPoolError::InvalidTransactProofEncoding)
-        .at(1)
+        .at(0)
         .assert_litesvm(error);
     assert_eq!(
         rpc.account_data(&tree).expect("tree data"),

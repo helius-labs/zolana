@@ -23,7 +23,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::ClientError;
+use zolana_client::{ClientError, ComputeBudgetConfig};
 use zolana_interface::{
     pda, state::state_root_offset, BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -92,6 +92,8 @@ pub enum ProgramTestError {
     Event(String),
     #[error("rpc: {0}")]
     Rpc(String),
+    #[error("compiled account index {index} is outside the {keys} message account keys")]
+    AccountIndexOutOfRange { index: u8, keys: usize },
     #[error("pubkey: {0}")]
     Pubkey(#[from] solana_pubkey::PubkeyError),
     #[error("the default tree fee schedule does not fit zkp batch size {0}")]
@@ -243,12 +245,32 @@ impl ZolanaProgramTest {
         ixs: &[Instruction],
         signers: &[&dyn Signer],
     ) -> Result<IndexedTransaction, ProgramTestError> {
+        self.create_and_send_default_payer_transaction_with_budget(
+            ixs,
+            signers,
+            ComputeBudgetConfig::for_instruction_count(ixs.len()),
+        )
+    }
+
+    /// [`Self::create_and_send_default_payer_transaction`] with an explicit
+    /// compute ceiling, for the proof paths 200k per instruction cannot reach.
+    pub fn create_and_send_default_payer_transaction_with_budget(
+        &mut self,
+        ixs: &[Instruction],
+        signers: &[&dyn Signer],
+        compute_budget: ComputeBudgetConfig,
+    ) -> Result<IndexedTransaction, ProgramTestError> {
         let payer = self.payer.insecure_clone();
         let payer_pubkey = payer.pubkey();
         let mut all_signers: Vec<&dyn Signer> = Vec::with_capacity(signers.len() + 1);
         all_signers.push(&payer);
         all_signers.extend_from_slice(signers);
-        self.create_and_send_transaction(ixs, &payer_pubkey, &all_signers)
+        self.create_and_send_transaction_with_budget(
+            ixs,
+            &payer_pubkey,
+            &all_signers,
+            compute_budget,
+        )
     }
 
     pub(crate) fn send(

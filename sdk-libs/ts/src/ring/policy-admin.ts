@@ -24,7 +24,7 @@ interface RingPolicyAdminParams {
   readonly client: RingPolicyAdminClient;
   readonly ringProgramId: Address;
   readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 export interface RingCreatePolicyTransactionParams
@@ -165,10 +165,8 @@ async function checkCurators(
   }
 }
 
-function priceOption(
-  params: RingPolicyAdminParams,
-): Readonly<{ computeUnitPriceMicroLamports?: bigint }> {
-  return params.computeUnitPriceMicroLamports === undefined
+function priceOption(params: RingPolicyAdminParams): Readonly<{ priorityFeeLamports?: bigint }> {
+  return params.priorityFeeLamports === undefined
     ? {}
-    : { computeUnitPriceMicroLamports: params.computeUnitPriceMicroLamports };
+    : { priorityFeeLamports: params.priorityFeeLamports };
 }

@@ -406,7 +406,7 @@ impl LifecycleHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::MergeDisabled)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(
@@ -443,7 +443,7 @@ impl LifecycleHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(

@@ -1,42 +1,11 @@
 use anyhow::{anyhow, bail, Result};
-use solana_message::Message;
 use solana_pubkey::Pubkey;
-use solana_transaction::Transaction;
+use zolana_client::{transaction_size, ComputeBudgetConfig, TransactionSize};
 use zolana_interface::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeFeeSchedule;
 
 pub const BASE_TRANSACTION_FEE_LAMPORTS: u64 = 5_000;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TransactionSize {
-    V0,
-    V1,
-}
-
-impl TransactionSize {
-    pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "v0" => Ok(Self::V0),
-            "v1" => Ok(Self::V1),
-            other => bail!("unknown transaction size {other:?} (expected v0|v1)"),
-        }
-    }
-
-    pub const fn limit_bytes(self) -> usize {
-        match self {
-            Self::V0 => 1232,
-            Self::V1 => 4096,
-        }
-    }
-
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::V0 => "v0",
-            Self::V1 => "v1",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ForesterClose {
@@ -46,7 +15,7 @@ pub struct ForesterClose {
 }
 
 impl ForesterClose {
-    fn serialized_size(&self, nullifiers: &[[u8; 32]]) -> Result<usize> {
+    fn size(&self, nullifiers: &[[u8; 32]]) -> Result<TransactionSize> {
         let inner = CloseNullifierPdas {
             authority: smart_account_pda(&self.settings, 0).0,
             tree: self.tree,
@@ -55,34 +24,30 @@ impl ForesterClose {
         }
         .instruction();
         let outer = execute_sync_ix(&self.settings, 0, &[self.member], &[inner]);
-        let transaction = Transaction::new_unsigned(Message::new(&[outer], Some(&self.member)));
-        bincode::serialize(&transaction)
-            .map(|bytes| bytes.len())
-            .map_err(|e| anyhow!("serialize close-nullifier-pdas transaction: {e}"))
+        transaction_size(
+            &self.member,
+            &[outer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .map_err(|e| anyhow!("measure close-nullifier-pdas transaction: {e}"))
     }
 
-    pub fn closes_per_transaction(&self, size: TransactionSize) -> Result<u64> {
+    pub fn closes_per_transaction(&self) -> Result<u64> {
         let mut nullifiers = Vec::new();
         for sequence in 0..=u64::from(u8::MAX) {
             let mut nullifier = [0u8; 32];
             nullifier[24..].copy_from_slice(&sequence.to_be_bytes());
             nullifiers.push(nullifier);
-            if self.serialized_size(&nullifiers)? <= size.limit_bytes() {
+            if self.size(&nullifiers)?.fits() {
                 continue;
             }
             let capacity = nullifiers.len().saturating_sub(1);
             if capacity == 0 {
-                bail!(
-                    "a single nullifier PDA close does not fit in a {} transaction",
-                    size.name()
-                );
+                bail!("a single nullifier PDA close does not fit in a transaction");
             }
             return Ok(capacity as u64);
         }
-        bail!(
-            "{} transaction size did not bound the nullifier PDA count",
-            size.name()
-        )
+        bail!("the transaction size did not bound the nullifier PDA count")
     }
 }
 
@@ -102,8 +67,7 @@ pub fn at_cost_for_transaction_size(
     .ok_or_else(|| anyhow!("fee schedule overflow for zkp_batch_size={zkp_batch_size}"))
 }
 
-pub fn print_schedule(size: TransactionSize, closes_per_transaction: u64, fees: &TreeFeeSchedule) {
-    println!("transaction_size={}", size.name());
+pub fn print_schedule(closes_per_transaction: u64, fees: &TreeFeeSchedule) {
     println!("closes_per_transaction={closes_per_transaction}");
     println!("fee_per_nullifier={}", fees.fee_per_nullifier);
     println!("append_reimbursement={}", fees.append_reimbursement);
@@ -125,36 +89,22 @@ mod tests {
     #[test]
     fn capacity_is_the_last_count_that_fits() {
         let forester = forester();
-        for size in [TransactionSize::V0, TransactionSize::V1] {
-            let capacity = forester.closes_per_transaction(size).unwrap() as usize;
-            let nullifiers: Vec<[u8; 32]> = (0..=capacity as u64)
-                .map(|sequence| {
-                    let mut nullifier = [0u8; 32];
-                    nullifier[24..].copy_from_slice(&sequence.to_be_bytes());
-                    nullifier
-                })
-                .collect();
-            let fits = forester.serialized_size(&nullifiers[..capacity]).unwrap();
-            let overflows = forester.serialized_size(&nullifiers).unwrap();
-            assert!(fits <= size.limit_bytes());
-            assert!(overflows > size.limit_bytes());
-        }
-    }
-
-    #[test]
-    fn larger_transactions_carry_more_closes_and_cost_less_per_close() {
-        let forester = forester();
-        let v0 = forester
-            .closes_per_transaction(TransactionSize::V0)
-            .unwrap();
-        let v1 = forester
-            .closes_per_transaction(TransactionSize::V1)
-            .unwrap();
-        assert!(v1 > 3 * v0);
-        let fees_v0 = at_cost_for_transaction_size(250, v0).unwrap();
-        let fees_v1 = at_cost_for_transaction_size(250, v1).unwrap();
-        assert!(fees_v1.close_reimbursement < fees_v0.close_reimbursement);
-        assert!(fees_v1.fee_per_nullifier < fees_v0.fee_per_nullifier);
+        let capacity = forester.closes_per_transaction().unwrap() as usize;
+        let nullifiers: Vec<[u8; 32]> = (0..=capacity as u64)
+            .map(|sequence| {
+                let mut nullifier = [0u8; 32];
+                nullifier[24..].copy_from_slice(&sequence.to_be_bytes());
+                nullifier
+            })
+            .collect();
+        let fits = forester.size(nullifiers.get(..capacity).unwrap()).unwrap();
+        let overflows = forester.size(&nullifiers).unwrap();
+        assert!(fits.fits());
+        assert!(!overflows.fits());
+        assert_eq!(
+            fits.addresses,
+            usize::from(solana_message::v1::MAX_ADDRESSES)
+        );
     }
 
     #[test]
@@ -177,27 +127,14 @@ mod tests {
     #[test]
     fn canonical_batch_size_schedules_are_pinned() {
         let forester = forester();
-        for (size, closes, fee_per_nullifier, close_reimbursement) in [
-            (TransactionSize::V0, 25, 220, 200),
-            (TransactionSize::V1, 109, 66, 46),
-        ] {
-            assert_eq!(forester.closes_per_transaction(size).unwrap(), closes);
-            assert_eq!(
-                at_cost_for_transaction_size(250, closes).unwrap(),
-                TreeFeeSchedule {
-                    fee_per_nullifier,
-                    append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
-                    close_reimbursement,
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn transaction_size_round_trips_through_parse() {
-        for size in [TransactionSize::V0, TransactionSize::V1] {
-            assert_eq!(TransactionSize::parse(size.name()).unwrap(), size);
-        }
-        assert!(TransactionSize::parse("legacy").is_err());
+        assert_eq!(forester.closes_per_transaction().unwrap(), 57);
+        assert_eq!(
+            at_cost_for_transaction_size(250, 57).unwrap(),
+            TreeFeeSchedule {
+                fee_per_nullifier: 108,
+                append_reimbursement: BASE_TRANSACTION_FEE_LAMPORTS,
+                close_reimbursement: 88,
+            }
+        );
     }
 }

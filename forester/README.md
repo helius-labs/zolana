@@ -48,7 +48,8 @@ signing as a member. Batch storage may be reused before that point.
    (`getNullifierQueueElements`, paged);
 3. drops PDAs that no longer exist (`getMultipleAccounts`, 100 per call);
 4. packs the rest into `close_nullifier_pdas` instructions, deriving the
-   capacity from the 1232-byte legacy transaction limit;
+   capacity from the 4096-byte and 64-account transaction limits (57 closes per
+   transaction; the at-cost fee schedule uses this capacity);
 5. submits them with `PAYER` as fee payer and reimbursement recipient,
    replanning if another forester instance wins a PDA race.
 

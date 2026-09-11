@@ -3,12 +3,12 @@
 //! canonical public-input hashing are defined in `custom-ring-interface` so a single
 //! definition serves both sides.
 
+mod budget;
 mod instructions;
-mod lookup_table;
 mod shared;
 mod transfer;
 #[cfg(feature = "solana-rpc")]
-mod v0;
+mod v1;
 mod witness;
 
 pub use custom_ring_interface::{
@@ -63,9 +63,9 @@ pub use crate::{
     },
 };
 
-/// Every account a custom-ring transact must place in a lookup table. A key left
-/// out costs 32 message bytes the transact cannot spare, so a host assembling
-/// the v0 message itself needs the same list [`V0WithLookupTable`] builds.
-pub use crate::lookup_table::{lookup_table_addresses, TRANSACT_COMPUTE_UNIT_LIMIT};
+/// The compute ceiling a custom-ring transact declares. A host assembling the
+/// v1 message itself must write the same value into its header, where an unset
+/// field means zero rather than a default.
+pub use crate::budget::TRANSACT_COMPUTE_UNIT_LIMIT;
 #[cfg(feature = "solana-rpc")]
-pub use crate::v0::{SendV0Error, V0WithLookupTable};
+pub use crate::v1::{SendError, TransactSend};

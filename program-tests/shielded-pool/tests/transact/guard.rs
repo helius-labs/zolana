@@ -16,12 +16,12 @@
 use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
 
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_client::ComputeBudgetConfig;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -83,12 +83,17 @@ fn expect_ix_rejection(
     signers: &[&dyn Signer],
     expected: Rejection,
 ) {
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], signers)
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            signers,
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("guarded transact must be rejected");
-    expected.at(1).assert_litesvm(error);
+    // The transact is the only instruction the transaction carries: v1 states
+    // the raised ceiling in the message header instead of an instruction.
+    expected.at(0).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("rejected transact trace")

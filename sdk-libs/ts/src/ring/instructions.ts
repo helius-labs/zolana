@@ -1,4 +1,3 @@
-import { COMPUTE_BUDGET_PROGRAM_ADDRESS } from "@solana-program/compute-budget";
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
 
 import {
@@ -8,12 +7,7 @@ import {
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import { encodeTransactInstructionData } from "../interface/codecs/index.js";
-import {
-  SHIELDED_POOL_CPI_AUTHORITY,
-  SHIELDED_POOL_PROGRAM_ID,
-  SPL_TOKEN_2022_PROGRAM_ID,
-  SPL_TOKEN_PROGRAM_ID,
-} from "../interface/program.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
@@ -446,46 +440,4 @@ async function policyTableBody(
     data: writer.finish(),
     curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
   });
-}
-
-/** Mirrors Rust `lookup_table_addresses`. */
-export async function ringLookupTableAddresses(
-  input: Readonly<{ ringProgramId: Address; trees: RingTransactTrees }>,
-): Promise<readonly Address[]> {
-  const [config, ringAuth] = await Promise.all([
-    ringConfigAddress(input.ringProgramId),
-    ringAuthAddress(input.ringProgramId),
-  ]);
-  const policy = input.trees.hasPolicy
-    ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
-    : [];
-  // Nullifier PDAs are fresh per transaction, so none belongs in the table.
-  const pool = await ringTransactAccounts({
-    payer: SHIELDED_POOL_PROGRAM_ID,
-    inputTree: input.trees.tree,
-    outputTree: input.trees.outputTree,
-    ringAuth,
-    inputs: [],
-  });
-  const addresses = [
-    config,
-    ...[...policy, ...pool]
-      .filter(
-        (meta) =>
-          meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,
-      )
-      .map((meta) => meta.address),
-    input.ringProgramId,
-    COMPUTE_BUDGET_PROGRAM_ADDRESS,
-  ];
-  return Object.freeze([...new Set(addresses)]);
-}
-
-/** In every new table, never required at fetch, an old table stays valid. */
-export function ringSettlementStatics(): readonly Address[] {
-  return Object.freeze([
-    SHIELDED_POOL_CPI_AUTHORITY,
-    SPL_TOKEN_PROGRAM_ID,
-    SPL_TOKEN_2022_PROGRAM_ID,
-  ]);
 }

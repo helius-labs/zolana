@@ -15,10 +15,32 @@ builders take one nullifier account per input. Registering a ring and admitting
 it are now two separate steps with two different signers. The proof system changed underneath: owner identities carry a signing
 algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
-transaction hash blinding.
+transaction hash blinding. Every builder now returns a version 1 transaction,
+which holds 4,096 bytes instead of 1,232, carries its compute budget and
+priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- Every builder returns a version 1 transaction and `TRANSACTION_SIZE_LIMIT` is
+  4096 (was 1232) → send through an RPC and a validator that accept version 1,
+  and read transactions back with `maxSupportedTransactionVersion: 1`.
+- `priorityFeeLamports` replaces `computeUnitPriceMicroLamports` on
+  `ZolanaClientConfig`, `deployRingProgram`, and every ring builder, and it buys
+  priority for the whole transaction → pass the total lamports to pay instead of
+  a price per compute unit.
+- `buildRingLookupTableTransaction`, `fetchRingLookupTable`,
+  `ringLookupTableAddresses`, `RingLookupTable`, `RingLookupTableClient`,
+  `RingLookupTableReader` and the `RING_BUILD_LOOKUP_TABLE`,
+  `RING_LOOKUP_TABLE_INCOMPLETE`, `RING_LOOKUP_TABLE_NOT_FOUND` and
+  `RING_LOOKUP_TABLE_NOT_READY` codes are removed, and `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction` and
+  `buildRingWithdrawalTransaction` no longer take `lookupTable` → a version 1
+  transaction reads no lookup table, so drop the table and the parameter.
+- A transaction budgets zero compute units for what it does not name, so every
+  builder names one and `ZolanaClientConfig.computeUnitLimit` defaults to
+  450,000 (was 300,000) and is refused above 1,400,000 → lower it when you send
+  only small shapes, because the requested units, not the consumed ones, price
+  the priority fee.
 - `ShieldedPublicKey.ownerProofInputHash()` hashes a signing algorithm tag
   ahead of the key, so every owner hash, compressed address, UTXO hash, and
   nullifier differs from earlier releases → state and addresses produced before
@@ -75,8 +97,9 @@ Breaking
   from this release.
 
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
-- `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
-  the upgrade `authority` alongside `payer`.
+- `extendProgramInstruction` uses the extension supported by Agave 4.2 → pass
+  `payer` and remove the `authority` argument; upgrading still requires the
+  upgrade authority.
 - Policy rule tables now carry one `inlineLimit` per inline asset and policy
   prover requests carry the padded `inlineLimits` fields → recreate policy
   config accounts and include the limits in custom prover integrations.
@@ -343,11 +366,18 @@ Changed
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
-- `RingLookupTableReader` is `KitRpcAccess` alone, `fetchRingLookupTable` no
-  longer reads `client.tree`.
+- A built transaction carries its compute unit limit, a 64 MiB loaded accounts
+  data size limit and its priority fee in the message header, so it holds no
+  compute budget instruction and its instruction list is the setup and payload
+  instructions alone.
+- `RingTransferClient` no longer requires `solanaRpc` and `commitment`, the ring
+  transfer builders read what they need through the ports they already took.
 
 Fixed
 
+- `deployRingProgram` splits uploads into writes the loader accepts and packs
+  them into v1 transactions; `writeBufferInstruction` rejects payloads above
+  1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
@@ -358,8 +388,8 @@ Fixed
 
 Dependencies
 
-- `@solana-program/address-lookup-table` ^0.14.1 (was ^0.13.0).
-- `@solana-program/compute-budget` ^0.18.1 (was ^0.17.0).
+- `@solana-program/address-lookup-table` removed (was ^0.13.0).
+- `@solana-program/compute-budget` removed (was ^0.17.0).
 - `@solana-program/token` ^0.16.1 (was ^0.15.0).
 - `@solana-program/system` ^0.14.1 (new).
 

@@ -156,9 +156,9 @@ impl RingHarness {
     }
 
     /// Execute a valid ring merge and then replay its exact SPP instruction.
-    /// The second transaction uses a distinct compute-budget instruction so it
-    /// has a fresh signature while reusing the same (now queued) proof-bound
-    /// input nullifiers.
+    /// The second transaction asks for a distinct compute-unit limit so it has
+    /// a fresh signature while reusing the same (now queued) proof-bound input
+    /// nullifiers.
     pub fn merge_ring_replay_rejected(
         &mut self,
         name: &str,
@@ -351,10 +351,11 @@ impl RingHarness {
                     ))
                 }
                 Err(error) => {
-                    // The mismatched proof must fail in the SPP instruction
-                    // (index 1, after the compute-budget instruction).
+                    // The mismatched proof must fail in the SPP instruction, the
+                    // only one a v1 transaction carries: its compute ceilings
+                    // live in the message header.
                     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                        .at(1)
+                        .at(0)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                     self.actor_mut(name).spendable.extend(inputs);
@@ -397,6 +398,10 @@ impl RingHarness {
             // their post-success state, so capturing the post-success tree covers
             // every other non-fee-payer account a replay could mutate.
             let tree_after_success = fetch_account(&self.rpc, &self.tree)?;
+            // A budget one unit below the original keeps the replayed message
+            // distinct from the landed one, so the runtime reaches the program
+            // instead of dropping it as an already-processed signature. In a v1
+            // transaction that difference sits in the message header.
             let replay_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_399_999);
             match send_transaction(
                 &mut self.rpc,
@@ -406,11 +411,11 @@ impl RingHarness {
             ) {
                 Ok(_) => return Err(anyhow!("replayed ring merge unexpectedly succeeded")),
                 Err(error) => {
-                    // The replay must fail in the SPP instruction (index 1,
-                    // after the compute-budget instruction): every nullifier
-                    // already has an initialized nullifier PDA.
+                    // The replay must fail in the SPP instruction, the only one
+                    // the transaction carries: every nullifier already has an
+                    // initialized nullifier PDA.
                     Rejection::pool(ShieldedPoolError::NullifierAlreadyQueued)
-                        .at(1)
+                        .at(0)
                         .assert_client(&error);
                     assert_account_unchanged(&self.rpc, &self.tree, &tree_after_success)?;
                     assert_nullifier_pdas(&self.rpc, &self.tree, &input_nullifiers)?;
@@ -526,7 +531,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())

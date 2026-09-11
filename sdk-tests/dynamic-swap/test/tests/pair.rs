@@ -8,7 +8,7 @@ use dynamic_swap_sdk::{
 };
 use shared::{escrow_authority_identity, setup, DESTINATION_ASSET_ID, SOURCE_ASSET_ID};
 use solana_signer::Signer;
-use zolana_client::Rpc;
+use zolana_client::{ComputeBudgetConfig, Rpc};
 use zolana_transaction::{instructions::transact::spp_proof_inputs::asset_field, SOL_MINT};
 
 const INITIAL_PRICE: u64 = 100;
@@ -56,6 +56,7 @@ fn create_pair_then_update_price() -> Result<()> {
             &[create_pair_ix],
             authority_solana.pubkey(),
             &[&authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
 
@@ -108,6 +109,7 @@ fn create_pair_then_update_price() -> Result<()> {
             &[update_price_ix],
             authority_solana.pubkey(),
             &[&authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
         )
         .map_err(|e| anyhow!("send update_price: {e:?}"))?;
 

@@ -21,14 +21,14 @@ use num_bigint::BigUint;
 
 use groth16_solana::groth16::Groth16Verifier;
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::AccountMeta;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_client::STATE_TREE_HEIGHT;
 use zolana_client::{
-    prover::field::be, ProverClient, PublicInputs, PublicTransfers, TransferOutput,
+    prover::field::be, ComputeBudgetConfig, ProverClient, PublicInputs, PublicTransfers,
+    TransferOutput,
 };
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
@@ -1316,9 +1316,12 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     let ring_config = write_signed_ring_config(&mut env, ring, true);
     ix.accounts
         .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     env.rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[&ring_config],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect("maximum-shape ring-authority transact");
 
     assert_eq!(
@@ -1364,9 +1367,12 @@ fn transact_accepts_the_consolidation_shape() {
     }
     .instruction();
     assert_eq!(ix.accounts.len(), 5 + shape.n_inputs());
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     env.rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect("consolidation-shape transact with a valid proof");
 
     assert_eq!(
@@ -1428,9 +1434,12 @@ fn ring_transact_accepts_the_consolidation_shape() {
     ix.accounts
         .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     env.rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[&ring_config],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect("consolidation-shape ring transact");
 
     assert_eq!(
@@ -1481,9 +1490,12 @@ fn ring_p256_transact_accepts_the_consolidation_shape() {
     ));
     let ix = proof.instruction(payer, tree);
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     env.rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[&ring_config])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[&ring_config],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect("consolidation-shape P256 ring transact");
 
     assert_eq!(

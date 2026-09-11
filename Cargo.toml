@@ -124,7 +124,6 @@ solana-account-view = "2.0"
 solana-account-decoder = "4.1"
 solana-account-decoder-client-types = "4.1"
 solana-address = { version = "2.6", features = ["atomic", "borsh", "bytemuck", "copy", "decode", "wincode"] }
-solana-address-lookup-table-interface = { version = "3.0", features = ["bytemuck", "bincode"] }
 solana-banks-client = { version = "4.1", features = ["agave-unstable-api"] }
 solana-bn254 = "3.2.1"
 solana-clock = "3.0"

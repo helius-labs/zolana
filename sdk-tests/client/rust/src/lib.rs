@@ -2,7 +2,7 @@ use anyhow::Result;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{spawn_prover, Rpc, SolanaRpc};
+use zolana_client::{spawn_prover, ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::CreateProtocolConfig,
     state::{default_tree_fees, nullifier_tree_params},
@@ -108,7 +108,12 @@ pub fn setup() -> Result<SetupContext> {
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
+        rpc.create_and_send_transaction(
+            &[ix],
+            payer_address,
+            &[&payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
 
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
@@ -132,7 +137,12 @@ pub fn setup() -> Result<SetupContext> {
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
+    rpc.create_and_send_transaction(
+        &[create_config_sync],
+        payer_address,
+        &[&payer, &authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
 
     let tree_creation = create_tree_instructions(
         &rpc,
@@ -152,6 +162,7 @@ pub fn setup() -> Result<SetupContext> {
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
+        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
     let tree = tree_creation.tree;
 

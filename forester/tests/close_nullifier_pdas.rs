@@ -1,11 +1,18 @@
 use anyhow::anyhow;
 use forester::close_nullifier_pdas::{
     collect_queued_pages, plan_batches, retain_open_accounts, CloseNullifierPdasBatch,
-    ForesterSmartAccount, LEGACY_TRANSACTION_SIZE_LIMIT,
+    ForesterSmartAccount,
 };
 use solana_account::Account;
+use solana_message::{
+    v1::{MAX_ADDRESSES, MAX_TRANSACTION_SIZE},
+    VersionedMessage,
+};
+// `zolana_api::Hash` below is a queue element's hash, not a blockhash.
+use solana_hash::Hash as Blockhash;
 use solana_pubkey::Pubkey;
 use zolana_api::{Hash, NullifierQueueElement, PAGE_LIMIT};
+use zolana_client::{compile_message, ComputeBudgetConfig};
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
 
@@ -31,7 +38,7 @@ fn element(seq: u64) -> NullifierQueueElement {
 }
 
 #[test]
-fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
+fn plan_fills_each_transaction_up_to_the_account_limit() {
     let tree = Pubkey::new_unique();
     let forester = forester();
     let nullifiers: Vec<[u8; 32]> = (0..100).map(nullifier).collect();
@@ -41,7 +48,16 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
 
     for batch in &batches {
         assert!(!batch.nullifiers.is_empty());
-        assert!(batch.serialized_size().unwrap() <= LEGACY_TRANSACTION_SIZE_LIMIT);
+        assert!(batch.fits().unwrap());
+        compile_message(
+            &forester.member,
+            &[batch.instruction()],
+            Blockhash::default(),
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .unwrap()
+        .sanitize()
+        .expect("every planned batch must sanitize");
     }
     for pair in batches.windows(2) {
         let [full, next] = pair else {
@@ -54,7 +70,7 @@ fn plan_fills_each_transaction_up_to_the_legacy_size_limit() {
             forester,
             nullifiers: overfilled,
         };
-        assert!(overfilled.serialized_size().unwrap() > LEGACY_TRANSACTION_SIZE_LIMIT);
+        assert!(!overfilled.fits().unwrap());
         assert_eq!(full.nullifiers.len(), nullifier_pdas_per_transaction);
     }
 
@@ -79,7 +95,8 @@ fn plan_of_nothing_is_empty() {
 fn batch_instruction_matches_the_interface_builder() {
     let tree = Pubkey::new_unique();
     let forester = forester();
-    let nullifiers: Vec<[u8; 32]> = (0..40).map(nullifier).collect();
+    // Exercise multiple batches with the full account list in each instruction.
+    let nullifiers: Vec<[u8; 32]> = (0..200).map(nullifier).collect();
 
     let batches = plan_batches(tree, forester, &nullifiers).unwrap();
 
@@ -123,10 +140,23 @@ fn batch_instruction_matches_the_interface_builder() {
             .iter()
             .any(|meta| meta.pubkey == forester.vault() && meta.is_signer));
 
-        let message = batch.message();
-        assert_eq!(message.account_keys.first(), Some(&forester.member));
-        assert_eq!(message.header.num_required_signatures, 1);
-        assert_eq!(message.instructions.len(), 1);
+        // A v1 message carries its compute ceiling in the header, so the close
+        // is the only instruction; under legacy a compute-budget instruction
+        // would have preceded it.
+        let message = compile_message(
+            &forester.member,
+            &[batch.instruction()],
+            Blockhash::default(),
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .expect("compile the close batch");
+        assert!(matches!(message, VersionedMessage::V1(_)));
+        assert_eq!(
+            message.static_account_keys().first(),
+            Some(&forester.member)
+        );
+        assert_eq!(message.header().num_required_signatures, 1);
+        assert_eq!(message.instructions().len(), 1);
     }
 }
 
@@ -201,4 +231,35 @@ fn queued_pages_return_the_indexed_prefix_when_photon_lags() {
 fn queued_pages_reject_a_sequence_gap() {
     let err = collect_queued_pages(0, 10, |_, _| Ok(vec![element(0), element(2)])).unwrap_err();
     assert!(err.to_string().contains("sequence gap"));
+}
+
+#[test]
+fn close_capacity_stops_before_message_sanitization_fails() {
+    let tree = Pubkey::new_unique();
+    let forester = forester();
+    let nullifiers: Vec<[u8; 32]> = (0..400).map(nullifier).collect();
+
+    let batches = plan_batches(tree, forester, &nullifiers).unwrap();
+
+    let full = batches.first().unwrap();
+    assert_eq!(full.nullifiers.len(), 57);
+    assert_eq!(full.size().unwrap().addresses, usize::from(MAX_ADDRESSES));
+    let mut overfilled = CloseNullifierPdasBatch {
+        tree,
+        forester,
+        nullifiers: full.nullifiers.clone(),
+    };
+    overfilled.nullifiers.push(nullifier(57));
+    let size = overfilled.size().unwrap();
+    assert!(size.bytes < MAX_TRANSACTION_SIZE);
+    assert_eq!(size.addresses, usize::from(MAX_ADDRESSES) + 1);
+    assert!(!overfilled.fits().unwrap());
+    let message = compile_message(
+        &forester.member,
+        &[overfilled.instruction()],
+        Blockhash::default(),
+        ComputeBudgetConfig::for_instruction_count(1),
+    )
+    .unwrap();
+    assert!(message.sanitize().is_err());
 }

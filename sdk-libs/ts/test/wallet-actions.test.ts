@@ -661,7 +661,6 @@ describe("ring approval summary", () => {
         authority,
         feePayer: keypair.shieldedAddress().solanaAddress(),
         amount: 25n,
-        lookupTable: RECIPIENT,
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_ENTRY" });
     expect(approvals).toEqual([`ring entry of 25 SOL into ring ${RING}`]);
@@ -693,7 +692,6 @@ describe("ring approval summary", () => {
         recipient: ShieldedKeypair.generate().shieldedAddress(),
         amount,
         inputs,
-        lookupTable: RECIPIENT,
       }),
     ).rejects.toMatchObject({ code: "RING_BUILD_TRANSFER" });
     const summary = approvals[0];

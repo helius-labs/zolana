@@ -1,15 +1,13 @@
-import { getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import {
   address,
-  appendTransactionMessageInstruction,
   createTransactionMessage,
   createTransactionPlanExecutor,
   createTransactionPlanner,
   generateKeyPairSigner,
   getFirstFailedSingleTransactionPlanResult,
   isSuccessfulTransactionPlanResult,
-  getLinearMessagePackerInstructionPlan,
+  getMessagePackerInstructionPlanFromInstructions,
   getSignatureFromTransaction,
   isSolanaError,
   nonDivisibleSequentialInstructionPlan,
@@ -17,6 +15,7 @@ import {
   passthroughFailedTransactionPlanExecution,
   sendTransactionWithoutConfirmingFactory,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  setTransactionMessageConfig,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
@@ -38,6 +37,7 @@ import type {
   KitRpcAccess,
   TransactionConfirmer,
 } from "../client/ports.js";
+import { LOADED_ACCOUNTS_DATA_SIZE_LIMIT } from "../flows/compile.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
@@ -62,6 +62,13 @@ const ELF_HEADER_SIZE = 64;
 const MIN_EXTEND_BYTES = 10_240;
 /** Rust `DEPLOY_FEE_BUDGET`. */
 const DEPLOY_FEE_BUDGET = 20_000_000n;
+/** What the runtime allows one transaction; a deploy step verifies a whole ELF. */
+const DEPLOY_COMPUTE_UNIT_LIMIT = 1_400_000;
+/** Agave's loader v3 limited_deserialize cap applies to each instruction, even in v1. */
+const LOADER_INSTRUCTION_DATA_LIMIT = 1_232;
+/** Bincode tag (u32), offset (u32), and byte-vector length (u64). */
+const WRITE_HEADER_SIZE = 16;
+const MAX_WRITE_BYTES = LOADER_INSTRUCTION_DATA_LIMIT - WRITE_HEADER_SIZE;
 
 /** Rust `UpgradeableLoaderInstruction`. */
 const LoaderTag = Object.freeze({
@@ -71,7 +78,7 @@ const LoaderTag = Object.freeze({
   upgrade: 3,
   setAuthority: 4,
   close: 5,
-  extendProgramChecked: 9,
+  extendProgram: 6,
 } as const);
 
 /** A structural copy is not a checked binary. */
@@ -187,6 +194,11 @@ export function initializeBufferInstruction(
 export function writeBufferInstruction(
   input: Readonly<{ buffer: Address; authority: SignerAccount; offset: number; bytes: Uint8Array }>,
 ): Instruction {
+  if (input.bytes.length > MAX_WRITE_BYTES) {
+    throw new RingError("RING_PROGRAM_WRITE_TOO_LARGE", {
+      details: { length: input.bytes.length, limit: MAX_WRITE_BYTES },
+    });
+  }
   return {
     programAddress: BPF_LOADER_UPGRADEABLE_ID,
     accounts: [meta(input.buffer, false, true), meta(input.authority, true, false)],
@@ -270,7 +282,6 @@ export async function extendProgramInstruction(
   input: Readonly<{
     ringProgramId: Address;
     payer: SignerAccount;
-    authority: SignerAccount;
     additionalBytes: number;
   }>,
 ): Promise<Instruction> {
@@ -279,12 +290,11 @@ export async function extendProgramInstruction(
     accounts: [
       meta(await ringProgramDataAddress(input.ringProgramId), false, true),
       meta(input.ringProgramId, false, true),
-      meta(input.authority, true, true),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.payer, true, true),
     ],
     data: new Writer()
-      .u32(LoaderTag.extendProgramChecked, "tag")
+      .u32(LoaderTag.extendProgram, "tag")
       .u32(input.additionalBytes, "additionalBytes")
       .finish(),
   };
@@ -324,7 +334,7 @@ export interface RingProgramDeployParams {
   readonly concurrency?: number;
   /** Sends of one transaction, each under a fresh blockhash. */
   readonly attempts?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 export interface RingProgramDeployOutcome {
@@ -382,16 +392,17 @@ export async function deployRingProgram(
     await send(
       await plan(
         parallelInstructionPlan([
-          getLinearMessagePackerInstructionPlan({
-            totalLength: length,
-            getInstruction: (offset, chunk) =>
-              writeBufferInstruction({
+          getMessagePackerInstructionPlanFromInstructions(
+            Array.from({ length: Math.ceil(length / MAX_WRITE_BYTES) }, (_, index) => {
+              const offset = index * MAX_WRITE_BYTES;
+              return writeBufferInstruction({
                 buffer: bufferSigner.address,
                 authority: params.authority,
                 offset,
-                bytes: params.binary.bytes.subarray(offset, offset + chunk),
-              }),
-          }),
+                bytes: params.binary.bytes.subarray(offset, offset + MAX_WRITE_BYTES),
+              });
+            }),
+          ),
         ]),
       ),
     );
@@ -432,7 +443,6 @@ export async function deployRingProgram(
               await extendProgramInstruction({
                 ringProgramId: params.ringProgramId,
                 payer: params.payer,
-                authority: params.authority,
                 additionalBytes: target - current.capacity,
               }),
             ),
@@ -607,19 +617,25 @@ function rent(
   );
 }
 
+/**
+ * A version 1 transaction budgets zero compute units when it names none, and a
+ * deploy step never exceeds what the runtime allows one transaction, so the
+ * ceiling is asked for outright. It costs nothing extra: the priority fee is a
+ * flat amount, not a price per unit.
+ */
 function baseMessage(
   params: RingProgramDeployParams,
 ): TransactionMessage & TransactionMessageWithFeePayer {
-  const message = setTransactionMessageFeePayerSigner(
-    params.payer,
-    createTransactionMessage({ version: 0 }),
+  return setTransactionMessageConfig(
+    {
+      computeUnitLimit: DEPLOY_COMPUTE_UNIT_LIMIT,
+      loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+      ...(params.priorityFeeLamports === undefined
+        ? {}
+        : { priorityFeeLamports: params.priorityFeeLamports }),
+    },
+    setTransactionMessageFeePayerSigner(params.payer, createTransactionMessage({ version: 1 })),
   );
-  return params.computeUnitPriceMicroLamports === undefined
-    ? message
-    : appendTransactionMessageInstruction(
-        getSetComputeUnitPriceInstruction({ microLamports: params.computeUnitPriceMicroLamports }),
-        message,
-      );
 }
 
 /** Reads whether the step is on chain, checked before a failed attempt is repeated. */

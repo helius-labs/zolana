@@ -1,11 +1,11 @@
 use shielded_pool_tests::support::fixtures::Pool;
 
 use solana_account::Account;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
 use zolana_account_checks::AccountError;
+use zolana_client::ComputeBudgetConfig;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
@@ -246,12 +246,17 @@ fn set_tree_lamports(env: &mut Pool, lamports: u64) {
 #[track_caller]
 fn expect_transact_rejection(env: &mut Pool, ix: Instruction, expected: Rejection) {
     let tree_before = tree_account(env);
-    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let error = env
         .rpc
-        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .create_and_send_default_payer_transaction_with_budget(
+            &[ix],
+            &[],
+            ComputeBudgetConfig::new(1_400_000),
+        )
         .expect_err("transact must be rejected");
-    expected.at(1).assert_litesvm(error);
+    // The transact is the only instruction the transaction carries: v1 states
+    // the raised ceiling in the message header instead of an instruction.
+    expected.at(0).assert_litesvm(error);
     env.rpc
         .last_transaction_trace()
         .expect("rejected transact trace")
@@ -660,13 +665,28 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
     payer_after + CLOSE_TRANSACTION_FEE - payer_before
 }
 
+/// The at-cost close reimbursement for a 4,096-byte transaction v1: a forester
+/// pays one 5,000-lamport base fee and closes 109 PDAs in it. The protocol
+/// default is zero, so a schedule that actually pays has to be set here -- and
+/// `close_with_a_zero_schedule_pays_nothing_and_still_closes` below covers the
+/// default.
+const AT_COST_CLOSE_REIMBURSEMENT: u64 = 46;
+
 #[test]
 fn close_pays_the_closer_from_the_fee_balance() {
     let mut env = Pool::initialized();
+    let authority = env.authority.insecure_clone();
+    let paying = TreeFeeSchedule {
+        close_reimbursement: AT_COST_CLOSE_REIMBURSEMENT,
+        ..TreeFeeSchedule::default()
+    };
+    env.rpc
+        .set_tree_fees(&authority, &env.tree, paying)
+        .expect("set a paying fee schedule");
     let nullifiers = [fe(1), fe(2), fe(3)];
     let (fees, _) = tree_fees(&env.rpc, &env.tree).expect("tree fees");
     let owed = fees.close_reimbursement * nullifiers.len() as u64;
-    assert_eq!(owed, 510);
+    assert_eq!(owed, AT_COST_CLOSE_REIMBURSEMENT * 3);
 
     let paid = close_funded(&mut env, 1_000_000, &nullifiers);
 
@@ -683,8 +703,17 @@ fn close_pays_the_closer_from_the_fee_balance() {
 #[test]
 fn close_pays_only_what_the_fee_balance_holds() {
     let mut env = Pool::initialized();
+    let authority = env.authority.insecure_clone();
+    let paying = TreeFeeSchedule {
+        close_reimbursement: AT_COST_CLOSE_REIMBURSEMENT,
+        ..TreeFeeSchedule::default()
+    };
+    env.rpc
+        .set_tree_fees(&authority, &env.tree, paying)
+        .expect("set a paying fee schedule");
     let nullifiers = [fe(1), fe(2), fe(3)];
 
+    // Below the 138 lamports three closes are owed, so the balance binds.
     let paid = close_funded(&mut env, 100, &nullifiers);
 
     assert_eq!(paid, 100, "a short fee balance pays out in full and stops");

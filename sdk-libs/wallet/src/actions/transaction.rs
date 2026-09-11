@@ -26,8 +26,9 @@ use zolana_transaction::{
     Address, AssetRegistry, TransactionError, Utxo, Wallet, WalletUtxo, SOL_MINT,
 };
 
+use solana_message::VersionedMessage;
 use solana_signer::Signer;
-use solana_transaction::Transaction as SolanaTransaction;
+use solana_transaction::versioned::VersionedTransaction;
 
 use crate::{
     user_registry::{try_resolve_registered_address, try_resolve_registered_address_async},
@@ -36,7 +37,7 @@ use crate::{
 use zolana_client::{
     client::ZolanaClient,
     error::ClientError,
-    rpc::{AsyncRpc, Rpc},
+    rpc::{sign_transaction, AsyncRpc, Rpc},
     SignedPrivateTransaction,
 };
 
@@ -801,13 +802,15 @@ fn select_merge_inputs(
     }
 }
 
+/// Build the unsigned v1 message for a private transaction, for a signer that
+/// holds the fee-payer key elsewhere (an HSM or a custodian).
 pub async fn build_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: Pubkey,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
     let (blockhash, _) = client.rpc().get_latest_blockhash().await?;
     client
@@ -821,7 +824,7 @@ pub async fn sign_private_transaction<A: WalletAuthority + ?Sized, R: AsyncRpc>(
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_with_signers(transaction, wallet, authority, client, fee_payer, &[])
         .await
 }
@@ -835,28 +838,27 @@ pub async fn sign_private_transaction_with_signers<A: WalletAuthority + ?Sized, 
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedTransaction, ClientError> {
     let blockhash = client.rpc().get_latest_blockhash().await?.0;
     let shielded = sign_shielded_transaction(transaction, wallet, authority).await?;
-    let mut native = client
+    let message = client
         .finish_submission_unsigned(&shielded, fee_payer.pubkey(), blockhash)
         .await?;
-    let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
-    signers.push(fee_payer);
-    signers.extend_from_slice(additional_native_signers);
-    native
-        .try_sign(&signers, blockhash)
-        .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
-    Ok(native)
+    sign_transaction(
+        message,
+        &native_signers(fee_payer, additional_native_signers),
+    )
 }
 
+/// Build the unsigned v1 message for a private transaction, for a signer that
+/// holds the fee-payer key elsewhere (an HSM or a custodian).
 pub fn build_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + Sync>(
     transaction: UnsignedPrivateTransaction,
     wallet: &Wallet,
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: Pubkey,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedMessage, ClientError> {
     let shielded = sign_shielded_transaction_sync(transaction, wallet, authority)?;
     client.finish_submission_unsigned_sync(&shielded, fee_payer)
 }
@@ -867,7 +869,7 @@ pub fn sign_private_transaction_sync<A: SyncWalletAuthority + ?Sized, R: Rpc + S
     authority: &A,
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedTransaction, ClientError> {
     sign_private_transaction_sync_with_signers(
         transaction,
         wallet,
@@ -889,25 +891,31 @@ pub fn sign_private_transaction_sync_with_signers<
     client: &ZolanaClient<R>,
     fee_payer: &dyn Signer,
     additional_native_signers: &[&dyn Signer],
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedTransaction, ClientError> {
     let shielded = {
         let _t = timing::Phase::start("sign_shielded", 0);
         sign_shielded_transaction_sync(transaction, wallet, authority)?
     };
-    let mut native = {
+    // The message carries its own blockhash, fetched after proving, so there is
+    // no separate one here to keep in step with it.
+    let message = {
         let _t = timing::Phase::start("finish_submission", 0);
         client.finish_submission_unsigned_sync(&shielded, fee_payer.pubkey())?
     };
-    // Whatever the built message carries: it is fetched after proving now, so
-    // there is no separate blockhash here to keep in step with it.
-    let blockhash = native.message.recent_blockhash;
+    sign_transaction(
+        message,
+        &native_signers(fee_payer, additional_native_signers),
+    )
+}
+
+fn native_signers<'a>(
+    fee_payer: &'a dyn Signer,
+    additional_native_signers: &[&'a dyn Signer],
+) -> Vec<&'a dyn Signer> {
     let mut signers = Vec::with_capacity(1 + additional_native_signers.len());
     signers.push(fee_payer);
     signers.extend_from_slice(additional_native_signers);
-    native
-        .try_sign(&signers, blockhash)
-        .map_err(|err| ClientError::SolanaTransactionSigning(err.to_string()))?;
-    Ok(native)
+    signers
 }
 
 #[doc(hidden)]

@@ -20,7 +20,6 @@ sha2 = { workspace = true }
 groth16-solana = { workspace = true, features = ["gnark-vk", "circom-vk"] }
 solana-account = { workspace = true }
 solana-address = { workspace = true }
-solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 # Agave 4.2 executes the legacy loader-v3 upgrade instruction defined by v7.
@@ -28,6 +27,10 @@ solana-loader-v3-interface = { workspace = true, features = ["serde"] }
 solana-loader-v3-interface-v7 = { package = "solana-loader-v3-interface", version = "7.0", features = ["bincode"] }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
+# The legacy 1,232-byte packet ceiling the tx-size report measures against.
+# Taken from the runtime rather than hand-rolled so no fourth definition of
+# 1232 exists in the tree.
+solana-packet = "4.2"
 solana-pubkey = { workspace = true }
 solana-signer = { workspace = true }
 solana-transaction = { workspace = true }

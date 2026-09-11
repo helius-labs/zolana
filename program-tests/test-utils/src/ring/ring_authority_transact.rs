@@ -398,7 +398,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::RingAuthorityTransactDisabled)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
@@ -446,7 +446,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())

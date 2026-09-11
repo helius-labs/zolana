@@ -1,17 +1,15 @@
-use custom_ring_interface::{
-    tag, CreateEntryIxData, UpdateEntryIxData, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-};
+use custom_ring_interface::{tag, CreateEntryIxData, UpdateEntryIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use thiserror::Error;
-use zolana_client::{ProverClient, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, ProverClient, Rpc};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_ring_policy::{EntryState, ListEntry, ListId, ListNamespace, Member, RuleTable};
 
 use crate::{
     instructions::{
         entry::proof::{EntryDraft, EntryProof, EntryProofError, EntryWitness},
-        policy_table::{LegacyPacket, PolicyTable},
+        policy_table::{PolicyTable, SizedTransaction},
     },
     CustomRing,
 };
@@ -29,8 +27,12 @@ pub enum EntryError {
     UnreferencedList(ListId),
     #[error("no content of the list recovers the commitment")]
     InvalidContent(ListId),
-    #[error("the transaction takes {bytes} bytes, a legacy packet carries {limit}")]
+    #[error("the transaction takes {bytes} bytes, a v1 transaction carries {limit}")]
     TransactionTooLarge { bytes: usize, limit: usize },
+    /// The instruction does not compile into a v1 message at all, so its size
+    /// cannot be measured.
+    #[error("the transaction message does not compile")]
+    TransactionCompile(#[source] Box<ClientError>),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
 }
@@ -73,9 +75,11 @@ impl CreatePolicy<'_> {
             AccountMeta::new_readonly(ring.program_data_pda(), false),
         ];
         accounts.extend(body.curator_accounts());
-        LegacyPacket {
+        SizedTransaction {
             payer,
-            compute_unit_limit: CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            compute_budget: ComputeBudgetConfig::new(
+                custom_ring_interface::CREATE_POLICY_COMPUTE_UNIT_LIMIT,
+            ),
             instruction: Instruction {
                 program_id: ring.program_id(),
                 accounts,

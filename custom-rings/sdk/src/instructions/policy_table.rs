@@ -1,13 +1,11 @@
-//! The table body `CREATE_POLICY` and `SET_POLICY_RULES` share, and the packet
-//! bound both builders enforce.
+//! The table body `CREATE_POLICY` and `SET_POLICY_RULES` share, and the
+//! transaction bound both builders enforce.
 
 use custom_ring_interface::{PolicyTableIxData, SourceSpec};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_message::Message;
-use solana_packet::PACKET_DATA_SIZE;
-use solana_transaction::Transaction;
+use solana_message::v1::MAX_TRANSACTION_SIZE;
+use zolana_client::{transaction_size, ComputeBudgetConfig};
 use zolana_ring_policy::{ListId, Rule, RuleTable};
 
 use crate::{instructions::entry::EntryError, CustomRing};
@@ -89,31 +87,36 @@ impl PolicyTableBody {
     }
 }
 
-/// The legacy transaction the instruction rides in, one compute budget
-/// instruction ahead of it.
-pub(crate) struct LegacyPacket {
+/// The transaction **v1** message the instruction rides in, alone: v1 states
+/// its compute ceilings in the message header, so no compute-budget
+/// instruction takes up room beside it.
+pub(crate) struct SizedTransaction {
     pub payer: Address,
-    pub compute_unit_limit: u32,
+    pub compute_budget: ComputeBudgetConfig,
     pub instruction: Instruction,
 }
 
-impl LegacyPacket {
-    /// Signatures included, the bound the runtime applies to the whole packet.
+impl SizedTransaction {
+    /// Signatures included, the bound the runtime applies to the whole
+    /// transaction.
+    ///
+    /// Only the byte ceiling can bind here: v1 also caps a transaction at 64
+    /// addresses, and a policy table names seven fixed accounts plus one
+    /// curator per referenced list, which cannot reach that.
     pub(crate) fn fit(self) -> Result<Instruction, EntryError> {
-        let instructions = [
-            ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
-            self.instruction,
-        ];
-        let message = Message::new(&instructions, Some(&self.payer));
-        let bytes = wincode::serialize(&Transaction::new_unsigned(message))?.len();
-        if bytes > PACKET_DATA_SIZE {
+        let size = transaction_size(
+            &self.payer,
+            core::slice::from_ref(&self.instruction),
+            self.compute_budget,
+        )
+        .map_err(|error| EntryError::TransactionCompile(Box::new(error)))?;
+        if size.bytes > MAX_TRANSACTION_SIZE {
             return Err(EntryError::TransactionTooLarge {
-                bytes,
-                limit: PACKET_DATA_SIZE,
+                bytes: size.bytes,
+                limit: MAX_TRANSACTION_SIZE,
             });
         }
-        let [_, instruction] = instructions;
-        Ok(instruction)
+        Ok(self.instruction)
     }
 }
 
@@ -121,11 +124,11 @@ impl LegacyPacket {
 mod tests {
     use super::*;
 
-    fn packet(data_len: usize) -> LegacyPacket {
+    fn transaction(data_len: usize) -> SizedTransaction {
         let payer = Address::new_from_array([1u8; 32]);
-        LegacyPacket {
+        SizedTransaction {
             payer,
-            compute_unit_limit: 1,
+            compute_budget: ComputeBudgetConfig::new(200_000),
             instruction: Instruction {
                 program_id: Address::new_from_array([2u8; 32]),
                 accounts: vec![AccountMeta::new(payer, true)],
@@ -134,14 +137,18 @@ mod tests {
         }
     }
 
+    /// The bound is the v1 ceiling, not the 1232-byte legacy packet: an
+    /// instruction between the two is sendable and must not be refused.
     #[test]
     fn the_bound_counts_the_whole_signed_transaction() {
-        let instruction = packet(1000).fit().expect("fits");
-        assert_eq!(instruction.data.len(), 1000);
+        // One payer/signature, one program, and the configured header leave
+        // exactly 3,913 bytes for this instruction's payload.
+        let instruction = transaction(3913).fit().expect("fits exactly");
+        assert_eq!(instruction.data.len(), 3913);
         assert!(matches!(
-            packet(1100).fit(),
+            transaction(3914).fit(),
             Err(EntryError::TransactionTooLarge { bytes, limit })
-                if bytes > limit && limit == PACKET_DATA_SIZE
+                if bytes == MAX_TRANSACTION_SIZE + 1 && limit == MAX_TRANSACTION_SIZE
         ));
     }
 }

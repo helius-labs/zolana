@@ -4,15 +4,14 @@ use async_trait::async_trait;
 use futures::Stream;
 use solana_account::Account;
 use solana_address::Address;
-use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
-use solana_message::{AddressLookupTableAccount, Message};
+use solana_message::{v1, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
@@ -26,6 +25,147 @@ use crate::{
 
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
+
+/// The runtime's ceiling on the account data one transaction may load, and what
+/// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction
+/// received by default
+/// (`solana_program_runtime::execution_budget::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES`).
+pub const MAX_LOADED_ACCOUNTS_DATA_SIZE: u32 = 64 * 1024 * 1024;
+
+/// What the runtime grants an instruction that asks for nothing, and the
+/// ceiling it caps the whole transaction at. A legacy transaction carrying no
+/// compute-budget instruction received `min(200_000 * instructions, 1_400_000)`
+/// implicitly; a v1 header has to say so.
+const DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION: u32 = 200_000;
+const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
+
+const MICRO_LAMPORTS_PER_LAMPORT: u128 = 1_000_000;
+
+/// Compute ceilings for a v1 transaction.
+///
+/// v1 carries them in the message header rather than in compute-budget
+/// instructions, and reads an absent header field as zero rather than as a
+/// default, so every ceiling is written explicitly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComputeBudgetConfig {
+    pub cu_limit: u32,
+    /// Priority bid in micro-lamports per compute unit, the unit
+    /// `ComputeBudgetInstruction::set_compute_unit_price` took.
+    pub cu_price_micro_lamports: Option<u64>,
+}
+
+impl ComputeBudgetConfig {
+    pub const fn new(cu_limit: u32) -> Self {
+        Self {
+            cu_limit,
+            cu_price_micro_lamports: None,
+        }
+    }
+
+    /// The budget a legacy transaction of `instructions` instructions received
+    /// without asking.
+    ///
+    /// A v1 header must state a ceiling, so every caller that previously sent
+    /// no compute-budget instruction needs one written for it. Reproducing the
+    /// runtime's own implicit rule keeps those callers on exactly the budget
+    /// they already had rather than inventing a number per call site.
+    pub const fn for_instruction_count(instructions: usize) -> Self {
+        let requested = DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION.saturating_mul(
+            if instructions > u32::MAX as usize {
+                u32::MAX
+            } else {
+                instructions as u32
+            },
+        );
+        let cu_limit = if requested > MAX_COMPUTE_UNIT_LIMIT {
+            MAX_COMPUTE_UNIT_LIMIT
+        } else {
+            requested
+        };
+        Self::new(cu_limit)
+    }
+
+    #[must_use]
+    pub const fn with_compute_unit_price(mut self, micro_lamports: u64) -> Self {
+        self.cu_price_micro_lamports = Some(micro_lamports);
+        self
+    }
+
+    pub fn transaction_config(&self) -> v1::TransactionConfig {
+        let config = v1::TransactionConfig::empty()
+            .with_compute_unit_limit(self.cu_limit)
+            .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE);
+        match self.cu_price_micro_lamports {
+            Some(price) => config.with_priority_fee(priority_fee_lamports(price, self.cu_limit)),
+            None => config,
+        }
+    }
+}
+
+/// The lamport priority fee a compute-unit price buys.
+///
+/// Both formats charge the same thing in different units: the runtime turned a
+/// legacy `set_compute_unit_price` bid into `ceil(price * cu_limit / 1_000_000)`
+/// lamports (`solana_compute_budget::compute_budget_limits::get_prioritization_fee`)
+/// and charges a v1 header's `priority_fee` as lamports directly, so converting
+/// with that same formula bills a caller exactly what the instruction did.
+fn priority_fee_lamports(cu_price_micro_lamports: u64, cu_limit: u32) -> u64 {
+    u128::from(cu_price_micro_lamports)
+        .saturating_mul(u128::from(cu_limit))
+        .saturating_add(MICRO_LAMPORTS_PER_LAMPORT.saturating_sub(1))
+        .checked_div(MICRO_LAMPORTS_PER_LAMPORT)
+        .and_then(|fee| u64::try_from(fee).ok())
+        .unwrap_or(u64::MAX)
+}
+
+/// Compile `instructions` into an unsigned v1 message.
+///
+/// v1 takes no compute-budget instructions, which is where the ceilings in
+/// `compute_budget` would otherwise go, and it has no address lookup tables.
+pub fn compile_message(
+    payer: &Address,
+    instructions: &[Instruction],
+    recent_blockhash: Hash,
+    compute_budget: ComputeBudgetConfig,
+) -> Result<VersionedMessage, ClientError> {
+    v1::Message::try_compile_with_config(
+        payer,
+        instructions,
+        recent_blockhash,
+        compute_budget.transaction_config(),
+    )
+    .map(VersionedMessage::V1)
+    .map_err(|error| ClientError::TransactionCompile(error.to_string()))
+}
+
+/// Sign a compiled message, passing each signer once.
+///
+/// `VersionedTransaction::try_new` refuses a signer list longer than the
+/// message's required signatures, where legacy partial signing tolerated a
+/// repeat. A fee payer that also owns a shielded input is one account key but
+/// two entries in the caller's list, so the duplicates are dropped here rather
+/// than at every call site.
+pub fn sign_transaction(
+    message: VersionedMessage,
+    signers: &[&dyn Signer],
+) -> Result<VersionedTransaction, ClientError> {
+    let mut unique: Vec<(Pubkey, &dyn Signer)> = Vec::with_capacity(signers.len());
+    for signer in signers {
+        let pubkey = signer
+            .try_pubkey()
+            .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
+        if unique.iter().any(|(kept, _)| *kept == pubkey) {
+            continue;
+        }
+        unique.push((pubkey, *signer));
+    }
+    let unique = unique
+        .into_iter()
+        .map(|(_, signer)| signer)
+        .collect::<Vec<_>>();
+    VersionedTransaction::try_new(message, &unique)
+        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -213,65 +353,34 @@ pub trait Rpc {
 
     // ===== Transactions =====
 
-    fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("send_transaction"))
-    }
-
     fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         Err(unsupported("send_transaction_with_config"))
     }
 
-    fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("send_versioned_transaction_with_config"))
-    }
-
-    fn process_transaction(&self, transaction: Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("process_transaction"))
-    }
-
-    fn process_transaction_with_context(
-        &self,
-        transaction: Transaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        Err(unsupported("process_transaction_with_context"))
-    }
-
-    fn process_versioned_transaction(
+    fn process_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_versioned_transaction"))
+        Err(unsupported("process_transaction"))
     }
 
+    /// Build, sign, and send a v1 transaction: the only format this client
+    /// sends, because it lifts the 1,232-byte legacy packet ceiling to 4,096
+    /// bytes and carries its budget in the message header.
     fn create_and_send_transaction(
         &self,
         instructions: &[Instruction],
         payer: Address,
         signers: &[&dyn Signer],
+        compute_budget: ComputeBudgetConfig,
     ) -> Result<Signature, ClientError> {
         let (blockhash, _) = self.get_latest_blockhash()?;
-        let payer = Pubkey::new_from_array(payer.to_bytes());
-        let message = Message::new(instructions, Some(&payer));
-        let transaction = Transaction::new(signers, message, blockhash);
-        self.send_transaction(&transaction)
-    }
-
-    fn create_and_send_versioned_transaction(
-        &self,
-        instructions: &[Instruction],
-        payer: Address,
-        signers: &[&dyn Signer],
-        address_lookup_tables: &[AddressLookupTableAccount],
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("create_and_send_versioned_transaction"))
+        let message = compile_message(&payer, instructions, blockhash, compute_budget)?;
+        self.process_transaction(sign_transaction(message, signers)?)
     }
 
     // ===== Misc =====
@@ -457,45 +566,19 @@ pub trait AsyncRpc: Send + Sync {
         Err(unsupported("health"))
     }
 
-    async fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-        Err(unsupported("send_transaction"))
-    }
-
     async fn send_transaction_with_config(
         &self,
-        transaction: &Transaction,
+        transaction: &VersionedTransaction,
         config: RpcSendTransactionConfig,
     ) -> Result<Signature, ClientError> {
         Err(unsupported("send_transaction_with_config"))
     }
 
-    async fn send_versioned_transaction_with_config(
-        &self,
-        transaction: &VersionedTransaction,
-        config: RpcSendTransactionConfig,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("send_versioned_transaction_with_config"))
-    }
-
     async fn process_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_transaction"))
-    }
-
-    async fn process_transaction_with_context(
-        &self,
-        transaction: Transaction,
-    ) -> Result<(Signature, Slot), ClientError> {
-        Err(unsupported("process_transaction_with_context"))
-    }
-
-    async fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
     ) -> Result<Signature, ClientError> {
-        Err(unsupported("process_versioned_transaction"))
+        Err(unsupported("process_transaction"))
     }
 
     async fn confirm_transaction(&self, signature: Signature) -> Result<bool, ClientError> {
@@ -606,4 +689,106 @@ pub trait AsyncRpc: Send + Sync {
 
 fn unsupported(method: &'static str) -> ClientError {
     ClientError::UnsupportedRpcMethod(method)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compute_unit_price_converts_to_the_lamport_fee_the_runtime_charged() {
+        // The three cases `get_prioritization_fee` pins: a sub-lamport fee
+        // rounds up to one, an exact lamport stays one, and a hair over one
+        // lamport rounds up to two.
+        assert_eq!(priority_fee_lamports(999_999, 1), 1);
+        assert_eq!(priority_fee_lamports(1_000_000, 1), 1);
+        assert_eq!(priority_fee_lamports(1_000_001, 1), 2);
+        assert_eq!(priority_fee_lamports(25_000, 450_000), 11_250);
+        assert_eq!(priority_fee_lamports(u64::MAX, u32::MAX), u64::MAX);
+    }
+
+    /// An unset v1 header field is zero, not a default, so a config that omits
+    /// either ceiling produces a transaction that cannot execute at all. Both
+    /// are always written.
+    #[test]
+    fn a_transaction_config_always_states_both_ceilings() {
+        let without_priority = ComputeBudgetConfig::new(450_000).transaction_config();
+        assert_eq!(
+            without_priority,
+            v1::TransactionConfig::empty()
+                .with_compute_unit_limit(450_000)
+                .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE)
+        );
+
+        let with_priority = ComputeBudgetConfig::new(450_000)
+            .with_compute_unit_price(25_000)
+            .transaction_config();
+        assert_eq!(
+            with_priority,
+            v1::TransactionConfig::empty()
+                .with_compute_unit_limit(450_000)
+                .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE)
+                .with_priority_fee(11_250)
+        );
+    }
+
+    /// The implicit budget a legacy transaction used to receive, now stated.
+    /// Every call site that sent no compute-budget instruction is routed
+    /// through this, so it has to reproduce the runtime's rule exactly --
+    /// 200,000 per instruction, capped at 1,400,000 for the transaction.
+    #[test]
+    fn an_instruction_count_reproduces_the_implicit_legacy_budget() {
+        assert_eq!(
+            ComputeBudgetConfig::for_instruction_count(1).cu_limit,
+            200_000
+        );
+        assert_eq!(
+            ComputeBudgetConfig::for_instruction_count(3).cu_limit,
+            600_000
+        );
+        assert_eq!(
+            ComputeBudgetConfig::for_instruction_count(7).cu_limit,
+            1_400_000
+        );
+        // Past seven instructions the transaction ceiling binds, not the sum.
+        assert_eq!(
+            ComputeBudgetConfig::for_instruction_count(64).cu_limit,
+            1_400_000
+        );
+        assert_eq!(ComputeBudgetConfig::for_instruction_count(0).cu_limit, 0);
+    }
+
+    /// Legacy partial signing tolerated the same signer twice;
+    /// `VersionedTransaction::try_new` refuses a list longer than the required
+    /// signatures. A fee payer that also owns a shielded input arrives twice,
+    /// so the duplicate is dropped rather than passed on.
+    #[test]
+    fn a_repeated_signer_is_passed_once() {
+        use solana_keypair::Keypair;
+
+        let payer = Keypair::new();
+        let other = Keypair::new();
+        // Two required signers, so the duplicate is the only thing the list
+        // holds beyond what the message asks for.
+        let instruction = Instruction::new_with_bytes(
+            Pubkey::new_unique(),
+            &[],
+            vec![
+                solana_instruction::AccountMeta::new(payer.pubkey(), true),
+                solana_instruction::AccountMeta::new(other.pubkey(), true),
+            ],
+        );
+        let message = compile_message(
+            &payer.pubkey(),
+            core::slice::from_ref(&instruction),
+            Hash::default(),
+            ComputeBudgetConfig::new(200_000),
+        )
+        .expect("compile");
+
+        let signers: Vec<&dyn Signer> = vec![&payer, &other, &payer];
+        let transaction =
+            sign_transaction(message, &signers).expect("a repeated signer must not fail signing");
+        assert_eq!(transaction.signatures.len(), 2);
+    }
 }
