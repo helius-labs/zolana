@@ -6515,6 +6515,7 @@ dependencies = [
 name = "shielded-pool-tests"
 version = "0.1.0"
 dependencies = [
+ "agave-feature-set",
  "anyhow",
  "borsh",
  "bytemuck",
@@ -6522,6 +6523,7 @@ dependencies = [
  "groth16-solana",
  "hex",
  "light-program-profiler",
+ "litesvm",
  "mollusk-svm",
  "num-bigint 0.4.8",
  "p256",

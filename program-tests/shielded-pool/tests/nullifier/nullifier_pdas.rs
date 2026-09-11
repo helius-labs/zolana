@@ -1,16 +1,19 @@
+use forester::close_nullifier_pdas::{CloseNullifierPdasBatch, ForesterSmartAccount};
 use shielded_pool_tests::support::fixtures::Pool;
 
 use solana_account::Account;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
+use solana_transaction::Transaction;
 use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
-        CloseNullifierPdas, Transact,
+        CloseNullifierPdas, Transact, UpdateProtocolConfigData,
     },
     pda,
     state::{
@@ -26,6 +29,7 @@ use zolana_test_utils::{
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
         tree_fees_from,
     },
+    smart_account,
     transact::{eddsa_input_utxo, fe, inline_output},
 };
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
@@ -105,6 +109,57 @@ fn send_close(env: &mut Pool, ix: Instruction) -> Result<(), ProgramTestError> {
         &[&payer, &authority],
     )
     .map(|_| ())
+}
+
+fn create_forester_smart_account(env: &mut Pool) -> ForesterSmartAccount {
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target")
+        });
+    env.rpc
+        .svm
+        .add_program_from_file(
+            smart_account::SMART_ACCOUNT_PROGRAM_ID,
+            target_dir.join("deploy/squads_smart_account_program.so"),
+        )
+        .expect("load Squads smart-account program; run `just ensure-smart-account` first");
+    env.rpc
+        .svm
+        .set_account(
+            smart_account::program_config_pda().0,
+            smart_account::program_config_fixture(),
+        )
+        .expect("install Squads program config");
+    let member = env.rpc.payer.pubkey();
+    let settings_seed = 1;
+    let create = smart_account::create_smart_account_ix(
+        &member,
+        &smart_account::treasury_pda(),
+        settings_seed,
+        Some(env.authority.pubkey()),
+        &[smart_account::SmartAccountSigner {
+            key: member,
+            permissions: smart_account::Permissions::all(),
+        }],
+        1,
+        0,
+    );
+    env.rpc
+        .create_and_send_default_payer_transaction(&[create], &[])
+        .expect("create forester smart account");
+    let forester = ForesterSmartAccount {
+        settings: smart_account::settings_pda(settings_seed).0,
+        account_index: 0,
+        member,
+    };
+    env.rpc
+        .send_protocol_config_update(
+            &env.authority,
+            UpdateProtocolConfigData::ForesterAuthority(forester.vault()),
+        )
+        .expect("set forester authority to the smart-account vault");
+    forester
 }
 
 fn fund_fee_balance(env: &mut Pool, lamports: u64) {
@@ -285,6 +340,7 @@ fn assert_close_nullifier_pdas(
     trace: &TransactionTrace,
     tree_before: &Account,
     nullifiers: &[[u8; 32]],
+    transaction_fee: u64,
 ) {
     let tree = env.tree;
     let payer = env.rpc.payer.pubkey();
@@ -345,8 +401,8 @@ fn assert_close_nullifier_pdas(
             let after = transition.after.as_ref().expect("payer after close");
             assert_eq!(
                 before.lamports + paid,
-                after.lamports + CLOSE_TRANSACTION_FEE,
-                "fee payer pays exactly the two-signature transaction fee and receives the close reimbursement"
+                after.lamports + transaction_fee,
+                "fee payer pays exactly the transaction fee and receives the close reimbursement"
             );
         }
     }
@@ -605,7 +661,13 @@ fn close_honours_the_watermark_boundary() {
         .last_transaction_trace()
         .expect("close trace")
         .clone();
-    assert_close_nullifier_pdas(&env, &trace, &tree_before, &[below_watermark]);
+    assert_close_nullifier_pdas(
+        &env,
+        &trace,
+        &tree_before,
+        &[below_watermark],
+        CLOSE_TRANSACTION_FEE,
+    );
     assert_eq!(
         tree_close_before_index(&env.rpc, &env.tree).expect("close_before_index"),
         5,
@@ -628,7 +690,98 @@ fn close_returns_nullifier_pda_rent_to_the_tree() {
         .last_transaction_trace()
         .expect("close trace")
         .clone();
-    assert_close_nullifier_pdas(&env, &trace, &tree_before, &nullifiers);
+    assert_close_nullifier_pdas(
+        &env,
+        &trace,
+        &tree_before,
+        &nullifiers,
+        CLOSE_TRANSACTION_FEE,
+    );
+}
+
+#[test]
+fn close_smart_account_batches_at_the_4096_byte_boundary() {
+    for (count, expected_size) in [(108, 4_075), (109, 4_109)] {
+        let mut env = Pool::initialized();
+        // LiteSVM's default feature set allows only 64 account locks. This batch
+        // assumes the 128-account limit alongside the larger transaction size.
+        let mut features = litesvm::LiteSVM::mainnet_feature_set();
+        features.activate(&agave_feature_set::increase_tx_account_lock_limit::id(), 0);
+        env.rpc.svm = env.rpc.svm.clone().with_feature_set(features);
+        let forester = create_forester_smart_account(&mut env);
+        let nullifiers: Vec<_> = (1..=count).map(fe).collect();
+        queue_nullifier_pdas(&mut env, &nullifiers, 1);
+        set_close_before_index(&mut env, count + 1);
+        let (fees, _) = tree_fees(&env.rpc, &env.tree).expect("tree fees");
+        fund_fee_balance(&mut env, fees.close_reimbursement * count);
+        let tree_before = tree_account(&env);
+
+        // The production forester builder supplies the Squads wrapper. These
+        // batches exhaust its default 32 KiB heap, so include the required heap
+        // request in the size measurement as well as the member's signature.
+        let batch = CloseNullifierPdasBatch {
+            tree: env.tree,
+            forester,
+            nullifiers: nullifiers.clone(),
+        };
+        let instructions = [
+            ComputeBudgetInstruction::request_heap_frame(64 * 1024),
+            batch.instruction(),
+        ];
+        let transaction = Transaction::new(
+            &[&env.rpc.payer],
+            Message::new(&instructions, Some(&env.rpc.payer.pubkey())),
+            env.rpc.svm.latest_blockhash(),
+        );
+        let transaction_bytes =
+            wincode::serialize(&transaction).expect("serialize close transaction");
+        assert_eq!(transaction.signatures.len(), 1);
+        assert_eq!(transaction.message.header.num_required_signatures, 1);
+        assert_eq!(transaction_bytes.len(), expected_size);
+        assert_eq!(
+            transaction_bytes.len() <= 4_096,
+            count == 108,
+            "the executable smart-account transaction fits 108 closes; 109 exceeds 4096 bytes"
+        );
+
+        let submissions_before = env.rpc.transaction_traces().len();
+        env.rpc
+            .create_and_send_default_payer_transaction(&instructions, &[])
+            .expect("close the entire batch through the forester smart account");
+        assert_eq!(env.rpc.transaction_traces().len(), submissions_before + 1);
+        let trace = env.rpc.last_transaction_trace().expect("close trace");
+        assert_eq!(trace.instructions.len(), 2);
+        assert_eq!(
+            trace
+                .instructions
+                .last()
+                .expect("outer instruction")
+                .program_id,
+            smart_account::SMART_ACCOUNT_PROGRAM_ID
+        );
+        // Observed up to 169,254 CU; catch regressions below the 200,000-CU budget.
+        assert!(
+            (1..=190_000).contains(&trace.compute_units_consumed),
+            "{count} closes exceeded the CU ceiling:\n{}",
+            trace.diagnostic(),
+        );
+        assert_close_nullifier_pdas(
+            &env,
+            trace,
+            &tree_before,
+            &nullifiers,
+            LAMPORTS_PER_SIGNATURE,
+        );
+        assert_eq!(
+            tree_fees(&env.rpc, &env.tree).expect("tree fees"),
+            (fees, 0)
+        );
+        println!(
+            "{count} nullifier closes via smart account: {} bytes, {} CU, 1 signature",
+            transaction_bytes.len(),
+            trace.compute_units_consumed,
+        );
+    }
 }
 
 fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u64 {
@@ -650,7 +803,7 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
         .last_transaction_trace()
         .expect("close trace")
         .clone();
-    assert_close_nullifier_pdas(env, &trace, &tree_before, nullifiers);
+    assert_close_nullifier_pdas(env, &trace, &tree_before, nullifiers, CLOSE_TRANSACTION_FEE);
     let payer_after = env
         .rpc
         .svm
