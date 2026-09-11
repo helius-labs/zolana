@@ -52,6 +52,11 @@ type CustomRingPolicyCircuit struct {
 	InlineLimits [NInlineAssets]frontend.Variable
 	// Exactly one flag selects count index.
 	InlineAssetCountSelected [NInlineAssets + 1]frontend.Variable `gnark:"InlineCountOneHot"`
+	// Zero disables velocity, else the fixed window length in slots.
+	WindowSlots frontend.Variable
+	Velocity    [NVelocityAssets]VelocityRowWires
+	// Exactly one flag selects count index.
+	VelocityCountSelected [NVelocityAssets + 1]frontend.Variable `gnark:"VelocityCountOneHot"`
 
 	// The program selects roots from the configured entries tree's history.
 	StateRoot frontend.Variable
@@ -59,6 +64,17 @@ type CustomRingPolicyCircuit struct {
 	NullifierRoot frontend.Variable
 	// The raw id of the entries tree, every leaf and address hashes under it.
 	EntriesTreeID frontend.Variable
+	// The ring program id field, a change output stays in it.
+	RingID frontend.Variable
+	// The owner hash of the ring's namespace PDA, only spend record slots open to it.
+	NamespaceOwnerHash frontend.Variable
+	// The program derives slot / WindowSlots, zero without velocity.
+	WindowIndex frontend.Variable
+	// Set when an outflow exceeds its co-sign threshold, the program then demands the co-signer.
+	ApprovalRequired frontend.Variable
+
+	// The sender's spend record, opened only when velocity is on.
+	Record RecordWires
 
 	// All rules and transaction slots share these list facts.
 	ListFacts [NListFacts]ListFactWires `gnark:"Answers"`
@@ -75,11 +91,11 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	// Both blocks share one BSB22 commitment.
 	rangeChecker := rangecheck.New(api)
 
-	// 2. Bind policy subjects and amounts to the SPP transaction.
-	txContext := c.constrainTransactionContext(api, rangeChecker)
+	// 2. Check the policy and reconstruct its commitment.
+	policyHash, ruleEnabled, inlineEnabled, velocity := c.checkPolicy(api, rangeChecker)
 
-	// 3. Check the policy and reconstruct its commitment.
-	policyHash, ruleEnabled, inlineEnabled := c.checkPolicy(api, rangeChecker)
+	// 3. Bind policy subjects and amounts to the SPP transaction.
+	txContext := c.constrainTransactionContext(api, rangeChecker, velocity.on)
 
 	// 4. Authenticate the shared list facts.
 	listFacts := c.checkListFacts(api, rangeChecker)
@@ -87,8 +103,15 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	// 5. Require every applicable rule to pass.
 	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
 
-	// 6. Bind the policy and supplied entry roots after the audit inputs.
-	chain := append(elements[:], policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID)
+	// 6. Spend the sender's record into its successor within the caps.
+	c.constrainVelocity(api, rangeChecker, velocity, txContext)
+
+	// 7. Bind the policy, the supplied entry roots and the window after the
+	// audit inputs.
+	chain := append(elements[:],
+		policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
+		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
+	)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
