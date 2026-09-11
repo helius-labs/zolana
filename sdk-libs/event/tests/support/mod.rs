@@ -8,7 +8,7 @@ use zolana_event_parser::ParsedInstruction;
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeRingIxData, MergeTransactIxData, MessageData,
-    TransactIxData, TransactOutput, TransactProof,
+    TransactIxData, TransactOutput, TransactProof, TreeContext,
 };
 
 pub const INPUT_TREE: [u8; 32] = [1u8; 32];
@@ -16,12 +16,31 @@ pub const OUTPUT_TREE: [u8; 32] = [2u8; 32];
 pub const TX_VIEWING_PK: [u8; 33] = [5u8; 33];
 pub const SALT: [u8; 16] = [6u8; 16];
 
+/// One context per tree the inputs name, so any grouping a test writes
+/// serializes. Reconstruction reads the trees from the event, never the root
+/// indexes, so they stay zero.
+fn tree_contexts(inputs: &[InputUtxo]) -> Vec<TreeContext> {
+    let count = inputs
+        .iter()
+        .map(|input| usize::from(input.tree_index).saturating_add(1))
+        .max()
+        .unwrap_or(1);
+    vec![
+        TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        };
+        count
+    ]
+}
+
 pub fn transact_ix(
     inputs: Vec<InputUtxo>,
     outputs: Vec<TransactOutput>,
     messages: Vec<MessageData>,
     interface_transfers: Vec<InterfaceTransfer>,
 ) -> TransactIxData {
+    let tree_contexts = tree_contexts(&inputs);
     TransactIxData {
         expiry_unix_ts: 0,
         private_tx_hash: [7u8; 32],
@@ -34,8 +53,7 @@ pub fn transact_ix(
         salt: SALT,
         proof: TransactProof::zeroed(),
         inputs,
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts,
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -117,11 +135,22 @@ pub fn emit_instruction<T: BorshSerialize>(
     )
 }
 
+/// The event's input trees in the order the program applied them: entry `t` is
+/// what an input with `tree_index == t` resolves against.
+pub fn input_trees_in_order(
+    trees: impl IntoIterator<Item = ([u8; 32], u64)>,
+) -> Vec<InputTreeSequence> {
+    trees
+        .into_iter()
+        .map(|(tree, first_input_queue_seq)| InputTreeSequence {
+            tree,
+            first_input_queue_seq,
+        })
+        .collect()
+}
+
 pub fn input_trees(first_input_queue_seq: u64) -> Vec<InputTreeSequence> {
-    vec![InputTreeSequence {
-        tree: INPUT_TREE,
-        first_input_queue_seq,
-    }]
+    input_trees_in_order([(INPUT_TREE, first_input_queue_seq)])
 }
 
 pub fn merge_event(output_view_tag: [u8; 32]) -> MergeEvent {

@@ -4,8 +4,9 @@ mod support;
 
 use solana_pubkey::Pubkey;
 use support::{
-    emit_event_data, emit_instruction, input_trees, merge_event, merge_ix, merge_ring_ix, source,
-    transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT, TX_VIEWING_PK,
+    emit_event_data, emit_instruction, input_trees, input_trees_in_order, merge_event, merge_ix,
+    merge_ring_ix, source, transact_ix, transact_source, INPUT_TREE, OUTPUT_TREE, SALT,
+    TX_VIEWING_PK,
 };
 use zolana_event::{
     tag, EventKind, GeneralEvent, Input, InputTreeSequence, MessageData, NullifierTreeUpdateEvent,
@@ -18,10 +19,17 @@ use zolana_event_parser::{
 use zolana_interface::instruction::{InputUtxo, InterfaceTransfer, OwnerTag, TransactOutput};
 
 const OWNER_ACCOUNT_INDEX: u8 = 6;
+/// The second declared input tree of a multi-tree spend.
+const SECOND_INPUT_TREE: [u8; 32] = [3u8; 32];
 
 fn input(nullifier_byte: u8) -> InputUtxo {
+    input_in_tree(nullifier_byte, 0)
+}
+
+fn input_in_tree(nullifier_byte: u8, tree_index: u8) -> InputUtxo {
     InputUtxo {
         nullifier_hash: [nullifier_byte; 32],
+        tree_index,
     }
 }
 
@@ -309,26 +317,124 @@ fn account_list_shorter_than_the_settlement_groups_is_an_error() {
     );
 }
 
-#[test]
-fn more_than_one_input_tree_is_not_reconstructible_yet() {
+/// A transact with no outputs, messages or settlement legs, so the assertion is
+/// about the input assignment alone.
+fn reconstruct_inputs(
+    inputs: Vec<InputUtxo>,
+    input_trees: Vec<InputTreeSequence>,
+) -> Result<GeneralEvent, EventDecodeError> {
     let spp = Pubkey::new_unique();
-    let owner = Pubkey::new_unique();
-    let src = transact_source(
-        spp,
-        tag::TRANSACT,
-        accounts_with_owner(owner),
-        &transfer_ix(),
-        1,
-    );
+    let ix = transact_ix(inputs, Vec::new(), Vec::new(), Vec::new());
+    let src = transact_source(spp, tag::TRANSACT, Vec::new(), &ix, 1);
     let mut event = transfer_event();
-    event.input_trees.push(InputTreeSequence {
-        tree: [3; 32],
-        first_input_queue_seq: 0,
-    });
+    event.input_trees = input_trees;
 
+    reconstruct_general_event(&src, &emit_event_data(EventKind::Transact, &event))
+}
+
+fn expected_input_only_event(inputs: Vec<Input>) -> GeneralEvent {
+    GeneralEvent {
+        inputs,
+        outputs: Vec::new(),
+        messages: Vec::new(),
+        tx_viewing_pk: TX_VIEWING_PK,
+        salt: SALT,
+        first_output_leaf_index: 5,
+        output_tree: OUTPUT_TREE,
+        spl_transfers: Vec::new(),
+    }
+}
+
+#[test]
+fn inputs_take_the_tree_and_sequence_of_the_entry_their_index_names() {
     assert_eq!(
-        reconstruct_general_event(&src, &emit_event_data(EventKind::Transact, &event)),
-        Err(EventDecodeError::UnsupportedInputTreeCount(2))
+        reconstruct_inputs(
+            vec![
+                input_in_tree(0xA0, 0),
+                input_in_tree(0xA1, 0),
+                input_in_tree(0xA2, 1),
+            ],
+            input_trees_in_order([(INPUT_TREE, 10), (SECOND_INPUT_TREE, 70)]),
+        ),
+        Ok(expected_input_only_event(vec![
+            Input {
+                tree: INPUT_TREE,
+                input_queue_seq: 10,
+                nullifier: [0xA0; 32],
+            },
+            Input {
+                tree: INPUT_TREE,
+                input_queue_seq: 11,
+                nullifier: [0xA1; 32],
+            },
+            Input {
+                tree: SECOND_INPUT_TREE,
+                input_queue_seq: 70,
+                nullifier: [0xA2; 32],
+            },
+        ]))
+    );
+}
+
+/// The program groups inputs by tree, so each tree owns a contiguous run, but
+/// the reconstruction must not lean on it: an interleaved head followed by a
+/// grouped tail still numbers every tree from its own first sequence.
+#[test]
+fn input_sequences_count_per_tree_when_the_indexes_interleave() {
+    assert_eq!(
+        reconstruct_inputs(
+            vec![
+                input_in_tree(0xA0, 0),
+                input_in_tree(0xA1, 1),
+                input_in_tree(0xA2, 0),
+                input_in_tree(0xA3, 1),
+                input_in_tree(0xA4, 1),
+            ],
+            input_trees_in_order([(INPUT_TREE, 10), (SECOND_INPUT_TREE, 70)]),
+        ),
+        Ok(expected_input_only_event(vec![
+            Input {
+                tree: INPUT_TREE,
+                input_queue_seq: 10,
+                nullifier: [0xA0; 32],
+            },
+            Input {
+                tree: SECOND_INPUT_TREE,
+                input_queue_seq: 70,
+                nullifier: [0xA1; 32],
+            },
+            Input {
+                tree: INPUT_TREE,
+                input_queue_seq: 11,
+                nullifier: [0xA2; 32],
+            },
+            Input {
+                tree: SECOND_INPUT_TREE,
+                input_queue_seq: 71,
+                nullifier: [0xA3; 32],
+            },
+            Input {
+                tree: SECOND_INPUT_TREE,
+                input_queue_seq: 72,
+                nullifier: [0xA4; 32],
+            },
+        ]))
+    );
+}
+
+#[test]
+fn an_input_tree_index_with_no_emitted_entry_is_an_error() {
+    assert_eq!(
+        reconstruct_inputs(vec![input_in_tree(0xA0, 1)], input_trees(10)),
+        Err(EventDecodeError::InputTreeIndexOutOfRange(1))
+    );
+}
+
+#[test]
+fn a_transact_event_naming_no_input_tree_is_an_error() {
+    assert_eq!(
+        reconstruct_inputs(vec![input(0xA0)], Vec::new()),
+        Err(EventDecodeError::UnsupportedInputTreeCount(0))
     );
 }
 

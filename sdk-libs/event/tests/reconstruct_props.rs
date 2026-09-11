@@ -30,12 +30,29 @@ use zolana_interface::instruction::{
 /// Leaves room for `first_input_queue_seq + position` without overflow.
 const MAX_FIRST_QUEUE_SEQ: u64 = u64::MAX - 16;
 
+/// The circuit's tree-slot count, the upper bound on declared input trees.
+const MAX_INPUT_TREES: u8 = 5;
+
 fn pubkey() -> impl Strategy<Value = Pubkey> {
     any::<[u8; 32]>().prop_map(Pubkey::new_from_array)
 }
 
-fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-    any::<[u8; 32]>().prop_map(|nullifier_hash| InputUtxo { nullifier_hash })
+/// Inputs name a tree by index, in any order: the reconstruction assigns each
+/// its own tree and sequence without relying on the program's grouping.
+fn input_utxo(tree_count: u8) -> impl Strategy<Value = InputUtxo> {
+    (any::<[u8; 32]>(), 0..tree_count).prop_map(|(nullifier_hash, tree_index)| InputUtxo {
+        nullifier_hash,
+        tree_index,
+    })
+}
+
+fn input_tree_sequence() -> impl Strategy<Value = InputTreeSequence> {
+    (any::<[u8; 32]>(), 0..=MAX_FIRST_QUEUE_SEQ).prop_map(|(tree, first_input_queue_seq)| {
+        InputTreeSequence {
+            tree,
+            first_input_queue_seq,
+        }
+    })
 }
 
 /// `OwnerTag::Account` indexes stay inside an account list of `account_count`.
@@ -111,7 +128,9 @@ struct TransactCase {
     outputs: Vec<TransactOutput>,
     messages: Vec<MessageData>,
     interface_transfers: Vec<InterfaceTransfer>,
-    first_input_queue_seq: u64,
+    /// The event's input trees, in the order the program applied them; an
+    /// input's `tree_index` selects one of them.
+    input_trees: Vec<InputTreeSequence>,
     first_output_leaf_index: u64,
     source_tag: u8,
 }
@@ -140,54 +159,84 @@ impl TransactCase {
 }
 
 fn transact_case() -> impl Strategy<Value = TransactCase> {
-    (
-        prop::collection::vec(pubkey(), 1..=8),
-        prop::collection::vec(input_utxo(), 1..=5),
-        prop::collection::vec(message_data(), 0..=3),
-        prop::collection::vec(interface_transfer(), 0..=4),
-        0..=MAX_FIRST_QUEUE_SEQ,
-        any::<u64>(),
-        prop::sample::select(vec![
-            tag::TRANSACT,
-            tag::RING_TRANSACT,
-            tag::RING_AUTHORITY_TRANSACT,
-        ]),
-    )
-        .prop_flat_map(
-            |(
-                prefix,
-                inputs,
-                messages,
-                interface_transfers,
-                first_input_queue_seq,
-                first_output_leaf_index,
-                source_tag,
-            )| {
-                let prefix_len = prefix.len();
-                let settlement_len: usize =
-                    interface_transfers.iter().map(settlement_group_size).sum();
-                let outputs = prop::collection::vec(transact_output(prefix_len), 0..=8);
-                let settlement_accounts = prop::collection::vec(pubkey(), settlement_len);
-                (outputs, settlement_accounts).prop_map(move |(outputs, settlement_accounts)| {
-                    let mut accounts = prefix.clone();
-                    accounts.extend(settlement_accounts);
-                    TransactCase {
-                        accounts,
-                        prefix_len,
-                        inputs: inputs.clone(),
-                        outputs,
-                        messages: messages.clone(),
-                        interface_transfers: interface_transfers.clone(),
-                        first_input_queue_seq,
-                        first_output_leaf_index,
-                        source_tag,
-                    }
-                })
-            },
+    (1..=MAX_INPUT_TREES).prop_flat_map(|tree_count| {
+        (
+            prop::collection::vec(pubkey(), 1..=8),
+            prop::collection::vec(input_utxo(tree_count), 1..=5),
+            prop::collection::vec(message_data(), 0..=3),
+            prop::collection::vec(interface_transfer(), 0..=4),
+            prop::collection::vec(input_tree_sequence(), usize::from(tree_count)),
+            any::<u64>(),
+            prop::sample::select(vec![
+                tag::TRANSACT,
+                tag::RING_TRANSACT,
+                tag::RING_AUTHORITY_TRANSACT,
+            ]),
         )
+            .prop_flat_map(
+                |(
+                    prefix,
+                    inputs,
+                    messages,
+                    interface_transfers,
+                    input_trees,
+                    first_output_leaf_index,
+                    source_tag,
+                )| {
+                    let prefix_len = prefix.len();
+                    let settlement_len: usize =
+                        interface_transfers.iter().map(settlement_group_size).sum();
+                    let outputs = prop::collection::vec(transact_output(prefix_len), 0..=8);
+                    let settlement_accounts = prop::collection::vec(pubkey(), settlement_len);
+                    (outputs, settlement_accounts).prop_map(
+                        move |(outputs, settlement_accounts)| {
+                            let mut accounts = prefix.clone();
+                            accounts.extend(settlement_accounts);
+                            TransactCase {
+                                accounts,
+                                prefix_len,
+                                inputs: inputs.clone(),
+                                outputs,
+                                messages: messages.clone(),
+                                interface_transfers: interface_transfers.clone(),
+                                input_trees: input_trees.clone(),
+                                first_output_leaf_index,
+                                source_tag,
+                            }
+                        },
+                    )
+                },
+            )
+    })
 }
 
-fn expected_inputs<'a>(
+/// The expected assignment, written out independently of the decoder: an input
+/// lands in the tree its index names, at that tree's first sequence plus the
+/// number of earlier inputs naming the same tree.
+fn expected_transact_inputs(inputs: &[InputUtxo], input_trees: &[InputTreeSequence]) -> Vec<Input> {
+    inputs
+        .iter()
+        .enumerate()
+        .map(|(position, input)| {
+            let tree = input_trees
+                .get(usize::from(input.tree_index))
+                .expect("strategy bounds the index");
+            let earlier = inputs
+                .iter()
+                .take(position)
+                .filter(|earlier| earlier.tree_index == input.tree_index)
+                .count();
+            Input {
+                tree: tree.tree,
+                input_queue_seq: tree.first_input_queue_seq
+                    + u64::try_from(earlier).expect("test shape"),
+                nullifier: input.nullifier_hash,
+            }
+        })
+        .collect()
+}
+
+fn expected_merge_inputs<'a>(
     nullifiers: impl Iterator<Item = &'a [u8; 32]>,
     first_input_queue_seq: u64,
 ) -> Vec<Input> {
@@ -218,10 +267,7 @@ proptest! {
             case.interface_transfers.clone(),
         );
         let event = TransactEvent {
-            input_trees: vec![InputTreeSequence {
-                tree: INPUT_TREE,
-                first_input_queue_seq: case.first_input_queue_seq,
-            }],
+            input_trees: case.input_trees.clone(),
             output_tree: OUTPUT_TREE,
             first_output_leaf_index: case.first_output_leaf_index,
         };
@@ -243,10 +289,7 @@ proptest! {
             })
             .collect();
         let expected = GeneralEvent {
-            inputs: expected_inputs(
-                case.inputs.iter().map(|input| &input.nullifier_hash),
-                case.first_input_queue_seq,
-            ),
+            inputs: expected_transact_inputs(&case.inputs, &case.input_trees),
             outputs,
             messages: case.messages.clone(),
             tx_viewing_pk: TX_VIEWING_PK,
@@ -319,7 +362,7 @@ proptest! {
         };
 
         let expected = GeneralEvent {
-            inputs: expected_inputs(nullifiers.iter(), first_input_queue_seq),
+            inputs: expected_merge_inputs(nullifiers.iter(), first_input_queue_seq),
             outputs: vec![OutputUtxo {
                 view_tag: output_view_tag,
                 utxo_hash: output_utxo_hash,
