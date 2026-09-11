@@ -102,7 +102,7 @@ type testAssignment struct {
 	PublicAssets     [NPublicSlots]frontend.Variable
 	PublicAmounts    [NPublicSlots]frontend.Variable
 	RingProgramID    frontend.Variable
-	AllowDummyInputs frontend.Variable
+	InputFlags       frontend.Variable
 	SignerPkHashes   []frontend.Variable
 	TreeSlots        []TreeSlot
 	OutputTreeID     frontend.Variable
@@ -213,7 +213,7 @@ func asCustomRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			PublicAssets:                 a.PublicAssets,
 			PublicAmounts:                a.PublicAmounts,
 			RingProgramID:                a.RingProgramID,
-			AllowDummyInputs:             a.AllowDummyInputs,
+			InputFlags:                   a.InputFlags,
 			SignerPkHashes:               a.TransactionSignerPkHashes(),
 			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
 			PublicInputHash:              a.PublicInputHash,
@@ -242,7 +242,7 @@ func asCustomRingAuthority(a *testAssignment) frontend.Circuit {
 			PublicAmounts:    a.PublicAmounts,
 			RingProgramID:    a.RingProgramID,
 			SignerPkHashes:   a.AuthoritySignerPkHashes(),
-			AllowDummyInputs: a.AllowDummyInputs,
+			InputFlags:       a.InputFlags,
 			PublicInputHash:  a.PublicInputHash,
 		},
 		Private: customring.CustomRingAuthorityPrivate{
@@ -265,7 +265,7 @@ func asDefaultRingEddsaOnly(a *testAssignment) frontend.Circuit {
 			ExternalDataHash:    a.ExternalDataHash,
 			PublicAssets:        a.PublicAssets,
 			PublicAmounts:       a.PublicAmounts,
-			AllowDummyInputs:    a.AllowDummyInputs,
+			InputFlags:          a.InputFlags,
 			SignerPkHashes:      a.TransactionSignerPkHashes(),
 			OutputOwnerPkHashes: a.OutputOwnerPkHashes(),
 			PublicInputHash:     a.PublicInputHash,
@@ -340,6 +340,7 @@ func buildCircuitAssignmentExact(
 		t.Fatalf("output UTXO count mismatch: got %d want %d", len(outputUtxos), shape.NOutputs)
 	}
 
+	inputTreeSlots := singleTreeSlots(shape.NInputs)
 	nullifierSecrets := make([]*big.Int, shape.NInputs)
 	inputOwnerPkHashes := make([]*big.Int, shape.NInputs)
 	inputCircuitUtxos := make([]UtxoCircuitFields, shape.NInputs)
@@ -465,7 +466,7 @@ func buildCircuitAssignmentExact(
 		// Nonzero test ring id: the custom-ring circuits assert RingProgramID
 		// != 0; the default-ring refresh overrides it back to 0.
 		RingProgramID:       spptest.Fe(0x5A),
-		AllowDummyInputs:    spptest.Fe(1),
+		InputFlags:          testInputFlags(t, true, inputTreeSlots),
 		SignerPkHashes:      signerPkHashes,
 		BindOutputOwnerTags: true,
 	}
@@ -487,7 +488,7 @@ func buildCircuitAssignmentExact(
 				Utxo:                     inputCircuitUtxos[i],
 				StatePathElements:        statePathElementsVars[i],
 				StatePathIndex:           statePathIndexVars[i],
-				TreeSlot:                 spptest.Fe(0),
+				TreeSlot:                 inputTreeSlots[i],
 				NullifierLowValue:        nfLowValueVars[i],
 				NullifierNextValue:       nfNextValueVars[i],
 				NullifierLowPathElements: nfLowPathElementVars[i],
@@ -516,7 +517,7 @@ func buildCircuitAssignmentExact(
 		ExternalDataHash: externalDataHash,
 		PrivateTxHash:    privateTxHash,
 		RingProgramID:    publicInputs.RingProgramID,
-		AllowDummyInputs: publicInputs.AllowDummyInputs,
+		InputFlags:       publicInputs.InputFlags,
 		SignerPkHashes:   asFrontendVariables(publicInputs.SignerPkHashes),
 		TreeSlots:        treeSlots,
 		OutputTreeID:     spptest.Fe(testOutputTreeID),
@@ -577,7 +578,7 @@ func refreshPublicInputHashVariant(t testing.TB, assignment *testAssignment, bin
 		PrivateTxHash:       spptest.AsBigInt(assignment.PrivateTxHash),
 		ExternalDataHash:    spptest.AsBigInt(assignment.ExternalDataHash),
 		RingProgramID:       spptest.AsBigInt(assignment.RingProgramID),
-		AllowDummyInputs:    spptest.AsBigInt(assignment.AllowDummyInputs),
+		InputFlags:          spptest.AsBigInt(assignment.InputFlags),
 		SignerPkHashes:      spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
 		BindOutputOwnerTags: bindOutputOwnerTags,
 	}

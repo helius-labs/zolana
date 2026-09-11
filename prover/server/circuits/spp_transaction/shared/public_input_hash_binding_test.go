@@ -140,8 +140,8 @@ func assertPublicInputHashBindsEveryField(
 	}
 	mutations = append(
 		mutations,
-		publicInputHashMutation{name: "allow_dummy_inputs", run: func() {
-			refreshWithChangedField(&assignment.AllowDummyInputs)
+		publicInputHashMutation{name: "input_flags", run: func() {
+			refreshWithChangedField(&assignment.InputFlags)
 		}},
 	)
 	mutations = append(mutations, options.extraMutations...)

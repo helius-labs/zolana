@@ -39,7 +39,7 @@ type CustomRingP256Public struct {
 	PublicAssets                 [shared.NPublicSlots]frontend.Variable
 	PublicAmounts                [shared.NPublicSlots]frontend.Variable
 	RingProgramID                frontend.Variable
-	AllowDummyInputs             frontend.Variable
+	InputFlags                   frontend.Variable
 	SignerPkHashes               []frontend.Variable
 	PublishedOutputOwnerPkHashes []frontend.Variable
 	PublicInputHash              frontend.Variable `gnark:",public"`
@@ -104,7 +104,7 @@ func (c *CustomRingP256Circuit) transaction(
 		PublicAmounts:     c.Public.PublicAmounts,
 		RingProgramID:     c.Public.RingProgramID,
 		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageAfterPrivateTxHash: []frontend.Variable{
 			p256MessageHash,

@@ -49,7 +49,7 @@ type P256TransferParameters struct {
 	PublicAmounts                []*big.Int
 	RingProgramID                *big.Int
 	SignerPkHashes               []*big.Int
-	AllowDummyInputs             *big.Int
+	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 	PublicInputHash              *big.Int
 }
@@ -76,7 +76,7 @@ type P256TransferParametersJSON struct {
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
-	AllowDummyInputs             string                      `json:"allowDummyInputs"`
+	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
 	PublicInputHash              string                      `json:"publicInputHash"`
 }
@@ -96,7 +96,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		PublicAmounts:                p.PublicAmounts,
 		RingProgramID:                p.RingProgramID,
 		SignerPkHashes:               p.SignerPkHashes,
-		AllowDummyInputs:             p.AllowDummyInputs,
+		InputFlags:                   p.InputFlags,
 		PublishedOutputOwnerPkHashes: p.PublishedOutputOwnerPkHashes,
 		Variant:                      RingVariant,
 		PublicInputHash:              p.PublicInputHash,
@@ -123,7 +123,7 @@ func (p *P256TransferParameters) MarshalJSON() ([]byte, error) {
 		PublicAmounts:                base.PublicAmounts,
 		RingProgramID:                base.RingProgramID,
 		SignerPkHashes:               base.SignerPkHashes,
-		AllowDummyInputs:             base.AllowDummyInputs,
+		InputFlags:                   base.InputFlags,
 		PublishedOutputOwnerPkHashes: base.PublishedOutputOwnerPkHashes,
 		PublicInputHash:              base.PublicInputHash,
 	})
@@ -153,7 +153,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 		PublicAmounts:                params.PublicAmounts,
 		RingProgramID:                params.RingProgramID,
 		SignerPkHashes:               params.SignerPkHashes,
-		AllowDummyInputs:             params.AllowDummyInputs,
+		InputFlags:                   params.InputFlags,
 		PublishedOutputOwnerPkHashes: params.PublishedOutputOwnerPkHashes,
 		PublicInputHash:              params.PublicInputHash,
 	}); err != nil {
@@ -172,7 +172,7 @@ func (p *P256TransferParameters) UnmarshalJSON(data []byte) error {
 	p.PublicAmounts = base.PublicAmounts
 	p.RingProgramID = base.RingProgramID
 	p.SignerPkHashes = base.SignerPkHashes
-	p.AllowDummyInputs = base.AllowDummyInputs
+	p.InputFlags = base.InputFlags
 	p.PublishedOutputOwnerPkHashes = base.PublishedOutputOwnerPkHashes
 	p.PublicInputHash = base.PublicInputHash
 
@@ -253,7 +253,7 @@ func (p *P256TransferParameters) CreateWitness() (frontend.Circuit, error) {
 			PublicAssets:                 core.publicAssets,
 			PublicAmounts:                core.publicAmounts,
 			RingProgramID:                p.RingProgramID,
-			AllowDummyInputs:             p.AllowDummyInputs,
+			InputFlags:                   p.InputFlags,
 			SignerPkHashes:               signerPkHashes,
 			PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 			PublicInputHash:              p.PublicInputHash,

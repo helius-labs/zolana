@@ -31,7 +31,7 @@ type publicInputHashVector struct {
 	PublicAssets        []string         `json:"public_assets"`
 	PublicAmounts       []string         `json:"public_amounts"`
 	RingProgramID       string           `json:"ring_program_id"`
-	AllowDummyInputs    string           `json:"allow_dummy_inputs"`
+	InputFlags          string           `json:"input_flags"`
 	SignerPkHashes      []string         `json:"signer_pk_hashes"`
 	OutputOwnerPkHashes []string         `json:"output_owner_pk_hashes"`
 	PublicInputHash     string           `json:"public_input_hash"`
@@ -122,7 +122,7 @@ func TestPublicInputHashInsertsPreimageAfterPrivateTxHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields = append(fields, inputs.RingProgramID, signerChain, inputs.AllowDummyInputs)
+	fields = append(fields, inputs.RingProgramID, signerChain, inputs.InputFlags)
 	want := mustHashChain4(t, fields)
 	if got.Cmp(want) != 0 {
 		t.Fatalf("inserted preimage mismatch:\ngot  0x%s\nwant 0x%s", parse.FieldHex(got), parse.FieldHex(want))
@@ -174,7 +174,7 @@ func inputsFromVector(t *testing.T, vector publicInputHashVector) PublicInputs {
 		PrivateTxHash:       parseField(t, vector.PrivateTxHash),
 		ExternalDataHash:    parseField(t, vector.ExternalDataHash),
 		RingProgramID:       parseField(t, vector.RingProgramID),
-		AllowDummyInputs:    parseField(t, vector.AllowDummyInputs),
+		InputFlags:          parseField(t, vector.InputFlags),
 		SignerPkHashes:      parseFields(t, vector.SignerPkHashes),
 		OutputOwnerPkHashes: parseFields(t, vector.OutputOwnerPkHashes),
 	}

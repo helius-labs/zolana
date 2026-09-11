@@ -35,10 +35,12 @@ type CustomRingEddsaOnlyPublic struct {
 	PublicAmounts [shared.NPublicSlots]frontend.Variable
 	// Program ID of the ring program.
 	RingProgramID frontend.Variable
-	// Whether dummy input UTXOs are allowed.
-	// Dummy input UTXOs are not allowed once the nullifier tree capacity
-	// is less than remaining state tree capacity to ensure that every new UTXO can be nullified.
-	AllowDummyInputs frontend.Variable
+	// Packed input flags: bit 0 says whether dummy input UTXOs are allowed, and
+	// input i's tree index occupies the shared.TreeIndexBits bits starting at
+	// 1+shared.TreeIndexBits*i. Dummy input UTXOs are not allowed once the
+	// nullifier tree capacity is less than remaining state tree capacity, to
+	// ensure that every new UTXO can be nullified.
+	InputFlags frontend.Variable
 	// Hashed EdDSA signer pubkeys, with the fee payer first.
 	SignerPkHashes []frontend.Variable
 	// Default-ring real outputs publish owner pubkey hashes; custom-ring real outputs
@@ -101,7 +103,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		PublicAmounts:     c.Public.PublicAmounts,
 		RingProgramID:     c.Public.RingProgramID,
 		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
 			gadget.HashChain4(api, c.Public.PublishedOutputOwnerPkHashes),

@@ -63,8 +63,11 @@ type Transaction struct {
 	PublicAmounts     [NPublicSlots]frontend.Variable
 	RingProgramID     frontend.Variable
 	SignerPkHashChain frontend.Variable
-	AllowDummyInputs  frontend.Variable
-	PublicInputHash   frontend.Variable
+	// InputFlags packs the dummy-input policy in bit 0 and input i's tree index
+	// in the TreeIndexBits bits starting at 1+TreeIndexBits*i, so the published
+	// routing costs no extra public-input-hash element.
+	InputFlags      frontend.Variable
+	PublicInputHash frontend.Variable
 
 	// PreimageAfterPrivateTxHash contains variant-specific fields inserted
 	// immediately after PrivateTxHash in the public-input-hash preimage.
@@ -119,18 +122,28 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	if err := ValidateLength("output signed", len(outputSigned), t.Shape.NOutputs); err != nil {
 		return err
 	}
-	api.AssertIsBoolean(t.AllowDummyInputs)
+	// ToBinary over the shape's exact packed width both decomposes InputFlags
+	// and range-checks it, so no bit above the layout can carry a value.
+	flagBits := api.ToBinary(t.InputFlags, 1+TreeIndexBits*t.Shape.NInputs)
+	allowDummyInputs := flagBits[0]
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressNullifiers := make([]frontend.Variable, t.Shape.NInputs)
 	for i, in := range t.Inputs {
-		// AllowDummyInputs is SPP's nullifier-capacity gate: a spend consumes a
+		// The dummy policy is SPP's nullifier-capacity gate: a spend consumes a
 		// nullifier leaf for a UTXO leaf that already exists, while dummy and
 		// address slots insert a nullifier without spending one. When the gate is
 		// off, every input slot must therefore be a real UTXO.
 		api.AssertIsEqual(
-			api.Mul(api.Sub(1, t.AllowDummyInputs), api.Sub(1, in.isUtxo(api))),
+			api.Mul(api.Sub(1, allowDummyInputs), api.Sub(1, in.isUtxo(api))),
 			0,
+		)
+		// The slot an input spends from is private, but the program routes its
+		// nullifier by the published index. Binding the two here is what stops a
+		// proof checked against one tree from being queued into another.
+		api.AssertIsEqual(
+			in.TreeSlot,
+			api.FromBinary(flagBits[1+TreeIndexBits*i:1+TreeIndexBits*(i+1)]...),
 		)
 		signals := PublicInputUtxoInputs{
 			Nullifier: t.Nullifiers[i],
@@ -188,7 +201,7 @@ func (t Transaction) publicInputHash(api frontend.API) frontend.Variable {
 	fields = append(fields, t.PreimageAfterPrivateTxHash...)
 	fields = append(fields, t.ExternalDataHash)
 	fields = append(fields, publicSlots(t.PublicAssets, t.PublicAmounts)...)
-	fields = append(fields, t.RingProgramID, t.SignerPkHashChain, t.AllowDummyInputs)
+	fields = append(fields, t.RingProgramID, t.SignerPkHashChain, t.InputFlags)
 	fields = append(fields, t.PreimageTail...)
 	return gadget.HashChain4(api, fields)
 }
@@ -261,6 +274,9 @@ const (
 	FixedTransactAddresses = 4
 	// InputTrees is the number of input tree slots a proof spends from.
 	InputTrees = 5
+	// TreeIndexBits is the width of one input's tree index inside InputFlags.
+	// It must hold every slot index, so 1<<TreeIndexBits >= InputTrees.
+	TreeIndexBits = 3
 	// DummyDomain is the domain tag for dummy (padding) utxos.
 	DummyDomain = 1
 	// AddressDomain is the domain tag for address utxos, separating address
@@ -273,6 +289,10 @@ const (
 	// NullifierTreeHeight is the SPP nullifier tree height.
 	NullifierTreeHeight = 40
 )
+
+// Compile-time bound on the InputFlags layout: a slot index that does not fit
+// in TreeIndexBits could not be published.
+const _ = uint((1 << TreeIndexBits) - InputTrees)
 
 // assertZeroWhen constrains v == 0 only when cond == 1 (see gadget.AssertZeroWhen).
 func assertZeroWhen(api frontend.API, cond, v frontend.Variable) {

@@ -9,6 +9,7 @@ import (
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -47,11 +48,14 @@ type stateWitnesses struct {
 
 // proofTrees is the tree context of one transaction: the raw ids the utxo
 // hashes are bound to and the public tree slots inputs are spent from. This
-// builder spends from a single tree, so only slot 0 is populated.
+// builder spends from a single tree, so only inputTreeSlot is populated.
 type proofTrees struct {
-	inputTreeID  *big.Int
-	outputTreeID *big.Int
-	slots        []protocol.TreeSlot
+	inputTreeID *big.Int
+	// inputTreeSlot is the slot inputTreeID is published in, and therefore the
+	// slot every input selects.
+	inputTreeSlot *big.Int
+	outputTreeID  *big.Int
+	slots         []protocol.TreeSlot
 }
 
 // proofAssignment bundles everything buildProofAssignment produces: the circuit
@@ -87,7 +91,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees.inputTreeID)
+	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -210,7 +214,7 @@ func customRingWitness(
 			PublicAssets:                 publicAssets,
 			PublicAmounts:                publicAmounts,
 			RingProgramID:                publicInputs.RingProgramID,
-			AllowDummyInputs:             publicInputs.AllowDummyInputs,
+			InputFlags:                   publicInputs.InputFlags,
 			SignerPkHashes:               fieldVariables(publicInputs.SignerPkHashes),
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
@@ -321,9 +325,10 @@ func buildProofTrees(
 		return proofTrees{}, err
 	}
 	return proofTrees{
-		inputTreeID:  inputTreeID,
-		outputTreeID: new(big.Int).SetUint64(uint64(tx.OutputTreeID)),
-		slots:        slots,
+		inputTreeID:   inputTreeID,
+		inputTreeSlot: big.NewInt(0),
+		outputTreeID:  new(big.Int).SetUint64(uint64(tx.OutputTreeID)),
+		slots:         slots,
 	}, nil
 }
 
@@ -362,6 +367,10 @@ func buildPublicInputs(
 	if err != nil {
 		return protocol.PublicInputs{}, err
 	}
+	inputFlags, err := common.PackInputFlags(true, inputs.treeSlots)
+	if err != nil {
+		return protocol.PublicInputs{}, err
+	}
 	return protocol.PublicInputs{
 		Nullifiers:          inputs.nullifiers,
 		OutputUtxoHashes:    outputs.hashes,
@@ -372,7 +381,7 @@ func buildPublicInputs(
 		PublicAssets:        external.publicSlots.assets,
 		PublicAmounts:       external.publicSlots.amounts,
 		RingProgramID:       external.ringProgramID,
-		AllowDummyInputs:    big.NewInt(1),
+		InputFlags:          inputFlags,
 		SignerPkHashes:      signers,
 		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
