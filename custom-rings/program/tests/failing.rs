@@ -20,5 +20,7 @@ mod read_access;
 mod set_authority;
 #[path = "failing/set_paused.rs"]
 mod set_paused;
+#[path = "failing/spend_window.rs"]
+mod spend_window;
 #[path = "failing/transact.rs"]
 mod transact;

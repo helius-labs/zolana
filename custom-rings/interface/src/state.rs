@@ -116,6 +116,60 @@ impl CoSigner {
 const _: () = assert!(CoSigner::SIZE == 356);
 const _: () = assert!(core::mem::align_of::<CoSigner>() == 1);
 
+pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
+/// First byte of an initialized spend window.
+pub const SPEND_WINDOW: u8 = 5;
+
+/// Caps per fixed window of slots, a zero cap leaves its direction uncapped,
+/// integers little endian.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct SpendWindow {
+    pub discriminator: u8,
+    /// SOL under the zero address.
+    pub mint: Address,
+    pub window_slots: [u8; 8],
+    pub deposit_cap: [u8; 8],
+    pub withdrawal_cap: [u8; 8],
+    /// First slot of the window the counters belong to.
+    pub window_start_slot: [u8; 8],
+    pub deposited: [u8; 8],
+    pub withdrawn: [u8; 8],
+    pub bump: u8,
+}
+
+impl SpendWindow {
+    pub const SEED: &'static [u8] = SPEND_WINDOW_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub const fn window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.window_slots)
+    }
+
+    pub const fn deposit_cap(&self) -> u64 {
+        u64::from_le_bytes(self.deposit_cap)
+    }
+
+    pub const fn withdrawal_cap(&self) -> u64 {
+        u64::from_le_bytes(self.withdrawal_cap)
+    }
+
+    pub const fn window_start_slot(&self) -> u64 {
+        u64::from_le_bytes(self.window_start_slot)
+    }
+
+    pub const fn deposited(&self) -> u64 {
+        u64::from_le_bytes(self.deposited)
+    }
+
+    pub const fn withdrawn(&self) -> u64 {
+        u64::from_le_bytes(self.withdrawn)
+    }
+}
+
+const _: () = assert!(SpendWindow::SIZE == 82);
+const _: () = assert!(core::mem::align_of::<SpendWindow>() == 1);
+
 /// Seed of the account pinning the policy hash and the source map.
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
 /// First byte of an initialized policy config.

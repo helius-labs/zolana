@@ -1,7 +1,7 @@
 //! The co-signer account and the operations it gates.
 
 use custom_ring_interface::{
-    tag, CoSigner, AUDITOR_MESSAGE_LEN, COSIGN_DEPOSITS, COSIGN_TRANSFERS, COSIGN_WITHDRAWALS,
+    CoSigner, AUDITOR_MESSAGE_LEN, COSIGN_DEPOSITS, COSIGN_TRANSFERS, COSIGN_WITHDRAWALS,
     CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS,
 };
 use custom_ring_program::CustomRingError;
@@ -16,7 +16,8 @@ use zolana_interface::instruction::InterfaceTransfer;
 use crate::common::{
     account, audit_only_config_account, audit_transact_fixture, auditor_pubkey, authority,
     clear_cosigner_fixture, cosigner, cosigner_account, cosigner_pda, deposit_fixture,
-    rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk, Fixture, Slot,
+    merge_fixture, rent_recipient, set_cosigner_data, set_cosigner_fixture, setup_mollusk,
+    window_slot, Fixture, Slot,
 };
 use crate::transact::{auditor_message, bogus_proof, instruction_data, transact};
 
@@ -220,6 +221,14 @@ fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixtu
     fixture
 }
 
+/// The window slots of `legs`, empty, inserted after the co-signer prefix.
+fn with_windows(mut fixture: Fixture, mints: &[Pubkey]) -> Fixture {
+    for (index, mint) in mints.iter().enumerate() {
+        fixture.insert(4 + index, window_slot(*mint, None));
+    }
+    fixture
+}
+
 fn sol_withdrawal_slots() -> Vec<Slot> {
     vec![
         Slot {
@@ -308,9 +317,12 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
     )
     .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     with_cosigner(
-        gated_transact(
-            vec![InterfaceTransfer::SolDeposit { amount: 5 }],
-            sol_withdrawal_slots(),
+        with_windows(
+            gated_transact(
+                vec![InterfaceTransfer::SolDeposit { amount: 5 }],
+                sol_withdrawal_slots(),
+            ),
+            &[SOL],
         ),
         scoped,
         false,
@@ -322,22 +334,49 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
 fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(COSIGN_WITHDRAWALS, &[(SOL, 10)]);
-    let one_leg = gated_transact(
-        vec![InterfaceTransfer::SolWithdrawal { amount: 6 }],
-        sol_withdrawal_slots(),
+    let one_leg = with_windows(
+        gated_transact(
+            vec![InterfaceTransfer::SolWithdrawal { amount: 6 }],
+            sol_withdrawal_slots(),
+        ),
+        &[SOL],
     );
     with_cosigner(one_leg, scoped.clone(), false)
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
     let mut two_legs = sol_withdrawal_slots();
     two_legs.extend(sol_withdrawal_slots());
-    let split = gated_transact(
-        vec![
-            InterfaceTransfer::SolWithdrawal { amount: 6 },
-            InterfaceTransfer::SolWithdrawal { amount: 6 },
-        ],
-        two_legs,
+    let split = with_windows(
+        gated_transact(
+            vec![
+                InterfaceTransfer::SolWithdrawal { amount: 6 },
+                InterfaceTransfer::SolWithdrawal { amount: 6 },
+            ],
+            two_legs,
+        ),
+        &[SOL, SOL],
     );
     with_cosigner(split, scoped, false)
+        .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
+}
+
+/// A deposit leg of the mint ahead of the withdrawal does not hide it.
+#[test]
+fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
+    let (mollusk, _) = setup_mollusk();
+    let scoped = cosigner_account(COSIGN_WITHDRAWALS, &[(SOL, 10)]);
+    let mut settlements = sol_withdrawal_slots();
+    settlements.extend(sol_withdrawal_slots());
+    let mixed = with_windows(
+        gated_transact(
+            vec![
+                InterfaceTransfer::SolDeposit { amount: 1 },
+                InterfaceTransfer::SolWithdrawal { amount: 11 },
+            ],
+            settlements,
+        ),
+        &[SOL, SOL],
+    );
+    with_cosigner(mixed, scoped, false)
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }
 
@@ -347,22 +386,28 @@ fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
 fn a_withdrawn_mint_without_a_threshold_row_needs_the_cosigner() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(COSIGN_WITHDRAWALS, &[(SOL, 10)]);
-    let spl = gated_transact(
-        vec![InterfaceTransfer::SplWithdrawal {
-            amount: 1,
-            spl_interface_bump: 250,
-        }],
-        spl_withdrawal_slots(USDC),
+    let spl = with_windows(
+        gated_transact(
+            vec![InterfaceTransfer::SplWithdrawal {
+                amount: 1,
+                spl_interface_bump: 250,
+            }],
+            spl_withdrawal_slots(USDC),
+        ),
+        &[USDC],
     );
     with_cosigner(spl, scoped, false)
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
     let rowed = cosigner_account(COSIGN_WITHDRAWALS, &[(USDC, 10)]);
-    let under = gated_transact(
-        vec![InterfaceTransfer::SplWithdrawal {
-            amount: 10,
-            spl_interface_bump: 250,
-        }],
-        spl_withdrawal_slots(USDC),
+    let under = with_windows(
+        gated_transact(
+            vec![InterfaceTransfer::SplWithdrawal {
+                amount: 10,
+                spl_interface_bump: 250,
+            }],
+            spl_withdrawal_slots(USDC),
+        ),
+        &[USDC],
     );
     with_cosigner(under, rowed, false)
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
@@ -394,8 +439,10 @@ fn a_deposit_scope_gates_the_ring_deposit() {
 #[test]
 fn a_transfer_scope_gates_the_merge() {
     let (mollusk, _) = setup_mollusk();
-    let mut merge = deposit_fixture();
-    merge.data_mut()[0] = tag::MERGE;
-    with_cosigner(merge, cosigner_account(COSIGN_TRANSFERS, &[]), false)
-        .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
+    with_cosigner(
+        merge_fixture(),
+        cosigner_account(COSIGN_TRANSFERS, &[]),
+        false,
+    )
+    .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }

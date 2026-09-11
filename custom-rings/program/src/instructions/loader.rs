@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::{CoSigner, PolicyConfig};
+use custom_ring_interface::{CoSigner, PolicyConfig, SpendWindow};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -78,6 +78,32 @@ pub fn load_cosigner<'a>(
     }
     .verify_stored_bump(cosigner.bump)?;
     Ok(Some(cosigner))
+}
+
+/// `Ok(None)` for the canonical address of `mint` with no account.
+#[inline(always)]
+pub fn load_spend_window<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+    mint: &Address,
+) -> Result<Option<Ref<'a, SpendWindow>>, ProgramError> {
+    let seeds = [SpendWindow::SEED, mint.as_array()];
+    let check = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &seeds,
+        mismatch: CustomRingError::InvalidSpendWindow,
+    };
+    if account.data_len() == 0 {
+        check.verify()?;
+        return Ok(None);
+    }
+    let window = load_account::<SpendWindow>(program_id, account)?;
+    if window.mint != *mint {
+        return Err(CustomRingError::InvalidSpendWindow.into());
+    }
+    check.verify_stored_bump(window.bump)?;
+    Ok(Some(window))
 }
 
 #[inline(always)]

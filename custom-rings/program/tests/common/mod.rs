@@ -5,10 +5,11 @@ use bytemuck::Zeroable;
 use custom_ring_interface::{
     tag, CoSigner, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData,
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, SetCoSignerIxData, SetPausedIxData,
-    SourceSlot, SourceSpec, UpdateEntryIxData, WithdrawalThreshold, WithdrawalThresholdIxData,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
-    POLICY_CONFIG, POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
-    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG,
+    SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow, UpdateEntryIxData,
+    WithdrawalThreshold, WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
+    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
+    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -20,7 +21,10 @@ use solana_instruction::{error::InstructionError, AccountMeta, Instruction};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
-    instruction::instruction_data::transact::TransactProof,
+    instruction::instruction_data::{
+        deposit::{DepositAssetKind, RingDepositEntry, RingDepositIxData},
+        transact::TransactProof,
+    },
     state::{default_tree_fees, discriminator::RING_CONFIG, nullifier_tree_params, RingConfig},
     BPF_LOADER_UPGRADEABLE_PUBKEY, RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -79,6 +83,22 @@ impl Fixture {
         self.accounts.push((slot.meta.pubkey, slot.account));
         self.instruction.accounts.push(slot.meta);
         self.labels.push(slot.label);
+    }
+
+    pub fn remove(&mut self, label: &str) {
+        let index = self
+            .labels
+            .iter()
+            .position(|candidate| *candidate == label)
+            .unwrap_or_else(|| panic!("unknown slot {label}"));
+        self.instruction.accounts.remove(index);
+        self.labels.remove(index);
+    }
+
+    pub fn insert(&mut self, index: usize, slot: Slot) {
+        self.accounts.push((slot.meta.pubkey, slot.account));
+        self.instruction.accounts.insert(index, slot.meta);
+        self.labels.insert(index, slot.label);
     }
 
     /// Appends to the instruction data, negatives use it for trailing bytes.
@@ -378,6 +398,124 @@ pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
                 meta: AccountMeta::new(cosigner_pda().0, false),
                 account: existing,
             },
+            Slot {
+                label: "rent_recipient",
+                meta: AccountMeta::new(rent_recipient(), false),
+                account: account(1_000_000_000),
+            },
+        ],
+    )
+}
+
+pub fn spend_window_pda(mint: Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[SPEND_WINDOW_PDA_SEED, mint.as_ref()], &program_id())
+}
+
+pub struct WindowState {
+    pub mint: Pubkey,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub deposited: u64,
+    pub withdrawn: u64,
+}
+
+impl WindowState {
+    pub fn account(&self) -> Account {
+        let state = SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint: Address::new_from_array(self.mint.to_bytes()),
+            window_slots: self.window_slots.to_le_bytes(),
+            deposit_cap: self.deposit_cap.to_le_bytes(),
+            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
+            window_start_slot: self.window_start_slot.to_le_bytes(),
+            deposited: self.deposited.to_le_bytes(),
+            withdrawn: self.withdrawn.to_le_bytes(),
+            bump: spend_window_pda(self.mint).1,
+        };
+        Account {
+            lamports: 1_500_000,
+            data: bytemuck::bytes_of(&state).to_vec(),
+            owner: program_id(),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+}
+
+/// One writable window slot at the mint's canonical address, empty by default.
+pub fn window_slot(mint: Pubkey, account: Option<Account>) -> Slot {
+    Slot {
+        label: "window",
+        meta: AccountMeta::new(spend_window_pda(mint).0, false),
+        account: account.unwrap_or_else(|| self::account(0)),
+    }
+}
+
+pub fn set_spend_window_data(
+    mint: Pubkey,
+    window_slots: u64,
+    deposit_cap: u64,
+    withdrawal_cap: u64,
+) -> Vec<u8> {
+    let mut data = vec![tag::SET_SPEND_WINDOW];
+    data.extend_from_slice(
+        &wincode::serialize(&SetSpendWindowIxData {
+            mint: mint.to_bytes(),
+            window_slots,
+            deposit_cap,
+            withdrawal_cap,
+        })
+        .expect("serialize set_spend_window data"),
+    );
+    data
+}
+
+/// `[payer(w,s), authority(s), config, window(w), system_program]`.
+pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            window_slot(mint, existing),
+            system_program_slot(),
+        ],
+    )
+}
+
+/// `[authority(s), config, window(w), rent_recipient(w)]`, the data is the mint.
+pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
+    let mut data = vec![tag::CLEAR_SPEND_WINDOW];
+    data.extend_from_slice(mint.as_ref());
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            window_slot(mint, Some(existing)),
             Slot {
                 label: "rent_recipient",
                 meta: AccountMeta::new(rent_recipient(), false),
@@ -1150,41 +1288,86 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
     )
 }
 
-/// SOL-only ring-deposit fixture, laid out exactly as SPP's deposit loader wants
-/// it: `[tree(w), depositor(w,s), ring_config, spp_program, system_program,
-/// sol_interface]`. The instruction data starts with SPP's own `RING_DEPOSIT`
-/// tag, which the ring forwards verbatim.
+pub const SOL_DEPOSIT_AMOUNT: u64 = 5;
+
+/// A ring deposit of `amount` per entry, one entry per asset.
+pub fn ring_deposit_data(assets: Vec<DepositAssetKind>, amount: u64) -> Vec<u8> {
+    let deposits = (0..assets.len())
+        .map(|index| RingDepositEntry {
+            asset_index: index as u8,
+            view_tag: [0; 32],
+            owner_utxo_hash: [1; 32],
+            amount,
+            data_hash: None,
+            ring_data_hash: [2; 32],
+            encrypted:
+                zolana_interface::instruction::instruction_data::deposit::EncryptedRingDepositData {
+                    tx_viewing_pk: [3; 33],
+                    salt: [4; 16],
+                    ciphertext: Vec::new(),
+                },
+        })
+        .collect();
+    let mut data = vec![tag::DEPOSIT];
+    data.extend_from_slice(
+        &RingDepositIxData { assets, deposits }
+            .serialize()
+            .expect("serialize ring deposit"),
+    );
+    data
+}
+
+/// The SPP list of a SOL ring deposit, `[tree(w), depositor(w,s), ring_config,
+/// spp_program, system_program, sol_interface]`.
+fn sol_deposit_slots() -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([51; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "depositor",
+            meta: AccountMeta::new(Pubkey::new_from_array([52; 32]), true),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "ring_config",
+            meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+            account: account(1_000_000_000),
+        },
+        spp_program_slot(),
+        system_program_slot(),
+        Slot {
+            label: "sol_interface",
+            meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// A SOL-only ring deposit, `[cosigner_pda, cosigner, window(w)]` precede the
+/// SPP list.
 pub fn deposit_fixture() -> Fixture {
     let [cosigner_pda, cosigner] = cosigner_slots();
+    let mut slots = vec![
+        cosigner_pda,
+        cosigner,
+        window_slot(Pubkey::new_from_array([0; 32]), None),
+    ];
+    slots.extend(sol_deposit_slots());
     Fixture::new(
-        vec![tag::DEPOSIT],
-        vec![
-            cosigner_pda,
-            cosigner,
-            Slot {
-                label: "tree",
-                meta: AccountMeta::new(Pubkey::new_from_array([51; 32]), false),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "depositor",
-                meta: AccountMeta::new(Pubkey::new_from_array([52; 32]), true),
-                account: account(1_000_000_000),
-            },
-            Slot {
-                label: "ring_config",
-                meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
-                account: account(1_000_000_000),
-            },
-            spp_program_slot(),
-            system_program_slot(),
-            Slot {
-                label: "sol_interface",
-                meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
-                account: account(1_000_000_000),
-            },
-        ],
+        ring_deposit_data(vec![DepositAssetKind::Sol], SOL_DEPOSIT_AMOUNT),
+        slots,
     )
+}
+
+/// A merge forwards the same SPP list as a deposit, with no window slot.
+pub fn merge_fixture() -> Fixture {
+    let [cosigner_pda, cosigner] = cosigner_slots();
+    let mut slots = vec![cosigner_pda, cosigner];
+    slots.extend(sol_deposit_slots());
+    Fixture::new(vec![tag::MERGE], slots)
 }
 
 pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {

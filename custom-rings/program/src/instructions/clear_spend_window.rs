@@ -4,34 +4,35 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_authorized_config, load_cosigner},
+        loader::{load_authorized_config, load_spend_window},
         shared::close_into,
     },
 };
 
 #[inline(never)]
-pub fn process_clear_cosigner_ix(
+pub fn process_clear_spend_window_ix(
     program_id: &Address,
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
-    if !data.is_empty() {
-        return Err(CustomRingError::InvalidInstructionData.into());
-    }
+    let mint: [u8; 32] = data
+        .try_into()
+        .map_err(|_| CustomRingError::InvalidInstructionData)?;
+    let mint = Address::new_from_array(mint);
 
     let mut iter = AccountIterator::new(accounts);
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_account("config")?;
-    let cosigner_account = iter.next_mut("cosigner")?;
+    let window_account = iter.next_mut("window")?;
     let rent_recipient = iter.next_mut("rent_recipient")?;
 
     load_authorized_config(program_id, config_account, authority)?;
-    if load_cosigner(program_id, cosigner_account)?.is_none() {
-        return Err(CustomRingError::InvalidCoSigner.into());
+    if load_spend_window(program_id, window_account, &mint)?.is_none() {
+        return Err(CustomRingError::InvalidSpendWindow.into());
     }
     close_into(
-        cosigner_account,
+        window_account,
         rent_recipient,
-        CustomRingError::InvalidCoSigner,
+        CustomRingError::InvalidSpendWindow,
     )
 }

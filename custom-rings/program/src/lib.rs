@@ -17,9 +17,10 @@ use custom_ring_interface::tag;
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
-    cosign::Demand, process_clear_cosigner_ix, process_create_entry_ix, process_create_policy_ix,
-    process_set_cosigner_ix, process_set_paused_ix, process_set_policy_rules_ix,
-    process_set_policy_source_ix, process_update_entry_ix,
+    forward::Forward, process_clear_cosigner_ix, process_clear_spend_window_ix,
+    process_create_entry_ix, process_create_policy_ix, process_set_cosigner_ix,
+    process_set_paused_ix, process_set_policy_rules_ix, process_set_policy_source_ix,
+    process_set_spend_window_ix, process_update_entry_ix,
 };
 use crate::instructions::{
     process_create_config_ix, process_grant_read_access_ix, process_init_spp_ring_config_ix,
@@ -47,11 +48,11 @@ pub fn process_instruction(
         tag::TRANSACT => process_transact_ix(program_id, accounts, ix_data),
         // The forwarder passes the tag byte on as well: SPP's dispatcher strips it.
         tag::DEPOSIT => {
-            process_spp_forward_ix(program_id, accounts, instruction_data, &Demand::DEPOSIT)
+            process_spp_forward_ix(program_id, accounts, instruction_data, Forward::Deposit)
         }
         // SPP proves that owner, asset, value, and ring ownership stay unchanged.
         tag::MERGE => {
-            process_spp_forward_ix(program_id, accounts, instruction_data, &Demand::TRANSFER)
+            process_spp_forward_ix(program_id, accounts, instruction_data, Forward::Merge)
         }
         tag::GRANT_READ_ACCESS => process_grant_read_access_ix(program_id, accounts, ix_data),
         tag::REVOKE_READ_ACCESS => process_revoke_read_access_ix(program_id, accounts, ix_data),
@@ -64,6 +65,8 @@ pub fn process_instruction(
         tag::SET_POLICY_RULES => process_set_policy_rules_ix(program_id, accounts, ix_data),
         tag::SET_CO_SIGNER => process_set_cosigner_ix(program_id, accounts, ix_data),
         tag::CLEAR_CO_SIGNER => process_clear_cosigner_ix(program_id, accounts, ix_data),
+        tag::SET_SPEND_WINDOW => process_set_spend_window_ix(program_id, accounts, ix_data),
+        tag::CLEAR_SPEND_WINDOW => process_clear_spend_window_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

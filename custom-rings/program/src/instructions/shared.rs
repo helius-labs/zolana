@@ -10,6 +10,24 @@ use zolana_interface::{RING_AUTH_PDA_SEED, SHIELDED_POOL_PROGRAM_ID};
 
 use crate::error::CustomRingError;
 
+/// Refunds the rent and closes, `mismatch` when the recipient is the account.
+pub(crate) fn close_into(
+    account: &mut AccountView,
+    rent_recipient: &mut AccountView,
+    mismatch: CustomRingError,
+) -> ProgramResult {
+    if account.address() == rent_recipient.address() {
+        return Err(mismatch.into());
+    }
+    let refund = rent_recipient
+        .lamports()
+        .checked_add(account.lamports())
+        .ok_or(ProgramError::ArithmeticOverflow)?;
+    rent_recipient.set_lamports(refund);
+    account.set_lamports(0);
+    account.close()
+}
+
 #[must_use]
 pub(crate) struct PdaCheck<'a> {
     pub program_id: &'a Address,
@@ -34,10 +52,15 @@ impl PdaCheck<'_> {
     #[inline(always)]
     pub fn verify_stored_bump(self, bump: u8) -> Result<(), ProgramError> {
         let bump = [bump];
-        let mut seeds: [&[u8]; 2] = [&[], &bump];
-        seeds[0] = self.seeds[0];
-        let derived =
-            Address::create_program_address(&seeds, self.program_id).map_err(|_| self.mismatch)?;
+        let mut seeds: [&[u8]; 3] = [&[]; 3];
+        let len = self.seeds.len();
+        if len >= seeds.len() {
+            return Err(self.mismatch.into());
+        }
+        seeds[..len].copy_from_slice(self.seeds);
+        seeds[len] = &bump;
+        let derived = Address::create_program_address(&seeds[..=len], self.program_id)
+            .map_err(|_| self.mismatch)?;
         if !pinocchio::address::address_eq(self.address, &derived) {
             return Err(self.mismatch.into());
         }

@@ -1,7 +1,7 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, PolicyConfig, SourceSlot, WithdrawalThreshold, CO_SIGNER, MAX_CO_SIGNER_THRESHOLDS,
-    N_SOURCE_SLOTS, POLICY_CONFIG,
+    CoSigner, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold, CO_SIGNER,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -213,12 +213,54 @@ impl CoSignerInitParams {
     }
 }
 
+impl Account for SpendWindow {
+    const DISCRIMINATOR: u8 = SPEND_WINDOW;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidSpendWindow;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct SpendWindowInitParams {
+    pub mint: Address,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub bump: u8,
+}
+
+impl SpendWindowInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub(crate) const fn value(self) -> SpendWindow {
+        SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint: self.mint,
+            window_slots: self.window_slots.to_le_bytes(),
+            deposit_cap: self.deposit_cap.to_le_bytes(),
+            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
+            window_start_slot: self.window_start_slot.to_le_bytes(),
+            deposited: [0; 8],
+            withdrawn: [0; 8],
+            bump: self.bump,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}
     impl Sealed for super::CoSigner {}
+    impl Sealed for super::SpendWindow {}
 }
 
 #[inline(always)]

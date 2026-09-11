@@ -26,6 +26,8 @@ pub mod tag {
     /// Ring-local tags above every SPP wire tag the dispatcher aliases.
     pub const SET_CO_SIGNER: u8 = 20;
     pub const CLEAR_CO_SIGNER: u8 = 21;
+    pub const SET_SPEND_WINDOW: u8 = 22;
+    pub const CLEAR_SPEND_WINDOW: u8 = 23;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -34,6 +36,7 @@ pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
@@ -67,6 +70,15 @@ pub struct SetCoSignerIxData {
     pub scope: u8,
     #[wincode(with = "containers::Vec<WithdrawalThresholdIxData, FixIntLen<u8>>")]
     pub thresholds: Vec<WithdrawalThresholdIxData>,
+}
+
+/// `window_slots` must be nonzero, the counters restart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetSpendWindowIxData {
+    pub mint: [u8; 32],
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
 }
 
 /// Groth16 proof of the custom-ring circuit. The circuit's emulated P256

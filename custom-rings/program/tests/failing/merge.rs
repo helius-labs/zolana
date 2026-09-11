@@ -1,18 +1,11 @@
-use custom_ring_interface::tag;
 use custom_ring_program::CustomRingError;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::common::{deposit_fixture, setup_mollusk};
+use crate::common::{merge_fixture, setup_mollusk};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
-}
-
-fn merge_fixture() -> crate::common::Fixture {
-    let mut fixture = deposit_fixture();
-    fixture.data_mut()[0] = tag::MERGE;
-    fixture
 }
 
 #[test]

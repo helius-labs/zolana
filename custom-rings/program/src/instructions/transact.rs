@@ -16,6 +16,7 @@ use crate::{
     instructions::{
         cosign::{require_cosigner, Demand},
         loader::{load_config, load_policy_config, validate_spp_program},
+        public_legs::{apply_spend_windows, PublicLegs},
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
@@ -29,11 +30,11 @@ use crate::{
 /// it. A policy ring verifies the folded eleven-element statement over the
 /// pinned policy hash and the entries-tree roots, its accounts
 /// `[payer(w,s), config, cosigner_pda, cosigner, policy_config, entries_tree(r)]`
-/// precede the SPP list. A base ring verifies just the eight-element audit
-/// statement against the base verifying key, its accounts are
-/// `[payer(w,s), config, cosigner_pda, cosigner]`. Only the SPP `RING_TRANSACT`
-/// list is forwarded, position for position, with `ring_config` gaining a
-/// signature.
+/// precede one spend window slot per public leg and the SPP list. A base ring
+/// verifies just the eight-element audit statement against the base verifying
+/// key, its accounts are `[payer(w,s), config, cosigner_pda, cosigner]`. Only
+/// the SPP `RING_TRANSACT` list is forwarded, position for position, with
+/// `ring_config` gaining a signature.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -69,7 +70,12 @@ pub fn process_transact_ix(
 
     // The forwarded list is validated before the pairing so a malformed account
     // list costs no verification.
-    let spp_accounts = iter.remaining_mut()?;
+    let rest = iter.remaining_mut()?;
+    let leg_count = transact.interface_transfers.len();
+    if rest.len() < leg_count {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (windows, spp_accounts) = rest.split_at_mut(leg_count);
     validate_spp_program(spp_accounts)?;
     let settlement_len: usize = transact
         .interface_transfers
@@ -81,12 +87,12 @@ pub fn process_transact_ix(
         .checked_sub(settlement_len)
         .and_then(|start| spp_accounts.get(start..))
         .ok_or(CustomRingError::InvalidInstructionData)?;
-    require_cosigner(
-        program_id,
-        cosigner_account,
-        cosigner,
-        &Demand::transact(&transact.interface_transfers, settlements)?,
-    )?;
+    let demand = Demand::transact(PublicLegs::from_transact(
+        &transact.interface_transfers,
+        settlements,
+    )?);
+    require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
+    apply_spend_windows(program_id, windows, &demand.legs)?;
 
     if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
         return Err(CustomRingError::UnsupportedCircuit.into());
