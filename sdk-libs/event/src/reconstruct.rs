@@ -2,7 +2,8 @@
 //! instruction that emitted it. The transact/merge reconstruction mirrors what
 //! the program used to write into the event field for field: outputs 1:1 with
 //! the instruction's outputs under their resolved owner tag, messages verbatim,
-//! and queue sequence numbers counted up from the emitted first sequence.
+//! and queue sequence numbers counted up from the first sequence emitted for
+//! each input's own tree.
 
 use borsh::BorshDeserialize;
 use solana_pubkey::Pubkey;
@@ -13,7 +14,7 @@ use zolana_event::{
 use zolana_interface::instruction::instruction_data::{
     merge_ring::MergeRingIxDataRef,
     merge_transact::MergeTransactIxDataRef,
-    transact::{InterfaceTransfer, OwnerTag, TransactIxDataRef},
+    transact::{InputUtxo, InterfaceTransfer, OwnerTag, TransactIxDataRef},
 };
 
 use crate::{instruction::ParsedInstruction, EventDecodeError};
@@ -82,11 +83,7 @@ pub fn transact_general_event(
         .map_err(|_| EventDecodeError::InvalidSourceInstructionData)?;
     let spl_transfers = settlement_transfers(&ix.interface_transfers, &source.accounts)?;
 
-    let input_tree = single_input_tree(&event.input_trees)?;
-    let inputs = inputs_from_nullifiers(
-        input_tree,
-        ix.inputs.iter().map(|input| &input.nullifier_hash),
-    )?;
+    let inputs = inputs_from_tree_indexes(&event.input_trees, &ix.inputs)?;
 
     let outputs = ix
         .outputs
@@ -225,8 +222,8 @@ fn source_tag_and_data(source: &ParsedInstruction) -> Result<(u8, &[u8]), EventD
         .ok_or(EventDecodeError::MissingInstructionTag)
 }
 
-/// Instruction data carries no per-input tree index yet, so every input must
-/// belong to the one emitted tree.
+/// `merge` spends from one tree and its instruction data carries no per-input
+/// tree index, so every nullifier must belong to the one emitted tree.
 fn single_input_tree(
     input_trees: &[InputTreeSequence],
 ) -> Result<InputTreeSequence, EventDecodeError> {
@@ -236,6 +233,44 @@ fn single_input_tree(
             input_trees.len(),
         )),
     }
+}
+
+/// Assign every `transact` input its tree and queue sequence number. An input's
+/// `tree_index` selects the emitted entry, which the program wrote in
+/// `tree_contexts` order; its sequence is that entry's `first_input_queue_seq`
+/// plus the number of earlier inputs on the same tree. The program groups
+/// inputs by tree, so each tree's run is contiguous, but the running counters
+/// do not rely on it.
+fn inputs_from_tree_indexes(
+    input_trees: &[InputTreeSequence],
+    inputs: &[InputUtxo],
+) -> Result<Vec<Input>, EventDecodeError> {
+    if input_trees.is_empty() {
+        return Err(EventDecodeError::UnsupportedInputTreeCount(0));
+    }
+    let mut spent_per_tree = vec![0u64; input_trees.len()];
+    inputs
+        .iter()
+        .map(|input| {
+            let position = usize::from(input.tree_index);
+            let (tree, spent) = input_trees
+                .get(position)
+                .zip(spent_per_tree.get_mut(position))
+                .ok_or(EventDecodeError::InputTreeIndexOutOfRange(input.tree_index))?;
+            let input_queue_seq = tree
+                .first_input_queue_seq
+                .checked_add(*spent)
+                .ok_or(EventDecodeError::IndexOverflow)?;
+            *spent = spent
+                .checked_add(1)
+                .ok_or(EventDecodeError::IndexOverflow)?;
+            Ok(Input {
+                tree: tree.tree,
+                input_queue_seq,
+                nullifier: input.nullifier_hash,
+            })
+        })
+        .collect()
 }
 
 fn inputs_from_nullifiers<'a>(
