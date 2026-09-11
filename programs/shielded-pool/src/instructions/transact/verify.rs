@@ -7,7 +7,7 @@ use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 use tinyvec::ArrayVec;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref},
+    hash_chain::{create_hash_chain_4, create_hash_chain_4_from_slice},
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
     sha256::Sha256,
     Hasher, Poseidon,
@@ -425,24 +425,10 @@ impl<'a> TransactProof<'a> {
             .get(..n_public_asset_slots)
             .ok_or(shape)?;
 
-        let nullifier_chain = {
-            let mut nullifiers: RefArrayVec<&[u8; 32], MAX_INPUTS> = RefArrayVec::new();
-            for input in &self.ix.inputs {
-                nullifiers
-                    .try_push(&input.nullifier_hash)
-                    .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
-            }
-            create_hash_chain_4_from_slice_ref(nullifiers.as_slice())?
-        };
-        let output_chain = {
-            let mut utxo_hashes: RefArrayVec<&[u8; 32], MAX_OUTPUTS> = RefArrayVec::new();
-            for output in &self.ix.outputs {
-                utxo_hashes
-                    .try_push(output.utxo_hash)
-                    .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
-            }
-            create_hash_chain_4_from_slice_ref(utxo_hashes.as_slice())?
-        };
+        let nullifier_chain =
+            create_hash_chain_4(self.ix.inputs.iter().map(|input| &input.nullifier_hash))?;
+        let output_chain =
+            create_hash_chain_4(self.ix.outputs.iter().map(|output| output.utxo_hash))?;
         let mut fields: ArrayVec<[[u8; 32]; 20]> = ArrayVec::new();
         // The circuit's `TreeSlotsHashChain` over the populated slots followed
         // by zeroed ones: each populated slot hash folded onto the precomputed

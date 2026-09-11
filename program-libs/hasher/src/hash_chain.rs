@@ -86,7 +86,9 @@ pub fn create_hash_chain_4_from_slice_ref(inputs: &[&[u8; 32]]) -> Result<[u8; 3
 
 static HASH_CHAIN_4_PADDING: [u8; 32] = [0u8; 32];
 
-fn create_hash_chain_4<'a>(
+/// Iterator variant of [`create_hash_chain_4_from_slice`]; see its security
+/// note.
+pub fn create_hash_chain_4<'a>(
     mut inputs: impl Iterator<Item = &'a [u8; 32]>,
 ) -> Result<[u8; 32], HasherError> {
     let Some(first) = inputs.next() else {

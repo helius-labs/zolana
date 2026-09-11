@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use zolana_hasher::{
     hash_chain::{
-        create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref,
+        create_hash_chain_4, create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref,
         create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
         create_two_inputs_hash_chain,
     },
@@ -79,9 +79,9 @@ fn committed_hash_chain_4_vectors_match() {
     assert_eq!(committed, compute_hash_chain_4_vectors());
 }
 
-/// Every committed entry is a known-answer test for both entry points; the
-/// borrowed-slice variant used by the on-chain public-input assembly must
-/// agree with the owned-slice variant.
+/// Every committed entry is a known-answer test for all entry points; the
+/// iterator used by the on-chain public-input assembly must agree with the
+/// slice variants.
 #[test]
 fn hash_chain_4_matches_every_committed_vector() {
     let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
@@ -94,6 +94,12 @@ fn hash_chain_4_matches_every_committed_vector() {
             .collect();
         let expected: [u8; 32] = hex::decode(&vector.output).unwrap().try_into().unwrap();
         let refs: Vec<&[u8; 32]> = inputs.iter().collect();
+        assert_eq!(
+            create_hash_chain_4(inputs.iter()).unwrap(),
+            expected,
+            "vector {} via iterator",
+            vector.name
+        );
         assert_eq!(
             create_hash_chain_4_from_slice(&inputs).unwrap(),
             expected,
