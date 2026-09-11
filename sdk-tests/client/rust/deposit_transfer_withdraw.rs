@@ -130,7 +130,7 @@ fn main() -> Result<()> {
         // 5. Construct the instruction.
         let transfer_ix = Transact {
             payer: sender.pubkey(),
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -208,7 +208,7 @@ fn main() -> Result<()> {
         // 5. Combine the proof and withdrawal accounts in a single instruction.
         let withdraw_ix = Transact {
             payer: sender.pubkey(),
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

@@ -145,7 +145,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
 
             let split_ix = Transact {
                 payer: user_solana.pubkey(),
-                input_tree: env.tree,
+                input_trees: vec![env.tree],
                 output_tree: env.tree,
                 owner_signers: Vec::new(),
                 interface_transfer_accounts: Vec::new(),

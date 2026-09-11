@@ -251,7 +251,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -599,7 +599,7 @@ fn transact_sends_valid_proof() {
     // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -764,7 +764,7 @@ fn transact_rejects_tampered_output_owner_tag() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -806,7 +806,7 @@ fn transact_rejects_tampered_public_amount() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -848,7 +848,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
     data.private_tx_hash = fe(42);
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -877,7 +877,7 @@ fn transact_rejects_tampered_external_data() {
     data.data_hash = Some([0x5A; 32]);
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -915,7 +915,7 @@ fn transact_rejects_out_of_field_output_hash() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -961,7 +961,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     let owner_signer_index = 5 + transact_ix_data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1006,7 +1006,7 @@ fn transact_rejects_a_substituted_input_signer() {
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, bound_owner.pubkey());
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![substitute_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1053,7 +1053,7 @@ fn transact_rejects_a_substituted_payer() {
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let ix = Transact {
         payer: substitute_payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1094,7 +1094,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1143,7 +1143,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1191,7 +1191,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 3);
     let mut base_ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1252,7 +1252,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring_a, 2, 2);
     let mut base_ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1306,7 +1306,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring, 4, 4);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1358,7 +1358,7 @@ fn transact_accepts_the_consolidation_shape() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1417,7 +1417,7 @@ fn ring_transact_accepts_the_consolidation_shape() {
         .collect();
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1522,7 +1522,7 @@ fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     }
     let ix = Transact {
         payer,
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: extra_signers.iter().map(|signer| signer.pubkey()).collect(),
         interface_transfer_accounts: Vec::new(),
@@ -1599,7 +1599,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

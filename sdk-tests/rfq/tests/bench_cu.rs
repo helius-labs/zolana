@@ -448,7 +448,7 @@ fn bench_settlement(mollusk: &mut Mollusk, spp_id: &Pubkey, bench: &mut CuBenchm
 
     let ix = Transact {
         payer: maker_payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![taker_payer.pubkey()],
         interface_transfer_accounts: Vec::new(),

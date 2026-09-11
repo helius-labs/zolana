@@ -402,7 +402,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
             amounts: public_slot_amounts,
         },
         ring_program_id: &[0u8; 32],
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }

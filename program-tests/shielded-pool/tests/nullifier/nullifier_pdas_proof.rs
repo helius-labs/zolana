@@ -153,7 +153,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -183,7 +183,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction::Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

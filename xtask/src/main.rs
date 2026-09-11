@@ -422,7 +422,7 @@ fn tx_size(args: Vec<String>) {
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
-            TransactProof,
+            TransactProof, TreeContext,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -499,6 +499,7 @@ fn tx_size(args: Vec<String>) {
         let inputs = (0..n)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],
+                tree_index: 0,
             })
             .collect();
         let outputs: Vec<TransactOutput> = outputs_spec
@@ -526,8 +527,10 @@ fn tx_size(args: Vec<String>) {
             salt: [0u8; 16],
             outputs,
             messages: vec![],
-            utxo_tree_root_index: 0,
-            nullifier_tree_root_index: 0,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
         }
     };
 
@@ -891,7 +894,7 @@ fn tx_size(args: Vec<String>) {
         }
         let ix = zolana_interface::instruction::Transact {
             payer: payer_pk,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),

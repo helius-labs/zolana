@@ -66,7 +66,7 @@ impl CustomRingTransact {
 
         let ring = RingTransact {
             payer,
-            input_tree,
+            input_trees: vec![input_tree],
             output_tree,
             ring_program_id: deployment.program_id(),
             owner_signers,

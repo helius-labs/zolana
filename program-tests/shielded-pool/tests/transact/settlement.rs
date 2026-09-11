@@ -34,7 +34,7 @@ use zolana_interface::{
     SPL_TOKEN_ACCOUNT_STATE_OFFSET,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{fe, inline_output, input_utxo};
+use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// SOL-withdrawal-shaped (negative public amount) transact data with a zeroed
 /// proof: the payer/settlement account checks under test fire during account
@@ -59,8 +59,7 @@ fn sol_withdrawal_ix_data() -> TransactIxData {
             inline_output([6u8; 32], [6u8; 32]),
         ],
         messages: Vec::new(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: single_tree_context(0),
     }
 }
 
@@ -93,7 +92,7 @@ fn sol_withdrawal_rejects_an_unsigned_payer_meta() {
     let ix_data = sol_withdrawal_ix_data();
     let mut ix = Transact {
         payer: spp_payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![fee_payer],
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -129,7 +128,7 @@ fn sol_withdrawal_rejects_a_non_canonical_sol_interface() {
     let sol_interface_index = 5 + data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -238,7 +237,7 @@ impl SplWithdrawalEnv {
         let ix_data = spl_withdrawal_leg(sol_withdrawal_ix_data(), 1_000, &self.mint);
         let ix = Transact {
             payer: self.attacker.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -299,7 +298,7 @@ fn spl_withdrawal_rejects_a_wrong_cpi_authority_account() {
     let cpi_authority_index = 5 + ix_data.inputs.len();
     let mut ix = Transact {
         payer: env.attacker.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(

@@ -38,6 +38,7 @@ fn oversized_take_private_tx_hash_fails_hashing_exactly() {
     let mut data = transact(Vec::new());
     data.inputs.push(InputUtxo {
         nullifier_hash: [1; 32],
+        tree_index: 0,
     });
     data.private_tx_hash = [0xFF; 32];
     instruction.data = wrapper_data_with(Wrapper::Take, data);

@@ -19,7 +19,7 @@ use zolana_interface::{
         tag, Transact,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
-    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
     verifying_keys::RingP256ProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -27,7 +27,7 @@ use zolana_keypair::{hash::sha256, pubkey::PublicKey, NullifierKey, ShieldedKeyp
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
-    dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs, input_utxo,
+    dummy_transfer_output, external_data_hash_for_discriminator, inline_outputs, input_utxo,
     new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof, set_output_owner_tags,
     single_tree_slots, sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
     TransferProverInputsArgs, TEST_BLINDING_SEED,
@@ -252,7 +252,9 @@ impl RealRingTransact {
         }
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_pk_hashes).expect("signer chain"));
-        chain.push(fe(1));
+        let input_flags =
+            pack_input_flags(true, std::iter::repeat_n(0u8, n_inputs)).expect("input flags");
+        chain.push(input_flags);
         chain.push(
             create_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
@@ -328,7 +330,7 @@ impl RealRingTransact {
                     public_amounts: public_slot_amounts.map(|amount| be(&amount)),
                     ring_program_id: be(&ring_field),
                     signer_pk_hashes: signer_pk_hashes.iter().map(be).collect(),
-                    allow_dummy_inputs: BigUint::from(1u8),
+                    input_flags: be(&input_flags),
                     published_output_owner_pk_hashes: published_output_owner_pk_hashes
                         .iter()
                         .map(be)

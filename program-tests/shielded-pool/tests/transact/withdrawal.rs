@@ -87,7 +87,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     };
     let substituted = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -300,7 +300,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -330,7 +330,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     // Transfer CPI) and the program (emit_event self-CPI).
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -513,7 +513,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -547,7 +547,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -708,7 +708,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_hash, zero, zero],
         output_owner_pk_hashes: Some(&output_owner_hashes),
     }
@@ -732,7 +732,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     data.private_tx_hash = private_tx;
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
@@ -1020,7 +1020,7 @@ fn phase_transfer_to_recipient(
             amounts: transfer_public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&transfer_owner_pk_hashes),
     }
@@ -1049,7 +1049,7 @@ fn phase_transfer_to_recipient(
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1242,7 +1242,7 @@ fn phase_withdraw_recipient_utxo(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[recipient_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&withdraw_owner_pk_hashes),
     }
@@ -1271,7 +1271,7 @@ fn phase_withdraw_recipient_utxo(
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

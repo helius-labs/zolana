@@ -364,7 +364,7 @@ fn prove_spend(
             amounts: public_slot_amounts,
         },
         ring_program_id: &[0u8; 32],
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
     }
@@ -433,7 +433,7 @@ fn sol_split_case(reorder_recipients: bool) {
     );
     let mut ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
@@ -576,7 +576,7 @@ fn repeated_same_mint_spl_withdrawals_settle(token_program: Pubkey) {
     };
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_transfer(first_token), spl_transfer(second_token)],
@@ -727,7 +727,7 @@ fn three_distinct_assets_support_opposite_public_directions() {
     let sol_vault_before = env.rpc.svm.get_balance(&sol_vault).unwrap_or(0);
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
