@@ -1747,12 +1747,13 @@ GeneralEvent {
         .inputs
         .iter()
         .enumerate()
-        // `tree_index` selects the emitted tree; queue numbers count up per
-        // tree, so an input's offset is its rank within its own tree's run.
+        // `tree_index` selects the emitted tree. Queue numbers count up within
+        // one tree's run, so `seen[t]` is how many earlier inputs chose tree
+        // `t`; inputs are grouped, so each run is contiguous.
         .map(|(i, input)| Input {
             tree: event.input_trees[input.tree_index].tree,
             input_queue_seq: event.input_trees[input.tree_index].first_input_queue_seq
-                + rank_within_tree(&instruction_data.inputs, i),
+                + seen[input.tree_index].post_increment(),
             nullifier: input.nullifier_hash,
         })
         .collect(),
