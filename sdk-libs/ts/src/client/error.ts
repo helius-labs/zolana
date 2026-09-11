@@ -149,6 +149,12 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_PROOF_TREE_MISMATCH: IndexDetails;
   /** Two inputs of one proof open against different state roots or root positions. */
   readonly CLIENT_INPUT_TREE_ROOT_MISMATCH: IndexDetails;
+  /** An input names a tree slot past the last one a proof publishes. */
+  readonly CLIENT_INPUT_TREE_INDEX_RANGE: Readonly<{
+    index: number;
+    treeIndex: number;
+    max: number;
+  }>;
   /** Two inputs of one proof open against different nullifier roots or root positions. */
   readonly CLIENT_NULLIFIER_ROOT_MISMATCH: IndexDetails;
   /** An output blinding is not the one the circuit derives for its slot. */
@@ -211,6 +217,7 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_PROOF_POINT",
   "CLIENT_PROOF_TREE_MISMATCH",
   "CLIENT_INPUT_TREE_ROOT_MISMATCH",
+  "CLIENT_INPUT_TREE_INDEX_RANGE",
   "CLIENT_NULLIFIER_ROOT_MISMATCH",
   "CLIENT_OUTPUT_BLINDING_MISMATCH",
   "CLIENT_TREE_ID_MISMATCH",
@@ -341,6 +348,7 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_PROOF_POINT: { field: "string" },
   CLIENT_PROOF_TREE_MISMATCH: { index: "number" },
   CLIENT_INPUT_TREE_ROOT_MISMATCH: { index: "number" },
+  CLIENT_INPUT_TREE_INDEX_RANGE: { index: "number", treeIndex: "number", max: "number" },
   CLIENT_NULLIFIER_ROOT_MISMATCH: { index: "number" },
   CLIENT_OUTPUT_BLINDING_MISMATCH: { index: "number" },
   CLIENT_TREE_ID_MISMATCH: { expected: "number", actual: "number" },
