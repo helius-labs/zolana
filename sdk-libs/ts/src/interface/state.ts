@@ -2,7 +2,7 @@ import { unsignedBigint } from "./internal.js";
 import type { TreeFeeSchedule } from "./types.js";
 
 export const StateDiscriminator = Object.freeze({
-  treeAccount: 1,
+  treeAccount: 2,
   protocolConfig: 3,
   ringConfig: 4,
   splAssetRegistry: 5,
@@ -47,7 +47,7 @@ export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
 }
 
 export const PROTOCOL_CONFIG_SIZE = 166;
-export const TREE_ACCOUNT_SIZE = 39_952;
+export const TREE_ACCOUNT_SIZE = 40_080;
 /// The program allocates a tree PDA in chunks of this many bytes; creation
 /// repeats the create-tree instruction once per chunk within one transaction.
 export const TREE_ALLOCATION_STEP = 10 * 1024;

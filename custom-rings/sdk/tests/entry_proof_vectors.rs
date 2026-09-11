@@ -1,10 +1,10 @@
 //! Vectors shared with `sdk-libs/ts/test/ring-list-write.test.ts`.
 
 use zolana_client::{PublicInputs, PublicTransfers};
-use zolana_hasher::primitives::{right_align, solana_owner_identity};
+use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
     INPUT_TREES,
 };
 use zolana_ring_policy::{entry_nullifier, EntryState, ListEntry, ListId, ListNamespace, Member};
@@ -27,11 +27,11 @@ const EXTERNAL_HASH: &str = "007d8570799cec47261326adb458082d7d3e2209c1fe09ee420
 const CLAIM_PRIVATE_TX_HASH: &str =
     "1f5af8e4fba46ce23dc7690ba20a2c900dee0e9226e080427ea4b370c13ea9b8";
 const CLAIM_PUBLIC_INPUT_HASH: &str =
-    "2d66a2d5ac74c9f2e0f167b8fbb87a3cd3db45d8d77bd8e28a1693e6f9cee50c";
+    "2600314d0e9cc38c907456b62b8ce775a9c4fcb76e237babd6edc1e731530241";
 const SPEND_PRIVATE_TX_HASH: &str =
     "202e31e8682a29d7c0a061e836bc43b159ee93ddeacc12f155c46a69f2c89713";
 const SPEND_PUBLIC_INPUT_HASH: &str =
-    "2302b717d9e8b8752dd394526993c496c2615f981c2b44553cd3b4eae4c31bd9";
+    "040d44e7358f23ab67b986eb83961dbd7dff30abb77c6759b80d0d7728ce01f4";
 const CLAIM_BLINDING: &str = "078e398422043456dc67a4c39f57ab507670ab3d1024746d47a2e93c7a46c344";
 const SPEND_BLINDING: &str = "018be3ee8af2454b58a964be7d94a0b752f31e5a85f4a0c80b4d25213d44b256";
 
@@ -114,7 +114,7 @@ fn transition(spent: Option<ListEntry>) -> Transition {
         external_data_hash: &external,
         public_transfers: &PublicTransfers::default(),
         ring_program_id: &[0u8; 32],
-        allow_dummy_inputs: &right_align(&1u64.to_be_bytes()),
+        input_flags: &pack_input_flags(true, [0u8]).expect("input flags"),
         signer_pk_hashes: &[payer_hash, namespace_hash],
         output_owner_pk_hashes: Some(&[namespace_hash]),
     }

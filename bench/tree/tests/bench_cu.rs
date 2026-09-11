@@ -12,12 +12,11 @@ use solana_account::Account;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
     layout::NullifierTreeLayout, merkle_tree_update::InstructionDataBatchNullifyInputs,
-    proof::CompressedProof,
 };
 use zolana_tree::{NullifierTreeInitParams, TreeAccount, TreeFeeSchedule, UTXO_TREE_HEIGHT};
 
@@ -125,7 +124,7 @@ fn build_index0_inputs(
     let mut start_index_bytes = [0u8; 32];
     start_index_bytes[24..].copy_from_slice(&next_index.to_be_bytes());
     let public_input_hash =
-        create_hash_chain_from_array([old_root, new_root, leaves_hash_chain, start_index_bytes])
+        create_hash_chain_4_from_slice(&[old_root, new_root, leaves_hash_chain, start_index_bytes])
             .unwrap();
 
     (
@@ -197,16 +196,15 @@ fn build_address_update_fixture(num_batches: usize, seed: u64) -> AddressUpdateF
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed = ProofCompressed::try_from(proof).unwrap();
+            let compressed_proof = ProofCompressed::try_from(proof)
+                .unwrap()
+                .to_nullifier_tree_proof()
+                .unwrap();
             index0_ix = Some(InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
+                compressed_proof,
             });
             new_root
         } else {

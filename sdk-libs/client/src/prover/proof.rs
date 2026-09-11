@@ -2,9 +2,12 @@ use groth16_solana::groth16::negate_g1_be;
 use num_traits::Num;
 use serde::{Deserialize, Serialize};
 use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
-use zolana_interface::instruction::instruction_data::{
-    merge_transact::MergeProof,
-    transact::{Bsb22Commitment, TransactProof},
+use zolana_interface::instruction::{
+    instruction_data::{
+        merge_transact::MergeProof,
+        transact::{Bsb22Commitment, TransactProof},
+    },
+    CompressedProof,
 };
 
 use crate::error::ClientError;
@@ -37,25 +40,26 @@ pub struct CompressedCommitments {
     pub commitment_pok: [u8; 32],
 }
 
-/// Wire-format Groth16 proof: the points of [`Proof`] compressed (G1 -> 32 bytes,
-/// G2 -> 64 bytes). Mirrors [`Proof`]: `commitment` is `Some` for the P256 rail.
+/// The Groth16 proof as the SPP instructions carry it: the G1 points of
+/// [`Proof`] compressed to 32 bytes, `b` kept as the raw 128-byte G2 point so
+/// the program skips the G2 decompression syscall. Mirrors [`Proof`]:
+/// `commitment` is `Some` for the P256 rail.
 #[derive(Debug, Clone, Copy)]
 pub struct ProofCompressed {
     pub a: [u8; 32],
-    pub b: [u8; 64],
+    pub b: [u8; 128],
     pub c: [u8; 32],
     pub commitment: Option<CompressedCommitments>,
 }
 
-/// Compress the G1/G2 points of an uncompressed proof into the wire format.
-/// Fallible because point compression validates the input bytes.
+/// Compress the G1 points of an uncompressed proof. Fallible because point
+/// compression validates the input bytes.
 impl TryFrom<Proof> for ProofCompressed {
     type Error = ClientError;
 
     fn try_from(proof: Proof) -> Result<Self, Self::Error> {
         let a = compress_g1(&proof.a, "proof_a")?;
-        let b = alt_bn128_g2_compress_be(&proof.b)
-            .map_err(|e| ClientError::ProofParse(format!("failed to compress proof_b: {e:?}")))?;
+        let b = proof.b;
         let c = compress_g1(&proof.c, "proof_c")?;
         let commitment = proof
             .commitment
@@ -76,7 +80,7 @@ impl TryFrom<Proof> for ProofCompressed {
 }
 
 impl ProofCompressed {
-    /// Build the wire-format transact proof.
+    /// Build the transact proof.
     pub fn to_transact_proof(self) -> TransactProof {
         debug_assert!(self.commitment.is_none());
         TransactProof {
@@ -119,6 +123,31 @@ impl ProofCompressed {
         Ok(MergeProof {
             a: self.a,
             b: self.b,
+            c: self.c,
+        })
+    }
+
+    /// `b` in the 64-byte compressed G2 encoding, for the formats that still
+    /// carry the proof fully compressed (the nullifier-tree batch update and
+    /// the custom-ring proof).
+    pub fn compressed_b(&self) -> Result<[u8; 64], ClientError> {
+        alt_bn128_g2_compress_be(&self.b)
+            .map_err(|e| ClientError::ProofParse(format!("failed to compress proof_b: {e:?}")))
+    }
+
+    /// The fully compressed proof of a nullifier-tree batch update. The batch
+    /// address-append circuit is vanilla Groth16, so a BSB22 commitment is
+    /// rejected (wrong circuit?).
+    pub fn to_nullifier_tree_proof(&self) -> Result<CompressedProof, ClientError> {
+        if self.commitment.is_some() {
+            return Err(ClientError::ProofParse(
+                "batch update proof carries an unexpected BSB22 commitment (wrong circuit?)"
+                    .to_string(),
+            ));
+        }
+        Ok(CompressedProof {
+            a: self.a,
+            b: self.compressed_b()?,
             c: self.c,
         })
     }
@@ -206,7 +235,7 @@ mod tests {
     fn proof_with_commitment() -> ProofCompressed {
         ProofCompressed {
             a: [1u8; 32],
-            b: [2u8; 64],
+            b: [2u8; 128],
             c: [3u8; 32],
             commitment: Some(CompressedCommitments {
                 commitment: [4u8; 32],
@@ -224,7 +253,7 @@ mod tests {
         let proof = vanilla.to_merge_proof().expect("merge proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
-        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.b, [2u8; 128]);
         assert_eq!(proof.c, [3u8; 32]);
     }
 
@@ -246,10 +275,48 @@ mod tests {
             .expect("committed P256 proof maps");
 
         assert_eq!(proof.a, [1u8; 32]);
-        assert_eq!(proof.b, [2u8; 64]);
+        assert_eq!(proof.b, [2u8; 128]);
         assert_eq!(proof.c, [3u8; 32]);
         assert_eq!(commitment.commitment, [4u8; 32]);
         assert_eq!(commitment.commitment_pok, [5u8; 32]);
+    }
+
+    // Solana's canonical big-endian G2 compression test point.
+    const G2: [u8; 128] = [
+        40, 57, 233, 205, 180, 46, 35, 111, 215, 5, 23, 93, 12, 71, 118, 225, 7, 46, 247, 147, 47,
+        130, 106, 189, 184, 80, 146, 103, 141, 52, 242, 25, 0, 203, 124, 176, 110, 34, 151, 212,
+        66, 180, 238, 151, 236, 189, 133, 209, 17, 137, 205, 183, 168, 196, 92, 159, 75, 174, 81,
+        168, 18, 86, 176, 56, 16, 26, 210, 20, 18, 81, 122, 142, 104, 62, 251, 169, 98, 141, 21,
+        253, 50, 130, 182, 15, 33, 109, 228, 31, 79, 183, 88, 147, 174, 108, 4, 22, 14, 129, 168,
+        6, 80, 246, 254, 100, 218, 131, 94, 49, 247, 211, 3, 245, 22, 200, 177, 91, 60, 144, 147,
+        174, 90, 17, 19, 189, 62, 147, 152, 18,
+    ];
+
+    #[test]
+    fn to_nullifier_tree_proof_compresses_b() {
+        let proof = ProofCompressed {
+            b: G2,
+            commitment: None,
+            ..proof_with_commitment()
+        };
+        let compressed = proof
+            .to_nullifier_tree_proof()
+            .expect("vanilla proof maps to a batch update proof");
+
+        let mut expected_b = [0u8; 64];
+        expected_b.copy_from_slice(&G2[..64]);
+        assert_eq!(compressed.a, [1u8; 32]);
+        assert_eq!(compressed.b, expected_b);
+        assert_eq!(compressed.c, [3u8; 32]);
+    }
+
+    #[test]
+    fn to_nullifier_tree_proof_rejects_a_proof_with_a_commitment() {
+        let error = proof_with_commitment()
+            .to_nullifier_tree_proof()
+            .expect_err("a committed proof is not a batch update proof");
+
+        assert!(matches!(error, ClientError::ProofParse(_)));
     }
 
     #[test]

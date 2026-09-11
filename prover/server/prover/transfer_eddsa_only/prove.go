@@ -30,8 +30,13 @@ func (p *TransferParameters) ValidateShape() error {
 		inputSlots[i] = p.Inputs[i].TreeSlot
 	}
 	// The circuit only fails an out-of-range or unused slot inside
-	// SelectTreeSlot, as an opaque proving error; reject it as a request error.
+	// SelectTreeSlot, and a slot the packed InputFlags does not publish inside
+	// the flag decode, both as opaque proving errors; reject them as request
+	// errors.
 	if err := common.ValidateTreeSlots(p.TreeSlots, inputSlots, txcircuit.InputTrees); err != nil {
+		return err
+	}
+	if err := common.ValidateInputFlags(p.InputFlags, inputSlots); err != nil {
 		return err
 	}
 	if p.OutputTreeID == nil {

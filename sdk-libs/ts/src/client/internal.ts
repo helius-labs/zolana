@@ -19,6 +19,7 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import { INPUT_TREES } from "../interface/tree-slot.js";
 import { hashBytes } from "../hasher/index.js";
 
 import {
@@ -155,6 +156,52 @@ export function hashChain(values: readonly bigint[]): bigint {
     result = poseidon([result, value]);
   }
   return result;
+}
+
+/**
+ * Folds three elements per Poseidon call. The fold carries no length tag, so it
+ * is injective only over the fixed-length public-input chains of one circuit.
+ */
+export function hashChain4(values: readonly bigint[]): bigint {
+  const first = values[0];
+  if (first === undefined) return 0n;
+  let result = first;
+  for (let index = 1; index < values.length; index += 3) {
+    result = poseidon([
+      result,
+      values[index] ?? 0n,
+      values[index + 1] ?? 0n,
+      values[index + 2] ?? 0n,
+    ]);
+  }
+  return result;
+}
+
+/**
+ * The packed `input_flags` public input: bit 0 carries the dummy-input policy
+ * and input `i`'s three-bit tree index sits at bits `1 + 3 * i` through
+ * `3 + 3 * i`, for a total width of `1 + 3 * inputs` bits. The circuit decodes
+ * that fixed width and asserts every input's private tree slot equals the index
+ * published here, which is what binds the tree a proof opened against to the
+ * tree the program queues that input's nullifier into. Mirrors Rust
+ * `pack_input_flags`.
+ */
+export function inputFlags(allowDummyInputs: boolean, treeIndexes: readonly number[]): bigint {
+  let flags = allowDummyInputs ? 1n : 0n;
+  treeIndexes.forEach((treeIndex, index) => {
+    if (!Number.isSafeInteger(treeIndex)) {
+      throw new ClientError("CLIENT_INVALID_INTEGER", {
+        details: { field: "treeIndex", value: String(treeIndex) },
+      });
+    }
+    if (treeIndex < 0 || treeIndex >= INPUT_TREES) {
+      throw new ClientError("CLIENT_INPUT_TREE_INDEX_RANGE", {
+        details: { index, treeIndex, max: INPUT_TREES - 1 },
+      });
+    }
+    flags |= BigInt(treeIndex) << BigInt(1 + 3 * index);
+  });
+  return flags;
 }
 
 export function rightHashChain(values: readonly bigint[]): bigint {

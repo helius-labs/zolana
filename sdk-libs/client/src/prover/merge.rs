@@ -5,7 +5,7 @@
 //! public-input-hash element set are merge-specific.
 
 use num_bigint::BigUint;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::{
     instruction::instruction_data::{
         merge_ring::MergeRingIxData,
@@ -95,8 +95,8 @@ impl MergeProofResult {
             proof,
             output_utxo_hash: self.output_hash,
             nullifiers: self.nullifiers.clone(),
-            utxo_tree_root_index: vec![self.utxo_tree_root_index; self.nullifiers.len()],
-            nullifier_tree_root_index: vec![self.nullifier_tree_root_index; self.nullifiers.len()],
+            utxo_tree_root_index: self.utxo_tree_root_index,
+            nullifier_tree_root_index: self.nullifier_tree_root_index,
             private_tx_hash: self.private_tx_hash,
             eddsa_owner: self.eddsa_owner,
         }
@@ -127,7 +127,7 @@ impl MergeProver {
         // nullifier_pk to get user_owner_hash.
         let mut elements = merge.head.to_vec();
         elements.push(merge.user_signing_pk_hash);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         // Default merge is non-ring; the merge-ring builder sets the ring binding.
         Ok(merge.finish(public_input, BigUint::ZERO, BigUint::ZERO))
@@ -181,6 +181,9 @@ impl MergeProver {
             return Err(ClientError::NoInputs);
         }
         let mut assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::Merge)?;
+        // Merge resolves roots from one input tree per instruction, so the
+        // whole padded run shares a single root-index pair.
+        let input_tree_context = assembled_inputs.single_tree_context()?;
 
         // Dummy slots publish deterministic nullifiers derived from the
         // owner's nullifier secret and the first real nullifier; override the
@@ -240,7 +243,7 @@ impl MergeProver {
 
         let user_signing_pk_hash = self.signing_pubkey.owner_proof_input_hash()?;
         let head = [
-            create_hash_chain_from_slice(&assembled_inputs.nullifiers)?,
+            create_hash_chain_4_from_slice(&assembled_inputs.nullifiers)?,
             output_hash,
             tree_slots_hash_chain(&assembled_inputs.tree_slots)?,
             tree_id_field(self.output_tree_id),
@@ -270,8 +273,8 @@ impl MergeProver {
             nullifiers: assembled_inputs.nullifiers,
             tree_slots: TreeSlotFields::encode_all(&assembled_inputs.tree_slots),
             output_tree_id: self.output_tree_id,
-            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
-            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
+            utxo_tree_root_index: input_tree_context.utxo_tree_root_index,
+            nullifier_tree_root_index: input_tree_context.nullifier_tree_root_index,
             head,
             output_hash,
             private_tx_hash: private_tx,

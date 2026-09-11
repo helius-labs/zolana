@@ -23,7 +23,8 @@ Breaking
 
 - Every builder returns a version 1 transaction and `TRANSACTION_SIZE_LIMIT` is
   4096 (was 1232) → send through an RPC and a validator that accept version 1,
-  and read transactions back with `maxSupportedTransactionVersion: 1`.
+  which Agave does from 4.2, and read transactions back with
+  `maxSupportedTransactionVersion: 1`.
 - `priorityFeeLamports` replaces `computeUnitPriceMicroLamports` on
   `ZolanaClientConfig`, `deployRingProgram`, and every ring builder, and it buys
   priority for the whole transaction → pass the total lamports to pay instead of
@@ -65,9 +66,10 @@ Breaking
 - `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
   `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
   argument, `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
-  `inputTreeId` and `outputTreeId`, and `PreparedTransfer` and `PreparedSplit`
-  expose the seed material the prover needs → an input set spanning two trees
-  is refused with `TRANSACTION_INPUT_TREE_MISMATCH`.
+  `inputTreeIds` or `inputTreeId` beside `outputTreeId`, and `PreparedTransfer`
+  and `PreparedSplit` expose the seed material the prover needs → a merge or
+  split input set spanning two trees is refused with
+  `TRANSACTION_INPUT_TREE_MISMATCH`.
 - A padding output's published owner tag names a non-payer input owner or a
   real output's owner and is always inline, and a self-paid transfer with no
   change and no recipient keeps a real zero-amount SOL change output → expect
@@ -78,9 +80,22 @@ Breaking
   given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
   proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, a merge
   is refused with the same code when its output tree is not its input tree,
-  every input of an instruction carries one root position pair
-  (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
-  `outputTreeId`, and `blindingSeed` → run a prover from this release.
+  `AssembledTransfer.rootIndexes` reports the first input tree's root positions,
+  and the prover request carries `treeSlots`, `outputTreeId`, and `blindingSeed`
+  → run a prover from this release.
+- `TransactInstructionData` carries one `TreeContext` per input tree in place of
+  `utxoTreeRootIndex` and `nullifierTreeRootIndex`, every `InputUtxo` names its
+  context with `treeIndex`, `SppProofInputs.inputTreeIds()` and
+  `PreparedTransfer.inputTreeIds` list the up to five trees one spend may draw
+  from, `inputTreeSlots` takes those trees as an array, and the transfer prover
+  request replaces `allowDummyInputs` with `inputFlags`, the dummy-input policy
+  in bit 0 and input `i`'s three-bit tree index at bits `1 + 3i` → order inputs
+  so each tree owns one contiguous run, pass `treeContexts` in that order and
+  `[slot]` to `inputTreeSlots`, and run a program and prover from this release;
+  merge keeps its single input tree and its root position pair.
+- `TREE_ACCOUNT_SIZE` is 40,080 and `StateDiscriminator.treeAccount` is 2, so
+  a tree account created by an earlier release is not read as a tree → create
+  the pool tree with this release.
 - `externalDataHash` takes the transact fields as the instruction encodes
   them (`ExternalDataHashInput` extends the new `TransactExternalData`), with
   `outputs` carrying their `OwnerTag`, one `resolvedOwnerTags` entry per
@@ -203,8 +218,36 @@ Breaking
   deposited UTXO from the indexer after the deposit lands, since the blinding,
   and therefore the hash, depend on the leaf index assigned when the transaction
   executes.
+- `TransactProof.b`, `CompressedProof.b`, and the merge instruction `proof.b`
+  are the 128-byte uncompressed G2 point (was the 64-byte compressed encoding),
+  so `encodeTransactInstructionData` and `encodeMergeTransactInstructionData`
+  write 64 more bytes and a hand-built 64-byte `b` is refused → pass the
+  `compressProof` result through unchanged, it now keeps the point the prover
+  returned; `toCustomRingProof()` still compresses `b`.
+- `TransferInputs.publicInputHash`, the public-input hash of a merge proof, and
+  the `publicInputHash` of `ringEntryTransitionInputs` fold their nullifier
+  list, output hash list, output owner list, and the public-input list itself
+  three elements per Poseidon call (was one), and the signer slots of a shape
+  are the payer plus one per input up to the transaction address budget
+  (unchanged for every shape this package builds) → run a program and prover
+  from this release, a proof or public-input hash produced by an earlier
+  release no longer verifies.
+- `InputUtxo` is only the `nullifierHash`, and `TransactInstructionData` and
+  `MergeTransactInstructionData` carry one `utxoTreeRootIndex` and
+  `nullifierTreeRootIndex` pair after the inputs (was one pair per input, and
+  `utxoTreeRootIndexes` / `nullifierTreeRootIndexes` arrays on the merge data),
+  so `encodeTransactInstructionData` writes 4 fewer bytes per input and
+  `encodeMergeTransactInstructionData` 30 fewer → set the pair once on the
+  instruction data; the `MergeAssembly` exposes the same two scalars.
+- `privateTxHash`, `SppProofInputs.privateTxHash()`, and the private
+  transaction hash of a merge proof fold their input list, output list, and
+  address nullifier list three elements per Poseidon call (was one) → prove
+  with this release's prover, a private transaction hash or ring proof request
+  produced by an earlier release no longer matches its proof.
 
 Added
+
+- `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
   a policy ring, the rule table over the list entries the rules name, and
@@ -370,6 +413,8 @@ Changed
   data size limit and its priority fee in the message header, so it holds no
   compute budget instruction and its instruction list is the setup and payload
   instructions alone.
+- A relayed ring exit, which pays its fee from one account and carries the UTXO
+  owner as a second signer, fits the transaction it did not fit before.
 - `RingTransferClient` no longer requires `solanaRpc` and `commitment`, the ring
   transfer builders read what they need through the ports they already took.
 

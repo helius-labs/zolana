@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn tree_creation_takes_four_allocation_steps() {
         assert_eq!(STATE_ROOT_HISTORY_CAPACITY, 500);
-        assert_eq!(tree_account_size(), 39_952);
+        assert_eq!(tree_account_size(), 40_080);
         assert_eq!(tree_creation_step_count(), 4);
         assert!(tree_account_size() > 3 * TREE_ALLOCATION_STEP);
         assert!(tree_account_size() <= 4 * TREE_ALLOCATION_STEP);

@@ -26,7 +26,7 @@ use zolana_test_utils::{
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
         tree_fees_from,
     },
-    transact::{eddsa_input_utxo, fe, inline_output},
+    transact::{fe, inline_output, input_utxo, single_tree_context},
 };
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
@@ -47,7 +47,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
@@ -55,6 +55,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
         messages: Vec::new(),
+        tree_contexts: single_tree_context(0),
     }
 }
 
@@ -68,7 +69,7 @@ fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

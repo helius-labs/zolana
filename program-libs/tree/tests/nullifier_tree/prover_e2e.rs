@@ -4,7 +4,7 @@ use ark_ff::PrimeField;
 use num_bigint::BigUint;
 use rand::{rngs::StdRng, seq::SliceRandom, Rng, SeedableRng};
 use zolana_client::{spawn_prover, BatchAddressAppendInputs, ProofCompressed, ProverClient};
-use zolana_hasher::{hash_chain::create_hash_chain_from_array, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Poseidon};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, constants::NULLIFIER_TREE_INIT_ROOT_40,
@@ -111,16 +111,15 @@ impl NullifierForester {
         let proof = ProverClient::local()
             .prove_batch_address_append(&inputs)
             .unwrap();
-        let compressed = ProofCompressed::try_from(proof).unwrap();
+        let compressed_proof = ProofCompressed::try_from(proof)
+            .unwrap()
+            .to_nullifier_tree_proof()
+            .unwrap();
         let instruction_data = InstructionDataBatchNullifyInputs {
             new_root,
             old_root,
             zkp_batch_index: zkp_index as u16,
-            compressed_proof: CompressedProof {
-                a: compressed.a,
-                b: compressed.b,
-                c: compressed.c,
-            },
+            compressed_proof,
         };
         let result = account
             .update_tree_from_queue(TREE_PUBKEY, instruction_data)
@@ -171,16 +170,15 @@ impl NullifierForester {
             let proof = ProverClient::local()
                 .prove_batch_address_append(&inputs)
                 .unwrap();
-            let compressed = ProofCompressed::try_from(proof).unwrap();
+            let compressed_proof = ProofCompressed::try_from(proof)
+                .unwrap()
+                .to_nullifier_tree_proof()
+                .unwrap();
             let instruction = InstructionDataBatchNullifyInputs {
                 new_root,
                 old_root,
                 zkp_batch_index: zkp_index as u16,
-                compressed_proof: CompressedProof {
-                    a: compressed.a,
-                    b: compressed.b,
-                    c: compressed.c,
-                },
+                compressed_proof,
             };
             prepared.push(PreparedUpdate {
                 instruction,
@@ -228,7 +226,7 @@ impl NullifierForester {
         let new_root = self.reference.root();
         let mut start_index_bytes = [0u8; 32];
         start_index_bytes[24..].copy_from_slice(&next_index.to_be_bytes());
-        let public_input_hash = create_hash_chain_from_array([
+        let public_input_hash = create_hash_chain_4_from_slice(&[
             old_root,
             new_root,
             leaves_hash_chain,

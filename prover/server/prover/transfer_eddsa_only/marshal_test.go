@@ -239,7 +239,7 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 			NullifierPk: big.NewInt(0x3333),
 		}
 	}
-	signers := nInputs + 1
+	signers := txcircuit.Shape{NInputs: nInputs, NOutputs: nOutputs}.SignerWidth()
 	publishedOwners := nOutputs
 	if variant == RingAuthorityVariant {
 		signers = 1
@@ -259,7 +259,7 @@ func sampleTransferParams(variant Variant) *TransferParameters {
 		PublicAmounts:                zeroFieldElements(txcircuit.NPublicSlots),
 		RingProgramID:                big.NewInt(0x4242),
 		SignerPkHashes:               countedFieldElements(signers, 0x1212),
-		AllowDummyInputs:             big.NewInt(1),
+		InputFlags:                   sampleInputFlags(inputs),
 		PublishedOutputOwnerPkHashes: countedFieldElements(publishedOwners, 0x1212),
 		Variant:                      variant,
 		PublicInputHash:              big.NewInt(0x8888),
@@ -292,6 +292,20 @@ func sampleTreeSlots() []common.TreeSlotParams {
 
 // sampleInputParams spends input i from tree slot i, so the witness mapping is
 // wrong-if-swapped rather than accidentally right.
+// sampleInputFlags packs the fixture's routing: the dummy-input policy on plus
+// the slot every input selects.
+func sampleInputFlags(inputs []InputParams) *big.Int {
+	treeSlots := make([]*big.Int, len(inputs))
+	for i := range inputs {
+		treeSlots[i] = inputs[i].TreeSlot
+	}
+	flags, err := common.PackInputFlags(true, treeSlots)
+	if err != nil {
+		panic(err)
+	}
+	return flags
+}
+
 func sampleInputParams(i int) InputParams {
 	return InputParams{
 		Utxo:                     sampleUtxoParams(),

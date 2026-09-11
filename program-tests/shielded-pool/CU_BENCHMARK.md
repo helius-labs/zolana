@@ -38,7 +38,7 @@ Regenerate with `just bench-shielded-pool`.
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `process_instruction`         |      3,878 |      3,878 |
+| `process_instruction`         |      3,879 |      3,879 |
 
 ## 2. Deposit sol
 
@@ -46,8 +46,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         32 |         32 |
-| `process_deposit`             |     39,689 |     38,487 |
-| `process_instruction`         |     39,740 |          0 |
+| `process_deposit`             |     38,344 |     37,142 |
+| `process_instruction`         |     38,395 |          0 |
 
 ## 3. Deposit sol batch 3
 
@@ -55,8 +55,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         32 |         32 |
-| `process_deposit`             |     53,153 |     51,951 |
-| `process_instruction`         |     53,204 |          0 |
+| `process_deposit`             |     50,257 |     49,055 |
+| `process_instruction`         |     50,308 |          0 |
 
 ## 4. Deposit spl
 
@@ -64,242 +64,257 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_spl_deposit`          |      1,303 |      1,303 |
 | `process_instruction`         |         32 |         32 |
-| `process_deposit`             |     40,577 |     39,242 |
-| `process_instruction`         |     40,628 |          0 |
+| `process_deposit`             |     40,179 |     38,844 |
+| `process_instruction`         |     40,230 |          0 |
 
 ## 5. Merge 36x1
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `create_nullifier_pdas`       |     75,677 |     75,677 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `create_nullifier_pdas`       |     79,716 |     79,716 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_instruction`         |    280,246 |    111,181 |
+| `process_instruction`         |    242,057 |     82,786 |
 
 ## 6. Merge 8x1
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `create_nullifier_pdas`       |     17,939 |     17,939 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `create_nullifier_pdas`       |     17,100 |     17,100 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_instruction`         |    168,344 |     57,017 |
+| `process_instruction`         |    146,372 |     49,717 |
 
 ## 7. Pause tree
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `process_instruction`         |        255 |        255 |
+| `process_instruction`         |        256 |        256 |
 
 ## 8. Transfer eddsa 1x1
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |        997 |        997 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |        763 |        763 |
-| `create_nullifier_pdas`       |      1,892 |      1,892 |
-| `apply_output_tree`           |     28,244 |     28,244 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |        987 |        987 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |        919 |        919 |
+| `create_nullifier_pdas`       |      1,887 |      1,887 |
+| `apply_output_tree`           |     28,230 |     28,230 |
+| `public_input_hash`           |     14,851 |     14,851 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    150,118 |     24,719 |
-| `process_instruction`         |    150,171 |          0 |
+| `process_transact_ix`         |    131,116 |      4,573 |
+| `process_instruction`         |    131,169 |          0 |
 
 ## 9. Transfer eddsa 1x2
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,063 |      1,063 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |        763 |        763 |
-| `create_nullifier_pdas`       |      1,892 |      1,892 |
-| `apply_output_tree`           |     28,280 |     28,280 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,053 |      1,053 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |        919 |        919 |
+| `create_nullifier_pdas`       |      1,887 |      1,887 |
+| `apply_output_tree`           |     28,266 |     28,266 |
+| `public_input_hash`           |     18,042 |     18,042 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    152,102 |     26,601 |
-| `process_instruction`         |    152,155 |          0 |
+| `process_transact_ix`         |    134,596 |      4,760 |
+| `process_instruction`         |    134,649 |          0 |
 
 ## 10. Transfer eddsa 1x8
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,459 |      1,459 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |        763 |        763 |
-| `create_nullifier_pdas`       |      1,892 |      1,892 |
-| `apply_output_tree`           |     31,985 |     31,985 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,449 |      1,449 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |        919 |        919 |
+| `create_nullifier_pdas`       |      1,887 |      1,887 |
+| `apply_output_tree`           |     31,971 |     31,971 |
+| `public_input_hash`           |     24,419 |     24,419 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    167,354 |     37,752 |
-| `process_instruction`         |    167,407 |          0 |
+| `process_transact_ix`         |    146,191 |      5,877 |
+| `process_instruction`         |    146,244 |          0 |
 
 ## 11. Transfer eddsa 2x2
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,063 |      1,063 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      1,788 |      1,788 |
-| `create_nullifier_pdas`       |      3,983 |      3,983 |
-| `apply_output_tree`           |     28,280 |     28,280 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,053 |      1,053 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      1,157 |      1,157 |
+| `create_nullifier_pdas`       |      3,965 |      3,965 |
+| `apply_output_tree`           |     28,266 |     28,266 |
+| `public_input_hash`           |     19,635 |     19,635 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    156,132 |     27,515 |
-| `process_instruction`         |    156,185 |          0 |
+| `process_transact_ix`         |    138,599 |      4,854 |
+| `process_instruction`         |    138,652 |          0 |
 
 ## 12. Transfer eddsa 2x3
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      1,788 |      1,788 |
-| `create_nullifier_pdas`       |      3,983 |      3,983 |
-| `apply_output_tree`           |     29,189 |     29,189 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      1,157 |      1,157 |
+| `create_nullifier_pdas`       |      3,965 |      3,965 |
+| `apply_output_tree`           |     29,175 |     29,175 |
+| `public_input_hash`           |     19,653 |     19,653 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    158,967 |     29,375 |
-| `process_instruction`         |    159,020 |          0 |
+| `process_transact_ix`         |    139,779 |      5,041 |
+| `process_instruction`         |    139,832 |          0 |
 
 ## 13. Transfer eddsa 36x2
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,063 |      1,063 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |     36,638 |     36,638 |
-| `create_nullifier_pdas`       |     74,581 |     74,581 |
-| `apply_output_tree`           |     28,280 |     28,280 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,053 |      1,053 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |     26,825 |     26,825 |
+| `create_nullifier_pdas`       |     73,985 |     73,985 |
+| `apply_output_tree`           |     28,266 |     28,266 |
+| `public_input_hash`           |     37,314 |     37,314 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    292,420 |     58,355 |
-| `process_instruction`         |    292,473 |          0 |
+| `process_transact_ix`         |    254,790 |      7,678 |
+| `process_instruction`         |    254,843 |          0 |
 
 ## 14. Transfer eddsa 3x3
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      2,813 |      2,813 |
-| `create_nullifier_pdas`       |      5,711 |      5,711 |
-| `apply_output_tree`           |     29,189 |     29,189 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      1,388 |      1,388 |
+| `create_nullifier_pdas`       |      5,676 |      5,676 |
+| `apply_output_tree`           |     29,175 |     29,175 |
+| `public_input_hash`           |     19,666 |     19,666 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    162,628 |     30,283 |
-| `process_instruction`         |    162,681 |          0 |
+| `process_transact_ix`         |    141,818 |      5,125 |
+| `process_instruction`         |    141,871 |          0 |
 
 ## 15. Transfer eddsa 4x3
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      3,838 |      3,838 |
-| `create_nullifier_pdas`       |      7,439 |      7,439 |
-| `apply_output_tree`           |     29,189 |     29,189 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      3,248 |      3,248 |
+| `create_nullifier_pdas`       |      7,387 |      7,387 |
+| `apply_output_tree`           |     29,175 |     29,175 |
+| `public_input_hash`           |     19,676 |     19,676 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    166,285 |     31,187 |
-| `process_instruction`         |    166,338 |          0 |
+| `process_transact_ix`         |    145,479 |      5,205 |
+| `process_instruction`         |    145,532 |          0 |
 
 ## 16. Transfer eddsa 4x4
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,195 |      1,195 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      3,838 |      3,838 |
-| `create_nullifier_pdas`       |      7,439 |      7,439 |
-| `apply_output_tree`           |     29,225 |     29,225 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,185 |      1,185 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      3,248 |      3,248 |
+| `create_nullifier_pdas`       |      7,387 |      7,387 |
+| `apply_output_tree`           |     29,211 |     29,211 |
+| `public_input_hash`           |     19,685 |     19,685 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    168,247 |     33,047 |
-| `process_instruction`         |    168,300 |          0 |
+| `process_transact_ix`         |    145,777 |      5,392 |
+| `process_instruction`         |    145,830 |          0 |
 
 ## 17. Transfer eddsa 5x3
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      4,863 |      4,863 |
-| `create_nullifier_pdas`       |      9,530 |      9,530 |
-| `apply_output_tree`           |     29,189 |     29,189 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      3,479 |      3,479 |
+| `create_nullifier_pdas`       |      9,461 |      9,461 |
+| `apply_output_tree`           |     29,175 |     29,175 |
+| `public_input_hash`           |     21,259 |     21,259 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    170,310 |     32,096 |
-| `process_instruction`         |    170,363 |          0 |
+| `process_transact_ix`         |    149,452 |      5,290 |
+| `process_instruction`         |    149,505 |          0 |
 
 ## 18. Transfer eddsa 5x4
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,195 |      1,195 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      4,863 |      4,863 |
-| `create_nullifier_pdas`       |      9,530 |      9,530 |
-| `apply_output_tree`           |     29,225 |     29,225 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,185 |      1,185 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      3,479 |      3,479 |
+| `create_nullifier_pdas`       |      9,461 |      9,461 |
+| `apply_output_tree`           |     29,211 |     29,211 |
+| `public_input_hash`           |     21,268 |     21,268 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    172,272 |     33,956 |
-| `process_instruction`         |    172,325 |          0 |
+| `process_transact_ix`         |    149,750 |      5,477 |
+| `process_instruction`         |    149,803 |          0 |
 
 ## 19. Transfer ring eddsa 36x2
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |         44 |         44 |
-| `fill_owner_signer_hashes`    |      1,014 |      1,014 |
-| `apply_input_tree`            |     36,640 |     36,640 |
-| `create_nullifier_pdas`       |     74,581 |     74,581 |
-| `apply_output_tree`           |     29,151 |     29,151 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |         38 |         38 |
+| `fill_owner_signer_hashes`    |      1,013 |      1,013 |
+| `apply_input_trees`           |     26,825 |     26,825 |
+| `create_nullifier_pdas`       |     72,554 |     72,554 |
+| `apply_output_tree`           |     29,135 |     29,135 |
+| `public_input_hash`           |     37,314 |     37,314 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    294,244 |     59,426 |
-| `process_instruction`         |    294,297 |          0 |
+| `process_transact_ix`         |    255,179 |      8,745 |
+| `process_instruction`         |    255,232 |          0 |
 
 ## 20. Transfer ring p256 36x2
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |         45 |         45 |
-| `fill_owner_signer_hashes`    |      1,014 |      1,014 |
-| `apply_input_tree`            |     36,638 |     36,638 |
-| `create_nullifier_pdas`       |     73,513 |     73,513 |
-| `apply_output_tree`           |     29,151 |     29,151 |
-| `verify_groth16`              |    224,703 |    224,703 |
+| `fill_output_owner_pk_hashes` |         38 |         38 |
+| `fill_owner_signer_hashes`    |      1,013 |      1,013 |
+| `apply_input_trees`           |     26,825 |     26,825 |
+| `create_nullifier_pdas`       |     72,917 |     72,917 |
+| `apply_output_tree`           |     29,135 |     29,135 |
+| `public_input_hash`           |     40,911 |     40,911 |
+| `verify_groth16`              |    210,724 |    210,724 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    428,252 |     63,156 |
-| `process_instruction`         |    428,305 |          0 |
+| `process_transact_ix`         |    390,397 |      8,802 |
+| `process_instruction`         |    390,450 |          0 |
 
 ## 21. Withdrawal sol
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      1,788 |      1,788 |
-| `create_nullifier_pdas`       |      3,620 |      3,620 |
-| `apply_output_tree`           |     29,187 |     29,187 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      1,157 |      1,157 |
+| `create_nullifier_pdas`       |      3,602 |      3,602 |
+| `apply_output_tree`           |     29,171 |     29,171 |
+| `public_input_hash`           |     21,674 |     21,674 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `settle_sol`                  |      1,189 |      1,189 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    162,223 |     31,807 |
-| `process_instruction`         |    162,276 |          0 |
+| `process_transact_ix`         |    143,035 |      5,454 |
+| `process_instruction`         |    143,088 |          0 |
 
 ## 22. Withdrawal spl
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `fill_output_owner_pk_hashes` |      1,129 |      1,129 |
-| `fill_owner_signer_hashes`    |        115 |        115 |
-| `apply_input_tree`            |      1,788 |      1,788 |
-| `create_nullifier_pdas`       |      3,620 |      3,620 |
-| `apply_output_tree`           |     29,187 |     29,187 |
-| `verify_groth16`              |     93,356 |     93,356 |
+| `fill_output_owner_pk_hashes` |      1,119 |      1,119 |
+| `fill_owner_signer_hashes`    |        114 |        114 |
+| `apply_input_trees`           |      1,157 |      1,157 |
+| `create_nullifier_pdas`       |      4,677 |      4,677 |
+| `apply_output_tree`           |     29,171 |     29,171 |
+| `public_input_hash`           |     21,677 |     21,677 |
+| `verify_groth16`              |     79,523 |     79,523 |
 | `settle_spl_withdrawal`       |      1,210 |      1,210 |
 | `process_instruction`         |         32 |         32 |
-| `process_transact_ix`         |    163,861 |     33,424 |
-| `process_instruction`         |    163,914 |          0 |
+| `process_transact_ix`         |    145,749 |      7,069 |
+| `process_instruction`         |    145,802 |          0 |
 

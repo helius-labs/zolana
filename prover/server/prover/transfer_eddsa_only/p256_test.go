@@ -177,7 +177,7 @@ func sampleP256Params() *P256TransferParameters {
 		PublicAmounts:                zeroFieldElements(txcircuit.NPublicSlots),
 		RingProgramID:                big.NewInt(0x4242),
 		SignerPkHashes:               countedFieldElements(2, 0x1212),
-		AllowDummyInputs:             big.NewInt(1),
+		InputFlags:                   sampleInputFlags([]InputParams{input}),
 		PublishedOutputOwnerPkHashes: countedFieldElements(1, 0x1212),
 		PublicInputHash:              big.NewInt(0x8888),
 	}

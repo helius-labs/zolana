@@ -67,8 +67,8 @@ pub enum TransactionError {
     #[error("transaction has no inputs")]
     NoInputs,
 
-    #[error("input {index} is spent from a different tree than the first input")]
-    InputTreeMismatch { index: usize },
+    #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
+    TooManyInputTrees { got: usize, max: usize },
 
     #[error("no participant a padding slot may name: every real input owner is the fee payer and the transaction has no real output")]
     NoDummyOwnerTagParticipant,

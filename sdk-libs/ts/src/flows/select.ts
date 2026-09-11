@@ -31,7 +31,14 @@ export interface SpendPolicy {
   readonly eligible: (entry: WalletUtxo) => boolean;
   readonly ordering: "largestFirst" | "smallestFirst";
   readonly maxInputs: number;
-  readonly tree: Readonly<{ kind: "fixed"; tree: Address }> | Readonly<{ kind: "inferSingle" }>;
+  /**
+   * `infer` takes the trees the selected UTXOs happen to sit in, up to
+   * `maxTrees` of them. A rail that publishes one input tree passes
+   * `maxTrees: 1`.
+   */
+  readonly tree:
+    | Readonly<{ kind: "fixed"; tree: Address }>
+    | Readonly<{ kind: "infer"; maxTrees: number }>;
   readonly errors: SpendSelectionErrors;
 }
 
@@ -42,9 +49,10 @@ export type SpendTarget =
 
 /** @internal */
 export interface SelectedSpendInputs {
+  /** Grouped by tree: each tree owns one contiguous run, as a proof requires. */
   readonly entries: readonly WalletUtxo[];
-  /** Every entry's tree. */
-  readonly tree: Address;
+  /** The entries' trees, in the order the entries first sit in them. */
+  readonly trees: readonly Address[];
   /** The whole eligible balance. */
   readonly total: bigint;
 }
@@ -68,7 +76,9 @@ export function selectUtxos(
         policy.eligible(entry) &&
         (policy.tree.kind !== "fixed" || entry.outputContext.tree === policy.tree.tree),
     );
-  const tree = resolveTree(input.asset, policy, candidates);
+  if (policy.tree.kind === "infer" && candidates.length === 0) {
+    throw policy.errors.insufficient({ asset: input.asset, requested: 1n, available: 0n });
+  }
   const sorted = [...candidates].sort((left, right) => {
     const ascending =
       left.utxo.amount < right.utxo.amount ? -1 : left.utxo.amount > right.utxo.amount ? 1 : 0;
@@ -91,7 +101,7 @@ export function selectUtxos(
         minimum: input.target.minInputs,
       });
     }
-    return Object.freeze({ entries: Object.freeze(entries), tree, total });
+    return grouped(entries, input.asset, policy, total);
   }
 
   const amount = input.target.amount;
@@ -108,30 +118,40 @@ export function selectUtxos(
     }
     throw policy.errors.insufficient({ asset: input.asset, requested: amount, available: total });
   }
-  return Object.freeze({ entries: Object.freeze(entries), tree, total });
+  return grouped(entries, input.asset, policy, total);
 }
 
-function resolveTree(
+/**
+ * A proof gives each input tree one contiguous run of inputs, so the selected
+ * entries are reordered into per-tree runs, keeping the amount order inside
+ * each. A policy that infers the trees refuses more runs than it admits.
+ */
+function grouped(
+  entries: readonly WalletUtxo[],
   asset: Address,
   policy: SpendPolicy,
-  candidates: readonly WalletUtxo[],
-): Address {
-  if (policy.tree.kind === "fixed") return policy.tree.tree;
-  const trees = new Set(candidates.map((entry) => entry.outputContext.tree));
-  const first = trees.values().next();
-  if (first.done) {
-    throw policy.errors.insufficient({ asset, requested: 1n, available: 0n });
+  total: bigint,
+): SelectedSpendInputs {
+  const trees: Address[] = [];
+  for (const entry of entries) {
+    if (!trees.includes(entry.outputContext.tree)) trees.push(entry.outputContext.tree);
   }
-  if (trees.size !== 1) {
+  if (policy.tree.kind === "infer" && trees.length > policy.tree.maxTrees) {
     throw requiredError(
       policy.errors.multipleTrees,
       "multipleTrees",
     )({
       asset,
-      treeCount: trees.size,
+      treeCount: trees.length,
     });
   }
-  return first.value;
+  return Object.freeze({
+    entries: Object.freeze(
+      trees.flatMap((tree) => entries.filter((entry) => entry.outputContext.tree === tree)),
+    ),
+    trees: Object.freeze(trees),
+    total,
+  });
 }
 
 function requiredError<T>(

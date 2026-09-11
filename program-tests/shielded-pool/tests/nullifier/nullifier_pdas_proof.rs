@@ -22,8 +22,8 @@ use zolana_test_utils::{
     },
     transact::{
         build_transfer_prover_inputs, change_and_dummy_outputs,
-        derive_test_transfer_output_blindings, dummy_input, eddsa_input_utxo, external_data_hash,
-        fe, inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+        derive_test_transfer_output_blindings, dummy_input, external_data_hash, fe, inline_outputs,
+        input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
         prove_and_verify_transfer, set_output_owner_tags, single_tree_slots, sol_public_slots,
         spend_input, test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs,
         TEST_BLINDING_SEED,
@@ -111,10 +111,8 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
         .expect("derive output blindings");
 
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &[payer_bytes; 3]),
     );
@@ -155,7 +153,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -185,7 +183,7 @@ fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> solana_instruction::Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

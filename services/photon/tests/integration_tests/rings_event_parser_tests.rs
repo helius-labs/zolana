@@ -68,7 +68,7 @@ use zolana_indexer_api::{
 use zolana_interface::instruction::{
     instruction_data::merge_transact::{MergeProof, MERGE_DEFAULT_INPUT_COUNT},
     CircuitId, InputUtxo, InterfaceTransfer, MergeTransactIxData, OwnerTag, TransactIxData,
-    TransactOutput, TransactProof,
+    TransactOutput, TransactProof, TreeContext,
 };
 use zolana_interface::{
     instruction::{encode_instruction, tag, BatchUpdateNullifierTreeData, CompressedProof},
@@ -84,7 +84,9 @@ const PROOFLESS_SHIELD_SLOT: u64 = 23;
 const SHIELDED_TRANSFER_SLOT: u64 = 25;
 const UNSHIELD_SLOT: u64 = 28;
 const ENCRYPTED_TRANSFER_SLOT: u64 = 19;
+const TWO_TREE_TRANSFER_SLOT: u64 = 31;
 const TEST_TREE: [u8; 32] = [41; 32];
+const SECOND_TEST_TREE: [u8; 32] = [42; 32];
 const TEST_STATE_ROOT_INDEX: u16 = 137;
 
 /// Output payload with the reserved `VerifiablyEncrypted` tag; the parser passes
@@ -148,6 +150,27 @@ fn parses_shielded_transfer_event_with_photon_parser() {
             expected_output(2, 3, 4, 14, Vec::new()),
         ]
     );
+}
+
+/// A `transact` may spend inputs from several trees. A `rings_tx_nullifiers`
+/// row is keyed by input index and carries that input's own tree and queue
+/// sequence number, so the rows separate by tree with no schema change.
+#[test]
+fn parses_a_transact_spending_two_input_trees() {
+    let state_update =
+        parse_rings_update(two_tree_transfer_transaction_info(), TWO_TREE_TRANSFER_SLOT);
+
+    let rings_tx = only(&state_update.rings_transactions, "Rings transaction");
+    assert_eq!(rings_tx.source_instruction_tag, tag::TRANSACT as i16);
+    assert_eq!(
+        rings_tx.nullifiers,
+        vec![
+            expected_nullifier(0, 6, 31),
+            expected_nullifier(1, 7, 32),
+            expected_nullifier_in_tree(SECOND_TEST_TREE, 2, 80, 33),
+        ]
+    );
+    assert_eq!(rings_tx.output_tree, TEST_TREE);
 }
 
 #[test]
@@ -1994,6 +2017,29 @@ fn unshield_transaction_info() -> TransactionInfo {
     )
 }
 
+/// Inputs grouped by tree, as the program requires: two from `TEST_TREE`, one
+/// from `SECOND_TEST_TREE`, each numbered from its own tree's first sequence.
+fn two_tree_transfer_transaction_info() -> TransactionInfo {
+    transact_transaction_info(
+        5,
+        GeneralEvent {
+            inputs: vec![
+                test_input(6, 31),
+                test_input(7, 32),
+                test_input_in_tree(SECOND_TEST_TREE, 80, 33),
+            ],
+            outputs: vec![test_output(12, 34, Vec::new())],
+            messages: Vec::new(),
+            tx_viewing_pk: [0; 33],
+            salt: [0; 16],
+            first_output_leaf_index: 7,
+            output_tree: TEST_TREE,
+            spl_transfers: Vec::new(),
+        },
+        Vec::new(),
+    )
+}
+
 fn encrypted_transfer_transaction_info() -> TransactionInfo {
     transact_transaction_info(
         4,
@@ -2059,8 +2105,7 @@ fn transact_source_data(
             .iter()
             .map(|input| InputUtxo {
                 nullifier_hash: input.nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: tree_index_of(expected, input.tree),
             })
             .collect(),
         interface_transfers,
@@ -2068,6 +2113,13 @@ fn transact_source_data(
         ring_data_hash: None,
         outputs,
         messages: expected.messages.clone(),
+        tree_contexts: vec![
+            TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            };
+            input_trees_of(expected).len().max(1)
+        ],
     };
     let mut source_data = vec![source_tag];
     source_data.extend_from_slice(&ix.serialize().expect("serialize transact"));
@@ -2087,14 +2139,42 @@ fn inline_outputs(expected: &GeneralEvent) -> Vec<TransactOutput> {
         .collect()
 }
 
-/// The minimal body the program emits for `expected`.
+/// The trees `expected` spends from, in first-use order: the order the program
+/// declares its tree contexts in and emits their queue sequences in.
+fn input_trees_of(expected: &GeneralEvent) -> Vec<[u8; 32]> {
+    let mut trees: Vec<[u8; 32]> = Vec::new();
+    for input in &expected.inputs {
+        if !trees.contains(&input.tree) {
+            trees.push(input.tree);
+        }
+    }
+    trees
+}
+
+fn tree_index_of(expected: &GeneralEvent, tree: [u8; 32]) -> u8 {
+    let position = input_trees_of(expected)
+        .iter()
+        .position(|candidate| *candidate == tree)
+        .expect("tree comes from the inputs");
+    u8::try_from(position).expect("shape")
+}
+
+/// The minimal body the program emits for `expected`: one entry per input tree,
+/// carrying the queue sequence number of the first input spent from it.
 fn transact_event_for(expected: &GeneralEvent) -> TransactEvent {
-    let first_input = expected.inputs.first().expect("transact spends an input");
     TransactEvent {
-        input_trees: vec![InputTreeSequence {
-            tree: first_input.tree,
-            first_input_queue_seq: first_input.input_queue_seq,
-        }],
+        input_trees: input_trees_of(expected)
+            .into_iter()
+            .map(|tree| InputTreeSequence {
+                tree,
+                first_input_queue_seq: expected
+                    .inputs
+                    .iter()
+                    .find(|input| input.tree == tree)
+                    .expect("tree comes from the inputs")
+                    .input_queue_seq,
+            })
+            .collect(),
         output_tree: expected.output_tree,
         first_output_leaf_index: expected.first_output_leaf_index,
     }
@@ -2168,8 +2248,8 @@ fn merge_transaction_info() -> TransactionInfo {
         nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT)
             .map(|i| [0x50 + u8::try_from(i).expect("shape"); 32])
             .collect(),
-        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     };
     let mut source_data = vec![tag::MERGE_TRANSACT];
     source_data.extend_from_slice(&merge.serialize().expect("serialize merge"));
@@ -2219,8 +2299,12 @@ fn rings_transaction_info<T: borsh::BorshSerialize>(
 }
 
 fn test_input(input_queue_seq: u64, nullifier_byte: u8) -> Input {
+    test_input_in_tree(TEST_TREE, input_queue_seq, nullifier_byte)
+}
+
+fn test_input_in_tree(tree: [u8; 32], input_queue_seq: u64, nullifier_byte: u8) -> Input {
     Input {
-        tree: TEST_TREE,
+        tree,
         input_queue_seq,
         nullifier: [nullifier_byte; 32],
     }
@@ -2256,9 +2340,18 @@ fn expected_nullifier(
     input_queue_seq: u64,
     nullifier_byte: u8,
 ) -> RingsNullifierUpdate {
+    expected_nullifier_in_tree(TEST_TREE, input_index, input_queue_seq, nullifier_byte)
+}
+
+fn expected_nullifier_in_tree(
+    nullifier_tree: [u8; 32],
+    input_index: i16,
+    input_queue_seq: u64,
+    nullifier_byte: u8,
+) -> RingsNullifierUpdate {
     RingsNullifierUpdate {
         input_index,
-        nullifier_tree: TEST_TREE,
+        nullifier_tree,
         input_queue_seq,
         nullifier: [nullifier_byte; 32],
     }

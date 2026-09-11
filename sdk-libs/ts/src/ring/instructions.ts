@@ -362,7 +362,7 @@ function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof)
     .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(proof.proof.a, 32, "proof.a")
-    .bytes(proof.proof.b, 64, "proof.b")
+    .bytes(proof.proof.b, 128, "proof.b")
     .bytes(proof.proof.c, 32, "proof.c");
 }
 

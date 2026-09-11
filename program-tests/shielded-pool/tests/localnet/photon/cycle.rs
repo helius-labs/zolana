@@ -354,7 +354,7 @@ fn phase_shielded_transfer(
 
     let transfer_ix = Transact {
         payer: env.payer.pubkey(),
-        input_tree: env.tree_pubkey,
+        input_trees: vec![env.tree_pubkey],
         output_tree: env.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -552,7 +552,7 @@ fn phase_unshield(
 
     let withdraw_ix = Transact {
         payer: env.recipient_owner.pubkey(),
-        input_tree: env.tree_pubkey,
+        input_trees: vec![env.tree_pubkey],
         output_tree: env.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

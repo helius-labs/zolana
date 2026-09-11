@@ -2,7 +2,7 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_array, primitives::is_canonical_bn254_scalar_be,
+    hash_chain::create_hash_chain_4_from_slice, primitives::is_canonical_bn254_scalar_be,
 };
 
 use crate::nullifier_tree::{
@@ -107,7 +107,7 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         // 3. Rebuild the public input hash and verify the proof.
         let mut next_index_bytes = [0u8; 32];
         next_index_bytes[24..].copy_from_slice(zkp_batch_start_index.to_be_bytes().as_slice());
-        let public_input_hash = create_hash_chain_from_array([
+        let public_input_hash = create_hash_chain_4_from_slice(&[
             instruction_data.old_root,
             instruction_data.new_root,
             leaves_hash_chain,

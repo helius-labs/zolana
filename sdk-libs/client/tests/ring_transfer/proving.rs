@@ -62,8 +62,9 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
         .expect("derive output blindings");
     // The authorized signer vector must contain every real input's owner
     // pk-field (payer-first on-chain; any placement satisfies Contains).
+    let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
-    signer_pk_hashes.resize(n_in + 1, [0u8; 32]);
+    signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
     RingTransferProver {
         inputs,
         outputs,
@@ -74,7 +75,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
         signer_pk_hashes,
         allow_dummy_inputs: true,
         ring_program_id: Some(ring_program()),
-        shape: Some(Shape::new(n_in, n_out)),
+        shape: Some(shape),
     }
 }
 

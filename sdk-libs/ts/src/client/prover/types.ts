@@ -70,7 +70,8 @@ export interface TransferInputs {
   readonly publicAmounts: readonly Field[];
   readonly ringProgramId: Field;
   readonly signerPublicKeyHashes: readonly Field[];
-  readonly allowDummyInputs: Field;
+  /** Bit 0 is the dummy-input policy, then three bits of tree slot per input. */
+  readonly inputFlags: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
   readonly publicInputHash: Field;
 }
@@ -242,7 +243,7 @@ export interface Proof {
 
 export interface CompressedProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
   readonly commitment?: Bytes32;
   readonly commitmentPok?: Bytes32;

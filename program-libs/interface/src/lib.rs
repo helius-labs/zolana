@@ -32,9 +32,9 @@ pub const UTXO_DOMAIN: u16 = 3;
 pub const N_PUBLIC_SLOTS: usize = 3;
 
 /// Number of tree slots a spend proof publishes (mirrors Go
-/// `circuits/spp_transaction/shared` `InputTrees`). SPP spends from one
-/// `input_tree`, which fills slot 0; slots 1.. stay all zero. See
-/// [`tree_slot`].
+/// `circuits/spp_transaction/shared` `InputTrees`). A spend fills one slot per
+/// declared input tree, in account order; the remaining slots stay all zero.
+/// See [`tree_slot`].
 pub const INPUT_TREES: usize = 5;
 
 pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {

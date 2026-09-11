@@ -27,4 +27,6 @@ pub use derivation::{
     DOMAIN_PRIVATE_TX_BLINDING_V1, DOMAIN_TRANSACT_OUTPUT_BLINDING_SEED_V1,
     DOMAIN_TRANSACT_OUTPUT_BLINDING_V1,
 };
-pub use external_data::{ExternalDataHashError, SettlementAccounts, TransactExternalData};
+pub use external_data::{
+    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
+};

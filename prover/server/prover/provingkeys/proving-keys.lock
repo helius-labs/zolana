@@ -1,12 +1,12 @@
 {
   "keys": {
     "batch_address-append_40_10.key": {
-      "sha256": "9a086ac2d80e259d01499f57d396a659704a97f930a1ce3cbd4f43c1cff207b0",
-      "size": 137141216
+      "sha256": "589c90ea00bc771e7b61c28c20290c4dfaa9a33790d7231261d7bbe621459843",
+      "size": 136666912
     },
     "batch_address-append_40_250.key": {
-      "sha256": "e04970f4d8a919cc826076de0ca0bc571b9afd44b0ef283285d3f0e36d54e2c9",
-      "size": 3764027068
+      "sha256": "aacd3c81c4681acf0eb21e395df4f566738412da158153b1dee7ac83219dc425",
+      "size": 3752013184
     },
     "custom_ring_base.key": {
       "sha256": "841ded3769cd7a0be089eb9d54d6a8aeaf26c792bfbbacb16158448f698d2003",
@@ -14,174 +14,174 @@
       "source": "release"
     },
     "custom_ring_policy.key": {
-      "sha256": "aedb480216da0341d9be34e775e941f1b3a4b0d9b1a8a25b25e77c772f2722f0",
-      "size": 145540418,
+      "sha256": "be884b9fc2d867b9ae196ca6feaa77b0e17efa0b869567ff8cfa9bf8e19b21a5",
+      "size": 145691406,
       "source": "release"
     },
     "merge_36_1.key": {
-      "sha256": "ffc7be825c4fb89ce13a2f5a7017a38a0bbe97d1b8907ed679e8696b352eaf73",
-      "size": 243658878
+      "sha256": "60c357e8513b9e5d354900929980d1e8d3e132d6db67c50f68b5616630cf58a0",
+      "size": 240902581
     },
     "merge_8_1.key": {
-      "sha256": "4c54b72998e54736d212b4b5848ee00ea1365c0bdf035a8d0b5836e05dcabc6d",
-      "size": 56192257
+      "sha256": "3df1cc825e4c949aaa605c283fd232f7a2d2901b73d480f36289c96207a39277",
+      "size": 55581866
     },
     "merge_ring_36_1.key": {
-      "sha256": "733c1b40af003c69babb6be6842d9c872a573d9256a09c9c509052c2a0ab94c1",
-      "size": 243473400
+      "sha256": "d7cf47f5465f1f266d9532029cd03da75ba84883b3ad60c721d94f8d106467b0",
+      "size": 240654443
     },
     "merge_ring_8_1.key": {
-      "sha256": "e3661f87fa954e5084118bef906a980744904c95765b0f3120bcc692a8326546",
-      "size": 56202813
+      "sha256": "68b11bc4da54b9655837a50adde4e5ea59737b273bdf605cbde0e7fb7e6eea9e",
+      "size": 55528134
     },
     "transfer_confidential_1_1.key": {
-      "sha256": "3644364211e1ffcac7fcf46eadf4a78a40d50ca32ff6cf1bdcc58217de93b176",
-      "size": 9085235
+      "sha256": "73218c4b3c0c037c759045e1d869bb6c03a2ec0bd42b7484a89f201218fb2894",
+      "size": 8527147
     },
     "transfer_confidential_1_2.key": {
-      "sha256": "5efe305386084b8e861ab46a8ab0915529ea34083d55dd2dc3d5cefaa4b7aa24",
-      "size": 9715818
+      "sha256": "df4638482f6f9f1f6a4093a8db26954422dd2458ddc07e22035b304304425cff",
+      "size": 9220650
     },
     "transfer_confidential_1_8.key": {
-      "sha256": "8696aa0189395706f165abe6abdf27215f3205c7bd840ab9e55f3d6146bd54fe",
-      "size": 14561259
+      "sha256": "a24cec1f0311ecf51446f334ed30e6867a35ec38a175ff55cdd1221ae469d3df",
+      "size": 13407440
     },
     "transfer_confidential_2_2.key": {
-      "sha256": "6214dabd3c86aea610da3e29b13bc893ec53e922c0e633ddb0e7be9b59b80c61",
-      "size": 16740960
+      "sha256": "a1c9e85be75d229e7b53fbd734a036275e0c5f2077ffb2a78c43fc7d27e9d973",
+      "size": 16305885
     },
     "transfer_confidential_2_3.key": {
-      "sha256": "fdc1745486bd6357ed7cf38e3fab03d122d33e0b8a99aa304e87f2c46eaf8c94",
-      "size": 17373883
+      "sha256": "55bc6b864955505d443f69a6c7ccde982ac4df75a2a48989611f41cd4475f9ed",
+      "size": 16740803
     },
     "transfer_confidential_36_2.key": {
-      "sha256": "e6e2826d7ed992779b2b78d29c647c085105eef0cc7325612dbf146c29ffa94c",
-      "size": 252269453
+      "sha256": "7a71b3229aa0eb02a86715139ddd2e32a0c72f0937a5f505b89a3559e8be24f4",
+      "size": 247055998
     },
     "transfer_confidential_3_3.key": {
-      "sha256": "0c19d3c7555cc3c94570f11c43da99f95379f2760fcbc15a8a345cf92e09f318",
-      "size": 25447044
+      "sha256": "28ed75cfd3251203438400b5e4b699299d1b73f5d72ae7c83a826626b5b9d1da",
+      "size": 24618047
     },
     "transfer_confidential_4_3.key": {
-      "sha256": "2917d3d5c65307a1fd66702e090e43812bc8a69c9195bcd7a40ba0f2597effa5",
-      "size": 31425686
+      "sha256": "b3ebc584080de36c04a22a2d063e519aafb36215eb8da9d3a80310d041b856e8",
+      "size": 30396852
     },
     "transfer_confidential_4_4.key": {
-      "sha256": "7cfb4e080c00a1b855ff295986742a46404532b64dad574eed999c6d448e670d",
-      "size": 32060252
+      "sha256": "bc743e88a2379248ec969843ee01ebb13067d1c906cbeb50e1d42b30708cb30f",
+      "size": 30835687
     },
     "transfer_confidential_5_3.key": {
-      "sha256": "820915cb0ffd2d25927becf724e253f8174da7e26fe22aefc945bf4e846cd9fd",
-      "size": 37408224
+      "sha256": "739071e10e0f4221b3a2de617415c928f70c0ababebd9c022169bfb8beaf9a49",
+      "size": 36447218
     },
     "transfer_confidential_5_4.key": {
-      "sha256": "b1fa44891ae67edccc149dc803d2b809dd6bcb811ffb087fa1074127b84165ab",
-      "size": 38046430
+      "sha256": "3af6b0370c06f0979987256b80e171a1a45a0dfbbca687a30187f2052191ff13",
+      "size": 36885061
     },
     "transfer_p256_ring_1_1.key": {
-      "sha256": "435f6615ee0e3c4bbdfc199ca799400d63335c3abaa925b8961fc5385ccc9935",
-      "size": 54418548
+      "sha256": "599382ec7d10219c4b09c0f37547002270f7f462426434035adfa120d5299e45",
+      "size": 53793062
     },
     "transfer_p256_ring_1_2.key": {
-      "sha256": "0216d3a97b6fa4f50c0be1f8f6bd070dcf7fcdea78ebef74772763b527f39ade",
-      "size": 55100619
+      "sha256": "6cf2b03cedeeef9584e8c6ddca1858196473304bf1c5914f128a40e54ce2ed41",
+      "size": 54549428
     },
     "transfer_p256_ring_1_8.key": {
-      "sha256": "0fb2965a8bc564026ae3044e6d06e22c26cc005ed58840b16eee20775b06f349",
-      "size": 59193347
+      "sha256": "0693e9a9d7668de5b27b734425ee7a23646f1a76c2e5dfea3e4aa7801a496475",
+      "size": 57952182
     },
     "transfer_p256_ring_2_2.key": {
-      "sha256": "64dc92b0b0f750f56fcc2c862cccbc209e16f598a9f1d0564d5f102db7940359",
-      "size": 61431496
+      "sha256": "a42906b64c5bc9e7f043dd431aee2368c35d27c4e79aebd06485ba805a203971",
+      "size": 60959295
     },
     "transfer_p256_ring_2_3.key": {
-      "sha256": "cdd0a5477e369d42f16e3d523b61e4d698f59638d33644abca21c1c6519ceb4c",
-      "size": 62112319
+      "sha256": "9e25a3725fe9d03afd49c1660f464090d5b650d4c70cf50e2199c295cabbff68",
+      "size": 61428598
     },
     "transfer_p256_ring_36_2.key": {
-      "sha256": "4db4d17f68407814092bf6827b2735db2ca507b3e2d4524b987834cebb2324d4",
-      "size": 302576901
+      "sha256": "0d5894638f3adf147a05cdc835b9e01684f4b1dc376e29f883b0122acdf8fb66",
+      "size": 297118268
     },
     "transfer_p256_ring_3_3.key": {
-      "sha256": "18759b0904db414230ca3b435aa759184368b7a1a176b99eed8f3aff08e544da",
-      "size": 68441212
+      "sha256": "6bd53d7b955d5c443d2984325b342cb29b50396f94d0e08204b5468a6157b351",
+      "size": 67546660
     },
     "transfer_p256_ring_4_3.key": {
-      "sha256": "b32e706718befa5a9016e29e42dff93b4c66aba8e3f239df0b98053dd62808f3",
-      "size": 74767727
+      "sha256": "4d31320fdb3736aca19bb55aab79a4ba1105375571c698dd20c24911b0573028",
+      "size": 73665592
     },
     "transfer_p256_ring_4_4.key": {
-      "sha256": "97d0bad9e8326c5c5121e5c978e4a361eabc9148e436c43ec96c3846f07f534b",
-      "size": 75450991
+      "sha256": "746c17e021085beb1bc16adf26eacc41cd2dc849911bc206d83126a71a176c04",
+      "size": 74138508
     },
     "transfer_p256_ring_5_3.key": {
-      "sha256": "d8873b353095b96aca3c7b5bc172b7602036ec2551df9d936d7889687e86bb45",
-      "size": 89488295
+      "sha256": "7563ab7dd50282b873da3a40b69df023bd141f625ffaf588d08900a048383c00",
+      "size": 88459914
     },
     "transfer_p256_ring_5_4.key": {
-      "sha256": "e0d36f2a58d9b72005d2e0ae11c629be45d9a180afea4bb35de936a9a2ce50b5",
-      "size": 90172416
+      "sha256": "cb0db062416b11a55329c9de4028af952901f47595d7c5287ed6a42e80e6286b",
+      "size": 88933827
     },
     "transfer_ring_1_1.key": {
-      "sha256": "882bb0b2638ea3561bd250363ba52d817095d81bd0a844584717a75ad7292932",
-      "size": 9092943
+      "sha256": "e459a85334d751b4b8783e1d948289825ac610d301673826dd4e56f8489de334",
+      "size": 8534829
     },
     "transfer_ring_1_2.key": {
-      "sha256": "8c547e63a4d5b057664341f911fdd8ba5313de85925530d5a8fe13236309e978",
-      "size": 9729060
+      "sha256": "7f8f51f3d81b0bc799486c426cbb119b821a47dfe408ac5c7b268d9a6ef54931",
+      "size": 9231839
     },
     "transfer_ring_1_8.key": {
-      "sha256": "5794a769156d5a0c67af876a3ceb7e3a900da54827d6c59406569d700bad6f4b",
-      "size": 14595410
+      "sha256": "11546caa62f2a49381e9035e4e841e14acd3a977627fd6e3e44081d281856b67",
+      "size": 13445522
     },
     "transfer_ring_2_2.key": {
-      "sha256": "e30a80ef9910966f22edd8d7f8102d8bd51620c44e2ff74516447a582f80c9e1",
-      "size": 16753812
+      "sha256": "a4e61869d9682f2113a92d731e3058fec140d1759f8907aaf6bbbe4aee326216",
+      "size": 16320040
     },
     "transfer_ring_2_3.key": {
-      "sha256": "3784606a0eedbb2ef7823c5f089f86b7c55a9211ec1ac5fb22854ae6bb453ecc",
-      "size": 17392056
+      "sha256": "456b9084b3c4ad3daf946bed738103363299e0c4bcbb739ac998c3ab99a0eaf1",
+      "size": 16761011
     },
     "transfer_ring_36_2.key": {
-      "sha256": "139877a3d4b4acff3f5be19f3669e9554c2439301495bd0128eb056f7e2af039",
-      "size": 252353940
+      "sha256": "22a3baab6a4896538cc1e2528c7e30e5b3ac6bcbe9474fa86401be2f75e0ad16",
+      "size": 247143564
     },
     "transfer_ring_3_3.key": {
-      "sha256": "3734a2f9b0c2ecde2b85ac864014ebc138b304153192dbac146a3528b8a3acbd",
-      "size": 25467423
+      "sha256": "d8d62501a3dc8ee22564a673de9f88862eb3c2e254151be097c5895da986041f",
+      "size": 24636213
     },
     "transfer_ring_4_3.key": {
-      "sha256": "43603f946846f23d90532f382239cb292d05e91c5010e9baa28d373344c24bd4",
-      "size": 31447499
+      "sha256": "7e6e5ae3bac2bb5f09e61e283717479c34a27b66fe3bdc4e0fa112f61997461a",
+      "size": 30421478
     },
     "transfer_ring_4_4.key": {
-      "sha256": "e1c98134caf19665a527af592f20e6414024c92ed4e60cf8f9da19b4ca93640f",
-      "size": 32087877
+      "sha256": "d397ffeccd4004315a5a669ab590781ddbc2b74efd9029251a6bbaf042e354ef",
+      "size": 30862443
     },
     "transfer_ring_5_3.key": {
-      "sha256": "8d53656de2c9141086cadc3b4818e929f1810a80a2529c329eb618fa34b29e93",
-      "size": 37432684
+      "sha256": "87efa4b173667ddff52693c5373d6402f4c654b9096ea506552bc601505e2412",
+      "size": 36469968
     },
     "transfer_ring_5_4.key": {
-      "sha256": "c25f1c1d2be5f21d1de2681e09a42dd628eeca07c0060a811be92c08624ce085",
-      "size": 38073615
+      "sha256": "966958961f066b81d461848fa8f9c4a21a8a86a9a6b52240da514a14a7c12c4e",
+      "size": 36912723
     },
     "transfer_ring_authority_1_1.key": {
-      "sha256": "2e8cd3613111f7287b5c4ed4efe1a6fd73535d66591b47905eb3ecbd784e4457",
-      "size": 8893270
+      "sha256": "03493e06812091add92abdd8117bbfcfd376951f3c63cca7f2786fca8d3923ec",
+      "size": 8408007
     },
     "transfer_ring_authority_2_2.key": {
-      "sha256": "f9632bd8584a043d32ec52de87305ad97118395f30d593f48ae43ffab045883f",
-      "size": 16354107
+      "sha256": "5343ca34d6ddd3f189b005ce8de5124944ff91ccde1fb14eba27939ebf91d65a",
+      "size": 15981806
     },
     "transfer_ring_authority_3_3.key": {
-      "sha256": "f793eb207b61ad4c1355ef1eae2a449b946921774a1d3d468588bce1e9f6a526",
-      "size": 24862992
+      "sha256": "a45b5c13fa972cf5b87681a23d1e479fa3e041dd12beb58e121de1a070aac780",
+      "size": 24192489
     },
     "transfer_ring_authority_4_4.key": {
-      "sha256": "6addde44ad0eab4b92dd4aa2f7d5e462c93cccf4691604d9872f3efdcdea1a93",
-      "size": 31281774
+      "sha256": "d8d43f37cbe8e2ab053122f5039253c9222f2e698e0bb2c30746772a17f56870",
+      "size": 30333212
     }
   },
-  "prefix": "proving-keys/dce3f5309390f875"
+  "prefix": "proving-keys/7765d8fa45c5416c"
 }

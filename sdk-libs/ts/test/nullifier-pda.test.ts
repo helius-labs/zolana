@@ -13,7 +13,7 @@ import type {
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   InputUtxo,
   MergeTransactInstructionData,
   TransactInstructionData,
@@ -31,11 +31,7 @@ function filled(byte: number, length: number): Uint8Array {
 }
 
 function input(byte: number): InputUtxo {
-  return {
-    nullifierHash: filled(byte, 32) as Bytes32,
-    nullifierTreeRootIndex: 0,
-    utxoTreeRootIndex: 0,
-  };
+  return { nullifierHash: filled(byte, 32) as Bytes32, treeIndex: 0 };
 }
 
 function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
@@ -47,10 +43,11 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
     salt: filled(42, 16) as Bytes16,
     proof: {
       a: filled(43, 32) as Bytes32,
-      b: filled(44, 64) as Bytes64,
+      b: filled(44, 128) as Bytes128,
       c: filled(45, 32) as Bytes32,
     },
     inputs,
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
     interfaceTransfers: [],
     outputs: [],
     messages: [],
@@ -145,15 +142,15 @@ describe("nullifier PDA accounts", () => {
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
       proof: {
         a: filled(43, 32) as Bytes32,
-        b: filled(44, 64) as Bytes64,
+        b: filled(44, 128) as Bytes128,
         c: filled(45, 32) as Bytes32,
       },
       outputUtxoHash: filled(46, 32) as Bytes32,
       eddsaOwner: true,
       privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,
-      utxoTreeRootIndexes: Array.from({ length: 8 }, () => 0),
-      nullifierTreeRootIndexes: Array.from({ length: 8 }, () => 0),
+      utxoTreeRootIndex: 0,
+      nullifierTreeRootIndex: 0,
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

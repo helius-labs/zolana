@@ -14,6 +14,7 @@ use zolana_interface::{
             CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
         },
         tag::InstructionTag,
+        validate_input_tree_contexts,
     },
     N_PUBLIC_SLOTS,
 };
@@ -22,13 +23,13 @@ use super::{
     account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::settle_interface_transfers,
-    tree::{apply_input_tree, apply_output_tree},
+    tree::{apply_input_trees, apply_output_tree},
 };
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::create_nullifier_pdas,
+    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     settlement::Settlement,
-    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
+    shared::{check_field_element, check_field_elements, check_not_expired},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -46,8 +47,9 @@ pub fn process_transact_ix(
     // 1. Deserialize instruction data.
     let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
-    // 2. Validate declared circuit type.
+    // 2. Validate declared circuit type and the declared input trees.
     validate_circuit_type(&ix, instruction)?;
+    validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
 
     // 3. Check proof is not expired.
     let clock = Clock::get()?;
@@ -86,31 +88,15 @@ pub fn process_transact_ix(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve the input tree's roots and insert nullifiers into queue.
-    let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    // The fee transfer CPI includes the tree, so it must run before
-    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
-    // only its own accounts into the transaction context, and a pending tree
-    // debit without the matching nullifier PDA credits trips the runtime's
-    // UnbalancedInstruction check.
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        input_tree_result.forester_fee,
-    )?;
-    create_nullifier_pdas(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_pdas,
-        &input_tree_result,
-    )?;
-    // 9. Append new utxo hashes.
-    let tree_write = apply_output_tree(
-        transact_accounts.output_tree,
+    // 8. Resolve each input tree's roots and insert its nullifiers into queue.
+    let input_tree_results = apply_input_trees(
+        transact_accounts.input_trees.as_mut_slice(),
         &ix,
-        input_tree_result.inputs,
-        clock.slot,
+        &mut proof_inputs,
     )?;
+    create_input_tree_nullifier_pdas(&ix, &mut transact_accounts, &input_tree_results)?;
+    // 9. Append new utxo hashes.
+    let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
     let tag = [instruction as u8];
@@ -128,12 +114,52 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write)?;
+    let event = build_transact_event(tree_write, &input_tree_results);
     emit_event(EventKind::Transact, &event)
 }
 
+/// Create each tree's nullifier PDAs with that tree's queue result. The
+/// per-tree fee accounting in `create_nullifier_pdas` (the forester fee riding
+/// on the first PDA's `CreateAccount`, with a Transfer CPI fallback that must
+/// precede any direct lamport move on the tree) is per tree, so every tree runs
+/// the same single-tree body over its own contiguous group of inputs.
 #[inline(never)]
-pub fn hash_external_data<'a>(
+fn create_input_tree_nullifier_pdas(
+    ix: &TransactIxDataRef<'_>,
+    accounts: &mut TransactAccounts<'_>,
+    input_tree_results: &[InputTreeResult],
+) -> ProgramResult {
+    let TransactAccounts {
+        payer,
+        input_trees,
+        nullifier_pdas,
+        ..
+    } = accounts;
+    let mut remaining = nullifier_pdas.as_mut_slice();
+    for ((input_tree, result), tree_inputs) in input_trees.iter_mut().zip(input_tree_results).zip(
+        ix.inputs
+            .chunk_by(|left, right| left.tree_index == right.tree_index),
+    ) {
+        let (tree_pdas, rest) = core::mem::take(&mut remaining)
+            .split_at_mut_checked(tree_inputs.len())
+            .ok_or(ShieldedPoolError::InvalidNullifierPda)?;
+        create_nullifier_pdas(
+            payer,
+            input_tree,
+            tree_pdas,
+            tree_inputs.iter().map(|input| &input.nullifier_hash),
+            result,
+        )?;
+        remaining = rest;
+    }
+    if !remaining.is_empty() {
+        return Err(ShieldedPoolError::InvalidNullifierPda.into());
+    }
+    Ok(())
+}
+
+#[inline(never)]
+fn hash_external_data<'a>(
     tag: &'a [u8; 1],
     external_data_prefix: &'a [u8],
     ix: &TransactIxDataRef<'_>,
@@ -206,4 +232,122 @@ pub fn validate_circuit_type(
         None,
         ShieldedPoolError::NonCanonicalPrivateTxHash,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zolana_hasher::{sha256::Sha256BE, Hasher};
+    use zolana_interface::instruction::instruction_data::transact::{
+        OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
+    };
+
+    const ACCOUNT_OWNER_INDEX: u8 = 3;
+    const SECOND_ACCOUNT_OWNER_INDEX: u8 = 4;
+
+    fn serialized_ix(owner_tags: &[OwnerTag]) -> Vec<u8> {
+        let outputs = owner_tags
+            .iter()
+            .enumerate()
+            .map(|(i, owner_tag)| TransactOutput {
+                utxo_hash: core::array::from_fn(|j| (i + j) as u8),
+                owner_tag: *owner_tag,
+                data: (i % 2 == 0).then(|| vec![0xaa; 16]),
+            })
+            .collect();
+        TransactIxData {
+            expiry_unix_ts: 1_234_567_890,
+            tx_viewing_pk: core::array::from_fn(|i| 0x90 + i as u8),
+            salt: core::array::from_fn(|i| 0xf0 + i as u8),
+            interface_transfers: Vec::new(),
+            data_hash: None,
+            ring_data_hash: Some([7u8; 32]),
+            outputs,
+            messages: Vec::new(),
+            private_tx_hash: [0u8; 32],
+            circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
+            proof: TransactProof::zeroed(),
+            inputs: Vec::new(),
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
+        }
+        .serialize()
+        .unwrap()
+    }
+
+    fn resolve<'a>(
+        ix: &TransactIxDataRef<'a>,
+        owners: [(u8, [u8; 32]); 2],
+    ) -> Vec<ResolvedOutput<'a>> {
+        ix.outputs
+            .iter()
+            .map(|output| {
+                output
+                    .into_resolved(|index| {
+                        owners
+                            .iter()
+                            .find(|(owner_index, _)| *owner_index == index)
+                            .map(|(_, owner)| *owner)
+                    })
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inline_owner_tags_hash_only_tag_and_prefix() {
+        let inline_owner: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let bytes = serialized_ix(&[
+            OwnerTag::Inline(inline_owner),
+            OwnerTag::Inline(inline_owner),
+        ]);
+        let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+        let resolved = resolve(
+            &ix,
+            [
+                (ACCOUNT_OWNER_INDEX, [0u8; 32]),
+                (SECOND_ACCOUNT_OWNER_INDEX, [0u8; 32]),
+            ],
+        );
+        let tag = [InstructionTag::Transact as u8];
+
+        let got = hash_external_data(&tag, prefix, &ix, &[], &resolved).unwrap();
+
+        assert_eq!(got, Sha256BE::hashv(&[&tag, prefix]).unwrap());
+    }
+
+    #[test]
+    fn account_owner_tags_append_resolved_addresses_in_output_order() {
+        let inline_owner: [u8; 32] = core::array::from_fn(|i| i as u8);
+        let first_owner: [u8; 32] = core::array::from_fn(|i| 0x30 + i as u8);
+        let second_owner: [u8; 32] = core::array::from_fn(|i| 0x50 + i as u8);
+        let bytes = serialized_ix(&[
+            OwnerTag::Account(SECOND_ACCOUNT_OWNER_INDEX),
+            OwnerTag::Inline(inline_owner),
+            OwnerTag::Account(ACCOUNT_OWNER_INDEX),
+        ]);
+        let (ix, prefix) = TransactIxDataRef::parse_with_external_data_prefix(&bytes).unwrap();
+        let resolved = resolve(
+            &ix,
+            [
+                (ACCOUNT_OWNER_INDEX, first_owner),
+                (SECOND_ACCOUNT_OWNER_INDEX, second_owner),
+            ],
+        );
+        let tag = [InstructionTag::RingTransact as u8];
+
+        let got = hash_external_data(&tag, prefix, &ix, &[], &resolved).unwrap();
+
+        assert_eq!(
+            got,
+            Sha256BE::hashv(&[&tag, prefix, &second_owner, &first_owner]).unwrap()
+        );
+        assert_ne!(
+            got,
+            Sha256BE::hashv(&[&tag, prefix, &first_owner, &second_owner]).unwrap()
+        );
+        assert_ne!(got, Sha256BE::hashv(&[&tag, prefix]).unwrap());
+    }
 }

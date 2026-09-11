@@ -19,13 +19,13 @@ use shielded_pool_program::testing::{
     amount_field, solana_owner_identity, TransactProof, TransactProofInputs,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::hash_bytes,
 };
 use zolana_interface::{
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof as ProofData,
+        TransactProof as ProofData, TreeContext,
     },
     merge_utils::owner_proof_input_hash_compressed,
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
@@ -60,6 +60,17 @@ fn fe_at(vector: &Value, key: &str) -> [u8; 32] {
     fe(vector
         .get(key)
         .unwrap_or_else(|| panic!("vector key {key}")))
+}
+
+/// The packed `input_flags` element. The Go host renamed this entry from
+/// `allow_dummy_inputs` when the per-input tree indexes joined the dummy-input
+/// policy in the same element, so both spellings resolve to the same public
+/// input and either vector generation pins the same assembly.
+fn input_flags_at(vector: &Value) -> [u8; 32] {
+    match vector.get("input_flags") {
+        Some(_) => fe_at(vector, "input_flags"),
+        None => fe_at(vector, "allow_dummy_inputs"),
+    }
 }
 
 fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
@@ -104,10 +115,13 @@ fn tree_slots(vector: &Value) -> [TreeSlot; INPUT_TREES] {
 }
 
 /// Test-local clone of the Go `protocol.PublicInputHash` ordering
-/// (public_inputs.go), built from the program's own primitives.
-/// `public_slot_amounts` are the already-encoded field elements and
-/// `signer_pk_hashes` is the payer-first run already zero-padded to the
-/// variant's width (a one-element run right-folds to itself).
+/// (public_inputs.go), built from the program's own primitives: the nullifier,
+/// output and output-owner chains and the final fold are 4-input Poseidon
+/// folds, the signer run stays a binary right fold and the tree slots a binary
+/// right fold from the zero suffix. `public_slot_amounts` are the
+/// already-encoded field elements and `signer_pk_hashes` is the payer-first run
+/// already zero-padded to the variant's width (a one-element run right-folds
+/// to itself).
 struct GoAssembly<'a> {
     nullifiers: &'a [[u8; 32]],
     output_hashes: &'a [[u8; 32]],
@@ -122,15 +136,15 @@ struct GoAssembly<'a> {
     public_slot_amounts: &'a [[u8; 32]],
     ring_program_id: [u8; 32],
     signer_pk_hashes: &'a [[u8; 32]],
-    allow_dummy_inputs: [u8; 32],
+    input_flags: [u8; 32],
     output_owner_pk_hashes: Option<&'a [[u8; 32]]>,
 }
 
 impl GoAssembly<'_> {
     fn hash(&self) -> [u8; 32] {
         let mut fields = vec![
-            create_hash_chain_from_slice(self.nullifiers).expect("nullifier chain"),
-            create_hash_chain_from_slice(self.output_hashes).expect("output chain"),
+            create_hash_chain_4_from_slice(self.nullifiers).expect("nullifier chain"),
+            create_hash_chain_4_from_slice(self.output_hashes).expect("output chain"),
             tree_slots_hash_chain(self.tree_slots).expect("tree slot chain"),
             self.output_tree_id,
             self.private_tx_hash,
@@ -147,14 +161,14 @@ impl GoAssembly<'_> {
         fields.extend_from_slice(&[
             self.ring_program_id,
             create_right_hash_chain_from_slice(self.signer_pk_hashes).expect("signer chain"),
-            self.allow_dummy_inputs,
+            self.input_flags,
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
             fields.push(
-                create_hash_chain_from_slice(output_owner_pk_hashes).expect("output owner chain"),
+                create_hash_chain_4_from_slice(output_owner_pk_hashes).expect("output owner chain"),
             );
         }
-        create_hash_chain_from_slice(&fields).expect("public input hash chain")
+        create_hash_chain_4_from_slice(&fields).expect("public input hash chain")
     }
 }
 
@@ -182,7 +196,7 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
         public_slot_amounts: &public_slot_amounts,
         ring_program_id: fe_at(&vector, "ring_program_id"),
         signer_pk_hashes: &signer_pk_hashes,
-        allow_dummy_inputs: fe_at(&vector, "allow_dummy_inputs"),
+        input_flags: input_flags_at(&vector),
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
     }
     .hash();
@@ -208,8 +222,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
         inputs: (1..=circuit.num_inputs())
             .map(|tag| InputUtxo {
                 nullifier_hash: small_fe(tag),
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: 0,
             })
             .collect(),
         interface_transfers: vec![],
@@ -223,6 +236,10 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
             })
             .collect(),
         messages: vec![],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 
@@ -231,11 +248,12 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
         TransactProofInputs::new(CircuitId::ConfidentialEddsa(2, 3, N_PUBLIC_SLOTS as u8));
     derived.external_data_hash = small_fe(0x62);
     derived.ring_program_id = small_fe(0x64);
-    derived.allow_dummy_inputs = small_fe(1);
+    derived.input_flags = small_fe(1);
     derived.public_slot_amounts = [801, -901, 0];
     derived.unique_owner_signer_count = unique_signers;
-    // SPP proves against exactly one input tree, so only slot 0 is populated.
-    derived.tree_slot = TreeSlot::new(0x0d, small_fe(0x20), small_fe(0x30));
+    // One populated slot: this vector pins a single-tree spend.
+    derived.tree_slots =
+        core::iter::once(TreeSlot::new(0x0d, small_fe(0x20), small_fe(0x30))).collect();
     derived.output_tree_id = tree_id_field(0x0e);
     for (index, signer) in derived.signer_pk_hashes.iter_mut().enumerate() {
         *signer = small_fe(0x40 + index as u8);
@@ -252,16 +270,18 @@ fn derived_inputs(unique_signers: u8) -> TransactProofInputs {
 /// The real `public_input_hash` agrees with the vector-pinned Go ordering for
 /// every circuit selector, with the public transfer slots interleaved as
 /// `(asset, amount)`, the payer-first signer run right-folded at the variant's
-/// width (input-signing rails: `n_in + 1`; the authority rail: a bare payer
-/// element), and the output-owner-chain appendix selected by the variant.
+/// width (input-signing rails: `Shape::signer_width`, 25 on `36x2`; the
+/// authority rail: a bare payer element), and the output-owner-chain appendix
+/// selected by the variant. The `36x2` confidential row fills every signer
+/// slot so the full-width path of the signer chain is covered.
 #[test]
 fn program_assembly_matches_the_go_ordering_on_every_variant() {
     for (circuit, signer_width, unique_signers, binds_output_owners) in [
         (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
         (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
-        (CircuitId::ConfidentialEddsa(36, 2, 3), 37, 2, true),
-        (CircuitId::RingEddsa(36, 2, 3), 37, 1, true),
+        (CircuitId::ConfidentialEddsa(36, 2, 3), 25, 25, true),
+        (CircuitId::RingEddsa(36, 2, 3), 25, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -293,8 +313,8 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             .to_vec();
         signer_run.resize(signer_width, [0u8; 32]);
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];
-        if let Some(slot_0) = slots.first_mut() {
-            *slot_0 = derived.tree_slot;
+        for (slot, populated) in slots.iter_mut().zip(derived.tree_slots.iter()) {
+            *slot = *populated;
         }
         let clone = GoAssembly {
             nullifiers: &nullifiers,
@@ -310,7 +330,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             public_slot_amounts: &slot_amount_fields,
             ring_program_id: derived.ring_program_id,
             signer_pk_hashes: &signer_run,
-            allow_dummy_inputs: derived.allow_dummy_inputs,
+            input_flags: derived.input_flags,
             output_owner_pk_hashes: binds_output_owners.then_some(
                 derived
                     .output_owner_pk_hashes

@@ -275,10 +275,6 @@ name = "transact_validate_circuit"
 path = "tests/transact/validate_circuit.rs"
 
 [[test]]
-name = "transact_external_data"
-path = "tests/transact/external_data.rs"
-
-[[test]]
 name = "spl_interface_validation"
 path = "tests/spl_interface/validation.rs"
 

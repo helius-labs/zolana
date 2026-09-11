@@ -1,10 +1,227 @@
+use serde::{Deserialize, Serialize};
 use zolana_hasher::{
     hash_chain::{
+        create_hash_chain_4_from_slice, create_hash_chain_4_from_slice_ref,
         create_hash_chain_from_slice, create_hash_chain_from_slice_ref,
         create_two_inputs_hash_chain,
     },
-    HasherError,
+    Hasher, HasherError, Poseidon,
 };
+
+/// Shared cross-language known-answer vectors for the 4-input fold.
+///
+/// `test-vectors/hash_chain_4.json` pins the fold formula for every
+/// implementation (Rust here, Go under `prover/server`, TypeScript in
+/// `sdk-libs/ts`). Regenerate it with the ignored printer and commit the
+/// output:
+///
+/// ```bash
+/// cargo test -p zolana-hasher --test hash_chain print_hash_chain_4_vectors -- --ignored --nocapture
+/// ```
+const HASH_CHAIN_4_VECTORS_JSON: &str = include_str!("../../../test-vectors/hash_chain_4.json");
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct HashChain4Vectors {
+    description: String,
+    vectors: Vec<HashChain4Vector>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+struct HashChain4Vector {
+    name: String,
+    inputs: Vec<String>,
+    output: String,
+}
+
+fn field(value: u32) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[28..].copy_from_slice(&value.to_be_bytes());
+    out
+}
+
+fn hash_chain_4_vector(name: &str, inputs: &[[u8; 32]]) -> HashChain4Vector {
+    HashChain4Vector {
+        name: name.to_string(),
+        inputs: inputs.iter().map(hex::encode).collect(),
+        output: hex::encode(create_hash_chain_4_from_slice(inputs).unwrap()),
+    }
+}
+
+fn compute_hash_chain_4_vectors() -> HashChain4Vectors {
+    let mut vectors: Vec<HashChain4Vector> = [0u32, 1, 2, 3, 4, 5, 7, 8, 16, 36]
+        .iter()
+        .map(|&len| {
+            let inputs: Vec<[u8; 32]> = (1..=len).map(field).collect();
+            hash_chain_4_vector(&format!("len_{len}"), &inputs)
+        })
+        .collect();
+    vectors.push(hash_chain_4_vector(
+        "zero_element_in_the_middle",
+        &[field(1), field(0), field(3), field(4), field(5)],
+    ));
+    HashChain4Vectors {
+        description: "Known-answer vectors for hash_chain_4, the 4-input Poseidon fold over \
+                      32-byte big-endian BN254 field elements: L == 0 -> 0, L == 1 -> e[0], \
+                      otherwise h = e[0] and for each group of up to 3 following elements \
+                      h = Poseidon(h, g[0], g[1] or 0, g[2] or 0). A partial trailing group \
+                      is zero-padded; the 4-input permutation is used for every step. The \
+                      len_<L> entries fold e[i] = i + 1; zero_element_in_the_middle shows a \
+                      zero element is positional and distinct from padding. Produced by \
+                      program-libs/hasher/tests/hash_chain.rs print_hash_chain_4_vectors."
+            .to_string(),
+        vectors,
+    }
+}
+
+#[test]
+fn committed_hash_chain_4_vectors_match() {
+    let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
+    assert_eq!(committed, compute_hash_chain_4_vectors());
+}
+
+/// Every committed entry is a known-answer test for both entry points; the
+/// borrowed-slice variant used by the on-chain public-input assembly must
+/// agree with the owned-slice variant.
+#[test]
+fn hash_chain_4_matches_every_committed_vector() {
+    let committed: HashChain4Vectors = serde_json::from_str(HASH_CHAIN_4_VECTORS_JSON).unwrap();
+    assert_eq!(committed.vectors.len(), 11);
+    for vector in &committed.vectors {
+        let inputs: Vec<[u8; 32]> = vector
+            .inputs
+            .iter()
+            .map(|input| hex::decode(input).unwrap().try_into().unwrap())
+            .collect();
+        let expected: [u8; 32] = hex::decode(&vector.output).unwrap().try_into().unwrap();
+        let refs: Vec<&[u8; 32]> = inputs.iter().collect();
+        assert_eq!(
+            create_hash_chain_4_from_slice(&inputs).unwrap(),
+            expected,
+            "vector {}",
+            vector.name
+        );
+        assert_eq!(
+            create_hash_chain_4_from_slice_ref(&refs).unwrap(),
+            expected,
+            "vector {} via slice_ref",
+            vector.name
+        );
+    }
+}
+
+/// Up to four elements fold in exactly one 4-input Poseidon call, with the
+/// missing trailing inputs zero-padded.
+#[test]
+fn hash_chain_4_with_at_most_four_elements_is_one_poseidon_call() {
+    let zero = [0u8; 32];
+    let e = [field(1), field(2), field(3), field(4)];
+    let [e1, e2, e3, e4] = &e;
+    assert_eq!(
+        create_hash_chain_4_from_slice(&e[..2]).unwrap(),
+        Poseidon::hashv(&[e1, e2, &zero, &zero]).unwrap()
+    );
+    assert_eq!(
+        create_hash_chain_4_from_slice(&e[..3]).unwrap(),
+        Poseidon::hashv(&[e1, e2, e3, &zero]).unwrap()
+    );
+    assert_eq!(
+        create_hash_chain_4_from_slice(&e[..4]).unwrap(),
+        Poseidon::hashv(&[e1, e2, e3, e4]).unwrap()
+    );
+    let five = create_hash_chain_4_from_slice(&[*e1, *e2, *e3, *e4, field(5)]).unwrap();
+    assert_eq!(
+        five,
+        Poseidon::hashv(&[
+            &Poseidon::hashv(&[e1, e2, e3, e4]).unwrap(),
+            &field(5),
+            &zero,
+            &zero
+        ])
+        .unwrap()
+    );
+}
+
+/// A zero element inside the chain shifts every later element to another
+/// input position, so it is not confused with the zero padding of a shorter
+/// chain. Only equal-length chains are compared by the protocol; a trailing
+/// zero element IS indistinguishable from padding, which the doc comment on
+/// `create_hash_chain_4_from_slice` requires callers to rule out by fixing the
+/// length per circuit.
+#[test]
+fn hash_chain_4_zero_element_is_positional() {
+    let with_zero = [field(1), field(0), field(3), field(4), field(5)];
+    let padded = [field(1), field(0), field(3), field(4)];
+    let without_zero = [field(1), field(3), field(4), field(5)];
+    let with_zero_hash = create_hash_chain_4_from_slice(&with_zero).unwrap();
+    assert_ne!(
+        with_zero_hash,
+        create_hash_chain_4_from_slice(&padded).unwrap()
+    );
+    assert_ne!(
+        with_zero_hash,
+        create_hash_chain_4_from_slice(&without_zero).unwrap()
+    );
+    assert_eq!(
+        create_hash_chain_4_from_slice(&[field(1), field(2)]).unwrap(),
+        create_hash_chain_4_from_slice(&[field(1), field(2), field(0), field(0)]).unwrap(),
+        "trailing zeros equal padding, which is why chain lengths are fixed per circuit"
+    );
+}
+
+#[test]
+fn hash_chain_4_empty_and_single_element_match_the_binary_chain() {
+    let empty: [[u8; 32]; 0] = [];
+    assert_eq!(create_hash_chain_4_from_slice(&empty).unwrap(), [0u8; 32]);
+    assert_eq!(create_hash_chain_4_from_slice_ref(&[]).unwrap(), [0u8; 32]);
+    let single = [7u8; 32];
+    assert_eq!(create_hash_chain_4_from_slice(&[single]).unwrap(), single);
+    assert_eq!(
+        create_hash_chain_4_from_slice_ref(&[&single]).unwrap(),
+        single
+    );
+    assert_eq!(
+        create_hash_chain_4_from_slice(&[single]).unwrap(),
+        create_hash_chain_from_slice(&[single]).unwrap()
+    );
+}
+
+#[test]
+fn hash_chain_4_rejects_inputs_larger_than_the_modulus() {
+    use ark_ff::PrimeField;
+    use light_poseidon::PoseidonError;
+    use num_bigint::BigUint;
+    use zolana_hasher::bigint::bigint_to_be_bytes_array;
+    let modulus: BigUint = ark_bn254::Fr::MODULUS.into();
+    let modulus_bytes: [u8; 32] = bigint_to_be_bytes_array(&modulus).unwrap();
+    for inputs in [
+        vec![modulus_bytes, modulus_bytes],
+        vec![field(1), modulus_bytes],
+        vec![field(1), field(2), field(3), field(4), modulus_bytes],
+    ] {
+        let result = create_hash_chain_4_from_slice(&inputs);
+        assert!(
+            matches!(
+                result,
+                Err(HasherError::Poseidon(PoseidonError::InputLargerThanModulus))
+            ),
+            "{result:?}"
+        );
+    }
+    assert_eq!(
+        create_hash_chain_4_from_slice(&[modulus_bytes]).unwrap(),
+        modulus_bytes,
+        "a single element is returned unhashed, as in the binary chain"
+    );
+}
+
+#[test]
+#[ignore = "regenerates test-vectors/hash_chain_4.json; run with --nocapture and commit the output"]
+fn print_hash_chain_4_vectors() {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&compute_hash_chain_4_vectors()).unwrap()
+    );
+}
 
 /// Tests for `create_hash_chain_from_slice` function:
 /// Functional tests:

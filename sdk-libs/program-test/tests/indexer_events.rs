@@ -81,7 +81,7 @@ fn test_indexer_transact_leaf_indices_must_be_contiguous() {
 /// execution-assigned values travel in the emitted [`TransactEvent`].
 fn sample_transact_instruction_data() -> Vec<u8> {
     use zolana_interface::instruction::{
-        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
     };
 
     let event = sample_transact_event();
@@ -97,8 +97,7 @@ fn sample_transact_instruction_data() -> Vec<u8> {
             .iter()
             .map(|input| InputUtxo {
                 nullifier_hash: input.nullifier,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -114,6 +113,10 @@ fn sample_transact_instruction_data() -> Vec<u8> {
             })
             .collect(),
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     };
     let mut data = vec![zolana_event::tag::TRANSACT];
     data.extend_from_slice(&ix.serialize().expect("serialize transact"));

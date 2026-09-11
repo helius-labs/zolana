@@ -227,7 +227,8 @@ impl SppProofInputs {
         Ok(signers)
     }
 
-    /// Fixed-width signer identity vector committed by the circuit. The payer
+    /// Fixed-width signer identity vector committed by the circuit; `width` is
+    /// the shape's [`Shape::signer_width`]. The payer
     /// occupies slot zero, followed by unique non-payer input owners. Every
     /// signer is a Solana account, so each identity carries the Solana owner
     /// tag; the program derives the same values from its signer accounts.
@@ -445,7 +446,9 @@ mod tests {
 
         assert_eq!(proof_inputs.owner_signer_pubkeys().unwrap(), vec![pda]);
         assert_eq!(
-            proof_inputs.signer_pk_hashes(3).unwrap(),
+            proof_inputs
+                .signer_pk_hashes(Shape::new(2, 0).signer_width())
+                .unwrap(),
             vec![
                 payer
                     .signing_pubkey()
@@ -494,7 +497,9 @@ mod tests {
             )
         );
 
-        let hashes = proof_inputs.signer_pk_hashes(5).unwrap();
+        let hashes = proof_inputs
+            .signer_pk_hashes(Shape::new(4, 0).signer_width())
+            .unwrap();
         assert_eq!(
             hashes,
             vec![
@@ -511,5 +516,37 @@ mod tests {
                 [0u8; 32],
             ]
         );
+    }
+
+    #[test]
+    fn signer_vector_is_padded_to_the_shape_signer_width() {
+        let payer = ed25519_keypair(3);
+        let payer_address = Address::new_from_array(
+            payer
+                .signing_pubkey()
+                .as_ed25519()
+                .expect("payer Ed25519 pubkey"),
+        );
+        let proof_inputs = SppProofInputs::new(
+            (0..36).map(|_| input(&payer)).collect(),
+            Vec::new(),
+            ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+            payer_address,
+        );
+        let width = Shape::new(36, 2).signer_width();
+        assert_eq!(width, 25);
+
+        let hashes = proof_inputs.signer_pk_hashes(width).unwrap();
+        assert_eq!(hashes.len(), width);
+        assert_eq!(
+            hashes.first().copied(),
+            Some(
+                payer
+                    .signing_pubkey()
+                    .owner_proof_input_hash()
+                    .expect("payer owner hash"),
+            )
+        );
+        assert!(hashes.iter().skip(1).all(|hash| *hash == [0u8; 32]));
     }
 }

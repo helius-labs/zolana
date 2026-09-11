@@ -423,7 +423,7 @@ fn tx_size(args: Vec<String>) {
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
-            TransactProof,
+            TransactProof, TreeContext,
         },
         N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
     };
@@ -488,8 +488,7 @@ fn tx_size(args: Vec<String>) {
         let inputs = (0..n)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: 0,
             })
             .collect();
         let outputs: Vec<TransactOutput> = outputs_spec
@@ -517,6 +516,10 @@ fn tx_size(args: Vec<String>) {
             salt: [0u8; 16],
             outputs,
             messages: vec![],
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
+            }],
         }
     };
 
@@ -758,7 +761,7 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 128 B vanilla proof):");
+    println!("Spec-target (AES-256-CTR, no redundant pubkeys, 192 B proof with raw G2 b):");
     print_shape_header();
 
     for &(n, m) in &shapes {
@@ -897,7 +900,7 @@ fn tx_size(args: Vec<String>) {
         }
         zolana_interface::instruction::Transact {
             payer: payer_pk,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -905,13 +908,30 @@ fn tx_size(args: Vec<String>) {
         }
         .instruction()
     };
+    // The ring rail has its own builder, so the accounts follow the loader's
+    // layout rather than an index patched into the transact metas.
     let ring_transact_ix = |n: usize, m: usize, circuit: CircuitId| -> Instruction {
-        use solana_instruction::AccountMeta;
-        let mut ix = transact_ix(n, m, Some(circuit));
-        *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
-        ix.accounts
-            .insert(5, AccountMeta::new_readonly(ring_config, true));
-        ix
+        let spec = transfer_layout(
+            m,
+            OwnerTag::Account(0),
+            OPT_SENDER_DATA_LEN,
+            OPT_RECIPIENT_DATA_LEN,
+        );
+        let mut data = build_ix_data(Vec::new(), n, TransactProof::zeroed(), &spec);
+        for (index, input) in data.inputs.iter_mut().enumerate() {
+            input.nullifier_hash = [index as u8 + 1; 32];
+        }
+        data.circuit = circuit;
+        zolana_interface::instruction::RingTransact {
+            payer: payer_pk,
+            input_trees: vec![tree],
+            output_tree: tree,
+            ring_program_id: ring_config,
+            owner_signers: Vec::new(),
+            interface_transfer_accounts: Vec::new(),
+            data,
+        }
+        .instruction()
     };
     for (n, m) in [(2usize, 3usize), (3, 3), (5, 3), (36, 2)] {
         transact_row(
@@ -960,8 +980,8 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; input_count],
-            nullifier_tree_root_index: vec![0; input_count],
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;

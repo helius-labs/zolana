@@ -31,10 +31,12 @@ use zolana_interface::{
     },
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
-    N_PUBLIC_SLOTS,
+    INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
-use zolana_test_utils::transact::{eddsa_input_utxo, fe, inline_output};
+use zolana_test_utils::transact::{
+    fe, inline_output, input_utxo, input_utxo_in_tree, single_tree_context, tree_contexts,
+};
 
 /// A pure shielded transfer (no settlement accounts) with `n_in` inputs bound
 /// to the signing payer and `n_out` inline outputs. The proof defaults to the
@@ -47,7 +49,8 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
+        tree_contexts: single_tree_context(0),
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
@@ -64,7 +67,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
 fn expect_rejection(env: &mut Pool, data: TransactIxData, expected: ShieldedPoolError) {
     let ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -182,7 +185,7 @@ fn ring_instruction(
     let mut ix = if authority_variant {
         RingAuthorityTransact {
             payer,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             ring_program_id,
             interface_transfer_accounts: Vec::new(),
@@ -192,7 +195,7 @@ fn ring_instruction(
     } else {
         RingTransact {
             payer,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             ring_program_id,
@@ -211,9 +214,7 @@ fn transact_rejects_a_stale_nullifier_root_index() {
     // Root-history indices are caller-supplied; a zeroed (never-written)
     // history slot must be rejected, not treated as a valid root.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
-        input.nullifier_tree_root_index = 7;
-    }
+    data.tree_contexts = tree_contexts(&[(0, 7)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
 }
 
@@ -223,45 +224,8 @@ fn transact_rejects_a_stale_utxo_root_index() {
     // INV-XC-09: the UTXO root history is symmetric to the nullifier root
     // history; an out-of-bounds or zeroed slot must map to StaleNullifierRoot.
     let mut data = transfer_ix_data(2, 3);
-    for input in &mut data.inputs {
-        input.utxo_tree_root_index = 7;
-    }
+    data.tree_contexts = tree_contexts(&[(7, 0)]);
     expect_rejection(&mut env, data, ShieldedPoolError::StaleNullifierRoot);
-}
-
-#[test]
-fn transact_rejects_inputs_that_reference_different_utxo_root_indexes() {
-    let mut env = Pool::initialized();
-    // SPP resolves both roots from the single `input_tree`, so the proof binds
-    // one tree slot; an input that names a different UTXO root index than
-    // input 0 would be proven against a root the instruction never resolved.
-    let mut data = transfer_ix_data(2, 3);
-    data.inputs
-        .get_mut(1)
-        .expect("second input")
-        .utxo_tree_root_index = 1;
-    expect_rejection(
-        &mut env,
-        data,
-        ShieldedPoolError::InputTreeRootIndexMismatch,
-    );
-}
-
-#[test]
-fn transact_rejects_inputs_that_reference_different_nullifier_root_indexes() {
-    let mut env = Pool::initialized();
-    // Symmetric to the UTXO root index: every input shares `input_tree`'s one
-    // nullifier root.
-    let mut data = transfer_ix_data(2, 3);
-    data.inputs
-        .get_mut(1)
-        .expect("second input")
-        .nullifier_tree_root_index = 1;
-    expect_rejection(
-        &mut env,
-        data,
-        ShieldedPoolError::InputTreeRootIndexMismatch,
-    );
 }
 
 #[test]
@@ -284,7 +248,7 @@ fn transact_rejects_proof_points_that_fail_decompression() {
     let mut data = transfer_ix_data(2, 3);
     data.proof = TransactProof {
         a: [0xFF; 32],
-        b: [0xFF; 64],
+        b: [0xFF; 128],
         c: [0xFF; 32],
     };
     expect_rejection(
@@ -324,7 +288,7 @@ fn transact_rejects_a_wrong_trailing_system_program_account() {
         .expect("fund impostor");
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -345,7 +309,7 @@ fn ring_transact_rejects_an_unsigned_ring_config() {
     let mut env = Pool::initialized();
     let mut ix = RingTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
@@ -379,7 +343,7 @@ fn transact_rejects_a_non_writable_tree_meta() {
     // their privileges, so both must be downgraded.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -440,7 +404,7 @@ fn transact_rejects_a_tree_not_owned_by_the_program() {
         .expect("fund impostor");
     let ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: impostor,
+        input_trees: vec![impostor],
         output_tree: impostor,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -478,7 +442,7 @@ fn transact_rejects_a_malformed_wincode_payload() {
     let mut env = Pool::initialized();
     let template = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -543,7 +507,7 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
     // bare `InvalidInstructionData` as any other parse error.
     let mut ix = Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -732,7 +696,7 @@ fn ring_authority_transact_rejects_an_unsigned_ring_config() {
     // `ring_config` signature is rejected before the config is even loaded.
     let mut ix = RingAuthorityTransact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         ring_program_id: Pubkey::new_from_array(RING_TEST_PROGRAM_ID),
         interface_transfer_accounts: Vec::new(),
@@ -846,5 +810,139 @@ fn ring_authority_transact_rejects_a_non_square_shape() {
         ix,
         &[&ring_config],
         Rejection::pool(ShieldedPoolError::InvalidTransactShape),
+    );
+}
+
+/// [`transfer_ix_data`] with one input per entry of `tree_indexes` and
+/// `context_count` declared input trees, all at root index zero.
+fn multi_tree_ix_data(tree_indexes: &[u8], context_count: usize) -> TransactIxData {
+    let mut data = transfer_ix_data(tree_indexes.len() as u64, 3);
+    data.inputs = tree_indexes
+        .iter()
+        .enumerate()
+        .map(|(position, tree_index)| input_utxo_in_tree(fe(position as u64 + 1), *tree_index))
+        .collect();
+    data.tree_contexts = tree_contexts(&vec![(0u16, 0u16); context_count]);
+    data
+}
+
+/// Send `data` with a caller-chosen input-tree run, so a case can pass the
+/// same tree twice or more trees than a single fixture holds.
+#[track_caller]
+fn expect_tree_run_rejection(
+    env: &mut Pool,
+    input_trees: Vec<Pubkey>,
+    data: TransactIxData,
+    expected: ShieldedPoolError,
+) {
+    let ix = Transact {
+        payer: env.rpc.payer.pubkey(),
+        input_trees,
+        output_tree: env.tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+    expect_ix_rejection(env, ix, &[], Rejection::pool(expected));
+}
+
+#[test]
+fn transact_rejects_an_empty_tree_context_list() {
+    let mut env = Pool::initialized();
+    // Every input must resolve a tree, so a spend that declares none is
+    // rejected before any account is touched.
+    let data = multi_tree_ix_data(&[0, 0], 0);
+    expect_rejection(&mut env, data, ShieldedPoolError::InvalidTreeContextCount);
+}
+
+#[test]
+fn transact_rejects_more_tree_contexts_than_the_proof_publishes_slots() {
+    let mut env = Pool::initialized();
+    // The proof publishes INPUT_TREES slots; a longer context list cannot be
+    // bound by it.
+    let tree_indexes: Vec<u8> = (0..INPUT_TREES as u8).collect();
+    let data = multi_tree_ix_data(&tree_indexes, INPUT_TREES + 1);
+    let input_trees = vec![env.tree; INPUT_TREES + 1];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::InvalidTreeContextCount,
+    );
+}
+
+#[test]
+fn transact_rejects_an_input_tree_index_past_the_declared_contexts() {
+    let mut env = Pool::initialized();
+    let data = multi_tree_ix_data(&[0, 1], 1);
+    let input_trees = vec![env.tree, env.tree];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::InputTreeIndexOutOfRange,
+    );
+}
+
+#[test]
+fn transact_rejects_inputs_that_are_not_grouped_by_tree() {
+    let mut env = Pool::initialized();
+    // A decreasing index would split a tree's inputs into two runs, which
+    // breaks the consecutive queue numbering the PDAs and the event rely on.
+    let data = multi_tree_ix_data(&[0, 1, 0], 2);
+    let input_trees = vec![env.tree, env.tree];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::InputsNotGroupedByTree,
+    );
+}
+
+#[test]
+fn transact_rejects_a_tree_context_no_input_references() {
+    let mut env = Pool::initialized();
+    let data = multi_tree_ix_data(&[0, 0], 2);
+    let input_trees = vec![env.tree, env.tree];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::UnreferencedTreeContext,
+    );
+}
+
+#[test]
+fn transact_rejects_the_same_input_tree_passed_twice() {
+    let mut env = Pool::initialized();
+    // Two contexts resolving to one account would queue and credit that tree
+    // twice under two different slot hashes.
+    let data = multi_tree_ix_data(&[0, 1], 2);
+    let input_trees = vec![env.tree, env.tree];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::DuplicateInputTree,
+    );
+}
+
+#[test]
+fn transact_spending_two_trees_reaches_proof_verification() {
+    let mut env = Pool::initialized();
+    let second_tree = env
+        .rpc
+        .create_tree(&env.authority)
+        .expect("create the second input tree");
+    // Both trees load, resolve their roots, queue their own input run and get
+    // their nullifier PDAs created; only the placeholder proof fails.
+    let data = multi_tree_ix_data(&[0, 1], 2);
+    let input_trees = vec![env.tree, second_tree];
+    expect_tree_run_rejection(
+        &mut env,
+        input_trees,
+        data,
+        ShieldedPoolError::TransactProofVerificationFailed,
     );
 }

@@ -21,7 +21,7 @@ use zolana_interface::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
         InputUtxo, InterfaceTransfer, MessageData, RingAssetDeposit, RingDepositEntry,
         RingDepositIxData, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
-        TransactSolTransferAccounts,
+        TransactSolTransferAccounts, TreeContext,
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
@@ -622,6 +622,10 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
             view_tag: [64; 32],
             data: vec![65; 65],
         }],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 
@@ -724,13 +728,11 @@ fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
     transact.inputs = vec![
         InputUtxo {
             nullifier_hash: [71; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         },
         InputUtxo {
             nullifier_hash: [72; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         },
     ];
 

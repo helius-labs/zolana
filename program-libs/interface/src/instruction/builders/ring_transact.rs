@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::{
     instruction::{
         builders::transact::{
-            append_interface_transfer_accounts, nullifier_pda_accounts,
+            append_interface_transfer_accounts, transact_nullifier_pda_accounts,
             TransactInterfaceTransferAccounts,
         },
         tag, TransactIxData,
@@ -14,13 +14,14 @@ use crate::{
 
 /// Builder for the `ring_transact` instruction, the confidential policy-ring analog
 /// of [`super::transact::Transact`]. The account layout mirrors the program
-/// loader (`RingTransactAccounts::validate_and_parse`): `payer`, `input_tree`,
-/// `output_tree`, the SPP and System Program accounts, the `RingConfig` account
+/// loader (`RingTransactAccounts::validate_and_parse`): `payer`, one input tree
+/// per declared tree context, `output_tree`, the SPP and System Program accounts, the `RingConfig` account
 /// (the ring's `ring_auth` PDA), one writable nullifier PDA per input (in
 /// `inputs` order), owner signers, then optional settlement accounts.
 pub struct RingTransact {
     pub payer: Pubkey,
-    pub input_tree: Pubkey,
+    /// One tree per `data.tree_contexts` entry, in the same order.
+    pub input_trees: Vec<Pubkey>,
     pub output_tree: Pubkey,
     /// Calling ring program; its `RingConfig` (canonical `ring_auth` PDA) signs.
     pub ring_program_id: Pubkey,
@@ -54,17 +55,21 @@ impl RingTransact {
                 .expect("shielded-pool instruction serialization is infallible"),
         );
 
-        let mut accounts = vec![
-            AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.input_tree, false),
+        let mut accounts = vec![AccountMeta::new(self.payer, true)];
+        accounts.extend(
+            self.input_trees
+                .iter()
+                .map(|input_tree| AccountMeta::new(*input_tree, false)),
+        );
+        accounts.extend([
             AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(ring_config, auth_signer),
-        ];
-        accounts.extend(nullifier_pda_accounts(
-            &self.input_tree,
-            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+        ]);
+        accounts.extend(transact_nullifier_pda_accounts(
+            &self.input_trees,
+            self.data.inputs.iter(),
         ));
         accounts.extend(
             self.owner_signers

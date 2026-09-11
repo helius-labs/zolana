@@ -29,7 +29,7 @@ use crate::user_registry::fetch_user_record_checked;
 /// Compute-unit ceiling for a `merge_transact`: it verifies a Groth16 proof
 /// on-chain, which does not fit the default per-instruction budget. The widest
 /// shape, "Merge 36x1" in program-tests/shielded-pool/CU_BENCHMARK.md, measures
-/// 280,246 CU; this keeps the transaction-wide maximum the legacy
+/// 242,057 CU; this keeps the transaction-wide maximum the legacy
 /// `set_compute_unit_limit` instruction asked for.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 

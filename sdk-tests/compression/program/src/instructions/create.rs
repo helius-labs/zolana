@@ -4,13 +4,13 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
         },
         tag::TRANSACT,
     },
     N_PUBLIC_SLOTS,
 };
-use zolana_program::TransactExternalData;
+use zolana_program::{TransactExternalData, TransactInputs};
 
 use crate::{
     error::CompressionError,
@@ -87,11 +87,16 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         private_tx,
         CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
         proof,
-        vec![InputUtxo {
-            nullifier_hash: address,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        }],
+        TransactInputs {
+            inputs: vec![InputUtxo {
+                nullifier_hash: address,
+                tree_index: 0,
+            }],
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index,
+                nullifier_tree_root_index,
+            }],
+        },
     );
     let transact_bytes = transact
         .serialize()

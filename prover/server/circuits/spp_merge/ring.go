@@ -78,6 +78,6 @@ func (c *RingCircuit) Define(api frontend.API) error {
 
 	fields := c.CommonPublicInputs.Prefix(api)
 	fields = append(fields, c.OutputRingDataHash, c.RingProgramID)
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, fields))
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain4(api, fields))
 	return nil
 }

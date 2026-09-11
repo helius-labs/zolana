@@ -61,7 +61,8 @@ function mergePolicy(reserved: ReadonlySet<string>): SpendPolicy {
     eligible: (entry) => isPlainUtxo(entry) && unreserved(reserved)(entry),
     ordering: "smallestFirst",
     maxInputs: MERGE_INPUT_COUNT,
-    tree: { kind: "inferSingle" },
+    // Merge publishes one input tree, so its inputs may not straddle two.
+    tree: { kind: "infer", maxTrees: 1 },
     errors: mergeSelectionErrors,
   };
 }

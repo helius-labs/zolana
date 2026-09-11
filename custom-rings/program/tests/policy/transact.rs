@@ -6,7 +6,7 @@ use zolana_interface::{
     event::RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     instruction::{
         instruction_data::transact::{
-            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
         },
         MessageData,
     },
@@ -63,6 +63,10 @@ fn transact_data() -> TransactIxData {
                 data[0] = 0x02;
                 data
             },
+        }],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
         }],
     }
 }

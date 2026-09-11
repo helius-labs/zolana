@@ -164,6 +164,16 @@ pub enum ShieldedPoolError {
     InputTreeRootIndexMismatch = 7065,
     #[error("external data hash preimage exceeds the supported slice count")]
     TooManyExternalDataHashSlices = 7066,
+    #[error("transact must declare between one and INPUT_TREES input trees")]
+    InvalidTreeContextCount = 7067,
+    #[error("input references a tree index beyond the declared input trees")]
+    InputTreeIndexOutOfRange = 7068,
+    #[error("inputs must be grouped by tree in non-decreasing tree-index order")]
+    InputsNotGroupedByTree = 7069,
+    #[error("a declared input tree is referenced by no input")]
+    UnreferencedTreeContext = 7070,
+    #[error("the same input tree account is passed twice")]
+    DuplicateInputTree = 7071,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -273,6 +283,11 @@ mod tests {
                 RingNotActivated => 7064,
                 InputTreeRootIndexMismatch => 7065,
                 TooManyExternalDataHashSlices => 7066,
+                InvalidTreeContextCount => 7067,
+                InputTreeIndexOutOfRange => 7068,
+                InputsNotGroupedByTree => 7069,
+                UnreferencedTreeContext => 7070,
+                DuplicateInputTree => 7071,
             }
         }
 
@@ -342,6 +357,11 @@ mod tests {
             RingNotActivated,
             InputTreeRootIndexMismatch,
             TooManyExternalDataHashSlices,
+            InvalidTreeContextCount,
+            InputTreeIndexOutOfRange,
+            InputsNotGroupedByTree,
+            UnreferencedTreeContext,
+            DuplicateInputTree,
         ];
         for variant in variants {
             assert_eq!(
@@ -351,6 +371,6 @@ mod tests {
             );
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 63, "variant count drifted");
+        assert_eq!(variants.len(), 68, "variant count drifted");
     }
 }

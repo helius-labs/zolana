@@ -1,92 +1,132 @@
 use crate::instructions::shared::caused_by;
+use arrayvec::ArrayVec;
 use light_program_profiler::profile;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::Input,
-    instruction::instruction_data::transact::{InputUtxo, TransactIxDataRef},
+    event::InputTreeSequence,
+    instruction::instruction_data::transact::{TransactIxDataRef, TreeContext},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
+    INPUT_TREES,
 };
 use zolana_tree::TreeAccount;
 
 use super::{event::TreeWrite, verify::TransactProofInputs};
-use crate::instructions::{
-    nullifier_pda::InputTreeResult,
-    shared::{bool_field, tree_error},
-};
+use crate::instructions::{nullifier_pda::InputTreeResult, shared::tree_error};
 
-/// Resolve `input_tree`'s roots into the proof's tree slot, assign them with
-/// the tree's dummy-input policy, and insert every nullifier into the tree's
-/// queue.
+/// Resolve every declared input tree's roots into its proof tree slot, assign
+/// the slots with the packed input flags, and insert each tree's nullifiers
+/// into that tree's queue.
 ///
-/// The circuit publishes `INPUT_TREES` slots, but SPP spends from one
-/// `input_tree`, so every input must reference the same pair of root indexes:
-/// the roots they resolve to fill slot 0 and the remaining slots stay zero.
+/// Inputs are grouped by tree, so each tree owns one contiguous group of inputs
+/// and [`queue_nullifiers`] still sees consecutive queue numbers per tree. The
+/// circuit applies its single dummy-input bit to every input slot whichever
+/// tree it selected, so the published policy is the conjunction over all input
+/// trees: anything weaker would relax the gate of the tightest tree.
 #[profile]
-pub(crate) fn apply_input_tree(
-    input_tree_account: &mut AccountView,
+pub(crate) fn apply_input_trees(
+    input_tree_accounts: &mut [&mut AccountView],
     ix: &TransactIxDataRef<'_>,
     proof_inputs: &mut TransactProofInputs,
-) -> Result<InputTreeResult, ProgramError> {
-    let input_tree_address = input_tree_account.address().to_bytes();
-    let mut input_tree = TreeAccount::from_account_view_mut(
-        input_tree_account,
-        &crate::ID,
-        TREE_ACCOUNT_DISCRIMINATOR,
-    )
-    .map_err(tree_error)?;
-    let allow_dummy_inputs = bool_field(input_tree.allow_dummy_inputs().map_err(tree_error)?);
-    let tree_slot = resolve_input_tree_slot(&input_tree, &ix.inputs)?;
-    proof_inputs.assign_input_tree(tree_slot, allow_dummy_inputs);
+) -> Result<ArrayVec<InputTreeResult, INPUT_TREES>, ProgramError> {
+    let shape = ShieldedPoolError::InvalidTransactShape;
+    let mut results: ArrayVec<InputTreeResult, INPUT_TREES> = ArrayVec::new();
+    let mut tree_slots: ArrayVec<TreeSlot, INPUT_TREES> = ArrayVec::new();
+    let mut allow_dummy_inputs = true;
 
-    let mut inputs = Vec::with_capacity(ix.inputs.len());
-    for input in &ix.inputs {
-        let queue_index = input_tree
-            .nullifier_tree()
-            .insert_nullifier_into_queue(&input.nullifier_hash)
-            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
-        inputs.push(Input {
-            tree: input_tree_address,
-            input_queue_seq: queue_index,
-            nullifier: input.nullifier_hash,
-        });
-    }
-    let forester_fee = input_tree
-        .credit_insertion_fee(ix.inputs.len() as u64)
+    let mut input_groups = ix
+        .inputs
+        .chunk_by(|left, right| left.tree_index == right.tree_index);
+    for (input_tree_account, context) in input_tree_accounts.iter_mut().zip(&ix.tree_contexts) {
+        let tree_inputs = input_groups.next().ok_or(shape)?;
+        let input_tree_address = input_tree_account.address().to_bytes();
+        let mut input_tree = TreeAccount::from_account_view_mut(
+            input_tree_account,
+            &crate::ID,
+            TREE_ACCOUNT_DISCRIMINATOR,
+        )
         .map_err(tree_error)?;
+        allow_dummy_inputs &= input_tree.allow_dummy_inputs().map_err(tree_error)?;
+        tree_slots
+            .try_push(resolve_input_tree_slot(&input_tree, context)?)
+            .map_err(|_| shape)?;
 
-    Ok(InputTreeResult {
-        inputs,
-        forester_fee,
-        fee_balance: input_tree.fee_balance(),
-        tree_id: input_tree.tree_id(),
-    })
+        let first_input_queue_seq = queue_nullifiers(
+            &mut input_tree,
+            tree_inputs.iter().map(|input| &input.nullifier_hash),
+        )?;
+        let forester_fee = input_tree
+            .credit_insertion_fee(tree_inputs.len() as u64)
+            .map_err(tree_error)?;
+        results
+            .try_push(InputTreeResult {
+                input_tree: InputTreeSequence {
+                    tree: input_tree_address,
+                    first_input_queue_seq,
+                },
+                forester_fee,
+                fee_balance: input_tree.fee_balance(),
+                tree_id: input_tree.tree_id(),
+            })
+            .map_err(|_| shape)?;
+    }
+    // Every declared context must have been paired with both a tree account
+    // and an input group; leftover groups or mismatched counts mean the
+    // instruction data and the account list disagree.
+    if input_groups.next().is_some()
+        || results.len() != ix.tree_contexts.len()
+        || results.len() != input_tree_accounts.len()
+    {
+        return Err(shape.into());
+    }
+
+    let input_flags = pack_input_flags(
+        allow_dummy_inputs,
+        ix.inputs.iter().map(|input| input.tree_index),
+    )?;
+    proof_inputs.assign_input_trees(tree_slots, input_flags);
+    Ok(results)
 }
 
-/// The one populated tree slot of a spend: `input_tree`'s id and the roots at
-/// the indexes every input references. An input whose indexes differ from
-/// input 0's is `InputTreeRootIndexMismatch`.
+/// Insert every nullifier into `tree`'s queue and return the sequence number
+/// of the first. The nullifier PDAs and the event derive input `i`'s number as
+/// `first + i` within its tree's input group, so a queue that hands out anything but
+/// consecutive numbers is rejected rather than recorded wrongly.
+pub(crate) fn queue_nullifiers<'n>(
+    tree: &mut TreeAccount<'_>,
+    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
+) -> Result<u64, ProgramError> {
+    let mut first = None;
+    for (position, nullifier) in (0u64..).zip(nullifiers) {
+        let queue_index = tree
+            .nullifier_tree()
+            .insert_nullifier_into_queue(nullifier)
+            .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
+        let expected = first
+            .get_or_insert(queue_index)
+            .checked_add(position)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        if queue_index != expected {
+            return Err(ShieldedPoolError::NullifierTreeUpdateFailed.into());
+        }
+    }
+    first.ok_or(ShieldedPoolError::InvalidTransactShape.into())
+}
+
+/// One populated tree slot: the tree's id and the roots at its context's
+/// root-index pair.
 pub(crate) fn resolve_input_tree_slot(
     input_tree: &TreeAccount<'_>,
-    inputs: &[InputUtxo],
+    context: &TreeContext,
 ) -> Result<TreeSlot, ProgramError> {
-    let first = inputs
-        .first()
-        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-    if inputs.iter().any(|input| {
-        input.utxo_tree_root_index != first.utxo_tree_root_index
-            || input.nullifier_tree_root_index != first.nullifier_tree_root_index
-    }) {
-        return Err(ShieldedPoolError::InputTreeRootIndexMismatch.into());
-    }
     Ok(TreeSlot {
         id: input_tree.tree_id_array(),
         utxo_root: input_tree
-            .get_utxo_tree_root(first.utxo_tree_root_index)
+            .get_utxo_tree_root(context.utxo_tree_root_index)
             .map_err(tree_error)?,
         nullifier_root: input_tree
-            .get_nullifier_tree_root(first.nullifier_tree_root_index)
+            .get_nullifier_tree_root(context.nullifier_tree_root_index)
             .map_err(tree_error)?,
     })
 }
@@ -95,7 +135,6 @@ pub(crate) fn resolve_input_tree_slot(
 pub(crate) fn apply_output_tree(
     output_tree_account: &mut AccountView,
     ix: &TransactIxDataRef<'_>,
-    inputs: Vec<Input>,
     slot: u64,
 ) -> Result<TreeWrite, ProgramError> {
     let output_tree_address = output_tree_account.address().to_bytes();
@@ -112,7 +151,6 @@ pub(crate) fn apply_output_tree(
         .append_batch(ix.outputs.iter().map(|o| o.utxo_hash), slot)
         .map_err(tree_error)?;
     Ok(TreeWrite {
-        inputs,
         first_output_leaf_index,
         output_tree: output_tree_address,
         output_tree_id: output_tree.tree_id(),

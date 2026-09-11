@@ -90,10 +90,16 @@ pub struct Batch<const ZKP_BATCHES: usize> {
     pub zkp_batch_size: u64,
     /// Leaf index of the batch's first element.
     pub start_index: u64,
-    /// One Poseidon hash chain per ZKP batch. The chain at
-    /// `num_full_zkp_batches` is the one insertions currently extend; the
-    /// chains below it are complete and are the prover inputs of the pending
-    /// tree updates.
+    /// Values of the open ZKP batch not yet absorbed into its hash chain. The
+    /// chain absorbs three values per Poseidon call, so up to two wait here;
+    /// how many is `num_pending()`, derived from `num_inserted`. Only the
+    /// chain at `num_full_zkp_batches` is ever extended, so one buffer per
+    /// batch suffices.
+    pending_values: [[u8; 32]; 2],
+    /// One Poseidon hash chain per ZKP batch, a `hash_chain_4` over the ZKP
+    /// batch's values in insertion order. The chain at `num_full_zkp_batches`
+    /// is the one insertions currently extend; the chains below it are
+    /// complete and are the prover inputs of the pending tree updates.
     hash_chains: [[u8; 32]; ZKP_BATCHES],
     /// One cached tree update per ZKP batch, verified and waiting to be applied
     /// to the tree. The slot at `num_inserted_zkp_batches` is the next update
@@ -313,12 +319,25 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         self.batch_size / self.zkp_batch_size
     }
 
-    /// Add a value to the current hash chain, and advance batch state.
+    /// Values of the open ZKP batch waiting in `pending_values`. The first
+    /// value of a ZKP batch is the chain head and every later group of three
+    /// is absorbed at once, so the count follows from `num_inserted`.
+    pub fn num_pending(&self) -> usize {
+        match self.num_inserted {
+            0 => 0,
+            inserted => ((inserted - 1) % 3) as usize,
+        }
+    }
+
+    /// Add a value to the current hash chain, and advance batch state. The
+    /// chain is `hash_chain_4` over the ZKP batch's values in insertion order.
     /// Does not mutate on error: all of its failure points (batch state, store
     /// capacity, hashing) precede the write.
     /// 1. Check that the batch is ready.
-    /// 2. If the zkp batch is empty, start a new hash chain.
-    /// 3. If the zkp batch is not empty, add value to last hash chain.
+    /// 2. If the zkp batch is empty, the value starts the hash chain.
+    /// 3. Otherwise the value joins the pending group; the group is absorbed
+    ///    into the chain once it holds three values, or, zero-padded, when
+    ///    the value completes the zkp batch.
     /// 4. If the zkp batch is full, increment the zkp batch index.
     /// 5. If all zkp batches are full, set batch state to full.
     pub fn add_to_hash_chain(&mut self, value: &[u8; 32]) -> Result<(), NullifierTreeError> {
@@ -327,27 +346,55 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             return Err(NullifierTreeError::BatchNotReady);
         }
         let hash_chain_index = self.num_full_zkp_batches as usize;
-        let start_new_hash_chain = self.num_inserted == 0;
-        let hash_chain = if start_new_hash_chain {
-            // 2. Start a new hash chain.
-            *value
-        } else {
-            // 3. Add value to last hash chain.
-            let existing = self
-                .hash_chains
-                .get(hash_chain_index)
-                .ok_or(NullifierTreeError::HashChainFull)?;
-            Poseidon::hashv(&[existing.as_slice(), value.as_slice()])?
-        };
-        let current_hash_chain = self
+        let num_pending = self.num_pending();
+        let num_inserted = self.num_inserted + 1;
+        let zkp_batch_is_full = num_inserted == self.zkp_batch_size;
+        let existing = self
             .hash_chains
-            .get_mut(hash_chain_index)
+            .get(hash_chain_index)
             .ok_or(NullifierTreeError::HashChainFull)?;
-        *current_hash_chain = hash_chain;
-        self.num_inserted += 1;
+
+        let hash_chain = if self.num_inserted == 0 {
+            // 2. Start a new hash chain.
+            Some(*value)
+        } else if num_pending == 2 || zkp_batch_is_full {
+            // 3. Absorb the pending group plus this value, zero-padded to
+            //    three when the zkp batch completes early.
+            let pending = self
+                .pending_values
+                .get(..num_pending)
+                .ok_or(NullifierTreeError::PendingValuesFull)?;
+            let zero = [0u8; 32];
+            let mut inputs: [&[u8]; 4] = [existing, &zero, &zero, &zero];
+            for (slot, group_value) in inputs
+                .iter_mut()
+                .skip(1)
+                .zip(pending.iter().chain(core::iter::once(value)))
+            {
+                *slot = group_value;
+            }
+            Some(Poseidon::hashv(&inputs)?)
+        } else {
+            None
+        };
+
+        match hash_chain {
+            Some(hash_chain) => {
+                *self
+                    .hash_chains
+                    .get_mut(hash_chain_index)
+                    .ok_or(NullifierTreeError::HashChainFull)? = hash_chain;
+            }
+            None => {
+                *self
+                    .pending_values
+                    .get_mut(num_pending)
+                    .ok_or(NullifierTreeError::PendingValuesFull)? = *value;
+            }
+        }
+        self.num_inserted = num_inserted;
 
         // 4. If the zkp batch is full, increment the zkp batch index.
-        let zkp_batch_is_full = self.num_inserted == self.zkp_batch_size;
         if zkp_batch_is_full {
             self.num_full_zkp_batches += 1;
             // To start a new hash chain in the next insertion
@@ -405,6 +452,17 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             .hash_chains
             .get_mut(zkp_batch_index)
             .expect("zkp batch index out of range") = value;
+    }
+
+    pub fn pending_values(&self) -> &[[u8; 32]; 2] {
+        &self.pending_values
+    }
+
+    pub fn set_pending_value(&mut self, slot: usize, value: [u8; 32]) {
+        *self
+            .pending_values
+            .get_mut(slot)
+            .expect("pending slot out of range") = value;
     }
 
     pub fn set_cached_tree_update(&mut self, zkp_batch_index: usize, update: CachedTreeUpdate) {

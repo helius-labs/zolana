@@ -94,8 +94,18 @@ export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
 
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
-  readonly nullifierTreeRootIndex: number;
+  /**
+   * Which of `TransactInstructionData.treeContexts` this input was proved
+   * against. It must not decrease from one input to the next, so every tree
+   * owns one contiguous run of inputs.
+   */
+  readonly treeIndex: number;
+}
+
+/** The root history positions one input tree's proofs opened against. */
+export interface TreeContext {
   readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }
 
 export type OwnerTag =
@@ -121,7 +131,7 @@ export interface OutputUtxo {
 
 export interface TransactProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
 }
 
@@ -167,6 +177,8 @@ export interface TransactInstructionData extends TransactExternalData {
   readonly circuit: CircuitId;
   readonly proof: TransactProof;
   readonly inputs: readonly InputUtxo[];
+  /** One per input tree, in the order the inputs first reference them. */
+  readonly treeContexts: readonly TreeContext[];
 }
 
 export type TransactWithdrawal =
@@ -257,13 +269,13 @@ export interface MergeTransactInstructionData {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
     a: Bytes32;
-    b: Bytes64;
+    b: Bytes128;
     c: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;
   readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }

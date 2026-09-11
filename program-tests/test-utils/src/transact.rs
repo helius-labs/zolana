@@ -23,13 +23,14 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
-            TransactOutput, TransactProof,
+            TransactOutput, TransactProof, TreeContext,
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
+    shape::Shape,
     state::read_tree_id,
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
     verifying_keys::transfer_confidential_2_3,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
@@ -184,12 +185,36 @@ pub fn set_output_owner_tags(
     }
 }
 
-pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> InputUtxo {
+pub fn input_utxo(nullifier_hash: [u8; 32]) -> InputUtxo {
+    input_utxo_in_tree(nullifier_hash, 0)
+}
+
+/// One input spent from the `tree_index`-th declared input tree.
+pub fn input_utxo_in_tree(nullifier_hash: [u8; 32], tree_index: u8) -> InputUtxo {
     InputUtxo {
         nullifier_hash,
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index,
+        tree_index,
     }
+}
+
+/// The declared input trees of a single-tree spend: one context at the given
+/// UTXO-tree root index and nullifier-tree root index zero.
+pub fn single_tree_context(utxo_tree_root_index: u16) -> Vec<TreeContext> {
+    tree_contexts(&[(utxo_tree_root_index, 0)])
+}
+
+/// One declared input tree per `(utxo_tree_root_index, nullifier_tree_root_index)`
+/// pair, in account order.
+pub fn tree_contexts(root_indexes: &[(u16, u16)]) -> Vec<TreeContext> {
+    root_indexes
+        .iter()
+        .map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
+                utxo_tree_root_index: *utxo_tree_root_index,
+                nullifier_tree_root_index: *nullifier_tree_root_index,
+            },
+        )
+        .collect()
 }
 
 /// The proof's public tree slots. SPP proves against exactly one input tree, so
@@ -209,6 +234,7 @@ pub fn single_tree_slots(
 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
+    utxo_tree_root_index: u16,
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
@@ -223,6 +249,7 @@ pub fn new_transact_ix_data(
         private_tx_hash: [0u8; 32],
         circuit,
         inputs,
+        tree_contexts: single_tree_context(utxo_tree_root_index),
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -405,10 +432,29 @@ pub fn derive_test_transfer_output_blindings(
         .collect()
 }
 
+/// Derives the packed `input_flags` from the witness the circuit will check, so
+/// a fixture that moves an input to another tree slot cannot forget to republish
+/// it. Every fixture allows dummy inputs.
+pub fn transact_input_flags(inputs: &[TransferInput]) -> [u8; 32] {
+    let tree_indexes = inputs.iter().map(|input| {
+        let digits = input.tree_slot.to_bytes_be();
+        match digits.as_slice() {
+            [] => 0u8,
+            [index] => *index,
+            _ => panic!("test input tree slot exceeds one byte"),
+        }
+    });
+    pack_input_flags(true, tree_indexes).expect("pack the test input flags")
+}
+
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let input_flags = transact_input_flags(&args.inputs);
     let mut signer_pk_hashes: Vec<BigUint> = args.signer_pk_hashes.iter().map(be).collect();
-    signer_pk_hashes.resize(args.inputs.len() + 1, be(&zero));
+    signer_pk_hashes.resize(
+        Shape::new(args.inputs.len(), args.outputs.len()).signer_width(),
+        be(&zero),
+    );
     // The default confidential rail publishes every output slot's owner tag.
     let published_output_owner_pk_hashes = args
         .outputs
@@ -427,7 +473,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         ring_program_id: be(&zero),
         signer_pk_hashes,
-        allow_dummy_inputs: be(&fe(1)),
+        input_flags: be(&input_flags),
         published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
@@ -793,10 +839,8 @@ pub fn build_spl_withdrawal(
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
     let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SplWithdrawal {
             amount,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
@@ -840,7 +884,7 @@ pub fn build_spl_withdrawal(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_hashes),
     }
@@ -865,7 +909,7 @@ pub fn build_spl_withdrawal(
 
     let instruction = Transact {
         payer: payer.pubkey(),
-        input_tree: *tree,
+        input_trees: vec![*tree],
         output_tree: *tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(

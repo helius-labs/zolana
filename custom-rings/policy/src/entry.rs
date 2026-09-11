@@ -1,5 +1,5 @@
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice, primitives::solana_owner_identity, Hasher,
+    hash_chain::create_hash_chain_4_from_slice, primitives::solana_owner_identity, Hasher,
     HasherError, Poseidon,
 };
 use zolana_interface::{tree_slot::tree_id_field, ADDRESS_DOMAIN, SOL_ASSET_FIELD, UTXO_DOMAIN};
@@ -319,9 +319,9 @@ pub fn mutation_private_tx_hash(
     external_data_hash: &[u8; 32],
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], HasherError> {
-    let input_chain = create_hash_chain_from_slice(&[input_hash])?;
-    let output_chain = create_hash_chain_from_slice(&[output_hash])?;
-    let address_chain = create_hash_chain_from_slice(&[address_nullifier])?;
+    let input_chain = create_hash_chain_4_from_slice(&[input_hash])?;
+    let output_chain = create_hash_chain_4_from_slice(&[output_hash])?;
+    let address_chain = create_hash_chain_4_from_slice(&[address_nullifier])?;
     Poseidon::hashv(&[
         &input_chain,
         &output_chain,

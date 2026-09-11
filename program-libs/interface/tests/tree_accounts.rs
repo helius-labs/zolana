@@ -7,7 +7,7 @@ use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_interface::instruction::{
     nullifier_pda_accounts, tag, CircuitId, CloseNullifierPdas, CreateTree, CreateTreeData,
     InputUtxo, MergeRing, MergeTransact, MergeTransactIxData, RingAuthorityTransact, RingTransact,
-    Transact, TransactIxData, TransactProof,
+    Transact, TransactIxData, TransactProof, TreeContext,
 };
 use zolana_interface::instruction::{ClaimTreeLamports, SetTreeFees, SetTreeFeesData};
 use zolana_interface::state::{
@@ -27,8 +27,7 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
             .iter()
             .map(|nullifier_hash| InputUtxo {
                 nullifier_hash: *nullifier_hash,
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -36,6 +35,10 @@ fn transact_data(circuit: CircuitId, nullifiers: &[[u8; 32]]) -> TransactIxData 
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 
@@ -51,8 +54,8 @@ fn merge_data() -> MergeTransactIxData {
         eddsa_owner: true,
         private_tx_hash: [0u8; 32],
         nullifiers: merge_nullifiers(),
-        utxo_tree_root_index: vec![0; 8],
-        nullifier_tree_root_index: vec![0; 8],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
@@ -74,7 +77,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
 
     let transact = Transact {
         payer,
-        input_tree,
+        input_trees: vec![input_tree],
         output_tree,
         owner_signers: vec![owner_signer],
         interface_transfer_accounts: Vec::new(),
@@ -94,7 +97,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
 
     let ring = RingTransact {
         payer,
-        input_tree,
+        input_trees: vec![input_tree],
         output_tree,
         ring_program_id,
         owner_signers: vec![owner_signer],
@@ -116,7 +119,7 @@ fn every_spend_builder_has_the_exact_account_layout() {
 
     let ring_authority = RingAuthorityTransact {
         payer,
-        input_tree,
+        input_trees: vec![input_tree],
         output_tree,
         ring_program_id,
         interface_transfer_accounts: Vec::new(),
@@ -185,7 +188,7 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
 
     let ring = RingTransact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         ring_program_id,
         owner_signers: Vec::new(),
@@ -208,7 +211,7 @@ fn outer_ring_builders_target_the_ring_and_leave_auth_unsigned() {
 
     let authority = RingAuthorityTransact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         ring_program_id,
         interface_transfer_accounts: Vec::new(),
@@ -351,7 +354,7 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
     let tree = Pubkey::new_unique();
     let instruction = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -367,6 +370,70 @@ fn same_pubkey_is_valid_in_both_tree_slots() {
             AccountMeta::new(tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+        ]
+    );
+}
+
+/// A spend across two trees: the tree run sits at position 1 in context order,
+/// and every nullifier PDA is derived under the tree its input selected.
+#[test]
+fn transact_builder_lays_out_the_tree_run_and_derives_pdas_per_input_tree() {
+    let payer = Pubkey::new_unique();
+    let first_tree = Pubkey::new_unique();
+    let second_tree = Pubkey::new_unique();
+    let output_tree = Pubkey::new_unique();
+    let first_nullifier = [11u8; 32];
+    let second_nullifier = [22u8; 32];
+    let third_nullifier = [33u8; 32];
+
+    let mut data = transact_data(
+        CircuitId::ConfidentialEddsa(3, 2, 3),
+        &[first_nullifier, second_nullifier, third_nullifier],
+    );
+    data.inputs = [
+        (first_nullifier, 0u8),
+        (second_nullifier, 1),
+        (third_nullifier, 1),
+    ]
+    .into_iter()
+    .map(|(nullifier_hash, tree_index)| InputUtxo {
+        nullifier_hash,
+        tree_index,
+    })
+    .collect();
+    data.tree_contexts = vec![
+        TreeContext {
+            utxo_tree_root_index: 1,
+            nullifier_tree_root_index: 2,
+        },
+        TreeContext {
+            utxo_tree_root_index: 3,
+            nullifier_tree_root_index: 4,
+        },
+    ];
+
+    let instruction = Transact {
+        payer,
+        input_trees: vec![first_tree, second_tree],
+        output_tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data,
+    }
+    .instruction();
+
+    assert_eq!(
+        instruction.accounts,
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(first_tree, false),
+            AccountMeta::new(second_tree, false),
+            AccountMeta::new(output_tree, false),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+            AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(pda::nullifier_pda(&first_tree, &first_nullifier).0, false),
+            AccountMeta::new(pda::nullifier_pda(&second_tree, &second_nullifier).0, false),
+            AccountMeta::new(pda::nullifier_pda(&second_tree, &third_nullifier).0, false),
         ]
     );
 }

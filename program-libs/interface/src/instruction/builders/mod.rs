@@ -33,6 +33,7 @@ pub use ring_config::{
 pub use ring_deposit::{RingAssetDeposit, RingDeposit};
 pub use ring_transact::RingTransact;
 pub use transact::{
-    nullifier_pda_accounts, Transact, TransactInterfaceTransferAccounts,
-    TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+    nullifier_pda_accounts, transact_nullifier_pda_accounts, Transact,
+    TransactInterfaceTransferAccounts, TransactSolTransferAccounts, TransactSplDepositAccounts,
+    TransactSplWithdrawalAccounts,
 };

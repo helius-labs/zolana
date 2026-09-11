@@ -185,7 +185,7 @@ impl PendingCustomRingProof {
                 inputs: witness.inputs,
                 outputs: witness.outputs,
                 // SPP folds a zero address slot per input into `private_tx_hash`.
-                address_chain: zolana_hasher::hash_chain::create_hash_chain_from_slice(&vec![
+                address_chain: zolana_hasher::hash_chain::create_hash_chain_4_from_slice(&vec![
                 [0u8; 32];
                 witness.n_in
                     as usize
@@ -250,7 +250,7 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
         .ok_or(CustomRingProofError::MissingCommitment)?;
     Ok(CustomRingProof {
         proof_a: compressed.a,
-        proof_b: compressed.b,
+        proof_b: compressed.compressed_b()?,
         proof_c: compressed.c,
         commitment: commitment.commitment,
         commitment_pok: commitment.commitment_pok,

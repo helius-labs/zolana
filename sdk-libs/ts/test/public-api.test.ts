@@ -60,7 +60,7 @@ import {
   type Bytes16,
   type Bytes32,
   type Bytes33,
-  type Bytes64,
+  type Bytes128,
 } from "../src/interface/index.js";
 import { treeWithBump } from "../src/interface/pda/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
@@ -353,7 +353,7 @@ describe("address and instruction builders", () => {
     });
     expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
-    expect(TREE_ACCOUNT_SIZE).toBe(39_952);
+    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
     expect(TREE_CREATION_STEP_COUNT).toBe(Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP));
     expect(TREE_CREATION_STEP_COUNT).toBe(4);
     expect(STATE_ROOT_OFFSET).toBe(80);
@@ -569,10 +569,11 @@ describe("address and instruction builders", () => {
         salt: new Uint8Array(16) as Bytes16,
         proof: {
           a: new Uint8Array(32) as Bytes32,
-          b: new Uint8Array(64) as Bytes64,
+          b: new Uint8Array(128) as Bytes128,
           c: new Uint8Array(32) as Bytes32,
         },
         inputs: [],
+        treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
         interfaceTransfers: [],
         outputs: [],
         messages: [],

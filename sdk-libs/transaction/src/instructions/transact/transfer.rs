@@ -1,7 +1,10 @@
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
 use zolana_event::MessageData;
-use zolana_interface::instruction::instruction_data::transact::{OwnerTag, TransactOutput};
+use zolana_interface::{
+    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
+    INPUT_TREES,
+};
 use zolana_keypair::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
     random_salt,
@@ -42,8 +45,9 @@ pub struct PreparedTransfer {
     /// comes from it and [`Self::first_nullifier`].
     pub blinding_seed: [u8; 32],
     pub first_nullifier: [u8; 32],
-    /// Raw id of the one tree every input, padding included, is hashed under.
-    pub input_tree_id: u16,
+    /// Raw ids of the trees the real inputs are spent from, in the order the
+    /// transaction declares them. Padding is hashed under one of them.
+    pub input_tree_ids: Vec<u16>,
     /// Raw id of the tree every output is appended to.
     pub output_tree_id: u16,
     pub shape: Shape,
@@ -313,9 +317,10 @@ impl ConfidentialTransfer {
         for transfer in &self.public_transfers {
             validate_settlement_target(transfer.asset, transfer.target)?;
         }
-        // One input tree per transaction: the prover hashes every slot, padding
-        // included, under a single tree id.
-        let input_tree_id = input_tree_id(&self.inputs)?;
+        // The trees the real inputs are spent from, in declaration order. Each
+        // gets one circuit tree slot and one root-index pair; padding is hashed
+        // under one of them.
+        let input_tree_ids = input_tree_ids(&self.inputs)?;
         let spl_asset = self.spl_asset()?;
         let public_sol = self.public_amount(&SOL_MINT)?;
         let public_spl = match spl_asset {
@@ -415,7 +420,7 @@ impl ConfidentialTransfer {
             outputs,
             blinding_seed: self.blinding_seed,
             first_nullifier,
-            input_tree_id,
+            input_tree_ids,
             output_tree_id: self.output_tree_id,
             shape,
             payer: self.payer,
@@ -564,7 +569,7 @@ impl PreparedTransfer {
             mut outputs,
             blinding_seed,
             first_nullifier,
-            input_tree_id,
+            input_tree_ids,
             output_tree_id,
             shape,
             payer,
@@ -599,15 +604,19 @@ impl PreparedTransfer {
                 ..Default::default()
             });
         }
-        // Every dummy is hashed under the input tree's id, both here for the
-        // nullifier the client requests a non-inclusion witness for and in the
-        // prover, which rehashes the slot under the single input tree. A dummy
-        // under any other id would request a witness for a different value.
+        // Every dummy is hashed under one of the declared input trees, both here
+        // for the nullifier the client requests a non-inclusion witness for and
+        // in the prover, which rehashes the slot under the tree it selects. A
+        // dummy under any other id would request a witness for a different
+        // value, so one that names no declared tree takes the first.
+        let padding_tree_id = *input_tree_ids.first().ok_or(TransactionError::NoInputs)?;
         for spend in inputs.iter_mut().filter(|spend| spend.is_dummy()) {
-            spend.tree_id = input_tree_id;
+            if !input_tree_ids.contains(&spend.tree_id) {
+                spend.tree_id = padding_tree_id;
+            }
         }
         while inputs.len() < shape.n_inputs() {
-            inputs.push(SppProofInputUtxo::new_dummy().in_tree(input_tree_id));
+            inputs.push(SppProofInputUtxo::new_dummy().in_tree(padding_tree_id));
         }
 
         // Length-matched random ciphertext for every position without a real
@@ -701,7 +710,7 @@ impl PreparedOutputLayout {
 /// account index 0, otherwise `Inline` (relayed transfer). Default transact
 /// has no P-256 owner rail. A PDA owner follows the Ed25519 arm: identical in
 /// every public-data path, and never the fee payer.
-fn sender_owner_tag(
+pub(super) fn sender_owner_tag(
     owner_pubkey: &PublicKey,
     payer: &Address,
     allow_p256_sender: bool,
@@ -721,21 +730,27 @@ fn sender_owner_tag(
     Ok((tag, resolved))
 }
 
-/// The id of the one tree every real input is spent from. Dummies are ignored:
-/// `finalize` rehomes every dummy to this id, so a caller-supplied dummy never
-/// decides it.
-fn input_tree_id(inputs: &[SppProofInputUtxo]) -> Result<u16, TransactionError> {
-    let mut real = inputs
-        .iter()
-        .enumerate()
-        .filter(|(_, spend)| !spend.is_dummy());
-    let (_, first) = real.next().ok_or(TransactionError::NoInputs)?;
-    for (index, spend) in real {
-        if spend.tree_id != first.tree_id {
-            return Err(TransactionError::InputTreeMismatch { index });
+/// The ids of the trees the real inputs are spent from, in first-use order. A
+/// proof publishes [`INPUT_TREES`] tree slots, so a wider spread is rejected
+/// here rather than at proving time. Dummies are ignored: `finalize` assigns
+/// each one a declared tree, so a caller-supplied dummy never declares one.
+fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, TransactionError> {
+    let mut tree_ids: Vec<u16> = Vec::with_capacity(1);
+    for spend in inputs.iter().filter(|spend| !spend.is_dummy()) {
+        if !tree_ids.contains(&spend.tree_id) {
+            tree_ids.push(spend.tree_id);
         }
     }
-    Ok(first.tree_id)
+    if tree_ids.is_empty() {
+        return Err(TransactionError::NoInputs);
+    }
+    if tree_ids.len() > INPUT_TREES {
+        return Err(TransactionError::TooManyInputTrees {
+            got: tree_ids.len(),
+            max: INPUT_TREES,
+        });
+    }
+    Ok(tree_ids)
 }
 
 /// View tag of the first real input owner that is not the fee payer, if any.
@@ -993,11 +1008,11 @@ mod tests {
         );
     }
 
-    /// Padding is hashed under the input tree's id. The prover rehashes every
-    /// dummy under that id, so the nullifiers the client fetches non-inclusion
-    /// witnesses for must already be derived under it.
+    /// Padding is hashed under a declared input tree's id. The prover rehashes
+    /// every dummy under the tree it selects, so the nullifiers the client
+    /// fetches non-inclusion witnesses for must already be derived under it.
     #[test]
-    fn padding_dummies_take_the_input_tree_id() {
+    fn padding_dummies_take_the_first_input_tree_id() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
         let recipient = ShieldedKeypair::new_ed25519().unwrap();
         let mut transfer = ConfidentialTransfer::new(
@@ -1031,9 +1046,9 @@ mod tests {
     }
 
     /// A dummy the caller passes in carries whatever tree id it was built with;
-    /// `finalize` rehomes it to the input tree like the padding it adds.
+    /// `finalize` rehomes it to a declared tree like the padding it adds.
     #[test]
-    fn caller_supplied_dummies_are_rehomed_to_the_input_tree() {
+    fn caller_supplied_dummies_are_rehomed_to_a_declared_input_tree() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
         let recipient = ShieldedKeypair::new_ed25519().unwrap();
         let mut transfer = ConfidentialTransfer::new(
@@ -1059,21 +1074,44 @@ mod tests {
         assert_eq!(tree_ids, vec![7, 7]);
     }
 
+    /// Inputs from several trees are kept, in declaration order, so a balance
+    /// that straddles a tree rollover spends in one transaction.
     #[test]
-    fn prepare_rejects_inputs_from_different_trees() {
+    fn prepare_declares_every_input_tree_in_first_use_order() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
         let transfer = ConfidentialTransfer::new(
             sender.shielded_address().unwrap(),
             vec![
-                ed25519_input(&sender, 10),
+                ed25519_input(&sender, 10).in_tree(4),
                 ed25519_input(&sender, 10).in_tree(1),
+                ed25519_input(&sender, 10).in_tree(4),
             ],
+            ed25519_address(&sender),
+        );
+
+        let prepared = transfer.prepare().expect("prepare");
+
+        assert_eq!(prepared.input_tree_ids, vec![4, 1]);
+    }
+
+    #[test]
+    fn prepare_rejects_more_input_trees_than_slots() {
+        let sender = ShieldedKeypair::new_ed25519().unwrap();
+        let inputs = (0..=INPUT_TREES)
+            .map(|index| {
+                let tree_id = u16::try_from(index).expect("tree id");
+                ed25519_input(&sender, 10).in_tree(tree_id)
+            })
+            .collect();
+        let transfer = ConfidentialTransfer::new(
+            sender.shielded_address().unwrap(),
+            inputs,
             ed25519_address(&sender),
         );
 
         assert!(matches!(
             transfer.prepare(),
-            Err(TransactionError::InputTreeMismatch { index: 1 })
+            Err(TransactionError::TooManyInputTrees { got, max }) if got == INPUT_TREES + 1 && max == INPUT_TREES
         ));
     }
 

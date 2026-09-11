@@ -5,7 +5,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             Bsb22Commitment, CircuitId, InputUtxo, OwnerTag, RingP256ProofData, TransactIxData,
-            TransactIxDataRef, TransactOutput, TransactProof,
+            TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
         },
         tag::InstructionTag,
     },
@@ -27,8 +27,7 @@ fn validate(
         inputs: (0..actual_inputs)
             .map(|_| InputUtxo {
                 nullifier_hash: [0u8; 32],
-                nullifier_tree_root_index: 0,
-                utxo_tree_root_index: 0,
+                tree_index: 0,
             })
             .collect(),
         interface_transfers: Vec::new(),
@@ -42,6 +41,10 @@ fn validate(
             })
             .collect(),
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     };
     let bytes = ix.serialize().unwrap();
     let borrowed = TransactIxDataRef::from_bytes(&bytes).unwrap();
