@@ -149,6 +149,8 @@ them per `provingkeys/proving-keys.lock`).
 
 ## AWS deployment
 
+Open the [hosted Arkworks demo](https://d11pqvzf0b88yp.cloudfront.net/).
+
 The browser proof playground is hosted on private S3 behind CloudFront. The
 [deployment instructions](web/deploy/aws/README.md) build a versioned release
 with the Arkworks accelerator, matching Go runtime, pinned proving keys and a
