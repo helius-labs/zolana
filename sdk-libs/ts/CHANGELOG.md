@@ -40,6 +40,8 @@ Added
   and `RingListNamespace.leafHash` mirror the Rust spend record.
 - `readRingSpendRecord` walks a member's record lineage through the indexer
   and returns the live version with the transaction that published it.
+- `auditRingTransaction` reports a velocity ring's `spendRecords`, each with
+  the counters recovered from its message when the window is live.
 - `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
   build the tag 26 registration over a proven claim.
 - `ringTransactInstruction` and `ringDelegateTransactInstruction` take

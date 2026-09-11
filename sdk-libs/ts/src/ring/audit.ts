@@ -35,6 +35,14 @@ import type { AssetRegistry } from "../transaction/asset.js";
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
 import { RingError } from "./error.js";
+import {
+  decodeSpendCounters,
+  decodeSpendRecord,
+  spendCountersCommitment,
+  type SpendCounters,
+  type SpendRecord,
+} from "./policy.js";
+import { findSpendCountersMessage, RING_SPEND_COUNTERS_SLOT_INDEX } from "./counters.js";
 import { CachedTransactionOrigin, RpcTransactionOrigin, type TransactionOrigin } from "./origin.js";
 
 /** Mirrors Rust `AuditedOutput`. */
@@ -49,12 +57,20 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
+/** Mirrors Rust `AuditedSpendRecord`, `counters` open only inside the record's window. */
+export interface AuditedRingSpendRecord {
+  readonly slotIndex: number;
+  readonly record: SpendRecord;
+  readonly counters?: SpendCounters;
+}
+
 /** Mirrors Rust `AuditedTransaction`. Dummy slots and foreign schemes land in `undecryptableSlots`. */
 export interface AuditedRingTransaction {
   readonly signature: Signature;
   readonly slot: bigint;
   readonly txViewingPublicKey: P256PublicKey;
   readonly outputs: readonly AuditedRingOutput[];
+  readonly spendRecords: readonly AuditedRingSpendRecord[];
   readonly undecryptableSlots: readonly number[];
 }
 
@@ -134,17 +150,31 @@ export function auditRingTransaction(
       });
     }
     const outputs: AuditedRingOutput[] = [];
+    const spendRecords: AuditedRingSpendRecord[] = [];
     const undecryptableSlots: number[] = [];
     transaction.outputSlots.forEach((slot, slotIndex) => {
       const output = auditOutput(txKey, slot, salt, slotIndex, input.assets);
-      if (output === undefined) undecryptableSlots.push(slotIndex);
-      else outputs.push(output);
+      if (output !== undefined) {
+        outputs.push(output);
+        return;
+      }
+      const record = auditSpendRecord(slot);
+      if (record === undefined) {
+        undecryptableSlots.push(slotIndex);
+        return;
+      }
+      spendRecords.push({
+        slotIndex,
+        record,
+        ...openRecordCounters(txKey, transaction.messages, slot.viewTag, salt, record),
+      });
     });
     return Object.freeze({
       signature: transaction.txSignature,
       slot: transaction.slot,
       txViewingPublicKey,
       outputs: Object.freeze(outputs),
+      spendRecords: Object.freeze(spendRecords),
       undecryptableSlots: Object.freeze(undecryptableSlots),
     });
   } finally {
@@ -231,6 +261,42 @@ function isUnknownAsset(error: unknown): boolean {
 }
 
 /** `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. */
+function auditSpendRecord(slot: OutputSlot): SpendRecord | undefined {
+  try {
+    const frame = readOutputData(slot.payload);
+    if (frame.encoding !== "plaintext") return undefined;
+    return decodeSpendRecord(frame.body);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Kept only when the counters reproduce the record's commitment. */
+function openRecordCounters(
+  txKey: ViewingKey,
+  messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[],
+  viewTag: Bytes32,
+  salt: Bytes16,
+  record: SpendRecord,
+): { counters?: SpendCounters } {
+  const message = findSpendCountersMessage(messages, viewTag);
+  if (message === undefined) return {};
+  try {
+    const recipient = P256PublicKey.fromBytes(message.data.slice(0, 33) as Bytes33);
+    const plaintext = txKey.decryptSlotEphemeral(
+      recipient,
+      message.data.slice(33),
+      salt,
+      RING_SPEND_COUNTERS_SLOT_INDEX,
+    );
+    const counters = decodeSpendCounters(plaintext);
+    if (!equal(spendCountersCommitment(counters), record.countersCommitment)) return {};
+    return { counters };
+  } catch {
+    return {};
+  }
+}
+
 function auditOutput(
   txKey: ViewingKey,
   slot: OutputSlot,
