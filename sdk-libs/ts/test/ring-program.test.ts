@@ -2,8 +2,11 @@ import {
   AccountRole,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
   generateKeyPairSigner,
+  decompileTransactionMessage,
   getAddressDecoder,
+  getCompiledTransactionMessageDecoder,
   getSolanaErrorFromJsonRpcError,
+  getTransactionDecoder,
   type Address,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -148,6 +151,21 @@ describe("loader instructions", () => {
   const roles = (instruction: { accounts?: readonly { address: Address; role: AccountRole }[] }) =>
     instruction.accounts?.map((meta) => [meta.address, meta.role]);
 
+  it("accepts the loader write boundary and refuses one byte beyond it", () => {
+    const input = { buffer: BUFFER, authority: AUTHORITY, offset: 0 };
+    const bytes = new Uint8Array(1_217).fill(7);
+    expect(writeBufferInstruction({ ...input, bytes: bytes.subarray(0, 1_216) }).data).toHaveLength(
+      1_232,
+    );
+    expect(() => writeBufferInstruction({ ...input, bytes })).toThrowError(
+      expect.objectContaining({
+        code: "RING_PROGRAM_WRITE_TOO_LARGE",
+        details: { length: 1_217, limit: 1_216 },
+      }),
+    );
+    expect(bytes).toEqual(new Uint8Array(1_217).fill(7));
+  });
+
   it("encode the bincode tags and account orders of the upgradeable loader", async () => {
     const dataAddress = await ringProgramDataAddress(PROGRAM);
     const initialize = initializeBufferInstruction({ buffer: BUFFER, authority: AUTHORITY });
@@ -232,19 +250,17 @@ describe("loader instructions", () => {
     ]);
   });
 
-  it("matches solana-loader-v3-interface 6.1.0 checked extension", async () => {
+  it("matches the Agave 4.2 loader extension encoding and accounts", async () => {
     const dataAddress = await ringProgramDataAddress(PROGRAM);
     const extend = await extendProgramInstruction({
       ringProgramId: PROGRAM,
       payer: PAYER,
-      authority: AUTHORITY,
       additionalBytes: 10_240,
     });
-    expect([...(extend.data ?? [])]).toEqual([9, 0, 0, 0, 0, 0x28, 0, 0]);
+    expect([...(extend.data ?? [])]).toEqual([6, 0, 0, 0, 0, 0x28, 0, 0]);
     expect(roles(extend)).toEqual([
       [dataAddress, AccountRole.WRITABLE],
       [PROGRAM, AccountRole.WRITABLE],
-      [AUTHORITY, AccountRole.WRITABLE_SIGNER],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
     ]);
@@ -299,6 +315,7 @@ describe("deployment", () => {
   /** The extend and then the program exist once a send follows the buffer content read. */
   function chain(keys: Awaited<ReturnType<typeof signers>>, options: ChainOptions = {}) {
     const sends: number[] = [];
+    const writes: { offset: number; bytes: Uint8Array }[] = [];
     const rents: bigint[] = [];
     const capacity = options.deployed?.capacity ?? options.deployed?.bytes.length ?? 0;
     const needsExtend = options.deployed !== undefined && capacity < binary.bytes.length;
@@ -355,6 +372,20 @@ describe("deployment", () => {
               abortSignal?.addEventListener("abort", () => reject(new Error("aborted"))),
             );
           }
+          const transaction = getTransactionDecoder().decode(Buffer.from(encoded, "base64"));
+          const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes);
+          if (compiled.version !== 1) throw new Error("expected transaction version 1");
+          const message = decompileTransactionMessage(compiled, { lastValidBlockHeight: 1n });
+          for (const instruction of message.instructions) {
+            if (instruction.programAddress !== BPF_LOADER_UPGRADEABLE_ID) continue;
+            const data = new Uint8Array(instruction.data ?? []);
+            const view = new DataView(data.buffer);
+            if (view.getUint32(0, true) !== 1) continue;
+            expect(data.length).toBeLessThanOrEqual(1_232);
+            const bytes = data.slice(16);
+            expect(view.getBigUint64(8, true)).toBe(BigInt(bytes.length));
+            writes.push({ offset: view.getUint32(4, true), bytes });
+          }
           inFlight += 1;
           maxInFlight = Math.max(maxInFlight, inFlight);
           await new Promise((resolve) => setTimeout(resolve, 1));
@@ -374,6 +405,7 @@ describe("deployment", () => {
     };
     const fake = {
       sends,
+      writes,
       rents,
       maxInFlight: () => maxInFlight,
       getLatestBlockhash: vi.fn(async () => BLOCKHASH),
@@ -445,8 +477,10 @@ describe("deployment", () => {
     expect(outcome.kind).toBe("deployed");
     expect(outcome.programData.upgradeAuthority).toBe(keys.authority.address);
     for (const size of client.sends) expect(size).toBeLessThanOrEqual(4096);
-    // The whole binary rides one write, more than the legacy packet could carry.
+    // Multiple bounded loader writes share one large transaction.
     expect(client.sends.filter((size) => size > 1232)).toHaveLength(1);
+    expect(client.writes.map(({ offset }) => offset)).toEqual([0, 1_216, 2_432]);
+    expect(Uint8Array.from(client.writes.flatMap(({ bytes }) => [...bytes]))).toEqual(binary.bytes);
     expect(client.getLatestBlockhash).toHaveBeenCalledTimes(client.sends.length);
     expect(client.maxInFlight()).toBeLessThanOrEqual(2);
     expect(client.rents).toEqual([37n + 3_000n, 36n, 45n + 3_000n]);

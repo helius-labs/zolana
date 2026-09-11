@@ -97,8 +97,9 @@ Breaking
   from this release.
 
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
-- `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
-  the upgrade `authority` alongside `payer`.
+- `extendProgramInstruction` uses the extension supported by Agave 4.2 → pass
+  `payer` and remove the `authority` argument; upgrading still requires the
+  upgrade authority.
 - Policy rule tables now carry one `inlineLimit` per inline asset and policy
   prover requests carry the padded `inlineLimits` fields → recreate policy
   config accounts and include the limits in custom prover integrations.
@@ -374,6 +375,9 @@ Changed
 
 Fixed
 
+- `deployRingProgram` splits uploads into writes the loader accepts and packs
+  them into v1 transactions; `writeBufferInstruction` rejects payloads above
+  1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.

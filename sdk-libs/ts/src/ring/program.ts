@@ -7,7 +7,7 @@ import {
   generateKeyPairSigner,
   getFirstFailedSingleTransactionPlanResult,
   isSuccessfulTransactionPlanResult,
-  getLinearMessagePackerInstructionPlan,
+  getMessagePackerInstructionPlanFromInstructions,
   getSignatureFromTransaction,
   isSolanaError,
   nonDivisibleSequentialInstructionPlan,
@@ -64,6 +64,11 @@ const MIN_EXTEND_BYTES = 10_240;
 const DEPLOY_FEE_BUDGET = 20_000_000n;
 /** What the runtime allows one transaction; a deploy step verifies a whole ELF. */
 const DEPLOY_COMPUTE_UNIT_LIMIT = 1_400_000;
+/** Agave's loader v3 limited_deserialize cap applies to each instruction, even in v1. */
+const LOADER_INSTRUCTION_DATA_LIMIT = 1_232;
+/** Bincode tag (u32), offset (u32), and byte-vector length (u64). */
+const WRITE_HEADER_SIZE = 16;
+const MAX_WRITE_BYTES = LOADER_INSTRUCTION_DATA_LIMIT - WRITE_HEADER_SIZE;
 
 /** Rust `UpgradeableLoaderInstruction`. */
 const LoaderTag = Object.freeze({
@@ -73,7 +78,7 @@ const LoaderTag = Object.freeze({
   upgrade: 3,
   setAuthority: 4,
   close: 5,
-  extendProgramChecked: 9,
+  extendProgram: 6,
 } as const);
 
 /** A structural copy is not a checked binary. */
@@ -189,6 +194,11 @@ export function initializeBufferInstruction(
 export function writeBufferInstruction(
   input: Readonly<{ buffer: Address; authority: SignerAccount; offset: number; bytes: Uint8Array }>,
 ): Instruction {
+  if (input.bytes.length > MAX_WRITE_BYTES) {
+    throw new RingError("RING_PROGRAM_WRITE_TOO_LARGE", {
+      details: { length: input.bytes.length, limit: MAX_WRITE_BYTES },
+    });
+  }
   return {
     programAddress: BPF_LOADER_UPGRADEABLE_ID,
     accounts: [meta(input.buffer, false, true), meta(input.authority, true, false)],
@@ -272,7 +282,6 @@ export async function extendProgramInstruction(
   input: Readonly<{
     ringProgramId: Address;
     payer: SignerAccount;
-    authority: SignerAccount;
     additionalBytes: number;
   }>,
 ): Promise<Instruction> {
@@ -281,12 +290,11 @@ export async function extendProgramInstruction(
     accounts: [
       meta(await ringProgramDataAddress(input.ringProgramId), false, true),
       meta(input.ringProgramId, false, true),
-      meta(input.authority, true, true),
       meta(SYSTEM_PROGRAM, false, false),
       meta(input.payer, true, true),
     ],
     data: new Writer()
-      .u32(LoaderTag.extendProgramChecked, "tag")
+      .u32(LoaderTag.extendProgram, "tag")
       .u32(input.additionalBytes, "additionalBytes")
       .finish(),
   };
@@ -384,16 +392,17 @@ export async function deployRingProgram(
     await send(
       await plan(
         parallelInstructionPlan([
-          getLinearMessagePackerInstructionPlan({
-            totalLength: length,
-            getInstruction: (offset, chunk) =>
-              writeBufferInstruction({
+          getMessagePackerInstructionPlanFromInstructions(
+            Array.from({ length: Math.ceil(length / MAX_WRITE_BYTES) }, (_, index) => {
+              const offset = index * MAX_WRITE_BYTES;
+              return writeBufferInstruction({
                 buffer: bufferSigner.address,
                 authority: params.authority,
                 offset,
-                bytes: params.binary.bytes.subarray(offset, offset + chunk),
-              }),
-          }),
+                bytes: params.binary.bytes.subarray(offset, offset + MAX_WRITE_BYTES),
+              });
+            }),
+          ),
         ]),
       ),
     );
@@ -434,7 +443,6 @@ export async function deployRingProgram(
               await extendProgramInstruction({
                 ringProgramId: params.ringProgramId,
                 payer: params.payer,
-                authority: params.authority,
                 additionalBytes: target - current.capacity,
               }),
             ),
