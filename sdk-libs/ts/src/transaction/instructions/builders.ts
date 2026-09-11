@@ -24,7 +24,7 @@ import { type AssetRegistry } from "../asset.js";
 import {
   SppProofInputs,
   createExternalData,
-  inputTreeId,
+  singleInputTreeId,
   type InputUtxoContext,
 } from "./transact.js";
 
@@ -75,7 +75,7 @@ export class PreparedMerge {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
-    this.inputTreeId = inputTreeId(input.inputs);
+    this.inputTreeId = singleInputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
     this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
@@ -189,7 +189,7 @@ export class Merge {
         }
       });
       // Dummies are hashed under the input tree like every real input.
-      const treeId = inputTreeId(inputs);
+      const treeId = singleInputTreeId(inputs);
       const padded = [...inputs];
       while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, treeId));
       this.#prepared = new PreparedMerge({

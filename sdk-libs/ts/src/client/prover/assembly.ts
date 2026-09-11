@@ -17,7 +17,11 @@ import {
   type TreeSlot,
 } from "../../interface/tree-slot.js";
 import { solanaOwnerIdentity } from "../../hasher/index.js";
-import { SppProofInputs, type ExternalData } from "../../transaction/instructions/transact.js";
+import {
+  SppProofInputs,
+  singleInputTreeId,
+  type ExternalData,
+} from "../../transaction/instructions/transact.js";
 import { EncryptedScheme } from "../../transaction/serialization/codecs.js";
 import {
   ProofInputUtxo,
@@ -696,7 +700,7 @@ export function ringOpenings(proofInputs: SppProofInputs): RingOpenings {
   ) {
     throw new ClientError("CLIENT_PROVER_INPUT");
   }
-  const inputTreeId = treeIdField(proofInputs.inputTreeId());
+  const inputTreeId = treeIdField(singleInputTreeId(proofInputs.inputUtxos));
   const outputTreeId = treeIdField(proofInputs.outputTreeId);
   const inputs = Array.from({ length: RING_INPUT_SLOTS }, (_, index) => {
     const input = proofInputs.inputUtxos[index];
