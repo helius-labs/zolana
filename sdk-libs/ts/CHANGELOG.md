@@ -43,9 +43,10 @@ Breaking
 - `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
   `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
   argument, `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
-  `inputTreeId` and `outputTreeId`, and `PreparedTransfer` and `PreparedSplit`
-  expose the seed material the prover needs → an input set spanning two trees
-  is refused with `TRANSACTION_INPUT_TREE_MISMATCH`.
+  `inputTreeIds` or `inputTreeId` beside `outputTreeId`, and `PreparedTransfer`
+  and `PreparedSplit` expose the seed material the prover needs → a merge or
+  split input set spanning two trees is refused with
+  `TRANSACTION_INPUT_TREE_MISMATCH`.
 - A padding output's published owner tag names a non-payer input owner or a
   real output's owner and is always inline, and a self-paid transfer with no
   change and no recipient keeps a real zero-amount SOL change output → expect
@@ -56,9 +57,19 @@ Breaking
   given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
   proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, a merge
   is refused with the same code when its output tree is not its input tree,
-  every input of an instruction carries one root position pair
-  (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
-  `outputTreeId`, and `blindingSeed` → run a prover from this release.
+  `AssembledTransfer.rootIndexes` reports the first input tree's root positions,
+  and the prover request carries `treeSlots`, `outputTreeId`, and `blindingSeed`
+  → run a prover from this release.
+- `TransactInstructionData` carries one `TreeContext` per input tree in place of
+  `utxoTreeRootIndex` and `nullifierTreeRootIndex`, every `InputUtxo` names its
+  context with `treeIndex`, `SppProofInputs.inputTreeIds()` and
+  `PreparedTransfer.inputTreeIds` list the up to five trees one spend may draw
+  from, `inputTreeSlots` takes those trees as an array, and the transfer prover
+  request replaces `allowDummyInputs` with `inputFlags`, the dummy-input policy
+  in bit 0 and input `i`'s three-bit tree index at bits `1 + 3i` → order inputs
+  so each tree owns one contiguous run, pass `treeContexts` in that order and
+  `[slot]` to `inputTreeSlots`, and run a program and prover from this release;
+  merge keeps its single input tree and its root position pair.
 - `TREE_ACCOUNT_SIZE` is 40,080 and `StateDiscriminator.treeAccount` is 2, so
   a tree account created by an earlier release is not read as a tree → create
   the pool tree with this release.
