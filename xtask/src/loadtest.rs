@@ -516,7 +516,7 @@ fn worker(
         timing.prove_ms = mark.elapsed().as_millis() as u64;
 
         let mark = Instant::now();
-        let signature = match client.rpc().send_transaction_with_config(
+        let signature = match client.rpc().send_versioned_transaction_with_config(
             &transfer,
             RpcSendTransactionConfig {
                 skip_preflight: true,

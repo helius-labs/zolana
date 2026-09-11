@@ -875,16 +875,19 @@ fn tx_size(args: Vec<String>) {
 
     println!();
     println!(
-        "Builder layouts with nullifier PDAs (one writable PDA per input). A row \
-         marked OVER does not fit one {PACKET_DATA_SIZE}-byte packet and cannot be sent:"
+        "Builder layouts with nullifier PDAs (one writable PDA per input). \
+         `legacy` is the {}-byte packet, `v1` the {}-byte transaction v1 limit; \
+         a row marked OVER fits neither:",
+        PACKET_DATA_SIZE,
+        solana_message::v1::MAX_TRANSACTION_SIZE,
     );
     println!(
-        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<4} |",
-        "transaction", "accounts", "ix data (B)", "legacy tx (B)", "fits",
+        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<6} | {:<4} |",
+        "transaction", "accounts", "ix data (B)", "tx (B)", "legacy", "v1",
     );
     println!(
-        "|{:-<36}|{:-<10}|{:-<13}|{:-<14}|{:-<6}|",
-        "", "", "", "", ""
+        "|{:-<36}|{:-<10}|{:-<13}|{:-<14}|{:-<8}|{:-<6}|",
+        "", "", "", "", "", ""
     );
     let tree = Pubkey::new_unique();
     for n in [2usize, 3, 5] {
@@ -976,19 +979,27 @@ fn tx_size(args: Vec<String>) {
     }
 }
 
-/// Solana's packet size, `solana_packet::PACKET_DATA_SIZE`. A serialized
-/// transaction above it cannot be sent at all, so the table says so rather than
-/// leaving the reader to compare four-digit numbers by eye.
+/// Solana's packet size, `solana_packet::PACKET_DATA_SIZE`, which bounds a
+/// legacy or v0 transaction.
 const PACKET_DATA_SIZE: usize = 1232;
 
+/// The table reports both ceilings because the protocol sits between them: the
+/// wide shapes exceed a legacy packet and are sent as transaction v1, whose
+/// limit is `solana_message::v1::MAX_TRANSACTION_SIZE`. A row marked OVER does
+/// not fit even v1 and cannot be sent at all.
 fn print_builder_row(name: &str, accounts: usize, ix_data_len: usize, tx_len: usize) {
     println!(
-        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<4} |",
+        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<6} | {:<4} |",
         name,
         accounts,
         ix_data_len,
         tx_len,
         if tx_len <= PACKET_DATA_SIZE {
+            "yes"
+        } else {
+            "no"
+        },
+        if tx_len <= solana_message::v1::MAX_TRANSACTION_SIZE {
             "yes"
         } else {
             "OVER"
