@@ -9011,11 +9011,18 @@ name = "spp-test-validator"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode 2.0.1",
  "rand 0.8.8",
  "serial_test",
  "solana-address 2.6.1",
+ "solana-hash",
+ "solana-instruction",
+ "solana-keypair",
+ "solana-message",
  "solana-pubkey 4.2.1",
  "solana-signer",
+ "solana-system-interface 3.2.0",
+ "solana-transaction",
  "zolana-client",
  "zolana-smart-account-client",
  "zolana-test-utils",

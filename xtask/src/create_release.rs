@@ -14,8 +14,8 @@ use solana_pubkey::Pubkey;
 use zolana_interface::pda;
 use zolana_program_test::ZolanaProgramTest;
 
-const DEFAULT_SURFPOOL_TAG: &str = "v1.1.1-light";
-const DEFAULT_SURFPOOL_VERSION: &str = "1.1.1";
+const DEFAULT_SURFPOOL_TAG: &str = "v1.5.0-light";
+const DEFAULT_SURFPOOL_VERSION: &str = "1.5.0";
 
 // Cross-compile photon for linux-x64 inside a matching-toolchain container
 // (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively
@@ -1172,6 +1172,56 @@ mod tests {
                 "prover",
                 "photon"
             ]
+        );
+    }
+
+    /// The surfpool pin lives in three places: the justfile recipe that
+    /// downloads the binary, the release lockfile the CLI reads at runtime, and
+    /// the fallback here for when that lockfile is missing. They have already
+    /// drifted once -- the fallback sat two releases behind the other two, so a
+    /// developer without a lockfile would have silently run an older backend
+    /// than CI. Nothing but this test makes them move together.
+    #[test]
+    fn the_three_surfpool_pins_agree() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+
+        let lock: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("cli/release-artifacts.lock"))
+                .expect("read cli/release-artifacts.lock"),
+        )
+        .expect("parse cli/release-artifacts.lock");
+        let lock_tag = lock["surfpool_tag"].as_str().expect("surfpool_tag");
+        let lock_version = lock["surfpool_version"].as_str().expect("surfpool_version");
+
+        let justfile = std::fs::read_to_string(root.join("justfile")).expect("read justfile");
+        let just_pin = |name: &str| {
+            justfile
+                .lines()
+                .find_map(|line| {
+                    let rest = line.strip_prefix(name)?;
+                    let (_, quoted) = rest.rsplit_once(", \"")?;
+                    quoted.split('"').next().map(str::to_owned)
+                })
+                .unwrap_or_else(|| panic!("{name} is not pinned in the justfile"))
+        };
+
+        assert_eq!(
+            [
+                just_pin("surfpool-release-tag :="),
+                lock_tag.to_owned(),
+                DEFAULT_SURFPOOL_TAG.to_owned(),
+            ],
+            [lock_tag, lock_tag, lock_tag].map(str::to_owned),
+            "the justfile, the release lockfile and the fallback must name one surfpool tag"
+        );
+        assert_eq!(
+            [
+                just_pin("surfpool-version :="),
+                lock_version.to_owned(),
+                DEFAULT_SURFPOOL_VERSION.to_owned(),
+            ],
+            [lock_version, lock_version, lock_version].map(str::to_owned),
+            "the justfile, the release lockfile and the fallback must name one surfpool version"
         );
     }
 }
