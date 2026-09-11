@@ -40,16 +40,19 @@ import {
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
 import {
   clearRingCoSignerInstruction,
+  clearRingSpendWindowInstruction,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingPausedInstruction,
+  setRingSpendWindowInstruction,
 } from "../src/ring/config.js";
-import { ringCoSignerAddress } from "../src/interface/pda/index.js";
+import { ringCoSignerAddress, ringSpendWindowAddress } from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import {
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
+  decodeRingSpendWindow,
 } from "../src/ring/codecs.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
@@ -213,6 +216,7 @@ describe("ring deposit", () => {
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
       [TREE, AccountRole.WRITABLE],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_AUTH, AccountRole.READONLY],
@@ -588,6 +592,127 @@ describe("ring config", () => {
         ],
       }),
     ).rejects.toThrow("RING_CO_SIGNER_INVALID");
+  });
+
+  it("builds the spend window set and clear like Rust", async () => {
+    const mint = addressOf(60);
+    const set = await setRingSpendWindowInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      mint,
+      windowSlots: 100n,
+      withdrawalCap: 9n,
+    });
+    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
+      [SYSTEM, AccountRole.READONLY],
+    ]);
+    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
+      "16" +
+        Buffer.from(addressBytes(mint, "mint")).toString("hex") +
+        "6400000000000000" +
+        "0000000000000000" +
+        "0900000000000000",
+    );
+    const clear = await clearRingSpendWindowInstruction({
+      ringProgramId: RING,
+      authority: AUTHORITY,
+      mint,
+      rentRecipient: PAYER,
+    });
+    expect(clear.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE],
+    ]);
+    expect(Buffer.from(clear.data ?? []).toString("hex")).toBe(
+      "17" + Buffer.from(addressBytes(mint, "mint")).toString("hex"),
+    );
+    await expect(
+      setRingSpendWindowInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        mint,
+        windowSlots: 0n,
+      }),
+    ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
+  });
+
+  it("decodes the spend window account and rejects another layout", () => {
+    const mint = addressOf(60);
+    const data = Uint8Array.from([
+      5,
+      ...addressBytes(mint, "mint"),
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      9,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      176,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      251,
+    ]);
+    expect(decodeRingSpendWindow(data)).toEqual({
+      mint,
+      windowSlots: 100n,
+      depositCap: 7n,
+      withdrawalCap: 9n,
+      windowStartSlot: 1200n,
+      deposited: 1n,
+      withdrawn: 2n,
+      bump: 251,
+    });
+    expect(() => decodeRingSpendWindow(data.subarray(1))).toThrow("RING_SPEND_WINDOW_INVALID");
+    const zeroWindow = Uint8Array.from(data);
+    zeroWindow[33] = 0;
+    expect(() => decodeRingSpendWindow(zeroWindow)).toThrow("RING_SPEND_WINDOW_INVALID");
   });
 
   it("decodes the co-signer account and rejects another layout", () => {
@@ -1007,6 +1132,51 @@ describe("ring transact", () => {
     // Without these the pool cannot settle and the ring cannot pay an address.
     const tail = instruction.accounts?.slice(-2).map((meta) => meta.address);
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
+  });
+
+  it("places one spend window slot per public leg before the spp payer", async () => {
+    const recipient = addressOf(31);
+    const instruction = await ringTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      hasPolicy: false,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      withdrawal: { kind: "sol", recipient },
+      data: {
+        ...transactData(),
+        interfaceTransfers: [
+          { kind: "solWithdrawal", amount: 6n },
+          { kind: "solWithdrawal", amount: 6n },
+        ],
+      },
+    });
+    const window = await ringSpendWindowAddress(RING, SOL_MINT);
+    expect(instruction.accounts?.slice(4, 7).map((meta) => [meta.address, meta.role])).toEqual([
+      [window, AccountRole.WRITABLE],
+      [window, AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    await expect(
+      ringTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        inputTree: TREE,
+        outputTree: OUTPUT_TREE,
+        hasPolicy: false,
+        proof: customRingProof(),
+        stateRootIndex: 0,
+        nullifierRootIndex: 0,
+        withdrawal: { kind: "sol", recipient },
+        data: {
+          ...transactData(),
+          interfaceTransfers: [{ kind: "splWithdrawal", amount: 1n, splInterfaceBump: 250 }],
+        },
+      }),
+    ).rejects.toThrow("RING_BUILD_WITHDRAWAL");
   });
 
   it("appends the owner signers as readonly signers after the payer", async () => {

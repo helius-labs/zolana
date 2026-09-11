@@ -5,6 +5,7 @@ import {
   SYSTEM_PROGRAM,
   meta,
   ringCoSignerMetas,
+  ringSpendWindowMetas,
   ringTransactAccounts,
   type SignerAccount,
 } from "../interface/instructions/index.js";
@@ -24,6 +25,7 @@ import {
 import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
+import { SOL_MINT } from "../transaction/asset.js";
 
 import { Writer } from "../interface/internal.js";
 
@@ -170,10 +172,11 @@ export async function ringTransactInstruction(
   }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
-  const [config, ringAuth, cosignerPda] = await Promise.all([
+  const [config, ringAuth, cosignerPda, windows] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
+    ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
   const pool = await ringTransactAccounts({
@@ -207,10 +210,25 @@ export async function ringTransactInstruction(
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
+      ...windows,
       ...pool,
     ],
     data,
   };
+}
+
+/** The mint of every public leg in leg order, an SPL leg settles through `withdrawal`. */
+function settledMints(
+  data: TransactInstructionData,
+  withdrawal: TransactWithdrawal | undefined,
+): Address[] {
+  return data.interfaceTransfers.map((leg) => {
+    if (leg.kind === "solDeposit" || leg.kind === "solWithdrawal") return SOL_MINT;
+    if (withdrawal?.kind !== "spl") {
+      throw new RingError("RING_BUILD_WITHDRAWAL", { details: { leg: leg.kind } });
+    }
+    return withdrawal.mint;
+  });
 }
 
 /** The policy tier reads `policy_config` and `entries_tree`, read-only and before the SPP list. */

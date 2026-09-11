@@ -35,6 +35,7 @@ import {
   protocolConfigAddress,
   ringAuthAddress,
   ringCoSignerAddress,
+  ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -303,7 +304,7 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring program forwards it to the shielded pool unchanged. */
+/** Mirrors Rust `RingDeposit::instruction`. The ring keeps `[cosigner_pda, cosigner]` and one spend window slot per settled mint, the shielded pool gets the rest unchanged. */
 export async function ringDepositInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -315,9 +316,13 @@ export async function ringDepositInstruction(
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const [ringAuth, cosignerPda] = await Promise.all([
+  const [ringAuth, cosignerPda, windows] = await Promise.all([
     ringAuthAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
+    ringSpendWindowMetas(input.ringProgramId, [
+      ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
+      ...layout.splGroups.map((spl) => spl.mint),
+    ]),
   ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
@@ -325,7 +330,7 @@ export async function ringDepositInstruction(
     layout,
     ringAuth,
   );
-  accounts.unshift(...ringCoSignerMetas(cosignerPda, input.cosigner));
+  accounts.unshift(...ringCoSignerMetas(cosignerPda, input.cosigner), ...windows);
   return instruction(
     tagged(
       InstructionTag.ringDeposit,
@@ -362,6 +367,17 @@ export function ringCoSignerMetas(
     meta(cosignerPda, false, false),
     cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
   ];
+}
+
+/** One writable spend window slot per public leg, in leg order, SOL under the zero address. */
+export async function ringSpendWindowMetas(
+  ringProgramId: Address,
+  mints: readonly Address[],
+): Promise<Meta[]> {
+  const windows = await Promise.all(
+    mints.map((mint) => ringSpendWindowAddress(ringProgramId, mint)),
+  );
+  return windows.map((window) => meta(window, false, true));
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {

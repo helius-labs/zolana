@@ -62,9 +62,10 @@ Breaking
 
 - `ringTransactInstruction` and `ringDepositInstruction` place the ring's
   co-signer accounts, `cosigner_pda` and `cosigner`, after the config and
-  ahead of the forwarded list, a ring program from this release refuses the
-  old layout → rebuild ring transactions with this release, pass `cosigner`
-  when the ring's co-signer scope covers the operation.
+  ahead of the forwarded list, then one spend window account per public leg,
+  a ring program from this release refuses the old layout → rebuild ring
+  transactions with this release, pass `cosigner` when the ring's co-signer
+  scope covers the operation, an SPL leg needs its `withdrawal` accounts.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
   the upgrade `authority` alongside `payer`.
@@ -202,6 +203,12 @@ Added
   `RING_POLICY_CONFIG_INVALID`.
 - `ZolanaClient.proveCustomRingBase` proves the audit statement from a
   `CustomRingBaseProofRequest`.
+- `setRingSpendWindowInstruction` and `clearRingSpendWindowInstruction` set
+  and close a mint's spend window, a cap on the ring's public deposits and
+  withdrawals per fixed window of slots, `fetchRingSpendWindow` and
+  `decodeRingSpendWindow` read it as `RingSpendWindow`,
+  `ringSpendWindowAddress` derives its account, and a malformed account is
+  `RING_SPEND_WINDOW_INVALID`.
 - `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and
   close a ring's co-signer, a second Solana key with a scope over transfers,
   deposits and withdrawals (`RING_COSIGN_*`) and per-mint withdrawal

@@ -39,6 +39,7 @@ export type {
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,
+  RingSpendWindow,
 } from "./codecs.js";
 export {
   RING_COSIGN_DEPOSITS,
@@ -47,8 +48,9 @@ export {
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
+  decodeRingSpendWindow,
 } from "./codecs.js";
-export { ringCoSignerAddress } from "../interface/pda/index.js";
+export { ringCoSignerAddress, ringSpendWindowAddress } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
 export {
   LIST_IDS,
@@ -109,10 +111,13 @@ export {
   ringPolicyNamespaceAddress,
   ringProgramDataAddress,
   clearRingCoSignerInstruction,
+  clearRingSpendWindowInstruction,
   fetchRingCoSigner,
+  fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingPausedInstruction,
+  setRingSpendWindowInstruction,
 } from "./config.js";
 export { buildRingDepositTransaction } from "./deposit.js";
 export type { RingDepositTransactionParams } from "./deposit.js";

@@ -110,6 +110,54 @@ export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
   return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
+/** Mirrors Rust `SpendWindow`, a mint's public-leg caps over fixed windows, zero caps do not bind. */
+export interface RingSpendWindow {
+  readonly mint: Address;
+  readonly windowSlots: bigint;
+  readonly depositCap: bigint;
+  readonly withdrawalCap: bigint;
+  readonly windowStartSlot: bigint;
+  readonly deposited: bigint;
+  readonly withdrawn: bigint;
+  readonly bump: number;
+}
+
+/** Rust `SPEND_WINDOW` and `SpendWindow::SIZE`. */
+const RING_SPEND_WINDOW_DISCRIMINATOR = 5;
+const RING_SPEND_WINDOW_SIZE = 82;
+
+export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
+  if (data.length !== RING_SPEND_WINDOW_SIZE || data[0] !== RING_SPEND_WINDOW_DISCRIMINATOR) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const mint = encodeBase58(reader.bytes(32, "mint"));
+  const windowSlots = reader.u64("windowSlots");
+  const depositCap = reader.u64("depositCap");
+  const withdrawalCap = reader.u64("withdrawalCap");
+  const windowStartSlot = reader.u64("windowStartSlot");
+  const deposited = reader.u64("deposited");
+  const withdrawn = reader.u64("withdrawn");
+  const bump = reader.u8("bump");
+  reader.done();
+  if (windowSlots === 0n) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint, windowSlots } });
+  }
+  return Object.freeze({
+    mint,
+    windowSlots,
+    depositCap,
+    withdrawalCap,
+    windowStartSlot,
+    deposited,
+    withdrawn,
+    bump,
+  });
+}
+
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
 const RING_POLICY_CONFIG_SIZE = 1179;
