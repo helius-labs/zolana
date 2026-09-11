@@ -26,7 +26,7 @@ use zolana_test_utils::{
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
         tree_fees_from,
     },
-    transact::{fe, inline_output, input_utxo},
+    transact::{fe, inline_output, input_utxo, single_tree_context},
 };
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
@@ -55,8 +55,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
         messages: Vec::new(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: single_tree_context(0),
     }
 }
 
@@ -70,7 +69,7 @@ fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

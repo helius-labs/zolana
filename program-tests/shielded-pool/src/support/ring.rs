@@ -64,7 +64,7 @@ impl RingTransactProof {
     pub fn instruction(&self, payer: Pubkey, tree: Pubkey) -> Instruction {
         let mut ix = Transact {
             payer,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),

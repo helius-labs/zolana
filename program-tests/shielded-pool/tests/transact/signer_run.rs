@@ -16,7 +16,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::instruction_data::transact::{
         CircuitId, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof as ProofData,
+        TransactOutput, TransactProof as ProofData, TreeContext,
     },
     shape::{owner_signer_slots, Shape, SPP_CONSOLIDATION_SHAPE},
     verifying_keys::OutputOwnerMode,
@@ -126,10 +126,13 @@ fn consolidation_ix_bytes() -> Vec<u8> {
         inputs: (1..=circuit.num_inputs())
             .map(|tag| InputUtxo {
                 nullifier_hash: small_fe(tag),
+                tree_index: 0,
             })
             .collect(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
         interface_transfers: vec![],
         data_hash: None,
         ring_data_hash: None,

@@ -15,7 +15,9 @@ use zolana_client::{
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            CircuitId, InputUtxo, TransactIxData, TransactProof, TreeContext,
+        },
         tag::RING_TRANSACT,
         RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplWithdrawalAccounts,
@@ -491,7 +493,7 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             owner_signers,
@@ -874,7 +876,7 @@ impl RingHarness {
 
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             owner_signers: Vec::new(),
@@ -1163,6 +1165,7 @@ fn assemble_ix_data(
         .iter()
         .map(|nullifier_hash| InputUtxo {
             nullifier_hash: *nullifier_hash,
+            tree_index: 0,
         })
         .collect();
 
@@ -1188,8 +1191,10 @@ fn assemble_ix_data(
         private_tx_hash,
         circuit,
         inputs,
-        utxo_tree_root_index,
-        nullifier_tree_root_index,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index,
+            nullifier_tree_root_index,
+        }],
         interface_transfers: external
             .interface_transfers
             .iter()

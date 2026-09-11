@@ -12,7 +12,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
         },
         tag::RING_AUTHORITY_TRANSACT,
         RingAuthorityTransact, TransactIxData,
@@ -68,7 +68,7 @@ impl RingHarness {
 
         let transfer_ix = RingAuthorityTransact {
             payer: payer.pubkey(),
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             ring_program_id: self.ring_program_id,
             interface_transfer_accounts: Vec::new(),
@@ -299,7 +299,10 @@ impl RingHarness {
             .nullifiers
             .first()
             .ok_or_else(|| anyhow!("ring-authority witness produced no nullifier"))?;
-        let inputs = vec![InputUtxo { nullifier_hash }];
+        let inputs = vec![InputUtxo {
+            nullifier_hash,
+            tree_index: 0,
+        }];
 
         let ix_data = TransactIxData {
             proof: pack_transact_proof(&proof)?,
@@ -311,8 +314,10 @@ impl RingHarness {
                 zolana_interface::N_PUBLIC_SLOTS as u8,
             ),
             inputs,
-            utxo_tree_root_index: result.utxo_tree_root_index,
-            nullifier_tree_root_index: result.nullifier_tree_root_index,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: result.utxo_tree_root_index,
+                nullifier_tree_root_index: result.nullifier_tree_root_index,
+            }],
             interface_transfers: external_data
                 .interface_transfers
                 .iter()
@@ -377,7 +382,7 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = RingAuthorityTransact {
             payer: payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             interface_transfer_accounts: Vec::new(),
@@ -425,7 +430,7 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = RingAuthorityTransact {
             payer: payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             interface_transfer_accounts: Vec::new(),

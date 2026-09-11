@@ -17,7 +17,7 @@ use zolana_interface::{
     pda, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, ZolanaProgramTest};
-use zolana_test_utils::transact::{fe, inline_output, input_utxo};
+use zolana_test_utils::transact::{fe, inline_output, input_utxo, single_tree_context};
 
 /// Two-input/three-output transact data with a zeroed proof carrying the
 /// given interface transfers: the validation failures under test fire before
@@ -40,8 +40,7 @@ fn ix_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData {
             inline_output([3u8; 32], [3u8; 32]),
         ],
         messages: Vec::new(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: single_tree_context(0),
     }
 }
 
@@ -122,7 +121,7 @@ fn six_same_asset_interface_transfers_reach_proof_verification() {
     let interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 1 }; 6];
     let ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![
@@ -192,7 +191,7 @@ fn full_u64_spl_cancellation_and_net_withdrawal_reach_proof_verification() {
     let spl_interface_bump = pda::spl_interface_with_bump(&mint).1;
     let ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![spl_deposit(), spl_withdrawal(), spl_withdrawal()],
@@ -248,7 +247,7 @@ fn token_2022_withdrawal_accounts_reach_proof_verification() {
 
     let ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -291,7 +290,7 @@ fn spl_settlement_rejects_noncanonical_vault_bump() {
     let canonical_bump = pda::spl_interface_with_bump(&mint).1;
     let ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
@@ -348,7 +347,7 @@ fn spl_deposit_requires_depositor_signature() {
     let token_authority_index = 7 + data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
@@ -395,7 +394,7 @@ fn spl_withdrawal_rejects_a_shifted_token_program_account() {
 
     let mut ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -462,7 +461,7 @@ fn four_distinct_public_assets_are_rejected() {
         .collect();
     let ix = Transact {
         payer,
-        input_tree: pool.tree,
+        input_trees: vec![pool.tree],
         output_tree: pool.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts,

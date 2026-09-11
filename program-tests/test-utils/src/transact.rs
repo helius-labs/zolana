@@ -23,7 +23,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
-            TransactOutput, TransactProof,
+            TransactOutput, TransactProof, TreeContext,
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
@@ -185,7 +185,35 @@ pub fn set_output_owner_tags(
 }
 
 pub fn input_utxo(nullifier_hash: [u8; 32]) -> InputUtxo {
-    InputUtxo { nullifier_hash }
+    input_utxo_in_tree(nullifier_hash, 0)
+}
+
+/// One input spent from the `tree_index`-th declared input tree.
+pub fn input_utxo_in_tree(nullifier_hash: [u8; 32], tree_index: u8) -> InputUtxo {
+    InputUtxo {
+        nullifier_hash,
+        tree_index,
+    }
+}
+
+/// The declared input trees of a single-tree spend: one context at the given
+/// UTXO-tree root index and nullifier-tree root index zero.
+pub fn single_tree_context(utxo_tree_root_index: u16) -> Vec<TreeContext> {
+    tree_contexts(&[(utxo_tree_root_index, 0)])
+}
+
+/// One declared input tree per `(utxo_tree_root_index, nullifier_tree_root_index)`
+/// pair, in account order.
+pub fn tree_contexts(root_indexes: &[(u16, u16)]) -> Vec<TreeContext> {
+    root_indexes
+        .iter()
+        .map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
+                utxo_tree_root_index: *utxo_tree_root_index,
+                nullifier_tree_root_index: *nullifier_tree_root_index,
+            },
+        )
+        .collect()
 }
 
 /// The proof's public tree slots. SPP proves against exactly one input tree, so
@@ -220,8 +248,7 @@ pub fn new_transact_ix_data(
         private_tx_hash: [0u8; 32],
         circuit,
         inputs,
-        utxo_tree_root_index,
-        nullifier_tree_root_index: 0,
+        tree_contexts: single_tree_context(utxo_tree_root_index),
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -862,7 +889,7 @@ pub fn build_spl_withdrawal(
 
     let instruction = Transact {
         payer: payer.pubkey(),
-        input_tree: *tree,
+        input_trees: vec![*tree],
         output_tree: *tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
