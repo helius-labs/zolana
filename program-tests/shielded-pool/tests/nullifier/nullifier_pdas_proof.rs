@@ -9,7 +9,9 @@ use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{instruction_data::transact::TransactIxData, Transact},
-    pda, NullifierPda,
+    pda,
+    state::TreeFeeSchedule,
+    NullifierPda,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
@@ -32,6 +34,22 @@ use zolana_test_utils::{
 use zolana_transaction::{instructions::transact::PrivateTxHash, SOL_MINT};
 
 const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
+
+fn proof_env_with_fee(fee_per_nullifier: u64) -> Pool {
+    let mut env = proof_env();
+    let authority = env.authority.insecure_clone();
+    env.rpc
+        .set_tree_fees(
+            &authority,
+            &env.tree,
+            TreeFeeSchedule {
+                fee_per_nullifier,
+                ..TreeFeeSchedule::default()
+            },
+        )
+        .expect("set nullifier fee");
+    env
+}
 
 fn build_valid_transact_ix(env: &mut Pool) -> TransactIxData {
     let payer = env.rpc.payer.insecure_clone();
@@ -229,11 +247,32 @@ fn assert_transact_frame(env: &Pool, trace: &TransactionTrace, nullifiers: &[[u8
         changed, expected,
         "transact changes only the payer, the tree and the new nullifier PDAs"
     );
+    let forester_fee = forester_fee_for_inputs(&tree_account(env), &tree, nullifiers.len() as u64)
+        .expect("forester fee");
+    let system_invocations = trace
+        .logs
+        .iter()
+        .filter(|line| line.as_str() == "Program 11111111111111111111111111111111 invoke [2]")
+        .count();
+    assert_eq!(
+        system_invocations,
+        nullifiers.len() + usize::from(forester_fee != 0),
+        "one CPI per nullifier, plus one transfer only when the tree charges a fee"
+    );
 }
 
 #[test]
 fn transact_creates_one_nullifier_pda_per_input() {
-    let mut env = proof_env();
+    assert_creates_nullifier_pdas(0);
+}
+
+#[test]
+fn transact_collects_fee_with_unfunded_nullifier_pdas() {
+    assert_creates_nullifier_pdas(123);
+}
+
+fn assert_creates_nullifier_pdas(fee_per_nullifier: u64) {
+    let mut env = proof_env_with_fee(fee_per_nullifier);
     let tree = env.tree;
     let data = build_valid_transact_ix(&mut env);
     let nullifiers = nullifiers_of(&data);
@@ -308,7 +347,16 @@ fn transact_rejects_a_nullifier_queued_by_an_earlier_transaction() {
 
 #[test]
 fn transact_tops_up_prefunded_nullifier_pdas() {
-    let mut env = proof_env();
+    assert_tops_up_prefunded_nullifier_pdas(0);
+}
+
+#[test]
+fn transact_collects_fee_with_prefunded_nullifier_pdas() {
+    assert_tops_up_prefunded_nullifier_pdas(123);
+}
+
+fn assert_tops_up_prefunded_nullifier_pdas(fee_per_nullifier: u64) {
+    let mut env = proof_env_with_fee(fee_per_nullifier);
     let tree = env.tree;
     let payer = env.rpc.payer.pubkey();
     let data = build_valid_transact_ix(&mut env);

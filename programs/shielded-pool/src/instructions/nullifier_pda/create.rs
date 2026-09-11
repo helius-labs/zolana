@@ -4,9 +4,9 @@ use pinocchio::{
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
-    AccountView, ProgramResult,
+    AccountView, ProgramResult, Resize,
 };
-use pinocchio_system::instructions::{Allocate, Assign, CreateAccount, Transfer};
+use pinocchio_system::instructions::{Assign, Transfer};
 use zolana_interface::{
     error::ShieldedPoolError, event::InputTreeSequence, NullifierPda, NULLIFIER_PDA_SEED,
     NULLIFIER_PDA_SIZE,
@@ -59,14 +59,10 @@ pub(crate) struct InputTreeResult {
 /// forester fee from the payer in the same pass. The tree funds each PDA's
 /// rent; the payer pays the fee.
 ///
-/// The fee rides on the first PDA's `CreateAccount` (payer -> PDA) and is then
-/// moved to the tree directly, which saves a Transfer CPI. Only when the first
-/// PDA was pre-funded (Allocate + Assign, no payer leg) does the fee fall back
-/// to a Transfer CPI. That CPI includes the tree, so it must run before any
-/// direct tree lamport move: a CPI boundary syncs only its own accounts into the
-/// transaction context, and a pending tree debit without the matching nullifier
-/// PDA credits trips the runtime's UnbalancedInstruction check. Both fee paths
-/// therefore run on the first PDA, before its rent top-up.
+/// Collect the fee before any rent top-up: its Transfer CPI includes the tree,
+/// and a CPI boundary syncs only its own accounts into the transaction context.
+/// A pending tree debit without the matching nullifier PDA credits would trip
+/// the runtime's UnbalancedInstruction check.
 #[inline(never)]
 #[profile]
 pub(crate) fn create_nullifier_pdas<'n>(
@@ -89,44 +85,11 @@ pub(crate) fn create_nullifier_pdas<'n>(
     };
     let tree_address = &input_tree.input_tree.tree;
     let first_queue_index = input_tree.input_tree.first_input_queue_seq;
-    let forester_fee = input_tree.forester_fee;
+    collect_forester_fee(payer, tree, input_tree.forester_fee)?;
 
-    let mut pdas = nullifier_pdas.iter_mut().zip(nullifiers);
-    let Some((first_pda, first_nullifier)) = pdas.next() else {
-        return collect_forester_fee(payer, tree, forester_fee);
-    };
-    let fee_in_pda = if first_pda.lamports() == 0 {
-        forester_fee
-    } else {
-        0
-    };
-    CreateNullifierPda {
-        tree_address,
-        nullifier: first_nullifier,
-        record: NullifierPda {
-            queue_index: first_queue_index,
-            tree_id: input_tree.tree_id,
-        },
-        lamports: fee_in_pda,
-    }
-    .execute(payer, first_pda)?;
-    if fee_in_pda == 0 {
-        collect_forester_fee(payer, tree, forester_fee)?;
-    } else {
-        let tree_balance = tree
-            .lamports()
-            .checked_add(fee_in_pda)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        let pda_balance = first_pda
-            .lamports()
-            .checked_sub(fee_in_pda)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
-        tree.set_lamports(tree_balance);
-        first_pda.set_lamports(pda_balance);
-    }
-    rent.top_up(tree, first_pda)?;
-
-    for (position, (nullifier_pda, nullifier)) in (1u64..).zip(pdas) {
+    for (position, (nullifier_pda, nullifier)) in
+        (0u64..).zip(nullifier_pdas.iter_mut().zip(nullifiers))
+    {
         let queue_index = first_queue_index
             .checked_add(position)
             .ok_or(ProgramError::ArithmeticOverflow)?;
@@ -137,9 +100,8 @@ pub(crate) fn create_nullifier_pdas<'n>(
                 queue_index,
                 tree_id: input_tree.tree_id,
             },
-            lamports: 0,
         }
-        .execute(payer, nullifier_pda)?;
+        .execute(nullifier_pda)?;
         rent.top_up(tree, nullifier_pda)?;
     }
     Ok(())
@@ -162,14 +124,11 @@ struct CreateNullifierPda<'a> {
     tree_address: &'a [u8; 32],
     nullifier: &'a [u8; 32],
     record: NullifierPda,
-    /// Funds the account from the payer on the hot path only; a pre-funded PDA
-    /// keeps its balance and is allocated and assigned in place.
-    lamports: u64,
 }
 
 impl CreateNullifierPda<'_> {
     #[inline(never)]
-    fn execute(self, payer: &AccountView, nullifier_pda: &mut AccountView) -> ProgramResult {
+    fn execute(self, nullifier_pda: &mut AccountView) -> ProgramResult {
         let bump = load_unused_nullifier_pda(nullifier_pda, self.tree_address, self.nullifier)?;
         let bump_seed = [bump];
         let seeds = [
@@ -178,27 +137,14 @@ impl CreateNullifierPda<'_> {
             Seed::from(self.nullifier.as_ref()),
             Seed::from(bump_seed.as_ref()),
         ];
-        if nullifier_pda.lamports() == 0 {
-            CreateAccount {
-                from: payer,
-                to: nullifier_pda,
-                lamports: self.lamports,
-                space: NULLIFIER_PDA_SIZE as u64,
-                owner: &crate::ID,
-            }
-            .invoke_signed(&[Signer::from(&seeds)])?;
-        } else {
-            Allocate {
-                account: nullifier_pda,
-                space: NULLIFIER_PDA_SIZE as u64,
-            }
-            .invoke_signed(&[Signer::from(&seeds)])?;
-            Assign {
-                account: nullifier_pda,
-                owner: &crate::ID,
-            }
-            .invoke_signed(&[Signer::from(&seeds)])?;
+        Assign {
+            account: nullifier_pda,
+            owner: &crate::ID,
         }
+        .invoke_signed(&[Signer::from(&seeds)])?;
+        // SPP now owns the writable account, so it can allocate the record
+        // directly, whether or not the address was pre-funded.
+        nullifier_pda.resize(NULLIFIER_PDA_SIZE)?;
 
         let mut data = nullifier_pda
             .try_borrow_mut()

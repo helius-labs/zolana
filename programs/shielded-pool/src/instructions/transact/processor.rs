@@ -118,11 +118,9 @@ pub fn process_transact_ix(
     emit_event(EventKind::Transact, &event)
 }
 
-/// Create each tree's nullifier PDAs with that tree's queue result. The
-/// per-tree fee accounting in `create_nullifier_pdas` (the forester fee riding
-/// on the first PDA's `CreateAccount`, with a Transfer CPI fallback that must
-/// precede any direct lamport move on the tree) is per tree, so every tree runs
-/// the same single-tree body over its own contiguous group of inputs.
+/// Create each tree's nullifier PDAs with that tree's queue result, collecting
+/// its forester fee before funding the PDAs' rent from the tree. Each tree runs
+/// the same body over its own contiguous group of inputs.
 #[inline(never)]
 fn create_input_tree_nullifier_pdas(
     ix: &TransactIxDataRef<'_>,
