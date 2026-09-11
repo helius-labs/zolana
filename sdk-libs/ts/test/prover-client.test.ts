@@ -12,7 +12,7 @@ import {
 import { ProverClient } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
-import { disabledRuleAnswer } from "../src/client/prover/types.js";
+import { disabledRuleAnswer, velocityWitnessOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
@@ -117,6 +117,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     stateRoot: bytes(8),
     nullifierRoot: bytes(9),
     entriesTreeId: 3,
+    velocity: velocityWitnessOff(bytes(10), bytes(11)),
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
@@ -197,6 +198,26 @@ const EXPECTED_RING_BODY = {
   stateRoot: fieldHex(8),
   nullifierRoot: fieldHex(9),
   entriesTreeId: `0x${"0".repeat(62)}03`,
+  windowSlots: 0,
+  velocity: Array.from({ length: 8 }, () => ({
+    asset: fieldHex(0),
+    cap: fieldHex(0),
+    cosignAbove: fieldHex(0),
+  })),
+  velocityCount: 0,
+  ringId: fieldHex(10),
+  namespaceOwnerHash: fieldHex(11),
+  windowIndex: 0,
+  approvalRequired: false,
+  record: {
+    version: 0,
+    window: 0,
+    commitment: fieldHex(0),
+    salt: fieldHex(0),
+    assets: Array.from({ length: 8 }, () => fieldHex(0)),
+    spent: Array.from({ length: 8 }, () => fieldHex(0)),
+    nextSalt: fieldHex(0),
+  },
   answers: Array.from({ length: 10 }, () => EXPECTED_RULE_ANSWER),
 };
 
@@ -384,6 +405,7 @@ describe("prover request routing", () => {
     expect(Object.keys(body).sort()).toEqual([
       "addressChain",
       "answers",
+      "approvalRequired",
       "auditorPk",
       "circuitType",
       "entriesTreeId",
@@ -395,16 +417,23 @@ describe("prover request routing", () => {
       "inputs",
       "nIn",
       "nOut",
+      "namespaceOwnerHash",
       "nullifierRoot",
       "outputs",
       "policyLen",
       "privateTxBlinding",
       "privateTxHash",
       "publicInputHash",
+      "record",
+      "ringId",
       "ruleEnc",
       "sources",
       "stateRoot",
       "txViewingSk",
+      "velocity",
+      "velocityCount",
+      "windowIndex",
+      "windowSlots",
     ]);
     expect(body["circuitType"]).toBe("custom-ring-policy");
     expect(body["auditorPk"]).toHaveLength(132);

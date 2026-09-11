@@ -140,12 +140,18 @@ function policyConfigBytes(
     0,
     253,
     252,
+    ...filled(46, 32),
     ...(parts.sources ?? new Uint8Array(33 * 8)),
     parts.ruleCount ?? parts.rules?.length ?? 0,
     ...table(parts.rules ?? [], 16),
     parts.inlineCount ?? parts.inlineAssets?.length ?? 0,
     ...table(parts.inlineAssets ?? [], 8),
     ...limits,
+    ...new Uint8Array(8),
+    0,
+    ...new Uint8Array(32 * 8),
+    ...new Uint8Array(8 * 8),
+    ...new Uint8Array(8 * 8),
     ...(parts.generation ?? new Uint8Array(4)),
     ...(parts.generationSlot ?? new Uint8Array(8)),
   ]);
@@ -416,7 +422,7 @@ describe("ring config", () => {
 
   it("decodes the policy config account and rejects another layout", () => {
     const data = policyConfigBytes();
-    expect(data).toHaveLength(1179);
+    expect(data).toHaveLength(1604);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.entriesTree).toBe(addressOf(43));
@@ -430,6 +436,9 @@ describe("ring config", () => {
     expect(config.inlineCount).toBe(0);
     expect(config.inlineAssets).toEqual([]);
     expect(config.inlineLimits).toEqual([]);
+    expect(config.namespaceOwnerHash).toEqual(filled(46, 32));
+    expect(config.windowSlots).toBe(0n);
+    expect(config.velocity).toEqual([]);
     expect(config.generation).toBe(0);
     expect(config.generationSlot).toBe(0n);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
@@ -462,13 +471,13 @@ describe("ring config", () => {
       generation: [4, 3, 2, 1],
       generationSlot: [8, 7, 6, 5, 4, 3, 2, 1],
     });
-    expect(data[333]).toBe(1);
-    expect(data.subarray(334, 366)).toEqual(rule);
-    expect(data[846]).toBe(1);
-    expect(data.subarray(847, 879)).toEqual(member);
-    expect(data.subarray(1103, 1111)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
-    expect(data.subarray(1167, 1171)).toEqual(Uint8Array.from([4, 3, 2, 1]));
-    expect(data.subarray(1171)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
+    expect(data[365]).toBe(1);
+    expect(data.subarray(366, 398)).toEqual(rule);
+    expect(data[878]).toBe(1);
+    expect(data.subarray(879, 911)).toEqual(member);
+    expect(data.subarray(1135, 1143)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
+    expect(data.subarray(1592, 1596)).toEqual(Uint8Array.from([4, 3, 2, 1]));
+    expect(data.subarray(1596)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
     const config = decodeRingPolicyConfig(data);
     expect(config.ruleCount).toBe(1);
     expect(config.rules).toEqual([rule]);
@@ -489,6 +498,10 @@ describe("ring config", () => {
     expect(config.generation).toBe(0x01020304);
     expect(config.generationSlot).toBe(0x0102030405060708n);
     expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(0x11) });
+    expect(config.namespaceOwnerHash).toEqual(
+      hex("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196"),
+    );
+    expect(config.windowSlots).toBe(0n);
   });
 
   it("decodes every byte of an unsigned per-asset limit", () => {
@@ -1357,7 +1370,7 @@ describe("ring transact", () => {
       [RING_AUTH, AccountRole.READONLY],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "0333333333333333333333333333333333333333333333333333333333333333333434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343435353535353535353535353535353535353535353535353535353535353535353636363636363636363636363636363636363636363636363636363636363636373737373737373737373737373737373737373737373737373737373737373700000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
+      "033333333333333333333333333333333333333333333333333333333333333333343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343535353535353535353535353535353535353535353535353535353535353535363636363636363636363636363636363636363636363636363636363636363637373737373737373737373737373737373737373737373737373737373737370000000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
     );
   });
 

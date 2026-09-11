@@ -2,6 +2,51 @@
 
 ## 0.1.6-alpha — unreleased
 
+Velocity rings bound each sender's outflow per mint over a fixed window and
+demand the co-signer above a threshold. The pinned rule table gains a window
+and velocity rows, the policy config account grows to 1604 bytes, the ring
+transact carries an approval byte, and the policy statement binds the ring
+id, the namespace owner and the window.
+
+Breaking
+
+- `RING_POLICY_VERSION` is 5 and `ringPolicyHash` folds `windowSlots` and
+  the velocity rows after the inline assets → every policy hash of an earlier
+  release differs, re-pin tables with the matching program release.
+- `RingPolicyConfig` adds `namespaceOwnerHash`, `windowSlots`,
+  `velocityCount` and `velocity`, and `decodeRingPolicyConfig` accepts only
+  the 1604-byte account → configs of an earlier program release no longer
+  decode.
+- `RuleTable` and `EncodedRuleTable` carry `windowSlots` and `velocity`,
+  `buildRuleTable` takes them as options and refuses rows without a window,
+  a zero mint, a repeated mint or a row without a bound.
+- `customRingPublicInputHash` takes `ringId`, `namespaceOwnerHash`,
+  `windowIndex` and `approvalRequired`, and `CustomRingPolicyProofRequest`
+  carries a `velocity` witness → build it with `velocityWitnessOff` on a ring
+  without a window.
+- `proveCustomRingTransfer` refuses a ring with a window with
+  `RING_VELOCITY_UNSUPPORTED`, the record slots of a velocity transfer are
+  assembled by the Rust SDK only.
+
+Added
+
+- `SpendRecord`, `SpendCounters`, `encodeSpendRecord`, `decodeSpendRecord`,
+  `encodeSpendCounters`, `decodeSpendCounters`, `spendCountersCommitment`,
+  `spendCountersSpent`, `zeroSpendCounters`, `spendSeed`,
+  `RingListNamespace.spendAddress`, `RingListNamespace.spendRecordHashes`
+  and `RingListNamespace.leafHash` mirror the Rust spend record.
+- `readRingSpendRecord` walks a member's record lineage through the indexer
+  and returns the live version with the transaction that published it.
+- `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
+  build the tag 26 registration over a proven claim.
+- `ringTransactInstruction` and `ringDelegateTransactInstruction` take
+  `approvalRequired`.
+- `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
+  `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
+  `velocityWitnessOff`.
+- Ring error codes `RING_SPEND_RECORD_INVALID`,
+  `RING_SPEND_RECORD_LINEAGE_BROKEN` and `RING_VELOCITY_UNSUPPORTED`.
+
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than

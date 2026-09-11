@@ -3,6 +3,8 @@ import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
+  RING_VELOCITY_SLOTS,
+  type CustomRingVelocityRow,
 } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
@@ -32,6 +34,8 @@ export interface RingPolicyConfig {
   readonly entriesTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
+  /** The shielded owner of every record the ring's namespace holds. */
+  readonly namespaceOwnerHash: Bytes32;
   readonly sources: readonly RingPolicySource[];
   /** Counted arrays exclude zero padding. */
   readonly ruleCount: number;
@@ -39,6 +43,10 @@ export interface RingPolicyConfig {
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
+  /** Zero disables velocity, else the fixed window length in slots. */
+  readonly windowSlots: bigint;
+  readonly velocityCount: number;
+  readonly velocity: readonly CustomRingVelocityRow[];
   readonly generation: number;
   readonly generationSlot: bigint;
 }
@@ -187,7 +195,7 @@ export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
 
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 1179;
+const RING_POLICY_CONFIG_SIZE = 1604;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -202,6 +210,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const entriesTreeId = reader.u16("entriesTreeId");
   const namespaceBump = reader.u8("namespaceBump");
   const bump = reader.u8("bump");
+  const namespaceOwnerHash = reader.bytes(32, "namespaceOwnerHash") as Bytes32;
   const sources = Object.freeze(
     Array.from({ length: RING_SOURCE_SLOTS }, () =>
       Object.freeze({
@@ -212,36 +221,72 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   );
   const rules = countedRows(reader, RING_RULE_SLOTS, "rules");
   const inlineAssets = countedRows(reader, RING_INLINE_ASSET_SLOTS, "inlineAssets");
-  const inlineLimits = countedLimits(reader, inlineAssets.length);
+  const inlineLimits = countedLimits(
+    reader,
+    inlineAssets.length,
+    RING_INLINE_ASSET_SLOTS,
+    "inlineLimits",
+  );
+  const windowSlots = bytesToBigInt(reader.bytes(8, "windowSlots"));
+  const velocityAssets = countedRows(reader, RING_VELOCITY_SLOTS, "velocityAssets");
+  const velocityCaps = countedLimits(
+    reader,
+    velocityAssets.length,
+    RING_VELOCITY_SLOTS,
+    "velocityCaps",
+  );
+  const velocityCosign = countedLimits(
+    reader,
+    velocityAssets.length,
+    RING_VELOCITY_SLOTS,
+    "velocityCosign",
+  );
   const generation = reader.u32("generation");
   const generationSlot = reader.u64("generationSlot");
   reader.done();
+  const velocity = Object.freeze(
+    velocityAssets.map((asset, index) =>
+      Object.freeze({
+        asset,
+        cap: velocityCaps[index] ?? 0n,
+        cosignAbove: velocityCosign[index] ?? 0n,
+      }),
+    ),
+  );
   return Object.freeze({
     policyHash,
     entriesTree,
     entriesTreeId,
     namespaceBump,
     bump,
+    namespaceOwnerHash,
     sources,
     ruleCount: rules.length,
     rules,
     inlineCount: inlineAssets.length,
     inlineAssets,
     inlineLimits,
+    windowSlots,
+    velocityCount: velocity.length,
+    velocity,
     generation,
     generationSlot,
   });
 }
 
-function countedLimits(reader: Reader, count: number): readonly bigint[] {
+/** Big endian amounts, one per counted row, zero past the count. */
+function countedLimits(
+  reader: Reader,
+  count: number,
+  slots: number,
+  field: string,
+): readonly bigint[] {
   const limits: bigint[] = [];
-  for (let index = 0; index < RING_INLINE_ASSET_SLOTS; index += 1) {
-    const limit = bytesToBigInt(reader.bytes(8, "inlineLimits"));
+  for (let index = 0; index < slots; index += 1) {
+    const limit = bytesToBigInt(reader.bytes(8, field));
     if (index < count) limits.push(limit);
     else if (limit !== 0n) {
-      throw new RingError("RING_POLICY_CONFIG_INVALID", {
-        details: { field: "inlineLimits", index },
-      });
+      throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field, index } });
     }
   }
   return Object.freeze(limits);

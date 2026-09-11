@@ -23,7 +23,7 @@ import {
   ringCoSignerAddress,
   ringDelegateAddress,
 } from "../interface/pda/index.js";
-import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
+import type { Bytes32, TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { SOL_MINT } from "../transaction/asset.js";
@@ -59,6 +59,7 @@ const RingProgramTag = Object.freeze({
   updateEntry: 9,
   setPolicySource: 10,
   setPolicyRules: 12,
+  registerSpend: 26,
 } as const);
 
 /** Rust `*_COMPUTE_UNIT_LIMIT`. */
@@ -70,6 +71,7 @@ export const RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
+export const RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
 export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
   (
@@ -167,6 +169,8 @@ type RingTransactCommon = Readonly<{
   data: TransactInstructionData;
   /** The ring's co-signer, a signer when set. */
   cosigner?: SignerAccount;
+  /** The dual control bit the velocity statement proves, the co-signer then signs. */
+  approvalRequired?: boolean;
 }>;
 
 export async function ringTransactInstruction(
@@ -213,13 +217,14 @@ export async function ringTransactInstruction(
   };
 }
 
-/** `tag || proof || root indexes || SPP content`, the layout tag 3 and tag 25 share. */
+/** `tag || proof || root indexes || approval || SPP content`, the layout tag 3 and tag 25 share. */
 function transactData(
   tag: number,
   input: Readonly<{
     proof: Uint8Array;
     stateRootIndex: number;
     nullifierRootIndex: number;
+    approvalRequired?: boolean;
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
@@ -227,6 +232,7 @@ function transactData(
   const rootIndexes = new Writer()
     .u16(input.stateRootIndex, "stateRootIndex")
     .u16(input.nullifierRootIndex, "nullifierRootIndex")
+    .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired")
     .finish();
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
@@ -441,6 +447,30 @@ export async function updateRingEntryInstruction(
   return entryInstruction(input, data.finish());
 }
 
+/** Mirrors Rust `ProvenSpendRegistration::instruction`, the record content is derived on chain. */
+export async function registerRingSpendInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    /** The member, its Solana key is the record's identity. */
+    payer: SignerAccount;
+    entriesTree: Address;
+    /** The SPP output blinding the registration proof derived. */
+    blinding: Bytes32;
+    proof: RingEntryProof;
+  }>,
+): Promise<Instruction> {
+  const data = new Writer()
+    .u8(RingProgramTag.registerSpend, "tag")
+    .bytes(input.blinding, 32, "blinding")
+    .bytes(input.proof.privateTxBlinding, 32, "privateTxBlinding")
+    .u16(input.proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
+    .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")
+    .bytes(input.proof.proof.a, 32, "proof.a")
+    .bytes(input.proof.proof.b, 64, "proof.b")
+    .bytes(input.proof.proof.c, 32, "proof.c");
+  return entryInstruction(input, data.finish());
+}
+
 function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof): void {
   writer
     .u8(entryStateByte(entry), "state")
@@ -460,7 +490,7 @@ function entryStateByte(entry: ListEntry): number {
 
 /** Everything after the two config accounts is forwarded to SPP position for position. */
 async function entryInstruction(
-  input: RingEntryInstructionInput,
+  input: Pick<RingEntryInstructionInput, "ringProgramId" | "payer" | "entriesTree" | "proof">,
   data: Uint8Array,
 ): Promise<Instruction> {
   const [config, policyConfig, namespace, nullifierPda] = await Promise.all([
@@ -524,6 +554,14 @@ async function policyTableBody(
   for (const asset of encoded.inlineAssets) writer.bytes(asset, 32, "inlineAsset");
   writer.u8(encoded.inlineCount, "inlineLimits.length");
   for (const limit of encoded.inlineLimits) writer.u64(limit, "inlineLimit");
+  writer.u64(encoded.windowSlots, "windowSlots");
+  writer.u8(encoded.velocityCount, "velocity.length");
+  for (const row of encoded.velocity) {
+    writer
+      .bytes(row.asset, 32, "velocity.asset")
+      .u64(row.cap, "velocity.cap")
+      .u64(row.cosignAbove, "velocity.cosignAbove");
+  }
   return Object.freeze({
     data: writer.finish(),
     curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),

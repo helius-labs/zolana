@@ -93,6 +93,9 @@ function tableBody(sources: readonly (readonly [number, number])[]): number[] {
     ...ASSET,
     1,
     ...new Uint8Array(8),
+    // No window, no velocity rows.
+    ...new Uint8Array(8),
+    0,
   ];
 }
 

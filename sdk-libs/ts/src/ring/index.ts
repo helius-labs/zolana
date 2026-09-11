@@ -85,6 +85,16 @@ export {
   ringPolicyHash,
   ruleAlternatives,
   verifiedRuleTable,
+  SPEND_COUNTERS_LENGTH,
+  decodeSpendCounters,
+  decodeSpendRecord,
+  encodeSpendCounters,
+  encodeSpendRecord,
+  readRingSpendRecord,
+  spendCountersCommitment,
+  spendCountersSpent,
+  spendSeed,
+  zeroSpendCounters,
 } from "./policy.js";
 export type {
   EncodedRuleTable,
@@ -107,6 +117,12 @@ export type {
   RuleSubject,
   RuleTable,
   RuleTableInput,
+  LiveSpendRecord,
+  ReadRingSpendRecordInput,
+  SpendCounters,
+  SpendRecord,
+  SpendRecordHashes,
+  VelocityRow,
 } from "./policy.js";
 export {
   fetchRingConfigs,
@@ -136,6 +152,8 @@ export {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
   RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
   RING_INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
+  RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+  registerRingSpendInstruction,
   RING_READ_ACCESS_COMPUTE_UNIT_LIMIT,
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,

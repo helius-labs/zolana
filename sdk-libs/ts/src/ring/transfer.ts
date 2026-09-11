@@ -4,8 +4,11 @@ import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
+  velocityWitnessOff,
   type CustomRingSourceOwner,
 } from "../client/prover/types.js";
+import { hashBytes } from "../hasher/index.js";
+import { addressBytes } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
@@ -463,6 +466,12 @@ export async function proveCustomRingTransfer(
   const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
   const config = configs.config;
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
+  // The record slots of a velocity transfer are not assembled here.
+  if (policy !== undefined && policy.table.windowSlots !== 0n) {
+    throw new RingError("RING_VELOCITY_UNSUPPORTED", {
+      details: { ringProgramId: input.ringProgramId, windowSlots: policy.table.windowSlots },
+    });
+  }
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -548,6 +557,10 @@ export async function proveCustomRingTransfer(
     }
 
     const { answers, roots } = policyRound;
+    const velocity = velocityWitnessOff(
+      hashBytes(addressBytes(input.ringProgramId, "ringProgramId")) as Bytes32,
+      policyRound.config.namespaceOwnerHash,
+    );
     const proof = await input.client.proveCustomRingPolicy(
       {
         publicInputHash: customRingPublicInputHash({
@@ -559,6 +572,10 @@ export async function proveCustomRingTransfer(
           stateRoot: roots.stateRoot,
           nullifierRoot: roots.nullifierRoot,
           entriesTreeId: policyRound.config.entriesTreeId,
+          ringId: velocity.ringId,
+          namespaceOwnerHash: velocity.namespaceOwnerHash,
+          windowIndex: velocity.windowIndex,
+          approvalRequired: velocity.approvalRequired,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
@@ -587,6 +604,7 @@ export async function proveCustomRingTransfer(
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
         entriesTreeId: policyRound.config.entriesTreeId,
+        velocity,
         answers,
       },
       context,

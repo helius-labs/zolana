@@ -95,10 +95,22 @@ describe("ring audit encryption", () => {
     const policyHash = new Uint8Array(32).fill(0x2a) as Bytes32;
     const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
     const nullifierRoot = new Uint8Array(32).fill(7) as Bytes32;
-    const extended = poseidon([
-      poseidon([poseidon([poseidon([PUBLIC_INPUT_HASH, policyHash]), stateRoot]), nullifierRoot]),
+    const ringId = new Uint8Array(32).fill(8) as Bytes32;
+    const namespaceOwnerHash = new Uint8Array(32).fill(10) as Bytes32;
+    const windowIndex = new Uint8Array(32) as Bytes32;
+    windowIndex[31] = 3;
+    const approval = new Uint8Array(32) as Bytes32;
+    approval[31] = 1;
+    const extended = [
+      policyHash,
+      stateRoot,
+      nullifierRoot,
       treeIdField(9),
-    ]);
+      ringId,
+      namespaceOwnerHash,
+      windowIndex,
+      approval,
+    ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(
       customRingPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
@@ -112,6 +124,10 @@ describe("ring audit encryption", () => {
         entriesTreeId: 9,
         stateRoot,
         nullifierRoot,
+        ringId,
+        namespaceOwnerHash,
+        windowIndex: 3n,
+        approvalRequired: true,
       }),
     ).toEqual(extended);
   });
