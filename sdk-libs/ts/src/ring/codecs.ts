@@ -110,6 +110,33 @@ export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
   return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
+/** Mirrors Rust `Delegate`, the key that moves notes between members on the authority rail. */
+export interface RingDelegate {
+  readonly delegate: Address;
+  readonly bump: number;
+}
+
+/** Rust `DELEGATE` and `Delegate::SIZE`. */
+const RING_DELEGATE_DISCRIMINATOR = 6;
+const RING_DELEGATE_SIZE = 34;
+
+export function decodeRingDelegate(data: Uint8Array): RingDelegate {
+  if (data.length !== RING_DELEGATE_SIZE || data[0] !== RING_DELEGATE_DISCRIMINATOR) {
+    throw new RingError("RING_DELEGATE_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const key = reader.bytes(32, "delegate");
+  const bump = reader.u8("bump");
+  reader.done();
+  if (key.every((byte) => byte === 0)) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { delegate: "zero" } });
+  }
+  return Object.freeze({ delegate: encodeBase58(key), bump });
+}
+
 /** Mirrors Rust `SpendWindow`, a mint's public-leg caps over fixed windows, zero caps do not bind. */
 export interface RingSpendWindow {
   readonly mint: Address;

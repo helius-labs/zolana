@@ -33,6 +33,7 @@ import {
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
+  ringDelegateTransactInstruction,
   ringLookupTableAddresses,
   ringSettlementStatics,
   ringTransactInstruction,
@@ -43,15 +44,21 @@ import {
   clearRingSpendWindowInstruction,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
+  setRingDelegateInstruction,
   setRingPausedInstruction,
   setRingSpendWindowInstruction,
 } from "../src/ring/config.js";
-import { ringCoSignerAddress, ringSpendWindowAddress } from "../src/interface/pda/index.js";
+import {
+  ringCoSignerAddress,
+  ringDelegateAddress,
+  ringSpendWindowAddress,
+} from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
 import {
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
+  decodeRingDelegate,
   decodeRingSpendWindow,
 } from "../src/ring/codecs.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
@@ -644,6 +651,37 @@ describe("ring config", () => {
     ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
   });
 
+  it("builds the delegate set like Rust and decodes the account", async () => {
+    const delegate = addressOf(47);
+    const [programData] = await getProgramDerivedAddress({
+      programAddress: address("BPFLoaderUpgradeab1e11111111111111111111111"),
+      seeds: [getAddressEncoder().encode(RING)],
+    });
+    const set = await setRingDelegateInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      delegate,
+    });
+    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringDelegateAddress(RING), AccountRole.WRITABLE],
+      [SYSTEM, AccountRole.READONLY],
+      [RING, AccountRole.READONLY],
+      [programData, AccountRole.READONLY],
+    ]);
+    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
+      "18" + Buffer.from(addressBytes(delegate, "delegate")).toString("hex"),
+    );
+    const data = Uint8Array.from([6, ...addressBytes(delegate, "delegate"), 254]);
+    expect(decodeRingDelegate(data)).toEqual({ delegate, bump: 254 });
+    expect(() => decodeRingDelegate(data.subarray(1))).toThrow("RING_DELEGATE_INVALID");
+    const zeroKey = Uint8Array.from(data);
+    zeroKey.fill(0, 1, 33);
+    expect(() => decodeRingDelegate(zeroKey)).toThrow("RING_DELEGATE_INVALID");
+  });
+
   it("decodes the spend window account and rejects another layout", () => {
     const mint = addressOf(60);
     const data = Uint8Array.from([
@@ -1132,6 +1170,69 @@ describe("ring transact", () => {
     // Without these the pool cannot settle and the ring cannot pay an address.
     const tail = instruction.accounts?.slice(-2).map((meta) => meta.address);
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
+  });
+
+  it("places the delegate after the co-signer and refuses a public leg", async () => {
+    const delegate = addressOf(47);
+    const instruction = await ringDelegateTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      delegate,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      hasPolicy: false,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
+    });
+    expect(instruction.accounts?.slice(0, 7).map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringDelegateAddress(RING), AccountRole.READONLY],
+      [delegate, AccountRole.READONLY_SIGNER],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    expect(instruction.data?.[0]).toBe(25);
+    const [policyConfig] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [new TextEncoder().encode("policy")],
+    });
+    const policy = await ringDelegateTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      delegate,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
+    });
+    expect(policy.accounts?.slice(4, 9).map((meta) => [meta.address, meta.role])).toEqual([
+      [await ringDelegateAddress(RING), AccountRole.READONLY],
+      [delegate, AccountRole.READONLY_SIGNER],
+      [policyConfig, AccountRole.READONLY],
+      [ENTRIES_TREE, AccountRole.READONLY],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    await expect(
+      ringDelegateTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        delegate,
+        inputTree: TREE,
+        outputTree: OUTPUT_TREE,
+        hasPolicy: false,
+        proof: customRingProof(),
+        stateRootIndex: 0,
+        nullifierRootIndex: 0,
+        data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
+      }),
+    ).rejects.toThrow("RING_DELEGATE_PUBLIC_LEG");
   });
 
   it("places one spend window slot per public leg before the spp payer", async () => {

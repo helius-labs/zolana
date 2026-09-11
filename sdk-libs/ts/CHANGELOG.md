@@ -203,6 +203,12 @@ Added
   `RING_POLICY_CONFIG_INVALID`.
 - `ZolanaClient.proveCustomRingBase` proves the audit statement from a
   `CustomRingBaseProofRequest`.
+- `setRingDelegateInstruction` sets a ring's permanent delegate under the
+  upgrade authority, `fetchRingDelegate` and `decodeRingDelegate` read it as
+  `RingDelegate`, `ringDelegateAddress` derives its account, and
+  `ringDelegateTransactInstruction` builds a delegate move over the shielded
+  pool's authority rail from a proven transact, refusing a public leg with
+  `RING_DELEGATE_PUBLIC_LEG`, a malformed account is `RING_DELEGATE_INVALID`.
 - `setRingSpendWindowInstruction` and `clearRingSpendWindowInstruction` set
   and close a mint's spend window, a cap on the ring's public deposits and
   withdrawals per fixed window of slots, `fetchRingSpendWindow` and

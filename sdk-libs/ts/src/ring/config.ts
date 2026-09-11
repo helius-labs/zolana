@@ -11,6 +11,8 @@ import { Writer, addressBytes } from "../interface/internal.js";
 import {
   ringAuthAddress,
   ringCoSignerAddress,
+  ringDelegateAddress,
+  ringDelegatePda,
   ringSpendWindowAddress,
   ringSpendWindowPda,
 } from "../interface/pda/index.js";
@@ -22,10 +24,12 @@ import {
   RING_COSIGN_SCOPE_MASK,
   RING_COSIGN_THRESHOLD_SLOTS,
   type RingCoSigner,
+  type RingDelegate,
   type RingPolicyConfig,
   type RingProgramConfig,
   type RingSpendWindow,
   decodeRingCoSigner,
+  decodeRingDelegate,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
   decodeRingSpendWindow,
@@ -40,6 +44,7 @@ const SET_CO_SIGNER_TAG = 20;
 const CLEAR_CO_SIGNER_TAG = 21;
 const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
+const SET_DELEGATE_TAG = 24;
 
 export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
   return (await ringConfigPda(ringProgramId))[0];
@@ -238,6 +243,57 @@ export async function clearRingCoSignerInstruction(
       meta(input.rentRecipient, false, true),
     ],
     data: Uint8Array.of(CLEAR_CO_SIGNER_TAG),
+  };
+}
+
+/** Mirrors Rust `CustomRing::read_delegate`, `undefined` when the ring has no delegate. */
+export async function fetchRingDelegate(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingDelegate | undefined> {
+  const [address, bump] = await ringDelegatePda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined) return undefined;
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_DELEGATE_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const delegate = decodeRingDelegate(account.data);
+  if (delegate.bump !== bump) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { ringProgramId, address } });
+  }
+  return delegate;
+}
+
+/** Mirrors Rust `SetDelegate`, once under the upgrade authority, no instruction replaces it. */
+export async function setRingDelegateInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    delegate: Address;
+  }>,
+): Promise<Instruction> {
+  const [delegatePda, programData] = await Promise.all([
+    ringDelegateAddress(input.ringProgramId),
+    ringProgramDataAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(delegatePda, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(input.ringProgramId, false, false),
+      meta(programData, false, false),
+    ],
+    data: new Writer()
+      .u8(SET_DELEGATE_TAG, "tag")
+      .bytes(addressBytes(input.delegate, "delegate"), 32, "delegate")
+      .finish(),
   };
 }
 

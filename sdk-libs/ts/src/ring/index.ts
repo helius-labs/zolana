@@ -36,6 +36,7 @@ export {
 export { ringRole, type RingRole } from "./role.js";
 export type {
   RingCoSigner,
+  RingDelegate,
   RingPolicyConfig,
   RingPolicySource,
   RingProgramConfig,
@@ -48,9 +49,14 @@ export {
   RING_COSIGN_TRANSFERS,
   RING_COSIGN_WITHDRAWALS,
   decodeRingCoSigner,
+  decodeRingDelegate,
   decodeRingSpendWindow,
 } from "./codecs.js";
-export { ringCoSignerAddress, ringSpendWindowAddress } from "../interface/pda/index.js";
+export {
+  ringCoSignerAddress,
+  ringDelegateAddress,
+  ringSpendWindowAddress,
+} from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
 export {
   LIST_IDS,
@@ -113,9 +119,11 @@ export {
   clearRingCoSignerInstruction,
   clearRingSpendWindowInstruction,
   fetchRingCoSigner,
+  fetchRingDelegate,
   fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
+  setRingDelegateInstruction,
   setRingPausedInstruction,
   setRingSpendWindowInstruction,
 } from "./config.js";
@@ -137,6 +145,7 @@ export {
   createRingPolicyInstruction,
   initSppRingConfigInstruction,
   ringLookupTableAddresses,
+  ringDelegateTransactInstruction,
   ringTransactInstruction,
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
