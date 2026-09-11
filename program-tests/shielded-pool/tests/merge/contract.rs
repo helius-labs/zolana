@@ -1,6 +1,7 @@
-use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
+use shielded_pool_tests::support::{
+    fixtures::Pool, merge::write_user_record, transact::write_ring_config_account,
+};
 
-use borsh::BorshSerialize;
 use solana_account::Account;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
@@ -9,7 +10,9 @@ use solana_signer::Signer;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::merge_transact::{MergeProof, MergeTransactIxData, MERGE_INPUT_COUNT},
+        instruction_data::merge_transact::{
+            MergeProof, MergeTransactIxData, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
+        },
         MergeRing, MergeTransact,
     },
     state::{discriminator::RING_CONFIG, RingConfig},
@@ -17,10 +20,7 @@ use zolana_interface::{
 use zolana_program_test::{Rejection, ZolanaProgramTest};
 use zolana_test_utils::transact::fe;
 use zolana_tree::TreeAccount;
-use zolana_user_registry_interface::{
-    state::{UserRecord, NULLIFIER_PUBKEY_LEN, P256_PUBKEY_LEN},
-    user_record_pda, USER_REGISTRY_PROGRAM_ID,
-};
+use zolana_user_registry_interface::USER_REGISTRY_PROGRAM_ID;
 
 /// Wire-valid default-rail merge data with a zeroed proof: eight distinct
 /// nullifiers against root-history slot 0, so every parse and tree step
@@ -33,56 +33,20 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
         output_utxo_hash: fe(41),
         eddsa_owner,
         private_tx_hash: [0u8; 32],
-        nullifiers: (1..=MERGE_INPUT_COUNT as u64).map(fe).collect(),
-        utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+        nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
+        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
     }
 }
 
-/// Materialize a registry-owned `UserRecord` account directly in LiteSVM. The
-/// merge instruction only reads the record, so fabricating it exercises the
-/// same validation as a record created through the registry program.
-fn write_user_record(
-    rpc: &mut ZolanaProgramTest,
-    owner: Pubkey,
-    owner_p256: Option<[u8; P256_PUBKEY_LEN]>,
-    merging_enabled: bool,
-) -> Pubkey {
-    // Compressed-point prefix 0x02 keeps `pk_field(viewing_pubkey)` computable.
-    let mut viewing_pubkey = [7u8; P256_PUBKEY_LEN];
-    if let Some(first) = viewing_pubkey.first_mut() {
-        *first = 0x02;
-    }
-    // The program pins the record to its canonical registry PDA and bump.
-    let (address, bump) = user_record_pda(&owner);
-    let record = UserRecord {
-        owner: solana_address::Address::new_from_array(owner.to_bytes()),
-        bump,
-        owner_p256,
-        nullifier_pubkey: [11u8; NULLIFIER_PUBKEY_LEN],
-        viewing_pubkey,
-        merging_enabled,
-    };
-    let mut data = vec![UserRecord::DISCRIMINATOR];
-    record
-        .serialize(&mut data)
-        .expect("serialize fabricated user record");
-    // The registry requires the exact fixed record size; a `None` p256 key
-    // serializes short, so zero-pad like the program's own writes do.
-    data.resize(UserRecord::SIZE, 0);
-    rpc.svm
-        .set_account(
-            address,
-            Account {
-                lamports: 1_000_000_000,
-                data,
-                owner: Pubkey::new_from_array(USER_REGISTRY_PROGRAM_ID),
-                executable: false,
-                rent_epoch: 0,
-            },
-        )
-        .expect("write fabricated user record");
-    address
+const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 4] = [7, 9, 35, 37];
+
+fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
+    let mut data = merge_ix_data(true);
+    data.nullifiers = (1..=input_count as u64).map(fe).collect();
+    data.utxo_tree_root_index = vec![0; input_count];
+    data.nullifier_tree_root_index = vec![0; input_count];
+    data
 }
 
 fn merge_env() -> (ZolanaProgramTest, Pubkey) {
@@ -173,15 +137,40 @@ fn merge_rejects_a_wrong_input_count_shape() {
     let payer = rpc.payer.pubkey();
     let record = write_user_record(&mut rpc, payer, None, true);
 
-    // Seven nullifiers serialize fine but violate the fixed 8-in/1-out merge
-    // shape at parse time.
+    for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
+        let data = merge_ix_data_at_input_count(input_count);
+        let ix = merge_instruction(&rpc, &tree, record, data);
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .err()
+            .unwrap_or_else(|| panic!("a {input_count}-input merge must be rejected"));
+        Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+    }
+
     let mut data = merge_ix_data(true);
-    data.nullifiers.pop();
+    data.utxo_tree_root_index.pop();
     let ix = merge_instruction(&rpc, &tree, record, data);
     let error = rpc
         .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a 7-input merge must be rejected");
+        .expect_err("disagreeing vector lengths must be rejected");
     Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+}
+
+#[test]
+fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
+    let (mut rpc, tree) = merge_env();
+    let payer = rpc.payer.pubkey();
+    let record = write_user_record(&mut rpc, payer, None, true);
+
+    let data = merge_ix_data_at_input_count(MAX_MERGE_INPUTS);
+    let ix = merge_instruction(&rpc, &tree, record, data);
+    let budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
+    let error = rpc
+        .create_and_send_default_payer_transaction(&[budget, ix], &[])
+        .expect_err("a dummy proof must not verify");
+    Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
+        .at(1)
+        .assert_litesvm(error);
 }
 
 #[test]
@@ -643,19 +632,19 @@ fn merge_ring_rejects_an_inactive_ring_config() {
 #[test]
 fn merge_ring_rejects_a_wrong_input_count_shape_exactly() {
     let (mut rpc, tree) = merge_env();
-    // Seven nullifiers violate the fixed 8-in/1-out shape at parse time, which
-    // runs before any account (or the ring_config signature) is checked.
-    let mut data = merge_ix_data(true);
-    data.nullifiers.pop();
-    let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
-    ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("a 7-input ring merge must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
-    rpc.last_transaction_trace()
-        .expect("rejected transaction trace")
-        .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+    for input_count in UNSUPPORTED_MERGE_INPUT_COUNTS {
+        let data = merge_ix_data_at_input_count(input_count);
+        let mut ix = merge_ring_cpi_instruction(&rpc, &tree, data, fe(93));
+        ix.accounts.get_mut(2).expect("ring config meta").is_signer = false;
+        let error = rpc
+            .create_and_send_default_payer_transaction(&[ix], &[])
+            .err()
+            .unwrap_or_else(|| panic!("a {input_count}-input ring merge must be rejected"));
+        Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
+        rpc.last_transaction_trace()
+            .expect("rejected transaction trace")
+            .assert_rolled_back_except(&[rpc.payer.pubkey()]);
+    }
 }
 
 #[test]
@@ -709,7 +698,10 @@ mod program_unit {
             get_account_view([5; 32], [0; 32], false, false, true, vec![]),
         ];
 
-        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
+        let error = match MergeTransactAccounts::validate_and_parse(
+            &mut accounts,
+            MERGE_DEFAULT_INPUT_COUNT,
+        ) {
             Ok(_) => panic!("invalid System Program must fail"),
             Err(error) => error,
         };
@@ -733,7 +725,10 @@ mod program_unit {
             get_account_view([6; 32], [0; 32], false, false, true, vec![]),
         ];
 
-        let error = match MergeTransactAccounts::validate_and_parse(&mut accounts) {
+        let error = match MergeTransactAccounts::validate_and_parse(
+            &mut accounts,
+            MERGE_DEFAULT_INPUT_COUNT,
+        ) {
             Ok(_) => panic!("a non-SPP program account must fail"),
             Err(error) => error,
         };

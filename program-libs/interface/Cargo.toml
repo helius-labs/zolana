@@ -15,6 +15,7 @@ verifying-keys = ["dep:groth16-solana"]
 tree = ["dep:zolana-tree"]
 
 [dependencies]
+arrayvec = { workspace = true }
 borsh = { workspace = true, optional = true }
 bytemuck = { workspace = true }
 solana-address = { workspace = true, features = ["bytemuck"] }

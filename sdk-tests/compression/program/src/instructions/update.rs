@@ -2,16 +2,15 @@ use light_program_profiler::profile;
 use pinocchio::{AccountView, ProgramResult};
 use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
-    event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
-            TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
     N_PUBLIC_SLOTS,
 };
+use zolana_program::TransactExternalData;
 
 use crate::{
     error::CompressionError,
@@ -81,25 +80,14 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
     let output_hash = state.utxo_hash(&owner.owner_hash, output_tree_id)?;
     let payload = state.to_output_data()?;
 
-    let resolved_output = [ResolvedOutput {
-        utxo_hash: &output_hash,
-        owner_tag: pda_bytes,
-        data: Some(payload.as_slice()),
-    }];
-    let messages: &[MessageData] = &[];
-    let external_data_hash = ExternalDataHash {
-        spp_instruction_discriminator: TRANSACT,
-        expiry_unix_ts: u64::MAX,
-        interface_transfers: &[],
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &[0u8; 33],
-        salt: &[0u8; 16],
-        outputs: &resolved_output,
-        messages,
-    }
-    .hash()
-    .map_err(|_| CompressionError::HashingFailed)?;
+    let external = TransactExternalData::single_output(TransactOutput {
+        utxo_hash: output_hash,
+        owner_tag: OwnerTag::Inline(pda_bytes),
+        data: Some(payload),
+    });
+    let external_data_hash = external
+        .hash(TRANSACT, &[], &[pda_bytes])
+        .map_err(|_| CompressionError::HashingFailed)?;
 
     let private_tx = private_tx_hash(
         old_hash,
@@ -109,28 +97,16 @@ pub fn process_update_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         &private_tx_blinding(&nullifier_hash, new_version)?,
     )?;
 
-    let transact = TransactIxData {
-        expiry_unix_ts: u64::MAX,
-        private_tx_hash: private_tx,
-        circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-        tx_viewing_pk: [0u8; 33],
-        salt: [0u8; 16],
+    let transact = external.into_ix_data(
+        private_tx,
+        CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
         proof,
-        inputs: vec![InputUtxo {
+        vec![InputUtxo {
             nullifier_hash,
             nullifier_tree_root_index,
             utxo_tree_root_index,
         }],
-        interface_transfers: Vec::new(),
-        data_hash: None,
-        ring_data_hash: None,
-        outputs: vec![TransactOutput {
-            utxo_hash: output_hash,
-            owner_tag: OwnerTag::Inline(pda_bytes),
-            data: Some(payload),
-        }],
-        messages: Vec::new(),
-    };
+    );
     let transact_bytes = transact
         .serialize()
         .map_err(|_| CompressionError::SerializationFailed)?;

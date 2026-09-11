@@ -377,7 +377,6 @@ mod tests {
                     is_deposit: false,
                     amount: 9,
                     user_spl_token: Address::new_from_array([42u8; 32]),
-                    spl_token_interface: Address::new_from_array([43u8; 32]),
                 })
                 .expect("valid SPL settlement");
         let proof_inputs = SppProofInputs::new(

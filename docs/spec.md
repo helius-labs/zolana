@@ -1007,7 +1007,7 @@ variants. `HashChain` folds left to right; `RightHashChain` folds right to left.
 | `private_tx_hash` | instruction data; see [Private transaction hash](#private-transaction-hash) |
 | P256 message hash (`RingP256` only) | `hash_bytes_32(SHA-256(private_tx_hash))`; SPP computes the digest, the circuit only hashes it |
 | `default_p256_owner_pk_hash` (`RingP256` only) | `hash_bytes_33(0x50 || p256_x)` when a spent P256 UTXO belongs to the default ring, otherwise `0`. SPP derives it from `CircuitId::RingP256.default_owner_tag`; the circuit checks it against the verified P256 key. Address slots do not force publication. |
-| `external_data_hash` | recomputed by SPP from the instruction and settlement accounts. A separate public input because SPP cannot recompute the private transaction hash. |
+| `external_data_hash` | recomputed by SPP from the instruction data prefix and the committed accounts; see [external_data_hash](#external_data_hash). A separate public input because SPP cannot recompute the private transaction hash. |
 | public asset/amount slots (`N_PUBLIC_SLOTS = 3`) | six fields: `asset_0, amount_0, asset_1, amount_1, asset_2, amount_2`. SPP aggregates settlement legs by asset in first-appearance order, drops zero-net groups, and pads with `(0, 0)`. Assets use `hash_bytes_32(mint)`, including `Address::default()` for SOL. Each net magnitude fits `u64`; deposits are positive and withdrawals negative in the BN254 field. |
 | `ring_program_id` | `pk_field(ring_config.program_id)` for a policy ring; `0` for default `transact` |
 | signer hash chain | `RightHashChain(signer_pk_hashes)`: tagged Solana identities `owner_proof_input_hash(signer)`, payer first, then first-occurrence-deduplicated owner signers, zero-padded to `N_inputs + 1`. `RingAuthority` uses only the payer (width 1). |
@@ -1059,47 +1059,43 @@ zero is rejected.
 
 **external_data_hash**
 
-Hash over the public fields of the invoking SPP instruction and the Solana token accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
+Hash over the public fields of the invoking SPP instruction and the Solana accounts the proof must commit to. Included in `private_tx_hash` so the owner's signature covers the entire transaction and commits the proof to the specific SPP instruction being invoked (`transact`, `ring_transact`, `ring_authority_transact`, …). A proof built for one instruction cannot be replayed against another even when every other field matches.
 
 ```
 external_data_hash := Sha256BE(
-    u8(spp_instruction_discriminator)                ||
-    u64_be(expiry_unix_ts)                           ||
-    u8(resolved_public_legs.len())                    ||
-    public_leg(resolved_public_legs[0]) || ...        ||
-    option_hash(data_hash)                            ||
-    option_hash(ring_data_hash)                       ||
-    tx_viewing_pk                                     ||
-    salt                                              ||
-    u16_be(outputs.len())  || output(outputs[0])   || output(outputs[1])   || ... ||
-    u16_be(messages.len()) || message(messages[0])  || message(messages[1])  || ...
+    u8(spp_instruction_discriminator)
+ || transact_external_data_bytes
+ || leg_accounts(interface_transfers[0]) || leg_accounts(interface_transfers[1]) || ...
+ || owner_account(outputs[0]) || owner_account(outputs[1]) || ...
 )
 
-option_hash(h) := match h {
-                      None    => u8(0) || [0; 32],
-                      Some(v) => u8(1) || v,
-                  }
-output(o)  := o.utxo_hash || fetch_tag(o.owner_tag) || match o.data {
-                  None    => u8(0),
-                  Some(d) => u8(1) || u16_be(d.len()) || d,
-              }
-message(m) := m.view_tag || u16_be(m.data.len()) || m.data
+transact_external_data_bytes := the instruction data bytes of the first eight
+    TransactIxData fields (expiry_unix_ts .. messages), exactly as serialized
 
-public_leg(Sol { is_deposit, amount, recipient }) :=
-    u8(0) || u8(is_deposit) || u64_be(amount) || recipient
+leg_accounts(Sol) := sol_interface || recipient
+leg_accounts(Spl) := mint || user_token_account
 
-public_leg(Spl { is_deposit, amount, user_token_account, vault }) :=
-    u8(1) || u8(is_deposit) || u64_be(amount) || user_token_account || vault
+owner_account(o) := match o.owner_tag {
+                        Inline(_)  => empty,
+                        Account(i) => accounts[i],
+                    }
 ```
 
-`fetch_tag(owner_tag)` is the 32-byte value the [`OwnerTag`](#transact) carries or references. The hash covers those bytes, not the tag encoding, so an `Account` reference is fail-closed: reordering the account list changes the hash and the proof no longer verifies. Count prefixes, per-datum length prefixes, and the strict `{0, 1}` presence byte (`None` differs from `Some(&[])`) keep the preimage injective.
+SPP hashes the prefix in place from the instruction buffer; a client reproduces
+it by serializing the same eight fields. The encoding is self-delimiting (`u8`
+element counts, `u16` byte lengths, one presence byte per `Option`, so `None`
+differs from `Some(&[])` and from `Some([0; 32])`), and the prefix fixes the
+appended addresses: two per leg in leg order, then one per `Account` output in
+output order. The preimage is therefore injective over the instruction data and
+the accounts it names.
 
-`resolved_public_legs` is produced by pairing each instruction-data
-[`InterfaceTransfer`](#transact) with its account group in the same position. The leg
-count and `{Sol = 0, Spl = 1}` tags make the variable-length sequence
-unambiguous. The account addresses in each entry bind the proof to its concrete
-recipient or token settlement. Reordering legs or account groups therefore
-changes the hash.
+Legs pair each [`InterfaceTransfer`](#transact) with the settlement account
+group in the same position; the variant and amount are in the prefix, the
+accounts in `leg_accounts`. The `spl_interface` PDA is not hashed: it derives
+from the mint. An `Account` owner tag keeps its index
+byte in the prefix and appends the resolved address, so reordering legs,
+account groups, or the account list changes the hash and the proof no longer
+verifies.
 
 Proof-slot aggregation does not alter this preimage: all ordered settlement
 legs remain present, including legs in an asset group whose net movement is zero.
@@ -1110,10 +1106,9 @@ Thus different recipients or funding accounts cannot cancel out of
 
 `data_hash` and `ring_data_hash` are optional transaction-level external commitments from the [`transact`](#transact) instruction data, `None` for a default-ring `transact`. A ring or co-proof sets them to a tx-level digest of its inputs. The proof does not interpret them: as with the rest of `external_data_hash` it commits only to the combined hash, which SPP (or the ring program before its CPI) recomputes and checks. They are not standalone public inputs, and are distinct from the per-UTXO `data_hash` / `ring_data_hash` in [`utxo_hash`](#utxo-hash).
 
-The presence byte in `option_hash` makes `None` distinct from
-`Some([0; 32])`. `tx_viewing_pk` and `salt` bind the transaction-level
-decryption context to the encrypted output and message bytes, so an
-intermediary cannot replace either value while reusing the proof.
+`tx_viewing_pk` and `salt` bind the transaction-level decryption context to the
+encrypted output and message bytes, so an intermediary cannot replace either
+value while reusing the proof.
 
 **Checks**
 
@@ -1557,28 +1552,11 @@ enum InterfaceTransfer {
     SplWithdrawal { amount: u64, spl_interface_bump: u8 },
 }
 
+/// Serialized order. The fields through `messages` are the prefix hashed into
+/// [external_data_hash](#external_data_hash).
 struct TransactIxData {
-    proof: TransactProof,
     /// Unix timestamp in seconds.
     expiry_unix_ts: u64,
-    /// Always present. The SPP and any zk co-proof take it as a public input.
-    /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
-    /// is supplied directly rather than derived on-chain.
-    private_tx_hash: [u8; 32],
-    /// Circuit selector; picks the verifying key. Not a public input — see
-    /// [Circuit Combinations](#circuit-variants).
-    circuit: CircuitId,
-    inputs: Vec<InputUtxo>,
-    /// Zero or more settlement legs, with a u8 count on the wire. Legs for the
-    /// same resolved asset aggregate into one proof slot; a leg netting an
-    /// asset to zero is invalid.
-    interface_transfers: Vec<InterfaceTransfer>,
-    /// `None` for default-ring `transact`; a ring or co-proof sets a tx-level
-    /// digest of its inputs, hashed into `external_data_hash` (see
-    /// [external_data_hash](#external_data_hash)). Not the per-UTXO fields of the
-    /// same name in [`utxo_hash`](#utxo-hash).
-    data_hash: Option<[u8; 32]>,
-    ring_data_hash: Option<[u8; 32]>,
     /// Shared `tx_viewing_pk` for every output ciphertext. Bound into
     /// `external_data_hash` and copied verbatim into the logged `GeneralEvent`
     /// so an indexer need not parse the per-output `data`. Always present.
@@ -1589,6 +1567,16 @@ struct TransactIxData {
     /// verbatim into the logged `GeneralEvent`, so a wallet derives the per-slot
     /// key/nonce without parsing the per-output `data`. Always present.
     salt: [u8; 16],
+    /// Zero or more settlement legs, with a `u8` count. Legs for the same
+    /// resolved asset aggregate into one proof slot; a leg netting an asset to
+    /// zero is invalid.
+    interface_transfers: Vec<InterfaceTransfer>,
+    /// `None` for default-ring `transact`; a ring or co-proof sets a tx-level
+    /// digest of its inputs, hashed into `external_data_hash` (see
+    /// [external_data_hash](#external_data_hash)). Not the per-UTXO fields of the
+    /// same name in [`utxo_hash`](#utxo-hash).
+    data_hash: Option<[u8; 32]>,
+    ring_data_hash: Option<[u8; 32]>,
     /// All `M` outputs in tree-append order (SPL change, SOL change, then
     /// recipients / dummies). Each `utxo_hash` is appended to the UTXO tree and
     /// enters the proof's output hash chain; dummies carry a real-looking hash,
@@ -1598,6 +1586,15 @@ struct TransactIxData {
     /// Ciphertexts with no output position, covered by `external_data_hash` and
     /// republished verbatim in the [`GeneralEvent`](#general-event).
     messages: Vec<MessageData>,
+    /// Always present. The SPP and any zk co-proof take it as a public input.
+    /// SPP cannot recompute it (it covers the private input UTXO hashes), so it
+    /// is supplied directly rather than derived on-chain.
+    private_tx_hash: [u8; 32],
+    /// Circuit selector; picks the verifying key. Not a public input — see
+    /// [Circuit Combinations](#circuit-variants).
+    circuit: CircuitId,
+    proof: TransactProof,
+    inputs: Vec<InputUtxo>,
 }
 ```
 
@@ -1637,7 +1634,7 @@ one proof slot does not remove their individual account metas.
 **Checks**
 
 1. `current_unix_ts <= expiry_unix_ts` (Solana `Clock.unix_timestamp`)
-2. `interface_transfers.len()` fits the wire-format `u8` count; every amount is
+2. `interface_transfers.len()` fits the `u8` count of the instruction encoding; every amount is
    non-zero (`ZeroInterfaceTransferAmount`) and no asset's legs net to zero
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.

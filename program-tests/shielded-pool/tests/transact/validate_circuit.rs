@@ -121,6 +121,42 @@ fn selector_dimensions_are_fail_closed() {
         ),
         invalid_shape
     );
+    assert_eq!(
+        validate(
+            CircuitId::ConfidentialEddsa(36, 2, 3),
+            InstructionTag::Transact,
+            36,
+            2,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate(
+            CircuitId::RingEddsa(36, 2, 3),
+            InstructionTag::RingTransact,
+            36,
+            2,
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        validate(
+            CircuitId::ConfidentialEddsa(36, 3, 3),
+            InstructionTag::Transact,
+            36,
+            3,
+        ),
+        invalid_shape
+    );
+    assert_eq!(
+        validate(
+            CircuitId::RingAuthority(36, 2, 3),
+            InstructionTag::RingAuthorityTransact,
+            36,
+            2,
+        ),
+        invalid_shape
+    );
     let p256 = CircuitId::RingP256(
         2,
         3,

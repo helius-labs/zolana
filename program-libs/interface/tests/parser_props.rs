@@ -17,7 +17,10 @@ use zolana_interface::instruction::instruction_data::{
         UtxoData,
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    merge_transact::{
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+        MERGE_SUPPORTED_INPUT_COUNTS,
+    },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
         TransactOutput, TransactProof,
@@ -145,9 +148,9 @@ mod strategies {
             any::<u64>(),
             (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
+            prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
+            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -237,6 +240,36 @@ proptest! {
         }
     }
 
+    /// The external-data prefix aliases exactly the instruction's head, even
+    /// when the instruction starts partway through a larger buffer.
+    #[test]
+    fn transact_external_data_prefix_is_the_instruction_head(
+        owned in strategies::transact_ix_data(),
+        leading in prop::collection::vec(any::<u8>(), 0..64),
+    ) {
+        let bytes = owned.serialize().expect("serialize transact ix");
+        let inputs_len: usize = owned
+            .inputs
+            .iter()
+            .map(|input| wincode::serialize(input).expect("serialize input").len())
+            .sum();
+        let tail_len = owned.private_tx_hash.len()
+            + wincode::serialize(&owned.circuit).expect("serialize circuit").len()
+            + wincode::serialize(&owned.proof).expect("serialize proof").len()
+            + 1
+            + inputs_len;
+        let prefix = bytes.get(..bytes.len() - tail_len).expect("prefix in bytes");
+        let start = leading.len();
+        let mut buffer = leading;
+        buffer.extend_from_slice(&bytes);
+        let data = buffer.get(start..).expect("instruction in buffer");
+        let (view, parsed_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
+            .expect("parse valid encoding");
+        prop_assert_eq!(parsed_prefix, prefix);
+        prop_assert!(core::ptr::eq(parsed_prefix.as_ptr(), data.as_ptr()));
+        assert_ref_matches_owned(&view, &owned)?;
+    }
+
     /// Truncating or extending a valid `transact` encoding never panics, and
     /// the exact-length owned decoder rejects both length changes.
     #[test]
@@ -254,14 +287,14 @@ proptest! {
             let cut_at = cut.index(bytes.len());
             let truncated = bytes.get(..cut_at).unwrap_or_default();
             prop_assert!(TransactIxData::deserialize(truncated).is_err());
-            let _ = TransactIxDataRef::from_bytes(truncated);
+            prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(truncated).is_err());
         }
 
         // A trailing byte violates the exact-length contract of `deserialize`.
         let mut extended = bytes.clone();
         extended.push(trailing);
         prop_assert!(TransactIxData::deserialize(&extended).is_err());
-        let _ = TransactIxDataRef::from_bytes(&extended);
+        prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(&extended).is_err());
 
         // A flipped byte may decode to a different message or fail; it must
         // never panic.
@@ -280,13 +313,14 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the 8-in/1-out shape; every
-    /// other nullifier or root-index element count is rejected.
+    /// The merge view decoder accepts exactly the supported input counts, and
+    /// only when the three per-input vectors agree on that count.
     #[test]
-    fn merge_shape_guard_accepts_exactly_the_documented_shape(
+    fn merge_shape_guard_accepts_exactly_the_supported_shapes(
         owned in strategies::merge_ix_data(),
-        nullifier_count in 0usize..=12,
-        root_count in 0usize..=12,
+        nullifier_count in 0usize..=40,
+        root_count in 0usize..=40,
+        agreed_count in 0usize..=40,
     ) {
         let bytes = owned.serialize().expect("serialize merge ix");
         prop_assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_ok());
@@ -296,7 +330,7 @@ proptest! {
         let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_INPUT_COUNT
+            nullifier_count == MERGE_DEFAULT_INPUT_COUNT
         );
 
         let mut wrong_roots = owned.clone();
@@ -304,7 +338,17 @@ proptest! {
         let bytes = wrong_roots.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_INPUT_COUNT
+            root_count == MERGE_DEFAULT_INPUT_COUNT
+        );
+
+        let mut agreed = owned.clone();
+        agreed.nullifiers = vec![[7u8; 32]; agreed_count];
+        agreed.utxo_tree_root_index = vec![1u16; agreed_count];
+        agreed.nullifier_tree_root_index = vec![3u16; agreed_count];
+        let bytes = agreed.serialize().expect("serialize merge ix");
+        prop_assert_eq!(
+            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&agreed_count)
         );
     }
 

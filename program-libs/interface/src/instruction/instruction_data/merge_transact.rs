@@ -1,10 +1,11 @@
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
-/// Number of input slots a merge proof spends (8-in/1-out shape). Dummy slots
-/// publish deterministic nullifiers derived from the owner's nullifier secret
-/// and `nullifiers[0]`.
-pub const MERGE_INPUT_COUNT: usize = 8;
+pub const MERGE_SUPPORTED_INPUT_COUNTS: [usize; 2] = [8, 36];
+
+pub const MAX_MERGE_INPUTS: usize = 36;
+
+pub const MERGE_DEFAULT_INPUT_COUNT: usize = 8;
 
 /// The vanilla Groth16 proof carried by the merge instructions: `a || b || c`,
 /// 128 bytes on the wire (compressed points, G1 -> 32 bytes, G2 -> 64 bytes).
@@ -100,14 +101,13 @@ impl<'a> MergeTransactIxDataRef<'a> {
         Ok(parsed)
     }
 
-    /// Enforce the fixed 8-in/1-out merge shape. Shared with `merge_ring`,
-    /// which embeds a `MergeTransactIxDataRef`.
     pub(crate) fn validate_shape(&self) -> Result<(), wincode::ReadError> {
-        if self.nullifiers.len() != MERGE_INPUT_COUNT
-            || self.utxo_tree_root_index.len() != MERGE_INPUT_COUNT
-            || self.nullifier_tree_root_index.len() != MERGE_INPUT_COUNT
+        let input_count = self.nullifiers.len();
+        if self.utxo_tree_root_index.len() != input_count
+            || self.nullifier_tree_root_index.len() != input_count
+            || !MERGE_SUPPORTED_INPUT_COUNTS.contains(&input_count)
         {
-            return Err(wincode::ReadError::Custom("invalid merge shape"));
+            return Err(wincode::ReadError::Custom("unsupported merge shape"));
         }
         Ok(())
     }
@@ -148,9 +148,11 @@ mod tests {
                 c: [3u8; 32],
             },
             output_utxo_hash: [9u8; 32],
-            nullifiers: (0..MERGE_INPUT_COUNT as u8).map(|i| [i; 32]).collect(),
-            utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
-            nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
+            nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
+                .map(|i| [i; 32])
+                .collect(),
+            utxo_tree_root_index: (0..MERGE_DEFAULT_INPUT_COUNT as u16).collect(),
+            nullifier_tree_root_index: (10..10 + MERGE_DEFAULT_INPUT_COUNT as u16).collect(),
             private_tx_hash: [3u8; 32],
             eddsa_owner: false,
         }
@@ -181,7 +183,7 @@ mod tests {
 
         // expiry(8) || proof(128) || output_hash(32) || eddsa_owner(1) ||
         // private_tx_hash(32) || 3 vecs with u8 lens.
-        assert_eq!(bytes.len(), 204 + 36 * MERGE_INPUT_COUNT);
+        assert_eq!(bytes.len(), 204 + 36 * MERGE_DEFAULT_INPUT_COUNT);
     }
 
     #[test]

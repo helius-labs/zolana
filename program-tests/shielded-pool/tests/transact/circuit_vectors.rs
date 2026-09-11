@@ -8,9 +8,9 @@
 //! same commit.
 //!
 //! The vectors' `external_data_hash` entry is NOT consumed: it pins the Go
-//! prover-test's own preimage helper (with `sender_view_tag`), which has no
-//! Rust mirror — the interface's `ExternalDataHash` covers a different,
-//! spec-level preimage and carries its own injectivity tests.
+//! prover-test's own preimage helper (with `sender_view_tag`), whose Rust
+//! counterpart is the interface's `ExternalDataPreimage` with its own parity
+//! vector and injectivity tests.
 
 use std::{fs, path::Path};
 
@@ -205,7 +205,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
         tx_viewing_pk: [4u8; 33],
         salt: [6u8; 16],
         proof: ProofData::zeroed(),
-        inputs: (1..=2)
+        inputs: (1..=circuit.num_inputs())
             .map(|tag| InputUtxo {
                 nullifier_hash: small_fe(tag),
                 nullifier_tree_root_index: 0,
@@ -215,7 +215,7 @@ fn ix_data(circuit: CircuitId) -> TransactIxData {
         interface_transfers: vec![],
         data_hash: None,
         ring_data_hash: None,
-        outputs: (11..=13)
+        outputs: (100..100 + circuit.num_outputs())
             .map(|tag| TransactOutput {
                 utxo_hash: small_fe(tag),
                 owner_tag: OwnerTag::Inline(small_fe(tag)),
@@ -260,6 +260,8 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
         (CircuitId::ConfidentialEddsa(2, 3, 3), 3usize, 2u8, true),
         (CircuitId::RingEddsa(2, 3, 3), 3, 2, true),
         (CircuitId::RingAuthority(2, 3, 3), 1, 1, false),
+        (CircuitId::ConfidentialEddsa(36, 2, 3), 37, 2, true),
+        (CircuitId::RingEddsa(36, 2, 3), 37, 1, true),
     ] {
         let owned = ix_data(circuit);
         let bytes = owned.serialize().expect("serialize transact ix");
@@ -312,7 +314,7 @@ fn program_assembly_matches_the_go_ordering_on_every_variant() {
             output_owner_pk_hashes: binds_output_owners.then_some(
                 derived
                     .output_owner_pk_hashes
-                    .get(..3)
+                    .get(..usize::from(circuit.num_outputs()))
                     .expect("output owners"),
             ),
         };

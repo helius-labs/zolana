@@ -62,7 +62,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative + property; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-45: the signer run is payer-first, deduplicated, and width-bounded**
-  - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `transact_rejects_unsigned_eddsa_input_owner`
+  - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `owner_signer_run_is_bounded_by_max_signers`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_unsigned_eddsa_input_owner`. The overflow case is a unit test: with `MAX_SIGNERS = 37` a transaction cannot carry enough signatures to overrun the bound end to end.
   - Kind: precondition + postcondition
   - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_SIGNERS = MAX_INPUTS + 1` slots (more unique signers returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`, `SIGNER_ZERO_SUFFIX_CHAINS`)
@@ -117,17 +117,17 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
-- [x] **INV-TRANSACT-09: more than 5 inputs is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports`
+- [x] **INV-TRANSACT-09: an input count with no circuit is rejected**
+  - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_more_inputs_than_any_circuit_supports` (six inputs); positive side at the widest shape by `program-tests/shielded-pool/tests/transact/functional.rs` `transact_accepts_the_consolidation_shape`, `ring_transact_accepts_the_consolidation_shape` and `ring_p256_transact_accepts_the_consolidation_shape` (36 inputs, real proofs)
   - Kind: precondition
-  - Statement: every instruction with strictly more than `MAX_INPUTS` (5) inputs returns Err before proof verification.
+  - Statement: every instruction whose input count matches no circuit returns Err before proof verification, before any tree write. The supported counts are 1 to 5 plus the 36-input consolidation shape (`Shape::IN36_OUT2`), so six inputs is rejected while thirty-six is accepted; `MAX_INPUTS` (36) sizes the program's buffers and is not itself the check.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs:53-56` (`fn check_input_signers`), `transact/tree.rs:25-29` (`fn apply_input_tree`), `verify.rs:20` (`MAX_INPUTS`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-10: owner-tag account index out of range is rejected**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `fetch_tag_resolves_every_variant`
+  - Covered by: `program-libs/interface/tests/transact.rs` `fetch_tag_resolves_every_variant`
   - Kind: precondition
   - Statement: every output whose `OwnerTag::Account(i)` references an index with no account in the transaction makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/transact/event.rs:27-32` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:225-235` (`fn fetch_tag`)
@@ -157,7 +157,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative per (tag, selector family) pair; harness: mollusk unit
 
 - [x] **INV-TRANSACT-35: selector shape must equal the payload shape and be supported**
-  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_an_overrunning_owner_signer_run`, `program-libs/interface/src/verifying_keys/circuit.rs` `supported_shapes_are_fail_closed`
+  - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/signer_run.rs` `owner_signer_run_is_bounded_by_max_signers`, `program-libs/interface/tests/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
   - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits the fixed-width `MAX_SIGNERS` (`MAX_INPUTS + 1`) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
@@ -166,7 +166,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative per dimension; harness: mollusk unit
 
 - [x] **INV-TRANSACT-36: interface-transfer wire limits**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization_and_hashing`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
+  - Covered by: `program-libs/interface/tests/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization`, `external_data_preimage_rejects_slice_overflow`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
   - Kind: precondition
   - Statement: more than `MAX_INTERFACE_TRANSFERS` (255) legs returns 7035; any leg with amount 0 returns 7036.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:77-87` (`fn validate_interface_transfers`), called from `programs/shielded-pool/src/instructions/transact/account.rs:48`
@@ -212,11 +212,11 @@ covers the whole group) and referenced from the coverage matrix.
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
-- [ ] **INV-TRANSACT-17: settlement addresses are bound into external_data_hash**
+- [ ] **INV-TRANSACT-17: settlement addresses are included in external_data_hash**
   - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_public_amount` (recipient+amount tampering fails with 7008, but the settlement-address binding is not isolated from the amount binding)
   - Kind: postcondition
-  - Statement: the recomputed `external_data_hash` public input covers the resolved `interface_transfers` list — the SOL recipient address per SOL leg, and the user token account and vault addresses per SPL leg (the list is empty for a pure shielded transfer); substituting any settlement account after proving makes proof verification fail.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`fn process_transact_ix`, `external_data_hash` construction), `transact/interface_transfer.rs:111-143` (`fn resolve_interface_transfers`)
+  - Statement: the recomputed `external_data_hash` public input appends, after the serialized instruction-data prefix, exactly two addresses per `interface_transfers` leg in leg order: the `sol_interface` PDA and the recipient address for a SOL leg, the mint and the user token account for an SPL leg. The leg's kind, direction, and amount are in the `InterfaceTransfer` encoding in the prefix. Substituting a settlement account after proving makes proof verification fail. The per-mint `spl_interface` PDA is not hashed; it is derived from the mint.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`, `push_settlement` per leg), `settlement/mod.rs` (`fn Settlement::committed_accounts`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: Critical (withdrawal redirection)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)

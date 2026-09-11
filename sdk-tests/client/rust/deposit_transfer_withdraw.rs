@@ -198,7 +198,6 @@ fn main() -> Result<()> {
         // SPL:     WITHDRAW_AMOUNT,
         // SPL:     SettlementTarget::Spl {
         // SPL:         user_spl_token: spl.user_token_account,
-        // SPL:         spl_token_interface: spl.vault,
         // SPL:     },
         // SPL: )?;
         let proof_inputs = withdrawal.sign(&sender, &assets)?;

@@ -61,9 +61,16 @@ impl<'a> TransactAccounts<'a> {
         // Check non-zero amounts and the protocol transfer bound.
         validate_interface_transfers(&ix.interface_transfers)?;
 
-        let mut nullifier_pdas = ArrayVec::new();
+        let mut this = Box::new(Self {
+            payer,
+            input_tree,
+            output_tree,
+            nullifier_pdas: ArrayVec::new(),
+            owner_signers: &[],
+            settlements: ArrayVec::new(),
+        });
         for _ in 0..ix.inputs.len() {
-            nullifier_pdas
+            this.nullifier_pdas
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
         }
@@ -80,6 +87,7 @@ impl<'a> TransactAccounts<'a> {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
         let (owner_signers, settlement_accounts) = remaining.split_at_mut(signer_count);
+        this.owner_signers = owner_signers;
         // 3. Check transfer settlement accounts: exactly one group per leg, sized
         //    by the shared layout the event parser also reads.
         let settlement_account_count = ix
@@ -93,7 +101,6 @@ impl<'a> TransactAccounts<'a> {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
         }
         let mut iter = AccountIterator::new(settlement_accounts);
-        let mut settlements = ArrayVec::new();
         for transfer in &ix.interface_transfers {
             let settlement = match transfer {
                 InterfaceTransfer::SplDeposit {
@@ -167,19 +174,12 @@ impl<'a> TransactAccounts<'a> {
                     })
                 }
             };
-            settlements
+            this.settlements
                 .try_push(settlement)
                 .map_err(|_| ShieldedPoolError::TooManyInterfaceTransfers)?;
         }
 
-        Ok(Box::new(Self {
-            payer,
-            input_tree,
-            output_tree,
-            nullifier_pdas,
-            owner_signers,
-            settlements,
-        }))
+        Ok(this)
     }
 }
 

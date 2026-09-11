@@ -69,7 +69,10 @@ pub use solana_rpc::{
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
 pub use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge::{
+            merge_padded_input_count, Merge, PreparedMerge, MAX_MERGE_INPUTS,
+            MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+        },
         merge_ring::{MergeRing, PreparedMergeRing},
         ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},

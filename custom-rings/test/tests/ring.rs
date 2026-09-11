@@ -1595,7 +1595,6 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         USDC_WITHDRAW_AMOUNT,
         SettlementTarget::Spl {
             user_spl_token: recipient_usdc,
-            spl_token_interface: pda::spl_interface(&usdc),
         },
     )?;
     withdraw_transfer.send(&recipient_address, usdc, USDC_FINAL_SEND)?;

@@ -1,14 +1,12 @@
 use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::instruction::{
-    instruction_data::transact::{
-        ExternalDataHash, InterfaceTransfer, ResolvedInterfaceTransfer, ResolvedOutput,
-        TransactOutput,
-    },
+    instruction_data::transact::{InterfaceTransfer, TransactOutput},
     tag,
 };
 use zolana_interface::pda;
-use zolana_interface::MAX_INTERFACE_TRANSFERS;
+use zolana_interface::{MAX_INTERFACE_TRANSFERS, SOL_INTERFACE};
+use zolana_program::{SettlementAccounts, TransactExternalData};
 
 use crate::{error::TransactionError, SOL_MINT};
 
@@ -27,7 +25,6 @@ pub enum SettlementTransfer {
         is_deposit: bool,
         amount: u64,
         user_spl_token: Address,
-        spl_token_interface: Address,
     },
 }
 
@@ -48,6 +45,19 @@ impl SettlementTransfer {
         match self {
             Self::Sol { .. } => SOL_MINT,
             Self::Spl { mint, .. } => mint,
+        }
+    }
+
+    pub fn settlement_accounts(self) -> SettlementAccounts {
+        match self {
+            Self::Sol {
+                user_sol_account, ..
+            } => [SOL_INTERFACE, *user_sol_account.as_array()],
+            Self::Spl {
+                mint,
+                user_spl_token,
+                ..
+            } => [*mint.as_array(), *user_spl_token.as_array()],
         }
     }
 
@@ -83,59 +93,8 @@ impl SettlementTransfer {
             }
         }
     }
-
-    fn resolved(self) -> ResolvedInterfaceTransfer {
-        match self {
-            Self::Sol {
-                is_deposit,
-                amount,
-                user_sol_account,
-            } => {
-                if is_deposit {
-                    ResolvedInterfaceTransfer::SolDeposit {
-                        amount,
-                        recipient: *user_sol_account.as_array(),
-                    }
-                } else {
-                    ResolvedInterfaceTransfer::SolWithdrawal {
-                        amount,
-                        recipient: *user_sol_account.as_array(),
-                    }
-                }
-            }
-            Self::Spl {
-                is_deposit,
-                amount,
-                user_spl_token,
-                spl_token_interface,
-                ..
-            } => {
-                if is_deposit {
-                    ResolvedInterfaceTransfer::SplDeposit {
-                        amount,
-                        user_token_account: *user_spl_token.as_array(),
-                        spl_interface: *spl_token_interface.as_array(),
-                    }
-                } else {
-                    ResolvedInterfaceTransfer::SplWithdrawal {
-                        amount,
-                        user_token_account: *user_spl_token.as_array(),
-                        spl_interface: *spl_token_interface.as_array(),
-                    }
-                }
-            }
-        }
-    }
 }
 
-/// Transaction-level public data the proofs commit to via `external_data_hash`.
-/// The hash is computed by the canonical [`ExternalDataHash`] from the interface
-/// crate, so the client and the Solana program agree byte-for-byte. Each output
-/// carries its commitment, wire `owner_tag`, and optional ciphertext; the
-/// resolved 32-byte owner tags are paired at construction so [`Self::hash`]
-/// needs no account context and cannot drift from the wire tags. The hash also
-/// binds `tx_viewing_pk` and `salt`, which are required to decrypt those
-/// ciphertexts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub instruction_discriminator: u8,
@@ -151,9 +110,6 @@ pub struct ExternalData {
     /// All `M` outputs in tree-append order (SPL change, SOL change, recipients
     /// / dummies). A `None` `data` marks a slot covered by a preceding bundle.
     pub outputs: Vec<TransactOutput>,
-    /// The resolved 32-byte owner tag of each output, paired 1:1 with `outputs`
-    /// at construction. `hash()` covers these resolved bytes rather than the
-    /// wire `OwnerTag`, matching the program's OWNER public input.
     pub resolved_owner_tags: Vec<[u8; 32]>,
     /// Ciphertexts bound to no output commitment; empty for all current flows.
     pub messages: Vec<MessageData>,
@@ -225,45 +181,36 @@ impl ExternalData {
         Ok(self)
     }
 
-    /// `external_data_hash` via the canonical interface [`ExternalDataHash`].
-    /// Builds [`ResolvedOutput`]s from the outputs paired with their resolved
-    /// owner tags, so the client and program hash the identical preimage.
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
         validate_settlement_transfers(&self.interface_transfers)?;
-        if self.outputs.len() != self.resolved_owner_tags.len() {
-            return Err(TransactionError::Hash(
-                "resolved owner tags do not pair 1:1 with outputs".to_string(),
-            ));
-        }
-        let resolved: Vec<ResolvedOutput> = self
-            .outputs
-            .iter()
-            .zip(self.resolved_owner_tags.iter())
-            .map(|(output, owner_tag)| ResolvedOutput {
-                utxo_hash: &output.utxo_hash,
-                owner_tag: *owner_tag,
-                data: output.data.as_deref(),
-            })
-            .collect();
-        let interface_transfers: Vec<_> = self
+        let external = TransactExternalData {
+            expiry_unix_ts: self.expiry_unix_ts,
+            tx_viewing_pk: self.tx_viewing_pk,
+            salt: self.salt,
+            interface_transfers: self
+                .interface_transfers
+                .iter()
+                .copied()
+                .map(SettlementTransfer::interface_transfer)
+                .collect(),
+            data_hash: self.data_hash,
+            ring_data_hash: self.ring_data_hash,
+            outputs: self.outputs.clone(),
+            messages: self.messages.clone(),
+        };
+        let settlement_accounts: Vec<SettlementAccounts> = self
             .interface_transfers
             .iter()
             .copied()
-            .map(SettlementTransfer::resolved)
+            .map(SettlementTransfer::settlement_accounts)
             .collect();
-        ExternalDataHash {
-            spp_instruction_discriminator: self.instruction_discriminator,
-            expiry_unix_ts: self.expiry_unix_ts,
-            interface_transfers: &interface_transfers,
-            data_hash: self.data_hash,
-            ring_data_hash: self.ring_data_hash,
-            tx_viewing_pk: &self.tx_viewing_pk,
-            salt: &self.salt,
-            outputs: &resolved,
-            messages: &self.messages,
-        }
-        .hash()
-        .map_err(|e| TransactionError::Hash(format!("{e:?}")))
+        external
+            .hash(
+                self.instruction_discriminator,
+                &settlement_accounts,
+                &self.resolved_owner_tags,
+            )
+            .map_err(|e| TransactionError::Hash(e.to_string()))
     }
 }
 

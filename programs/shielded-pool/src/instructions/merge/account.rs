@@ -8,7 +8,7 @@ use pinocchio::{
 use zolana_account_checks::AccountIterator;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
     merge_utils::owner_proof_input_hash_compressed,
 };
 use zolana_user_registry_interface::{
@@ -24,11 +24,14 @@ pub struct MergeTransactAccounts<'a> {
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
     pub user_record: &'a AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
 }
 
 impl<'a> MergeTransactAccounts<'a> {
-    pub fn validate_and_parse(accounts: &'a mut [AccountView]) -> Result<Self, ProgramError> {
+    pub fn validate_and_parse(
+        accounts: &'a mut [AccountView],
+        input_count: usize,
+    ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
@@ -43,7 +46,7 @@ impl<'a> MergeTransactAccounts<'a> {
             return Err(ProgramError::IncorrectProgramId);
         }
         let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..MERGE_INPUT_COUNT {
+        for _ in 0..input_count {
             nullifier_pdas
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;
@@ -95,7 +98,8 @@ pub fn load_user_record(
     let record = UserRecord::try_from_account_data(&data)
         .map_err(caused_by(ShieldedPoolError::InvalidUserRecord))?;
     let (expected_record, expected_bump) =
-        Address::find_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id);
+        Address::derive_program_address(&[USER_RECORD_SEED, record.owner.as_ref()], &registry_id)
+            .ok_or(ShieldedPoolError::InvalidUserRecord)?;
     if account.address() != &expected_record || record.bump != expected_bump {
         return Err(ShieldedPoolError::InvalidUserRecord.into());
     }

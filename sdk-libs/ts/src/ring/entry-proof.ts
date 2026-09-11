@@ -176,13 +176,19 @@ function transitionInputs(
   const external = externalDataHash({
     instructionDiscriminator: InstructionTag.transact,
     expiryUnixTs: U64_MAX,
-    interfaceTransfers: [],
     txViewingPk: new Uint8Array(33) as Bytes33,
     salt: new Uint8Array(16) as Bytes16,
+    interfaceTransfers: [],
     outputs: [
-      { utxoHash: hashes.utxoHash, ownerTag: namespaceBytes, data: encodeListEntry(entry) },
+      {
+        utxoHash: hashes.utxoHash,
+        ownerTag: { kind: "inline", value: namespaceBytes },
+        data: encodeListEntry(entry),
+      },
     ],
     messages: [],
+    settlementAccounts: [],
+    resolvedOwnerTags: [namespaceBytes],
   });
   const privateHash = privateTxHash({
     inputHashes: [slot.inputHash],

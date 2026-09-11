@@ -3,6 +3,7 @@ use core::{fmt::Debug, panic::Location};
 use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
     account::{Ref, RefMut},
+    address::address_eq,
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{clock::Clock, rent::Rent, Sysvar},
@@ -286,27 +287,17 @@ impl<const N: usize> CreatePdaAccount<'_, N> {
 
 /// Derive the canonical PDA from `seeds` and `program_id`, then verify it
 /// matches `account_key`. Returns the canonical bump on success.
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn verify_pda(
+/// `derive_program_address` is the `find_program_address` bump search over the
+/// sha256 and curve-validate syscalls, so canonicity is unchanged.
+pub fn verify_pda<const N: usize>(
     account_key: &Address,
-    seeds: &[&[u8]],
+    seeds: &[&[u8]; N],
     program_id: &Address,
 ) -> Result<u8, ProgramError> {
-    use pinocchio::address::address_eq;
-    use zolana_interface::error::ShieldedPoolError;
-
-    let (derived, bump) = Address::find_program_address(seeds, program_id);
+    let (derived, bump) =
+        Address::derive_program_address(seeds, program_id).ok_or(ShieldedPoolError::InvalidPda)?;
     if !address_eq(account_key, &derived) {
         return Err(ShieldedPoolError::InvalidPda.into());
     }
     Ok(bump)
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn verify_pda(
-    _account_key: &Address,
-    _seeds: &[&[u8]],
-    _program_id: &Address,
-) -> Result<u8, ProgramError> {
-    unimplemented!("verify_pda requires Solana runtime syscalls")
 }

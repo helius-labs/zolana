@@ -82,10 +82,10 @@ nullifiers.
 
 ### Instruction Data Validation
 
-- [x] **INV-MERGE-06: the 8-in/1-out shape is enforced at parse time**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape`
+- [x] **INV-MERGE-06: a supported merge shape is enforced at parse time**
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_a_wrong_input_count_shape` (7, 9, 35, 37 inputs and disagreeing vector lengths), `merge_accepts_the_wide_shape_and_fails_only_on_the_proof` (36 inputs parse and reach verification)
   - Kind: precondition
-  - Statement: every payload whose `nullifiers`, `utxo_tree_root_index`, or `nullifier_tree_root_index` vector length differs from exactly 8 makes `merge_transact` return Err.
+  - Statement: `merge_transact` returns Err unless `nullifiers`, `utxo_tree_root_index` and `nullifier_tree_root_index` agree on one length and that length is in `MERGE_SUPPORTED_INPUT_COUNTS` (8 or 36). The shape is the instruction's own declared input count, not a constant the program assumes.
   - Location: `program-libs/interface/src/instruction/instruction_data/merge_transact.rs:106-115` (`fn validate_shape`), `programs/shielded-pool/src/instructions/merge/processor.rs:31-32`
   - Error: `ShieldedPoolError::InvalidMergeShape = 7019`
   - Severity: High
@@ -112,9 +112,9 @@ nullifiers.
   - Not applicable post-PR164 (no merge ciphertext exists, so there is nothing to recompute on-chain).
 
 - [x] **INV-MERGE-11: the merge proof is vanilla Groth16 with the variant's key**
-  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007)
+  - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `default_rail_merge_rejects_a_zeroed_proof_exactly` (7008), `default_rail_merge_rejects_undecompressable_proof_points_exactly` (7007); positive side at both declared counts by `program-tests/shielded-pool/tests/merge/functional.rs` `merge_collects_the_exact_forester_fee_from_the_payer` (8 inputs) and `merge_verifies_the_wide_shape_on_chain` (36 inputs), each proving with the workspace prover and requiring the program to accept
   - Kind: precondition
-  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against `merge_8_1::VERIFYINGKEY` (default rail) or `merge_ring_8_1::VERIFYINGKEY` (ring rail); a proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
+  - Statement: `merge_transact` decodes the fixed 128-byte proof as `a||b||c` (no commitment) and verifies it only against the key for its owner binding and its declared input count: `merge_8_1` / `merge_36_1` (default rail), `merge_ring_8_1` / `merge_ring_36_1` (ring rail). Merge instruction data has no circuit selector, so a count with no key is refused rather than verified against another width's key. A proof whose points fail decompression returns the encoding error, a non-verifying proof returns the verification error.
   - Location: `programs/shielded-pool/src/instructions/merge/verify.rs:51-73` (`fn verify`)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007` / `TransactProofVerificationFailed = 7008`
   - Severity: Critical

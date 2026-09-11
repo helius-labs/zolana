@@ -160,26 +160,26 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: the recomputed `external_data_hash` preimage begins with exactly the invoking instruction's tag byte (12, 13, 15, 16, or 17), so an otherwise identical payload proven for one instruction fails verification under any other.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:100-112` (`spp_instruction_discriminator: instruction as u8`), `merge/processor.rs:54-60`, `merge_ring/processor.rs:34-40`; preimages `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348, 351` (`struct ExternalDataHash`, `fn hash`), `merge_transact.rs:123-137`
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`, first preimage slice is the dispatched tag byte), `merge/processor.rs` (`fn process_merge_transact_ix`), `merge_ring/processor.rs` (`fn process_merge_ring_ix`); preimages `program-libs/interface/src/instruction/instruction_data/transact.rs` (`struct ExternalDataPreimage`, `fn ExternalDataPreimage::new`), `merge_transact.rs` (`struct MergeExternalDataHash`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (cross-instruction replay)
   - Suggested test: negative (transact proof replayed as ring_transact); harness: program-tests integration (`cargo test-sbf`)
 
-- [x] **INV-XC-16: the external_data_hash preimage is injective and binds the decryption context**
-  - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` `external_data_hash_is_injective_across_output_message_boundary` (plus the empty-vs-none and owner-tag boundary tests in the same module)
+- [x] **INV-XC-16: the external_data_hash preimage is injective and covers the decryption context**
+  - Covered by: `sdk-libs/program/tests/external_data.rs` `external_data_hash_is_injective_across_output_message_boundary` (plus the empty-vs-none and owner-tag boundary tests in the same module)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: the `ExternalDataHash` preimage covers exactly: the instruction discriminator, `expiry_unix_ts`, the resolved `interface_transfers` legs (post-PR164, replacing the old `public_sol_amount`/`public_spl_amount`/`relayer_fee` fields), the `data_hash`/`ring_data_hash` option presence and values, `tx_viewing_pk`, `salt`, the resolved outputs, and the messages. Binding `tx_viewing_pk` and `salt` (the F-05 fix) means a relayer can no longer corrupt the only on-chain decryption context; the count prefixes and presence bytes keep the encoding injective across output/message/owner-tag/data boundaries.
-  - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:329-348` (`struct ExternalDataHash`), hash at `instruction_data/transact.rs:351` (`fn ExternalDataHash::hash`)
+  - Statement: the `ExternalDataPreimage` covers exactly: the instruction discriminator byte, the serialized external-data prefix of the instruction data (`expiry_unix_ts`, `tx_viewing_pk`, `salt`, `interface_transfers`, `data_hash`, `ring_data_hash`, `outputs`, `messages`, hashed in place as one slice), then two addresses per interface transfer in leg order (SOL: `sol_interface`, recipient; SPL: mint, user token account), then one address per output whose owner tag is `Account`, in output order. The prefix includes `tx_viewing_pk` and `salt` (the F-05 fix), so a relayer cannot change the published decryption context. The prefix is self-delimiting (`u8` element counts, `u16` byte lengths, `Option` presence bytes, enum variant bytes), and the count and meaning of the appended addresses is fixed by the prefix alone, so the encoding is injective across output/message/owner-tag/data boundaries and across `(instruction data, accounts)` pairs.
+  - Location: `sdk-libs/program/src/external_data.rs` (`struct TransactExternalData`), `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn TransactIxDataRef::parse_with_external_data_prefix`, `struct ExternalDataPreimage`: `push_settlement`, `push_owner_tag`, `finish`); program side `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`), `settlement/mod.rs` (`fn Settlement::committed_accounts`)
   - Severity: High
   - Suggested test: property (proptest over adjacent encodings; unit tests exist); harness: `cargo test -p zolana-interface`
 
-- [ ] **INV-XC-17: the resolved owner tag, not its encoding, enters the hash**
-  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the positive Inline/Account encoding-equivalence and account-reorder cases are untested)
+- [ ] **INV-XC-17: the hash covers an `Account` owner tag's encoding and its resolved address**
+  - Partial coverage: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_tampered_output_owner_tag` (tamper -> 7008 with rollback; the account-reorder case for an `Account(i)` tag is untested on-chain), `sdk-libs/program/tests/external_data.rs` `external_data_hash_binds_account_owner_tags_through_the_resolved_address` (unit)
   - Kind: postcondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: `external_data_hash` covers each output's resolved 32-byte owner tag (after `fetch_tag`), so two encodings resolving to the same tag (e.g. `Inline(addr)` vs `Account(i)` pointing at `addr`) produce the same hash, and re-ordering the account list to change an `Account(i)` resolution changes the hash and fails verification.
-  - Location: `programs/shielded-pool/src/instructions/transact/event.rs:22-35` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:240-244` (`struct ResolvedOutput`)
+  - Statement: `external_data_hash` covers each output's `OwnerTag` encoding inside the serialized prefix (for `Account(i)` that is the variant byte and the index byte) and, for every `Account(i)` output in output order, appends the address of `accounts[i]` after the settlement addresses. Re-ordering the account list to change an `Account(i)` resolution changes the hash and fails verification. `Inline(addr)` and `Account(i)` pointing at `addr` are distinct preimages; only the resolved 32-byte value (`fetch_tag`) is shared by the OWNER public input and the event `view_tag`.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn hash_external_data`, `push_owner_tag` over `resolved_outputs`), `transact/event.rs` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs` (`fn ExternalDataPreimage::push_owner_tag`, `struct ResolvedOutput`)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (account-list tampering)
   - Suggested test: negative + positive (encoding equivalence); harness: program-tests integration (`cargo test-sbf`)

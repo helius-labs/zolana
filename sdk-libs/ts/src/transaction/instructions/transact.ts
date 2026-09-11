@@ -1,7 +1,10 @@
 import { address } from "@solana/kit";
 
-import { externalDataHash as interfaceExternalDataHash } from "../../interface/external-data-hash.js";
-import { InstructionTag } from "../../interface/program.js";
+import {
+  externalDataHash as interfaceExternalDataHash,
+  type SettlementAccounts,
+} from "../../interface/external-data-hash.js";
+import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
@@ -12,6 +15,7 @@ import {
   type Address,
   type Bytes16,
   type Bytes32,
+  type InterfaceTransfer,
   type OwnerTag,
   type Signature,
   type TransactOutput,
@@ -193,7 +197,6 @@ export type SettlementTransfer =
       isDeposit: boolean;
       amount: bigint;
       tokenAccount: Address;
-      splTokenInterface: Address;
       splInterfaceBump: number;
     }>;
 
@@ -292,31 +295,37 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
     expiryUnixTs: data.expiryUnixTs,
-    interfaceTransfers: data.interfaceTransfers.map((transfer) =>
-      transfer.kind === "sol"
-        ? {
-            kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
-            amount: transfer.amount,
-            recipient: transfer.userSolAccount,
-          }
-        : {
-            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-            amount: transfer.amount,
-            tokenAccount: transfer.tokenAccount,
-            splInterfacePda: transfer.splTokenInterface,
-          },
-    ),
-    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
-    outputs: data.outputs.map((output, index) => ({
-      utxoHash: output.utxoHash,
-      ownerTag: data.resolvedOwnerTags[index] as Bytes32,
-      ...(output.data === undefined ? {} : { data: output.data }),
-    })),
+    interfaceTransfers: data.interfaceTransfers.map(settlementInterfaceTransfer),
+    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
+    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
+    outputs: data.outputs,
     messages: data.messages,
+    settlementAccounts: data.interfaceTransfers.map(settlementAccounts),
+    resolvedOwnerTags: data.resolvedOwnerTags,
   });
+}
+
+function settlementInterfaceTransfer(transfer: SettlementTransfer): InterfaceTransfer {
+  if (transfer.kind === "sol") {
+    return transfer.isDeposit
+      ? { kind: "solDeposit", amount: transfer.amount }
+      : { kind: "solWithdrawal", amount: transfer.amount };
+  }
+  return transfer.isDeposit
+    ? { kind: "splDeposit", amount: transfer.amount, splInterfaceBump: transfer.splInterfaceBump }
+    : {
+        kind: "splWithdrawal",
+        amount: transfer.amount,
+        splInterfaceBump: transfer.splInterfaceBump,
+      };
+}
+
+function settlementAccounts(transfer: SettlementTransfer): SettlementAccounts {
+  return transfer.kind === "sol"
+    ? { asset: SOL_INTERFACE, user: transfer.userSolAccount }
+    : { asset: transfer.mint, user: transfer.tokenAccount };
 }
 
 type ExternalDataFields = Omit<
@@ -946,7 +955,6 @@ export class ConfidentialTransfer {
                 isDeposit: false,
                 amount: this.#withdrawal.amount,
                 tokenAccount: target.recipientTokenAccount,
-                splTokenInterface: target.splTokenInterface,
                 splInterfaceBump: target.splInterfaceBump,
               },
             ];

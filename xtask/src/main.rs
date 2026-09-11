@@ -418,7 +418,7 @@ fn tx_size(args: Vec<String>) {
     use solana_pubkey::Pubkey;
     use solana_signer::Signer;
     use solana_transaction::{versioned::VersionedTransaction, Transaction};
-    use zolana_interface::instruction::instruction_data::MERGE_INPUT_COUNT;
+    use zolana_interface::instruction::instruction_data::MERGE_SUPPORTED_INPUT_COUNTS;
     use zolana_interface::{
         instruction::{
             tag, CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactOutput,
@@ -604,8 +604,9 @@ fn tx_size(args: Vec<String>) {
 
     let legacy_tx_len = |ix: Instruction| -> usize {
         let msg = Message::new(&[ix], Some(&payer_pk));
-        let tx = Transaction::new(&[&payer], msg, Hash::default());
-        bincode::serialize(&tx).unwrap().len()
+        bincode::serialize(&Transaction::new_unsigned(msg))
+            .unwrap()
+            .len()
     };
 
     let v0_tx_len = |ix: Instruction, alts: &[AddressLookupTableAccount]| -> usize {
@@ -878,9 +879,19 @@ fn tx_size(args: Vec<String>) {
     );
     println!("|{:-<36}|{:-<10}|{:-<13}|{:-<14}|", "", "", "", "");
     let tree = Pubkey::new_unique();
-    for n in [2usize, 3, 5] {
+    let ring_config = Pubkey::new_unique();
+    let transact_row = |label: String, ix: Instruction| {
+        println!(
+            "| {:<34} | {:>8} | {:>11} | {:>12} |",
+            label,
+            ix.accounts.len(),
+            ix.data.len(),
+            legacy_tx_len(ix),
+        );
+    };
+    let transact_ix = |n: usize, m: usize, circuit: Option<CircuitId>| -> Instruction {
         let spec = transfer_layout(
-            3,
+            m,
             OwnerTag::Account(0),
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
@@ -889,7 +900,10 @@ fn tx_size(args: Vec<String>) {
         for (index, input) in data.inputs.iter_mut().enumerate() {
             input.nullifier_hash = [index as u8 + 1; 32];
         }
-        let ix = zolana_interface::instruction::Transact {
+        if let Some(circuit) = circuit {
+            data.circuit = circuit;
+        }
+        zolana_interface::instruction::Transact {
             payer: payer_pk,
             input_tree: tree,
             output_tree: tree,
@@ -897,20 +911,54 @@ fn tx_size(args: Vec<String>) {
             interface_transfer_accounts: Vec::new(),
             data,
         }
-        .instruction();
-        println!(
-            "| {:<34} | {:>8} | {:>11} | {:>12} |",
-            format!("transact {n} in 3 out, transfer"),
-            ix.accounts.len(),
-            ix.data.len(),
-            legacy_tx_len(ix),
+        .instruction()
+    };
+    let ring_transact_ix = |n: usize, m: usize, circuit: CircuitId| -> Instruction {
+        use solana_instruction::AccountMeta;
+        let mut ix = transact_ix(n, m, Some(circuit));
+        *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
+        ix.accounts
+            .insert(5, AccountMeta::new_readonly(ring_config, true));
+        ix
+    };
+    for (n, m) in [(2usize, 3usize), (3, 3), (5, 3), (36, 2)] {
+        transact_row(
+            format!("transact {n} in {m} out, transfer"),
+            transact_ix(n, m, None),
         );
     }
     {
+        use zolana_interface::verifying_keys::{Bsb22Commitment, RingP256ProofData};
+        let slots = N_PUBLIC_SLOTS as u8;
+        transact_row(
+            "ring transact eddsa 36 in 2 out".to_string(),
+            ring_transact_ix(36, 2, CircuitId::RingEddsa(36, 2, slots)),
+        );
+        transact_row(
+            "ring transact p256 36 in 2 out".to_string(),
+            ring_transact_ix(
+                36,
+                2,
+                CircuitId::RingP256(
+                    36,
+                    2,
+                    slots,
+                    RingP256ProofData {
+                        bsb22_commitment: Bsb22Commitment {
+                            commitment: [0u8; 32],
+                            commitment_pok: [0u8; 32],
+                        },
+                        default_owner_tag: Some([0u8; 32]),
+                    },
+                ),
+            ),
+        );
+    }
+    for input_count in MERGE_SUPPORTED_INPUT_COUNTS {
         use zolana_interface::instruction::{
             instruction_data::MergeProof, MergeTransact, MergeTransactIxData,
         };
-        let nullifiers = (0..MERGE_INPUT_COUNT)
+        let nullifiers = (0..input_count)
             .map(|index| [index as u8 + 1; 32])
             .collect::<Vec<_>>();
         let data = MergeTransactIxData {
@@ -920,8 +968,8 @@ fn tx_size(args: Vec<String>) {
             eddsa_owner: true,
             private_tx_hash: [0u8; 32],
             nullifiers,
-            utxo_tree_root_index: vec![0; MERGE_INPUT_COUNT],
-            nullifier_tree_root_index: vec![0; MERGE_INPUT_COUNT],
+            utxo_tree_root_index: vec![0; input_count],
+            nullifier_tree_root_index: vec![0; input_count],
         };
         let settings = Pubkey::new_unique();
         let vault = zolana_smart_account_client::smart_account_pda(&settings, 0).0;
@@ -952,11 +1000,14 @@ fn tx_size(args: Vec<String>) {
         let tx = Transaction::new_unsigned(msg);
         println!(
             "| {:<34} | {:>8} | {:>11} | {:>12} |",
-            "merge 8 in 1 out, direct", merge_ix_accounts, merge_ix_data_len, direct_len,
+            format!("merge {input_count} in 1 out, direct"),
+            merge_ix_accounts,
+            merge_ix_data_len,
+            direct_len,
         );
         println!(
             "| {:<34} | {:>8} | {:>11} | {:>12} |",
-            "merge 8 in 1 out, execute_sync + cb",
+            format!("merge {input_count} in 1 out, execute_sync + cb"),
             sync_ix.accounts.len(),
             sync_ix.data.len(),
             bincode::serialize(&tx).unwrap().len(),

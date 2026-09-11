@@ -136,13 +136,13 @@ describe("entry transition inputs", () => {
     );
     expect(nullifier).toEqual(address);
     expect(hexOf(inputs.externalDataHash)).toBe(
-      "00ef014f5c68fff05cd62415182ac9e7db2456eebca778b39a14cdac540d0173",
+      "007d8570799cec47261326adb458082d7d3e2209c1fe09ee4203f1e79c040376",
     );
     expect(hexOf(inputs.privateTxHash)).toBe(
-      "1224a99757d2c68fcacc59845bc8adf7689a879b0d5fccd451deea5ea5779a7b",
+      "1f5af8e4fba46ce23dc7690ba20a2c900dee0e9226e080427ea4b370c13ea9b8",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "0c36fee57941a1f35389036e8b7037d66d6cd0ef6466b633c30ccf84b4652a51",
+      "2d66a2d5ac74c9f2e0f167b8fbb87a3cd3db45d8d77bd8e28a1693e6f9cee50c",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
@@ -171,10 +171,10 @@ describe("entry transition inputs", () => {
     });
     expect(nullifier).toEqual(spentHashes.nullifier);
     expect(hexOf(inputs.privateTxHash)).toBe(
-      "16f3de48d03c896f8e726afe1f9a9f26f10237542b9a6ecdfb94929e2e860719",
+      "202e31e8682a29d7c0a061e836bc43b159ee93ddeacc12f155c46a69f2c89713",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "130fe7107f0bfcf8411d769abcd08a238dbb104049980f8833153a204908eb37",
+      "2302b717d9e8b8752dd394526993c496c2615f981c2b44553cd3b4eae4c31bd9",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);

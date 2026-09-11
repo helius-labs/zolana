@@ -16,16 +16,15 @@ use pinocchio::{
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
-            TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, TransactIxData, TransactOutput, TransactProof,
         },
         tag::TRANSACT,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::TransactExternalData;
 use zolana_ring_policy::{
     entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
     ListSet, Member, PolicyHashError, SourceMap, Writer, NAMESPACE_PDA_SEED,
@@ -328,25 +327,14 @@ impl EntryTransition {
             .map_err(|_| CustomRingError::HashingFailed)?;
         let content = self.entry.to_output_data();
         let entry_bytes = namespace_address.to_bytes();
-        let resolved_output = [ResolvedOutput {
-            utxo_hash: &output_hash,
-            owner_tag: entry_bytes,
-            data: Some(content.as_slice()),
-        }];
-        let messages: &[MessageData] = &[];
-        let external_data_hash = ExternalDataHash {
-            spp_instruction_discriminator: TRANSACT,
-            expiry_unix_ts: u64::MAX,
-            interface_transfers: &[],
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &[0u8; 33],
-            salt: &[0u8; 16],
-            outputs: &resolved_output,
-            messages,
-        }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?;
+        let external = TransactExternalData::single_output(TransactOutput {
+            utxo_hash: output_hash,
+            owner_tag: OwnerTag::Inline(entry_bytes),
+            data: Some(content.to_vec()),
+        });
+        let external_data_hash = external
+            .hash(TRANSACT, &[], &[entry_bytes])
+            .map_err(|_| CustomRingError::HashingFailed)?;
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
             output_hash,
@@ -356,24 +344,12 @@ impl EntryTransition {
         )
         .map_err(|_| CustomRingError::HashingFailed)?;
 
-        Ok(TransactIxData {
-            expiry_unix_ts: u64::MAX,
+        Ok(external.into_ix_data(
             private_tx_hash,
-            circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            proof: self.proof,
-            inputs: vec![self.input],
-            interface_transfers: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-            outputs: vec![TransactOutput {
-                utxo_hash: output_hash,
-                owner_tag: OwnerTag::Inline(entry_bytes),
-                data: Some(content.to_vec()),
-            }],
-            messages: Vec::new(),
-        })
+            CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+            self.proof,
+            vec![self.input],
+        ))
     }
 }
 

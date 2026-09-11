@@ -16,12 +16,6 @@ import { RingError } from "./error.js";
 
 const base58Encoder = getBase58Encoder();
 
-/** The `circuit` selector that carries a BSB22 commitment and an owner tag inline. */
-const RING_P256_CIRCUIT = 3;
-
-/** Bytes of one `InputUtxo`, a nullifier hash and two root indexes. */
-const INPUT_UTXO_SIZE = 36;
-
 /** Mirrors Rust `TransactionOrigin`, an unknown signature is an error, never `false`. */
 export interface TransactionOrigin {
   ringInvoked(signature: Signature, ring: Address, context?: RequestContext): Promise<boolean>;
@@ -279,17 +273,10 @@ function interfaceTransfersOf(
   }
 }
 
-/** Reads the fixed `TransactIxData` prefix, then the transfers, and leaves the rest. */
 function readInterfaceTransfers(reader: Reader): readonly InterfaceTransfer[] {
   reader.u64("expiryUnixTs");
-  reader.bytes(32, "privateTxHash");
-  const circuit = reader.u16("circuit.kind");
-  reader.bytes(3, "circuit.shape");
-  if (circuit === RING_P256_CIRCUIT) reader.bytes(97, "circuit.ringP256");
   reader.bytes(33, "txViewingPk");
   reader.bytes(16, "salt");
-  reader.bytes(128, "proof");
-  reader.bytes(reader.u8("inputs.length") * INPUT_UTXO_SIZE, "inputs");
   const count = reader.u8("interfaceTransfers.length");
   return Array.from({ length: count }, () => readInterfaceTransfer(reader));
 }

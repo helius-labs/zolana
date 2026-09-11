@@ -22,9 +22,8 @@ use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, InterfaceTransfer, OwnerTag,
-            ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactOutput,
-            TransactProof,
+            CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
+            TransactOutput, TransactProof,
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
@@ -32,13 +31,14 @@ use zolana_interface::{
     state::read_tree_id,
     tree_slot::TreeSlot,
     verifying_keys::transfer_confidential_2_3,
-    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::TransactExternalData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
@@ -145,9 +145,8 @@ pub fn inline_output(utxo_hash: [u8; 32], view_tag: [u8; 32]) -> TransactOutput 
 }
 
 /// Resolve every output's owner tag against the transaction context (`Inline`
-/// tags resolve to themselves), producing the `ResolvedOutput` slice
-/// [`ExternalDataHash`] hashes. Mirrors the program's per-output resolution so
-/// the client and program agree on the hash preimage.
+/// tags resolve to themselves). Mirrors the program's per-output resolution so
+/// the client and program agree on the `external_data_hash` preimage.
 pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
     ix.outputs
         .iter()
@@ -234,55 +233,39 @@ pub fn new_transact_ix_data(
     }
 }
 
-/// The single hand-maintained `ExternalDataHash` assembly; both settlement
-/// rails feed it with their own bound accounts (mirroring the program's
-/// `settlement_accounts`).
-pub fn external_data_hash(
-    transact_ix_data: &TransactIxData,
-    interface_transfers: &[ResolvedInterfaceTransfer],
-) -> Result<[u8; 32]> {
-    let outputs = resolve_outputs(transact_ix_data)?;
-    Ok(ExternalDataHash {
-        spp_instruction_discriminator: tag::TRANSACT,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        interface_transfers,
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-        salt: &transact_ix_data.salt,
-        outputs: &outputs,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()?)
+/// The two settlement addresses one interface transfer appends to the
+/// `external_data_hash` preimage: the asset account, then the user account.
+pub type LegAccounts = [[u8; 32]; 2];
+
+pub fn sol_leg(recipient: &Pubkey) -> LegAccounts {
+    [SOL_INTERFACE, recipient.to_bytes()]
 }
 
-/// `external_data_hash` for an SPL settlement: binds the user's SPL token
-/// account and the pool's SPL interface vault as a resolved SPL interface
-/// transfer, exactly as the program's `settlement_accounts` does for the SPL
-/// rail.
-pub fn external_data_hash_spl(
+pub fn spl_leg(mint: &Pubkey, user_token_account: &Pubkey) -> LegAccounts {
+    [mint.to_bytes(), user_token_account.to_bytes()]
+}
+
+/// The single hand-maintained `external_data_hash` assembly for the confidential
+/// `transact` instruction; `legs` pairs 1:1 with `interface_transfers`.
+pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
-    user_spl_token_account: &[u8; 32],
-    spl_token_interface: &[u8; 32],
+    legs: &[LegAccounts],
 ) -> Result<[u8; 32]> {
-    let transfer = transact_ix_data
-        .interface_transfers
-        .first()
-        .context("external_data_hash_spl requires one SPL interface transfer")?;
-    let resolved = if transfer.is_deposit() {
-        ResolvedInterfaceTransfer::SplDeposit {
-            amount: transfer.amount(),
-            user_token_account: *user_spl_token_account,
-            spl_interface: *spl_token_interface,
-        }
-    } else {
-        ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: transfer.amount(),
-            user_token_account: *user_spl_token_account,
-            spl_interface: *spl_token_interface,
-        }
-    };
-    external_data_hash(transact_ix_data, &[resolved])
+    external_data_hash_for_discriminator(transact_ix_data, tag::TRANSACT, legs)
+}
+
+pub fn external_data_hash_for_discriminator(
+    transact_ix_data: &TransactIxData,
+    discriminator: u8,
+    legs: &[LegAccounts],
+) -> Result<[u8; 32]> {
+    let resolved_owner_tags: Vec<[u8; 32]> = resolve_outputs(transact_ix_data)?
+        .iter()
+        .map(|output| output.owner_tag)
+        .collect();
+    TransactExternalData::from(transact_ix_data)
+        .hash(discriminator, legs, &resolved_owner_tags)
+        .map_err(|e| anyhow!("external data hash: {e}"))
 }
 
 /// A dummy output (`owner_hash = 0`) over a chosen `blinding`, assembled exactly as
@@ -826,8 +809,8 @@ pub fn build_spl_withdrawal(
         &output_owner_hashes,
         &[change_nullifier_pk, zero, zero],
     );
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
+    let external_hash =
+        external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifier).expect("private transaction blinding");
     let change_output_hash = *output_hashes.first().expect("change output hash");

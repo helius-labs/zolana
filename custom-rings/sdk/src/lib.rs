@@ -39,7 +39,7 @@ pub use crate::{
         merge::{
             CustomRingMerge, CustomRingMergeInstruction, CustomRingMergeProofEnvironment,
             CustomRingMergeProver, CustomRingMergeWitness, PreparedCustomRingMerge,
-            ProvenCustomRingMerge, MERGE_INPUTS,
+            ProvenCustomRingMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT,
         },
         revoke_read_access::RevokeReadAccess,
         set_authority::SetAuthority,

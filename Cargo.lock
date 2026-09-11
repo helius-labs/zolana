@@ -2062,6 +2062,7 @@ dependencies = [
  "wincode",
  "zolana-account-checks",
  "zolana-interface",
+ "zolana-program",
  "zolana-ring-policy",
  "zolana-test-utils",
  "zolana-tree",
@@ -6523,6 +6524,7 @@ dependencies = [
  "light-program-profiler",
  "mollusk-svm",
  "num-bigint 0.4.8",
+ "p256",
  "pinocchio 0.11.2",
  "proptest",
  "serde",
@@ -11208,6 +11210,7 @@ dependencies = [
 name = "zolana-interface"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "borsh",
  "bytemuck",
  "groth16-solana",
@@ -11269,7 +11272,9 @@ dependencies = [
 name = "zolana-program"
 version = "0.1.0"
 dependencies = [
+ "wincode",
  "zolana-hasher",
+ "zolana-interface",
 ]
 
 [[package]]
@@ -11436,6 +11441,7 @@ dependencies = [
  "zolana-interface",
  "zolana-keypair",
  "zolana-merkle-tree",
+ "zolana-program",
  "zolana-program-test",
  "zolana-smart-account-client",
  "zolana-transaction",

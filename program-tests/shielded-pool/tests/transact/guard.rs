@@ -26,7 +26,7 @@ use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
+        instruction_data::transact::{CircuitId, TransactIxData, TransactIxDataRef, TransactProof},
         RingAuthorityTransact, RingTransact, Transact,
     },
     pda,
@@ -501,10 +501,11 @@ fn transact_rejects_a_malformed_wincode_payload() {
                 .to_vec(),
         );
     }
-    // An invalid circuit selector tag (u16, right after expiry + private_tx_hash
-    // inside the payload): 0xFFFF names no variant and must fail decoding.
+    let payload = template.data.get(1..).expect("instruction payload");
+    let (_, external_data_prefix) =
+        TransactIxDataRef::parse_with_external_data_prefix(payload).expect("template parses");
     let mut bad_tag = template.data.clone();
-    let circuit_tag_offset = 1 + 8 + 32;
+    let circuit_tag_offset = 1 + external_data_prefix.len() + 32;
     *bad_tag
         .get_mut(circuit_tag_offset)
         .expect("circuit tag byte") = 0xFF;
@@ -512,10 +513,10 @@ fn transact_rejects_a_malformed_wincode_payload() {
         .get_mut(circuit_tag_offset + 1)
         .expect("circuit tag byte") = 0xFF;
     malformed.push(bad_tag);
-    // An overlong trailing length prefix: the final byte is the empty
-    // `messages` vec's u8 count; 255 claims elements past the buffer end.
     let mut overlong = template.data.clone();
-    *overlong.last_mut().expect("messages length byte") = 255;
+    *overlong
+        .get_mut(external_data_prefix.len())
+        .expect("messages length byte") = 255;
     malformed.push(overlong);
 
     for data in malformed {
@@ -556,8 +557,10 @@ fn transact_rejects_trailing_payload_bytes_at_parse() {
 #[test]
 fn transact_rejects_more_inputs_than_any_circuit_supports() {
     let mut env = Pool::initialized();
-    // INV-TRANSACT-09: six inputs overflow the MAX_INPUTS = 5 proof-input
-    // buffer before any tree write or proof check.
+    // INV-TRANSACT-09: no circuit has six inputs -- the supported counts jump
+    // from five to the 36-input consolidation shape -- so `is_supported()`
+    // rejects this in `validate_circuit_type`, before any tree write or proof
+    // check.
     let data = transfer_ix_data(6, 3);
     expect_rejection(&mut env, data, ShieldedPoolError::InvalidTransactShape);
 }

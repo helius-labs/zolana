@@ -12,8 +12,8 @@ use zolana_client::{SolanaRpc, STATE_TREE_HEIGHT};
 use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -29,7 +29,7 @@ use shielded_pool_tests::support::localnet::{
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input, dummy_transfer_output, nullifier_tree, public_sol_field,
-    real_output, single_tree_slots, spend_input, transfer_output, SpendInputArgs,
+    real_output, single_tree_slots, sol_leg, spend_input, transfer_output, SpendInputArgs,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";
@@ -418,10 +418,7 @@ fn phase_unshield(
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
-        resolved_transfers: vec![ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: TRANSFER_AMOUNT,
-            recipient: public_recipient.to_bytes(),
-        }],
+        resolved_transfers: vec![sol_leg(&public_recipient)],
         private_tx_inputs: [transferred_hash, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
         payer_pubkey_hash: solana_owner_identity(&recipient_bytes)?,

@@ -9,6 +9,7 @@ import type {
   RingDepositInstructionData,
   SplAssetCounterAccount,
   SplAssetRegistryAccount,
+  TransactExternalData,
   TransactInstructionData,
   TransactOutput,
   TransactProof,
@@ -231,14 +232,12 @@ function writeOutput(writer: Writer, value: TransactOutput): void {
   });
 }
 
-function writeTransactData(writer: Writer, value: TransactInstructionData): void {
-  writer.u64(value.expiryUnixTs, "expiryUnixTs").bytes(value.privateTxHash, 32, "privateTxHash");
-  writeCircuit(writer, value.circuit);
-  writer.bytes(value.txViewingPk, 33, "txViewingPk").bytes(value.salt, 16, "salt");
-  writeProof(writer, value.proof);
-  writer.u8(value.inputs.length, "inputs.length");
-  for (const input of value.inputs) writeInput(writer, input);
-  writer.u8(value.interfaceTransfers.length, "interfaceTransfers.length");
+function writeTransactExternalData(writer: Writer, value: TransactExternalData): void {
+  writer
+    .u64(value.expiryUnixTs, "expiryUnixTs")
+    .bytes(value.txViewingPk, 33, "txViewingPk")
+    .bytes(value.salt, 16, "salt")
+    .u8(value.interfaceTransfers.length, "interfaceTransfers.length");
   for (const transfer of value.interfaceTransfers) writeInterfaceTransfer(writer, transfer);
   writer
     .option(value.dataHash, (output, hash) => output.bytes(hash, 32, "dataHash"))
@@ -250,6 +249,19 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
     writer.bytes(message.viewTag, 32, "message.viewTag");
     byteVector(writer, message.data, "message.data");
   }
+}
+
+function writeTransactData(writer: Writer, value: TransactInstructionData): void {
+  writeTransactExternalData(writer, value);
+  writer.bytes(value.privateTxHash, 32, "privateTxHash");
+  writeCircuit(writer, value.circuit);
+  writeProof(writer, value.proof);
+  writer.u8(value.inputs.length, "inputs.length");
+  for (const input of value.inputs) writeInput(writer, input);
+}
+
+export function encodeTransactExternalData(value: TransactExternalData): Uint8Array {
+  return encoded(value, writeTransactExternalData);
 }
 
 export function encodeTransactInstructionData(value: TransactInstructionData): Uint8Array {

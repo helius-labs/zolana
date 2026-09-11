@@ -27,9 +27,8 @@ use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
 };
@@ -43,9 +42,9 @@ use zolana_transaction::{
 use zolana_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
     derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, external_data_hash_spl, fe, inline_outputs, new_transact_ix_data,
-    nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field,
-    real_output, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
+    external_data_hash, fe, inline_outputs, new_transact_ix_data, nullifier_tree,
+    output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field, real_output,
+    set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots, spend_input, spl_leg,
     spl_public_slots, test_private_tx_blinding, transfer_output, SpendInputArgs,
     TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
@@ -271,10 +270,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         &owner_pk_hashes,
         &[change_nullifier_pk, zero, zero],
     );
-    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
-        amount: AMOUNT,
-        recipient: recipient.to_bytes(),
-    }];
+    let resolved_transfers = [sol_leg(&recipient)];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
 
@@ -492,10 +488,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[nullifier_pk, zero, zero]);
 
-    let resolved_transfers = [ResolvedInterfaceTransfer::SolDeposit {
-        amount: AMOUNT,
-        recipient: depositor.pubkey().to_bytes(),
-    }];
+    let resolved_transfers = [sol_leg(&depositor.pubkey())];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx_blinding =
@@ -692,8 +685,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         &output_owner_hashes,
         &[nullifier_pk, zero, zero],
     );
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
+    let external_hash =
+        external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifiers[0]).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
@@ -1220,10 +1213,7 @@ fn phase_withdraw_recipient_utxo(
         &withdraw_owner_pk_hashes,
         &[withdraw_change_nullifier_pk, zero, zero],
     );
-    let withdraw_resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
-        amount: TRANSFER_AMOUNT,
-        recipient: public_recipient.to_bytes(),
-    }];
+    let withdraw_resolved_transfers = [sol_leg(&public_recipient)];
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)
             .expect("withdraw external data hash");
