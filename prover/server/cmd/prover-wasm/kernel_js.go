@@ -14,8 +14,7 @@ import (
 )
 
 type browserKernel struct {
-	key    js.Value
-	solver bool
+	key js.Value
 }
 
 func prepareKernel(c *preparedCircuit) {
@@ -35,15 +34,12 @@ func prepareKernel(c *preparedCircuit) {
 	for _, commitment := range pk.CommitmentKeys {
 		kernel.key.Call("add_commitment", packKernel(commitment.Basis), packKernel(commitment.BasisExpSigma))
 	}
-	if program := kernelSolverProgram(c.cs, pk.InfinityA, pk.InfinityB); program != nil {
-		kernel.solver = kernel.key.Call("set_solver", packKernel(program), packKernelFields(c.cs.Coefficients)).Bool()
-	}
 	c.kernel = kernel
 	installed = true
 }
 
 // Gnark and arkworks use the same four little-endian Montgomery limbs.
-// Only decoded keys, validated solver plans and field elements cross this bridge.
+// Only decoded keys and field elements cross this bridge.
 func packKernel(value any) js.Value {
 	var buf bytes.Buffer
 	if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
@@ -64,13 +60,6 @@ func packKernelFields(values []fr.Element) js.Value {
 func (k *browserKernel) parts(sa, sb, sk, a, b, c []fr.Element) (kernelParts, error) {
 	result := k.key.Call("parts", packKernelFields(sa), packKernelFields(sb), packKernelFields(sk), packKernelFields(a), packKernelFields(b), packKernelFields(c))
 	return unpackKernelParts(result)
-}
-func (k *browserKernel) solveParts(witness []fr.Element) (kernelParts, bool, error) {
-	if !k.solver {
-		return kernelParts{}, false, nil
-	}
-	parts, err := unpackKernelParts(k.key.Call("solve_parts", packKernelFields(witness)))
-	return parts, true, err
 }
 func unpackKernelParts(result js.Value) (kernelParts, error) {
 	var out kernelParts
