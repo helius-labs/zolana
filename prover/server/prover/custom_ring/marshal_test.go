@@ -298,7 +298,6 @@ func TestPolicyParametersRejectBadInput(t *testing.T) {
 		"velocity count too high": func(m map[string]interface{}) {
 			m["velocityCount"] = policy.NVelocityAssets + 1
 		},
-		"velocity rows without a window": func(m map[string]interface{}) { m["windowSlots"] = 0 },
 		"a window without velocity rows": func(m map[string]interface{}) { m["velocityCount"] = 0 },
 		"nonzero velocity padding": func(m map[string]interface{}) {
 			m["velocity"].([]interface{})[1].(map[string]interface{})["cap"] = "0x" + strings.Repeat("00", 31) + "01"
@@ -362,6 +361,22 @@ func rejectTampered[P any](t *testing.T, base []byte, tests map[string]func(map[
 				t.Fatalf("expected an error")
 			}
 		})
+	}
+}
+
+// A per-transfer cap carries rows with no window, WindowSlots zero.
+func TestPolicyParametersAcceptRowsWithoutAWindow(t *testing.T) {
+	p := sampleParams()
+	p.WindowSlots = 0
+	p.WindowIndex = 0
+	p.Record = zeroedRecord()
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got PolicyParameters
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("rows without a window are a per-transfer cap: %v", err)
 	}
 }
 

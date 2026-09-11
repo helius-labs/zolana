@@ -140,7 +140,7 @@ func TestCircuitRejectsVelocityTampering(t *testing.T) {
 			},
 		},
 		{
-			name: "rows without a window",
+			name: "the window dropped under the policy hash",
 			build: func(t *testing.T) *CustomRingPolicyCircuit {
 				c := velocityAssignment(t, velocityDefault())
 				c.WindowSlots = big.NewInt(0)
@@ -222,4 +222,124 @@ func velocityAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 		}
 	}
 	return c
+}
+
+// A row without a window caps one transfer, the record wires never charge it.
+func TestCircuitSolvesTransferCaps(t *testing.T) {
+	cs := testConstraintSystem(t)
+	tests := []struct {
+		name  string
+		build func(*testing.T) *CustomRingPolicyCircuit
+	}{
+		{"a transfer under the cap", transferCapBuild(func(v *velocityFixture) {})},
+		{"a transfer at the cap", transferCapBuild(func(v *velocityFixture) { v.cap = transferAmount })},
+		{"change inside the ring is not outflow", transferCapBuild(func(v *velocityFixture) {
+			v.change = 4000
+			v.rulesFree = true
+		})},
+		{"a large outflow raises the approval bit", transferCapBuild(func(v *velocityFixture) {
+			v.cosignAbove = transferAmount - 1
+			v.approval = true
+		})},
+		{"an unlimited row still asks the co-signer", transferCapBuild(func(v *velocityFixture) {
+			v.cap = 0
+			v.cosignAbove = transferAmount - 1
+			v.approval = true
+		})},
+		{"a second row for another mint", transferCapBuild(func(v *velocityFixture) {
+			v.rows = []velocityRow{{asset: big.NewInt(0xe5), cap: 1}}
+		})},
+		{
+			name: "garbage record wires do not charge the cap",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				c := transferCapAssignment(t, transferCapDefault())
+				c.Record.Assets[0] = assetField(t, fill(0xd4))
+				c.Record.Spent[0] = big.NewInt(velocityCap)
+				c.Record.Window = big.NewInt(0)
+				return c
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			solve(t, cs, tt.build(t))
+		})
+	}
+}
+
+func TestCircuitRejectsTransferCapTampering(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(*testing.T) *CustomRingPolicyCircuit
+	}{
+		{"spend over the cap", transferCapBuild(func(v *velocityFixture) { v.cap = transferAmount - 1 })},
+		{"the approval bit dropped above the threshold", transferCapBuild(func(v *velocityFixture) {
+			v.cosignAbove = transferAmount - 1
+		})},
+		{"the approval bit raised below the threshold", transferCapBuild(func(v *velocityFixture) {
+			v.cosignAbove = transferAmount
+			v.approval = true
+		})},
+		{"a second input owner", transferCapBuild(func(v *velocityFixture) { v.secondSender = true })},
+		{
+			name: "change above the inputs",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				f := transferCapDefault()
+				f.velocity.change = 4000
+				f.velocity.rulesFree = true
+				c := transferCapAssignment(t, f)
+				c.Inputs[0].Amount = big.NewInt(transferAmount)
+				return c
+			},
+		},
+		{
+			name: "a window index without a window",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				c := transferCapAssignment(t, transferCapDefault())
+				c.WindowIndex = big.NewInt(1)
+				return c
+			},
+		},
+		{
+			name: "a namespace owned note offered as a record",
+			build: func(t *testing.T) *CustomRingPolicyCircuit {
+				c := transferCapAssignment(t, transferCapDefault())
+				c.Inputs[1] = c.Inputs[0]
+				c.Inputs[1].OwnerPkHash = pkField(t, fill(0x11))
+				c.Inputs[1].NullifierPk = spptest.MustNullifierPk(t, big.NewInt(0))
+				c.Inputs[1].Blinding = big.NewInt(0x99)
+				return c
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rejectAssignment(t, tt.build(t))
+		})
+	}
+}
+
+func transferCapDefault() fixture {
+	f := defaultFixture()
+	f.velocity = velocityFixtureDefault()
+	f.velocity.perTransfer = true
+	return f
+}
+
+func transferCapBuild(knob func(*velocityFixture)) func(*testing.T) *CustomRingPolicyCircuit {
+	return func(t *testing.T) *CustomRingPolicyCircuit {
+		f := transferCapDefault()
+		knob(f.velocity)
+		return transferCapAssignment(t, f)
+	}
+}
+
+func transferCapAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
+	t.Helper()
+	listFacts := f.listFacts
+	if f.velocity.rulesFree {
+		f.rulesFree = true
+		listFacts = nil
+	}
+	return newStatement(t, f).assignment(t, listFacts)
 }

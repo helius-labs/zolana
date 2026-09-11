@@ -521,6 +521,16 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("spend.next_data_hash %s\n", hex32(v.record.nextDataHash))
 	fmt.Printf("spend.zero_commitment %s\n", hex32(hostCountersCommitment(t, big.NewInt(0), nil, nil)))
 	fmt.Printf("velocity_public_input_hash %s\n", hex32(v.publicInputHash))
+
+	capRows := []velocityRow{{asset: assetField(t, fill(0xd4)), cap: 5000, cosign: 600}}
+	fmt.Printf("transfer_cap_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap, 0, capRows)))
+	cf := defaultFixture()
+	cf.velocity = velocityFixtureDefault()
+	cf.velocity.perTransfer = true
+	cf.velocity.cosignAbove = 600
+	cf.velocity.approval = true
+	cv := newStatement(t, cf)
+	fmt.Printf("transfer_cap_public_input_hash %s\n", hex32(cv.publicInputHash))
 }
 
 func solve(t *testing.T, cs constraint.ConstraintSystem, assignment *CustomRingPolicyCircuit) {
@@ -594,6 +604,8 @@ type velocityFixture struct {
 	forgetCounters bool
 	// the sender's change satisfies no output owner rule, the change cases run rule free
 	rulesFree bool
+	// no window, the row caps one transfer with no record
+	perTransfer bool
 }
 
 const (
@@ -865,8 +877,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.ringID = big.NewInt(0x5a)
 	if v := f.velocity; v != nil {
-		s.windowSlots = windowSlots
-		s.windowIndex = windowIndex
+		if !v.perTransfer {
+			s.windowSlots = windowSlots
+			s.windowIndex = windowIndex
+		}
 		s.approval = v.approval
 		s.velocity = append([]velocityRow{{asset: asset, cap: v.cap, cosign: v.cosignAbove}}, v.rows...)
 	}
@@ -883,7 +897,11 @@ func newStatement(t *testing.T, f fixture) *statement {
 	}
 	s.buildTransaction(t, pkField(t, f.recipient), sender, asset, secondAsset, f.amount, f.secondAmount)
 	if v := f.velocity; v != nil {
-		s.addRecordSlots(t, v, sender, asset)
+		if v.perTransfer {
+			s.shapeTransferCap(t, v, sender)
+		} else {
+			s.addRecordSlots(t, v, sender, asset)
+		}
 	}
 	return s
 }
@@ -921,6 +939,22 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 	} else {
 		s.inputs = s.inputs[:1]
 	}
+	s.shapeSpendOutputs(v, sender)
+	s.deriveRecord(t)
+	if v.entryAsRecord {
+		s.record.dataHash = s.derived[allowedActive].dataHash
+	}
+	if v.staleSuccessor {
+		s.record.nextDataHash = hostRecordDataHash(t, s.record.address, s.record.sender, s.record.version, s.windowIndex, s.record.nextCommitment)
+	}
+	s.inputs = append(s.inputs, s.recordOpening(t, s.record.dataHash, 0x63))
+	s.outputs = append(s.outputs, s.recordOpening(t, s.record.nextDataHash, 0x64))
+	s.updateHashes(t)
+}
+
+// shapeSpendOutputs marks the sender's change output inside the ring and
+// stamps every other output with the ring id.
+func (s *statement) shapeSpendOutputs(v *velocityFixture, sender *big.Int) {
 	if v.change > 0 {
 		change := s.outputs[0]
 		change.OwnerPkHash = sender
@@ -937,15 +971,20 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 			s.outputs[i].RingProgramID = s.ringID
 		}
 	}
-	s.deriveRecord(t)
-	if v.entryAsRecord {
-		s.record.dataHash = s.derived[allowedActive].dataHash
+}
+
+// shapeTransferCap charges one transfer's outflow to the cap with no record,
+// a second sender replaces the dummy input.
+func (s *statement) shapeTransferCap(t *testing.T, v *velocityFixture, sender *big.Int) {
+	t.Helper()
+	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
+	if v.secondSender {
+		other := s.inputs[0]
+		other.OwnerPkHash = pkField(t, fill(0xb4))
+		other.Blinding = big.NewInt(0x61)
+		s.inputs[1] = other
 	}
-	if v.staleSuccessor {
-		s.record.nextDataHash = hostRecordDataHash(t, s.record.address, s.record.sender, s.record.version, s.windowIndex, s.record.nextCommitment)
-	}
-	s.inputs = append(s.inputs, s.recordOpening(t, s.record.dataHash, 0x63))
-	s.outputs = append(s.outputs, s.recordOpening(t, s.record.nextDataHash, 0x64))
+	s.shapeSpendOutputs(v, sender)
 	s.updateHashes(t)
 }
 

@@ -34,21 +34,24 @@ type RecordWires struct {
 
 // velocityPolicy supplies the checked window switch and row flags.
 type velocityPolicy struct {
-	on      frontend.Variable
+	// the window switch, record slots ride only while it is on
+	on frontend.Variable
+	// rows charge each transfer, with or without a window
+	rows    frontend.Variable
 	enabled [NVelocityAssets]frontend.Variable
 }
 
-// checkVelocityTable binds the rows to the window switch and rejects
+// checkVelocityTable admits rows with or without a window and rejects
 // unusable rows.
 func (c *CustomRingPolicyCircuit) checkVelocityTable(api frontend.API, rangeChecker frontend.Rangechecker) velocityPolicy {
-	// 1. Select the committed row prefix, rows and a window come together.
+	// 1. Select the committed row prefix, a window needs rows.
 	assertOneHot(api, c.VelocityCountSelected[:])
 	inTable := suffixSums(api, c.VelocityCountSelected[:])
 	var enabled [NVelocityAssets]frontend.Variable
 	copy(enabled[:], inTable[1:])
 	rangeChecker.Check(c.WindowSlots, amountBits)
 	off := api.IsZero(c.WindowSlots)
-	api.AssertIsEqual(off, c.VelocityCountSelected[0])
+	api.AssertIsEqual(api.Mul(api.Sub(1, off), c.VelocityCountSelected[0]), 0)
 
 	// 2. Bound every row, require a mint and a bound, exclude nonzero padding
 	// and repeated mints.
@@ -65,7 +68,7 @@ func (c *CustomRingPolicyCircuit) checkVelocityTable(api frontend.API, rangeChec
 			shared.AssertWhen(api, api.Mul(enabled[i], enabled[j]), nonZero(api, api.Sub(row.Asset, c.Velocity[j].Asset)))
 		}
 	}
-	return velocityPolicy{on: api.Sub(1, off), enabled: enabled}
+	return velocityPolicy{on: api.Sub(1, off), rows: api.Sub(1, c.VelocityCountSelected[0]), enabled: enabled}
 }
 
 // constrainVelocity pins the record slots, charges the sender's outflow per
@@ -79,10 +82,10 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	// 1. Money rides beside the record, the first input names the one
 	// sender.
 	api.AssertIsEqual(txContext.inputs[0].record, 0)
-	shared.AssertWhen(api, policy.on, txContext.inputs[0].live)
+	shared.AssertWhen(api, policy.rows, txContext.inputs[0].live)
 	sender := txContext.inputs[0].ownerPkHash
 	for _, input := range txContext.inputs[1:] {
-		shared.AssertWhen(api, api.Mul(policy.on, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
+		shared.AssertWhen(api, api.Mul(policy.rows, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
 	}
 
 	// 2. No slot outside the record opens to the namespace.
@@ -113,7 +116,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	api.AssertIsEqual(api.Mul(policy.on, sameWindow, api.Sub(opened, c.Record.Commitment)), 0)
 
 	// 5. Charge each row's outflow, previous counters count only inside the
-	// window.
+	// window of a windowed ring.
 	approval := frontend.Variable(0)
 	var nextAssets, nextSpent [NVelocityAssets]frontend.Variable
 	for r, row := range c.Velocity {
@@ -133,7 +136,7 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		for k := range c.Record.Assets {
 			previous = api.Add(previous, api.Mul(api.IsZero(api.Sub(c.Record.Assets[k], row.Asset)), c.Record.Spent[k]))
 		}
-		spent := api.Mul(policy.enabled[r], api.Add(api.Mul(sameWindow, previous), outflow))
+		spent := api.Mul(policy.enabled[r], api.Add(api.Mul(policy.on, sameWindow, previous), outflow))
 		rangeChecker.Check(spent, amountBits)
 		capped := api.Mul(policy.enabled[r], nonZero(api, row.Cap))
 		shared.AssertWhen(api, capped, outputTotalAtMost(api, spent, row.Cap))

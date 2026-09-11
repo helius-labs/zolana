@@ -300,8 +300,8 @@ func (p *PolicyParameters) UnmarshalJSON(data []byte) error {
 	if int(raw.VelocityCount) > policy.NVelocityAssets {
 		return fmt.Errorf("custom-ring: velocityCount %d exceeds %d", raw.VelocityCount, policy.NVelocityAssets)
 	}
-	if (raw.WindowSlots == 0) != (raw.VelocityCount == 0) {
-		return fmt.Errorf("custom-ring: velocity rows and a window come together")
+	if raw.WindowSlots != 0 && raw.VelocityCount == 0 {
+		return fmt.Errorf("custom-ring: a window needs velocity rows")
 	}
 
 	var err error

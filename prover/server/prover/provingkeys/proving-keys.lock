@@ -9,13 +9,13 @@
       "size": 3764027068
     },
     "custom_ring_base.key": {
-      "sha256": "f6a33845ec0117db28de4a27d8eb54cd56f3fba5378a382f244c4dcd5fd4c085",
+      "sha256": "36205aa67bb448ebaf2f9ce3f90549daa77cec6af3c2ba49916d524d64654561",
       "size": 58012883,
       "source": "release"
     },
     "custom_ring_policy.key": {
-      "sha256": "c6b81c8b318b39748949c9db9e61060d41ba433d0543a3d391359a4e17d74f3c",
-      "size": 151568329,
+      "sha256": "9793a45e335631baf6d38e0c933e844983cd5b384ecc942645ce88f59cc0a8f5",
+      "size": 151569854,
       "source": "release"
     },
     "merge_36_1.key": {
