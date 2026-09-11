@@ -178,10 +178,7 @@ fn decode_policy_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, Cu
         &table.inline_limits,
     )
     .and_then(|encoded| encoded.decode().map(|_| encoded))
-    .map_err(|error| {
-        solana_msg::sol_log(error.message());
-        CustomRingError::InvalidPolicyRules
-    })
+    .map_err(|_| CustomRingError::InvalidPolicyRules)
 }
 
 #[inline(never)]
