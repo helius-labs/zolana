@@ -25,6 +25,7 @@ pub mod step;
 pub mod tool;
 pub mod transact;
 pub mod ui;
+pub mod window;
 pub mod wizard;
 
 use std::path::{Path, PathBuf};
@@ -111,6 +112,9 @@ pub enum Command {
     /// Set, clear or show the ring's co-signer.
     #[command(subcommand)]
     Cosigner(CosignerCommand),
+    /// Set, clear or show a mint's spend window.
+    #[command(subcommand)]
+    Window(WindowCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -188,6 +192,34 @@ pub enum CosignerCommand {
     /// Close the co-signer account, the rent returns to the authority.
     Clear,
     Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WindowCommand {
+    /// Create or replace the window, the counters restart.
+    Set {
+        /// A mint address, `sol` for the native token.
+        #[arg(long)]
+        mint: window::Mint,
+        /// Window length, windows start at multiples of it.
+        #[arg(long)]
+        slots: u64,
+        /// Public deposits per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        deposit_cap: u64,
+        /// Public withdrawals per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        withdrawal_cap: u64,
+    },
+    /// Close the window account, the rent returns to the authority.
+    Clear {
+        #[arg(long)]
+        mint: window::Mint,
+    },
+    Show {
+        #[arg(long)]
+        mint: window::Mint,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -584,6 +616,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
         Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
+        Command::Window(command) => window::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,

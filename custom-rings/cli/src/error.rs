@@ -4,7 +4,7 @@ use crate::{
     authority::AuthorityError, config::ConfigError, cosigner::CosignerError, deploy::DeployError,
     init::InitError, list::ListError, localnet::LocalnetError, merge::MergeError, new::NewError,
     pipeline::PipelineError, policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
-    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
+    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError, window::WindowError,
 };
 use zolana_ring_rpc::KeyFileError;
 
@@ -41,6 +41,8 @@ pub enum CliError {
     #[error(transparent)]
     Cosigner(Box<CosignerError>),
     #[error(transparent)]
+    Window(Box<WindowError>),
+    #[error(transparent)]
     List(Box<ListError>),
     #[error(transparent)]
     Policy(Box<PolicyCommandError>),
@@ -73,6 +75,7 @@ boxed_from!(
     Authority(AuthorityError),
     Reader(ReaderError),
     Cosigner(CosignerError),
+    Window(WindowError),
     List(ListError),
     Policy(PolicyCommandError),
 );
