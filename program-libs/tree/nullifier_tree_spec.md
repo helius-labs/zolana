@@ -260,6 +260,12 @@ zero-padded, never hashed with a narrower permutation. `leaves_hash` is
 `HashChain4` over the `Z` queued values, so the circuit recomputes it from the
 values with the same fold.
 
+`HashChain4` carries no length tag, so it is injective only at a fixed length:
+`[a, b]` and `[a, b, 0, 0]` fold to the same value. Every chain here has a
+length fixed by the compiled circuit, and `Z - 1` is a multiple of three for
+every `Z` a tree can be created with, so `leaves_hash` never pads. That is a
+compile-time assertion over the supported ZKP batch sizes, not a convention.
+
 The Groth16 proof establishes the height-40 indexed append from `old_root` to
 `new_root` for the ordered values committed by `leaves_hash`, starting at
 `start_index`. By the `tree.next_index` invariant in [State](#state), with

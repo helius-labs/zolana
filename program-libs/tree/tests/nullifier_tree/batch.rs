@@ -2,6 +2,7 @@ use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon
 use zolana_tree::nullifier_tree::{
     batch::{Batch, BatchState},
     error::NullifierTreeError,
+    init::{hash_chain_groups_are_full, SUPPORTED_ZKP_BATCH_SIZES},
 };
 
 /// 500 / 100 = 5 ZKP batches, so the batch carries five hash chains.
@@ -184,6 +185,37 @@ fn finalized_chain_of_five_pads_the_last_group_with_zeros() {
     let zero = [0u8; 32];
     let expected = Poseidon::hashv(&[&first_group, v5, &zero, &zero]).unwrap();
     assert_eq!(batch.hash_chain(0), Some(expected));
+}
+
+/// Padding is reachable for an arbitrary zkp batch size, but not for one a
+/// tree can be created with: every supported size leaves two values pending
+/// before its last insert, so that insert absorbs a full group and no chain a
+/// real tree builds is ever zero-padded. `SUPPORTED_ZKP_BATCH_SIZES` is held
+/// to this at compile time; this is the same claim through the insertion path.
+#[test]
+fn supported_zkp_batch_sizes_never_pad_the_hash_chain() {
+    for zkp_batch_size in SUPPORTED_ZKP_BATCH_SIZES {
+        assert!(
+            hash_chain_groups_are_full(zkp_batch_size),
+            "zkp batch size {zkp_batch_size}"
+        );
+
+        let mut batch: Batch<2> = Batch::new(2 * zkp_batch_size, zkp_batch_size, 0);
+        let values: Vec<[u8; 32]> = (1..=zkp_batch_size).map(value_from).collect();
+        let (last, rest) = values.split_last().expect("a supported size is non-zero");
+        for value in rest {
+            batch.add_to_hash_chain(value).unwrap();
+        }
+        assert_eq!(batch.num_pending(), 2, "zkp batch size {zkp_batch_size}");
+
+        batch.add_to_hash_chain(last).unwrap();
+        assert_eq!(batch.num_full_zkp_batches(), 1);
+        assert_eq!(
+            batch.hash_chain(0),
+            Some(create_hash_chain_4_from_slice(&values).unwrap()),
+            "zkp batch size {zkp_batch_size}"
+        );
+    }
 }
 
 #[test]
