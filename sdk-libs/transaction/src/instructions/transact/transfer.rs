@@ -710,7 +710,7 @@ impl PreparedOutputLayout {
 /// account index 0, otherwise `Inline` (relayed transfer). Default transact
 /// has no P-256 owner rail. A PDA owner follows the Ed25519 arm: identical in
 /// every public-data path, and never the fee payer.
-fn sender_owner_tag(
+pub(super) fn sender_owner_tag(
     owner_pubkey: &PublicKey,
     payer: &Address,
     allow_p256_sender: bool,

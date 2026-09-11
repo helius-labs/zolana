@@ -1,15 +1,14 @@
 use solana_address::Address;
 use zolana_event::MessageData;
-use zolana_interface::{
-    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    shape::Shape,
-};
+use zolana_interface::{instruction::instruction_data::transact::TransactOutput, shape::Shape};
 use zolana_keypair::{
     constants::SALT_LEN, random_salt, shielded::ShieldedAddress, viewing_key::random_blinding,
     Curve, P256Pubkey, ViewingKeyTrait,
 };
 
-use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
+use super::{
+    spp_proof_inputs::SppProofInputs, transfer::sender_owner_tag, ExternalData, SppProofOutputUtxo,
+};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -256,7 +255,11 @@ impl PreparedSplit {
         if owner.signing_pubkey.curve()? == Curve::P256 {
             return Err(TransactionError::P256TransactUnsupported);
         }
-        let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
+        // Every output of a split is owned by the signer, so the tag collapses
+        // to the payer's account index whenever it names the payer. At 31 bytes
+        // saved per output that is what keeps an eight-slot split inside one
+        // legacy packet.
+        let (owner_tag, owner_view_tag) = sender_owner_tag(&owner.signing_pubkey, &payer, false)?;
 
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
@@ -265,7 +268,7 @@ impl PreparedSplit {
             let data = (position == 0).then(|| bundle.data.clone());
             transact_outputs.push(TransactOutput {
                 utxo_hash,
-                owner_tag: OwnerTag::Inline(owner_view_tag),
+                owner_tag,
                 data,
             });
             resolved_owner_tags.push(owner_view_tag);
