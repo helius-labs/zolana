@@ -365,6 +365,73 @@ root would make every transfer race the forester's rotations instead.
 7. It sends transact. The instruction carries the proof and two root
    indices, no member, no list, no answer.
 
+## Co-signing, delegation and velocity
+
+Three controls extend the plane without a second proof system. Each one
+names the actor it binds, the quantity it bounds, and the record it keeps.
+
+**Actors.** The upgrade authority creates the config, pins the policy and
+replaces its rows. The config authority pauses the ring, grants and revokes
+readers, re-points sources and writes the authority-written lists. A member
+writes its own entries on the member-written lists. The namespace PDA owns
+every entry and signs for it only inside a CPI the program builds. The
+auditor holds the P256 key fixed at `create_config` and decrypts every
+transfer. SPP governance activates the ring and enables the authority rail
+through `set_ring_activation`, nothing in the ring program can. The
+extension adds two actors. A co-signer adds nothing on its own, its
+signature is a precondition the program checks on the operations its scope
+names. A delegate moves notes between members on the authority rail and
+never withdraws, the ring program refuses public legs on that rail. No
+instruction changes the tier or the auditor, the program stays upgradeable.
+
+**Co-signing** is a signer check, not a rule. The ring stores one co-signer
+with a scope over transfers, deposits and withdrawals, and per-mint
+thresholds for withdrawals summed over the legs of one transaction. Every
+transact and merge is a transfer, a public leg adds a class, so a shielded
+transfer cannot hide behind a small deposit. The check reads only what the
+program sees in the clear, the instruction's public legs, and touches no
+circuit.
+
+**Delegation** exposes the SPP authority rail behind a delegate the upgrade
+authority sets once and no instruction replaces. The policy statement binds
+the same `private_tx_hash` preimage that rail builds, input chain, output
+chain, address chain, external data hash and the derived blinding
+(`authority_rail_test.go`). A delegate move on a policy ring therefore
+proves the full policy statement with the member's identity as the screened
+sender, the delegate's key never enters the openings. The rail requires
+every UTXO to carry the ring id, and entries hash with the zero ring id, so
+a delegate cannot consume or create an entry.
+
+**Velocity** bounds a sender's outflow per mint over a fixed window. A
+velocity transfer has one authenticated sender and no deposit legs, and for
+each mint
+
+```
+inputs_m  = change_m + payments_m + withdrawals_m + exits_m
+change_m  = outputs the sender owns inside the ring
+outflow_m = inputs_m - change_m
+spent'_m  = (window' == window ? spent_m : 0) + outflow_m <= cap_m
+```
+
+The counters live in a spend record, a keyed compressed account under the
+namespace PDA beside the lists, addressed by the sender's identity so one
+owner has one record whatever nullifier keys its notes carry. Registration
+writes zero counters under the current window. The transfer itself spends
+the record and creates its successor as two slots of its own SPP transact,
+the PDA signing beside the sender. SPP's owner-signed ring circuit accepts a
+zero-amount data UTXO the PDA owns with the zero nullifier secret as input
+and output next to the money, in the default ring or inside the ring, and
+refuses it without the PDA signature (`spend_record_test.go`). The record's
+data hash commits `H(window, H(salt, counters))` with the window and the
+commitment public, so an expired record is consumed without opening its
+counters and a record from a future window is refused. The policy circuit
+pins the two record slots, exactly one input and one output open to the
+namespace owner at the sender's record address, the input at the latest
+version, the output at version plus one, every other opening a different
+owner, and excludes them from rule evaluation. A window boundary admits up
+to twice the cap. Windows are indexed by slot and reset the counters, a
+sliding window would need spend history.
+
 ## Rejected designs
 
 Each alternative below buys something and loses to one concrete input.
