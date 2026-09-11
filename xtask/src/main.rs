@@ -874,12 +874,18 @@ fn tx_size(args: Vec<String>) {
     }
 
     println!();
-    println!("Builder layouts with nullifier PDAs (one writable PDA per input):");
     println!(
-        "| {:<34} | {:>8} | {:>11} | {:>12} |",
-        "transaction", "accounts", "ix data (B)", "legacy tx (B)",
+        "Builder layouts with nullifier PDAs (one writable PDA per input). A row \
+         marked OVER does not fit one {PACKET_DATA_SIZE}-byte packet and cannot be sent:"
     );
-    println!("|{:-<36}|{:-<10}|{:-<13}|{:-<14}|", "", "", "", "");
+    println!(
+        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<4} |",
+        "transaction", "accounts", "ix data (B)", "legacy tx (B)", "fits",
+    );
+    println!(
+        "|{:-<36}|{:-<10}|{:-<13}|{:-<14}|{:-<6}|",
+        "", "", "", "", ""
+    );
     let tree = Pubkey::new_unique();
     for n in [2usize, 3, 5] {
         let spec = transfer_layout(
@@ -901,11 +907,12 @@ fn tx_size(args: Vec<String>) {
             data,
         }
         .instruction();
-        println!(
-            "| {:<34} | {:>8} | {:>11} | {:>12} |",
-            format!("transact {n} in 3 out, transfer"),
-            ix.accounts.len(),
-            ix.data.len(),
+        let accounts = ix.accounts.len();
+        let data_len = ix.data.len();
+        print_builder_row(
+            &format!("transact {n} in 3 out, transfer"),
+            accounts,
+            data_len,
             legacy_tx_len(ix),
         );
     }
@@ -953,18 +960,40 @@ fn tx_size(args: Vec<String>) {
         };
         let msg = Message::new(&[compute_budget, sync_ix.clone()], Some(&payer_pk));
         let tx = Transaction::new_unsigned(msg);
-        println!(
-            "| {:<34} | {:>8} | {:>11} | {:>12} |",
-            "merge 8 in 1 out, direct", merge_ix_accounts, merge_ix_data_len, direct_len,
+        let sync_len = bincode::serialize(&tx).unwrap().len();
+        print_builder_row(
+            "merge 8 in 1 out, direct",
+            merge_ix_accounts,
+            merge_ix_data_len,
+            direct_len,
         );
-        println!(
-            "| {:<34} | {:>8} | {:>11} | {:>12} |",
+        print_builder_row(
             "merge 8 in 1 out, execute_sync + cb",
             sync_ix.accounts.len(),
             sync_ix.data.len(),
-            bincode::serialize(&tx).unwrap().len(),
+            sync_len,
         );
     }
+}
+
+/// Solana's packet size, `solana_packet::PACKET_DATA_SIZE`. A serialized
+/// transaction above it cannot be sent at all, so the table says so rather than
+/// leaving the reader to compare four-digit numbers by eye.
+const PACKET_DATA_SIZE: usize = 1232;
+
+fn print_builder_row(name: &str, accounts: usize, ix_data_len: usize, tx_len: usize) {
+    println!(
+        "| {:<34} | {:>8} | {:>11} | {:>12} | {:<4} |",
+        name,
+        accounts,
+        ix_data_len,
+        tx_len,
+        if tx_len <= PACKET_DATA_SIZE {
+            "yes"
+        } else {
+            "OVER"
+        },
+    );
 }
 
 fn transfer_accounts(
