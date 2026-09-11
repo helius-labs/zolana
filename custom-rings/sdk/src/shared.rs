@@ -46,8 +46,6 @@ pub enum AccountReadError {
 pub enum PolicyMatchError {
     #[error(transparent)]
     AccountRead(#[from] AccountReadError),
-    #[error("the ring has no policy config")]
-    NoPolicy,
     #[error(transparent)]
     Rules(#[from] RuleTableError),
     #[error("the compiled table differs from the stored rows")]
@@ -188,17 +186,6 @@ impl CustomRing {
             return Err(AccountReadError::InvalidAccount { address });
         }
         Ok(Some(config))
-    }
-
-    pub fn verify_client_rules<R: Rpc>(
-        self,
-        rpc: &R,
-        rules: &RuleTable,
-    ) -> Result<(), PolicyMatchError> {
-        let config = self
-            .read_policy_config(rpc)?
-            .ok_or(PolicyMatchError::NoPolicy)?;
-        client_rules_match(rules, &config)
     }
 
     pub fn read_access_record<R: Rpc>(
@@ -587,26 +574,6 @@ mod tests {
         assert!(matches!(
             policy_config_table(&unsourced),
             Err(PolicyMatchError::MissingSource(ListId::Block))
-        ));
-    }
-
-    #[test]
-    fn verify_client_rules_reads_the_pinned_config() {
-        let config = pinned(&PINNED);
-        let rpc = AccountRpc {
-            address: ring().policy_config_pda(),
-            account: Some(account(&config)),
-        };
-        ring()
-            .verify_client_rules(&rpc, &PINNED)
-            .expect("pinned table");
-        let missing = AccountRpc {
-            address: ring().policy_config_pda(),
-            account: None,
-        };
-        assert!(matches!(
-            ring().verify_client_rules(&missing, &PINNED),
-            Err(PolicyMatchError::NoPolicy)
         ));
     }
 }
