@@ -50,7 +50,10 @@ try {
   await driver.wait(until.elementLocated(By.css(".primary-button")), 30000);
   await driver.wait(async () => (await button("Generate proof")).isEnabled(), 30000);
   const visible = await driver.findElement(By.css("body")).getText();
-  assert.doesNotMatch(visible, /Cross-origin|Funding|Endpoints|localnet|transaction/i);
+  assert.doesNotMatch(
+    visible,
+    /Cross-origin|Funding|Endpoints|localnet|transaction|Ready when|One sample|Powered by|On your device/i,
+  );
   assert.equal(await driver.executeScript("return crossOriginIsolated"), true);
   const automaticThreads = await driver.executeScript(
     "return Math.min(18, navigator.hardwareConcurrency || 4)",
@@ -59,11 +62,7 @@ try {
 
   await (await button("Generate proof")).click();
   await (await button("Cancel")).click();
-  await driver.wait(
-    async () =>
-      (await driver.findElement(By.css(".result-area")).getText()).includes("Ready when you are"),
-    10000,
-  );
+  await driver.wait(async () => (await button("Generate proof")).isEnabled(), 10000);
   await run(`Arkworks · ${automaticThreads} threads`);
   await writeFile(`${out}/desktop-result.png`, await driver.takeScreenshot(), "base64");
   await (await button("Benchmark")).click();

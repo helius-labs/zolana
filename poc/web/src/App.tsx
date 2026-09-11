@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { automaticProvingThreads, WasmProver } from "@zolana/poc-core";
 import ProverWorker from "./prover.worker.ts?worker";
 
@@ -13,31 +13,6 @@ function median(values: readonly number[]): number {
   return sorted.length % 2 === 0
     ? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2
     : (sorted[middle] ?? 0);
-}
-
-function Icon({ children, ...props }: { children: ReactNode; className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      {...props}
-    >
-      {children}
-    </svg>
-  );
-}
-
-function Check() {
-  return (
-    <Icon>
-      <path d="m6 12 4 4 8-8" />
-    </Icon>
-  );
 }
 
 export function App(): React.ReactElement {
@@ -194,7 +169,7 @@ export function App(): React.ReactElement {
     phase === "starting"
       ? "Starting prover…"
       : phase === "preparing"
-        ? "Preparing your first proof…"
+        ? "Preparing key…"
         : mode === "benchmark"
           ? `Proving ${completed + 1} of 5…`
           : "Generating proof…";
@@ -202,123 +177,71 @@ export function App(): React.ReactElement {
   return (
     <main className="app">
       <header className="masthead">
-        <span className="brand">
-          zolana<span className="brand-divider">/</span>mopro
-        </span>
-        <span className="masthead-label">Prover demo</span>
+        <h1>Prover</h1>
+        <button
+          type="button"
+          className="secondary-button"
+          aria-label="Options"
+          disabled={busy || phase === "loading"}
+          onClick={() => options.current?.showModal()}
+        >
+          Options
+        </button>
       </header>
-      <div className="intro">
-        <h1>A proof. On your device.</h1>
-        <p>Generate, verify, and see how fast it runs.</p>
-      </div>
       <section className="prover-card" aria-label="Prover">
-        <div className="card-toolbar">
-          <div className="segmented" role="group" aria-label="Test mode">
-            <button
-              type="button"
-              aria-pressed={mode === "proof"}
-              disabled={busy}
-              onClick={() => {
-                setMode("proof");
-                clearResult();
-              }}
-            >
-              Single proof
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === "benchmark"}
-              disabled={busy}
-              onClick={() => {
-                setMode("benchmark");
-                clearResult();
-              }}
-            >
-              Benchmark
-            </button>
-          </div>
+        <div className="mode-tabs" role="group" aria-label="Test mode">
           <button
             type="button"
-            className="icon-button"
-            aria-label="Options"
-            disabled={busy || phase === "loading"}
-            onClick={() => options.current?.showModal()}
+            aria-pressed={mode === "proof"}
+            disabled={busy}
+            onClick={() => {
+              setMode("proof");
+              clearResult();
+            }}
           >
-            <Icon>
-              <path d="M4 7h9m4 0h3M4 17h3m4 0h9" />
-              <circle cx="15" cy="7" r="2" />
-              <circle cx="9" cy="17" r="2" />
-            </Icon>
+            Single proof
+          </button>
+          <button
+            type="button"
+            aria-pressed={mode === "benchmark"}
+            disabled={busy}
+            onClick={() => {
+              setMode("benchmark");
+              clearResult();
+            }}
+          >
+            Benchmark
           </button>
         </div>
-
         <div
           className={`result-area ${busy ? "is-running" : ""}`}
           aria-live="polite"
           aria-atomic="true"
           role="status"
         >
-          <div
-            className={`result-symbol ${latest ? "is-verified" : ""} ${error ? "has-error" : ""}`}
-          >
-            {busy ? (
-              <span className="spinner" />
-            ) : latest ? (
-              <Check />
-            ) : error ? (
-              <Icon>
-                <path d="M12 7v6m0 4h.01" />
-              </Icon>
-            ) : (
-              <Icon>
-                <path d="M12 3 4.5 6v5.5c0 4.3 3.1 7.5 7.5 9.5 4.4-2 7.5-5.2 7.5-9.5V6L12 3Z" />
-                <path d="m8.5 11.5 2.5 2.5 4.5-5" />
-              </Icon>
+          <div>
+            <p className="result-label">
+              {mode === "benchmark" ? "Median proving time" : "Proving time"}
+            </p>
+            <div className="timing">
+              <span>{provingMs === undefined ? "—" : provingMs.toFixed(1)}</span>
+              {provingMs !== undefined && <span className="timing-unit">ms</span>}
+            </div>
+          </div>
+          <div>
+            <p className="result-label">
+              {mode === "benchmark" ? "Median verification" : "Verification"}
+            </p>
+            <div className="verification-timing">
+              <span className="verify-time">
+                {verificationMs === undefined ? "—" : `${verificationMs.toFixed(1)} ms`}
+              </span>
+            </div>
+            {latest && (
+              <p className="verified">{results.length > 1 ? "5 proofs verified" : "Verified"}</p>
             )}
           </div>
-          {provingMs !== undefined ? (
-            <>
-              <p className="result-label">
-                {results.length > 1 ? "Median proving time" : "Proving time"}
-              </p>
-              <div className="timing">
-                <span>{provingMs.toFixed(1)}</span>
-                <span className="timing-unit">ms</span>
-              </div>
-              <p className="verified">
-                <Check />
-                {results.length > 1 ? "5 proofs verified" : "Proof verified"}
-                <span className="verify-time">
-                  {verificationMs?.toFixed(1)} ms{results.length > 1 ? " median" : ""}
-                </span>
-              </p>
-            </>
-          ) : (
-            <>
-              <h2>
-                {busy
-                  ? progress
-                  : error
-                    ? "Let's try that again."
-                    : phase === "loading"
-                      ? "Loading sample…"
-                      : "Ready when you are."}
-              </h2>
-              <p className="result-description">
-                {busy
-                  ? phase === "proving"
-                    ? "Checking every proof as it finishes."
-                    : "The first run takes a little longer."
-                  : error
-                    ? "Adjust the input or run another test."
-                    : mode === "benchmark"
-                      ? "Five proofs. One clear comparison."
-                      : "One sample. Generated and verified locally."}
-              </p>
-            </>
-          )}
         </div>
-
         {error && (
           <div className="error-message" role="alert">
             {error}
@@ -335,54 +258,29 @@ export function App(): React.ReactElement {
             }
             onClick={() => (busy ? resetRuntime() : void run())}
           >
-            {busy
-              ? "Cancel"
-              : mode === "benchmark"
-                ? latest
-                  ? "Run benchmark again"
-                  : "Run benchmark"
-                : latest
-                  ? "Prove again"
-                  : "Generate proof"}
-            {!busy && (
-              <Icon>
-                <path d="M5 12h14m-5-5 5 5-5 5" />
-              </Icon>
-            )}
+            {busy ? "Cancel" : mode === "benchmark" ? "Run benchmark" : "Generate proof"}
           </button>
-          <p className="action-note">
-            {busy
-              ? "You can leave this page open while it runs."
-              : "Everything runs in your browser."}
-          </p>
+          {(busy || phase === "loading") && (
+            <span className="progress" role="status">
+              {busy ? progress : "Loading input…"}
+            </span>
+          )}
+          {latest && (
+            <div className="result-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => proofDialog.current?.showModal()}
+              >
+                View proof
+              </button>
+              <button type="button" className="secondary-button" onClick={downloadProof}>
+                Download
+              </button>
+            </div>
+          )}
         </div>
-        {latest && (
-          <div className="result-actions">
-            <button type="button" onClick={() => proofDialog.current?.showModal()}>
-              View proof
-              <Icon>
-                <path d="m9 5 7 7-7 7" />
-              </Icon>
-            </button>
-            <button type="button" onClick={downloadProof}>
-              Download
-              <Icon>
-                <path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4" />
-              </Icon>
-            </button>
-          </div>
-        )}
       </section>
-      <footer>
-        Powered by{" "}
-        <a
-          href="https://github.com/sergeytimoshin/mopro/tree/feat/gnark-web-arkworks"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Mopro &amp; Arkworks
-        </a>
-      </footer>
 
       <dialog
         className="sheet"
@@ -401,9 +299,7 @@ export function App(): React.ReactElement {
               aria-label="Close options"
               onClick={() => options.current?.close()}
             >
-              <Icon>
-                <path d="m6 6 12 12M6 18 18 6" />
-              </Icon>
+              ×
             </button>
           </div>
           <div className="settings-group">
@@ -444,20 +340,9 @@ export function App(): React.ReactElement {
           {threadMode === "custom" && !customValid && (
             <p className="field-error">Choose between 1 and 64 threads.</p>
           )}
-          <p className="settings-note">
-            {threadMode === "auto"
-              ? `Uses ${automaticThreads} threads on this device.`
-              : threadMode === "go"
-                ? "The original Go prover, for comparison."
-                : "Compare performance with a different thread count."}
-          </p>
+          {threadMode === "auto" && <p className="settings-note">{automaticThreads} threads</p>}
           <details className="input-details">
-            <summary>
-              Proof input
-              <Icon>
-                <path d="m9 5 7 7-7 7" />
-              </Icon>
-            </summary>
+            <summary>Proof input</summary>
             <label className="sr-only" htmlFor="proof-input">
               Proof input JSON
             </label>
@@ -497,9 +382,7 @@ export function App(): React.ReactElement {
               aria-label="Close proof"
               onClick={() => proofDialog.current?.close()}
             >
-              <Icon>
-                <path d="m6 6 12 12M6 18 18 6" />
-              </Icon>
+              ×
             </button>
           </div>
           <dl className="proof-facts">
