@@ -5,14 +5,15 @@
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
-the one it spends from. Wallet replay keeps merge outputs when their inputs
-arrive in the same sync, and selection and approval text use UTXO terminology
+the one it spends from. Selection and approval text use UTXO terminology
 without changing version 3 snapshot keys.
+
 A tree derives from its id instead of one fixed address, holds its own fee
 schedule, and takes four instructions in one transaction to create. Every
 spent nullifier gets its own account, and the transact, merge, and ring
 builders take one nullifier account per input. Registering a ring and admitting
-it are now two separate steps with two different signers. The proof system changed underneath: owner identities carry a signing
+it are now two separate steps with two different signers. Wallet replay keeps merge outputs when their inputs arrive in the same
+sync. The proof system changed underneath: owner identities carry a signing
 algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
 transaction hash blinding.
@@ -98,9 +99,10 @@ Breaking
   `getEncryptedUtxosByTags`, `getShieldedTransactionsByNullifiers`,
   `getMerkleProofs` and `getNonInclusionProofs` → add the four methods to a
   custom client.
-- `customRingPublicInputHash` takes `policyHash`, `stateRoot`,
-  `nullifierRoot` and `entriesTreeId` → use `auditPublicInputHash` for the
-  audit statement alone.
+- `customRingPublicInputHash` is retired, `auditPublicInputHash` hashes the
+  audit statement and `policyPublicInputHash` takes `policyHash`, `stateRoot`,
+  `nullifierRoot` and `entriesTreeId` beside it → call the function of the
+  ring's tier.
 - Ring registration is permissionless and produces a config that authorizes
   nothing, and governance admits it separately with
   `getSetRingActivationInstructionAsync` → a ring is live only after its
@@ -655,7 +657,7 @@ Added
 - `auditRing` and `auditRingTransaction` let a ring's auditor decrypt and
   attribute every transaction in the ring.
 - `ZolanaClient` gains ring proving and health calls (`proveRingTransact`,
-  `proveCustomRingPolicy`, `proverHealth`) and program-account reads
+  `proveCustomRing`, `proverHealth`) and program-account reads
   (`getProgramAccounts`).
 - `ConfidentialTransfer` binds a transfer to a ring (`withRingProgramId`),
   drops unused change slots (`withCompactChange`), and sends a note back to

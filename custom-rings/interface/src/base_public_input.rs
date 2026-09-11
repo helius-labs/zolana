@@ -77,7 +77,7 @@ pub fn pack32_to_2fe(bytes: &[u8; 32]) -> FieldPair {
 /// the auditor circuit hashes.
 ///
 /// Mirrors `Pack33To2FECircuit` in
-/// `prover/server/circuits/custom_ring/pack.go`.
+/// `prover/server/circuits/custom_ring/base/pack.go`.
 ///
 /// ```text
 /// lo = 0x00 || key[0..31]        (the SEC1 prefix is the most significant data byte)
