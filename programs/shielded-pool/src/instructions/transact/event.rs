@@ -2,12 +2,11 @@ use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::TransactEvent,
+    event::{InputTreeSequence, TransactEvent},
     instruction::instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
 };
 
 use super::verify::MAX_OUTPUTS;
-use crate::instructions::nullifier_pda::InputTreeResult;
 
 pub struct TreeWrite {
     pub first_output_leaf_index: u64,
@@ -37,18 +36,15 @@ pub(crate) fn resolve_outputs<'a>(
 /// writing them. Everything else the indexer reads from the instruction data
 /// and account list when it rebuilds the `GeneralEvent`.
 ///
-/// `input_tree_results` is in declared-context order, so an input's queue
+/// `input_tree_sequences` is in declared-context order, so an input's queue
 /// number is its tree's `first_input_queue_seq` plus its rank within that
 /// tree's input run.
 pub fn build_transact_event(
     tree_write: TreeWrite,
-    input_tree_results: &[InputTreeResult],
+    input_tree_sequences: &[InputTreeSequence],
 ) -> TransactEvent {
     TransactEvent {
-        input_trees: input_tree_results
-            .iter()
-            .map(|result| result.input_tree)
-            .collect(),
+        input_trees: input_tree_sequences.to_vec(),
         output_tree: tree_write.output_tree,
         first_output_leaf_index: tree_write.first_output_leaf_index,
     }

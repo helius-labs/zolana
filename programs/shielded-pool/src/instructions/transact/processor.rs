@@ -27,7 +27,6 @@ use super::{
 };
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::{create_nullifier_pdas, InputTreeResult},
     settlement::Settlement,
     shared::{check_field_element, check_field_elements, check_not_expired},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
@@ -88,13 +87,8 @@ pub fn process_transact_ix(
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve each input tree's roots and insert its nullifiers into queue.
-    let input_tree_results = apply_input_trees(
-        transact_accounts.input_trees.as_mut_slice(),
-        &ix,
-        &mut proof_inputs,
-    )?;
-    create_input_tree_nullifier_pdas(&ix, &mut transact_accounts, &input_tree_results)?;
+    // 8. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+    let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
     // 9. Append new utxo hashes.
     let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
@@ -114,46 +108,8 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write, &input_tree_results);
+    let event = build_transact_event(tree_write, &input_tree_sequences);
     emit_event(EventKind::Transact, &event)
-}
-
-/// Create each tree's nullifier PDAs with that tree's queue result, collecting
-/// its forester fee before funding the PDAs' rent from the tree. Each tree runs
-/// the same body over its own contiguous group of inputs.
-#[inline(never)]
-fn create_input_tree_nullifier_pdas(
-    ix: &TransactIxDataRef<'_>,
-    accounts: &mut TransactAccounts<'_>,
-    input_tree_results: &[InputTreeResult],
-) -> ProgramResult {
-    let TransactAccounts {
-        payer,
-        input_trees,
-        nullifier_pdas,
-        ..
-    } = accounts;
-    let mut remaining = nullifier_pdas.as_mut_slice();
-    for ((input_tree, result), tree_inputs) in input_trees.iter_mut().zip(input_tree_results).zip(
-        ix.inputs
-            .chunk_by(|left, right| left.tree_index == right.tree_index),
-    ) {
-        let (tree_pdas, rest) = core::mem::take(&mut remaining)
-            .split_at_mut_checked(tree_inputs.len())
-            .ok_or(ShieldedPoolError::InvalidNullifierPda)?;
-        create_nullifier_pdas(
-            payer,
-            input_tree,
-            tree_pdas,
-            tree_inputs.iter().map(|input| &input.nullifier_hash),
-            result,
-        )?;
-        remaining = rest;
-    }
-    if !remaining.is_empty() {
-        return Err(ShieldedPoolError::InvalidNullifierPda.into());
-    }
-    Ok(())
 }
 
 #[inline(never)]
