@@ -534,7 +534,7 @@ impl RingHarness {
         let spend_inputs = self.ring_spend_inputs(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
-        let signer_pk_hashes = proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?;
+        let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
 
         match rail {
             RingRail::Eddsa => {
@@ -845,7 +845,9 @@ impl RingHarness {
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
             public_transfers: proof_inputs.public_transfers()?,
-            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
+            signer_pk_hashes: proof_inputs.signer_pk_hashes(
+                Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()).signer_width(),
+            )?,
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),

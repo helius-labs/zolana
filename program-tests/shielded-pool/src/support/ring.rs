@@ -18,6 +18,7 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, TransactIxData},
         tag, Transact,
     },
+    shape::Shape,
     state::{discriminator::RING_CONFIG, RingConfig},
     tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
     verifying_keys::RingP256ProofData,
@@ -220,7 +221,7 @@ impl RealRingTransact {
         .expect("private tx hash");
 
         let mut signer_pk_hashes = vec![payer_hash];
-        signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
+        signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
 

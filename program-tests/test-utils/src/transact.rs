@@ -28,8 +28,9 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
+    shape::Shape,
     state::read_tree_id,
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
     verifying_keys::transfer_confidential_2_3,
     INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
@@ -431,10 +432,29 @@ pub fn derive_test_transfer_output_blindings(
         .collect()
 }
 
+/// Derives the packed `input_flags` from the witness the circuit will check, so
+/// a fixture that moves an input to another tree slot cannot forget to republish
+/// it. Every fixture allows dummy inputs.
+pub fn transact_input_flags(inputs: &[TransferInput]) -> [u8; 32] {
+    let tree_indexes = inputs.iter().map(|input| {
+        let digits = input.tree_slot.to_bytes_be();
+        match digits.as_slice() {
+            [] => 0u8,
+            [index] => *index,
+            _ => panic!("test input tree slot exceeds one byte"),
+        }
+    });
+    pack_input_flags(true, tree_indexes).expect("pack the test input flags")
+}
+
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let input_flags = transact_input_flags(&args.inputs);
     let mut signer_pk_hashes: Vec<BigUint> = args.signer_pk_hashes.iter().map(be).collect();
-    signer_pk_hashes.resize(args.inputs.len() + 1, be(&zero));
+    signer_pk_hashes.resize(
+        Shape::new(args.inputs.len(), args.outputs.len()).signer_width(),
+        be(&zero),
+    );
     // The default confidential rail publishes every output slot's owner tag.
     let published_output_owner_pk_hashes = args
         .outputs
@@ -453,7 +473,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         ring_program_id: be(&zero),
         signer_pk_hashes,
-        input_flags: be(&fe(1)),
+        input_flags: be(&input_flags),
         published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
