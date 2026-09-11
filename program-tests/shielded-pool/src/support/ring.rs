@@ -10,7 +10,7 @@ use zolana_client::{
     TreeSlotFields,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
 };
 use zolana_interface::{
@@ -225,8 +225,8 @@ impl RealRingTransact {
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
 
         let mut chain = vec![
-            create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
-            create_hash_chain_from_slice(&output_hashes).expect("output chain"),
+            create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+            create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
             tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
             tree_id_field(tree_id),
             private_tx,
@@ -254,11 +254,11 @@ impl RealRingTransact {
         chain.push(create_right_hash_chain_from_slice(&signer_pk_hashes).expect("signer chain"));
         chain.push(fe(1));
         chain.push(
-            create_hash_chain_from_slice(&published_output_owner_pk_hashes)
+            create_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
         );
         let public_input_hash =
-            create_hash_chain_from_slice(&chain).expect("ring public input hash");
+            create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
         let n_in = u8::try_from(n_inputs).expect("supported ring input count");
         let n_out = u8::try_from(n_outputs).expect("supported ring output count");

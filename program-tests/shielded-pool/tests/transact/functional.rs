@@ -32,7 +32,7 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
@@ -496,8 +496,8 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         .collect();
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
-        create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
-        create_hash_chain_from_slice(&output_hashes).expect("output chain"),
+        create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+        create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
         tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
         tree_id_field(tree_id),
         private_tx,
@@ -516,9 +516,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
-        chain.push(create_hash_chain_from_slice(&published_owners).expect("output owner chain"));
+        chain.push(create_hash_chain_4_from_slice(&published_owners).expect("output owner chain"));
     }
-    let public_input_hash = create_hash_chain_from_slice(&chain).expect("ring public input hash");
+    let public_input_hash = create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: prover_inputs,
