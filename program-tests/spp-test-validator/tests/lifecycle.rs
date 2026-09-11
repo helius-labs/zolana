@@ -414,3 +414,49 @@ fn the_local_validator_accepts_a_v1_transaction() -> Result<()> {
         .context("send the v1 transaction")?;
     Ok(())
 }
+
+/// A legacy transaction over `PACKET_DATA_SIZE` is refused by the RPC, which is
+/// the fact that forces the v1 format on the wide shapes. Both backends enforce
+/// it: solana-test-validator and the pinned surfpool build alike, so no choice
+/// of backend rescues an oversized legacy transaction.
+#[test]
+#[serial]
+fn an_oversized_legacy_transaction_is_refused_by_the_rpc() -> Result<()> {
+    use solana_keypair::Keypair;
+    use solana_message::Message as LegacyMessage;
+    use solana_transaction::Transaction as LegacyTransaction;
+
+    start_shielded_pool_localnet("spp-size-probe", &[]);
+    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+    let mut rpc = SolanaRpc::new(rpc_url);
+    let payer = Keypair::new();
+    rpc.airdrop(&payer.pubkey(), 1_000_000_000)
+        .context("fund the size probe payer")?;
+
+    let instructions: Vec<_> = (0..40)
+        .map(|_| {
+            solana_system_interface::instruction::transfer(
+                &payer.pubkey(),
+                &Pubkey::new_unique(),
+                1,
+            )
+        })
+        .collect();
+    let (blockhash, _) = rpc.get_latest_blockhash().context("latest blockhash")?;
+    let message = LegacyMessage::new(&instructions, Some(&payer.pubkey()));
+    let transaction = LegacyTransaction::new(&[&payer], message, blockhash);
+    let size = bincode::serialize(&transaction)
+        .context("serialize the oversized legacy transaction")?
+        .len();
+    assert!(size > 1232, "the probe transaction is only {size} bytes");
+
+    let error = rpc
+        .send_transaction(&transaction)
+        .expect_err("a legacy transaction over the packet limit must be refused")
+        .to_string();
+    assert!(
+        error.contains("too large"),
+        "expected a size refusal for {size} bytes, got: {error}"
+    );
+    Ok(())
+}

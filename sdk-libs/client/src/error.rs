@@ -64,6 +64,9 @@ pub enum ClientError {
     #[error("native Solana transaction signing failed: {0}")]
     SolanaTransactionSigning(String),
 
+    #[error("compiling the transaction message failed: {0}")]
+    TransactionCompile(String),
+
     #[error(
         "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
     )]
