@@ -49,3 +49,5 @@ export { signSendAndConfirm, type Landed, type Signer, type SubmitClient } from 
 export { automaticProvingThreads } from "./proving-threads.js";
 
 export { observeProofRequests } from "./proof-requests.js";
+
+export { proofStatistics } from "./proof-benchmark.js";

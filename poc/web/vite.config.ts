@@ -1,4 +1,5 @@
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 const isolationHeaders = {
@@ -11,7 +12,15 @@ export default defineConfig({
   // The SDK and the Poseidon hasher both use top-level await, so the output
   // target has to permit it. Vite 8 transforms through rolldown/oxc, which reads
   // this single target rather than the esbuild options earlier versions used.
-  build: { target: "esnext" },
+  build: {
+    target: "esnext",
+    rolldownOptions: {
+      input: {
+        app: fileURLToPath(new URL("./index.html", import.meta.url)),
+        benchmark: fileURLToPath(new URL("./benchmark.html", import.meta.url)),
+      },
+    },
+  },
   worker: { format: "es" },
   server: {
     host: "127.0.0.1",

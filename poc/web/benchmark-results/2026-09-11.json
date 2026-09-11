@@ -1,0 +1,576 @@
+{
+  "date": "2026-09-11",
+  "cpu": "AMD Ryzen 9 9950X, 16 physical / 32 logical cores",
+  "os": "Linux",
+  "targetDeviceMeasured": false,
+  "circuit": "transfer-confidential 2x3, 54,031 constraints",
+  "method": {
+    "sessionsPerSetting": 1,
+    "warmups": 3,
+    "timedProofs": 30,
+    "p95": "nearest rank",
+    "preparationIncluded": false,
+    "verificationIncluded": false
+  },
+  "baseline": {
+    "16": {
+      "environment": {
+        "crossOriginIsolated": true,
+        "deviceLabel": "Ryzen 9 9950X desktop reference",
+        "foreground": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "workers": 16
+      },
+      "circuit": {
+        "expectedConstraints": 54031,
+        "fixtureSha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333",
+        "inputs": 2,
+        "key": {
+          "sha256": "915ffeaf13ae754f737235c85106778a465d10711a47dd134156b7ddc2c4d2b6",
+          "size": 16353833
+        },
+        "name": "transfer-confidential",
+        "outputs": 3
+      },
+      "build": {
+        "arithmetic": "arkworks-0.5",
+        "files": {
+          "fixtures/transfer-2x3.json": {
+            "bytes": 11835,
+            "sha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333"
+          },
+          "keys/manifest.json": {
+            "bytes": 1580,
+            "sha256": "1542a8c05ca79404f9850ef679c8e8b7be0cef5d061e8661ee205841a7c0fa1a"
+          },
+          "prover/accelerator/gnark_kernel_bg.wasm": {
+            "bytes": 385214,
+            "sha256": "66de8787a285a47b93277688bf05151a7082428667e4779de293eb301b120e40"
+          },
+          "prover/zolana-prover.wasm": {
+            "bytes": 18463638,
+            "sha256": "c18f02f59ddced4b500b8b92963fdbef455ea64eaf488a821ff4c1e5efc435b5"
+          }
+        },
+        "moproCommit": "af2a243311f7d3fd85f46a2f235b7eff6f2ce4ef",
+        "release": "local-device-baseline",
+        "solver": "gnark-go",
+        "sourceCommit": "87e9463b0d5b9527282ff7d77687258c92bb696e",
+        "sourceDirty": true
+      },
+      "setup": {
+        "keyFetchAndCheckMs": 222.8149999976158,
+        "keyPreparationMs": 13705.509999990463,
+        "startupMs": 247.03999996185303
+      },
+      "proof": {
+        "count": 30,
+        "maxMs": 719.7600000500679,
+        "p50Ms": 681.6550000011921,
+        "p95Ms": 716.1850000023842,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "verification": {
+        "count": 30,
+        "maxMs": 9.555000007152557,
+        "p50Ms": 9.057500004768372,
+        "p95Ms": 9.514999985694885,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "firstProofMs": 703.5750000476837,
+      "proveMs": [
+        669.6499999761581,
+        689.3849999904633,
+        710.1850000023842,
+        626.1500000357628,
+        692.1750000119209,
+        698.9150000214577,
+        667.7599999904633,
+        695.1999999880791,
+        699.285000026226,
+        673.1349999904633,
+        697.5900000333786,
+        651.2350000143051,
+        659.1049999594688,
+        704.0749999880791,
+        719.7600000500679,
+        662.0299999713898,
+        675.1350000500679,
+        700.0750000476837,
+        681.714999973774,
+        716.1850000023842,
+        693.2300000190735,
+        696.164999961853,
+        667.125,
+        681.5950000286102,
+        654.6949999928474,
+        669.6949999928474,
+        623.3700000047684,
+        690.035000026226,
+        628.9500000476837,
+        675.25
+      ]
+    },
+    "2": {
+      "environment": {
+        "crossOriginIsolated": true,
+        "deviceLabel": "Ryzen 9 9950X desktop reference",
+        "foreground": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "workers": 2
+      },
+      "circuit": {
+        "expectedConstraints": 54031,
+        "fixtureSha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333",
+        "inputs": 2,
+        "key": {
+          "sha256": "915ffeaf13ae754f737235c85106778a465d10711a47dd134156b7ddc2c4d2b6",
+          "size": 16353833
+        },
+        "name": "transfer-confidential",
+        "outputs": 3
+      },
+      "build": {
+        "arithmetic": "arkworks-0.5",
+        "files": {
+          "fixtures/transfer-2x3.json": {
+            "bytes": 11835,
+            "sha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333"
+          },
+          "keys/manifest.json": {
+            "bytes": 1580,
+            "sha256": "1542a8c05ca79404f9850ef679c8e8b7be0cef5d061e8661ee205841a7c0fa1a"
+          },
+          "prover/accelerator/gnark_kernel_bg.wasm": {
+            "bytes": 385214,
+            "sha256": "66de8787a285a47b93277688bf05151a7082428667e4779de293eb301b120e40"
+          },
+          "prover/zolana-prover.wasm": {
+            "bytes": 18463638,
+            "sha256": "c18f02f59ddced4b500b8b92963fdbef455ea64eaf488a821ff4c1e5efc435b5"
+          }
+        },
+        "moproCommit": "af2a243311f7d3fd85f46a2f235b7eff6f2ce4ef",
+        "release": "local-device-baseline",
+        "solver": "gnark-go",
+        "sourceCommit": "87e9463b0d5b9527282ff7d77687258c92bb696e",
+        "sourceDirty": true
+      },
+      "setup": {
+        "keyFetchAndCheckMs": 213.43000000715256,
+        "keyPreparationMs": 13637.534999966621,
+        "startupMs": 228.13499999046326
+      },
+      "proof": {
+        "count": 30,
+        "maxMs": 2600.314999997616,
+        "p50Ms": 2593.264999985695,
+        "p95Ms": 2600.1299999952316,
+        "p95UnderOneSecond": false,
+        "underOneSecond": 0
+      },
+      "verification": {
+        "count": 30,
+        "maxMs": 9.194999992847443,
+        "p50Ms": 8.972499996423721,
+        "p95Ms": 9.189999997615814,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "firstProofMs": 2629.3599999547005,
+      "proveMs": [
+        2596.610000014305,
+        2600.314999997616,
+        2597.3650000095367,
+        2594.035000026226,
+        2590.0300000309944,
+        2590.025000035763,
+        2586.7699999809265,
+        2589.2549999952316,
+        2590.3299999833107,
+        2589.0799999833107,
+        2587.810000002384,
+        2592.1099999547005,
+        2597.0199999809265,
+        2599.350000023842,
+        2597.8349999785423,
+        2593.824999988079,
+        2596.185000002384,
+        2594.145000040531,
+        2592.1150000095367,
+        2588.074999988079,
+        2594.6299999952316,
+        2591.2699999809265,
+        2586.310000002384,
+        2595.889999985695,
+        2591.625,
+        2593.0949999690056,
+        2593.435000002384,
+        2596.949999988079,
+        2591.5450000166893,
+        2600.1299999952316
+      ]
+    },
+    "4": {
+      "environment": {
+        "crossOriginIsolated": true,
+        "deviceLabel": "Ryzen 9 9950X desktop reference",
+        "foreground": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "workers": 4
+      },
+      "circuit": {
+        "expectedConstraints": 54031,
+        "fixtureSha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333",
+        "inputs": 2,
+        "key": {
+          "sha256": "915ffeaf13ae754f737235c85106778a465d10711a47dd134156b7ddc2c4d2b6",
+          "size": 16353833
+        },
+        "name": "transfer-confidential",
+        "outputs": 3
+      },
+      "build": {
+        "arithmetic": "arkworks-0.5",
+        "files": {
+          "fixtures/transfer-2x3.json": {
+            "bytes": 11835,
+            "sha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333"
+          },
+          "keys/manifest.json": {
+            "bytes": 1580,
+            "sha256": "1542a8c05ca79404f9850ef679c8e8b7be0cef5d061e8661ee205841a7c0fa1a"
+          },
+          "prover/accelerator/gnark_kernel_bg.wasm": {
+            "bytes": 385214,
+            "sha256": "66de8787a285a47b93277688bf05151a7082428667e4779de293eb301b120e40"
+          },
+          "prover/zolana-prover.wasm": {
+            "bytes": 18463638,
+            "sha256": "c18f02f59ddced4b500b8b92963fdbef455ea64eaf488a821ff4c1e5efc435b5"
+          }
+        },
+        "moproCommit": "af2a243311f7d3fd85f46a2f235b7eff6f2ce4ef",
+        "release": "local-device-baseline",
+        "solver": "gnark-go",
+        "sourceCommit": "87e9463b0d5b9527282ff7d77687258c92bb696e",
+        "sourceDirty": true
+      },
+      "setup": {
+        "keyFetchAndCheckMs": 213.32499998807907,
+        "keyPreparationMs": 13702.560000002384,
+        "startupMs": 227.93000000715256
+      },
+      "proof": {
+        "count": 30,
+        "maxMs": 1506.4900000095367,
+        "p50Ms": 1481.0150000154972,
+        "p95Ms": 1496.9300000071526,
+        "p95UnderOneSecond": false,
+        "underOneSecond": 0
+      },
+      "verification": {
+        "count": 30,
+        "maxMs": 9.370000004768372,
+        "p50Ms": 9.1424999833107,
+        "p95Ms": 9.339999973773956,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "firstProofMs": 1505.1100000143051,
+      "proveMs": [
+        1480.800000011921,
+        1484.3149999976158,
+        1496.9300000071526,
+        1464.3450000286102,
+        1448.125,
+        1487.5849999785423,
+        1455.375,
+        1492.5349999666214,
+        1469.2599999904633,
+        1455.710000038147,
+        1489.9550000429153,
+        1453.3949999809265,
+        1481.3599999547005,
+        1463.2049999833107,
+        1484.4950000047684,
+        1487.8650000095367,
+        1473.8550000190735,
+        1469.550000011921,
+        1484.6299999952316,
+        1469.1499999761581,
+        1481.2300000190735,
+        1465.4750000238419,
+        1492.5949999690056,
+        1506.4900000095367,
+        1495.339999973774,
+        1486.5450000166893,
+        1463.9099999666214,
+        1457.0600000023842,
+        1449.4350000023842,
+        1484.074999988079
+      ]
+    },
+    "8": {
+      "environment": {
+        "crossOriginIsolated": true,
+        "deviceLabel": "Ryzen 9 9950X desktop reference",
+        "foreground": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+        "workers": 8
+      },
+      "circuit": {
+        "expectedConstraints": 54031,
+        "fixtureSha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333",
+        "inputs": 2,
+        "key": {
+          "sha256": "915ffeaf13ae754f737235c85106778a465d10711a47dd134156b7ddc2c4d2b6",
+          "size": 16353833
+        },
+        "name": "transfer-confidential",
+        "outputs": 3
+      },
+      "build": {
+        "arithmetic": "arkworks-0.5",
+        "files": {
+          "fixtures/transfer-2x3.json": {
+            "bytes": 11835,
+            "sha256": "3a6448918c3f45d831a84eee9fd02f12e5e6d85dc9c7efadd905e4d51f51e333"
+          },
+          "keys/manifest.json": {
+            "bytes": 1580,
+            "sha256": "1542a8c05ca79404f9850ef679c8e8b7be0cef5d061e8661ee205841a7c0fa1a"
+          },
+          "prover/accelerator/gnark_kernel_bg.wasm": {
+            "bytes": 385214,
+            "sha256": "66de8787a285a47b93277688bf05151a7082428667e4779de293eb301b120e40"
+          },
+          "prover/zolana-prover.wasm": {
+            "bytes": 18463638,
+            "sha256": "c18f02f59ddced4b500b8b92963fdbef455ea64eaf488a821ff4c1e5efc435b5"
+          }
+        },
+        "moproCommit": "af2a243311f7d3fd85f46a2f235b7eff6f2ce4ef",
+        "release": "local-device-baseline",
+        "solver": "gnark-go",
+        "sourceCommit": "87e9463b0d5b9527282ff7d77687258c92bb696e",
+        "sourceDirty": true
+      },
+      "setup": {
+        "keyFetchAndCheckMs": 225.55500000715256,
+        "keyPreparationMs": 13768.620000004768,
+        "startupMs": 237.06999999284744
+      },
+      "proof": {
+        "count": 30,
+        "maxMs": 969.875,
+        "p50Ms": 924.7724999785423,
+        "p95Ms": 960.9499999880791,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "verification": {
+        "count": 30,
+        "maxMs": 9.740000009536743,
+        "p50Ms": 9.169999957084656,
+        "p95Ms": 9.514999985694885,
+        "p95UnderOneSecond": true,
+        "underOneSecond": 30
+      },
+      "firstProofMs": 957.1399999856949,
+      "proveMs": [
+        902.4900000095367,
+        904.5,
+        969.875,
+        959.2199999690056,
+        935.6949999928474,
+        923.5249999761581,
+        900.2950000166893,
+        873.0999999642372,
+        902.8700000047684,
+        922.0600000023842,
+        936.8549999594688,
+        954.7250000238419,
+        960.9499999880791,
+        949.2450000047684,
+        926.214999973774,
+        891.7549999952316,
+        932.2299999594688,
+        939.3700000047684,
+        938.0849999785423,
+        922.4599999785423,
+        899.6949999928474,
+        893.2849999666214,
+        926.0199999809265,
+        943.9900000095367,
+        920.7150000333786,
+        918.8050000071526,
+        946.6899999976158,
+        957.0900000333786,
+        912.1299999952316,
+        902.8200000524521
+      ]
+    }
+  },
+  "profiles": {
+    "16": {
+      "environment": {
+        "isolated": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36"
+      },
+      "prepare": {
+        "accelerated": true,
+        "circuitType": "transfer-confidential",
+        "constraints": 54031,
+        "fileName": "transfer_confidential_2_3.key",
+        "key": "transfer-confidential_2_3",
+        "nInputs": 2,
+        "nOutputs": 3,
+        "nbPublic": 2,
+        "nbSecret": 223
+      },
+      "prepareMs": 13671.29500001669,
+      "proof": {
+        "count": 30,
+        "p50Ms": 683.0325000286102,
+        "p95Ms": 720.5299999713898,
+        "maxMs": 727.4800000190735,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "kernel": {
+        "count": 30,
+        "p50Ms": 455.78999999165535,
+        "p95Ms": 491.1650000214577,
+        "maxMs": 499.98499995470047,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "other": {
+        "count": 30,
+        "p50Ms": 229.0425000190735,
+        "p95Ms": 231.63499999046326,
+        "maxMs": 232.25000005960464,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "goProfile": {
+        "assemble": 2.657536,
+        "bridgeAndArithmetic": 459.247616,
+        "commitmentKnowledgeAndFold": 0.5424640000000001,
+        "filterWitness": 0.74752,
+        "requestDecodeAndLookup": 0.624896,
+        "serialization": 0.114944,
+        "solveIncludingCommitments": 220.047488,
+        "witness": 0.414848
+      },
+      "rustProfile": {
+        "fft": 28.31750002503395,
+        "g1A": 420.2000000178814,
+        "g1B": 388.205000013113,
+        "g1K": 398.90000000596046,
+        "g1Z": 387.30500000715256,
+        "g2B": 389.9925000369549,
+        "msmWall": 425.607499986887,
+        "rustDecode": 0.5399999618530273,
+        "rustEncode": 0.030000030994415283
+      }
+    },
+    "8": {
+      "environment": {
+        "isolated": true,
+        "reportedThreads": 32,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36"
+      },
+      "prepare": {
+        "accelerated": true,
+        "circuitType": "transfer-confidential",
+        "constraints": 54031,
+        "fileName": "transfer_confidential_2_3.key",
+        "key": "transfer-confidential_2_3",
+        "nInputs": 2,
+        "nOutputs": 3,
+        "nbPublic": 2,
+        "nbSecret": 223
+      },
+      "prepareMs": 13635.894999980927,
+      "proof": {
+        "count": 30,
+        "p50Ms": 913.6275000274181,
+        "p95Ms": 956.7900000214577,
+        "maxMs": 957.8999999761581,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "kernel": {
+        "count": 30,
+        "p50Ms": 673.330000013113,
+        "p95Ms": 715.714999973774,
+        "maxMs": 717.8100000023842,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "other": {
+        "count": 30,
+        "p50Ms": 239.5374999642372,
+        "p95Ms": 242.22000002861023,
+        "maxMs": 242.33499997854233,
+        "underOneSecond": 30,
+        "p95UnderOneSecond": true
+      },
+      "goProfile": {
+        "assemble": 2.679808,
+        "bridgeAndArithmetic": 676.785024,
+        "commitmentKnowledgeAndFold": 0.530048,
+        "filterWitness": 0.757376,
+        "requestDecodeAndLookup": 0.602496,
+        "serialization": 0.114944,
+        "solveIncludingCommitments": 230.497536,
+        "witness": 0.4
+      },
+      "rustProfile": {
+        "fft": 37.78999999165535,
+        "g1A": 591.8925000429153,
+        "g1B": 625.9700000286102,
+        "g1K": 620.4924999773502,
+        "g1Z": 616.4174999892712,
+        "g2B": 614.5024999678135,
+        "msmWall": 635.5949999988079,
+        "rustDecode": 0.5200000107288361,
+        "rustEncode": 0.029999971389770508
+      }
+    }
+  },
+  "profileKernel": {
+    "source": "feat/gnark-web-browser-bench",
+    "features": [
+      "bench-profile",
+      "hybrid"
+    ],
+    "files": {
+      "gnark_kernel_bg.wasm.d.ts": "9e607755c8751d9c4fa61ad903ad559df28fe61f120191f3fac8820144dc26db",
+      "LICENSE-APACHE": "e8d77d4bbe96e1b46ec0f40d1f12e19825e718c764bb3e9a695633ade9289f9e",
+      "gnark_kernel_bg.wasm": "1b22b7d784bb2353a17e7fd864c62fb7cbf0f369586821587132009f4e7780f2",
+      ".npmignore": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "LICENSE-MIT": "8f71659370c5268d9a1dc962a46232540e8fca63462586d8efaa95aab492a208",
+      "package.json": "36a51215902e30a5173f11ea7022e63989646b676426935818ab6c11ad8d0ddc",
+      "README.md": "f9d3e5aa0054991faa3e1447aea11bb4766cdb9d54b12f4d5d26b3a462e595ac",
+      "gnark_kernel.js": "71fb1ebf67bf58e1eaae6a50aaeddc674e0e5a3338bcd2148ee397e0bffd9f52",
+      ".gitignore": "684888c0ebb17f374298b65ee2807526c066094c701bcc7ebbe1c1095f494fc1",
+      "gnark_kernel.d.ts": "7f835a1bcabc8afd50b8de213ae44e83697a0f73d8d0914eff2e85b3b0ce9a8e",
+      "snippets/wasm-bindgen-rayon-38edf6e439f6d70d/src/workerHelpers.no-bundler.js": "9801503f464f848c6c7405462fca9a5c721556904c5fee5ee0afcb0887ea1b7f"
+    }
+  },
+  "profileGo": {
+    "bytes": 18471069,
+    "sha256": "ced0b244b12fe030fff5bed1a5e222e0b20ef89bea636665322cb07c0de0c891",
+    "buildTag": "bench_profile"
+  }
+}

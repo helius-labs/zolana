@@ -36,7 +36,9 @@ func assignmentWitness(params parameters) (witness.Witness, error) {
 }
 
 func (c *preparedCircuit) prove(params parameters) (*common.Proof, error) {
+	started := profileStart()
 	w, err := assignmentWitness(params)
+	profileEnd("witness", started)
 	if err != nil {
 		return nil, err
 	}

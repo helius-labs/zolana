@@ -71,7 +71,7 @@ try {
         JSON.stringify({
           browser: browserName,
           count,
-          rustSolver: run.rustSolver,
+          solver: run.solver,
           totalMs: median(run.samples.map((x) => x.totalMs)),
           kernelMs: median(run.samples.map((x) => x.kernelMs)),
           otherMs: median(run.samples.map((x) => x.otherMs)),

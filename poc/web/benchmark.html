@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proof benchmark</title>
+  </head>
+  <body>
+    <main>
+      <h1>Proof benchmark</h1>
+      <p>Transfer 2 × 3 · 54,031 constraints</p>
+      <form id="controls">
+        <label
+          >Device model
+          <input id="device" autocomplete="off" placeholder="Enter the model" maxlength="120"
+        /></label>
+        <label>Workers <input id="threads" type="number" min="1" max="64" required /></label>
+        <button id="run" type="submit">Run benchmark</button>
+      </form>
+      <p id="progress" role="status">3 warmups, then 30 measured proofs. Keep this tab visible.</p>
+      <p id="error" role="alert" hidden></p>
+      <section id="result" hidden>
+        <h2 id="verdict"></h2>
+        <dl id="timings"></dl>
+        <button id="download" type="button">Download report</button>
+      </section>
+      <p class="note">
+        The one-second target covers proof generation after preparation. Every proof is verified;
+        verification is timed separately. Repeat three times on the target device.
+      </p>
+    </main>
+    <script type="module" src="/src/device-benchmark.ts"></script>
+  </body>
+</html>

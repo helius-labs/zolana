@@ -82,7 +82,9 @@ func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, 
 		return nil
 	}))
 
+	started := profileStart()
 	_solution, err := r1cs.Solve(fullWitness, solverOpts...)
+	profileEnd("solveIncludingCommitments", started)
 	if err != nil {
 		return nil, err
 	}
@@ -90,6 +92,7 @@ func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, 
 	solution := _solution.(*cs.R1CSSolution)
 	wireValues := []fr.Element(solution.W)
 
+	started = profileStart()
 	poks := make([]curve.G1Affine, len(pk.CommitmentKeys))
 
 	for i := range pk.CommitmentKeys {
@@ -116,6 +119,8 @@ func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, 
 		return nil, err
 	}
 
+	profileEnd("commitmentKnowledgeAndFold", started)
+	started = profileStart()
 	filter := func(in []fr.Element, infinity []bool) []fr.Element {
 		out := make([]fr.Element, 0, len(in))
 		for i, v := range in {
@@ -140,11 +145,18 @@ func proveAccelerated(r1cs *cs.R1CS, pk *native.ProvingKey, kernel proofKernel, 
 			sk = append(sk, wireValues[i])
 		}
 	}
-	parts, err := kernel.parts(filter(wireValues, pk.InfinityA), filter(wireValues, pk.InfinityB), sk, solution.A, solution.B, solution.C)
+	sa, sb := filter(wireValues, pk.InfinityA), filter(wireValues, pk.InfinityB)
+	profileEnd("filterWitness", started)
+	started = profileStart()
+	parts, err := kernel.parts(sa, sb, sk, solution.A, solution.B, solution.C)
+	profileEnd("bridgeAndArithmetic", started)
 	if err != nil {
 		return nil, fmt.Errorf("accelerated proof operations: %w", err)
 	}
-	return assembleAcceleratedProof(pk, proof, parts)
+	started = profileStart()
+	assembled, err := assembleAcceleratedProof(pk, proof, parts)
+	profileEnd("assemble", started)
+	return assembled, err
 }
 
 func assembleAcceleratedProof(pk *native.ProvingKey, proof *native.Proof, parts kernelParts) (*native.Proof, error) {

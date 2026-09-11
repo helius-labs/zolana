@@ -210,6 +210,61 @@ Browser verification took approximately 5–7 ms. These are local sample
 measurements, not a comparison with native proving speed. Key bytes persist in
 the Cache API, but the prepared key is rebuilt when the worker or shape changes.
 
+### One-second target on a device
+
+[Desktop reference measurements and phase breakdown](web/benchmark-results/2026-09-11.md).
+
+Open `/benchmark.html` on the served build. For a versioned AWS deployment use
+`/releases/RELEASE_ID/benchmark.html`. This separate page runs the actual 2×3
+transfer circuit through the same worker and prover as the main demo.
+
+Enter the device model and worker count. Each run creates a fresh worker, prepares
+the key, performs three warmups, then measures 30 proofs. Every proof is verified.
+It shows first-proof latency, p50, nearest-rank p95, maximum latency, and separate
+startup/key preparation/verification timings. Backgrounding the tab or cancelling
+invalidates the run. Reports download locally; no results are uploaded.
+
+For the target device, run three sessions and require proof p95 below 1,000 ms in
+each. Keep first-proof latency alongside the warm measurements. Compare worker
+counts on the physical device; a desktop with fewer workers is not a phone
+measurement. The report retains all samples, including outliers, the public
+sample's proofs, device/browser identity, fixture digest, key digest and release
+metadata. It does not include the witness body.
+
+Automated desktop reference runs (Chrome and a matching ChromeDriver required):
+
+```sh
+# Run a production preview first; it supplies the required isolation headers.
+npm run poc:build
+npm run preview --workspace @zolana/poc-web -- --port 3220
+# In another terminal. Set CHROME_BIN and CHROMEDRIVER_BIN as needed.
+node poc/web/scripts/benchmark-device.mjs 2,4,8,16 3
+# Diagnostic kernel / remaining-work split; run separately from timing tests.
+node poc/web/scripts/benchmark-device.mjs 8,16 1 profile
+# Cancellation, foreground and mobile-layout checks.
+node poc/web/scripts/benchmark-device.mjs 4 1 checks
+```
+
+Set `DEMO_URL` to the benchmark page and `DEMO_REPORT_DIR` to change the output
+directory. `BENCH_DEVICE_LABEL` labels desktop reports. The runner writes a
+`*-proofs.json` beside each report for independent native verification:
+
+```sh
+cd prover/server
+MOPRO_BROWSER_PROOFS=/absolute/path/proof-8-1-proofs.json \
+  go test ./cmd/prover-wasm -run '^TestZolanaMoproTransfer$' -count=1
+```
+
+Stage the matching sample and key before verification, as described above.
+Profile runs assert the circuit has 54,031 constraints and acceleration is active.
+`BENCH_KERNEL_BASE` can select a separately built instrumented kernel directory;
+keep those diagnostic results separate from the shipped-build latency results.
+For Go phase timings, build `cmd/prover-wasm` with `-tags bench_profile`, serve it
+under a separate filename, and set `BENCH_WASM_URL` to that file. Ordinary builds
+inline the empty timer functions away. The optional fields contain durations,
+including witness construction, solving, commitment work, bridge/arithmetic and
+assembly; they contain no witness values. Timers are nested, not additive.
+
 ### Comparing browsers
 
 Run each browser sequentially so their worker pools do not compete for CPU:
@@ -223,8 +278,8 @@ node poc/web/scripts/benchmark-browsers.mjs firefox 18,12 profile
 ```
 
 These use separate headless profiles and save raw samples in
-`target/mopro-browser-comparison/`. Each configuration discards three warm-up
-proofs, measures 15 proofs and verifies every proof. `CHROME_BIN` and
+`target/mopro-browser-comparison/`. The UI comparison discards three warm-up
+proofs and measures 15 proofs; diagnostic profile runs measure 30. Every proof is verified. `CHROME_BIN` and
 `FIREFOX_BIN` override the default macOS browser paths. Selenium can download
 matching drivers on first use. Key preparation and verification are excluded
 from the reported proving time.
@@ -237,7 +292,7 @@ On the same Mac and 2x3 sample, Brave/Chromium 152 and Firefox 155 measured:
 | 6 | 403.2 ms | 464.0 ms |
 | 18 | 230.4 ms | 401.3 ms |
 
-The diagnostic run at 18 workers measured 142.7 ms inside the Rust kernel in
+The historical diagnostic run at 18 workers measured 142.7 ms inside the Rust kernel in
 Brave and 284.2 ms in Firefox. The remaining Go/witness/bridge/assembly work was
 approximately 87.4 and 109.8 ms respectively. This sample retained the Go solver.
 Separate phase medians need not add up to the total median.

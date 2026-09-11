@@ -175,6 +175,7 @@ func (r *registry) loadKey(args []js.Value) any {
 //
 // Signature: prove(requestJson: string) -> { proof } | { error }.
 func (r *registry) prove(args []js.Value) any {
+	profileReset()
 	if len(args) != 1 {
 		return errorResult(fmt.Errorf("prove expects (requestJson), got %d args", len(args)))
 	}
@@ -200,14 +201,17 @@ func (r *registry) prove(args []js.Value) any {
 		return errorResult(err)
 	}
 
+	serializationStarted := profileStart()
 	encoded, err := json.Marshal(proof)
 	if err != nil {
 		return errorResult(fmt.Errorf("encoding proof: %w", err))
 	}
-	return map[string]any{"proof": string(encoded)}
+	profileEnd("serialization", serializationStarted)
+	return profileResult(map[string]any{"proof": string(encoded)})
 }
 
 func (r *registry) proveTransfer(request []byte) (*common.Proof, error) {
+	started := profileStart()
 	var params transfereddsaonly.TransferParameters
 	if err := json.Unmarshal(request, &params); err != nil {
 		return nil, fmt.Errorf("decoding transfer parameters: %w", err)
@@ -219,10 +223,12 @@ func (r *registry) proveTransfer(request []byte) (*common.Proof, error) {
 		return nil, fmt.Errorf("proving key %s is not loaded; call loadKey first", key)
 	}
 	_ = ps
+	profileEnd("requestDecodeAndLookup", started)
 	return r.prepared[key].prove(&params)
 }
 
 func (r *registry) proveMerge(request []byte, circuitType common.CircuitType) (*common.Proof, error) {
+	started := profileStart()
 	var params mergeprover.MergeParameters
 	if err := json.Unmarshal(request, &params); err != nil {
 		return nil, fmt.Errorf("decoding merge parameters: %w", err)
@@ -233,6 +239,7 @@ func (r *registry) proveMerge(request []byte, circuitType common.CircuitType) (*
 		return nil, fmt.Errorf("proving key %s is not loaded; call loadKey first", key)
 	}
 	_ = ps
+	profileEnd("requestDecodeAndLookup", started)
 	return r.prepared[key].prove(&params)
 }
 
