@@ -173,6 +173,12 @@ type RingTransactCommon = Readonly<{
   approvalRequired?: boolean;
 }>;
 
+function nonSignerRole(role: AccountRole): AccountRole {
+  if (role === AccountRole.WRITABLE_SIGNER) return AccountRole.WRITABLE;
+  if (role === AccountRole.READONLY_SIGNER) return AccountRole.READONLY;
+  return role;
+}
+
 export async function ringTransactInstruction(
   input: RingTransactCommon &
     Readonly<{
@@ -190,7 +196,7 @@ export async function ringTransactInstruction(
     ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const pool = await ringTransactAccounts({
+  const raw = await ringTransactAccounts({
     payer: input.payer,
     inputTree: input.inputTree,
     outputTree: input.outputTree,
@@ -199,6 +205,13 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
+  // The program raises the namespace PDA inside its CPI, so it never signs here.
+  const namespace = hasPolicy ? await ringPolicyNamespaceAddress(input.ringProgramId) : undefined;
+  const pool = raw.map((account) =>
+    account.address === namespace
+      ? { address: account.address, role: nonSignerRole(account.role) }
+      : account,
+  );
   return {
     programAddress: input.ringProgramId,
     accounts: [

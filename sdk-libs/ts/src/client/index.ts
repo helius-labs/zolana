@@ -7,6 +7,7 @@ export type {
 } from "./client.js";
 export type {
   BlockhashProvider,
+  SlotReader,
   ChainReader,
   IndexerReader,
   KitRpcAccess,

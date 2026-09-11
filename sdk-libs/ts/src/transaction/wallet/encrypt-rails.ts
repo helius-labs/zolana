@@ -1,7 +1,8 @@
-import type { Bytes32, MessageData } from "../../interface/types.js";
+import type { Bytes16, Bytes32, Bytes33, MessageData } from "../../interface/types.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { randomSalt } from "../../keypair/bytes.js";
-import type { P256PublicKey } from "../../keypair/public-key.js";
+import { P256PublicKey } from "../../keypair/public-key.js";
+import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
 
 import { encodeConfidentialSlots } from "../instructions/transact.js";
@@ -42,6 +43,7 @@ export async function runSpendSession<T>(
         Promise.resolve(encryptConfidentialTransferWith(viewingKey, input)),
       encryptCustomRingTransfer: (input) =>
         Promise.resolve(encryptCustomRingTransferWith(viewingKey, input)),
+      openSealedMessage: (input) => Promise.resolve(openSealedMessageWith(viewingKey, input)),
       encryptAnonymousTransfer: (input) =>
         Promise.resolve(encryptAnonymousTransferWith(viewingKey, input)),
       encryptSplit: (input) => Promise.resolve(encryptSplitWith(viewingKey, input)),
@@ -95,6 +97,11 @@ export function encryptCustomRingTransferWith(
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
+    sealedMessages?: readonly Readonly<{
+      viewTag: Bytes32;
+      plaintext: Uint8Array;
+      slotIndex: number;
+    }>[];
   }>,
 ): EncryptedCustomRingTransfer {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
@@ -105,11 +112,20 @@ export function encryptCustomRingTransferWith(
     txViewingSecret = tx.secretBytes();
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
     ephemeralSecret = encryption.ephemeralSecret;
+    const recipient = tx.publicKey();
+    const sealedMessages: readonly MessageData[] = (input.sealedMessages ?? []).map((message) => {
+      const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
+      const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
+      body.set(recipient.toBytes(), 0);
+      body.set(ciphertext, P256_PUBLIC_KEY_LENGTH);
+      return { viewTag: message.viewTag, data: body };
+    });
     const encrypted = {
       txViewingPublicKey: tx.publicKey(),
       salt,
       payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
       auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
+      sealedMessages,
       audit: Object.freeze({ txViewingSecret, ephemeralSecret }),
     };
     // The finally must not wipe the secrets the returned object owns.
@@ -120,6 +136,28 @@ export function encryptCustomRingTransferWith(
     tx.destroy();
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
+  }
+}
+
+/** @internal Opens a sealed message under the transaction key of `firstNullifier`. */
+export function openSealedMessageWith(
+  viewingKey: ViewingKey,
+  input: Readonly<{
+    firstNullifier: Bytes32;
+    salt: Bytes16;
+    slotIndex: number;
+    data: Uint8Array;
+  }>,
+): Uint8Array {
+  const tx = viewingKey.transactionViewingKey(input.firstNullifier);
+  try {
+    const recipient = P256PublicKey.fromBytes(
+      input.data.slice(0, P256_PUBLIC_KEY_LENGTH) as Bytes33,
+    );
+    const ciphertext = input.data.slice(P256_PUBLIC_KEY_LENGTH);
+    return tx.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
+  } finally {
+    tx.destroy();
   }
 }
 

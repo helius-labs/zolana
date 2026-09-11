@@ -71,6 +71,7 @@ export {
   listSet,
   listWriter,
   memberOfAsset,
+  memberOfIdentity,
   memberOfTag,
   policySourceOwners,
   readRingEntries,

@@ -66,6 +66,7 @@ export interface AuditWitness {
 
 export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
   readonly auditorMessage: MessageData;
+  readonly sealedMessages: readonly MessageData[];
   readonly audit: AuditWitness;
 }
 
@@ -102,8 +103,22 @@ export interface SpendSession {
       outputs: readonly ProofOutputUtxo[];
       assets: AssetRegistry;
       auditorPublicKey: P256PublicKey;
+      sealedMessages?: readonly Readonly<{
+        viewTag: Bytes32;
+        plaintext: Uint8Array;
+        slotIndex: number;
+      }>[];
     }>,
   ): Promise<EncryptedCustomRingTransfer>;
+  /** Opens a message sealed under the transaction key of a past `firstNullifier`. */
+  openSealedMessage(
+    input: Readonly<{
+      firstNullifier: Bytes32;
+      salt: Bytes16;
+      slotIndex: number;
+      data: Uint8Array;
+    }>,
+  ): Promise<Uint8Array>;
   encryptAnonymousTransfer(
     input: Readonly<{
       firstNullifier: Bytes32;

@@ -695,6 +695,10 @@ export interface PreparedTransfer {
   readonly changeLayout: ChangeLayout;
   /** The seed the sender-side bundles disclose so a reader recovers every output blinding. */
   outputBlindingSeed(): Bytes32;
+  /** Appends the velocity record after the dummy padding, Rust `append_record_slots`. */
+  withAppendedSlot(
+    extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+  ): PreparedTransfer;
   /** Ring transacts bind the auditor message and the `RING_TRANSACT` tag into the external data hash. */
   finalize(
     input: Readonly<{
@@ -989,7 +993,10 @@ export class ConfidentialTransfer {
   }
 }
 
-type PreparedTransferFields = Omit<PreparedTransfer, "finalize" | "outputBlindingSeed">;
+type PreparedTransferFields = Omit<
+  PreparedTransfer,
+  "finalize" | "outputBlindingSeed" | "withAppendedSlot"
+>;
 
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
@@ -998,7 +1005,53 @@ function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
       outputBlindingSeed(fields.firstNullifier, fields.blindingSeed),
     finalize: (encrypted: Parameters<PreparedTransfer["finalize"]>[0]): SppProofInputs =>
       finalizeTransfer(fields, encrypted),
+    withAppendedSlot: (
+      extension: Parameters<PreparedTransfer["withAppendedSlot"]>[0],
+    ): PreparedTransfer => appendRecordSlot(fields, extension),
   });
+}
+
+/** Mirrors Rust `append_record_slots`. */
+function appendRecordSlot(
+  fields: PreparedTransferFields,
+  extension: Readonly<{ shape: Shape; input: ProofInputUtxo; output: ProofOutputUtxo }>,
+): PreparedTransfer {
+  const supported = SPP_SUPPORTED_SHAPES.some(
+    (candidate) =>
+      candidate.inputs === extension.shape.inputs && candidate.outputs === extension.shape.outputs,
+  );
+  if (!supported)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", { ...extension.shape });
+  const outputSeed = outputBlindingSeed(fields.firstNullifier, fields.blindingSeed);
+  const ownerTag = fields.owner.confidentialViewTag();
+  const inputs = [...fields.inputs];
+  while (inputs.length + 1 < extension.shape.inputs) {
+    inputs.push(ProofInputUtxo.dummy(undefined, fields.inputTreeId));
+  }
+  const outputs = [...fields.outputs];
+  while (outputs.length + 1 < extension.shape.outputs) {
+    outputs.push(
+      createProofOutput({
+        asset: ZERO_ADDRESS,
+        amount: 0n,
+        blinding: transactOutputBlinding(fields.firstNullifier, outputSeed, outputs.length),
+        ownerTag,
+      }),
+    );
+  }
+  const expected = transactOutputBlinding(
+    fields.firstNullifier,
+    outputSeed,
+    extension.shape.outputs - 1,
+  );
+  if (!extension.output.blinding.every((byte, index) => byte === expected[index])) {
+    throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
+      reason: "recordBlinding",
+    });
+  }
+  inputs.push(extension.input);
+  outputs.push(extension.output);
+  return preparedTransfer({ ...fields, inputs, outputs, shape: extension.shape });
 }
 
 /**

@@ -335,6 +335,12 @@ export class ZolanaClient
     return value;
   }
 
+  async getSlot(context?: RequestContext): Promise<bigint> {
+    return runKitRpc("getSlot", context, (abortSignal) =>
+      this.solanaRpc.getSlot({ commitment: this.commitment }).send({ abortSignal }),
+    );
+  }
+
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,

@@ -25,9 +25,11 @@ Breaking
   `windowIndex` and `approvalRequired`, and `CustomRingPolicyProofRequest`
   carries a `velocity` witness → build it with `velocityWitnessOff` on a ring
   without a window.
-- `proveCustomRingTransfer` refuses a ring with velocity rows with
-  `RING_VELOCITY_UNSUPPORTED`, a velocity transfer is assembled by the Rust SDK
-  only.
+- `proveCustomRingTransfer` charges each transfer's outflow on a velocity ring,
+  a windowed ring spends the sender's record into its successor, and returns
+  `approvalRequired` on `ProvenRingTransfer`.
+- `CustomRingTransferParams.session` needs `openSealedMessage`, and the client
+  needs `getSlot`, to recover a past window's counters.
 
 Added
 
@@ -46,7 +48,14 @@ Added
   `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
   `velocityWitnessOff`.
 - Ring error codes `RING_SPEND_RECORD_INVALID`,
-  `RING_SPEND_RECORD_LINEAGE_BROKEN` and `RING_VELOCITY_UNSUPPORTED`.
+  `RING_SPEND_RECORD_LINEAGE_BROKEN`, `RING_SPEND_RECORD_MISSING`,
+  `RING_SPEND_COUNTERS_UNKNOWN`, `RING_VELOCITY_CAP_EXCEEDED`,
+  `RING_VELOCITY_OVERFLOW`, `RING_COSIGNER_REQUIRED` and
+  `RING_DELEGATE_ON_VELOCITY_RING`.
+- `ShieldedPublicKey.fromPda`, `ShieldedAddress.forPda` and the `"pda"` owner
+  type carry a program-derived owner into a proof input.
+- `SpendSession.openSealedMessage` opens a message sealed under a past
+  transaction key, and `ZolanaClient.getSlot` reads the current slot.
 
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated

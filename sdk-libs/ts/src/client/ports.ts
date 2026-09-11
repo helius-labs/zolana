@@ -59,6 +59,10 @@ export interface BlockhashProvider {
   getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash>;
 }
 
+export interface SlotReader {
+  getSlot(context?: RequestContext): Promise<bigint>;
+}
+
 export interface IndexerReader {
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,

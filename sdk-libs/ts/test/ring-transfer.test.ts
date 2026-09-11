@@ -222,6 +222,8 @@ function spendSession(authority: WalletAuthority): CustomRingTransferParams["ses
   return {
     encryptCustomRingTransfer: (request) =>
       authority.withSpendSession((session) => session.encryptCustomRingTransfer(request)),
+    openSealedMessage: (request) =>
+      authority.withSpendSession((session) => session.openSealedMessage(request)),
   };
 }
 
