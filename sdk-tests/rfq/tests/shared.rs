@@ -1,21 +1,13 @@
-use std::time::Duration;
-
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
-    spawn_prover, AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc,
-    ZolanaClient, ZolanaIndexer,
+    spawn_prover, AsyncProverClient, AsyncZolanaIndexer, ComputeBudgetConfig, ProverClient, Rpc,
+    SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
@@ -33,6 +25,9 @@ use zolana_test_utils::{
 use zolana_transaction::{AssetRegistry, Wallet, SOL_MINT};
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{sync_wallet, Deposit, DepositParams};
+
+// The whole per-transaction budget: the settlement verifies an SPP proof.
+const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 pub const SELL_SOL: u64 = 250_000_000;
 pub const BUY_USDC: u64 = 100_000_000;
@@ -309,75 +304,21 @@ pub fn setup() -> Result<TestEnv> {
     })
 }
 
-pub fn send_cosigned_v0_with_lookup_table(
+// Submit the maker/taker co-signed settlement as a transaction **v1** message:
+// its 4096-byte limit is what holds an RFQ transact, which no longer fits a
+// 1232-byte legacy packet. v1 has no address lookup table, and it carries the
+// compute ceilings in the message header rather than in a compute-budget
+// instruction. An unset ceiling means zero, not a default, so both are written.
+pub fn send_cosigned_v1(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
     cosigner: &dyn Signer,
     ix: Instruction,
 ) -> Result<Signature> {
-    let alt_addresses: Vec<Pubkey> = ix
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain(std::iter::once(ix.program_id))
-        .collect();
-    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-
-    let client = rpc.client();
-    let recent_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    loop {
-        let tip = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-        if tip > recent_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let (lut_create_ix, table_address) =
-        create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
-    let lut_extend_ix = extend_lookup_table(
-        table_address,
+    Ok(rpc.create_and_send_v1_transaction(
+        std::slice::from_ref(&ix),
         payer.pubkey(),
-        Some(payer.pubkey()),
-        alt_addresses.clone(),
-    );
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let setup = Transaction::new(
-        &[payer],
-        Message::new(&[lut_create_ix, lut_extend_ix], Some(&payer.pubkey())),
-        blockhash,
-    );
-    client
-        .send_and_confirm_transaction(&setup)
-        .map_err(|e| anyhow!("create+extend ALT: {e}"))?;
-    let extended_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    loop {
-        let tip = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-        if tip > extended_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let alt = AddressLookupTableAccount {
-        key: table_address,
-        addresses: alt_addresses.clone(),
-    };
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let message = v0::Message::try_compile(
-        &payer.pubkey(),
-        &[compute, ix],
-        std::slice::from_ref(&alt),
-        blockhash,
-    )
-    .map_err(|e| anyhow!("compile v0: {e}"))?;
-    let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer, cosigner])
-        .map_err(|e| anyhow!("sign v0: {e}"))?;
-    let signature = client
-        .send_and_confirm_transaction(&tx)
-        .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(signature)
+        &[payer, cosigner],
+        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+    )?)
 }

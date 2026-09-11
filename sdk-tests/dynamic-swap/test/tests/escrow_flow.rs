@@ -16,8 +16,7 @@ use dynamic_swap_sdk::{
     state::{EscrowTerms, EscrowUtxo, Reservation},
 };
 use shared::{
-    escrow_authority_identity, get_slot_with_retry, send_v0_with_lookup_table, setup_with_pair,
-    wait_until,
+    escrow_authority_identity, get_slot_with_retry, send_v1, setup_with_pair, wait_until,
 };
 use solana_signer::Signer;
 use zolana_client::Rpc;
@@ -389,7 +388,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
             .instruction()
             .map_err(|e| anyhow!("create_escrow instruction: {e:?}"))?;
 
-            send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[&user_solana], ix)
+            send_v1(env.client.rpc(), &authority_solana, &[&user_solana], ix)
                 .map_err(|e| anyhow!("send create_escrow: {e:?}"))?;
 
             escrow
@@ -665,7 +664,7 @@ fn create_pair_escrow_and_settle() -> Result<()> {
         }
         .instruction()
         .map_err(|e| anyhow!("settle instruction: {e:?}"))?;
-        send_v0_with_lookup_table(env.client.rpc(), &authority_solana, &[], settle_ix)
+        send_v1(env.client.rpc(), &authority_solana, &[], settle_ix)
             .map_err(|e| anyhow!("send settle: {e:?}"))?;
 
         (recipient_out_hash, maker_counter_hash, maker_source_hash)
