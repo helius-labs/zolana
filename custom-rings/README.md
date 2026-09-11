@@ -215,17 +215,19 @@ typed accounts. The authority builds `CreateConfig`, `InitSppRingConfig`,
 a policy ring adds `CreatePolicy`, `SetPolicyRules`, `SetSourceOwner` and the
 entry mutations `CreateEntry` and `UpdateEntry`. `CreatePolicy` and
 `SetPolicyRules` take a `RuleTable` built with `RuleTable::builder()` and the
-curator per shared list, both refuse a transaction past one legacy packet. A
-participant sends `RingDeposit`, prepares a `ConfidentialTransfer` from the
-SPP transaction SDK
-and proves it with
+curator per shared list, both refuse a transaction past the 4096-byte v1
+transaction limit. A participant sends `RingDeposit`, prepares a
+`ConfidentialTransfer` from the SPP transaction SDK and proves it with
 `CustomRingTransfer::new(..).with_tree(..).with_assets(..).prove(env)`,
 where the environment is the indexer, the RPC and the prover. `prove` reads
 the table from the policy config and trusts its rows only under the pinned
 hash (`policy_config_table`), `client_rules_match` compares a table of the
 caller's with the stored rows. `prove_async` serves both tiers. The custom-ring
 instruction forwards SPP's full account list and does not fit a legacy
-transaction, `V0WithLookupTable` submits it behind a throwaway lookup table.
+transaction, and no address lookup table rescues it because its instruction
+data alone passes the 1232-byte packet. `TransactV1` submits it as a
+transaction v1 message, which carries 4096 bytes and states its compute
+ceilings in the header rather than in a prepended instruction.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. The indexer
 only matches the auditor view tag and needs no ring support. A transaction
@@ -235,8 +237,9 @@ the shielded pool instruction has the ring program as direct caller.
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`) proves
 audit-only rings and policy rings with an empty table, a rules-bearing ring
 fails with `RING_RULES_UNSUPPORTED`. It spends from `client.tree` only and
-takes `entriesRoots` when the pinned entries tree is another tree. Its lookup
-table builder reads the tier and the entries tree from the chain,
+takes `entriesRoots` when the pinned entries tree is another tree.
+`buildRingTransferTransaction` reads the tier and the entries tree from the
+chain and returns a version 1 transaction signed by the fee payer,
 `fetchRingPolicyConfig` reads the rows and the generation, and
 `setRingPausedInstruction` pauses and resumes the ring.
 
@@ -252,7 +255,7 @@ the key only to a request the upgrade authority signs while no config exists,
 so `init` needs that keypair and the program must be deployed first. `init`
 creates the config under the upgrade authority and hands it to
 `config_authority_keypair` when that key differs. The sender of a
-custom-ring transfer pays its own v0 transaction. Keys and `.env` belong in the
+custom-ring transfer pays its own v1 transaction. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
@@ -276,7 +279,7 @@ tree, a `ring.toml` naming another tree is refused, the tree is fixed at
 `init`. Curated sources are per cluster, `[policy.sources.localnet]` and
 `[policy.sources.devnet]` name their own curators and a catalogue name
 resolves only on the cluster that lists it. A table pinned with its curator
-accounts can exceed one legacy packet at `create_policy`, `init` then pins it
+accounts can exceed the v1 transaction limit at `create_policy`, `init` then pins it
 over the ring's own sources and points each curated list afterwards. A rule
 names authority-written lists only, the member-written lists are enrolled by
 their members and read by no rule.

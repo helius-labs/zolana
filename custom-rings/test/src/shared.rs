@@ -9,18 +9,17 @@
 
 use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, V0WithLookupTable,
+    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, TransactV1,
     TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError, ProverClient, Rpc,
-    SolanaRpc, ZolanaClient, ZolanaIndexer,
+    prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
+    ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::CreateProtocolConfig,
@@ -91,10 +90,11 @@ impl TestEnv {
             &[self.tree_creation_authority.pubkey()],
             &creation.instructions,
         );
-        rpc.create_and_send_transaction(
+        rpc.create_and_send_v1_transaction(
             &syncs,
             self.payer.pubkey(),
             &[&self.payer, &self.tree_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(syncs.len()),
         )?;
         Ok(creation.tree)
     }
@@ -376,7 +376,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
+        rpc.create_and_send_v1_transaction(
+            &[ix],
+            payer_address,
+            &[&payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
 
     rpc.airdrop(&accounts.protocol_vault, PROTOCOL_VAULT_AIRDROP)?;
@@ -406,7 +411,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
+    rpc.create_and_send_v1_transaction(
+        &[create_config_sync],
+        payer_address,
+        &[&payer, &authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
 
     let tree_creation = create_tree_instructions(
         &rpc,
@@ -422,10 +432,11 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         &[tree_creation_authority.pubkey()],
         &tree_creation.instructions,
     );
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
+        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
 
     let tree = tree_creation.tree;
@@ -500,30 +511,29 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
     Ok(TestWallet { wallet, keypair })
 }
 
-/// Send instructions as a legacy transaction paid and signed by `payer`.
+/// Send instructions as a transaction **v1** message paid and signed by
+/// `payer`. The compute ceilings ride in the message header, so nothing is
+/// prepended and the caller's first instruction stays at index 0.
 pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<Signature> {
-    let instructions = std::iter::once(ComputeBudgetInstruction::set_compute_unit_limit(
-        TRANSACT_COMPUTE_UNIT_LIMIT,
-    ))
-    .chain(ixs.iter().cloned())
-    .collect::<Vec<_>>();
-    let signature = rpc.create_and_send_transaction(&instructions, payer.pubkey(), &[payer])?;
-    Ok(signature)
+    Ok(rpc.create_and_send_v1_transaction(
+        ixs,
+        payer.pubkey(),
+        &[payer],
+        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+    )?)
 }
 
-/// Submit a single (large) instruction as a v0 transaction behind a throwaway
-/// address lookup table. Prepends a 1.4M CU budget; `payer` signs and pays.
-/// The same submission path for a transaction that must be REJECTED: returns the
-/// runtime's typed failure so a test can assert the exact program error code and
-/// the failing instruction index (`Rejection::custom(..).at(1)`, index 1 because
-/// of the prepended compute budget). [`send_v0_with_lookup_table`] stringifies
-/// the error, which cannot be asserted on.
-pub fn send_v0_expecting_rejection(
+/// The [`TransactV1`] submission path for a transaction that must be REJECTED:
+/// returns the runtime's typed failure so a test can assert the exact program
+/// error code and the failing instruction index (`Rejection::custom(..).at(0)`,
+/// index 0 because a v1 message carries no compute-budget instruction).
+/// [`TransactV1::send`] stringifies the error, which cannot be asserted on.
+pub fn send_v1_expecting_rejection(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = V0WithLookupTable {
+    let tx = TransactV1 {
         payer,
         signers: &[],
         instruction: ix,
@@ -534,13 +544,14 @@ pub fn send_v0_expecting_rejection(
             "transaction {signature} was expected to be rejected but landed"
         )),
         Err(source) => Ok(ClientError::SolanaRpcTransaction {
-            operation: "send v0",
+            operation: "send v1",
             source,
         }),
     }
 }
 
-/// Over [`send`], the failing instruction sits at index 1 behind its compute budget.
+/// Over [`send`], the failing instruction sits at index 0: a v1 message carries
+/// its compute ceilings in the header, not in a prepended instruction.
 #[must_use]
 pub struct ExpectRejection<'a> {
     pub payer: &'a dyn Signer,

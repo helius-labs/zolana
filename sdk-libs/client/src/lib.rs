@@ -27,6 +27,7 @@ mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
+pub mod transaction_size;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
@@ -51,19 +52,21 @@ pub use prover::{
     TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
+pub use rpc::{compile_v1_message, sign_versioned_transaction, ComputeBudgetConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
     OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
 };
+pub use transaction_size::{v1_transaction_size, V1TransactionSize};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;

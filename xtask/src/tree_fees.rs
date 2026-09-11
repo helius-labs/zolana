@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Result};
-use solana_message::Message;
 use solana_pubkey::Pubkey;
-use solana_transaction::Transaction;
+use zolana_client::v1_transaction_size;
 use zolana_interface::instruction::CloseNullifierPdas;
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeFeeSchedule;
@@ -45,6 +44,9 @@ pub struct ForesterClose {
     pub tree: Pubkey,
 }
 
+/// A close batch is signed by the forester member and nobody else.
+const CLOSE_SIGNATURES: usize = 1;
+
 impl ForesterClose {
     fn serialized_size(&self, nullifiers: &[[u8; 32]]) -> Result<usize> {
         let inner = CloseNullifierPdas {
@@ -55,10 +57,13 @@ impl ForesterClose {
         }
         .instruction();
         let outer = execute_sync_ix(&self.settings, 0, &[self.member], &[inner]);
-        let transaction = Transaction::new_unsigned(Message::new(&[outer], Some(&self.member)));
-        bincode::serialize(&transaction)
-            .map(|bytes| bytes.len())
-            .map_err(|e| anyhow!("serialize close-nullifier-pdas transaction: {e}"))
+        // The same measurement the forester packs against. These were two
+        // hand-rolled serializations that agreed for legacy transactions and
+        // would have diverged under v1, which is precisely where the fee
+        // schedule and the packer must not disagree.
+        v1_transaction_size(&self.member, &[outer], CLOSE_SIGNATURES)
+            .map(|size| size.bytes)
+            .map_err(|e| anyhow!("measure close-nullifier-pdas transaction: {e}"))
     }
 
     pub fn closes_per_transaction(&self, size: TransactionSize) -> Result<u64> {

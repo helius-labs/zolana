@@ -1,13 +1,11 @@
-//! The table body `CREATE_POLICY` and `SET_POLICY_RULES` share, and the packet
-//! bound both builders enforce.
+//! The table body `CREATE_POLICY` and `SET_POLICY_RULES` share, and the
+//! transaction bound both builders enforce.
 
 use custom_ring_interface::{PolicyTableIxData, SourceSpec};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
-use solana_message::Message;
-use solana_packet::PACKET_DATA_SIZE;
-use solana_transaction::Transaction;
+use solana_message::v1::MAX_TRANSACTION_SIZE;
+use zolana_client::v1_transaction_size;
 use zolana_ring_policy::{ListId, Rule, RuleTable};
 
 use crate::{instructions::entry::EntryError, CustomRing};
@@ -89,43 +87,67 @@ impl PolicyTableBody {
     }
 }
 
-/// The legacy transaction the instruction rides in, one compute budget
-/// instruction ahead of it.
-pub(crate) struct LegacyPacket {
+/// The transaction **v1** message the instruction rides in, alone: v1 states
+/// its compute ceilings in the message header, so no compute-budget
+/// instruction takes up room beside it.
+pub(crate) struct V1Transaction {
     pub payer: Address,
-    pub compute_unit_limit: u32,
     pub instruction: Instruction,
 }
 
-impl LegacyPacket {
-    /// Signatures included, the bound the runtime applies to the whole packet.
+impl V1Transaction {
+    /// Signatures included, the bound the runtime applies to the whole
+    /// transaction.
+    ///
+    /// Only the byte ceiling can bind here: v1 also caps a transaction at 64
+    /// addresses, and a policy table names seven fixed accounts plus one
+    /// curator per referenced list, which cannot reach that.
     pub(crate) fn fit(self) -> Result<Instruction, EntryError> {
-        let instructions = [
-            ComputeBudgetInstruction::set_compute_unit_limit(self.compute_unit_limit),
-            self.instruction,
-        ];
-        let message = Message::new(&instructions, Some(&self.payer));
-        let bytes = wincode::serialize(&Transaction::new_unsigned(message))?.len();
-        if bytes > PACKET_DATA_SIZE {
+        let signatures = signature_count(&self.payer, &self.instruction);
+        let size = v1_transaction_size(
+            &self.payer,
+            core::slice::from_ref(&self.instruction),
+            signatures,
+        )
+        .map_err(|error| EntryError::TransactionCompile(Box::new(error)))?;
+        if size.bytes > MAX_TRANSACTION_SIZE {
             return Err(EntryError::TransactionTooLarge {
-                bytes,
-                limit: PACKET_DATA_SIZE,
+                bytes: size.bytes,
+                limit: MAX_TRANSACTION_SIZE,
             });
         }
-        let [_, instruction] = instructions;
-        Ok(instruction)
+        Ok(self.instruction)
     }
+}
+
+/// The fee payer plus every distinct signer the instruction names.
+///
+/// The measurement takes the signature count as an input because an unsigned
+/// message cannot tell it, and each signature the builder forgets under-reports
+/// the transaction by 64 bytes.
+fn signature_count(payer: &Address, instruction: &Instruction) -> usize {
+    let mut signers = vec![*payer];
+    for signer in instruction
+        .accounts
+        .iter()
+        .filter(|meta| meta.is_signer)
+        .map(|meta| meta.pubkey)
+    {
+        if !signers.contains(&signer) {
+            signers.push(signer);
+        }
+    }
+    signers.len()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn packet(data_len: usize) -> LegacyPacket {
+    fn transaction(data_len: usize) -> V1Transaction {
         let payer = Address::new_from_array([1u8; 32]);
-        LegacyPacket {
+        V1Transaction {
             payer,
-            compute_unit_limit: 1,
             instruction: Instruction {
                 program_id: Address::new_from_array([2u8; 32]),
                 accounts: vec![AccountMeta::new(payer, true)],
@@ -134,14 +156,16 @@ mod tests {
         }
     }
 
+    /// The bound is the v1 ceiling, not the 1232-byte legacy packet: an
+    /// instruction between the two is sendable and must not be refused.
     #[test]
     fn the_bound_counts_the_whole_signed_transaction() {
-        let instruction = packet(1000).fit().expect("fits");
-        assert_eq!(instruction.data.len(), 1000);
+        let instruction = transaction(3900).fit().expect("fits");
+        assert_eq!(instruction.data.len(), 3900);
         assert!(matches!(
-            packet(1100).fit(),
+            transaction(4100).fit(),
             Err(EntryError::TransactionTooLarge { bytes, limit })
-                if bytes > limit && limit == PACKET_DATA_SIZE
+                if bytes > limit && limit == MAX_TRANSACTION_SIZE
         ));
     }
 }

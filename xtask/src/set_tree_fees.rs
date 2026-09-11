@@ -3,7 +3,7 @@ use std::{path::PathBuf, str::FromStr};
 use anyhow::{anyhow, bail, Context, Result};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::SetTreeFees,
     pda,
@@ -265,11 +265,13 @@ pub fn run(options: Options) -> Result<()> {
         return Ok(());
     }
 
+    let instructions = [instruction];
     let signature = rpc
-        .create_and_send_transaction(
-            &[instruction],
+        .create_and_send_v1_transaction(
+            &instructions,
             to_address(&payer.pubkey()),
             &[&payer, &fee_signer],
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
         .map_err(|e| anyhow!("set_tree_fees failed: {e}"))?;
     println!("set_tree_fees sig={signature}");

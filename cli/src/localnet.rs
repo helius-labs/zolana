@@ -153,9 +153,9 @@ fn surfpool_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
     while let Some(arg) = passthrough.next() {
         match arg.as_str() {
             "--deactivate-feature" => {
-                let feature = passthrough.next().ok_or_else(|| {
-                    anyhow!("--deactivate-feature needs a feature address")
-                })?;
+                let feature = passthrough
+                    .next()
+                    .ok_or_else(|| anyhow!("--deactivate-feature needs a feature address"))?;
                 translated.push("--disable-feature".to_string());
                 translated.push(feature);
             }

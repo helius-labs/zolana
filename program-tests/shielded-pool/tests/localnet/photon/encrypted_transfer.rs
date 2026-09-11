@@ -62,7 +62,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         }
         .instruction()
         .map_err(|err| anyhow!("deposit instruction: {err}"))?;
-        let shield_sig = send_transaction(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
+        let shield_sig = send_transaction_v1(&mut rpc, &[shield_ix], &payer.pubkey(), &[&payer])?;
         let deposited = wait_for_indexed_utxo(&indexer, shield_view_tag, shield_sig)
             .output_slot
             .proofless_output()
@@ -116,7 +116,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
         solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
             1_400_000,
         );
-    let transfer_sig = send_transaction(
+    let transfer_sig = send_transaction_v1(
         &mut rpc,
         &[compute_budget, transfer_ix],
         &payer.pubkey(),

@@ -33,26 +33,26 @@ use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
     auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
     CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-    RingDepositReceipt, SetAuthority, SetPaused, TransferError, TransferProofEnvironment,
-    V0WithLookupTable,
+    RingDepositReceipt, SetAuthority, SetPaused, TransactV1, TransferError,
+    TransferProofEnvironment,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
     policy::EMPTY,
     shared::{
-        custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
+        custom_ring_program_id, prover_url, send, send_v1_expecting_rejection, setup,
         ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
     },
 };
 use solana_address::Address;
 use solana_keypair::Keypair;
-use solana_packet::PACKET_DATA_SIZE;
+use solana_message::v1::MAX_TRANSACTION_SIZE;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zeroize::Zeroizing;
 use zolana_client::{
-    AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ProverClient, Rpc, ShieldedTransaction,
-    SolanaRpc, ZolanaIndexer,
+    AsyncProverClient, AsyncSolanaRpc, AsyncZolanaIndexer, ComputeBudgetConfig, ProverClient, Rpc,
+    ShieldedTransaction, SolanaRpc, ZolanaIndexer,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
@@ -274,10 +274,12 @@ fn localnet_bring_up_is_live() -> Result<()> {
     TcpStream::connect_timeout(&socket, Duration::from_secs(5))
         .with_context(|| format!("connect to prover {prover}"))?;
 
-    // 7+8. Both transaction shapes the lifecycle uses work on this validator:
-    //      a legacy transaction, and a v0 transaction resolved through a
-    //      throwaway address lookup table (the shape the oversized ring
-    //      transact needs). Each probe is asserted by its lamport effect.
+    // 7+8. Both send paths the lifecycle uses work on this validator: the
+    //      harness helper and the SDK's `TransactV1` (the path the oversized
+    //      ring transact needs). Both build transaction v1 messages, whose
+    //      4096-byte limit is what a ring transact needs; this validator must
+    //      accept the format at all. Each probe is asserted by its lamport
+    //      effect.
     let sender = env.sender.keypair.pubkey();
     let recipient = env.recipient.keypair.pubkey();
     let sender_before = lamports(rpc, sender)?;
@@ -295,10 +297,10 @@ fn localnet_bring_up_is_live() -> Result<()> {
     assert_eq!(
         lamports(rpc, sender)?,
         sender_before + PROBE_TRANSFER,
-        "legacy transfer credited the sender"
+        "harness v1 transfer credited the sender"
     );
 
-    V0WithLookupTable {
+    TransactV1 {
         payer: &env.payer,
         signers: &[],
         instruction: solana_system_interface::instruction::transfer(
@@ -311,7 +313,7 @@ fn localnet_bring_up_is_live() -> Result<()> {
     assert_eq!(
         lamports(rpc, recipient)?,
         recipient_before + PROBE_TRANSFER,
-        "lookup-table v0 transfer credited the recipient"
+        "SDK v1 transfer credited the recipient"
     );
 
     Ok(())
@@ -373,7 +375,7 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
 
     // 2. Once the config exists its authority alone is accepted, even after
     //    the deployer hands it over.
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[
             CreateConfig {
                 ring,
@@ -392,6 +394,7 @@ fn auditor_key_is_released_only_to_the_ring_authority() -> Result<()> {
         ],
         env.payer.pubkey(),
         &[&env.payer, &config_authority],
+        ComputeBudgetConfig::for_instruction_count(2),
     )?;
     authorize(&request(&config_authority, genesis_hash)?)
         .map_err(|e| anyhow!("config authority {e:?}"))?;
@@ -546,7 +549,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     }
     .send(rpc)?;
     Rejection::custom(CustomRingError::PolicyConfigNotInitialized as u32)
-        .at(1)
+        .at(0)
         .assert_client(&rejection);
     assert!(
         ring.read_spp_ring_config(rpc)?.is_none(),
@@ -605,7 +608,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     }
     .send(rpc)?;
     Rejection::pool(ShieldedPoolError::UnauthorizedCaller)
-        .at(1)
+        .at(0)
         .assert_client(&rejection);
     let deposit = |amount| RingDeposit {
         ring,
@@ -712,7 +715,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     *tampered_byte ^= 1;
 
     let tree_before = fetch_account(rpc, &env.tree)?;
-    let rejection = send_v0_expecting_rejection(
+    let rejection = send_v1_expecting_rejection(
         rpc,
         &env.sender.keypair,
         CustomRingTransact {
@@ -731,11 +734,11 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .instruction()?,
     )?;
     Rejection::custom(CustomRingError::ProofVerificationFailed as u32)
-        .at(1)
+        .at(0)
         .assert_client(&rejection);
     assert_account_unchanged(rpc, &env.tree, &tree_before)?;
 
-    let transaction = V0WithLookupTable {
+    let transaction = TransactV1 {
         payer: &env.sender.keypair,
         signers: &[],
         instruction: proven.instruction()?,
@@ -744,13 +747,13 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     let transaction_size =
         bincode::serde::encode_to_vec(&transaction, bincode::config::legacy())?.len();
     assert!(
-        transaction_size <= PACKET_DATA_SIZE,
-        "transaction packet size"
+        transaction_size <= MAX_TRANSACTION_SIZE,
+        "transaction v1 size {transaction_size} exceeds {MAX_TRANSACTION_SIZE}"
     );
     let signature = rpc
         .client()
         .send_and_confirm_transaction(&transaction)
-        .map_err(|error| anyhow!("send v0 failed {error}"))?;
+        .map_err(|error| anyhow!("send v1 failed {error}"))?;
     assert_transaction_compute_units(
         // 7. The real custom-ring transfer.
         rpc,
@@ -919,7 +922,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
 
     // 11. The config authority hands over, only the new key pauses the ring.
     let successor = env.funded_keypair()?;
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[SetAuthority {
             ring,
             authority,
@@ -928,6 +931,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         .instruction()],
         authority,
         &[&env.payer, &successor],
+        ComputeBudgetConfig::for_instruction_count(1),
     )?;
     let rejection = ExpectRejection {
         payer: &env.payer,
@@ -935,7 +939,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     }
     .send(rpc)?;
     Rejection::custom(CustomRingError::UnauthorizedAuthority as u32)
-        .at(1)
+        .at(0)
         .assert_client(&rejection);
     send(rpc, &successor, &[pause(successor.pubkey(), true)?])?;
     assert!(
@@ -1027,7 +1031,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     })?;
     let tx_viewing_pk = proven.tx_viewing_key.pubkey();
 
-    let transaction = V0WithLookupTable {
+    let transaction = TransactV1 {
         payer: &env.sender.keypair,
         signers: &[],
         instruction: proven.instruction()?,
@@ -1036,7 +1040,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
     let signature = rpc
         .client()
         .send_and_confirm_transaction(&transaction)
-        .map_err(|error| anyhow!("send v0 failed {error}"))?;
+        .map_err(|error| anyhow!("send v1 failed {error}"))?;
 
     let auditor_tag = auditor_view_tag(&auditor_pk);
     let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
@@ -1735,7 +1739,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         rpc,
         prover: &prover,
     })?;
-    let signature = V0WithLookupTable {
+    let signature = TransactV1 {
         payer: sender,
         signers: &[],
         instruction: proven.instruction()?,
@@ -1879,7 +1883,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         rpc,
         prover: &prover,
     })?;
-    let signature = V0WithLookupTable {
+    let signature = TransactV1 {
         payer: sender,
         signers: &[],
         instruction: proven.instruction()?,
@@ -2034,7 +2038,7 @@ impl RingTransfer<'_> {
             rpc,
             prover,
         })?;
-        let signature = V0WithLookupTable {
+        let signature = TransactV1 {
             payer: self.sender,
             signers: &[],
             instruction: proven.instruction()?,
@@ -2137,7 +2141,7 @@ impl AsyncHopParity<'_> {
             "each proof draws its own blindings, salt and auditor ciphertext"
         );
 
-        let signature = V0WithLookupTable {
+        let signature = TransactV1 {
             payer: self.sender,
             signers: &[],
             instruction: proven.instruction()?,

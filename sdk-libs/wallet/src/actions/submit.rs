@@ -5,7 +5,6 @@
 //! viewing key, so there is no authority signing step here — only the fee payer
 //! signs the on-chain transaction.
 
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
@@ -21,14 +20,17 @@ use zolana_client::{
         merge::{MergeProver, MergeWitness},
         ProofCompressed, ProverClient,
     },
-    rpc::Rpc,
+    rpc::{ComputeBudgetConfig, Rpc},
     SpendProof,
 };
 
 use crate::user_registry::fetch_user_record_checked;
 
-/// Compute-unit ceiling for a `merge_transact`: it verifies an 8-in/1-out Groth16
-/// proof on-chain, which does not fit the default per-instruction budget.
+/// Compute-unit ceiling for a `merge_transact`: it verifies a Groth16 proof
+/// on-chain, which does not fit the default per-instruction budget. The widest
+/// shape, "Merge 36x1" in program-tests/shielded-pool/CU_BENCHMARK.md, measures
+/// 280,246 CU; this keeps the transaction-wide maximum the legacy
+/// `set_compute_unit_limit` instruction asked for.
 const MERGE_CU_LIMIT: u32 = 1_400_000;
 
 /// The minimal owner material the merge submit boundary needs: the public
@@ -147,14 +149,11 @@ pub fn submit_merge_transaction<R: Rpc, I: Rpc + ?Sized>(
         data,
     }
     .instruction();
-    let instructions = [
-        ComputeBudgetInstruction::set_compute_unit_limit(MERGE_CU_LIMIT),
-        merge_ix,
-    ];
-    let signature = rpc.create_and_send_transaction(
-        &instructions,
+    let signature = rpc.create_and_send_v1_transaction(
+        core::slice::from_ref(&merge_ix),
         Address::new_from_array(payer.pubkey().to_bytes()),
         &[payer],
+        ComputeBudgetConfig::new(MERGE_CU_LIMIT),
     )?;
 
     Ok(SubmittedMerge {

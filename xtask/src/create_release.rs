@@ -14,8 +14,8 @@ use solana_pubkey::Pubkey;
 use zolana_interface::pda;
 use zolana_program_test::ZolanaProgramTest;
 
-const DEFAULT_SURFPOOL_TAG: &str = "v1.5.0-light";
-const DEFAULT_SURFPOOL_VERSION: &str = "1.5.0";
+const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
+const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 
 // Cross-compile photon for linux-x64 inside a matching-toolchain container
 // (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively

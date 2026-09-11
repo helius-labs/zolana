@@ -32,13 +32,13 @@ use solana_address::Address;
 use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
+use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
+use solana_transaction::Transaction;
 use zolana_client::{
-    MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof, NULLIFIER_TREE_HEIGHT,
-    STATE_TREE_HEIGHT,
+    v1_transaction_size, MerkleContext, MerkleProof, NonInclusionProof, ProverClient, SpendProof,
+    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::Poseidon;
 use zolana_interface::{
@@ -333,40 +333,34 @@ fn proving_time_table(spp: Duration, circuit: Duration) -> SectionTable {
     }
 }
 
+/// Every signature the transaction carries: the fee payer, plus each distinct
+/// other signer the instruction names -- create_escrow is co-signed by the
+/// escrow owner, so missing one leaves the measured wire size 64 bytes short.
+fn signature_count(ix: &Instruction, payer: &Pubkey) -> usize {
+    let mut signers = vec![*payer];
+    for meta in ix.accounts.iter().filter(|meta| meta.is_signer) {
+        if !signers.contains(&meta.pubkey) {
+            signers.push(meta.pubkey);
+        }
+    }
+    signers.len()
+}
+
+/// The instruction measured against both packet ceilings. The legacy row keeps
+/// its compute-budget prefix because a legacy transaction had to buy its budget
+/// with an instruction; v1 states the same ceilings in the message header, so
+/// its row is the instruction alone.
 fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
     let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
 
-    let message = Message::new(&[compute.clone(), ix.clone()], Some(payer));
+    let message = Message::new(&[compute, ix.clone()], Some(payer));
     let legacy = bincode::serialize(&Transaction::new_unsigned(message))
         .expect("serialize legacy")
         .len();
 
-    let alt = AddressLookupTableAccount {
-        key: Address::new_from_array([250u8; 32]),
-        addresses: ix
-            .accounts
-            .iter()
-            .filter(|meta| !meta.is_signer)
-            .map(|meta| Address::new_from_array(meta.pubkey.to_bytes()))
-            .chain(std::iter::once(Address::new_from_array(
-                ix.program_id.to_bytes(),
-            )))
-            .collect(),
-    };
-    let v0_message = v0::Message::try_compile(
-        payer,
-        &[compute, ix.clone()],
-        std::slice::from_ref(&alt),
-        Default::default(),
-    )
-    .expect("compile v0 message");
-    let versioned = VersionedMessage::V0(v0_message);
-    let signature_count = versioned.header().num_required_signatures as usize;
-    let tx = VersionedTransaction {
-        signatures: vec![Default::default(); signature_count],
-        message: versioned,
-    };
-    let v0_alt = bincode::serialize(&tx).expect("serialize v0").len();
+    let v1 = v1_transaction_size(payer, std::slice::from_ref(ix), signature_count(ix, payer))
+        .expect("measure v1 transaction")
+        .bytes;
 
     SectionTable {
         title: "Transaction Size".into(),
@@ -374,13 +368,13 @@ fn tx_size_table(ix: &Instruction, payer: &Pubkey) -> SectionTable {
             "Instruction Data".into(),
             "Accounts".into(),
             "Legacy Tx".into(),
-            "v0 + ALT Tx".into(),
+            "v1 Tx".into(),
         ],
         rows: vec![vec![
             format!("{} bytes", ix.data.len()),
             ix.accounts.len().to_string(),
             format!("{} bytes", legacy),
-            format!("{} bytes", v0_alt),
+            format!("{} bytes", v1),
         ]],
     }
 }
@@ -411,11 +405,13 @@ fn bench_cu_dynamic_swap() {
              (the whole point of keeping it cheap); create_escrow and settle each verify their own \
              Groth16 proof and then CPI SPP `transact`, which verifies its own. Each \
              proof-carrying instruction's section also records its proving times (SPP transfer \
-             proof plus the dynamic-swap circuit proof) and its serialized transaction size: the \
-             instruction prefixed with a compute-budget limit ix, as a legacy transaction and as \
-             a v0 transaction with every non-signer account and the program id in one address \
-             lookup table (Solana's packet limit is 1232 bytes) -- create_escrow and settle \
-             already need the v0+ALT form to fit at all."
+             proof plus the dynamic-swap circuit proof) and its serialized transaction size, \
+             measured twice: as a legacy transaction, which must prefix a compute-budget limit ix \
+             and may not exceed 1232 bytes, and as the transaction v1 these instructions are \
+             actually sent as, which states its compute ceilings in the message header and may run \
+             to 4096 bytes. create_escrow and settle outgrew the legacy packet long ago; the \
+             protocol now sits between the two ceilings, so the legacy column is what a row would \
+             have to fit to be sendable the old way, not a limit that binds today."
             .into(),
         output_path: OUTPUT_PATH.into(),
         regenerate_command: Some("just bench-dynamic-swap".into()),

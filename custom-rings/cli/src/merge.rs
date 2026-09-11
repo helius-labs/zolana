@@ -6,10 +6,9 @@ use custom_ring_sdk::{
     CustomRing, CustomRingMerge, CustomRingMergeProofEnvironment, MAX_MERGE_INPUTS,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SolanaRpc, SppProofInputUtxo};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, SppProofInputUtxo};
 use zolana_interface::{pda, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
 use zolana_keypair::{KeypairError, ShieldedKeypair};
 use zolana_transaction::{AssetRegistry, TransactionError, Wallet, WalletUtxo, SOL_MINT};
@@ -92,13 +91,11 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
     let merge = proven.instruction(tree, tree, payer.pubkey());
-    let signature = ctx.rpc.create_and_send_transaction(
-        &[
-            ComputeBudgetInstruction::set_compute_unit_limit(MERGE_COMPUTE_UNIT_LIMIT),
-            merge,
-        ],
+    let signature = ctx.rpc.create_and_send_v1_transaction(
+        &[merge],
         payer.pubkey(),
         &[&payer],
+        ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
     )?;
 
     wait_for_indexed_transaction(&indexer, signature)?;

@@ -2,11 +2,10 @@ use std::collections::HashMap;
 
 use solana_address::Address;
 use solana_instruction::Instruction;
-use solana_message::Message;
+use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::Transaction as SolanaTransaction;
 use zolana_keypair::{
     viewing_key::ViewTag, Curve, P256Pubkey, PublicKey, ShieldedAddress, ShieldedKeypair,
 };
@@ -22,7 +21,7 @@ use zolana_user_registry_interface::{
 use crate::actions::ResolvedAddress;
 use zolana_client::{
     error::ClientError,
-    rpc::{AsyncRpc, Rpc},
+    rpc::{compile_v1_message, AsyncRpc, ComputeBudgetConfig, Rpc},
 };
 
 /// Compact low-S P-256 ECDSA signature (`r || s`) over SHA-256 of the message
@@ -94,19 +93,21 @@ pub fn ensure_registered<R: Rpc>(
         }
         let proof = key_binding_proof(owner, keypair)?;
         let ixs = update_key_instructions(user_record, owner, &data, proof)?;
-        return Ok(Some(rpc.create_and_send_transaction(
+        return Ok(Some(rpc.create_and_send_v1_transaction(
             &ixs,
             owner_address,
             &[funding],
+            ComputeBudgetConfig::for_instruction_count(ixs.len()),
         )?));
     }
 
     let proof = key_binding_proof(owner, keypair)?;
     let ixs = register_instructions(user_record, owner, data, proof)?;
-    Ok(Some(rpc.create_and_send_transaction(
+    Ok(Some(rpc.create_and_send_v1_transaction(
         &ixs,
         owner_address,
         &[funding],
+        ComputeBudgetConfig::for_instruction_count(ixs.len()),
     )?))
 }
 
@@ -158,15 +159,16 @@ pub fn register_if_absent<R: Rpc>(
 
     let proof = key_binding_proof(owner, keypair)?;
     let ixs = register_instructions(user_record, owner, data, proof)?;
-    let signature = rpc.create_and_send_transaction(
+    let signature = rpc.create_and_send_v1_transaction(
         &ixs,
         Address::new_from_array(owner.to_bytes()),
         &[funding],
+        ComputeBudgetConfig::for_instruction_count(ixs.len()),
     )?;
     Ok(StrictRegistration::Written(signature))
 }
 
-/// Build an unsigned register/update transaction for an external Solana signer.
+/// Build the unsigned v1 register/update message for an external Solana signer.
 ///
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
@@ -177,21 +179,17 @@ pub async fn build_registration_transaction<R: AsyncRpc>(
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
-) -> Result<Option<SolanaTransaction>, ClientError> {
+) -> Result<Option<VersionedMessage>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked_async(rpc, owner).await?;
     let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash().await?;
-    Ok(Some(unsigned_registration_transaction(
-        owner,
-        instructions,
-        blockhash,
-    )))
+    unsigned_registration_message(owner, &instructions, blockhash).map(Some)
 }
 
-/// Blocking adapter for building an unsigned register/update transaction.
+/// Blocking adapter for building the unsigned v1 register/update message.
 ///
 /// P-256 addresses must supply a signature over
 /// [`p256_registration_proof_message`]. Ed25519 addresses must pass `None`.
@@ -200,18 +198,14 @@ pub fn build_registration_transaction_sync<R: Rpc>(
     owner: Pubkey,
     address: &ShieldedAddress,
     proof: Option<P256KeyBindingProof>,
-) -> Result<Option<SolanaTransaction>, ClientError> {
+) -> Result<Option<VersionedMessage>, ClientError> {
     let data = register_fields(address)?;
     let existing = fetch_user_record_optional_checked(rpc, owner)?;
     let Some(instructions) = registration_instructions(owner, data, existing, proof)? else {
         return Ok(None);
     };
     let (blockhash, _) = rpc.get_latest_blockhash()?;
-    Ok(Some(unsigned_registration_transaction(
-        owner,
-        instructions,
-        blockhash,
-    )))
+    unsigned_registration_message(owner, &instructions, blockhash).map(Some)
 }
 
 fn registration_instructions(
@@ -252,14 +246,17 @@ fn registration_instructions(
     )?))
 }
 
-fn unsigned_registration_transaction(
+fn unsigned_registration_message(
     owner: Pubkey,
-    instructions: Vec<Instruction>,
+    instructions: &[Instruction],
     blockhash: solana_hash::Hash,
-) -> SolanaTransaction {
-    let mut message = Message::new(&instructions, Some(&owner));
-    message.recent_blockhash = blockhash;
-    SolanaTransaction::new_unsigned(message)
+) -> Result<VersionedMessage, ClientError> {
+    compile_v1_message(
+        &owner,
+        instructions,
+        blockhash,
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
+    )
 }
 
 fn key_binding_proof(
@@ -691,7 +688,7 @@ mod tests {
     }
 
     #[test]
-    fn registration_builder_returns_unsigned_transaction_for_external_signer() {
+    fn registration_builder_returns_unsigned_message_for_external_signer() {
         let owner = Pubkey::new_unique();
         let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let proof = P256KeyBindingProof {
@@ -705,7 +702,7 @@ mod tests {
                 )
                 .expect("proof signature"),
         };
-        let transaction = build_registration_transaction_sync(
+        let message = build_registration_transaction_sync(
             &MockRpc::default(),
             owner,
             &keypair.shielded_address().expect("shielded address"),
@@ -714,22 +711,27 @@ mod tests {
         .expect("build registration")
         .expect("registration required");
 
-        assert_eq!(transaction.message.account_keys[0], owner);
+        assert!(matches!(message, VersionedMessage::V1(_)));
+        let account_keys = message.static_account_keys();
+        assert_eq!(account_keys.first().copied(), Some(owner));
         assert_eq!(
-            transaction.message.recent_blockhash,
+            *message.recent_blockhash(),
             solana_hash::Hash::new_from_array([9u8; 32])
         );
-        assert_eq!(transaction.signatures, vec![Signature::default()]);
-        assert_eq!(transaction.message.instructions.len(), 2);
-        let precompile_program = transaction.message.account_keys
-            [usize::from(transaction.message.instructions[0].program_id_index)];
-        let registry_program = transaction.message.account_keys
-            [usize::from(transaction.message.instructions[1].program_id_index)];
+        let instructions = message.instructions();
+        assert_eq!(instructions.len(), 2);
+        let program_at = |index: usize| {
+            let instruction = instructions.get(index).expect("instruction");
+            account_keys
+                .get(usize::from(instruction.program_id_index))
+                .copied()
+                .expect("program id account key")
+        };
         assert_eq!(
-            precompile_program.to_bytes(),
+            program_at(0).to_bytes(),
             zolana_user_registry_interface::SECP256R1_PROGRAM_ID
         );
-        assert_eq!(registry_program, user_registry_program_id());
+        assert_eq!(program_at(1), user_registry_program_id());
     }
 
     #[test]
@@ -762,7 +764,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn async_registration_builder_returns_sendable_unsigned_transaction() {
+    async fn async_registration_builder_returns_sendable_unsigned_message() {
         let owner = Pubkey::new_unique();
         let keypair = ShieldedKeypair::new_p256().expect("shielded keypair");
         let rpc = MockRpc::default();
@@ -778,13 +780,13 @@ mod tests {
         fn assert_send<T: Send>(value: T) -> T {
             value
         }
-        let transaction = assert_send(future)
+        let message = assert_send(future)
             .await
             .expect("build registration")
             .expect("registration required");
 
-        assert_eq!(transaction.message.account_keys[0], owner);
-        assert_eq!(transaction.signatures, vec![Signature::default()]);
+        assert!(matches!(message, VersionedMessage::V1(_)));
+        assert_eq!(message.static_account_keys().first().copied(), Some(owner));
     }
 
     #[test]
@@ -1017,7 +1019,7 @@ mod tests {
     #[derive(Default)]
     struct SendMockRpc {
         account: Option<(Address, Account)>,
-        sent: std::cell::RefCell<Option<solana_transaction::Transaction>>,
+        sent: std::cell::RefCell<Option<solana_transaction::versioned::VersionedTransaction>>,
     }
 
     impl Rpc for SendMockRpc {
@@ -1032,11 +1034,11 @@ mod tests {
             Ok((solana_hash::Hash::default(), 0))
         }
 
-        fn send_transaction(
+        fn process_versioned_transaction(
             &self,
-            transaction: &solana_transaction::Transaction,
+            transaction: solana_transaction::versioned::VersionedTransaction,
         ) -> Result<Signature, ClientError> {
-            *self.sent.borrow_mut() = Some(transaction.clone());
+            *self.sent.borrow_mut() = Some(transaction);
             Ok(Signature::default())
         }
     }
@@ -1048,17 +1050,21 @@ mod tests {
 
     fn ensure_registered_ix_tag(rpc: &SendMockRpc) -> u8 {
         let transaction = rpc.sent.borrow();
-        let transaction = transaction.as_ref().expect("a tx was sent");
-        transaction
-            .message
-            .instructions
+        let message = &transaction.as_ref().expect("a tx was sent").message;
+        assert!(matches!(message, VersionedMessage::V1(_)));
+        let account_keys = message.static_account_keys();
+        message
+            .instructions()
             .iter()
             .find(|instruction| {
-                transaction.message.account_keys[usize::from(instruction.program_id_index)]
-                    == user_registry_program_id()
+                account_keys.get(usize::from(instruction.program_id_index))
+                    == Some(&user_registry_program_id())
             })
             .expect("registry instruction")
-            .data[0]
+            .data
+            .first()
+            .copied()
+            .expect("registry instruction tag")
     }
 
     #[test]

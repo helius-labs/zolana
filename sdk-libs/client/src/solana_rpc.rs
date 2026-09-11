@@ -297,7 +297,7 @@ impl SolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
             };
             match self.client.get_transaction_with_config(signature, config) {
                 Ok(transaction) => return Ok(transaction),
@@ -361,7 +361,7 @@ impl AsyncSolanaRpc {
             let config = RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Json),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                max_supported_transaction_version: Some(1),
             };
             match self
                 .client
@@ -471,6 +471,15 @@ fn instruction_groups_from_confirmed_transaction(
     Ok(ConfirmedInstructionGroups { groups })
 }
 
+/// Resolve a confirmed transaction's account keys and outer instructions.
+///
+/// This client only sends v1, which loads no addresses, so `loaded_addresses`
+/// is always absent for its own transactions. It is still honoured because this
+/// decodes transactions off the chain rather than ones it just built: every
+/// shielded transaction confirmed before the move to v1 is a v0 one whose
+/// compiled instruction indexes only resolve once the looked-up keys are
+/// appended. Dropping this would not simplify anything, it would stop the
+/// client reading its own history.
 fn transaction_message_parts(
     transaction: EncodedTransaction,
     loaded_addresses: &OptionSerializer<UiLoadedAddresses>,
@@ -686,6 +695,22 @@ impl Rpc for SolanaRpc {
             })
     }
 
+    fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        // Sends and returns; it does not confirm, matching the legacy
+        // `send_transaction_with_config` above rather than the confirming
+        // `process_versioned_transaction` below.
+        self.client
+            .send_transaction_with_config(transaction, config)
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_versioned_transaction_with_config",
+                source,
+            })
+    }
+
     fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -837,6 +862,20 @@ impl AsyncRpc for AsyncSolanaRpc {
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",
+                source,
+            })
+    }
+
+    async fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        self.client
+            .send_transaction_with_config(transaction, config)
+            .await
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_versioned_transaction_with_config",
                 source,
             })
     }

@@ -21,7 +21,7 @@ use zolana_user_registry_interface::{
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{pack_merge_proof, send_transaction, ZERO},
+    localnet::{pack_merge_proof, send_transaction_v1, ZERO},
     nullifier_pda::{assert_nullifier_pdas, forester_fee_for_inputs, nullifier_pda_rent},
     test_validator_asserts::{
         assert_account_unchanged, fetch_account, wait_for_indexed_transaction,
@@ -63,13 +63,13 @@ impl LifecycleHarness {
         };
         let user_record = user_record_pda(&owner.pubkey()).0;
         let register_ix = register(user_record, owner.pubkey(), register_data);
-        send_transaction(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
+        send_transaction_v1(&mut self.rpc, &[register_ix], &owner.pubkey(), &[&owner])?;
 
         // Opt the record into merging. When enabled, any caller may run
         // `merge_transact`; the disabled path leaves it `false`, which the program
         // rejects with `MergeDisabled`.
         let set_enabled_ix = set_merging_enabled(user_record, owner.pubkey(), enable_merge);
-        send_transaction(&mut self.rpc, &[set_enabled_ix], &owner.pubkey(), &[&owner])?;
+        send_transaction_v1(&mut self.rpc, &[set_enabled_ix], &owner.pubkey(), &[&owner])?;
         Ok(owner)
     }
 
@@ -236,7 +236,7 @@ impl LifecycleHarness {
         );
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let merge_key = self.merge_key.insecure_clone();
-        let sig = send_transaction(
+        let sig = send_transaction_v1(
             &mut self.rpc,
             &[compute_budget, sync_ix],
             &merge_key.pubkey(),
@@ -406,7 +406,7 @@ impl LifecycleHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::MergeDisabled)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(
@@ -443,7 +443,7 @@ impl LifecycleHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 assert_eq!(

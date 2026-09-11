@@ -1,8 +1,6 @@
-import { getSetComputeUnitPriceInstruction } from "@solana-program/compute-budget";
 import { getCreateAccountInstruction } from "@solana-program/system";
 import {
   address,
-  appendTransactionMessageInstruction,
   createTransactionMessage,
   createTransactionPlanExecutor,
   createTransactionPlanner,
@@ -17,6 +15,7 @@ import {
   passthroughFailedTransactionPlanExecution,
   sendTransactionWithoutConfirmingFactory,
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE,
+  setTransactionMessageConfig,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
@@ -38,6 +37,7 @@ import type {
   KitRpcAccess,
   TransactionConfirmer,
 } from "../client/ports.js";
+import { LOADED_ACCOUNTS_DATA_SIZE_LIMIT } from "../flows/compile.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
 import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
@@ -62,6 +62,8 @@ const ELF_HEADER_SIZE = 64;
 const MIN_EXTEND_BYTES = 10_240;
 /** Rust `DEPLOY_FEE_BUDGET`. */
 const DEPLOY_FEE_BUDGET = 20_000_000n;
+/** What the runtime allows one transaction; a deploy step verifies a whole ELF. */
+const DEPLOY_COMPUTE_UNIT_LIMIT = 1_400_000;
 
 /** Rust `UpgradeableLoaderInstruction`. */
 const LoaderTag = Object.freeze({
@@ -324,7 +326,7 @@ export interface RingProgramDeployParams {
   readonly concurrency?: number;
   /** Sends of one transaction, each under a fresh blockhash. */
   readonly attempts?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 export interface RingProgramDeployOutcome {
@@ -607,19 +609,25 @@ function rent(
   );
 }
 
+/**
+ * A version 1 transaction budgets zero compute units when it names none, and a
+ * deploy step never exceeds what the runtime allows one transaction, so the
+ * ceiling is asked for outright. It costs nothing extra: the priority fee is a
+ * flat amount, not a price per unit.
+ */
 function baseMessage(
   params: RingProgramDeployParams,
 ): TransactionMessage & TransactionMessageWithFeePayer {
-  const message = setTransactionMessageFeePayerSigner(
-    params.payer,
-    createTransactionMessage({ version: 0 }),
+  return setTransactionMessageConfig(
+    {
+      computeUnitLimit: DEPLOY_COMPUTE_UNIT_LIMIT,
+      loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+      ...(params.priorityFeeLamports === undefined
+        ? {}
+        : { priorityFeeLamports: params.priorityFeeLamports }),
+    },
+    setTransactionMessageFeePayerSigner(params.payer, createTransactionMessage({ version: 1 })),
   );
-  return params.computeUnitPriceMicroLamports === undefined
-    ? message
-    : appendTransactionMessageInstruction(
-        getSetComputeUnitPriceInstruction({ microLamports: params.computeUnitPriceMicroLamports }),
-        message,
-      );
 }
 
 /** Reads whether the step is on chain, checked before a failed attempt is repeated. */

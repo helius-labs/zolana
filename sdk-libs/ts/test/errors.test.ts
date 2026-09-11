@@ -43,10 +43,10 @@ describe("error envelope", () => {
   it("sanitizes interface details and lifts the wrapped code", () => {
     const error = new InterfaceError(
       "INTERFACE_TRANSACTION_TOO_LARGE",
-      { size: 1290, limit: 1232, signature: "leaky" },
+      { size: 4290, limit: 4096, signature: "leaky" },
       new WalletError("WALLET_SYNC"),
     );
-    expect(error.details).toEqual({ size: 1290, limit: 1232 });
+    expect(error.details).toEqual({ size: 4290, limit: 4096 });
     expect(error.causeCode).toBe("WALLET_SYNC");
     expect(JSON.stringify(error)).not.toContain("WalletError");
   });

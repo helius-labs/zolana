@@ -1,4 +1,5 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader, TreeContext } from "../client/ports.js";
 import type {
   Address,
@@ -158,6 +159,7 @@ export async function buildDepositTransaction(
     return compileUnsignedTransaction({
       feePayer: input.feePayer,
       lifetime,
+      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [await deposit.instruction(tree, depositor)],
     });
   } catch (cause) {

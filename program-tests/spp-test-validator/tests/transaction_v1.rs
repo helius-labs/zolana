@@ -264,9 +264,7 @@ fn the_backend_charges_the_v1_header_priority_fee() -> Result<()> {
         .context("send the v1 transaction carrying a priority fee")?;
 
     let after = rpc.get_balance(payer_address).context("balance after")?;
-    let fees = before
-        .saturating_sub(after)
-        .saturating_sub(TRANSFERRED);
+    let fees = before.saturating_sub(after).saturating_sub(TRANSFERRED);
     assert!(
         fees >= PRIORITY_FEE_LAMPORTS,
         "the payer was billed {fees} lamports in fees, which does not cover the \

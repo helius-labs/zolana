@@ -14,7 +14,14 @@ pub const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY: u32 =
     (NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE) as u32;
 
 pub const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS: u64 = 5_000;
-pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 170;
+/// What one nullifier-PDA close reimburses by default: nothing.
+///
+/// To run the close path at cost this would be `ceil(5000 / closes_per_transaction)`.
+/// A forester pays one 5,000-lamport base fee per transaction and closes as many
+/// PDAs as fit in it, so the per-close figure only means anything against a
+/// transaction size: 109 closes fit a 4,096-byte v1 transaction
+/// (`forester::close_nullifier_pdas` pins that), which would make it 46.
+pub const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS: u64 = 0;
 
 /// Fee schedule that exactly covers the default reimbursements for one zkp
 /// batch. `None` when `zkp_batch_size` is zero or the schedule overflows.
@@ -102,9 +109,11 @@ mod tests {
 
     #[test]
     fn default_tree_fees_are_exact_cost_for_the_supported_batch_sizes() {
+        // The default reimburses nothing per close, so the per-nullifier fee
+        // covers only the append: `ceil(5000 / zkp_batch_size)`.
         for (zkp_batch_size, fee_per_nullifier) in [
-            (nullifier_tree_params().input_queue_zkp_batch_size, 190),
-            (10, 670),
+            (nullifier_tree_params().input_queue_zkp_batch_size, 20),
+            (10, 500),
         ] {
             let fees = default_tree_fees(zkp_batch_size).expect("default tree fees");
             assert_eq!(

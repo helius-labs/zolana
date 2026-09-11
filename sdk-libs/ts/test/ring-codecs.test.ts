@@ -33,8 +33,6 @@ import {
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
-  ringLookupTableAddresses,
-  ringSettlementStatics,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
@@ -275,17 +273,6 @@ describe("ring transact settlement", () => {
       owner,
       AccountRole.READONLY_SIGNER,
     ]);
-  });
-
-  it("adds the settlement statics to a new table without requiring them at fetch", async () => {
-    const required = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
-    });
-    for (const address of ringSettlementStatics()) {
-      expect(required).not.toContain(address);
-    }
-    expect(ringSettlementStatics()).toContain(SHIELDED_POOL_CPI_AUTHORITY);
   });
 });
 
@@ -846,26 +833,6 @@ describe("ring rpc response validation", () => {
 });
 
 describe("ring transact", () => {
-  it("includes distinct input, output and entries trees in the lookup-table contract", async () => {
-    const addresses = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: OUTPUT_TREE, entriesTree: ENTRIES_TREE, hasPolicy: true },
-    });
-    expect(addresses).toContain(TREE);
-    expect(addresses).toContain(OUTPUT_TREE);
-    expect(addresses).toContain(ENTRIES_TREE);
-    expect(addresses).toContain(await ringPolicyConfig());
-  });
-
-  it("leaves the policy accounts out of an audit-only ring's lookup-table contract", async () => {
-    const addresses = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
-    });
-    expect(addresses).not.toContain(ENTRIES_TREE);
-    expect(addresses).not.toContain(await ringPolicyConfig());
-  });
-
   const customRingProof = () =>
     Uint8Array.from([
       ...filled(51, 32),

@@ -70,8 +70,12 @@ fn main() -> Result<()> {
 
         // 2. Send and confirm like any Solana transaction; the landed slot gates
         // the indexer fetch below.
-        let signature =
-            client.create_and_send_transaction(&[deposit_ix], sender.pubkey(), &[&sender])?;
+        let signature = client.create_and_send_v1_transaction(
+            &[deposit_ix],
+            sender.pubkey(),
+            &[&sender],
+            client.compute_budget(),
+        )?;
         let slot = landed_slot(&client, signature)?;
 
         // 3. Fetch transaction outputs from the indexer, gated on the deposit's slot.
@@ -139,8 +143,12 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction; confirmation yields the landed slot.
-        let signature =
-            client.create_and_send_transaction(&[transfer_ix], sender.pubkey(), &[&sender])?;
+        let signature = client.create_and_send_v1_transaction(
+            &[transfer_ix],
+            sender.pubkey(),
+            &[&sender],
+            client.compute_budget(),
+        )?;
         let slot = landed_slot(&client, signature)?;
 
         // 7. Sync the sender's wallet, gated on the transfer's slot, and read
@@ -231,8 +239,12 @@ fn main() -> Result<()> {
         .instruction();
 
         // 6. Send and confirm like any Solana transaction.
-        let signature =
-            client.create_and_send_transaction(&[withdraw_ix], sender.pubkey(), &[&sender])?;
+        let signature = client.create_and_send_v1_transaction(
+            &[withdraw_ix],
+            sender.pubkey(),
+            &[&sender],
+            client.compute_budget(),
+        )?;
         let slot = landed_slot(&client, signature)?;
 
         // 7. Sync the sender's wallet, gated on the withdrawal's slot, and read

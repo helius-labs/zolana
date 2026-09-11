@@ -1,15 +1,8 @@
 import { p256 } from "@noble/curves/nist.js";
 import {
-  ADDRESS_LOOKUP_TABLE_PROGRAM_ADDRESS,
-  getAddressLookupTableEncoder,
-  getExtendLookupTableInstructionDataDecoder,
-} from "@solana-program/address-lookup-table";
-import {
   address,
   getAddressDecoder,
   getAddressEncoder,
-  getBase64Decoder,
-  getCompiledTransactionMessageDecoder,
   getProgramDerivedAddress,
   type Address,
 } from "@solana/kit";
@@ -55,21 +48,10 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
 } from "../src/client/prover/types.js";
-import {
-  ringAuditReader,
-  ringTransferClient,
-  solanaRpcReads,
-  transactionsPage,
-} from "./helpers/clients.js";
+import { ringAuditReader, ringTransferClient, transactionsPage } from "./helpers/clients.js";
 import type { SpendProof } from "../src/client/rpc.js";
 import { bigintToBytes, hashBytesBigInt, hashChain, poseidon } from "../src/client/internal.js";
 import { hashBytes } from "../src/hasher/index.js";
-import { ringLookupTableAddresses } from "../src/ring/instructions.js";
-import {
-  buildRingLookupTableTransaction,
-  fetchRingLookupTable,
-  type RingLookupTable,
-} from "../src/ring/lookup-table.js";
 import {
   checkRingMembership,
   frameDummyOutputs,
@@ -1168,143 +1150,5 @@ describe("ring proof folded fields", () => {
     expect(proven.nullifierRootIndex).toBe(0);
     expect(proven.tree).toBe(RING);
     expect(proven.outputTree).toBe(ACTIVE_TREE);
-  });
-});
-
-describe("ring lookup table", () => {
-  const FEE_PAYER = getAddressDecoder().decode(new Uint8Array(32).fill(45));
-  const TABLE = getAddressDecoder().decode(new Uint8Array(32).fill(46));
-
-  function lookupTableReads(
-    tables: ReadonlyMap<Address, readonly Address[]>,
-    lastExtendedSlot = 99n,
-  ) {
-    return solanaRpcReads({
-      getSlot: () => ({ send: async () => 100n }),
-      getAccountInfo: (account: Address) => ({
-        send: async () => {
-          const addresses = tables.get(account);
-          if (addresses === undefined) return { context: { slot: 100n }, value: null };
-          const data = getAddressLookupTableEncoder().encode({
-            deactivationSlot: 0xffff_ffff_ffff_ffffn,
-            lastExtendedSlot,
-            lastExtendedSlotStartIndex: 0,
-            authority: FEE_PAYER,
-            addresses: [...addresses],
-          });
-          return {
-            context: { slot: 100n },
-            value: {
-              data: [getBase64Decoder().decode(data), "base64"],
-              executable: false,
-              lamports: 1n,
-              owner: ADDRESS_LOOKUP_TABLE_PROGRAM_ADDRESS,
-              rentEpoch: 0n,
-              space: BigInt(data.length),
-            },
-          };
-        },
-      }),
-    });
-  }
-
-  function extendedAddresses(table: RingLookupTable): readonly Address[] {
-    const message = getCompiledTransactionMessageDecoder().decode(table.transaction.messageBytes);
-    const extend = "instructions" in message ? message.instructions[1] : undefined;
-    if (extend?.data === undefined) throw new Error("no extend instruction");
-    return getExtendLookupTableInstructionDataDecoder().decode(extend.data).addresses;
-  }
-
-  it("builds a policy ring's table from its own accounts and the fetch accepts the same trees", async () => {
-    const accounts = await ringAccounts(ViewingKey.generate(), true);
-    const tables = new Map<Address, readonly Address[]>();
-    const client = ringTransferClient({
-      tree: RING,
-      getAccount: accounts.getAccount,
-      solanaRpc: lookupTableReads(tables),
-    });
-
-    const table = await buildRingLookupTableTransaction({
-      client,
-      ringProgramId: RING,
-      feePayer: FEE_PAYER,
-      outputTree: ACTIVE_TREE,
-    });
-    tables.set(table.address, extendedAddresses(table));
-
-    expect(accounts.read).toContain(accounts.policyAddress);
-    const held = await fetchRingLookupTable({
-      client,
-      ringProgramId: RING,
-      address: table.address,
-      trees: { tree: RING, outputTree: ACTIVE_TREE, hasPolicy: true, entriesTree: ACTIVE_TREE },
-    });
-    expect(held).toContain(accounts.policyAddress);
-    expect(held).toContain(ACTIVE_TREE);
-  });
-
-  it("builds an audit-only ring's table without the policy accounts", async () => {
-    const accounts = await ringAccounts(ViewingKey.generate(), false);
-    const client = ringTransferClient({
-      tree: RING,
-      getAccount: accounts.getAccount,
-      solanaRpc: lookupTableReads(new Map()),
-    });
-
-    const table = await buildRingLookupTableTransaction({
-      client,
-      ringProgramId: RING,
-      feePayer: FEE_PAYER,
-    });
-
-    expect(accounts.read).not.toContain(accounts.policyAddress);
-    expect(extendedAddresses(table)).not.toContain(accounts.policyAddress);
-  });
-
-  it("refuses a tree-only table for a policy ring", async () => {
-    const accounts = await ringAccounts(ViewingKey.generate(), true);
-    const treeOnly = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: ACTIVE_TREE, outputTree: ACTIVE_TREE, hasPolicy: false },
-    });
-    const tables = new Map<Address, readonly Address[]>([[TABLE, treeOnly]]);
-    const client = ringTransferClient({
-      tree: ACTIVE_TREE,
-      getAccount: accounts.getAccount,
-      solanaRpc: lookupTableReads(tables),
-    });
-    const trees = {
-      tree: ACTIVE_TREE,
-      outputTree: ACTIVE_TREE,
-      hasPolicy: true,
-      entriesTree: ACTIVE_TREE,
-    };
-
-    await expect(
-      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
-    ).rejects.toMatchObject({ code: "RING_LOOKUP_TABLE_INCOMPLETE", details: { address: TABLE } });
-
-    tables.set(TABLE, [...treeOnly, accounts.policyAddress]);
-    await expect(
-      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
-    ).resolves.toContain(accounts.policyAddress);
-  });
-
-  it("refuses a table extended in the current slot", async () => {
-    const accounts = await ringAccounts(ViewingKey.generate(), false);
-    const trees = { tree: ACTIVE_TREE, outputTree: ACTIVE_TREE, hasPolicy: false } as const;
-    const held = await ringLookupTableAddresses({ ringProgramId: RING, trees });
-    const client = ringTransferClient({
-      tree: ACTIVE_TREE,
-      getAccount: accounts.getAccount,
-      solanaRpc: lookupTableReads(new Map([[TABLE, held]]), 100n),
-    });
-
-    await expect(
-      fetchRingLookupTable({ client, ringProgramId: RING, address: TABLE, trees }),
-    ).rejects.toMatchObject({
-      code: "RING_LOOKUP_TABLE_NOT_READY",
-      details: { address: TABLE, lastExtendedSlot: "100", slot: "100" },
-    });
   });
 });

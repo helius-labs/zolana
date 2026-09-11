@@ -2,8 +2,8 @@
 // this crate; each binary only exercises the subset of setup outputs relevant
 // to its own flow, so unused-item warnings here are compilation-unit noise, not
 // dead code in the crate as a whole. Only the localnet bring-up (`setup`) and
-// the generic v0+ALT transaction sender (`send_v0_with_lookup_table`) live
-// here; every dynamic-swap domain flow is inlined into the test that uses it.
+// the generic v1 transaction sender (`send_v1`) live here; every dynamic-swap
+// domain flow is inlined into the test that uses it.
 #![allow(dead_code)]
 
 use std::time::{Duration, Instant};
@@ -11,18 +11,14 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use dynamic_swap_sdk::{escrow_authority_pda, instructions::create_pair::CreatePair, pair_pda};
 use solana_address::Address;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
-use zolana_client::{spawn_prover, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer};
+use zolana_client::{
+    spawn_prover, ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
+};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
     pda,
@@ -42,6 +38,9 @@ use zolana_transaction::{
 };
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{ensure_registered, Deposit, DepositParams};
+
+// The whole per-transaction budget: an escrow settle verifies an SPP proof.
+const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 /// SPL is the pair's source asset (escrowed by the taker); SOL is the pair's
 /// destination asset (the maker funds it, the recipient is paid it on settle).
@@ -183,7 +182,12 @@ pub fn setup() -> Result<TestEnv> {
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
+        rpc.create_and_send_v1_transaction(
+            &[ix],
+            payer_address,
+            &[&payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
 
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
@@ -207,10 +211,11 @@ pub fn setup() -> Result<TestEnv> {
         &[authority_solana.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[create_config_sync],
         payer_address,
         &[&payer, &authority_solana],
+        ComputeBudgetConfig::for_instruction_count(1),
     )?;
 
     let tree_creation = create_tree_instructions(
@@ -227,10 +232,11 @@ pub fn setup() -> Result<TestEnv> {
         &[tree_creation_authority.pubkey()],
         &tree_creation.instructions,
     );
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
+        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
 
     let tree = tree_creation.tree;
@@ -250,10 +256,11 @@ pub fn setup() -> Result<TestEnv> {
             &[authority_solana.pubkey()],
             &[counter_ix],
         );
-        rpc.create_and_send_transaction(
+        rpc.create_and_send_v1_transaction(
             &[counter_sync],
             payer_address,
             &[&payer, &authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
         )?;
     }
     let interface_ix = CreateSplInterface {
@@ -268,10 +275,11 @@ pub fn setup() -> Result<TestEnv> {
         &[authority_solana.pubkey()],
         &[interface_ix],
     );
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[interface_sync],
         payer_address,
         &[&payer, &authority_solana],
+        ComputeBudgetConfig::for_instruction_count(1),
     )?;
 
     let spl_funding = create_token_account(&rpc, &payer, &spl_mint, &payer.pubkey())?;
@@ -401,10 +409,11 @@ pub fn setup_with_pair(price: u64) -> Result<(TestEnv, Pubkey)> {
     .map_err(|e| anyhow!("create_pair instruction: {e:?}"))?;
     env.client
         .rpc()
-        .create_and_send_transaction(
+        .create_and_send_v1_transaction(
             &[create_pair_ix],
             authority_solana.pubkey(),
             &[&authority_solana],
+            ComputeBudgetConfig::for_instruction_count(1),
         )
         .map_err(|e| anyhow!("send create_pair: {e:?}"))?;
     Ok((env, pair))
@@ -451,84 +460,26 @@ pub fn get_slot_with_retry(client: &solana_rpc_client::rpc_client::RpcClient) ->
     ))
 }
 
-/// Submit a single (large) instruction as a v0 transaction behind a throwaway
-/// address lookup table: create + extend the ALT (waiting a slot for each to
-/// root), then compile and send. Prepends a 1.4M CU budget; `fee_payer` pays
-/// and signs, plus any `extra_signers` (e.g. `create_escrow`'s `owner`, which
-/// must sign alongside the pair authority). The dynamic-swap account lists
-/// only fit within the 1232-byte tx limit via an ALT once ciphertexts are
-/// included.
-pub fn send_v0_with_lookup_table(
+/// Submit a single (large) instruction as a transaction **v1** message: its
+/// 4096-byte limit is what holds the dynamic-swap account lists once the
+/// ciphertexts are included, which no longer fit a 1232-byte legacy packet. v1
+/// has no address lookup table, and it carries the compute ceilings in the
+/// message header rather than in a compute-budget instruction. An unset ceiling
+/// means zero, not a default, so both are written. `fee_payer` pays and signs,
+/// plus any `extra_signers` (e.g. `create_escrow`'s `owner`, which must sign
+/// alongside the pair authority).
+pub fn send_v1(
     rpc: &SolanaRpc,
     fee_payer: &dyn Signer,
     extra_signers: &[&dyn Signer],
     ix: Instruction,
 ) -> Result<Signature> {
-    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-    let alt_addresses: Vec<Pubkey> = ix
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain([ix.program_id, compute.program_id])
-        .collect();
-
-    let client = rpc.client();
-    let recent_slot = get_slot_with_retry(client)?;
-    loop {
-        let tip = get_slot_with_retry(client)?;
-        if tip > recent_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let (lut_create_ix, table_address) =
-        create_lookup_table(fee_payer.pubkey(), fee_payer.pubkey(), recent_slot);
-    let lut_extend_ix = extend_lookup_table(
-        table_address,
-        fee_payer.pubkey(),
-        Some(fee_payer.pubkey()),
-        alt_addresses.clone(),
-    );
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let setup = Transaction::new(
-        &[fee_payer],
-        Message::new(&[lut_create_ix, lut_extend_ix], Some(&fee_payer.pubkey())),
-        blockhash,
-    );
-    client
-        .send_and_confirm_transaction(&setup)
-        .map_err(|e| anyhow!("create+extend ALT: {e}"))?;
-    let extended_slot = get_slot_with_retry(client)?;
-    loop {
-        let tip = get_slot_with_retry(client)?;
-        if tip > extended_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let alt = AddressLookupTableAccount {
-        key: table_address,
-        addresses: alt_addresses.clone(),
-    };
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let message = v0::Message::try_compile(
-        &fee_payer.pubkey(),
-        &[compute, ix],
-        std::slice::from_ref(&alt),
-        blockhash,
-    )
-    .map_err(|e| anyhow!("compile v0: {e}"))?;
     let mut signers: Vec<&dyn Signer> = vec![fee_payer];
     signers.extend(extra_signers.iter().copied());
-    let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &signers)
-        .map_err(|e| anyhow!("sign v0: {e}"))?;
-    let signature = client
-        .send_and_confirm_transaction(&tx)
-        .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(signature)
+    Ok(rpc.create_and_send_v1_transaction(
+        std::slice::from_ref(&ix),
+        fee_payer.pubkey(),
+        &signers,
+        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+    )?)
 }

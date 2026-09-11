@@ -5,14 +5,13 @@ use anyhow::{anyhow, Result};
 use custom_ring_sdk::{
     CreateEntry, CustomRing, CustomRingTransfer, CustomRingTransferInput, DepositAsset,
     EntryProofEnvironment, PolicyConfig, ProvenTransfer, ReadEntry, RingDeposit,
-    RingDepositReceipt, TransferError, TransferProofEnvironment, UpdateEntry, V0WithLookupTable,
+    RingDepositReceipt, TransactV1, TransferError, TransferProofEnvironment, UpdateEntry,
     ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
 };
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ProverClient, Rpc};
+use zolana_client::{ComputeBudgetConfig, ProverClient, Rpc};
 use zolana_keypair::{ShieldedKeypair, ViewingKey};
 use zolana_ring_policy::{
     EntryState, ListEntry, ListId, ListSet, Member, Rule, RuleTable, Subject,
@@ -183,7 +182,7 @@ impl PolicyTransfer<'_> {
             .first()
             .ok_or_else(|| anyhow!("transfer output"))?
             .utxo_hash;
-        let signature = V0WithLookupTable {
+        let signature = TransactV1 {
             payer,
             signers: &[],
             instruction: proven.instruction()?,
@@ -249,17 +248,18 @@ impl EntryWrite<'_> {
             .prove(environment)?,
         };
         let entry = proven.entry();
-        let instructions = [
-            ComputeBudgetInstruction::set_compute_unit_limit(ENTRY_MUTATION_COMPUTE_UNIT_LIMIT),
-            proven.instruction()?,
-        ];
+        let instructions = [proven.instruction()?];
         let signers: Vec<&dyn Signer> = if self.fee_payer.pubkey() == authority {
             vec![&env.payer]
         } else {
             vec![self.fee_payer, &env.payer]
         };
-        let signature =
-            rpc.create_and_send_transaction(&instructions, self.fee_payer.pubkey(), &signers)?;
+        let signature = rpc.create_and_send_v1_transaction(
+            &instructions,
+            self.fee_payer.pubkey(),
+            &signers,
+            ComputeBudgetConfig::new(ENTRY_MUTATION_COMPUTE_UNIT_LIMIT),
+        )?;
         wait_for_indexed_utxo(indexer, self.ring.namespace_pda().to_bytes(), signature);
         let live = ReadEntry {
             entries_tree: env.tree,

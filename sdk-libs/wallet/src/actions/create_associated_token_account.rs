@@ -7,7 +7,10 @@ use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_interface::instruction::CreateAssociatedTokenAccount;
 
-use zolana_client::{error::ClientError, rpc::Rpc};
+use zolana_client::{
+    error::ClientError,
+    rpc::{ComputeBudgetConfig, Rpc},
+};
 
 /// Build and send an idempotent SPL associated-token-account creation for
 /// `(owner, mint)`, funded by `payer`.
@@ -46,7 +49,12 @@ pub fn create_associated_token_account_with_program<R: Rpc>(
     let ata = builder.address();
     let ix = builder.instruction();
     let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-    let signature = rpc.create_and_send_transaction(&[ix], payer_address, &[payer])?;
+    let signature = rpc.create_and_send_v1_transaction(
+        core::slice::from_ref(&ix),
+        payer_address,
+        &[payer],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
     Ok((signature, ata))
 }
 
@@ -55,7 +63,8 @@ mod tests {
     use std::cell::RefCell;
 
     use solana_hash::Hash;
-    use solana_transaction::Transaction;
+    use solana_message::VersionedMessage;
+    use solana_transaction::versioned::VersionedTransaction;
     use zolana_interface::pda;
 
     use super::*;
@@ -65,7 +74,7 @@ mod tests {
     /// without a live validator.
     #[derive(Default)]
     struct MockRpc {
-        sent: RefCell<Option<Transaction>>,
+        sent: RefCell<Option<VersionedTransaction>>,
     }
 
     impl Rpc for MockRpc {
@@ -73,8 +82,11 @@ mod tests {
             Ok((Hash::default(), 0))
         }
 
-        fn send_transaction(&self, transaction: &Transaction) -> Result<Signature, ClientError> {
-            *self.sent.borrow_mut() = Some(transaction.clone());
+        fn process_versioned_transaction(
+            &self,
+            transaction: VersionedTransaction,
+        ) -> Result<Signature, ClientError> {
+            *self.sent.borrow_mut() = Some(transaction);
             Ok(Signature::default())
         }
     }
@@ -92,10 +104,16 @@ mod tests {
         assert_eq!(ata, pda::associated_token_address(&owner, &mint));
 
         let sent = rpc.sent.borrow().clone().expect("transaction recorded");
-        assert_eq!(sent.message.instructions.len(), 1);
+        assert!(matches!(sent.message, VersionedMessage::V1(_)));
+        let instructions = sent.message.instructions();
+        assert_eq!(instructions.len(), 1);
         // `1` is the SPL ATA `CreateIdempotent` discriminator.
-        assert_eq!(sent.message.instructions[0].data, vec![1u8]);
-        assert!(sent.message.account_keys.contains(&payer.pubkey()));
-        assert!(sent.message.account_keys.contains(&ata));
+        assert_eq!(
+            instructions.first().expect("the only instruction").data,
+            vec![1u8]
+        );
+        let account_keys = sent.message.static_account_keys();
+        assert!(account_keys.contains(&payer.pubkey()));
+        assert!(account_keys.contains(&ata));
     }
 }

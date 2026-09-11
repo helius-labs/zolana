@@ -114,7 +114,6 @@ export {
   createRingEntryInstruction,
   createRingPolicyInstruction,
   initSppRingConfigInstruction,
-  ringLookupTableAddresses,
   ringTransactInstruction,
   setRingPolicyRulesInstruction,
   setRingPolicySourceInstruction,
@@ -129,12 +128,6 @@ export type {
 } from "./instructions.js";
 export { listRegisteredRings } from "./registry.js";
 export type { RegisteredRing } from "./registry.js";
-export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
-export type {
-  RingLookupTable,
-  RingLookupTableClient,
-  RingLookupTableReader,
-} from "./lookup-table.js";
 export { createPasskey, passkeyReader } from "./passkey.js";
 export type { Passkey } from "./passkey.js";
 export {

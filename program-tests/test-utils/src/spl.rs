@@ -7,7 +7,7 @@ use solana_instruction::{AccountMeta, Instruction};
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateSplInterface},
     pda, SPL_TOKEN_ACCOUNT_LEN, SPL_TOKEN_INITIALIZE_ACCOUNT3_DISCRIMINATOR,
@@ -65,10 +65,11 @@ pub fn create_mint<R: Rpc>(rpc: &R, payer: &Keypair) -> Result<Pubkey, ClientErr
         accounts: vec![AccountMeta::new(mint.pubkey(), false)],
         data,
     };
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[create_ix, init_ix],
         to_address(&payer.pubkey()),
         &[payer, &mint],
+        ComputeBudgetConfig::for_instruction_count(2),
     )?;
     Ok(mint.pubkey())
 }
@@ -99,10 +100,11 @@ pub fn create_token_account<R: Rpc>(
         ],
         data,
     };
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &[create_ix, init_ix],
         to_address(&payer.pubkey()),
         &[payer, &account],
+        ComputeBudgetConfig::for_instruction_count(2),
     )?;
     Ok(account.pubkey())
 }
@@ -126,7 +128,12 @@ pub fn mint_to<R: Rpc>(
         ],
         data,
     };
-    rpc.create_and_send_transaction(&[ix], to_address(&payer.pubkey()), &[payer])?;
+    rpc.create_and_send_v1_transaction(
+        &[ix],
+        to_address(&payer.pubkey()),
+        &[payer],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
     Ok(())
 }
 
@@ -140,7 +147,12 @@ pub fn ensure_asset_counter<R: Rpc>(rpc: &R, authority: &Keypair) -> Result<(), 
             authority: authority.pubkey(),
         }
         .instruction();
-        rpc.create_and_send_transaction(&[ix], to_address(&authority.pubkey()), &[authority])?;
+        rpc.create_and_send_v1_transaction(
+            &[ix],
+            to_address(&authority.pubkey()),
+            &[authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
     Ok(())
 }
@@ -172,7 +184,12 @@ impl RegisterSplAsset<'_> {
                 }
                 .instruction()],
             );
-            rpc.create_and_send_transaction(&[counter], payer, &[self.payer, self.authority])?;
+            rpc.create_and_send_v1_transaction(
+                &[counter],
+                payer,
+                &[self.payer, self.authority],
+                ComputeBudgetConfig::for_instruction_count(1),
+            )?;
         }
         let interface = smart_account::execute_sync_ix(
             &self.protocol_settings,
@@ -185,7 +202,12 @@ impl RegisterSplAsset<'_> {
             }
             .instruction()],
         );
-        rpc.create_and_send_transaction(&[interface], payer, &[self.payer, self.authority])?;
+        rpc.create_and_send_v1_transaction(
+            &[interface],
+            payer,
+            &[self.payer, self.authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
         Ok(())
     }
 }
@@ -205,6 +227,11 @@ pub fn create_spl_interface<R: Rpc>(
         token_program: token_program_id(),
     }
     .instruction();
-    rpc.create_and_send_transaction(&[ix], to_address(&authority.pubkey()), &[authority])?;
+    rpc.create_and_send_v1_transaction(
+        &[ix],
+        to_address(&authority.pubkey()),
+        &[authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
     Ok((registry, vault))
 }

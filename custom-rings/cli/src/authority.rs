@@ -8,11 +8,10 @@ use custom_ring_sdk::{
     SET_PAUSED_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::state::RingConfig;
 
 use crate::{
@@ -139,20 +138,18 @@ pub fn run(ctx: &mut Context, command: AuthorityCommand) -> Result<(), Authority
                 read_keypair_file(&path).map_err(|_| AuthorityError::NewAuthorityKeypair {
                     path: path.display().to_string(),
                 })?;
-            let instructions = [
-                ComputeBudgetInstruction::set_compute_unit_limit(SET_AUTHORITY_COMPUTE_UNIT_LIMIT),
-                SetAuthority {
-                    ring: ctx.ring,
-                    authority: authority.pubkey(),
-                    new_authority: new_authority.pubkey(),
-                }
-                .instruction(),
-            ];
+            let instructions = [SetAuthority {
+                ring: ctx.ring,
+                authority: authority.pubkey(),
+                new_authority: new_authority.pubkey(),
+            }
+            .instruction()];
             ctx.rpc
-                .create_and_send_transaction(
+                .create_and_send_v1_transaction(
                     &instructions,
                     authority.pubkey(),
                     &[&authority, &new_authority],
+                    ComputeBudgetConfig::new(SET_AUTHORITY_COMPUTE_UNIT_LIMIT),
                 )
                 .map_err(|source| AuthorityError::SetAuthority(Box::new(source)))?;
             println!(

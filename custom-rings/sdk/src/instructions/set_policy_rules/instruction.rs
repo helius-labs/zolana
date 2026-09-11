@@ -1,4 +1,4 @@
-use custom_ring_interface::{tag, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT};
+use custom_ring_interface::tag;
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 use zolana_ring_policy::{ListId, RuleTable};
@@ -6,7 +6,7 @@ use zolana_ring_policy::{ListId, RuleTable};
 use crate::{
     instructions::{
         entry::EntryError,
-        policy_table::{LegacyPacket, PolicyTable},
+        policy_table::{PolicyTable, V1Transaction},
     },
     CustomRing,
 };
@@ -42,9 +42,8 @@ impl SetPolicyRules<'_> {
             AccountMeta::new_readonly(ring.program_data_pda(), false),
         ];
         accounts.extend(body.curator_accounts());
-        LegacyPacket {
+        V1Transaction {
             payer: authority,
-            compute_unit_limit: SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
             instruction: Instruction {
                 program_id: ring.program_id(),
                 accounts,

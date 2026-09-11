@@ -1,21 +1,13 @@
-use std::time::Duration;
-
 use anyhow::{anyhow, Result};
 use solana_address::Address;
-use solana_address_lookup_table_interface::instruction::{
-    create_lookup_table, extend_lookup_table,
-};
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::{v0, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::{versioned::VersionedTransaction, Transaction};
 use zolana_client::{
-    AsyncProverClient, AsyncZolanaIndexer, ProverClient, Rpc, SolanaRpc, ZolanaClient,
-    ZolanaIndexer,
+    AsyncProverClient, AsyncZolanaIndexer, ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc,
+    ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateSplInterface},
@@ -39,6 +31,9 @@ use zolana_transaction::{
 };
 use zolana_user_registry_interface::user_registry_program_id;
 use zolana_wallet::{sync_wallet, Deposit, DepositParams};
+
+// The whole per-transaction budget: a swap verifies an SPP proof and its own.
+const TRANSACT_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 
 // SPL the maker shields into the order UTXO (source), and SOL the taker pays (destination).
 pub const MAKER_SHIELD_SPL: u64 = 1_000_000_000;
@@ -158,7 +153,12 @@ pub fn setup() -> Result<TestEnv> {
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
+        rpc.create_and_send_v1_transaction(
+            &[ix],
+            payer_address,
+            &[&payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
 
     rpc.airdrop(&accounts.protocol_vault, 5_000_000_000)?;
@@ -182,7 +182,12 @@ pub fn setup() -> Result<TestEnv> {
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
+    rpc.create_and_send_v1_transaction(
+        &[create_config_sync],
+        payer_address,
+        &[&payer, &authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
 
     let tree_creation = create_tree_instructions(
         &rpc,
@@ -198,10 +203,11 @@ pub fn setup() -> Result<TestEnv> {
         &[tree_creation_authority.pubkey()],
         &tree_creation.instructions,
     );
-    rpc.create_and_send_transaction(
+    rpc.create_and_send_v1_transaction(
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
+        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
 
     let tree = tree_creation.tree;
@@ -222,7 +228,12 @@ pub fn setup() -> Result<TestEnv> {
             &[authority.pubkey()],
             &[counter_ix],
         );
-        rpc.create_and_send_transaction(&[counter_sync], payer_address, &[&payer, &authority])?;
+        rpc.create_and_send_v1_transaction(
+            &[counter_sync],
+            payer_address,
+            &[&payer, &authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
     let interface_ix = CreateSplInterface {
         authority: accounts.protocol_vault,
@@ -236,7 +247,12 @@ pub fn setup() -> Result<TestEnv> {
         &[authority.pubkey()],
         &[interface_ix],
     );
-    rpc.create_and_send_transaction(&[interface_sync], payer_address, &[&payer, &authority])?;
+    rpc.create_and_send_v1_transaction(
+        &[interface_sync],
+        payer_address,
+        &[&payer, &authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
 
     // SOL occupies asset id 1; the first registered SPL mint gets id 2.
     let spl_asset_id = 2u64;
@@ -361,78 +377,17 @@ pub fn setup() -> Result<TestEnv> {
     Ok(env)
 }
 
-// Submit a single (large) swap instruction as a v0 transaction behind a throwaway
-// address lookup table: create + extend the ALT (waiting a slot for each to root),
-// then compile and send. Prepends a 1.4M CU budget; `payer` signs and pays. The
-// swap lifecycle account lists only fit within the 1232-byte tx limit via an ALT.
-pub fn send_v0_with_lookup_table(
-    rpc: &SolanaRpc,
-    payer: &dyn Signer,
-    ix: Instruction,
-) -> Result<Signature> {
-    let alt_addresses: Vec<Pubkey> = ix
-        .accounts
-        .iter()
-        .filter(|meta| !meta.is_signer)
-        .map(|meta| meta.pubkey)
-        .chain(std::iter::once(ix.program_id))
-        .collect();
-    let compute = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-
-    let client = rpc.client();
-    let recent_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    loop {
-        let tip = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-        if tip > recent_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let (lut_create_ix, table_address) =
-        create_lookup_table(payer.pubkey(), payer.pubkey(), recent_slot);
-    let lut_extend_ix = extend_lookup_table(
-        table_address,
+// Submit a single (large) swap instruction as a transaction **v1** message:
+// its 4096-byte limit is what holds a swap's account list and proof, which no
+// longer fit a 1232-byte legacy packet. v1 has no address lookup table, and it
+// carries the compute ceilings in the message header rather than in a
+// compute-budget instruction. An unset ceiling means zero, not a default, so
+// both are written. `payer` signs and pays.
+pub fn send_v1(rpc: &SolanaRpc, payer: &dyn Signer, ix: Instruction) -> Result<Signature> {
+    Ok(rpc.create_and_send_v1_transaction(
+        std::slice::from_ref(&ix),
         payer.pubkey(),
-        Some(payer.pubkey()),
-        alt_addresses.clone(),
-    );
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let setup = Transaction::new(
         &[payer],
-        Message::new(&[lut_create_ix, lut_extend_ix], Some(&payer.pubkey())),
-        blockhash,
-    );
-    client
-        .send_and_confirm_transaction(&setup)
-        .map_err(|e| anyhow!("create+extend ALT: {e}"))?;
-    let extended_slot = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-    loop {
-        let tip = client.get_slot().map_err(|e| anyhow!("get_slot: {e}"))?;
-        if tip > extended_slot {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let alt = AddressLookupTableAccount {
-        key: table_address,
-        addresses: alt_addresses.clone(),
-    };
-    let blockhash = client
-        .get_latest_blockhash()
-        .map_err(|e| anyhow!("blockhash: {e}"))?;
-    let message = v0::Message::try_compile(
-        &payer.pubkey(),
-        &[compute, ix],
-        std::slice::from_ref(&alt),
-        blockhash,
-    )
-    .map_err(|e| anyhow!("compile v0: {e}"))?;
-    let tx = VersionedTransaction::try_new(VersionedMessage::V0(message), &[payer])
-        .map_err(|e| anyhow!("sign v0: {e}"))?;
-    let signature = client
-        .send_and_confirm_transaction(&tx)
-        .map_err(|e| anyhow!("send v0: {e}"))?;
-    Ok(signature)
+        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+    )?)
 }

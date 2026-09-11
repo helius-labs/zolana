@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_loader_v3_interface_v7::{instruction::upgrade, state::UpgradeableLoaderState};
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     pda, state::ProtocolConfig, BPF_LOADER_UPGRADEABLE_PUBKEY, PROGRAM_ID_PUBKEY,
 };
@@ -197,11 +197,13 @@ pub fn run(options: Options) -> Result<()> {
 
     let mut transaction_signers: Vec<&dyn Signer> = vec![&payer];
     transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
+    let instructions = [execute_ix];
     let signature = rpc
-        .create_and_send_transaction(
-            &[execute_ix],
+        .create_and_send_v1_transaction(
+            &instructions,
             to_address(&payer.pubkey()),
             &transaction_signers,
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
         .map_err(|error| anyhow!("Squads loader-v3 upgrade failed: {error}"))?;
     println!("upgrade_shielded_pool sig={signature}");

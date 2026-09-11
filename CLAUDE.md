@@ -135,6 +135,60 @@ connects there and `spawn_prover()` starts the spawned server on that URL's
 port. Running `cargo test` directly (not via `just`) does not auto-load `.env`
 -- export the vars yourself (`set -a; source .env; set +a`) or use `direnv`.
 
+## Transactions Are v1, 4 KB, With No Lookup Tables
+
+Every transaction this repository sends is **transaction v1** (SIMD-0385).
+There is no legacy sender left and no address lookup table anywhere; a proof
+carrying transaction simply fits.
+
+- **The ceiling is 4,096 bytes**, not the 1,232-byte legacy packet. One size
+  constant per language: `solana_message::v1::MAX_TRANSACTION_SIZE` in Rust,
+  `TRANSACTION_SIZE_LIMIT` in `sdk-libs/ts`. Do not hand-roll a third.
+- **The budget lives in the message header**, not in compute-budget
+  instructions. Build through `zolana_client::compile_v1_message` and
+  `ComputeBudgetConfig`; never construct a `v1::TransactionConfig` at a call
+  site.
+- **An unset header field is zero, not a default.** Omitting either the
+  compute-unit limit or the loaded-accounts-data-size limit produces a
+  transaction that cannot execute at all. `ComputeBudgetConfig::transaction_config`
+  always writes both, and a test pins that.
+- **The priority fee is a flat lamport total**, not micro-lamports per compute
+  unit. `ComputeBudgetConfig::with_compute_unit_price` still takes the old unit
+  and converts with the runtime's own `ceil(price * cu_limit / 1_000_000)`, so
+  existing bids bill what they always did.
+- **Signing rejects a repeated signer**, where legacy partial signing tolerated
+  one. That bites whenever the fee payer also owns a shielded input, so sign
+  through `zolana_client::sign_versioned_transaction`, which deduplicates.
+- **Read back at `max_supported_transaction_version: 1`.** A v1 transaction
+  requested at 0 comes back as an error rather than as the transaction.
+- v1 loads no addresses, but the RPC decode path still honours
+  `loaded_addresses`, because it reads transactions off the chain and every
+  shielded transaction confirmed before this migration is a v0 one.
+
+There is a second ceiling that moves with the shape rather than the bytes:
+**v1 allows 64 account addresses**, and a wide spend adds one nullifier PDA per
+input. `zolana_client::v1_transaction_size` reports both, and `xtask tx-size`
+prints them per shape.
+
+### The localnet runtime is surfpool
+
+`just` starts surfpool, not solana-test-validator, pinned to a `-light` release
+of `Lightprotocol/surfpool` built on **litesvm 0.16 / agave 4.2.x** so it is the
+same SVM revision as the in-process tests.
+
+**litesvm 0.16 is a hard floor, not a preference.** litesvm 0.14 and 0.15
+*accept* a v1 transaction and then execute it on the legacy per-instruction
+default, because they derive the budget by scanning instructions and a v1
+message carries its ceilings in the header. Nothing fails loudly: cheap
+transactions confirm, the priority fee is silently never charged, and only a
+transaction heavy enough to exceed 200,000 units breaks. Agave below 4.2 is a
+separate floor again -- 4.0.2 cannot deserialize a v1 transaction at all.
+
+`program-tests/spp-test-validator/tests/transaction_v1.rs` guards this. Two of
+its three probes assert a refusal and a charge rather than a success, because a
+plain v1 transfer confirms against a backend that ignores the header entirely.
+Do not "simplify" them into a single happy-path test.
+
 ## Code Style
 
 - Keep protocol math in one canonical implementation and reuse it from tests.

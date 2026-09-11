@@ -1600,36 +1600,45 @@ struct TransactIxData {
 
 Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-size`. Assumes confidential transfers with every `data` field empty (`count = 0`). Each populated record adds `3 + len` bytes to its plaintext and the same to the ciphertext.
 
-| Circuit | N | M | ix data (B) | transfer (B) | deposit / withdraw (B) |
+| Circuit | N | M | ix data (B) | transfer (B / addresses) | deposit / withdraw (B / addresses) |
 | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 431 | — | 779 |
-| 1 in 2 out | 1 | 2 | 395 | — | 743 |
-| 3 in 3 out | 3 | 3 | 583 | 789 | 931 |
-| 5 in 3 out | 5 | 3 | 655 | 861 | 1003 |
-| 1 in 8 out | 1 | 8 | 1091\* | 1297\* | 1439\* |
+| 2 in 2 out | 2 | 2 | 431 | — | 783 / 7 |
+| 1 in 2 out | 1 | 2 | 395 | — | 747 / 7 |
+| 3 in 3 out | 3 | 3 | 583 | 793 / 3 | 935 / 7 |
+| 5 in 3 out | 5 | 3 | 655 | 865 / 3 | 1007 / 7 |
+| 1 in 8 out | 1 | 8 | 1091\* | 1301\* / 3 | 1443\* / 7 |
 
-Transaction sizes are Solana legacy transactions with all accounts inline and
-the same pubkey for `input_tree` and `output_tree`; a distinct output tree adds
-one 32-byte account key. — = shape has no recipient slots (R = M − 2 = 0) and
-is used only for deposit / merge, not transfer.
+Transaction sizes are Solana transaction v1 messages with all accounts inline
+and the same pubkey for `input_tree` and `output_tree`; a distinct output tree
+adds one 32-byte account key. v1 carries its compute ceilings in the message
+header, so no compute-budget instruction contributes to these figures. — =
+shape has no recipient slots (R = M − 2 = 0) and is used only for deposit /
+merge, not transfer.
 
 \* The 1-in-8-out row uses [UTXO Split](#utxo-split), which has a distinct ciphertext layout. The sizes shown use the standard transfer ciphertext structure with R = 6 recipients and do not reflect the actual UTXO Split encoding.
 
 Public legs add both instruction data and settlement account groups. For a
 3-in/3-out transaction containing repeated withdrawals of one SPL asset:
 
-| Public legs | ix data (B) | transaction (B) |
-| --- | --- | --- |
-| 0 | 586 | 792 |
-| 1 | 596 | 967 |
-| 5 | 636 | 1283 |
+| Public legs | ix data (B) | transaction (B) | addresses |
+| --- | --- | --- | --- |
+| 0 | 583 | 793 | 3 |
+| 1 | 593 | 968 | 8 |
+| 5 | 633 | 1284 | 16 |
 
 Five legs in this table are a transaction-size datapoint, not a protocol
-maximum. Every transaction still has to fit Solana's 1232-byte packet limit.
-Consequently, the five-leg example above cannot be submitted as one transaction
-with that circuit shape and account layout; clients must choose a smaller proof
-shape, use fewer legs, or split the operation. Aggregating repeated legs into
-one proof slot does not remove their individual account metas.
+maximum. Every transaction has to fit the 4,096-byte transaction v1 limit, which
+the five-leg example above clears; under the older 1,232-byte legacy packet it
+did not, and had to be split.
+
+v1 imposes a second ceiling that the byte count does not show: a message may
+name at most **64 account addresses**, and a transact adds one nullifier PDA per
+input. Neither ceiling binds at any supported shape — the widest, a 36-input
+merge through `execute_sync`, measures 3,125 bytes and 44 addresses — but they
+run out together rather than one dominating: bytes and addresses both exhaust at
+roughly 58 inputs. Aggregating repeated legs into one proof slot does not remove
+their individual account metas, so a client that runs out of either must still
+choose a smaller proof shape, use fewer legs, or split the operation.
 
 **Checks**
 

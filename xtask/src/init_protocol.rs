@@ -8,7 +8,7 @@ use solana_keypair::{read_keypair_file, Keypair};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
     pda,
@@ -509,7 +509,7 @@ fn create_smart_account_with_retry(
         let seed = index + 1;
         let (settings, _) = settings_pda(seed);
         let (vault, _) = smart_account_pda(&settings, 0);
-        let ix = create_role_smart_account_ix(
+        let instructions = [create_role_smart_account_ix(
             &payer.pubkey(),
             treasury,
             seed,
@@ -517,8 +517,13 @@ fn create_smart_account_with_retry(
             signers,
             role,
             0,
-        );
-        match rpc.create_and_send_transaction(&[ix], to_address(&payer.pubkey()), &[payer]) {
+        )];
+        match rpc.create_and_send_v1_transaction(
+            &instructions,
+            to_address(&payer.pubkey()),
+            &[payer],
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
+        ) {
             Ok(signature) => {
                 println!(
                     "created {label} smart account: settings={settings} vault={vault} seed={seed} sig={signature}"
@@ -649,10 +654,12 @@ fn fund_protocol_vault(
         rpc.airdrop(vault, lamports)
             .map_err(|e| anyhow!("airdrop to protocol vault {vault} failed: {e}"))?;
     } else {
-        rpc.create_and_send_transaction(
-            &[system_transfer_ix(&payer.pubkey(), vault, lamports)],
+        let instructions = [system_transfer_ix(&payer.pubkey(), vault, lamports)];
+        rpc.create_and_send_v1_transaction(
+            &instructions,
             to_address(&payer.pubkey()),
             &[payer],
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
         .map_err(|e| anyhow!("transfer to protocol vault {vault} failed: {e}"))?;
     }
@@ -789,22 +796,31 @@ fn send_protocol_config(
     .instruction();
 
     let signature = match initialization_authority {
-        InitializationAuthority::Keypair(keypair) => rpc
-            .create_and_send_transaction(
-                &[create_config_ix],
+        InitializationAuthority::Keypair(keypair) => {
+            let instructions = [create_config_ix];
+            rpc.create_and_send_v1_transaction(
+                &instructions,
                 to_address(&payer.pubkey()),
                 &[payer, keypair],
+                ComputeBudgetConfig::for_instruction_count(instructions.len()),
             )
-            .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?,
+            .map_err(|e| anyhow!("create_protocol_config failed: {e}"))?
+        }
         InitializationAuthority::ProtocolVault => {
             let signer_keys: Vec<Pubkey> = protocol_signers.iter().map(Signer::pubkey).collect();
-            let sync = execute_sync_ix(&protocol.settings, 0, &signer_keys, &[create_config_ix]);
+            let instructions = [execute_sync_ix(
+                &protocol.settings,
+                0,
+                &signer_keys,
+                &[create_config_ix],
+            )];
             let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
             transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
-            rpc.create_and_send_transaction(
-                &[sync],
+            rpc.create_and_send_v1_transaction(
+                &instructions,
                 to_address(&payer.pubkey()),
                 &transaction_signers,
+                ComputeBudgetConfig::for_instruction_count(instructions.len()),
             )
             .map_err(|e| anyhow!("create_protocol_config through Squads failed: {e}"))?
         }
@@ -838,11 +854,21 @@ fn send_asset_counter(
     }
     .instruction();
     let signer_keys: Vec<Pubkey> = protocol_signers.iter().map(Signer::pubkey).collect();
-    let sync = execute_sync_ix(protocol_settings, 0, &signer_keys, &[counter_ix]);
+    let instructions = [execute_sync_ix(
+        protocol_settings,
+        0,
+        &signer_keys,
+        &[counter_ix],
+    )];
     let mut transaction_signers: Vec<&dyn Signer> = vec![payer];
     transaction_signers.extend(protocol_signers.iter().map(|signer| signer as &dyn Signer));
     let signature = rpc
-        .create_and_send_transaction(&[sync], to_address(&payer.pubkey()), &transaction_signers)
+        .create_and_send_v1_transaction(
+            &instructions,
+            to_address(&payer.pubkey()),
+            &transaction_signers,
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
+        )
         .map_err(|e| anyhow!("create_asset_counter failed: {e}"))?;
     println!(
         "created spl_asset_counter={} sig={signature}",
@@ -881,10 +907,11 @@ fn create_tree(
         &create.instructions(),
     );
     let signature = rpc
-        .create_and_send_transaction(
+        .create_and_send_v1_transaction(
             &steps,
             to_address(&payer.pubkey()),
             &[payer, protocol_signer],
+            ComputeBudgetConfig::for_instruction_count(steps.len()),
         )
         .map_err(|e| anyhow!("create_tree failed: {e}"))?;
     let tree = create.tree();

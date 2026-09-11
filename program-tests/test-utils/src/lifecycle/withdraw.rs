@@ -21,7 +21,7 @@ use zolana_transaction::{instructions::transact::SettlementTarget, Utxo, SOL_MIN
 
 use super::LifecycleHarness;
 use crate::{
-    localnet::{send_transaction, SOL_CHANGE_POSITION, ZERO},
+    localnet::{send_transaction_v1, SOL_CHANGE_POSITION, ZERO},
     test_validator_asserts::{
         wait_for_indexed_transaction, wait_for_merkle_proof, wait_for_non_inclusion_proof,
     },
@@ -133,7 +133,7 @@ impl LifecycleHarness {
         }
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
-        let sig = send_transaction(
+        let sig = send_transaction_v1(
             &mut self.rpc,
             &[compute_budget, withdraw_ix.clone()],
             &fee_payer.pubkey(),

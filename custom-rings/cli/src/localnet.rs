@@ -233,7 +233,7 @@ fn start_validator(ports: Ports) -> Result<(), LocalnetError> {
     line("validator", "zolana dev start");
     ZOLANA.named("zolana dev start").run(
         Command::new("zolana")
-            .args(["dev", "start", "--no-use-surfpool"])
+            .args(["dev", "start"])
             .args(["--rpc-port", &ports.rpc.to_string()])
             .args(["--photon-port", &ports.photon.to_string()])
             .args(["--prover-port", &ports.prover.to_string()])

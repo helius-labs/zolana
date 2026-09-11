@@ -8,10 +8,9 @@ use litesvm::{
 };
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
+use zolana_client::{compile_v1_message, sign_versioned_transaction, ComputeBudgetConfig};
 use zolana_keypair::SigningKey;
 use zolana_user_registry_interface::{
     instruction::{
@@ -68,6 +67,10 @@ impl UserRegistryTestRig {
     /// Sends several instructions in one transaction. Required for the P256
     /// proof of possession, which the program reads at relative index -1 and so
     /// must ride in the same transaction as the registry instruction.
+    ///
+    /// v1 states its compute ceiling in the message header, so nothing is
+    /// prepended to `instructions` and the relative index the program reads is
+    /// exactly the caller's own ordering.
     pub fn send_all(
         &mut self,
         instructions: &[Instruction],
@@ -75,11 +78,18 @@ impl UserRegistryTestRig {
     ) -> TestTransactionResult {
         self.svm.expire_blockhash();
         let payer = self.payer.insecure_clone();
-        let mut all_signers = Vec::with_capacity(signers.len() + 1);
+        let mut all_signers: Vec<&dyn Signer> = Vec::with_capacity(signers.len() + 1);
         all_signers.push(&payer);
-        all_signers.extend_from_slice(signers);
-        let message = Message::new(instructions, Some(&payer.pubkey()));
-        let transaction = Transaction::new(&all_signers, message, self.svm.latest_blockhash());
+        all_signers.extend(signers.iter().map(|signer| *signer as &dyn Signer));
+        let message = compile_v1_message(
+            &payer.pubkey(),
+            instructions,
+            self.svm.latest_blockhash(),
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
+        )
+        .expect("compile the v1 message");
+        let transaction =
+            sign_versioned_transaction(message, &all_signers).expect("sign the v1 transaction");
         self.svm.send_transaction(transaction).map_err(Box::new)
     }
 

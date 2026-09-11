@@ -27,7 +27,7 @@ use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{ClientError, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
 use zolana_interface::instruction::{
     AssetDeposit, Deposit as DepositInstruction, DepositAsset, DepositSplAccounts,
 };
@@ -207,7 +207,12 @@ impl Deposit<'_> {
             signers.push(authority);
         }
         let payer_address = Address::new_from_array(payer.pubkey().to_bytes());
-        let signature = rpc.create_and_send_transaction(&[ix], payer_address, &signers)?;
+        let signature = rpc.create_and_send_v1_transaction(
+            &[ix],
+            payer_address,
+            &signers,
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
         // The leaf index, and so the blinding, is assigned at append; the
         // deposit publishes both in the clear, so read the UTXO back.
         let indexed = wait_for_indexed_transaction(indexer, view_tag, signature);
