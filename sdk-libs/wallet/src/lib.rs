@@ -8,10 +8,10 @@
 //! Typical private transfer flow:
 //! 1. [`sync_wallet`]
 //! 2. [`create_transfer`] / [`create_withdrawal`]
-//! 3. [`sign_private_transaction`] -> locally signed native `Transaction`, or
+//! 3. [`sign_private_transaction`] -> locally signed v1 `VersionedTransaction`, or
 //!    [`sign_private_transaction_with_signers`] for additional native input owners, or
-//!    [`build_private_transaction`] -> unsigned native `Transaction` for an HSM/custodian
-//! 4. `rpc.send_transaction`
+//!    [`build_private_transaction`] -> unsigned v1 `VersionedMessage` for an HSM/custodian
+//! 4. `rpc.send_versioned_transaction_with_config` / `rpc.process_versioned_transaction`
 //! 5. `zolana_client::ZolanaClient::confirm_private_transaction(signature)` for Photon indexing
 //!
 //! Spend tree and recipient registry resolution are inferred internally. Use
