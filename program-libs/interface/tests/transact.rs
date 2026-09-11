@@ -10,7 +10,7 @@ use zolana_interface::{
         },
         tag,
     },
-    INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
+    MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS,
 };
 
 /// The selector is a 2-byte little-endian enum tag followed by its three
@@ -401,18 +401,18 @@ fn tree_contexts(count: usize) -> Vec<TreeContext> {
 }
 
 #[test]
-fn input_tree_contexts_accept_contiguous_runs_up_to_the_slot_count() {
+fn input_tree_contexts_accept_contiguous_runs_up_to_the_program_limit() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0]), &tree_contexts(1)),
         Ok(())
     );
     assert_eq!(
-        validate_input_tree_contexts(&inputs(&[0, 0, 1, 1, 1, 2]), &tree_contexts(3)),
+        validate_input_tree_contexts(&inputs(&[0, 0, 1, 1, 1]), &tree_contexts(2)),
         Ok(())
     );
-    let every_slot: Vec<u8> = (0..INPUT_TREES as u8).collect();
+    let every_slot: Vec<u8> = (0..MAX_INPUT_TREES as u8).collect();
     assert_eq!(
-        validate_input_tree_contexts(&inputs(&every_slot), &tree_contexts(INPUT_TREES)),
+        validate_input_tree_contexts(&inputs(&every_slot), &tree_contexts(MAX_INPUT_TREES)),
         Ok(())
     );
 }
@@ -424,7 +424,7 @@ fn input_tree_contexts_reject_every_invalid_grouping() {
         Err(ShieldedPoolError::InvalidTreeContextCount)
     );
     assert_eq!(
-        validate_input_tree_contexts(&inputs(&[0]), &tree_contexts(INPUT_TREES + 1)),
+        validate_input_tree_contexts(&inputs(&[0, 1, 2]), &tree_contexts(3)),
         Err(ShieldedPoolError::InvalidTreeContextCount)
     );
     assert_eq!(
@@ -434,10 +434,6 @@ fn input_tree_contexts_reject_every_invalid_grouping() {
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 1, 0]), &tree_contexts(2)),
         Err(ShieldedPoolError::InputsNotGroupedByTree)
-    );
-    assert_eq!(
-        validate_input_tree_contexts(&inputs(&[0, 2]), &tree_contexts(3)),
-        Err(ShieldedPoolError::UnreferencedTreeContext)
     );
     assert_eq!(
         validate_input_tree_contexts(&inputs(&[0, 0]), &tree_contexts(2)),

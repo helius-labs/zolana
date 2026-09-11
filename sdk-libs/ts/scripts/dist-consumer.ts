@@ -1,4 +1,5 @@
 /** Named exports the changelog promises, resolved through the package exports map. */
+export { MAX_INPUT_TREES } from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
   ChainReader,

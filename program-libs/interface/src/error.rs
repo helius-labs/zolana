@@ -164,7 +164,7 @@ pub enum ShieldedPoolError {
     InputTreeRootIndexMismatch = 7065,
     #[error("external data hash preimage exceeds the supported slice count")]
     TooManyExternalDataHashSlices = 7066,
-    #[error("transact must declare between one and INPUT_TREES input trees")]
+    #[error("transact must declare between one and MAX_INPUT_TREES input trees")]
     InvalidTreeContextCount = 7067,
     #[error("input references a tree index beyond the declared input trees")]
     InputTreeIndexOutOfRange = 7068,

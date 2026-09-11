@@ -6,7 +6,12 @@ import { assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
 import type { Bytes16, Bytes32 } from "../src/interface/index.js";
 import { treeAddress } from "../src/interface/pda/index.js";
-import { INPUT_TREES, ZERO_TREE_SLOT, treeIdField } from "../src/interface/tree-slot.js";
+import {
+  INPUT_TREES,
+  MAX_INPUT_TREES,
+  ZERO_TREE_SLOT,
+  treeIdField,
+} from "../src/interface/tree-slot.js";
 import { ShieldedKeypair } from "../src/keypair/index.js";
 import { TransactionError } from "../src/transaction/error.js";
 import { inputTreeIds, singleInputTreeId } from "../src/transaction/instructions/transact.js";
@@ -247,7 +252,7 @@ describe("input tree grouping", () => {
     treeIds.map((treeId, index) => ProofInputUtxo.dummy(blinding(20 + index), treeId));
 
   it("lists the trees in the order the inputs first name them", () => {
-    expect(inputTreeIds(utxos([0, 0, 1, 1, 2]))).toEqual([0, 1, 2]);
+    expect(inputTreeIds(utxos([0, 0, 1, 1]))).toEqual([0, 1]);
     expect(singleInputTreeId(utxos([3, 3]))).toBe(3);
   });
 
@@ -260,12 +265,18 @@ describe("input tree grouping", () => {
     );
   });
 
-  it("refuses more trees than a proof publishes slots for", () => {
-    const overflowing = Array.from({ length: INPUT_TREES + 1 }, (_, index) => index);
+  it("refuses three trees while accepting the program maximum of two", () => {
+    expect(MAX_INPUT_TREES).toBe(2);
+    const overflowing = [0, 1, 2];
     expect(() => inputTreeIds(utxos(overflowing))).toThrow(
-      expect.objectContaining({ code: "TRANSACTION_TOO_MANY_INPUT_TREES" }),
+      expect.objectContaining({
+        code: "TRANSACTION_TOO_MANY_INPUT_TREES",
+        details: expect.objectContaining({ got: 3, max: 2 }),
+      }),
     );
-    expect(inputTreeIds(utxos(overflowing.slice(0, INPUT_TREES)))).toHaveLength(INPUT_TREES);
+    expect(inputTreeIds(utxos(overflowing.slice(0, MAX_INPUT_TREES)))).toHaveLength(
+      MAX_INPUT_TREES,
+    );
   });
 
   it("refuses an empty input list", () => {

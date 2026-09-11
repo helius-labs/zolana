@@ -5,7 +5,7 @@ import {
   type RequestContext,
   TransactWithdrawal,
 } from "../interface/types.js";
-import { INPUT_TREES } from "../interface/tree-slot.js";
+import { MAX_INPUT_TREES } from "../interface/tree-slot.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { WithdrawalTarget } from "../transaction/instructions/transact.js";
 import { hex, type Wallet, type WalletUtxo } from "../transaction/wallet/state.js";
@@ -202,12 +202,12 @@ function defaultSpendPolicy(): SpendPolicy {
     eligible: isPlainUtxo,
     ordering: "largestFirst",
     maxInputs: MAX_SPEND_INPUTS,
-    tree: { kind: "infer", maxTrees: INPUT_TREES },
+    tree: { kind: "infer", maxTrees: MAX_INPUT_TREES },
     errors: walletSelectionErrors,
   };
 }
 
-/** The trees holding spendable funds of `asset`, at most `INPUT_TREES` of them. */
+/** The trees holding spendable funds of `asset`, at most `MAX_INPUT_TREES` of them. */
 function spendTrees(wallet: Wallet, asset: Address): readonly Address[] {
   const trees: Address[] = [];
   for (const entry of wallet.utxos()) {
@@ -220,7 +220,7 @@ function spendTrees(wallet: Wallet, asset: Address): readonly Address[] {
       details: { requested: "1", available: "0" },
     });
   }
-  if (trees.length > INPUT_TREES) {
+  if (trees.length > MAX_INPUT_TREES) {
     throw new WalletError("WALLET_MULTIPLE_INPUT_TREES", {
       details: { asset, treeCount: trees.length },
     });

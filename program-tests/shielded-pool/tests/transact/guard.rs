@@ -31,7 +31,7 @@ use zolana_interface::{
     },
     pda,
     state::{discriminator::RING_CONFIG, RingConfig},
-    INPUT_TREES, N_PUBLIC_SLOTS,
+    MAX_INPUT_TREES, N_PUBLIC_SLOTS,
 };
 use zolana_program_test::{Rejection, RING_TEST_PROGRAM_ID};
 use zolana_test_utils::transact::{
@@ -857,13 +857,20 @@ fn transact_rejects_an_empty_tree_context_list() {
 }
 
 #[test]
-fn transact_rejects_more_tree_contexts_than_the_proof_publishes_slots() {
+fn transact_rejects_three_input_trees() {
     let mut env = Pool::initialized();
-    // The proof publishes INPUT_TREES slots; a longer context list cannot be
-    // bound by it.
-    let tree_indexes: Vec<u8> = (0..INPUT_TREES as u8).collect();
-    let data = multi_tree_ix_data(&tree_indexes, INPUT_TREES + 1);
-    let input_trees = vec![env.tree; INPUT_TREES + 1];
+    assert_eq!(MAX_INPUT_TREES, 2);
+    // Three distinct trees and a supported 3x3 shape isolate the program's
+    // two-tree limit from duplicate-account and circuit-shape validation.
+    let data = multi_tree_ix_data(&[0, 1, 2], 3);
+    let mut input_trees = vec![env.tree];
+    for _ in 0..2 {
+        input_trees.push(
+            env.rpc
+                .create_tree(&env.authority)
+                .expect("create input tree"),
+        );
+    }
     expect_tree_run_rejection(
         &mut env,
         input_trees,

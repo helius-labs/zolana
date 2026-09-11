@@ -53,7 +53,7 @@ import {
   type ProofOutputUtxo,
   type TreeId,
 } from "../utxo.js";
-import { DEFAULT_TREE_ID, INPUT_TREES } from "../../interface/tree-slot.js";
+import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
 import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
@@ -524,7 +524,7 @@ export function createEncryptedTransaction(
 
 /**
  * The trees one proof spends from, in the order the inputs first name them.
- * Mirrors Rust `input_tree_ids`: a proof publishes `INPUT_TREES` tree slots,
+ * Mirrors Rust `input_tree_ids`: a transact permits `MAX_INPUT_TREES` trees,
  * and each tree owns one contiguous run of inputs, so an input's tree index
  * never decreases and every run's nullifiers stay consecutive under their own
  * tree.
@@ -540,11 +540,11 @@ export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId
         treeId: input.treeId,
       });
     }
-    if (trees.length === INPUT_TREES) {
+    if (trees.length === MAX_INPUT_TREES) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
         index,
         got: trees.length + 1,
-        max: INPUT_TREES,
+        max: MAX_INPUT_TREES,
       });
     }
     trees.push(input.treeId);

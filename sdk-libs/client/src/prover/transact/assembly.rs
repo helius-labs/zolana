@@ -8,7 +8,7 @@ use zolana_hasher::{
 use zolana_interface::{
     instruction::instruction_data::transact::{InputUtxo, TreeContext},
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
-    INPUT_TREES,
+    INPUT_TREES, MAX_INPUT_TREES,
 };
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
@@ -208,7 +208,7 @@ impl InputTrees {
             .get(usize::from(tree_index))
             .ok_or(ClientError::TooManyInputTrees {
                 got: usize::from(tree_index).saturating_add(1),
-                max: INPUT_TREES,
+                max: MAX_INPUT_TREES,
             })
     }
 
@@ -294,10 +294,10 @@ fn resolve_input_trees(spends: &[TransferSpendInput]) -> Result<InputTrees, Clie
         }
     }
 
-    if trees.len() > INPUT_TREES {
+    if trees.len() > MAX_INPUT_TREES {
         return Err(ClientError::TooManyInputTrees {
             got: trees.len(),
-            max: INPUT_TREES,
+            max: MAX_INPUT_TREES,
         });
     }
     // The input trees supply the ids every dummy is hashed under, so a proof
@@ -809,8 +809,8 @@ mod tests {
     }
 
     #[test]
-    fn more_input_trees_than_slots_are_rejected() {
-        let spends: Vec<TransferSpendInput> = (0..=INPUT_TREES)
+    fn more_input_trees_than_the_program_limit_are_rejected() {
+        let spends: Vec<TransferSpendInput> = (0..=MAX_INPUT_TREES)
             .map(|index| {
                 let marker = u8::try_from(index).expect("tree marker");
                 let tree_id = u16::try_from(index).expect("tree id");
@@ -820,7 +820,7 @@ mod tests {
 
         assert!(matches!(
             assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa),
-            Err(ClientError::TooManyInputTrees { got, max }) if got == INPUT_TREES + 1 && max == INPUT_TREES
+            Err(ClientError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
 

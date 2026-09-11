@@ -10,6 +10,9 @@ import type { Bytes32 } from "./types.js";
  */
 export const INPUT_TREES = 5;
 
+/** Maximum trees one transact may spend from; mirrors Rust `MAX_INPUT_TREES`. */
+export const MAX_INPUT_TREES = 2;
+
 /**
  * The tree id the SDK hashes under until the tree id is read from the tree
  * account. The protocol has one live tree today and it carries id 0, so

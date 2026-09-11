@@ -1051,8 +1051,9 @@ tree_slot_chain  = RightHashChain(tree_slot_hash_0, ..., tree_slot_hash_4)
 ```
 
 SPP fills one slot per `tree_contexts` entry, in declaration order, from the
-matching input tree account. The remaining slots are zero and still hash as
-`Poseidon(0, 0, 0)`, so the unused suffix of the chain can be precomputed. Each
+matching input tree account, with at most `MAX_INPUT_TREES = 2` input trees per
+transact. The circuit retains all five slots. The remaining slots are zero and
+still hash as `Poseidon(0, 0, 0)`, so the unused suffix of the chain can be precomputed. Each
 input privately selects one slot for hashing, inclusion, and non-inclusion;
 either selected root being zero is rejected, which is also what rejects an index
 past the populated slots.
@@ -1681,7 +1682,7 @@ struct TransactIxData {
     proof: TransactProof,
     inputs: Vec<InputUtxo>,
     /// The input trees this spend draws from, in the order their accounts
-    /// appear, one entry per tree. At least one, at most `INPUT_TREES`.
+    /// appear, one entry per tree. At least one, at most `MAX_INPUT_TREES = 2`.
     tree_contexts: Vec<TreeContext>,
 }
 ```
@@ -1736,7 +1737,7 @@ choose a smaller proof shape, use fewer legs, or split the operation.
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. `tree_contexts` holds 1..=`INPUT_TREES` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. The `tree_index` sequence across `inputs` starts at zero, never decreases, and never grows by more than one. That single rule gives all three properties the rest of the instruction relies on: every index addresses a declared entry, each tree owns one contiguous run, and no declared entry goes unreferenced (a jump of more than one is exactly a skipped entry). The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
+5. `tree_contexts` holds between one and `MAX_INPUT_TREES = 2` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. The `tree_index` sequence across `inputs` starts at zero, never decreases, and never grows by more than one. That single rule gives all three properties the rest of the instruction relies on: every index addresses a declared entry, each tree owns one contiguous run, and no declared entry goes unreferenced (a jump of more than one is exactly a skipped entry). The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
 6. Every tree account permits its respective write: nullifier insertion in each input tree and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.

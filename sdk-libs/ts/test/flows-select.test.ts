@@ -12,7 +12,7 @@ import {
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../src/flows/select.js";
-import { INPUT_TREES } from "../src/interface/tree-slot.js";
+import { MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const OTHER_TREE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
@@ -37,7 +37,7 @@ function policy(overrides: Partial<SpendPolicy> = {}): SpendPolicy {
     eligible: isPlainUtxo,
     ordering: "largestFirst",
     maxInputs: MAX_SPEND_INPUTS,
-    tree: { kind: "infer", maxTrees: INPUT_TREES },
+    tree: { kind: "infer", maxTrees: MAX_INPUT_TREES },
     errors,
     ...overrides,
   };

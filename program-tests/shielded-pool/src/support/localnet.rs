@@ -232,7 +232,7 @@ fn fetch_indexed_events(
 ) -> Result<Vec<IndexedEvent>> {
     let confirmed = rpc.fetch_confirmed_instruction_groups(signature)?;
     let events = indexed_events_from_instruction_groups(program_id, &confirmed.groups);
-    index_events(indexer, &events, *signature)?;
+    index_events(indexer, &events, *signature, |tree| rpc.get_account(tree))?;
     Ok(events)
 }
 

@@ -8,7 +8,7 @@ use zolana_interface::{
         validate_interface_transfers,
     },
     shape::owner_signer_slots,
-    INPUT_TREES, MAX_INTERFACE_TRANSFERS,
+    INPUT_TREES, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS,
 };
 
 use super::verify::MAX_INPUTS;
@@ -234,7 +234,7 @@ impl RingTransactAccounts {
 }
 
 /// The input-tree run at account position 1: one writable tree per declared
-/// tree context, in context order. A count outside `1..=INPUT_TREES` and a tree
+/// tree context, in context order. A count outside `1..=MAX_INPUT_TREES` and a tree
 /// passed twice are rejected here, so every context resolves to its own tree
 /// and no tree is credited or queued twice in one instruction.
 fn parse_input_trees<'a>(
@@ -242,7 +242,7 @@ fn parse_input_trees<'a>(
     ix: &TransactIxDataRef<'_>,
 ) -> Result<ArrayVec<&'a mut AccountView, INPUT_TREES>, ProgramError> {
     let tree_count = ix.tree_contexts.len();
-    if tree_count == 0 || tree_count > INPUT_TREES {
+    if tree_count == 0 || tree_count > MAX_INPUT_TREES {
         return Err(ShieldedPoolError::InvalidTreeContextCount.into());
     }
     let mut input_trees: ArrayVec<&'a mut AccountView, INPUT_TREES> = ArrayVec::new();

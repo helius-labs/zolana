@@ -7,7 +7,7 @@ pub use zolana_event::{
 use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 
 pub use crate::verifying_keys::{Bsb22Commitment, CircuitId, RingP256ProofData};
-use crate::{error::ShieldedPoolError, INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
+use crate::{error::ShieldedPoolError, MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, MAX_OUTPUTS};
 
 /// The Groth16 proof carried by a `transact` instruction: `a` and `c` are
 /// compressed G1 points (32 bytes each), `b` is the raw big-endian G2 point
@@ -138,7 +138,7 @@ pub fn validate_input_tree_contexts(
     tree_contexts: &[TreeContext],
 ) -> Result<(), ShieldedPoolError> {
     let context_count = tree_contexts.len();
-    if context_count == 0 || context_count > INPUT_TREES {
+    if context_count == 0 || context_count > MAX_INPUT_TREES {
         return Err(ShieldedPoolError::InvalidTreeContextCount);
     }
     let mut previous: Option<u8> = None;

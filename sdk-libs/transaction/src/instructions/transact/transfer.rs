@@ -3,7 +3,7 @@ use solana_address::Address;
 use zolana_event::MessageData;
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    INPUT_TREES,
+    MAX_INPUT_TREES,
 };
 use zolana_keypair::{
     constants::{SALT_LEN, VIEW_TAG_LEN},
@@ -731,8 +731,8 @@ pub(super) fn sender_owner_tag(
 }
 
 /// The ids of the trees the real inputs are spent from, in first-use order. A
-/// proof publishes [`INPUT_TREES`] tree slots, so a wider spread is rejected
-/// here rather than at proving time. Dummies are ignored: `finalize` assigns
+/// transact may spend from at most [`MAX_INPUT_TREES`] trees, so a wider spread
+/// is rejected before proving. Dummies are ignored: `finalize` assigns
 /// each one a declared tree, so a caller-supplied dummy never declares one.
 fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, TransactionError> {
     let mut tree_ids: Vec<u16> = Vec::with_capacity(1);
@@ -744,10 +744,10 @@ fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, TransactionE
     if tree_ids.is_empty() {
         return Err(TransactionError::NoInputs);
     }
-    if tree_ids.len() > INPUT_TREES {
+    if tree_ids.len() > MAX_INPUT_TREES {
         return Err(TransactionError::TooManyInputTrees {
             got: tree_ids.len(),
-            max: INPUT_TREES,
+            max: MAX_INPUT_TREES,
         });
     }
     Ok(tree_ids)
@@ -1095,9 +1095,9 @@ mod tests {
     }
 
     #[test]
-    fn prepare_rejects_more_input_trees_than_slots() {
+    fn prepare_rejects_more_input_trees_than_the_program_limit() {
         let sender = ShieldedKeypair::new_ed25519().unwrap();
-        let inputs = (0..=INPUT_TREES)
+        let inputs = (0..=MAX_INPUT_TREES)
             .map(|index| {
                 let tree_id = u16::try_from(index).expect("tree id");
                 ed25519_input(&sender, 10).in_tree(tree_id)
@@ -1111,7 +1111,7 @@ mod tests {
 
         assert!(matches!(
             transfer.prepare(),
-            Err(TransactionError::TooManyInputTrees { got, max }) if got == INPUT_TREES + 1 && max == INPUT_TREES
+            Err(TransactionError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
         ));
     }
 

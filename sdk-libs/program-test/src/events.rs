@@ -1,7 +1,10 @@
 use litesvm::types::TransactionMetadata;
+use solana_account::Account;
+use solana_address::Address;
 use solana_message::compiled_instruction::CompiledInstruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use zolana_client::ClientError;
 use zolana_event::{
     encode_encrypted_ring_deposit_output, EncryptedRingDepositOutput, EventKind, GeneralEvent,
     ProoflessOutput,
@@ -11,6 +14,7 @@ use zolana_event_parser::{
     indexed_events_from_instruction_groups, proofless_outputs,
 };
 pub use zolana_event_parser::{IndexedEvent, InstructionGroup, ParsedInstruction};
+use zolana_interface::state::read_tree_id;
 use zolana_transaction::ShieldedTransaction;
 
 use crate::{indexer::shielded_transaction_from_general_event, ProgramTestError, TestIndexer};
@@ -291,13 +295,21 @@ pub fn index_events(
     indexer: &mut TestIndexer,
     events: &[IndexedEvent],
     signature: Signature,
+    mut get_account: impl FnMut(Address) -> Result<Option<Account>, ClientError>,
 ) -> Result<(), ProgramTestError> {
     for event in events {
         match event_kind_from_indexed(event) {
             Some(EventKind::Deposit) => {
                 if let Ok(deposits) = deposit_outputs_from_event(event) {
                     for deposit in deposits {
-                        indexer.record_deposit(&deposit)?;
+                        let tree = Address::new_from_array(deposit.output_tree);
+                        let account = get_account(tree)?.ok_or_else(|| {
+                            ProgramTestError::Event(format!("missing deposit tree {tree}"))
+                        })?;
+                        let tree_id = read_tree_id(&account.data).ok_or_else(|| {
+                            ProgramTestError::Event(format!("invalid deposit tree {tree}"))
+                        })?;
+                        indexer.record_deposit(&deposit, tree_id)?;
                     }
                 } else {
                     for deposit in ring_deposit_outputs_from_event(event)? {

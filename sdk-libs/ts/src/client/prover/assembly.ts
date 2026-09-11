@@ -10,7 +10,7 @@ import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
 import { selectSppShape, signerWidth } from "../../interface/shape.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
-  INPUT_TREES,
+  MAX_INPUT_TREES,
   inputTreeSlots,
   treeIdField,
   treeSlotsHashChain,
@@ -354,7 +354,7 @@ export interface AssembledSlots {
   readonly inputHashes: readonly bigint[];
   readonly nullifiers: readonly Bytes32[];
   readonly inputOwnerFields: readonly bigint[];
-  /** The input trees in first-use order, at most `INPUT_TREES` of them. */
+  /** The input trees in first-use order, at most `MAX_INPUT_TREES` of them. */
   readonly inputTrees: readonly InputTree[];
   /** Each input's position in `inputTrees`, never decreasing. */
   readonly treeIndexes: readonly number[];
@@ -445,9 +445,9 @@ export function assembleSlots(
       if (inputTrees.some((tree) => tree.treeId === treeId)) {
         throw new ClientError("CLIENT_INPUTS_NOT_GROUPED_BY_TREE", { details: { index } });
       }
-      if (inputTrees.length === INPUT_TREES) {
+      if (inputTrees.length === MAX_INPUT_TREES) {
         throw new ClientError("CLIENT_TOO_MANY_INPUT_TREES", {
-          details: { got: inputTrees.length + 1, max: INPUT_TREES },
+          details: { got: inputTrees.length + 1, max: MAX_INPUT_TREES },
         });
       }
       // The real spend that opens a tree anchors it; both of its proofs must

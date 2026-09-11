@@ -88,6 +88,7 @@ export {
 export {
   DEFAULT_TREE_ID,
   INPUT_TREES,
+  MAX_INPUT_TREES,
   ZERO_TREE_SLOT,
   inputTreeSlots,
   treeIdField,

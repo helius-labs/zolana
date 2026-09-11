@@ -193,7 +193,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     );
     assert_eq!(
         rpc_state_root(&cycle.rpc, &cycle.tree_pubkey)?,
-        cycle.indexer.root()
+        cycle.indexer.root(&cycle.tree_pubkey)
     );
 
     assert_eq!(cycle.nf_tree.root(), nullifier_root, "nullifier root gate");

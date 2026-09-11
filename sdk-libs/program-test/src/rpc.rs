@@ -148,7 +148,9 @@ impl ZolanaProgramTest {
             message.instructions(),
             &meta,
         )?;
-        index_events(&mut self.indexer, &events, signature)?;
+        index_events(&mut self.indexer, &events, signature, |tree| {
+            Ok(self.svm.get_account(&tree))
+        })?;
         Ok(IndexedTransaction { signature, events })
     }
 }

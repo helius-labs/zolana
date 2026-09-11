@@ -66,7 +66,7 @@ pub fn litesvm_assert_ring_deposit<A: SyncWalletAuthority + ?Sized>(
     let root_after = program_test.state_root(tree).expect("state root");
     assert_ne!(root_after, root_before, "leaf must be appended");
     assert_eq!(
-        program_test.indexer().root(),
+        program_test.indexer().root(tree),
         root_after,
         "indexer root must track the on-chain root"
     );

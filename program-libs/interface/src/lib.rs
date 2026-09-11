@@ -37,6 +37,12 @@ pub const N_PUBLIC_SLOTS: usize = 3;
 /// See [`tree_slot`].
 pub const INPUT_TREES: usize = 5;
 
+/// Maximum input trees one transact may spend from. The proof retains
+/// [`INPUT_TREES`] slots; slots beyond this program limit remain zero.
+pub const MAX_INPUT_TREES: usize = 2;
+
+const _: () = assert!(MAX_INPUT_TREES > 0 && MAX_INPUT_TREES <= INPUT_TREES);
+
 pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
     zolana_hasher::p256::is_reserved_derivation_point(key)
 }

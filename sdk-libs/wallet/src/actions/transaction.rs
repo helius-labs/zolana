@@ -9,7 +9,7 @@ use zolana_interface::{
     },
     pda,
     shape::{Shape, SPP_AUTO_SHAPES},
-    INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair,
@@ -1176,7 +1176,7 @@ fn named_input_tree(
 }
 
 /// The distinct pool trees holding eligible funds, in the order a spend
-/// declares them. A proof resolves roots for at most [`INPUT_TREES`] trees, so
+/// declares them. A transact spends from at most [`MAX_INPUT_TREES`] trees, so
 /// a wider spread still needs the caller to name a tree. Each caller passes the
 /// predicate its own input selection applies.
 fn resolve_spend_trees(
@@ -1197,7 +1197,7 @@ fn resolve_spend_trees(
             available: 0,
         });
     }
-    if trees.len() > INPUT_TREES {
+    if trees.len() > MAX_INPUT_TREES {
         return Err(ClientError::AmbiguousTree {
             asset,
             tree_count: trees.len(),
@@ -2735,13 +2735,13 @@ mod tests {
         assert_eq!(amounts(&selected.inputs), vec![10, 10]);
     }
 
-    /// A proof publishes `INPUT_TREES` tree slots, so a balance spread wider
+    /// A transact permits `MAX_INPUT_TREES` input trees, so a balance spread wider
     /// than that still needs the owner to name a tree.
     #[test]
-    fn select_spend_inputs_refuse_more_trees_than_slots() {
+    fn select_spend_inputs_refuse_more_trees_than_the_program_limit() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
-        for index in 0..=INPUT_TREES {
+        for index in 0..=MAX_INPUT_TREES {
             let marker = u8::try_from(index).expect("utxo marker");
             let hash = push_utxo(&mut wallet, &keypair, 10, [marker + 1; 31]);
             wallet
@@ -2762,7 +2762,7 @@ mod tests {
                 },
                 &keypair,
             ),
-            Err(ClientError::AmbiguousTree { tree_count, .. }) if tree_count == INPUT_TREES + 1
+            Err(ClientError::AmbiguousTree { tree_count, .. }) if tree_count == MAX_INPUT_TREES + 1
         ));
     }
 
