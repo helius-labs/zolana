@@ -349,14 +349,14 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         let num_pending = self.num_pending();
         let num_inserted = self.num_inserted + 1;
         let zkp_batch_is_full = num_inserted == self.zkp_batch_size;
-        let existing = self
+        let hash_chain = self
             .hash_chains
-            .get(hash_chain_index)
+            .get_mut(hash_chain_index)
             .ok_or(NullifierTreeError::HashChainFull)?;
 
-        let hash_chain = if self.num_inserted == 0 {
+        if self.num_inserted == 0 {
             // 2. Start a new hash chain.
-            Some(*value)
+            *hash_chain = *value;
         } else if num_pending == 2 || zkp_batch_is_full {
             // 3. Absorb the pending group plus this value, zero-padded to
             //    three when the zkp batch completes early.
@@ -365,7 +365,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
                 .get(..num_pending)
                 .ok_or(NullifierTreeError::PendingValuesFull)?;
             let zero = [0u8; 32];
-            let mut inputs: [&[u8]; 4] = [existing, &zero, &zero, &zero];
+            let mut inputs: [&[u8]; 4] = [hash_chain, &zero, &zero, &zero];
             for (slot, group_value) in inputs
                 .iter_mut()
                 .skip(1)
@@ -373,24 +373,12 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
             {
                 *slot = group_value;
             }
-            Some(Poseidon::hashv(&inputs)?)
+            *hash_chain = Poseidon::hashv(&inputs)?;
         } else {
-            None
-        };
-
-        match hash_chain {
-            Some(hash_chain) => {
-                *self
-                    .hash_chains
-                    .get_mut(hash_chain_index)
-                    .ok_or(NullifierTreeError::HashChainFull)? = hash_chain;
-            }
-            None => {
-                *self
-                    .pending_values
-                    .get_mut(num_pending)
-                    .ok_or(NullifierTreeError::PendingValuesFull)? = *value;
-            }
+            *self
+                .pending_values
+                .get_mut(num_pending)
+                .ok_or(NullifierTreeError::PendingValuesFull)? = *value;
         }
         self.num_inserted = num_inserted;
 
