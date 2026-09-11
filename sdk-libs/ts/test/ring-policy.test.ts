@@ -866,7 +866,7 @@ describe("policy hash", () => {
       hex("2d96453d73209cd609d19ab14231b05dbb8d8ed29768688def4532b60c7fc5f2"),
     );
     expect(() => buildRuleTable({ rules: [], windowSlots: 1n })).toThrow(
-      expect.objectContaining({ details: { reason: "VelocityWithoutWindow" } }),
+      expect.objectContaining({ details: { reason: "WindowWithoutVelocity" } }),
     );
     expect(() =>
       buildRuleTable({

@@ -364,8 +364,8 @@ function checkedRuleTable(
 function checkVelocity(windowSlots: bigint, velocity: readonly VelocityRow[]): void {
   if (windowSlots < 0n || windowSlots > U64_MAX) throw ruleTableInvalid("LimitRange");
   if (velocity.length > RING_VELOCITY_SLOTS) throw ruleTableInvalid("TooManyVelocityAssets");
-  if ((windowSlots === 0n) !== (velocity.length === 0)) {
-    throw ruleTableInvalid("VelocityWithoutWindow");
+  if (windowSlots !== 0n && velocity.length === 0) {
+    throw ruleTableInvalid("WindowWithoutVelocity");
   }
   const assets = new Set<string>();
   for (const row of velocity) {

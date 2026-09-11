@@ -18,15 +18,16 @@ Breaking
   the 1604-byte account → configs of an earlier program release no longer
   decode.
 - `RuleTable` and `EncodedRuleTable` carry `windowSlots` and `velocity`,
-  `buildRuleTable` takes them as options and refuses rows without a window,
-  a zero mint, a repeated mint or a row without a bound.
+  `buildRuleTable` takes them as options, caps each transfer when rows carry no
+  window, and refuses a window without rows, a zero mint, a repeated mint or a
+  row without a bound.
 - `policyPublicInputHash` takes `ringId`, `namespaceOwnerHash`,
   `windowIndex` and `approvalRequired`, and `CustomRingPolicyProofRequest`
   carries a `velocity` witness → build it with `velocityWitnessOff` on a ring
   without a window.
-- `proveCustomRingTransfer` refuses a ring with a window with
-  `RING_VELOCITY_UNSUPPORTED`, the record slots of a velocity transfer are
-  assembled by the Rust SDK only.
+- `proveCustomRingTransfer` refuses a ring with velocity rows with
+  `RING_VELOCITY_UNSUPPORTED`, a velocity transfer is assembled by the Rust SDK
+  only.
 
 Added
 

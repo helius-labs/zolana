@@ -466,10 +466,13 @@ export async function proveCustomRingTransfer(
   const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
   const config = configs.config;
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
-  // The record slots of a velocity transfer are not assembled here.
-  if (policy !== undefined && policy.table.windowSlots !== 0n) {
+  // Neither the record slots nor the per-transfer charge are assembled here.
+  if (policy !== undefined && policy.table.velocity.length !== 0) {
     throw new RingError("RING_VELOCITY_UNSUPPORTED", {
-      details: { ringProgramId: input.ringProgramId, windowSlots: policy.table.windowSlots },
+      details: {
+        ringProgramId: input.ringProgramId,
+        velocityCount: policy.table.velocity.length,
+      },
     });
   }
   // A padded change slot pushes the custom-ring instruction past the packet limit
