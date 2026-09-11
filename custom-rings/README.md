@@ -84,7 +84,7 @@ with the sent amount. A note bound to another ring is refused before proving.
 carries the ring program it deploys. On `PATH` before `zolana-ring deploy`:
 
 - **Anza / Solana CLI** 4.x, the version CI pins —
-  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.0.2/install)"`. It deploys
+  `sh -c "$(curl -sSfL https://release.anza.xyz/v4.2.2/install)"`. It deploys
   the program.
 
 `zolana-ring localnet` runs `zolana dev start`, so the `zolana` cli of a

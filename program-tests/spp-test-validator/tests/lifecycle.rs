@@ -362,3 +362,55 @@ fn randomized_mixed_asset_workload_preserves_conservation() -> Result<()> {
         },
     )
 }
+
+/// The v1 transaction format raises the size ceiling from one 1,232-byte packet
+/// to 4,096 bytes, which is what the widest shielded-pool shapes need. Every
+/// other size assumption in this repository rests on the runtime accepting it,
+/// so pin that here against the real validator rather than inferring it from the
+/// crate version: a plain v1 SOL transfer must confirm.
+#[test]
+#[serial]
+fn the_local_validator_accepts_a_v1_transaction() -> Result<()> {
+    use solana_keypair::Keypair;
+    use solana_message::{v1, VersionedMessage};
+    use solana_transaction::versioned::VersionedTransaction;
+
+    start_shielded_pool_localnet("spp-v1-probe", &[]);
+    let rpc_url = std::env::var("ZOLANA_LOCALNET_URL").unwrap_or_else(|_| DEFAULT_RPC_URL.into());
+    let mut rpc = SolanaRpc::new(rpc_url);
+
+    let payer = Keypair::new();
+    rpc.airdrop(&payer.pubkey(), 1_000_000_000)
+        .context("fund the v1 probe payer")?;
+    let recipient = Pubkey::new_unique();
+    let instruction =
+        solana_system_interface::instruction::transfer(&payer.pubkey(), &recipient, 1_000_000);
+    let (blockhash, _) = rpc.get_latest_blockhash().context("latest blockhash")?;
+    // A v1 message carries its compute and data-size ceilings in the header
+    // instead of a compute-budget instruction, and an unset field means zero,
+    // not "the default". Both must be given explicitly.
+    let config = v1::TransactionConfig::empty()
+        .with_compute_unit_limit(200_000)
+        .with_loaded_accounts_data_size_limit(64 * 1024 * 1024);
+    let message = v1::Message::try_compile_with_config(
+        &Address::new_from_array(payer.pubkey().to_bytes()),
+        std::slice::from_ref(&instruction),
+        blockhash,
+        config,
+    )
+    .map_err(|error| anyhow!("compile the v1 message: {error:?}"))?;
+    let transaction = VersionedTransaction::try_new(VersionedMessage::V1(message), &[&payer])
+        .map_err(|error| anyhow!("sign the v1 transaction: {error:?}"))?;
+
+    // Round-trip locally first, so a validator rejection cannot be blamed on a
+    // malformed message built here.
+    let bytes = bincode::serialize(&transaction).context("serialize the v1 transaction")?;
+    let decoded: VersionedTransaction =
+        bincode::deserialize(&bytes).context("the v1 transaction does not round-trip locally")?;
+    assert_eq!(decoded.signatures, transaction.signatures);
+    println!("v1 transaction serializes to {} bytes", bytes.len());
+
+    rpc.process_versioned_transaction(transaction)
+        .context("send the v1 transaction")?;
+    Ok(())
+}

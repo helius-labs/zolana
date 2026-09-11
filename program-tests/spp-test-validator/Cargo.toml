@@ -22,6 +22,11 @@ zolana-transaction = { workspace = true }
 [dev-dependencies]
 rand = { workspace = true }
 serial_test = { workspace = true }
+bincode = "1.3"
+solana-keypair = { workspace = true }
+solana-message = { workspace = true }
+solana-system-interface = { workspace = true }
+solana-transaction = { workspace = true }
 
 [[test]]
 name = "lifecycle"
