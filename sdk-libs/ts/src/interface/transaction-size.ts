@@ -4,8 +4,12 @@ import { InterfaceError } from "./errors.js";
 import type { Transaction } from "./types.js";
 import type { Shape } from "./shape.js";
 
-/** Solana's `PACKET_DATA_SIZE`: the serialized transaction a validator accepts. */
-export const TRANSACTION_SIZE_LIMIT = 1232;
+/**
+ * The serialized size a validator accepts for a version 1 transaction, the
+ * format every builder here compiles to. A legacy or version 0 transaction
+ * still stops at the 1,232-byte packet.
+ */
+export const TRANSACTION_SIZE_LIMIT = 4096;
 
 export function transactionSize(transaction: Transaction): number {
   return getTransactionSize(transaction);

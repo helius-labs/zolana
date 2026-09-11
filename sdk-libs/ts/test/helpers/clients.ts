@@ -122,8 +122,6 @@ export function ringTransferClient(
     getShieldedTransactionsByNullifiers: notImplemented("getShieldedTransactionsByNullifiers"),
     getMerkleProofs: notImplemented("getMerkleProofs"),
     getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
-    solanaRpc: solanaRpcReads({}),
-    commitment: "confirmed",
     ...overrides,
   };
 }

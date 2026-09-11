@@ -15,10 +15,28 @@ builders take one nullifier account per input. Registering a ring and admitting
 it are now two separate steps with two different signers. The proof system changed underneath: owner identities carry a signing
 algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
-transaction hash blinding.
+transaction hash blinding. Every builder now returns a version 1 transaction,
+which holds 4,096 bytes instead of 1,232, carries its compute budget and
+priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- Every builder returns a version 1 transaction and `TRANSACTION_SIZE_LIMIT` is
+  4096 (was 1232) → send through an RPC and a validator that accept version 1,
+  which Agave does from 4.2, and read transactions back with
+  `maxSupportedTransactionVersion: 1`.
+- `priorityFeeLamports` replaces `computeUnitPriceMicroLamports` on
+  `ZolanaClientConfig`, `deployRingProgram`, and every ring builder, and it buys
+  priority for the whole transaction → pass the total lamports to pay instead of
+  a price per compute unit.
+- `buildRingLookupTableTransaction`, `fetchRingLookupTable`,
+  `ringLookupTableAddresses`, `RingLookupTable`, `RingLookupTableClient`,
+  `RingLookupTableReader` and the `RING_BUILD_LOOKUP_TABLE`,
+  `RING_LOOKUP_TABLE_INCOMPLETE`, `RING_LOOKUP_TABLE_NOT_FOUND` and
+  `RING_LOOKUP_TABLE_NOT_READY` codes are removed, and `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction` and
+  `buildRingWithdrawalTransaction` no longer take `lookupTable` → a version 1
+  transaction reads no lookup table, so drop the table and the parameter.
 - `ShieldedPublicKey.ownerProofInputHash()` hashes a signing algorithm tag
   ahead of the key, so every owner hash, compressed address, UTXO hash, and
   nullifier differs from earlier releases → state and addresses produced before
@@ -385,8 +403,14 @@ Changed
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
-- `RingLookupTableReader` is `KitRpcAccess` alone, `fetchRingLookupTable` no
-  longer reads `client.tree`.
+- A built transaction carries its compute unit limit, a 64 MiB loaded accounts
+  data size limit and its priority fee in the message header, so it holds no
+  compute budget instruction and its instruction list is the setup and payload
+  instructions alone.
+- A relayed ring exit, which pays its fee from one account and carries the UTXO
+  owner as a second signer, fits the transaction it did not fit before.
+- `RingTransferClient` no longer requires `solanaRpc` and `commitment`, the ring
+  transfer builders read what they need through the ports they already took.
 
 Fixed
 

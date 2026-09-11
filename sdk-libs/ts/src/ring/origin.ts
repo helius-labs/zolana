@@ -43,11 +43,15 @@ export interface RingWithdrawal {
   readonly amount: bigint;
 }
 
-/** Mirrors Rust `ORIGIN_TRANSACTION_CONFIG`. */
+/**
+ * Mirrors Rust `ORIGIN_TRANSACTION_CONFIG`. A transact is a version 1
+ * transaction, and an RPC allowed a lower version answers the read with an
+ * unsupported-version error instead of the transaction.
+ */
 export const ORIGIN_TRANSACTION_CONFIG = Object.freeze({
   encoding: "json",
   commitment: "confirmed",
-  maxSupportedTransactionVersion: 0,
+  maxSupportedTransactionVersion: 1,
 } as const);
 
 /**

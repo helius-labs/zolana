@@ -30,7 +30,7 @@ import { SppProofInputs, type InputUtxoContext } from "../transaction/instructio
 import { checkAuthorizedBinding, checkTransactData } from "../transaction/wallet/intent.js";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
-import { checkedU32 } from "../flows/internal.js";
+import { checkedComputeUnitLimit, checkedPriorityFee } from "../flows/internal.js";
 import { ClientError, fromClientCause } from "./error.js";
 import { checkedServiceUrl } from "./internal.js";
 import { ZolanaIndexer } from "./indexer.js";
@@ -118,7 +118,8 @@ export interface ZolanaClientConfig {
   readonly tree?: Address;
   readonly commitment?: Commitment;
   readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  /** The whole transaction's fee in lamports, not a price per compute unit. */
+  readonly priorityFeeLamports?: bigint;
   readonly indexerConfig?: IndexerRpcConfig;
   readonly proverAsyncPoll?: AsyncPollConfig;
   readonly fetch?: typeof globalThis.fetch;
@@ -156,7 +157,7 @@ export class ZolanaClient
   readonly #indexer: ZolanaIndexer;
   readonly #prover: ProverClient;
   readonly #computeUnitLimit: number;
-  readonly #computeUnitPrice: bigint | undefined;
+  readonly #priorityFee: bigint | undefined;
   readonly #indexerConfig: IndexerRpcConfig;
 
   constructor(input: ZolanaClientConfig) {
@@ -230,19 +231,10 @@ export class ZolanaClient
       });
     }
 
-    this.#computeUnitLimit = checkedU32(
+    this.#computeUnitLimit = checkedComputeUnitLimit(
       input.computeUnitLimit ?? DEFAULT_TRANSACT_CU_LIMIT,
-      "computeUnitLimit",
     );
-    if (
-      input.computeUnitPriceMicroLamports !== undefined &&
-      (input.computeUnitPriceMicroLamports < 0n ||
-        input.computeUnitPriceMicroLamports > 0xffff_ffff_ffff_ffffn)
-    ) {
-      throw new ClientError("CLIENT_INVALID_INTEGER", {
-        details: { field: "computeUnitPriceMicroLamports" },
-      });
-    }
+    checkedPriorityFee(input.priorityFeeLamports);
     this.tree = tree;
     this.treeId = treeId;
     this.solanaRpc = kit.solanaRpc;
@@ -250,7 +242,7 @@ export class ZolanaClient
     this.commitment = commitment;
     this.#indexer = indexer;
     this.#prover = prover;
-    this.#computeUnitPrice = input.computeUnitPriceMicroLamports;
+    this.#priorityFee = input.priorityFeeLamports;
     const indexerConfig = input.indexerConfig ?? DEFAULT_INDEXER_RPC_CONFIG;
     validatePollConfig(indexerConfig.poll);
     this.#indexerConfig = indexerConfig;
@@ -797,9 +789,7 @@ export class ZolanaClient
       feePayer: input.feePayer,
       userRecord: input.userRecord,
       lifetime,
-      ...(this.#computeUnitPrice === undefined
-        ? {}
-        : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
+      ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
       data: input.proved.data,
     });
   }
@@ -835,9 +825,7 @@ export class ZolanaClient
     const lifetime = await this.getLatestBlockhash(context);
     return await buildUnsignedTransaction({
       computeUnitLimit: this.#computeUnitLimit,
-      ...(this.#computeUnitPrice === undefined
-        ? {}
-        : { computeUnitPriceMicroLamports: this.#computeUnitPrice }),
+      ...(this.#priorityFee === undefined ? {} : { priorityFeeLamports: this.#priorityFee }),
       feePayer,
       inputTree: authorized.tree,
       outputTree: this.tree,
@@ -872,7 +860,7 @@ export const MERGE_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
 export async function buildUnsignedTransaction(
   input: Readonly<{
     computeUnitLimit: number;
-    computeUnitPriceMicroLamports?: bigint;
+    priorityFeeLamports?: bigint;
     feePayer: Address;
     inputTree: Address;
     outputTree: Address;
@@ -888,9 +876,9 @@ export async function buildUnsignedTransaction(
     feePayer: input.feePayer,
     lifetime: input.lifetime,
     computeUnitLimit: input.computeUnitLimit,
-    ...(input.computeUnitPriceMicroLamports === undefined
+    ...(input.priorityFeeLamports === undefined
       ? {}
-      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+      : { priorityFeeLamports: input.priorityFeeLamports }),
     ...(input.setupInstructions === undefined
       ? {}
       : { setupInstructions: input.setupInstructions }),
@@ -916,7 +904,7 @@ export async function buildUnsignedMergeTransaction(
     feePayer: Address;
     userRecord: Address;
     lifetime: LatestBlockhash;
-    computeUnitPriceMicroLamports?: bigint;
+    priorityFeeLamports?: bigint;
     data: MergeTransactInstructionData;
   }>,
 ): Promise<Transaction> {
@@ -926,9 +914,9 @@ export async function buildUnsignedMergeTransaction(
     feePayer: input.feePayer,
     lifetime: input.lifetime,
     computeUnitLimit: MERGE_TRANSACT_COMPUTE_UNIT_LIMIT,
-    ...(input.computeUnitPriceMicroLamports === undefined
+    ...(input.priorityFeeLamports === undefined
       ? {}
-      : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+      : { priorityFeeLamports: input.priorityFeeLamports }),
     instructions: [
       await mergeTransactInstruction({
         inputTree: input.tree,

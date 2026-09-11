@@ -438,15 +438,15 @@ describe("deployment", () => {
     buffer: keys.buffer,
   });
 
-  it("deploys through full packets, one blockhash per transaction, within the concurrency", async () => {
+  it("deploys through version 1 packets, one blockhash per transaction, within the concurrency", async () => {
     const keys = await signers();
     const client = chain(keys);
     const outcome = await deployRingProgram({ ...params(keys, client), concurrency: 2 });
     expect(outcome.kind).toBe("deployed");
     expect(outcome.programData.upgradeAuthority).toBe(keys.authority.address);
-    expect(client.sends.length).toBeGreaterThan(4);
-    for (const size of client.sends) expect(size).toBeLessThanOrEqual(1232);
-    expect(client.sends.filter((size) => size === 1232).length).toBeGreaterThanOrEqual(3);
+    for (const size of client.sends) expect(size).toBeLessThanOrEqual(4096);
+    // The whole binary rides one write, more than the legacy packet could carry.
+    expect(client.sends.filter((size) => size > 1232)).toHaveLength(1);
     expect(client.getLatestBlockhash).toHaveBeenCalledTimes(client.sends.length);
     expect(client.maxInFlight()).toBeLessThanOrEqual(2);
     expect(client.rents).toEqual([37n + 3_000n, 36n, 45n + 3_000n]);

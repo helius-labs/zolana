@@ -113,6 +113,17 @@ config.
 For an Ed25519 spending wallet, the shielded keypair and the Solana signer must use
 the same owner seed, as shown above.
 
+### Transaction format
+
+Every builder returns a version 1 transaction, up to 4,096 bytes, which is what
+a proof-carrying transfer needs. Version 1 carries the compute unit limit, the
+loaded accounts data size limit and the priority fee in the message itself, so a
+transaction from this SDK holds no compute budget instruction and no address
+lookup table. `ZolanaClientConfig.computeUnitLimit` sets the budget a transact
+asks for and `priorityFeeLamports` the fee for the whole transaction, not a
+price per compute unit. The RPC and the validator must accept version 1, which
+Agave does from 4.2.
+
 ### Endpoints
 
 A client needs a
@@ -335,10 +346,7 @@ Set a Ring up in this order.
    Ring only after its policy exists.
 5. On a permissioned pool the governance authority activates the Ring with
    `getSetRingActivationInstructionAsync` from `@heliuslabs/zolana/instructions`.
-6. `buildRingLookupTableTransaction` creates the transfer lookup table. It is
-   usable from the slot after its extension, `fetchRingLookupTable` refuses
-   it before then with `RING_LOOKUP_TABLE_NOT_READY`.
-7. `buildRingListWriteTransaction` fills the lists and
+6. `buildRingListWriteTransaction` fills the lists and
    `grantReadAccessInstruction` admits readers.
 
 Build exact Ring entries, in-ring transfers, shielded exits, and public

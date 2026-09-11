@@ -1,4 +1,4 @@
-import type { BlockhashProvider, KitRpcAccess, Prover, TreeContext } from "../client/ports.js";
+import type { BlockhashProvider, Prover, TreeContext } from "../client/ports.js";
 import { bigintToBytes, hashChain4 } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
 import {
@@ -55,7 +55,6 @@ import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flo
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
 import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
-import { fetchRingLookupTable } from "./lookup-table.js";
 
 /** Rust `TRANSACT_COMPUTE_UNIT_LIMIT`. The custom-ring transact verifies two proofs. */
 export const RING_TRANSACT_COMPUTE_UNIT_LIMIT = 1_400_000;
@@ -64,7 +63,6 @@ const CONFIDENTIAL_BODY_OVERHEAD = 1 + 4 + 1 + 33;
 
 export type RingTransferClient = TreeContext &
   BlockhashProvider &
-  KitRpcAccess &
   RingPolicyAnswerClient &
   Pick<Prover, "proveRingTransact" | "proveCustomRingPolicy" | "proveCustomRingBase">;
 
@@ -81,10 +79,8 @@ export interface RingTransferTransactionParams {
   readonly inputs?: "ring" | "ring-or-default" | "default";
   /** Receives every private output, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Must be at least one slot old. */
-  readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 export type RingEntryTransactionParams = Omit<
@@ -106,10 +102,8 @@ export interface RingWithdrawalTransactionParams {
   readonly splTokenProgram?: Address;
   /** Receives the private change, defaults to `client.tree`. */
   readonly outputTree?: Address;
-  /** Must be at least one slot old. */
-  readonly lookupTable: Address;
   readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 /** Mirrors Rust `CustomRingTransferInput`. `prepared` is what `ConfidentialTransfer.prepare` returned. */
@@ -140,7 +134,7 @@ export type ProvenRingTransfer = RingTransactTrees &
     ownerSigners: readonly Address[];
   }>;
 
-/** Returns a v0 transaction over `lookupTable`, signed by the fee payer only. */
+/** Returns a version 1 transaction, signed by the fee payer only. */
 export async function buildRingTransferTransaction(
   input: RingTransferTransactionParams,
   context?: RequestContext,
@@ -249,9 +243,8 @@ type RingSpendParams = Pick<
   | "asset"
   | "amount"
   | "outputTree"
-  | "lookupTable"
   | "computeUnitLimit"
-  | "computeUnitPriceMicroLamports"
+  | "priorityFeeLamports"
 >;
 
 interface RingSpendPlan {
@@ -341,7 +334,7 @@ async function buildRingSpend<R>(
         context,
       );
       checkTransactData(proven.data, plan.intent, ringIntentMismatch);
-      const [instruction, tableAddresses, lifetime] = await Promise.all([
+      const [instruction, lifetime] = await Promise.all([
         ringTransactInstruction({
           ringProgramId: input.ringProgramId,
           payer: proven.payer,
@@ -356,26 +349,16 @@ async function buildRingSpend<R>(
           ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
           ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
         }),
-        fetchRingLookupTable(
-          {
-            client: input.client,
-            ringProgramId: input.ringProgramId,
-            address: input.lookupTable,
-            trees: proven,
-          },
-          context,
-        ),
         input.client.getLatestBlockhash(context),
       ]);
       return compileUnsignedTransaction({
         feePayer: input.feePayer,
         lifetime,
         computeUnitLimit: input.computeUnitLimit ?? RING_TRANSACT_COMPUTE_UNIT_LIMIT,
-        ...(input.computeUnitPriceMicroLamports === undefined
+        ...(input.priorityFeeLamports === undefined
           ? {}
-          : { computeUnitPriceMicroLamports: input.computeUnitPriceMicroLamports }),
+          : { priorityFeeLamports: input.priorityFeeLamports }),
         instructions: [...(plan.setupInstructions ?? []), instruction],
-        lookupTables: { [input.lookupTable]: [...tableAddresses] },
         sizeShape: {
           inputs: proven.data.inputs.length,
           outputs: proven.data.outputs.length,
@@ -692,7 +675,7 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
   const asset = input.asset;
   const outputTree = input.outputTree;
   const computeUnitLimit = input.computeUnitLimit;
-  const computeUnitPriceMicroLamports = input.computeUnitPriceMicroLamports;
+  const priorityFeeLamports = input.priorityFeeLamports;
   return Object.freeze({
     client: input.client,
     ringProgramId: input.ringProgramId,
@@ -700,11 +683,10 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     authority: input.authority,
     feePayer: input.feePayer,
     amount: input.amount,
-    lookupTable: input.lookupTable,
     ...(asset === undefined ? {} : { asset }),
     ...(outputTree === undefined ? {} : { outputTree }),
     ...(computeUnitLimit === undefined ? {} : { computeUnitLimit }),
-    ...(computeUnitPriceMicroLamports === undefined ? {} : { computeUnitPriceMicroLamports }),
+    ...(priorityFeeLamports === undefined ? {} : { priorityFeeLamports }),
   });
 }
 

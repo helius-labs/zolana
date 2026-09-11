@@ -1,4 +1,5 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { ringDepositInstruction } from "../interface/instructions/index.js";
@@ -98,6 +99,7 @@ export async function buildRingDepositTransaction(
     return compileUnsignedTransaction({
       feePayer: input.feePayer,
       lifetime,
+      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [instruction],
     });
   } catch (cause) {

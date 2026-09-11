@@ -12,19 +12,29 @@ export function checkedAddress(value: Address, field: string): void {
   }
 }
 
+/** The runtime clamps a larger request instead of failing, so the ceiling is enforced here. */
+const MAX_COMPUTE_UNIT_LIMIT = 1_400_000;
+
+/**
+ * @internal The budget a legacy transaction received per instruction. A
+ * deposit, a registration or a ring deposit has never needed more, and a
+ * version 1 transaction has to name the number.
+ */
+export const DEFAULT_COMPUTE_UNIT_LIMIT = 200_000;
+
 /** @internal */
-export function checkedU32(value: number, field: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffff_ffff) {
-    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+export function checkedComputeUnitLimit(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_COMPUTE_UNIT_LIMIT) {
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field: "computeUnitLimit" } });
   }
   return value;
 }
 
 /** @internal */
-export function checkedComputeUnitPrice(value: bigint | undefined): void {
+export function checkedPriorityFee(value: bigint | undefined): void {
   if (value !== undefined && (value < 0n || value > 0xffff_ffff_ffff_ffffn)) {
     throw new ClientError("CLIENT_INVALID_INTEGER", {
-      details: { field: "computeUnitPriceMicroLamports" },
+      details: { field: "priorityFeeLamports" },
     });
   }
 }

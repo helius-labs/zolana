@@ -21,21 +21,13 @@ export type {
   WalletStateStore,
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
-export type {
-  RingAuditReader,
-  RingLookupTableClient,
-  RingLookupTableReader,
-  RingRpcOptions,
-  RingTransferClient,
-} from "@heliuslabs/zolana/ring";
+export type { RingAuditReader, RingRpcOptions, RingTransferClient } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
   SerializedNoteReservation,
   SerializedSyncCursors,
 } from "@heliuslabs/zolana/transaction";
 export type {
-  RingLookupTableClient as RootRingLookupTableClient,
-  RingLookupTableReader as RootRingLookupTableReader,
   RingRpcOptions as RootRingRpcOptions,
   SerializedCursor as RootSerializedCursor,
   SerializedNoteReservation as RootSerializedNoteReservation,
