@@ -2,7 +2,7 @@ export {
   auditorMessageData,
   auditorViewTag,
   auditPublicInputHash,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   auditSharedSecret,
   AUDIT_ENC_INFO,
   AUDITOR_MESSAGE_LENGTH,
@@ -10,11 +10,7 @@ export {
   encryptTransactionViewingSecret,
   parseAuditorMessage,
 } from "../keypair/audit.js";
-export type {
-  AuditorEncryption,
-  AuditorMessage,
-  CustomRingBasePublicInput,
-} from "../keypair/audit.js";
+export type { AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
 export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
 export {

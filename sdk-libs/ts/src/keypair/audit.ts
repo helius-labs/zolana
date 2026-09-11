@@ -168,7 +168,7 @@ export function auditPublicInputHash(input: CustomRingBasePublicInput): Bytes32 
 }
 
 /** The audit prefix then policy hash and roots, Rust `CustomRingPolicyPublicInput::hash`. */
-export function customRingPublicInputHash(
+export function policyPublicInputHash(
   input: CustomRingBasePublicInput &
     Readonly<{
       policyHash: Bytes32;

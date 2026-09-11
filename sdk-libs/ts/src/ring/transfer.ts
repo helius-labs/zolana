@@ -20,7 +20,7 @@ import type {
 import { initializePoseidon } from "../hasher/index.js";
 import {
   auditPublicInputHash,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   parseAuditorMessage,
 } from "../keypair/audit.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
@@ -544,7 +544,7 @@ export async function proveCustomRingTransfer(
     const { answers, roots } = policyRound;
     const proof = await input.client.proveCustomRingPolicy(
       {
-        publicInputHash: customRingPublicInputHash({
+        publicInputHash: policyPublicInputHash({
           privateTxHash: data.privateTxHash,
           txViewingPublicKey: encrypted.txViewingPublicKey,
           auditorPublicKey: config.auditorPublicKey,

@@ -7,7 +7,7 @@ import { treeIdField } from "../src/interface/tree-slot.js";
 import type { Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
   auditPublicInputHash,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   auditSharedSecret,
   auditorMessageData,
   decryptTransactionViewingSecret,
@@ -100,7 +100,7 @@ describe("ring audit encryption", () => {
       treeIdField(9),
     ]);
     expect(
-      customRingPublicInputHash({
+      policyPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
         txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
         auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
