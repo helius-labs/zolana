@@ -31,6 +31,13 @@ func testInputFlags(t testing.TB, allowDummyInputs bool, treeIndexes []*big.Int)
 	return flags
 }
 
+// nextTreeSlot returns a different published slot index, wrapping inside the
+// published slot range so the value stays a legal index.
+func nextTreeSlot(slot *big.Int) *big.Int {
+	next := new(big.Int).Add(slot, big.NewInt(1))
+	return next.Mod(next, big.NewInt(InputTrees))
+}
+
 // inputTreeSlots reads back the slot every input selected.
 func (a *testAssignment) inputTreeSlots() []*big.Int {
 	out := make([]*big.Int, len(a.Inputs))

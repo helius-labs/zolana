@@ -151,6 +151,32 @@ func assertPublicInputHashBindsEveryField(
 	if got, want := len(mutations), publicFieldElementCount(t, materialize()); got != want {
 		t.Fatalf("public input mutation count mismatch: got %d want %d", got, want)
 	}
+	// InputFlags is a single public element packing the dummy policy and every
+	// input's tree index, so its sub-fields are enumerated past the
+	// one-mutation-per-element count above.
+	repackWith := func(allowDummyInputs bool, treeSlots []*big.Int) {
+		original := assignment.InputFlags
+		assignment.InputFlags = testInputFlags(t, allowDummyInputs, treeSlots)
+		refreshHash()
+		assignment.InputFlags = original
+	}
+	mutations = append(mutations, publicInputHashMutation{
+		name: "input_flags/allow_dummy_inputs",
+		run: func() {
+			repackWith(!assignment.allowDummyInputs(), assignment.inputTreeSlots())
+		},
+	})
+	for i := range assignment.Inputs {
+		index := i
+		mutations = append(mutations, publicInputHashMutation{
+			name: fmt.Sprintf("input_flags/tree_index/%d", index),
+			run: func() {
+				treeSlots := assignment.inputTreeSlots()
+				treeSlots[index] = nextTreeSlot(treeSlots[index])
+				repackWith(assignment.allowDummyInputs(), treeSlots)
+			},
+		})
+	}
 
 	for _, change := range mutations {
 		t.Run(change.name, func(t *testing.T) {
