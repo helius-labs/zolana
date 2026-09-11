@@ -686,6 +686,21 @@ impl Rpc for SolanaRpc {
             })
     }
 
+    fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        // Sends and returns without confirming, matching the legacy
+        // send-with-config path.
+        self.client
+            .send_transaction_with_config(transaction, config)
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_versioned_transaction_with_config",
+                source,
+            })
+    }
+
     fn process_versioned_transaction(
         &self,
         transaction: VersionedTransaction,
@@ -837,6 +852,22 @@ impl AsyncRpc for AsyncSolanaRpc {
             .await
             .map_err(|source| ClientError::SolanaRpcTransaction {
                 operation: "send_transaction_with_config",
+                source,
+            })
+    }
+
+    async fn send_versioned_transaction_with_config(
+        &self,
+        transaction: &VersionedTransaction,
+        config: solana_rpc_client_api::config::RpcSendTransactionConfig,
+    ) -> Result<Signature, ClientError> {
+        // Sends and returns without confirming, matching the legacy
+        // send-with-config path.
+        self.client
+            .send_transaction_with_config(transaction, config)
+            .await
+            .map_err(|source| ClientError::SolanaRpcTransaction {
+                operation: "send_versioned_transaction_with_config",
                 source,
             })
     }

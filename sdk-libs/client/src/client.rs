@@ -1,7 +1,7 @@
 //! High-level Zolana client.
 //!
 //! [`ZolanaClient`] owns Solana RPC, Photon, and the prover.
-//! [`sign_private_transaction`] returns a signed native Solana transaction.
+//! [`sign_private_transaction`] returns a signed v1 `VersionedTransaction`.
 //! Submit that transaction through the client's RPC adapter, then confirm on-chain and wait
 //! for Photon indexing with [`ZolanaClient::confirm_private_transaction`].
 
@@ -48,10 +48,8 @@ use async_trait::async_trait;
 use solana_account::Account;
 use solana_address::Address;
 use solana_clock::Slot;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_hash::Hash;
-use solana_instruction::Instruction;
-use solana_message::Message;
+use solana_message::VersionedMessage;
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
@@ -70,10 +68,10 @@ use crate::{
     },
     retry::{IndexerPollConfig, IndexerRpcConfig},
     rpc::{
-        AsyncRpc, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
-        GetNonInclusionProofsResponse, GetShieldedTransactionsByNullifiersResponse,
-        GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-        ProveResult, Rpc, ShieldedTransactionStream,
+        compile_v1_message, AsyncRpc, ComputeBudgetConfig, GetEncryptedUtxosByTagsResponse,
+        GetMerkleProofsResponse, GetNonInclusionProofsResponse,
+        GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureResponse,
+        GetShieldedTransactionsByTagsResponse, ProveResult, Rpc, ShieldedTransactionStream,
     },
     settlement::SettlementAccountValidation,
 };
@@ -91,7 +89,14 @@ pub struct SignedPrivateTransaction {
 /// Compute-unit ceiling a private transaction is submitted with unless the
 /// caller overrides it. A shielded `Transact` verifies a Groth16 proof on-chain,
 /// which does not fit inside the default per-instruction budget.
-pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 300_000;
+///
+/// Sized from the widest supported shape on the most expensive rail:
+/// `program-tests/shielded-pool/CU_BENCHMARK.md` measures "Transfer ring p256
+/// 36x2" at 390,450 CU for `process_instruction`, the P256 rail paying for the
+/// BSB22 Pedersen pairing on top of the standard Groth16 verification. The
+/// remaining headroom absorbs the per-input `create_nullifier_pdas` cost, which
+/// moves with tree state rather than with the shape.
+pub const DEFAULT_TRANSACT_CU_LIMIT: u32 = 450_000;
 
 /// Unified client for private transaction proving and submission helpers.
 ///
@@ -201,9 +206,19 @@ impl<R> ZolanaClient<R> {
         self
     }
 
+    /// Bid `micro_lamports` per compute unit. v1 carries the resulting priority
+    /// fee as a flat lamport amount in the message header; see
+    /// [`ComputeBudgetConfig`].
     pub fn with_compute_unit_price(mut self, micro_lamports: u64) -> Self {
         self.cu_price_micro_lamports = Some(micro_lamports);
         self
+    }
+
+    pub fn compute_budget(&self) -> ComputeBudgetConfig {
+        ComputeBudgetConfig {
+            cu_limit: self.cu_limit,
+            cu_price_micro_lamports: self.cu_price_micro_lamports,
+        }
     }
 
     pub fn with_indexer_poll_config(mut self, config: IndexerPollConfig) -> Self {
@@ -286,7 +301,7 @@ impl<R: Rpc> ZolanaClient<R> {
         &self,
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
-    ) -> Result<SolanaTransaction, ClientError>
+    ) -> Result<VersionedMessage, ClientError>
     where
         R: Sync,
     {
@@ -334,11 +349,8 @@ impl<R: Rpc> ZolanaClient<R> {
         // Last thing before building, so the blockhash is as young as it can be
         // when the transaction reaches the cluster.
         let (recent_blockhash, _) = self.rpc().get_latest_blockhash()?;
-        build_unsigned_solana_transaction(
-            ComputeBudgetConfig {
-                cu_limit: self.cu_limit,
-                cu_price_micro_lamports: self.cu_price_micro_lamports,
-            },
+        build_unsigned_v1_message(
+            self.compute_budget(),
             fee_payer,
             TransactTrees {
                 input_trees: vec![signed.input_tree],
@@ -358,7 +370,7 @@ impl<R: Rpc> ZolanaClient<R> {
         fee_payer: Pubkey,
         recent_blockhash: Hash,
         prove: impl FnOnce(&ProverInputs) -> Result<ProofCompressed, ClientError>,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<VersionedMessage, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
@@ -376,11 +388,8 @@ impl<R: Rpc> ZolanaClient<R> {
         )?;
         let assembled = assemble(signed.transaction.clone(), &spend_proofs, &dummy_proofs)?;
         let proof = prove(&assembled.prover_inputs)?.to_transact_proof();
-        build_unsigned_solana_transaction(
-            ComputeBudgetConfig {
-                cu_limit: self.cu_limit,
-                cu_price_micro_lamports: self.cu_price_micro_lamports,
-            },
+        build_unsigned_v1_message(
+            self.compute_budget(),
             fee_payer,
             TransactTrees {
                 input_trees: vec![signed.input_tree],
@@ -413,7 +422,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         signed: &SignedPrivateTransaction,
         fee_payer: Pubkey,
         recent_blockhash: Hash,
-    ) -> Result<SolanaTransaction, ClientError> {
+    ) -> Result<VersionedMessage, ClientError> {
         validate_fee_payer_pubkey(&signed.transaction.payer, fee_payer)?;
         let owner_signers = signed.transaction.owner_signer_pubkeys()?;
         let commitments = signed.transaction.input_utxo_hashes()?;
@@ -432,11 +441,8 @@ impl<R: AsyncRpc> ZolanaClient<R> {
         let proof = self.async_prover.prove_transfer(inputs).await?;
         verify_confidential_transfer_inputs(inputs, assembled.public_input_hash, &proof)?;
         let proof = ProofCompressed::try_from(proof)?.to_transact_proof();
-        build_unsigned_solana_transaction(
-            ComputeBudgetConfig {
-                cu_limit: self.cu_limit,
-                cu_price_micro_lamports: self.cu_price_micro_lamports,
-            },
+        build_unsigned_v1_message(
+            self.compute_budget(),
             fee_payer,
             TransactTrees {
                 input_trees: vec![signed.input_tree],
@@ -1003,12 +1009,7 @@ struct TransactTrees {
     output_tree: Address,
 }
 
-struct ComputeBudgetConfig {
-    cu_limit: u32,
-    cu_price_micro_lamports: Option<u64>,
-}
-
-fn build_unsigned_solana_transaction(
+fn build_unsigned_v1_message(
     compute_budget: ComputeBudgetConfig,
     fee_payer: Pubkey,
     trees: TransactTrees,
@@ -1016,7 +1017,7 @@ fn build_unsigned_solana_transaction(
     settlement_transfers: Vec<TransactInterfaceTransferAccounts>,
     transact_data: zolana_interface::instruction::instruction_data::transact::TransactIxData,
     recent_blockhash: Hash,
-) -> Result<SolanaTransaction, ClientError> {
+) -> Result<VersionedMessage, ClientError> {
     SettlementAccountValidation {
         transfers: &transact_data.interface_transfers,
         accounts: &settlement_transfers,
@@ -1031,14 +1032,12 @@ fn build_unsigned_solana_transaction(
         data: transact_data,
     }
     .instruction();
-    let instructions = submit_instructions(
-        compute_budget.cu_limit,
-        compute_budget.cu_price_micro_lamports,
-        transact_ix,
-    );
-    let mut message = Message::new(&instructions, Some(&fee_payer));
-    message.recent_blockhash = recent_blockhash;
-    Ok(SolanaTransaction::new_unsigned(message))
+    compile_v1_message(
+        &fee_payer,
+        core::slice::from_ref(&transact_ix),
+        recent_blockhash,
+        compute_budget,
+    )
 }
 
 fn validate_fee_payer_pubkey(
@@ -1049,20 +1048,6 @@ fn validate_fee_payer_pubkey(
         return Err(ClientError::FeePayerMismatch);
     }
     Ok(())
-}
-
-fn submit_instructions(
-    cu_limit: u32,
-    cu_price_micro_lamports: Option<u64>,
-    transact: Instruction,
-) -> Vec<Instruction> {
-    let mut instructions = Vec::with_capacity(2 + usize::from(cu_price_micro_lamports.is_some()));
-    instructions.push(ComputeBudgetInstruction::set_compute_unit_limit(cu_limit));
-    if let Some(price) = cu_price_micro_lamports {
-        instructions.push(ComputeBudgetInstruction::set_compute_unit_price(price));
-    }
-    instructions.push(transact);
-    instructions
 }
 
 /// Resolve the spend proof (state inclusion + nullifier non-inclusion) for each
@@ -1321,13 +1306,14 @@ mod tests {
     };
 
     use serde_json::{json, Value};
+    use solana_instruction::Instruction;
     use solana_keypair::Keypair;
     use solana_signer::Signer;
     use zolana_keypair::ShieldedKeypair;
     use zolana_transaction::{AssetRegistry, Data, Utxo, Wallet, WalletUtxo, SOL_MINT};
 
     use super::*;
-    use crate::rpc::{MerkleContext, MerkleProof, NonInclusionProof};
+    use crate::rpc::{sign_versioned_transaction, MerkleContext, MerkleProof, NonInclusionProof};
     use zolana_interface::instruction::{
         InterfaceTransfer, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplDepositAccounts,
@@ -1551,7 +1537,7 @@ mod tests {
         .with_compute_unit_price(25_000);
 
         let blockhash = Hash::default();
-        let mut transaction = client
+        let message = client
             .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
                 Ok(ProofCompressed {
                     a: [0u8; 32],
@@ -1561,10 +1547,9 @@ mod tests {
                 })
             })
             .expect("finish");
-        transaction
-            .try_sign(&[&payer], blockhash)
-            .expect("sign native transaction");
-        let result = Rpc::send_transaction(client.rpc(), &transaction).expect("send");
+        let transaction =
+            sign_versioned_transaction(message, &[&payer]).expect("sign the v1 transaction");
+        let result = Rpc::process_versioned_transaction(client.rpc(), transaction).expect("send");
         client
             .confirm_private_transaction_sync(result)
             .expect("indexed");
@@ -1572,7 +1557,11 @@ mod tests {
         assert_eq!(result, signature);
         let sent = sent.lock().unwrap();
         assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0].message.instructions.len(), 3);
+        let sent_message = &sent.first().expect("the submitted transaction").message;
+        // The compute ceilings ride in the v1 header, so `transact` is the only
+        // instruction left.
+        assert_eq!(sent_message.instructions().len(), 1);
+        assert!(matches!(sent_message, VersionedMessage::V1(_)));
         let requests = server.requests();
         // The two proof fetches race, so only their membership is defined; the
         // indexed-transaction lookup still happens after them.
@@ -1637,31 +1626,48 @@ mod tests {
         ));
     }
 
+    /// The ceilings a legacy submission spent two compute-budget instructions on
+    /// are header fields in v1, so the compiled message carries the `transact`
+    /// instruction alone.
     #[test]
-    fn submit_instructions_put_compute_budget_before_transact() {
+    fn a_compiled_submission_carries_its_ceilings_in_the_header() {
         let transact_program = Pubkey::new_unique();
         let transact = Instruction {
             program_id: transact_program,
             accounts: Vec::new(),
             data: Vec::new(),
         };
+        let payer = Address::new_from_array([3u8; 32]);
 
-        let default = submit_instructions(1_000_000, None, transact.clone());
-        assert_eq!(default.len(), 2);
-        assert_eq!(default[0].program_id, solana_compute_budget_interface::id());
-        assert_eq!(default[1].program_id, transact_program);
+        let message = compile_v1_message(
+            &payer,
+            core::slice::from_ref(&transact),
+            Hash::default(),
+            ComputeBudgetConfig::new(DEFAULT_TRANSACT_CU_LIMIT).with_compute_unit_price(25_000),
+        )
+        .expect("compile the submission");
 
-        let prioritized = submit_instructions(1_000_000, Some(25_000), transact);
-        assert_eq!(prioritized.len(), 3);
+        let VersionedMessage::V1(message) = message else {
+            panic!("a submission compiles to v1");
+        };
+        assert_eq!(message.instructions.len(), 1);
         assert_eq!(
-            prioritized[0].program_id,
-            solana_compute_budget_interface::id()
+            message.account_keys.get(
+                message
+                    .instructions
+                    .first()
+                    .expect("the transact instruction")
+                    .program_id_index as usize
+            ),
+            Some(&transact_program)
         );
         assert_eq!(
-            prioritized[1].program_id,
-            solana_compute_budget_interface::id()
+            message.config,
+            solana_message::v1::TransactionConfig::empty()
+                .with_compute_unit_limit(DEFAULT_TRANSACT_CU_LIMIT)
+                .with_loaded_accounts_data_size_limit(crate::rpc::MAX_LOADED_ACCOUNTS_DATA_SIZE)
+                .with_priority_fee(11_250)
         );
-        assert_eq!(prioritized[2].program_id, transact_program);
     }
 
     #[test]
@@ -1928,7 +1934,7 @@ mod tests {
     struct MockSubmitRpc {
         signature: Signature,
         view_tags: Vec<[u8; 32]>,
-        sent: Arc<Mutex<Vec<SolanaTransaction>>>,
+        sent: Arc<Mutex<Vec<VersionedTransaction>>>,
     }
 
     impl MockSubmitRpc {
@@ -1955,20 +1961,20 @@ mod tests {
             Ok((Hash::new_from_array([4u8; 32]), 100))
         }
 
-        fn send_transaction(
+        fn send_versioned_transaction_with_config(
             &self,
-            transaction: &SolanaTransaction,
+            transaction: &VersionedTransaction,
+            _config: RpcSendTransactionConfig,
         ) -> Result<Signature, ClientError> {
             self.sent.lock().unwrap().push(transaction.clone());
             Ok(self.signature)
         }
 
-        fn send_transaction_with_config(
+        fn process_versioned_transaction(
             &self,
-            transaction: &SolanaTransaction,
-            _config: RpcSendTransactionConfig,
+            transaction: VersionedTransaction,
         ) -> Result<Signature, ClientError> {
-            self.sent.lock().unwrap().push(transaction.clone());
+            self.sent.lock().unwrap().push(transaction);
             Ok(self.signature)
         }
 

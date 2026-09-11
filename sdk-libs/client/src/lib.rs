@@ -53,12 +53,13 @@ pub use prover::{
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
 pub use rpc::{
-    AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
-    GetMerkleProofsResponse, GetNonInclusionProofsResponse,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
-    IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
-    OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    compile_v1_message, sign_versioned_transaction, AsyncRpc, ComputeBudgetConfig, Context,
+    EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse, GetMerkleProofsResponse,
+    GetNonInclusionProofsResponse, GetShieldedTransactionsBySignatureResponse,
+    GetShieldedTransactionsByTagsResponse, IndexedShieldedTransaction, MerkleContext, MerkleProof,
+    NonInclusionProof, OutputContext, OutputSlot, ProveResult, Rpc, ShieldedTransaction,
+    ShieldedTransactionStream, MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT,
+    STATE_TREE_HEIGHT,
 };
 pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]

@@ -8,7 +8,7 @@ use solana_clock::Slot;
 use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Signer;
-use solana_message::{AddressLookupTableAccount, Message};
+use solana_message::{v1, AddressLookupTableAccount, Message, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
@@ -26,6 +26,115 @@ use crate::{
 
 pub const STATE_TREE_HEIGHT: usize = 32;
 pub const NULLIFIER_TREE_HEIGHT: usize = 40;
+
+/// The runtime's ceiling on the account data one transaction may load, and what
+/// a transaction carrying no `set_loaded_accounts_data_size_limit` instruction
+/// received by default
+/// (`solana_program_runtime::execution_budget::MAX_LOADED_ACCOUNTS_DATA_SIZE_BYTES`).
+pub const MAX_LOADED_ACCOUNTS_DATA_SIZE: u32 = 64 * 1024 * 1024;
+
+const MICRO_LAMPORTS_PER_LAMPORT: u128 = 1_000_000;
+
+/// Compute ceilings for a v1 transaction.
+///
+/// v1 carries them in the message header rather than in compute-budget
+/// instructions, and reads an absent header field as zero rather than as a
+/// default, so every ceiling is written explicitly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ComputeBudgetConfig {
+    pub cu_limit: u32,
+    /// Priority bid in micro-lamports per compute unit, the unit
+    /// `ComputeBudgetInstruction::set_compute_unit_price` took.
+    pub cu_price_micro_lamports: Option<u64>,
+}
+
+impl ComputeBudgetConfig {
+    pub const fn new(cu_limit: u32) -> Self {
+        Self {
+            cu_limit,
+            cu_price_micro_lamports: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_compute_unit_price(mut self, micro_lamports: u64) -> Self {
+        self.cu_price_micro_lamports = Some(micro_lamports);
+        self
+    }
+
+    pub fn transaction_config(&self) -> v1::TransactionConfig {
+        let config = v1::TransactionConfig::empty()
+            .with_compute_unit_limit(self.cu_limit)
+            .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE);
+        match self.cu_price_micro_lamports {
+            Some(price) => config.with_priority_fee(priority_fee_lamports(price, self.cu_limit)),
+            None => config,
+        }
+    }
+}
+
+/// The lamport priority fee a compute-unit price buys.
+///
+/// Both formats charge the same thing in different units: the runtime turned a
+/// legacy `set_compute_unit_price` bid into `ceil(price * cu_limit / 1_000_000)`
+/// lamports (`solana_compute_budget::compute_budget_limits::get_prioritization_fee`)
+/// and charges a v1 header's `priority_fee` as lamports directly, so converting
+/// with that same formula bills a caller exactly what the instruction did.
+fn priority_fee_lamports(cu_price_micro_lamports: u64, cu_limit: u32) -> u64 {
+    u128::from(cu_price_micro_lamports)
+        .saturating_mul(u128::from(cu_limit))
+        .saturating_add(MICRO_LAMPORTS_PER_LAMPORT.saturating_sub(1))
+        .checked_div(MICRO_LAMPORTS_PER_LAMPORT)
+        .and_then(|fee| u64::try_from(fee).ok())
+        .unwrap_or(u64::MAX)
+}
+
+/// Compile `instructions` into an unsigned v1 message.
+///
+/// v1 takes no compute-budget instructions, which is where the ceilings in
+/// `compute_budget` would otherwise go, and it has no address lookup tables.
+pub fn compile_v1_message(
+    payer: &Address,
+    instructions: &[Instruction],
+    recent_blockhash: Hash,
+    compute_budget: ComputeBudgetConfig,
+) -> Result<VersionedMessage, ClientError> {
+    v1::Message::try_compile_with_config(
+        payer,
+        instructions,
+        recent_blockhash,
+        compute_budget.transaction_config(),
+    )
+    .map(VersionedMessage::V1)
+    .map_err(|error| ClientError::TransactionCompile(error.to_string()))
+}
+
+/// Sign a compiled message, passing each signer once.
+///
+/// `VersionedTransaction::try_new` refuses a signer list longer than the
+/// message's required signatures, and a fee payer that also owns a shielded
+/// input is one account key but two entries in the caller's list.
+pub fn sign_versioned_transaction(
+    message: VersionedMessage,
+    signers: &[&dyn Signer],
+) -> Result<VersionedTransaction, ClientError> {
+    let mut unique: Vec<(Pubkey, &dyn Signer)> = Vec::with_capacity(signers.len());
+    for signer in signers {
+        let pubkey = signer
+            .try_pubkey()
+            .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
+        if unique.iter().any(|(kept, _)| *kept == pubkey) {
+            continue;
+        }
+        unique.push((pubkey, *signer));
+    }
+    let unique = unique
+        .into_iter()
+        .map(|(_, signer)| signer)
+        .collect::<Vec<_>>();
+    VersionedTransaction::try_new(message, &unique)
+        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Context {
@@ -262,6 +371,21 @@ pub trait Rpc {
         let message = Message::new(instructions, Some(&payer));
         let transaction = Transaction::new(signers, message, blockhash);
         self.send_transaction(&transaction)
+    }
+
+    /// Build, sign, and send a v1 transaction: the format every proof-carrying
+    /// shielded-pool transaction uses, because it lifts the 1,232-byte legacy
+    /// packet ceiling to 4,096 bytes.
+    fn create_and_send_v1_transaction(
+        &self,
+        instructions: &[Instruction],
+        payer: Address,
+        signers: &[&dyn Signer],
+        compute_budget: ComputeBudgetConfig,
+    ) -> Result<Signature, ClientError> {
+        let (blockhash, _) = self.get_latest_blockhash()?;
+        let message = compile_v1_message(&payer, instructions, blockhash, compute_budget)?;
+        self.process_versioned_transaction(sign_versioned_transaction(message, signers)?)
     }
 
     fn create_and_send_versioned_transaction(
@@ -606,4 +730,43 @@ pub trait AsyncRpc: Send + Sync {
 
 fn unsupported(method: &'static str) -> ClientError {
     ClientError::UnsupportedRpcMethod(method)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_compute_unit_price_converts_to_the_lamport_fee_the_runtime_charged() {
+        // The three cases `get_prioritization_fee` pins: a sub-lamport fee
+        // rounds up to one, an exact lamport stays one, and a hair over one
+        // lamport rounds up to two.
+        assert_eq!(priority_fee_lamports(999_999, 1), 1);
+        assert_eq!(priority_fee_lamports(1_000_000, 1), 1);
+        assert_eq!(priority_fee_lamports(1_000_001, 1), 2);
+        assert_eq!(priority_fee_lamports(25_000, 450_000), 11_250);
+        assert_eq!(priority_fee_lamports(u64::MAX, u32::MAX), u64::MAX);
+    }
+
+    #[test]
+    fn a_transaction_config_always_states_both_ceilings() {
+        let without_priority = ComputeBudgetConfig::new(450_000).transaction_config();
+        assert_eq!(
+            without_priority,
+            v1::TransactionConfig::empty()
+                .with_compute_unit_limit(450_000)
+                .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE)
+        );
+
+        let with_priority = ComputeBudgetConfig::new(450_000)
+            .with_compute_unit_price(25_000)
+            .transaction_config();
+        assert_eq!(
+            with_priority,
+            v1::TransactionConfig::empty()
+                .with_compute_unit_limit(450_000)
+                .with_loaded_accounts_data_size_limit(MAX_LOADED_ACCOUNTS_DATA_SIZE)
+                .with_priority_fee(11_250)
+        );
+    }
 }
