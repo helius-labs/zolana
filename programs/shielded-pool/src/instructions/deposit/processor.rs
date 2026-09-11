@@ -162,12 +162,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
                     Poseidon::hashv(&[entry.owner.as_slice(), blinding.as_slice()]).map_err(
                         caused_by(ShieldedPoolError::TransactProofVerificationFailed),
                     )?;
-                let ring_hash = if ring_program_id_field == zero {
-                    zero_ring_hash
-                } else {
-                    hash_with_program_id(&zero, &ring_program_id_field)?
-                };
-                (data_hash, ring_hash, owner_utxo_hash)
+                (data_hash, zero_ring_hash, owner_utxo_hash)
             }
             ProcessingEntry::Ring(entry) => (
                 entry.data_hash.unwrap_or(&zero),
