@@ -26,12 +26,13 @@ use crate::{
     line,
     list::{EntryMutation, ListError},
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
+    spend::{Registration, SpendError},
     ui::{self, Icon},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
 
 /// Covers the sender's lookup table rent and fees.
-const SENDER_FEE_BUDGET: u64 = 20_000_000;
+pub(crate) const SENDER_FEE_BUDGET: u64 = 20_000_000;
 /// Lookup table rent, the deposit and transact fees.
 const PAYER_FEE_BUDGET: u64 = 10_000_000;
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -133,6 +134,16 @@ pub enum TransactError {
     ReaderNotGranted { reader: ReaderKey },
     #[error("amount {amount} does not split across the two deposits a ring transfer spends")]
     AmountTooSmall { amount: u64 },
+    #[error(transparent)]
+    Spend(Box<SpendError>),
+    #[error("the transfer needs the co-signer's approval, pass --cosigner-keypair")]
+    ApprovalNeedsCoSigner,
+}
+
+impl From<SpendError> for TransactError {
+    fn from(error: SpendError) -> Self {
+        Self::Spend(Box::new(error))
+    }
 }
 
 impl From<ListError> for TransactError {
@@ -480,6 +491,17 @@ impl Deposited<'_> {
         );
         env.rpc
             .create_and_send_transaction(&[fee], this.payer.pubkey(), &[this.payer])?;
+        if policy_rules(this.ring, rpc)?.is_some_and(|rules| rules.window_slots() != 0) {
+            let outcome = Registration {
+                ring: this.ring,
+                sender: &sender,
+                rpc,
+                indexer: env.indexer,
+                prover: env.prover,
+            }
+            .ensure()?;
+            line("spend record", outcome.label());
+        }
 
         let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
         let inputs = utxos
@@ -504,6 +526,9 @@ impl Deposited<'_> {
             transfer = transfer.with_cosigner(cosigner.pubkey());
         }
         let proven = transfer.prove(env)?;
+        if proven.approval_required && this.cosigner.is_none() {
+            return Err(TransactError::ApprovalNeedsCoSigner);
+        }
         let signers: Vec<&dyn Signer> = this.cosigner.into_iter().collect();
         let transact = V0WithLookupTable {
             payer: &sender,
@@ -539,9 +564,11 @@ pub(crate) fn cosigner_keypair(
 
 /// Kept between runs, earlier change stays spendable with it.
 fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, TransactError> {
-    let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
-    let keypair = file::read_or_create_keypair(&path)?;
-    Ok(ShieldedKeypair::from_keypair(&keypair)?)
+    Ok(ShieldedKeypair::from_keypair(&sender_keypair_file(ctx)?)?)
+}
+
+pub(crate) fn sender_keypair_file(ctx: &Context) -> Result<solana_keypair::Keypair, FileError> {
+    file::read_or_create_keypair(&ctx.project_path(Path::new(SENDER_KEYPAIR_FILE)))
 }
 
 /// An `Err` from `probe` is final, `Retry` is kept for the timeout message.

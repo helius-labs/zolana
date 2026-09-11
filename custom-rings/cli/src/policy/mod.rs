@@ -6,8 +6,9 @@ pub mod grammar;
 pub mod render;
 
 pub use grammar::{
-    compile_rows, describe, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
-    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName,
+    describe, describe_velocity, list_name, Alternative, AssetLimitSpec, CompiledPolicy, ListName,
+    PolicyError, PolicySpec, RuleSpec, SourceSpec, Sources, SubjectName, VelocityRowSpec,
+    VelocitySpec,
 };
 pub use render::render;
 
@@ -144,6 +145,7 @@ pub fn print_pinned(ring: CustomRing, config: &PolicyConfig) {
                     format_args!("{} listed inline", table.inline_assets().len()),
                 );
             }
+            print_velocity(&table);
         }
         Err(error) => line("rules", format_args!("undecodable ({error})")),
     }
@@ -271,6 +273,19 @@ fn set(ctx: &mut Context, yes: bool) -> Result<(), PolicyCommandError> {
     Ok(())
 }
 
+fn print_velocity(table: &RuleTable) {
+    if table.window_slots() == 0 {
+        return;
+    }
+    line(
+        "velocity",
+        format_args!("windows of {} slots", table.window_slots()),
+    );
+    for row in table.velocity() {
+        line("velocity", describe_velocity(row));
+    }
+}
+
 fn print_diff(old: &RuleTable, new: &RuleTable) {
     for rule in old.rules() {
         if !new.rules().contains(rule) {
@@ -287,5 +302,8 @@ fn print_diff(old: &RuleTable, new: &RuleTable) {
             "assets",
             format_args!("{} listed inline", new.inline_assets().len()),
         );
+    }
+    if old.window_slots() != new.window_slots() || old.velocity() != new.velocity() {
+        print_velocity(new);
     }
 }

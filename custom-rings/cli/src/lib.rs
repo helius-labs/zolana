@@ -21,6 +21,7 @@ pub mod probe;
 pub mod reader;
 pub mod release;
 pub mod ring_rpc;
+pub mod spend;
 pub mod status;
 pub mod step;
 pub mod tool;
@@ -119,6 +120,9 @@ pub enum Command {
     /// Set or show the permanent delegate, or move a note as the delegate.
     #[command(subcommand)]
     Delegate(DelegateCommand),
+    /// Register or show the sender's spend record on a velocity ring.
+    #[command(subcommand)]
+    Spend(SpendCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -218,6 +222,13 @@ pub enum DelegateCommand {
         #[arg(long)]
         cosigner_keypair: Option<PathBuf>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SpendCommand {
+    /// Claim the sender's record with zero counters, once per member.
+    Register,
+    Show,
 }
 
 #[derive(Debug, Subcommand)]
@@ -644,6 +655,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
         Command::Window(command) => window::run(&mut ctx, command)?,
         Command::Delegate(command) => delegate::run(&mut ctx, command)?,
+        Command::Spend(command) => spend::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,
