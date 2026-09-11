@@ -9004,6 +9004,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spp-recorder-program"
+version = "0.1.0"
+dependencies = [
+ "pinocchio 0.11.2",
+]
+
+[[package]]
 name = "spp-test-validator"
 version = "0.1.0"
 dependencies = [
@@ -11334,6 +11341,9 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "hex",
+ "proptest",
+ "serde",
+ "serde_json",
  "solana-address 2.6.1",
  "thiserror 2.0.20",
  "zolana-hasher",

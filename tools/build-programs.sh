@@ -22,6 +22,10 @@ cargo build-sbf --tools-version "$sbf_tools_version" \
     -- --locked
 cargo build-sbf --tools-version "$sbf_tools_version" \
     --sbf-out-dir target/deploy \
+    --manifest-path program-tests/spp-recorder-program/Cargo.toml \
+    -- --locked
+cargo build-sbf --tools-version "$sbf_tools_version" \
+    --sbf-out-dir target/deploy \
     --manifest-path sdk-tests/zk-program-swap/program/Cargo.toml \
     -- --locked --features bpf-entrypoint
 cargo build-sbf --tools-version "$sbf_tools_version" \

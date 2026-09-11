@@ -15,6 +15,7 @@ members = [
     "programs/shielded-pool",
     "programs/user-registry",
     "program-tests/ring-test-program",
+    "program-tests/spp-recorder-program",
     "bench/tree",
     "cli",
     "custom-rings/cli",

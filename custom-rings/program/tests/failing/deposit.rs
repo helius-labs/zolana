@@ -10,7 +10,10 @@ use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::common::{account, deposit_fixture, setup_mollusk, Slot};
+use mollusk_svm::result::ProgramResult;
+use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
+
+use crate::common::{account, deposit_fixture, ring_auth_pda, setup_mollusk, Slot};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -49,4 +52,34 @@ fn oversized_account_list_is_rejected_exactly() {
         });
     }
     fixture.expect_err(&mollusk, custom(CustomRingError::TooManyAccounts));
+}
+
+#[test]
+fn the_forward_raises_only_ring_auth_to_a_signer() {
+    let (mut mollusk, _) = setup_mollusk();
+    let spp_id = Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID);
+    mollusk.add_program(&spp_id, "spp_recorder_program");
+    let mut fixture = deposit_fixture();
+    let metas = fixture.instruction().accounts.clone();
+    let mut recorder = account(1_000_000_000);
+    recorder.owner = spp_id;
+    recorder.data = vec![0u8; metas.len()];
+    fixture.set_account("tree", recorder);
+
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    let recorded = result
+        .resulting_accounts
+        .iter()
+        .find(|(key, _)| key == &metas[0].pubkey)
+        .map(|(_, account)| account.data.clone())
+        .expect("tree in result");
+    let expected: Vec<u8> = metas
+        .iter()
+        .map(|meta| {
+            let signer = meta.is_signer || meta.pubkey == ring_auth_pda().0;
+            u8::from(signer) | u8::from(meta.is_writable) << 1
+        })
+        .collect();
+    assert_eq!(recorded, expected);
 }
