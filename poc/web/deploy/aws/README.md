@@ -10,8 +10,7 @@ service or Solana program is deployed by these scripts.
 Build Mopro's `feat/gnark-web-arkworks` with the experimental accelerator enabled,
 then provide the generated bindings, this checkout's pinned proving keys and a
 captured **local test** transfer request. The staging script checks key hashes
-and requires the transfer 2x3 key. Supply all transfer and merge keys to enable
-the optional key benchmark. The request will be publicly downloadable; use the
+and requires the transfer 2x3 key. Additional transfer and merge keys can be staged for custom proof inputs. The request will be publicly downloadable; use the
 synthetic localnet fixture, never a real user's transfer request.
 
 Install the workspace dependencies with `npm ci` first. Node, Go, AWS CLI and an
@@ -47,5 +46,4 @@ The bucket is retained if the CloudFormation stack is deleted.
 Validation should generate and verify a sample proof in automatic and custom
 thread modes, compare the Go fallback, reject an invalid witness and recover.
 The browser must report `crossOriginIsolated === true` and load the recorded
-Arkworks Wasm hash. Full devnet transfers are separate from this local proof
-playground and depend on the deployed backend/program versions.
+Arkworks Wasm hash. The page makes no RPC, indexer or remote-prover requests.

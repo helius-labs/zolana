@@ -13,7 +13,6 @@ cd "$repo_root"
 node poc/web/scripts/stage-mopro.mjs "$bindings" "$keys" "$sample"
 prover/server/scripts/build_prover_wasm.sh poc/web/public/prover poc/core/src/vendor
 npm run build:ts
-VITE_ZOLANA_DEFAULT_PRESET=devnet \
 VITE_ZOLANA_WASM_URL="/releases/$release/prover" \
 VITE_ZOLANA_KEYS_URL="/releases/$release/keys" \
   npm run build --workspace @zolana/poc-web -- --base "/releases/$release/"
