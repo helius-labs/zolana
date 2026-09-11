@@ -55,6 +55,15 @@ flags applies it, `cosigner clear` closes the account and a ring without one
 demands nothing. The transact, transfer and merge commands take
 `--cosigner-keypair`.
 
+A spend window caps what the ring settles publicly in one mint. `zolana-ring
+window set --mint sol --slots 216000 --withdrawal-cap 1000000000` counts every
+public deposit and withdrawal of the mint over fixed windows of that many
+slots and refuses the transaction that would pass a cap, a zero cap leaves
+that direction open, a mint without a window is uncapped, and `window clear`
+closes the account. Windows are fixed, so a burst across one boundary can
+move up to twice the cap. Every transact and ring deposit names one window
+account per public leg, the SDKs derive them from the legs.
+
 ## How auditor visibility works
 
 Every transfer encrypts its transaction viewing key to the auditor under a

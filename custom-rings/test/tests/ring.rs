@@ -31,10 +31,10 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
-    CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-    RingDepositReceipt, SendV0Error, SetAuthority, SetCoSigner, SetPaused, TransferError,
-    TransferProofEnvironment, V0WithLookupTable, COSIGN_WITHDRAWALS,
+    auditor_view_tag, AsyncTransferProofEnvironment, ClearSpendWindow, CreateConfig, CustomRing,
+    CustomRingTransact, CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer,
+    RingDeposit, RingDepositReceipt, SendV0Error, SetAuthority, SetCoSigner, SetPaused,
+    SetSpendWindow, TransferError, TransferProofEnvironment, V0WithLookupTable, COSIGN_WITHDRAWALS,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
@@ -638,6 +638,41 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         Ok(_) => return Err(anyhow!("the paused ring took a deposit")),
     }
     send(rpc, &env.payer, &[pause(authority, false)?])?;
+
+    // 3b. A SOL spend window below the first deposit refuses it, cleared, the
+    //     deposit lands.
+    send(
+        rpc,
+        &env.payer,
+        &[SetSpendWindow {
+            ring,
+            payer: env.payer.pubkey(),
+            authority,
+            mint: Address::default(),
+            window_slots: 1_000,
+            deposit_cap: RING_DEPOSIT_A - 1,
+            withdrawal_cap: 0,
+        }
+        .instruction()?],
+    )?;
+    match deposit(RING_DEPOSIT_A).send(rpc) {
+        Err(DepositError::Client(error)) => {
+            Rejection::custom(CustomRingError::SpendWindowExceeded as u32).assert_client(&error)
+        }
+        Err(other) => return Err(anyhow!("expected SpendWindowExceeded, got {other}")),
+        Ok(_) => return Err(anyhow!("the capped ring took a deposit")),
+    }
+    send(
+        rpc,
+        &env.payer,
+        &[ClearSpendWindow {
+            ring,
+            authority,
+            mint: Address::default(),
+            rent_recipient: authority,
+        }
+        .instruction()],
+    )?;
 
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
     //    spends. Their blindings come back from the deposit builder, so the spend

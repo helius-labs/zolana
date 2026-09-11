@@ -167,7 +167,8 @@ hash into the public input chain.
 The **upgrade authority** deploys the binary, pins the table at
 `create_policy` and replaces it with `set_policy_rules`. The **config
 authority** writes the authority-written lists, re-points sources, grants
-readers, sets or clears the co-signer and pauses the ring. The **co-signer**
+readers, sets or clears the co-signer and the spend windows, and pauses the
+ring. The **co-signer**
 signs beside the sender on the operations its scope names and decides
 nothing else. A **curator** is a ring whose lists other rings
 read, it writes its own entries and nothing on its subscribers. The
