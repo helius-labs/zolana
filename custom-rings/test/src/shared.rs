@@ -266,6 +266,10 @@ impl<'a> ConfiguredRing<'a> {
 }
 
 impl PinnedRing<'_> {
+    pub fn registration(&self) -> Instruction {
+        self.registration.clone()
+    }
+
     pub fn register(self, rpc: &SolanaRpc) -> Result<()> {
         send(rpc, self.payer, &[self.registration])?;
         Ok(())

@@ -552,7 +552,19 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         ring.read_spp_ring_config(rpc)?.is_none(),
         "no SPP ring config before the policy is pinned"
     );
-    configured.pin(rpc)?.register(rpc)?;
+    let pinned = configured.pin(rpc)?;
+    // The ring forwards the protocol config unchecked.
+    let mut substituted = pinned.registration();
+    substituted.accounts[3].pubkey = Address::new_unique();
+    let rejection = ExpectRejection {
+        payer: &env.payer,
+        instructions: &[substituted],
+    }
+    .send(rpc)?;
+    Rejection::pool(ShieldedPoolError::InvalidProtocolConfig)
+        .at(1)
+        .assert_client(&rejection);
+    pinned.register(rpc)?;
 
     let (config_address, config_bump) =
         Address::find_program_address(&[CONFIG_PDA_SEED], &ring_program);
