@@ -18,9 +18,10 @@ use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 
 use crate::instructions::{
     forward::Forward, process_clear_cosigner_ix, process_clear_spend_window_ix,
-    process_create_entry_ix, process_create_policy_ix, process_set_cosigner_ix,
-    process_set_paused_ix, process_set_policy_rules_ix, process_set_policy_source_ix,
-    process_set_spend_window_ix, process_update_entry_ix,
+    process_create_entry_ix, process_create_policy_ix, process_delegate_transact_ix,
+    process_set_cosigner_ix, process_set_delegate_ix, process_set_paused_ix,
+    process_set_policy_rules_ix, process_set_policy_source_ix, process_set_spend_window_ix,
+    process_update_entry_ix,
 };
 use crate::instructions::{
     process_create_config_ix, process_grant_read_access_ix, process_init_spp_ring_config_ix,
@@ -67,6 +68,8 @@ pub fn process_instruction(
         tag::CLEAR_CO_SIGNER => process_clear_cosigner_ix(program_id, accounts, ix_data),
         tag::SET_SPEND_WINDOW => process_set_spend_window_ix(program_id, accounts, ix_data),
         tag::CLEAR_SPEND_WINDOW => process_clear_spend_window_ix(program_id, accounts, ix_data),
+        tag::SET_DELEGATE => process_set_delegate_ix(program_id, accounts, ix_data),
+        tag::DELEGATE_TRANSACT => process_delegate_transact_ix(program_id, accounts, ix_data),
         _ => Err(ProgramError::InvalidInstructionData),
     }
 }

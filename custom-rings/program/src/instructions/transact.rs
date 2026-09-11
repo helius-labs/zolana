@@ -46,13 +46,69 @@ pub fn process_transact_ix(
     let config_account = iter.next_account("config")?;
     let cosigner_account = iter.next_account("cosigner_pda")?;
     let cosigner = iter.next_account("cosigner")?;
+    verify_and_forward(
+        program_id,
+        iter,
+        Gate {
+            config_account,
+            cosigner_account,
+            cosigner,
+        },
+        data,
+        Rail::Member,
+    )
+}
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rail {
+    Member,
+    /// Owner signatures are replaced by the delegate's, value never leaves.
+    Delegate,
+}
+
+impl Rail {
+    fn accepts(self, circuit: CircuitId) -> bool {
+        match self {
+            Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
+            Self::Delegate => matches!(circuit, CircuitId::RingAuthority(..)),
+        }
+    }
+
+    const fn spp_tag(self) -> u8 {
+        match self {
+            Self::Member => tag::RING_TRANSACT,
+            Self::Delegate => tag::RING_AUTHORITY_TRANSACT,
+        }
+    }
+}
+
+pub(crate) struct Gate<'a> {
+    pub config_account: &'a AccountView,
+    pub cosigner_account: &'a AccountView,
+    pub cosigner: &'a AccountView,
+}
+
+pub(crate) fn verify_and_forward(
+    program_id: &Address,
+    mut iter: AccountIterator<'_>,
+    gate: Gate<'_>,
+    data: &[u8],
+    rail: Rail,
+) -> ProgramResult {
+    let Gate {
+        config_account,
+        cosigner_account,
+        cosigner,
+    } = gate;
     let CustomRingTransactIxData {
         proof,
         state_root_index,
         nullifier_root_index,
         transact,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+    if rail == Rail::Delegate && !transact.interface_transfers.is_empty() {
+        return Err(CustomRingError::DelegatePublicLeg.into());
+    }
 
     // The tier comes from the authenticated config, a policy ring cannot drop its
     // policy accounts to spend through the lighter audit statement.
@@ -94,7 +150,7 @@ pub fn process_transact_ix(
     require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
     apply_spend_windows(program_id, windows, &demand.legs)?;
 
-    if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
+    if !rail.accepts(transact.circuit) {
         return Err(CustomRingError::UnsupportedCircuit.into());
     }
     if transact.outputs.iter().any(|output| {
@@ -174,7 +230,7 @@ pub fn process_transact_ix(
         .serialize()
         .map_err(|_| CustomRingError::InvalidInstructionData)?;
     let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
-    instruction_data.push(tag::RING_TRANSACT);
+    instruction_data.push(rail.spp_tag());
     instruction_data.extend_from_slice(&transact_bytes);
     cpi_spp_signed(program_id, spp_accounts, &instruction_data)
 }

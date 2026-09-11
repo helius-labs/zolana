@@ -6,6 +6,8 @@ mod compute_units;
 mod cosigner;
 #[path = "failing/create_config.rs"]
 mod create_config;
+#[path = "failing/delegate.rs"]
+mod delegate;
 #[path = "failing/deposit.rs"]
 mod deposit;
 #[path = "failing/dispatch.rs"]

@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::{CoSigner, PolicyConfig, SpendWindow};
+use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendWindow};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -78,6 +78,27 @@ pub fn load_cosigner<'a>(
     }
     .verify_stored_bump(cosigner.bump)?;
     Ok(Some(cosigner))
+}
+
+/// `Ok(None)` for the canonical address with no account, the ring has no delegate.
+#[inline(always)]
+pub fn load_delegate<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Option<Ref<'a, Delegate>>, ProgramError> {
+    let check = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[Delegate::SEED],
+        mismatch: CustomRingError::InvalidDelegate,
+    };
+    if account.data_len() == 0 {
+        check.verify()?;
+        return Ok(None);
+    }
+    let delegate = load_account::<Delegate>(program_id, account)?;
+    check.verify_stored_bump(delegate.bump)?;
+    Ok(Some(delegate))
 }
 
 /// `Ok(None)` for the canonical address of `mint` with no account.

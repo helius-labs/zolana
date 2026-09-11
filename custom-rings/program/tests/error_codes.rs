@@ -50,6 +50,11 @@ fn error_codes_are_stable() {
         (InvalidCoSignerThresholds as u32, 8147),
         (SpendWindowExceeded as u32, 8148),
         (InvalidSpendWindow as u32, 8149),
+        (DelegateDisabled as u32, 8150),
+        (UnauthorizedDelegate as u32, 8151),
+        (DelegatePublicLeg as u32, 8152),
+        (DelegateAlreadySet as u32, 8153),
+        (InvalidDelegate as u32, 8154),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -106,6 +111,11 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidCoSigner
         | InvalidCoSignerThresholds
         | SpendWindowExceeded
-        | InvalidSpendWindow => {}
+        | InvalidSpendWindow
+        | DelegateDisabled
+        | UnauthorizedDelegate
+        | DelegatePublicLeg
+        | DelegateAlreadySet
+        | InvalidDelegate => {}
     }
 }

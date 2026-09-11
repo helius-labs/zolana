@@ -1,7 +1,7 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold, CO_SIGNER,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+    CoSigner, Delegate, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold, CO_SIGNER,
+    DELEGATE, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -213,6 +213,36 @@ impl CoSignerInitParams {
     }
 }
 
+impl Account for Delegate {
+    const DISCRIMINATOR: u8 = DELEGATE;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDelegate;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::DelegateAlreadySet;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDelegate;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct DelegateInitParams {
+    pub delegate: Address,
+    pub bump: u8,
+}
+
+impl DelegateInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(
+            account,
+            Delegate {
+                discriminator: DELEGATE,
+                delegate: self.delegate,
+                bump: self.bump,
+            },
+        )
+    }
+}
+
 impl Account for SpendWindow {
     const DISCRIMINATOR: u8 = SPEND_WINDOW;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
@@ -260,6 +290,7 @@ mod sealed {
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}
     impl Sealed for super::CoSigner {}
+    impl Sealed for super::Delegate {}
     impl Sealed for super::SpendWindow {}
 }
 

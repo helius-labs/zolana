@@ -3,13 +3,13 @@
 
 use bytemuck::Zeroable;
 use custom_ring_interface::{
-    tag, CoSigner, CreateConfigIxData, CreateEntryIxData, PolicyConfig, PolicyTableIxData,
-    ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, SetCoSignerIxData, SetPausedIxData,
-    SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow, UpdateEntryIxData,
+    tag, CoSigner, CreateConfigIxData, CreateEntryIxData, Delegate, PolicyConfig,
+    PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, SetCoSignerIxData,
+    SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow, UpdateEntryIxData,
     WithdrawalThreshold, WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    DELEGATE, DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -402,6 +402,87 @@ pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
                 label: "rent_recipient",
                 meta: AccountMeta::new(rent_recipient(), false),
                 account: account(1_000_000_000),
+            },
+        ],
+    )
+}
+
+pub fn delegate_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[DELEGATE_PDA_SEED], &program_id())
+}
+
+pub fn delegate() -> Pubkey {
+    Pubkey::new_from_array([47u8; 32])
+}
+
+pub fn delegate_account(delegate: Pubkey) -> Account {
+    let state = Delegate {
+        discriminator: DELEGATE,
+        delegate: Address::new_from_array(delegate.to_bytes()),
+        bump: delegate_pda().1,
+    };
+    Account {
+        lamports: 1_200_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// `[delegate_pda, delegate(s)]`.
+fn delegate_slots() -> [Slot; 2] {
+    [
+        Slot {
+            label: "delegate_pda",
+            meta: AccountMeta::new_readonly(delegate_pda().0, false),
+            account: delegate_account(delegate()),
+        },
+        Slot {
+            label: "delegate",
+            meta: AccountMeta::new_readonly(delegate(), true),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+pub fn set_delegate_data(delegate: Pubkey) -> Vec<u8> {
+    let mut data = vec![tag::SET_DELEGATE];
+    data.extend_from_slice(delegate.as_ref());
+    data
+}
+
+/// `[payer(w,s), authority(s), delegate_pda(w), system_program, program, program_data]`,
+/// the authority is the upgrade authority.
+pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        data,
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "delegate_pda",
+                meta: AccountMeta::new(delegate_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
+            system_program_slot(),
+            Slot {
+                label: "program",
+                meta: AccountMeta::new_readonly(program_id(), false),
+                account: mollusk_svm::program::create_program_account_loader_v3(&program_id()),
+            },
+            Slot {
+                label: "program_data",
+                meta: AccountMeta::new_readonly(program_data_pda(), false),
+                account: program_data_account(Some(&authority())),
             },
         ],
     )
@@ -1423,6 +1504,24 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             },
         ],
     )
+}
+
+/// An audit-only delegate transact, `[delegate_pda, delegate(s)]` follow the
+/// co-signer prefix.
+pub fn delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    with_delegate_slots(audit_transact_fixture(config, data))
+}
+
+/// A policy delegate transact, the policy accounts follow the delegate slots.
+pub fn policy_delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
+    with_delegate_slots(transact_fixture(config, data))
+}
+
+fn with_delegate_slots(mut fixture: Fixture) -> Fixture {
+    let [delegate_pda, delegate] = delegate_slots();
+    fixture.insert(4, delegate_pda);
+    fixture.insert(5, delegate);
+    fixture
 }
 
 /// An audit-only transact fixture, the policy_config and entries_tree accounts

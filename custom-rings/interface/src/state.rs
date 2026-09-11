@@ -116,6 +116,27 @@ impl CoSigner {
 const _: () = assert!(CoSigner::SIZE == 356);
 const _: () = assert!(core::mem::align_of::<CoSigner>() == 1);
 
+pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
+/// First byte of an initialized delegate account.
+pub const DELEGATE: u8 = 6;
+
+/// The key that moves notes between members on the authority rail, set once.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct Delegate {
+    pub discriminator: u8,
+    pub delegate: Address,
+    pub bump: u8,
+}
+
+impl Delegate {
+    pub const SEED: &'static [u8] = DELEGATE_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+}
+
+const _: () = assert!(Delegate::SIZE == 34);
+const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
+
 pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;
