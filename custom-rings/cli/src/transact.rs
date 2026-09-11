@@ -44,6 +44,7 @@ pub struct DemoTransfer<'a> {
     pub payer: &'a dyn Signer,
     pub sender: ShieldedKeypair,
     pub amount: u64,
+    pub cosigner: Option<&'a dyn Signer>,
 }
 
 /// Whatever the two deposits hold above `amount` stays with the sender.
@@ -56,6 +57,7 @@ struct RingTransfer<'a> {
     amount: u64,
     tree: Address,
     assets: &'a AssetRegistry,
+    cosigner: Option<&'a dyn Signer>,
 }
 
 struct Deposited<'a> {
@@ -150,11 +152,13 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     {
         return Err(TransactError::ReaderNotGranted { reader: reader_key });
     }
+    let cosigner = cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
     let receipt = DemoTransfer {
         ring: ctx.ring,
         payer: &session.authority,
         sender: sender_keypair(ctx)?,
         amount: args.amount,
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
     }
     .run(session.env(ctx))?;
     line(
@@ -196,6 +200,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
     let session = Session::open(ctx, args.amount)?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
+    let cosigner = cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
     let sent = RingTransfer {
         ring: ctx.ring,
         payer: &session.authority,
@@ -205,6 +210,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         amount: args.amount,
         tree: pda::tree(0),
         assets: &AssetRegistry::default(),
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
     }
     .send(session.env(ctx))?;
     line("to", args.to);
@@ -350,6 +356,7 @@ impl DemoTransfer<'_> {
             amount: self.amount,
             tree: pda::tree(0),
             assets: &assets,
+            cosigner: self.cosigner,
         }
         .deposit(env.indexer, env.rpc)?;
         if enrol {
@@ -395,6 +402,7 @@ impl<'a> RingTransfer<'a> {
                 tree: self.tree,
                 asset: DepositAsset::Sol,
                 amount,
+                cosigner: self.cosigner,
             }
             .send(rpc)?;
             utxos.push(utxo);
@@ -485,17 +493,21 @@ impl Deposited<'_> {
                 .with_output_tree_id(tree_id);
         transfer.send(&this.recipient, SOL_MINT, this.amount)?;
         let prepared = transfer.prepare()?;
-        let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
             sender: &sender,
             prepared,
         })
         .with_tree(this.tree)
-        .with_assets(this.assets)
-        .prove(env)?;
+        .with_assets(this.assets);
+        if let Some(cosigner) = this.cosigner {
+            transfer = transfer.with_cosigner(cosigner.pubkey());
+        }
+        let proven = transfer.prove(env)?;
+        let signers: Vec<&dyn Signer> = this.cosigner.into_iter().collect();
         let transact = V0WithLookupTable {
             payer: &sender,
-            signers: &[],
+            signers: &signers,
             instruction: proven.instruction()?,
         }
         .send(rpc)?;
@@ -514,6 +526,15 @@ fn policy_rules(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<RuleTable>, 
         .map(|config| policy_config_table(&config))
         .transpose()
         .map_err(|error| TransactError::PolicyMatch(Box::new(error)))
+}
+
+/// Not checked against the ring's scope, the program decides.
+pub(crate) fn cosigner_keypair(
+    ctx: &Context,
+    path: Option<&Path>,
+) -> Result<Option<solana_keypair::Keypair>, FileError> {
+    path.map(|path| file::read_keypair(&ctx.project_path(path)))
+        .transpose()
 }
 
 /// Kept between runs, earlier change stays spendable with it.

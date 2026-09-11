@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
-    list::ListError, localnet::LocalnetError, merge::MergeError, new::NewError,
+    authority::AuthorityError, config::ConfigError, cosigner::CosignerError, deploy::DeployError,
+    init::InitError, list::ListError, localnet::LocalnetError, merge::MergeError, new::NewError,
     pipeline::PipelineError, policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
     ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
 };
@@ -39,6 +39,8 @@ pub enum CliError {
     #[error(transparent)]
     Reader(Box<ReaderError>),
     #[error(transparent)]
+    Cosigner(Box<CosignerError>),
+    #[error(transparent)]
     List(Box<ListError>),
     #[error(transparent)]
     Policy(Box<PolicyCommandError>),
@@ -70,6 +72,7 @@ boxed_from!(
     RingRpc(RingRpcClientError),
     Authority(AuthorityError),
     Reader(ReaderError),
+    Cosigner(CosignerError),
     List(ListError),
     Policy(PolicyCommandError),
 );

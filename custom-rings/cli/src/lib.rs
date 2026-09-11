@@ -3,6 +3,7 @@
 pub mod authority;
 pub mod catalogue;
 pub mod config;
+pub mod cosigner;
 pub mod deploy;
 pub mod error;
 pub mod file;
@@ -107,6 +108,9 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Set, clear or show the ring's co-signer.
+    #[command(subcommand)]
+    Cosigner(CosignerCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -165,6 +169,25 @@ pub enum PolicyCommand {
         #[arg(long)]
         yes: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CosignerCommand {
+    /// Create or replace the co-signer, flags absent means the `[cosigner]` table of ring.toml.
+    Set {
+        /// The Solana key that signs beside the sender.
+        #[arg(long)]
+        signer: Option<Address>,
+        /// Operation classes the co-signer gates.
+        #[arg(long, value_delimiter = ',', requires = "signer")]
+        scope: Vec<cosigner::CosignScope>,
+        /// `<mint>=<amount>` per mint, `sol` for the native token, withdrawals above it need the co-signer.
+        #[arg(long, requires = "signer")]
+        threshold: Vec<cosigner::Threshold>,
+    },
+    /// Close the co-signer account, the rent returns to the authority.
+    Clear,
+    Show,
 }
 
 #[derive(Debug, Subcommand)]
@@ -272,6 +295,9 @@ pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// The co-signer keypair when the ring's co-signer scope covers the demo.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -281,6 +307,9 @@ pub struct TransferArgs {
     /// Lamports the recipient receives, deposited by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// The co-signer keypair when the ring's co-signer scope covers the transfer.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -291,6 +320,9 @@ pub struct MergeArgs {
     /// Maximum number of notes to merge, from 2 through 8.
     #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
     pub count: usize,
+    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 fn parse_merge_count(value: &str) -> Result<usize, String> {
@@ -327,6 +359,7 @@ impl Default for InitArgs {
 impl Default for TransactArgs {
     fn default() -> Self {
         Self {
+            cosigner_keypair: None,
             amount: DEFAULT_TRANSACT_AMOUNT,
         }
     }
@@ -550,6 +583,7 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
+        Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,

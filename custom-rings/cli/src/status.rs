@@ -160,6 +160,10 @@ fn print_chain(config: &RingConfig, ring: CustomRing, rpc: &SolanaRpc) -> Result
             format_args!("not created ({})", ring.config_pda()),
         ),
     }
+    match ring.read_cosigner(rpc)? {
+        Some(cosigner) => crate::cosigner::print(&cosigner),
+        None => line("co-signer", "none"),
+    }
     // Until the config exists, ring.toml names the tier.
     let has_policy = state
         .as_ref()
