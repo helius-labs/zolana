@@ -23,7 +23,7 @@ use zolana_event::OutputDataEncoding;
 use zolana_interface::SOL_ASSET_FIELD;
 
 use zolana_interface::instruction::instruction_data::transact::{
-    OwnerTag, TransactIxData, TransactProof,
+    OwnerTag, TransactIxData, TransactProof, TreeContext,
 };
 use zolana_keypair::{shielded::ShieldedKeypair, NullifierKey, P256Pubkey, SigningKey, ViewingKey};
 use zolana_transaction::{
@@ -496,8 +496,16 @@ fn assemble_carries_ciphertext_and_decrypts() {
     let dummy = ix.inputs.get(1).expect("dummy input");
     assert_eq!(real.nullifier_hash, first_nullifier);
     assert_ne!(dummy.nullifier_hash, first_nullifier);
-    assert_eq!(ix.utxo_tree_root_index, 5);
-    assert_eq!(ix.nullifier_tree_root_index, 5);
+    // One input tree, so both inputs select context 0.
+    assert_eq!(real.tree_index, 0);
+    assert_eq!(dummy.tree_index, 0);
+    assert_eq!(
+        ix.tree_contexts,
+        vec![TreeContext {
+            utxo_tree_root_index: 5,
+            nullifier_tree_root_index: 5,
+        }]
+    );
 
     // A pure transfer moves no public value.
     assert!(ix.interface_transfers.is_empty());
