@@ -8,13 +8,15 @@ import {
   TREE_ACCOUNT_SIZE,
   StateDiscriminator,
   UTXO_ROOT_HISTORY_CAPACITY,
-  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
   decodeTreeHeadRoots,
 } from "../src/interface/index.js";
+import {
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
+} from "../src/interface/state.js";
 
 import { filled, treeAccount } from "./helpers/tree-account.js";
 

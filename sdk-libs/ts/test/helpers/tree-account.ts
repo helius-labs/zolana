@@ -7,12 +7,14 @@ import {
   StateDiscriminator,
   TREE_ACCOUNT_SIZE,
   UTXO_ROOT_HISTORY_CAPACITY,
-  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
   UTXO_ROOT_HISTORY_CURSOR_OFFSET,
-  UTXO_ROOT_HISTORY_LEN_OFFSET,
   UTXO_ROOT_HISTORY_OFFSET,
   UTXO_SUBTREES_LEN_OFFSET,
 } from "../../src/interface/index.js";
+import {
+  UTXO_ROOT_HISTORY_CAPACITY_OFFSET,
+  UTXO_ROOT_HISTORY_LEN_OFFSET,
+} from "../../src/interface/state.js";
 
 export function filled(byte: number): Uint8Array {
   return new Uint8Array(32).fill(byte);
