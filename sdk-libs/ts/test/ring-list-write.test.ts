@@ -152,7 +152,7 @@ describe("entry transition inputs", () => {
     expect(inputs.signerPublicKeyHashes).toHaveLength(2);
     expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([inputs.signerPublicKeyHashes[1]]);
     expect(inputs.outputs[0]?.circuit.blinding).toBe(bytesToBigInt(entry.blinding));
-    expect(inputs.allowDummyInputs).toBe(1n);
+    expect(inputs.inputFlags).toBe(1n);
     expect(inputs.ringProgramId).toBe(0n);
   });
 

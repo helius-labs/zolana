@@ -94,6 +94,18 @@ export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
 
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
+  /**
+   * Which of `TransactInstructionData.treeContexts` this input was proved
+   * against. It must not decrease from one input to the next, so every tree
+   * owns one contiguous run of inputs.
+   */
+  readonly treeIndex: number;
+}
+
+/** The root history positions one input tree's proofs opened against. */
+export interface TreeContext {
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }
 
 export type OwnerTag =
@@ -165,8 +177,8 @@ export interface TransactInstructionData extends TransactExternalData {
   readonly circuit: CircuitId;
   readonly proof: TransactProof;
   readonly inputs: readonly InputUtxo[];
-  readonly utxoTreeRootIndex: number;
-  readonly nullifierTreeRootIndex: number;
+  /** One per input tree, in the order the inputs first reference them. */
+  readonly treeContexts: readonly TreeContext[];
 }
 
 export type TransactWithdrawal =

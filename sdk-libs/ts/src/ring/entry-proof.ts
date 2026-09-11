@@ -1,5 +1,5 @@
 import type { ChainReader, ProofReader, Prover } from "../client/ports.js";
-import { bytesField, bytesToBigInt } from "../client/internal.js";
+import { bytesField, bytesToBigInt, inputFlags } from "../client/internal.js";
 import {
   NULLIFIER_TREE_HEIGHT,
   STATE_TREE_HEIGHT,
@@ -204,7 +204,7 @@ function transitionInputs(
     utxoRoot: input.state.root,
     nullifierRoot: input.absence.root,
   });
-  const treeSlots = inputTreeSlots(inputTree);
+  const treeSlots = inputTreeSlots([inputTree]);
   const publicInputHash = transferPublicInputHash({
     nullifiers: [bytesToBigInt(slot.nullifier)],
     outputHashes: [bytesToBigInt(hashes.utxoHash)],
@@ -215,7 +215,7 @@ function transitionInputs(
     publicSlots: Array.from({ length: 6 }, () => 0n),
     ringProgramId: 0n,
     signerPublicKeyHashes: [payerHash, namespaceHash],
-    allowDummyInputs: 1n,
+    inputFlags: inputFlags(true, [0]),
     publishedOutputOwnerPublicKeyHashes: [namespaceHash],
   });
   const transferInput: TransferInput = Object.freeze({
@@ -260,7 +260,7 @@ function transitionInputs(
     publicAmounts: Object.freeze([asField(0n), asField(0n), asField(0n)]),
     ringProgramId: asField(0n),
     signerPublicKeyHashes: Object.freeze([asField(payerHash), asField(namespaceHash)]),
-    allowDummyInputs: asField(1n),
+    inputFlags: asField(inputFlags(true, [0])),
     publishedOutputOwnerPublicKeyHashes: Object.freeze([asField(namespaceHash)]),
     publicInputHash: asField(publicInputHash),
   });

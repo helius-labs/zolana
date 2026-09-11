@@ -67,13 +67,18 @@ export function treeSlotsHashChain(slots: readonly TreeSlot[]): Bytes32 {
 }
 
 /**
- * The slot layout of a proof that spends from one tree: the input tree in slot
- * 0 and zero slots after it. The shielded pool fills the same layout from its
- * `input_tree` account.
+ * The slot layout of a proof: the input trees in the order the inputs
+ * reference them, then zero slots. The shielded pool fills the same layout
+ * from its run of input tree accounts.
  */
-export function inputTreeSlots(inputTree: TreeSlot): readonly TreeSlot[] {
+export function inputTreeSlots(inputTrees: readonly TreeSlot[]): readonly TreeSlot[] {
+  if (inputTrees.length < 1 || inputTrees.length > INPUT_TREES) {
+    throw new RangeError(
+      `a proof opens against 1 to ${String(INPUT_TREES)} trees, received ${String(inputTrees.length)}`,
+    );
+  }
   return Object.freeze([
-    inputTree,
-    ...Array.from({ length: INPUT_TREES - 1 }, () => ZERO_TREE_SLOT),
+    ...inputTrees,
+    ...Array.from({ length: INPUT_TREES - inputTrees.length }, () => ZERO_TREE_SLOT),
   ]);
 }

@@ -550,7 +550,7 @@ function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> 
     publicAmounts: payload.publicAmounts.map(hex),
     ringProgramId: hex(payload.ringProgramId),
     signerPkHashes: payload.signerPublicKeyHashes.map(hex),
-    allowDummyInputs: hex(payload.allowDummyInputs),
+    inputFlags: hex(payload.inputFlags),
     publishedOutputOwnerPkHashes: payload.publishedOutputOwnerPublicKeyHashes.map(hex),
     publicInputHash: hex(payload.publicInputHash),
   });

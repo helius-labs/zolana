@@ -13,6 +13,7 @@ import type {
   TransactInstructionData,
   TransactOutput,
   TransactProof,
+  TreeContext,
   RingConfigAccount,
   TreeFeeSchedule,
   TreeFees,
@@ -178,7 +179,15 @@ function writeProof(writer: Writer, proof: TransactProof): void {
 }
 
 function writeInput(writer: Writer, value: InputUtxo): void {
-  writer.bytes(value.nullifierHash, 32, "input.nullifierHash");
+  writer
+    .bytes(value.nullifierHash, 32, "input.nullifierHash")
+    .u8(value.treeIndex, "input.treeIndex");
+}
+
+function writeTreeContext(writer: Writer, value: TreeContext): void {
+  writer
+    .u16(value.utxoTreeRootIndex, "treeContext.utxoTreeRootIndex")
+    .u16(value.nullifierTreeRootIndex, "treeContext.nullifierTreeRootIndex");
 }
 
 function writeOwnerTag(writer: Writer, value: OwnerTag): void {
@@ -255,9 +264,8 @@ function writeTransactData(writer: Writer, value: TransactInstructionData): void
   writeProof(writer, value.proof);
   writer.u8(value.inputs.length, "inputs.length");
   for (const input of value.inputs) writeInput(writer, input);
-  writer
-    .u16(value.utxoTreeRootIndex, "utxoTreeRootIndex")
-    .u16(value.nullifierTreeRootIndex, "nullifierTreeRootIndex");
+  writer.u8(value.treeContexts.length, "treeContexts.length");
+  for (const context of value.treeContexts) writeTreeContext(writer, context);
 }
 
 export function encodeTransactExternalData(value: TransactExternalData): Uint8Array {

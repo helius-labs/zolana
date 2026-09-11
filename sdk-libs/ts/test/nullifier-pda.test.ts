@@ -31,7 +31,7 @@ function filled(byte: number, length: number): Uint8Array {
 }
 
 function input(byte: number): InputUtxo {
-  return { nullifierHash: filled(byte, 32) as Bytes32 };
+  return { nullifierHash: filled(byte, 32) as Bytes32, treeIndex: 0 };
 }
 
 function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
@@ -47,8 +47,7 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
       c: filled(45, 32) as Bytes32,
     },
     inputs,
-    utxoTreeRootIndex: 0,
-    nullifierTreeRootIndex: 0,
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
     interfaceTransfers: [],
     outputs: [],
     messages: [],

@@ -99,7 +99,7 @@ describe("shared transact derivation vectors (test-vectors/transact_derivation.j
       nullifierRoot: field(section.nullifier_root),
     };
     expect(hex(treeSlotHash(slot0))).toBe(section.slot_hash);
-    const slots = inputTreeSlots(slot0);
+    const slots = inputTreeSlots([slot0]);
     expect(slots).toHaveLength(INPUT_TREES);
     expect(hex(treeSlotsHashChain(slots))).toBe(section.single_tree_chain);
 

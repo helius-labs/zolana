@@ -261,7 +261,7 @@ function assembleMergeUnchecked(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
   );
-  const treeSlots = inputTreeSlots(inputTree.slot);
+  const treeSlots = inputTreeSlots([inputTree.slot]);
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
   const publicInputHash = bigintToBytes(
     hashChain4([
