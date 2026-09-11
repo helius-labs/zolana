@@ -268,7 +268,7 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v6"
+    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
     for name in custom_ring_policy.key custom_ring_base.key; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done

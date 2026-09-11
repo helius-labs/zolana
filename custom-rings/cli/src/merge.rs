@@ -89,14 +89,21 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
     )?;
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
+    let cosigner = crate::transact::cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
+    let proven = match &cosigner {
+        Some(cosigner) => proven.with_cosigner(cosigner.pubkey()),
+        None => proven,
+    };
     let merge = proven.instruction(tree, tree, payer.pubkey());
+    let mut signers: Vec<&dyn Signer> = vec![&payer];
+    signers.extend(cosigner.as_ref().map(|keypair| keypair as &dyn Signer));
     let signature = ctx.rpc.create_and_send_transaction(
         &[
             ComputeBudgetInstruction::set_compute_unit_limit(MERGE_COMPUTE_UNIT_LIMIT),
             merge,
         ],
         payer.pubkey(),
-        &[&payer],
+        &signers,
     )?;
 
     wait_for_indexed_transaction(&indexer, signature)?;

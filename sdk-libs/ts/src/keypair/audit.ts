@@ -175,6 +175,12 @@ export function policyPublicInputHash(
       stateRoot: Bytes32;
       nullifierRoot: Bytes32;
       entriesTreeId: number;
+      /** `hashBytes` of the ring program id, a change output stays in it. */
+      ringId: Bytes32;
+      namespaceOwnerHash: Bytes32;
+      /** `slot / windowSlots`, zero without velocity. */
+      windowIndex: bigint;
+      approvalRequired: boolean;
     }>,
 ): Bytes32 {
   return hashChain([
@@ -183,5 +189,20 @@ export function policyPublicInputHash(
     checkedBytes(input.stateRoot, 32, "state root"),
     checkedBytes(input.nullifierRoot, 32, "nullifier root"),
     treeIdField(input.entriesTreeId),
+    checkedBytes(input.ringId, 32, "ring id"),
+    checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
+    u64Field(input.windowIndex),
+    u64Field(input.approvalRequired ? 1n : 0n),
   ]);
+}
+
+function u64Field(value: bigint): Bytes32 {
+  if (value < 0n || value > 0xffff_ffff_ffff_ffffn) throw new RangeError("u64 field");
+  const field = new Uint8Array(32);
+  let rest = value;
+  for (let index = 31; index >= 24; index -= 1) {
+    field[index] = Number(rest & 0xffn);
+    rest >>= 8n;
+  }
+  return field as Bytes32;
 }

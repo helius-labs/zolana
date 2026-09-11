@@ -31,14 +31,17 @@ use anyhow::{anyhow, Context, Result};
 use custom_ring_interface::{RingProgramConfig, CONFIG_PDA_SEED, RING_PROGRAM_CONFIG};
 use custom_ring_program::CustomRingError;
 use custom_ring_sdk::{
-    auditor_view_tag, AsyncTransferProofEnvironment, CreateConfig, CustomRing, CustomRingTransact,
-    CustomRingTransfer, CustomRingTransferInput, DepositError, ProvenTransfer, RingDeposit,
-    RingDepositReceipt, SetAuthority, SetPaused, TransferError, TransferProofEnvironment,
-    V0WithLookupTable,
+    auditor_view_tag, decrypt_counters, find_counters_message, AsyncTransferProofEnvironment,
+    ClearSpendWindow, CreateConfig, CustomRing, CustomRingTransact, CustomRingTransfer,
+    CustomRingTransferInput, DelegateOutput, DelegateTransfer, DelegateTransferInput, DepositError,
+    ProvenDelegateTransfer, ProvenTransfer, ReadSpendRecord, RegisterSpend, RingDeposit,
+    RingDepositReceipt, SendV0Error, SetAuthority, SetCoSigner, SetDelegate, SetPaused,
+    SetSpendWindow, SpendProofEnvironment, TransferError, TransferProofEnvironment,
+    V0WithLookupTable, COSIGN_DEPOSITS, COSIGN_WITHDRAWALS, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 };
 use custom_ring_test_validator::{
     cli::{merged, RingProject, RingToml},
-    policy::EMPTY,
+    policy::{EMPTY, VELOCITY, VELOCITY_CAP, VELOCITY_COSIGN_ABOVE},
     shared::{
         custom_ring_program_id, prover_url, send, send_v0_expecting_rejection, setup,
         ExpectRejection, RegisterRing, TestEnv, Tier, USDC_ASSET_ID,
@@ -494,6 +497,7 @@ fn cli_merges_fragmented_custom_ring_notes() -> Result<()> {
             tree,
             asset: DepositAsset::Sol,
             amount,
+            cosigner: None,
         }
         .send(rpc)?;
         custom_ring_cli::transact::wait_for_indexed_transaction(indexer, receipt.signature)?;
@@ -626,6 +630,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         tree: env.tree,
         asset: DepositAsset::Sol,
         amount,
+        cosigner: None,
     };
     let pause = |authority: Address, paused: bool| {
         SetPaused {
@@ -648,6 +653,41 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         Ok(_) => return Err(anyhow!("the paused ring took a deposit")),
     }
     send(rpc, &env.payer, &[pause(authority, false)?])?;
+
+    // 3b. A SOL spend window below the first deposit refuses it, cleared, the
+    //     deposit lands.
+    send(
+        rpc,
+        &env.payer,
+        &[SetSpendWindow {
+            ring,
+            payer: env.payer.pubkey(),
+            authority,
+            mint: Address::default(),
+            window_slots: 1_000,
+            deposit_cap: RING_DEPOSIT_A - 1,
+            withdrawal_cap: 0,
+        }
+        .instruction()?],
+    )?;
+    match deposit(RING_DEPOSIT_A).send(rpc) {
+        Err(DepositError::Client(error)) => {
+            Rejection::custom(CustomRingError::SpendWindowExceeded as u32).assert_client(&error)
+        }
+        Err(other) => return Err(anyhow!("expected SpendWindowExceeded, got {other}")),
+        Ok(_) => return Err(anyhow!("the capped ring took a deposit")),
+    }
+    send(
+        rpc,
+        &env.payer,
+        &[ClearSpendWindow {
+            ring,
+            authority,
+            mint: Address::default(),
+            rent_recipient: authority,
+        }
+        .instruction()],
+    )?;
 
     // 4. Two ring SOL deposits give the sender the ring-owned UTXOs the transfer
     //    spends. Their blindings come back from the deposit builder, so the spend
@@ -728,6 +768,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
         rpc,
         &env.sender.keypair,
         CustomRingTransact {
+            cosigner: None,
             ring,
             payer: sender_address,
             input_tree: env.tree,
@@ -739,6 +780,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             transact: tampered_data,
             state_root_index: 0,
             nullifier_root_index: 0,
+            approval_required: false,
         }
         .instruction()?,
     )?;
@@ -1000,6 +1042,7 @@ fn an_audit_only_ring_audits_every_transfer() -> Result<()> {
             tree: env.tree,
             asset: DepositAsset::Sol,
             amount,
+            cosigner: None,
         }
         .send(rpc)?;
         spendable.push(utxo);
@@ -1216,6 +1259,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1272,6 +1316,7 @@ fn ring_value_leaves_and_enters_through_audited_transfers() -> Result<()> {
         prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1429,6 +1474,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1484,6 +1530,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1523,6 +1570,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         tree: env.tree,
         asset: usdc_deposit(sender_usdc),
         amount: USDC_RING_DEPOSIT,
+        cosigner: None,
     }
     .send(rpc)?;
     assert_eq!(
@@ -1564,6 +1612,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1597,21 +1646,77 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     );
 
     // 6. A ring transact settles a public USDC withdrawal beside a ring send.
+    //    Above the co-signer's USDC threshold it is refused unsigned and lands
+    //    co-signed.
     let recipient_usdc = create_token_account(rpc, &env.payer, &usdc, &recipient.pubkey())?;
-    let mut withdraw_transfer =
-        ConfidentialTransfer::new(sender_address, vec![exit_change.spend()], sender.pubkey())
-            .with_compact_change()
-            .with_ring_program_id(ring_program);
-    withdraw_transfer.withdraw(
-        usdc,
-        USDC_WITHDRAW_AMOUNT,
-        SettlementTarget::Spl {
-            user_spl_token: recipient_usdc,
-            spl_token_interface: pda::spl_interface(&usdc),
-        },
+    let cosigner = Keypair::new();
+    send(
+        rpc,
+        &env.payer,
+        &[SetCoSigner {
+            ring,
+            payer: env.payer.pubkey(),
+            authority: env.payer.pubkey(),
+            signer: cosigner.pubkey(),
+            scope: COSIGN_WITHDRAWALS,
+            thresholds: vec![(usdc, USDC_WITHDRAW_AMOUNT - 1)],
+        }
+        .instruction()?],
     )?;
-    withdraw_transfer.send(&recipient_address, usdc, USDC_FINAL_SEND)?;
-    let prepared = withdraw_transfer.prepare()?;
+    let withdraw = || -> Result<PreparedTransfer> {
+        let mut transfer =
+            ConfidentialTransfer::new(sender_address, vec![exit_change.spend()], sender.pubkey())
+                .with_compact_change()
+                .with_ring_program_id(ring_program);
+        transfer.withdraw(
+            usdc,
+            USDC_WITHDRAW_AMOUNT,
+            SettlementTarget::Spl {
+                user_spl_token: recipient_usdc,
+                spl_token_interface: pda::spl_interface(&usdc),
+            },
+        )?;
+        transfer.send(&recipient_address, usdc, USDC_FINAL_SEND)?;
+        Ok(transfer.prepare()?)
+    };
+    let settlement =
+        TransactInterfaceTransferAccounts::SplWithdrawal(TransactSplWithdrawalAccounts {
+            mint: usdc,
+            spl_interface: pda::spl_interface(&usdc),
+            user_token_account: recipient_usdc,
+            token_program: pda::spl_token_program_id(),
+        });
+    let unsigned = CustomRingTransfer::new(CustomRingTransferInput {
+        ring,
+        sender,
+        prepared: withdraw()?,
+    })
+    .with_tree(env.tree)
+    .with_assets(&env.assets)
+    .with_interface_transfer_accounts(vec![settlement])
+    .prove(TransferProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    match (V0WithLookupTable {
+        payer: sender,
+        signers: &[],
+        instruction: unsigned.instruction()?,
+    })
+    .send(rpc)
+    {
+        Err(SendV0Error::Send(error)) => assert!(
+            format!("{error:?}").contains(&format!(
+                "Custom({})",
+                CustomRingError::MissingCoSigner as u32
+            )),
+            "unsigned withdrawal refused for another reason {error:?}"
+        ),
+        Err(other) => return Err(anyhow!("unsigned withdrawal failed to send {other}")),
+        Ok(signature) => return Err(anyhow!("unsigned withdrawal {signature} landed")),
+    }
+    let prepared = withdraw()?;
     let final_change = Note {
         owner: sender,
         asset: usdc,
@@ -1626,19 +1731,14 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         blinding: output_blinding(&prepared, RECIPIENT_SLOT)?,
         ring_program_id: Some(ring_program),
     };
+    let recipient_final_blinding = recipient_final_note.blinding;
     let withdrawal = RingTransfer {
         ring,
         sender,
         prepared,
-        interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
-            TransactSplWithdrawalAccounts {
-                mint: usdc,
-                spl_interface: pda::spl_interface(&usdc),
-                user_token_account: recipient_usdc,
-                token_program: pda::spl_token_program_id(),
-            },
-        )],
+        interface_transfer_accounts: vec![settlement],
         auditor_tag,
+        cosigner: Some(&cosigner),
     }
     .send(&env, &prover)?;
     assert_eq!(
@@ -1682,7 +1782,378 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
         "recipient wallet after the withdrawal"
     );
 
+    // 7. The delegate re-owns the recipient's final note to the sender over the
+    //    authority rail, refused until governance enables the rail.
+    let delegate = Keypair::new();
+    send(
+        rpc,
+        &env.payer,
+        &[SetDelegate {
+            ring,
+            payer: env.payer.pubkey(),
+            authority: env.payer.pubkey(),
+            delegate: delegate.pubkey(),
+        }
+        .instruction()],
+    )?;
+    let tree_id = custom_ring_sdk::tree_id(rpc, env.tree)?;
+    let moved = || -> Result<ProvenDelegateTransfer> {
+        Ok(DelegateTransfer::new(DelegateTransferInput {
+            ring,
+            delegate: delegate.pubkey(),
+            payer: env.payer.pubkey(),
+            inputs: vec![Note {
+                owner: recipient,
+                asset: usdc,
+                amount: USDC_FINAL_SEND,
+                blinding: recipient_final_blinding,
+                ring_program_id: Some(ring_program),
+            }
+            .spend()
+            .in_tree(tree_id)],
+            outputs: vec![DelegateOutput {
+                recipient: sender_address,
+                asset: usdc,
+                amount: USDC_FINAL_SEND,
+            }],
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets)
+        .prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover: &prover,
+        })?)
+    };
+    match (V0WithLookupTable {
+        payer: &env.payer,
+        signers: &[&delegate],
+        instruction: moved()?.instruction()?,
+    })
+    .send(rpc)
+    {
+        Err(SendV0Error::Send(error)) => assert!(
+            format!("{error:?}").contains(&format!(
+                "Custom({})",
+                ShieldedPoolError::RingAuthorityTransactDisabled as u32
+            )),
+            "disabled rail refused for another reason {error:?}"
+        ),
+        Err(other) => return Err(anyhow!("disabled rail move failed to send {other}")),
+        Ok(signature) => return Err(anyhow!("disabled rail move {signature} landed")),
+    }
+    env.enable_authority_rail(ring)?;
+    let proven = moved()?;
+    let moved_note = Note {
+        owner: sender,
+        asset: usdc,
+        amount: USDC_FINAL_SEND,
+        blinding: proven.outputs[0].blinding,
+        ring_program_id: Some(ring_program),
+    };
+    let signature = V0WithLookupTable {
+        payer: &env.payer,
+        signers: &[&delegate],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    assert_eq!(
+        AuditLookup {
+            ring_program,
+            auditor: &auditor,
+            signature,
+        }
+        .run(&env)?
+        .outputs,
+        vec![moved_note.audited(0)?],
+        "delegate move outputs"
+    );
+    env.recipient.wallet.sync(
+        &recipient_authority,
+        std::slice::from_ref(&indexed),
+        0,
+        DEFAULT_TAG_WINDOW,
+    )?;
+    assert_eq!(
+        sorted_unspent_notes(&env.recipient.wallet),
+        vec![
+            (usdc, USDC_EXIT_AMOUNT, None),
+            (usdc, USDC_HOP_AMOUNT, Some(ring_program)),
+            (usdc, USDC_ENTRY_AMOUNT, Some(ring_program)),
+        ],
+        "recipient wallet after the delegate move"
+    );
+
     Ok(())
+}
+
+/// Each sender's SOL outflow is charged to its spend record, the cap refuses
+/// the transfer that would cross it and the threshold demands the co-signer.
+#[test]
+fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
+    const FIRST_SEND: u64 = 250_000_000;
+    const SECOND_SEND: u64 = 350_000_000;
+    const THIRD_SEND: u64 = 100_000_000;
+    const DEPOSITS: [u64; 2] = [400_000_000, 300_000_000];
+    const _: () =
+        assert!(FIRST_SEND <= VELOCITY_COSIGN_ABOVE && SECOND_SEND > VELOCITY_COSIGN_ABOVE);
+    const _: () = assert!(FIRST_SEND + SECOND_SEND <= VELOCITY_CAP);
+    const _: () = assert!(FIRST_SEND + SECOND_SEND + THIRD_SEND > VELOCITY_CAP);
+
+    let env = setup()?;
+    let rpc = env.client.rpc();
+    let indexer = env.client.indexer();
+    let ring_program = custom_ring_program_id()?;
+    let ring = CustomRing::new(ring_program);
+    let auditor = ViewingKey::new();
+    let auditor_pk = auditor.pubkey();
+    let auditor_tag = auditor_view_tag(&auditor_pk);
+    RegisterRing {
+        ring,
+        payer: &env.payer,
+        auditor_pubkey: auditor_pk,
+        tier: Tier::policy(&VELOCITY, env.tree),
+    }
+    .send(rpc)?;
+    let prover = ProverClient::local();
+    let sender = &env.sender.keypair;
+    let sender_address = sender.pubkey();
+    let recipient = env.recipient.keypair.shielded_address()?;
+    let sol_field = zolana_interface::SOL_ASSET_FIELD;
+
+    // 1. Two ring deposits fund the sender.
+    let mut notes = Vec::with_capacity(DEPOSITS.len());
+    for amount in DEPOSITS {
+        let RingDepositReceipt { utxo, .. } = RingDeposit {
+            ring,
+            payer: sender,
+            recipient: sender,
+            tree: env.tree,
+            asset: DepositAsset::Sol,
+            amount,
+            cosigner: None,
+        }
+        .send(rpc)?;
+        notes.push(utxo);
+    }
+    let prepare = |inputs: Vec<Utxo>, amount: u64| -> Result<PreparedTransfer> {
+        let inputs = inputs
+            .into_iter()
+            .map(|utxo| SppProofInputUtxo::new(utxo, sender))
+            .collect();
+        let mut transfer =
+            ConfidentialTransfer::new(sender.shielded_address()?, inputs, sender_address)
+                .with_compact_change()
+                .with_ring_program_id(ring_program);
+        transfer.send(&recipient, SOL_MINT, amount)?;
+        Ok(transfer.prepare()?)
+    };
+    let prove = |prepared: PreparedTransfer, cosigner: Option<Address>| {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
+            ring,
+            sender,
+            prepared,
+        })
+        .with_tree(env.tree)
+        .with_assets(&env.assets);
+        if let Some(cosigner) = cosigner {
+            transfer = transfer.with_cosigner(cosigner);
+        }
+        transfer.prove(TransferProofEnvironment {
+            indexer,
+            rpc,
+            prover: &prover,
+        })
+    };
+    let read_record = || {
+        ReadSpendRecord {
+            entries_tree: env.tree,
+            entries_tree_id: 0,
+            namespace: ring.namespace_pda(),
+            member: zolana_ring_policy::Member::owner_tag(sender_address.as_array())?,
+        }
+        .read(indexer)
+        .map_err(|error| anyhow!("read the spend record {error}"))
+    };
+
+    // 2. Nothing moves before the sender registers.
+    assert!(
+        matches!(
+            prove(prepare(notes.clone(), FIRST_SEND)?, None),
+            Err(TransferError::SpendRecordMissing)
+        ),
+        "an unregistered sender is refused before proving"
+    );
+    let registration = RegisterSpend {
+        ring,
+        payer: sender_address,
+    }
+    .prove(SpendProofEnvironment {
+        indexer,
+        rpc,
+        prover: &prover,
+    })?;
+    let window = registration.record().window;
+    send(
+        rpc,
+        sender,
+        &[
+            solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
+                REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+            ),
+            registration.instruction()?,
+        ],
+    )?;
+    let registered = wait_for_spend_record(read_record, 0)?;
+    assert_eq!(
+        registered.record.window, window,
+        "registered at the proven window"
+    );
+
+    // 3. The first send charges the record and stays under dual control.
+    let prepared = prepare(notes, FIRST_SEND)?;
+    let change = prepared
+        .outputs
+        .iter()
+        .find(|output| output.amount == DEPOSITS[0] + DEPOSITS[1] - FIRST_SEND)
+        .cloned()
+        .ok_or_else(|| anyhow!("change output"))?;
+    let proven = prove(prepared, None)?;
+    assert!(
+        !proven.approval_required,
+        "a send at the threshold needs no approval"
+    );
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    let indexed = wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    let live = wait_for_spend_record(read_record, 1)?;
+    let tx_key = sender.get_transaction_viewing_key(&indexed.nullifiers[0])?;
+    let counters = decrypt_counters(
+        &tx_key,
+        &find_counters_message(&indexed.messages, ring.namespace_pda().as_array())
+            .ok_or_else(|| anyhow!("counters message"))?
+            .data,
+        indexed.salt.ok_or_else(|| anyhow!("transaction salt"))?,
+    )?;
+    assert_eq!(
+        counters.spent(&sol_field),
+        FIRST_SEND,
+        "the counter holds the first send"
+    );
+    assert_eq!(counters.commitment()?, live.record.counters_commitment);
+    let audited = AuditLookup {
+        ring_program,
+        auditor: &auditor,
+        signature,
+    }
+    .run(&env)?;
+    assert_eq!(
+        audited.spend_records.len(),
+        1,
+        "the auditor sees the record"
+    );
+    assert_eq!(audited.spend_records[0].record, live.record);
+    assert_eq!(audited.spend_records[0].counters, Some(counters));
+    assert!(audited.undecryptable_slots.is_empty());
+
+    // 4. A send above the threshold carries the approval bit, the program then
+    //    demands a co-signer the ring must have configured.
+    let change_note = Utxo {
+        owner: sender.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: change.amount,
+        blinding: change.blinding,
+        ring_program_id: Some(ring_program),
+        data: Data::default(),
+    };
+    let proven = prove(prepare(vec![change_note.clone()], SECOND_SEND)?, None)?;
+    assert!(
+        proven.approval_required,
+        "a send above the threshold needs approval"
+    );
+    let rejection = send_v0_expecting_rejection(rpc, sender, proven.instruction()?)?;
+    Rejection::custom(CustomRingError::ApprovalWithoutCoSigner as u32)
+        .at(1)
+        .assert_client(&rejection);
+    let cosigner = Keypair::new();
+    send(
+        rpc,
+        &env.payer,
+        &[SetCoSigner {
+            ring,
+            payer: env.payer.pubkey(),
+            authority: env.payer.pubkey(),
+            signer: cosigner.pubkey(),
+            scope: COSIGN_DEPOSITS,
+            thresholds: Vec::new(),
+        }
+        .instruction()?],
+    )?;
+    let proven = prove(prepare(vec![change_note.clone()], SECOND_SEND)?, None)?;
+    let rejection = send_v0_expecting_rejection(rpc, sender, proven.instruction()?)?;
+    Rejection::custom(CustomRingError::MissingCoSigner as u32)
+        .at(1)
+        .assert_client(&rejection);
+    let prepared = prepare(vec![change_note], SECOND_SEND)?;
+    let second_change = prepared
+        .outputs
+        .iter()
+        .find(|output| output.amount == change.amount - SECOND_SEND)
+        .cloned()
+        .ok_or_else(|| anyhow!("second change output"))?;
+    let proven = prove(prepared, Some(cosigner.pubkey()))?;
+    let signature = V0WithLookupTable {
+        payer: sender,
+        signers: &[&cosigner],
+        instruction: proven.instruction()?,
+    }
+    .send(rpc)?;
+    wait_for_indexed_transaction(indexer, auditor_tag, signature);
+    let live = wait_for_spend_record(read_record, 2)?;
+    assert_eq!(
+        live.record.window, window,
+        "the same window carries both sends"
+    );
+
+    // 5. The cap refuses the send that would cross it before any proof.
+    let third = Utxo {
+        owner: sender.signing_pubkey(),
+        asset: SOL_MINT,
+        amount: second_change.amount,
+        blinding: second_change.blinding,
+        ring_program_id: Some(ring_program),
+        data: Data::default(),
+    };
+    match prove(prepare(vec![third], THIRD_SEND)?, Some(cosigner.pubkey())) {
+        Err(TransferError::VelocityCapExceeded { cap, spent, .. }) => {
+            assert_eq!(cap, VELOCITY_CAP);
+            assert_eq!(spent, FIRST_SEND + SECOND_SEND + THIRD_SEND);
+        }
+        Err(other) => return Err(anyhow!("expected the cap refusal, got {other}")),
+        Ok(_) => return Err(anyhow!("the capped send was proven")),
+    }
+    Ok(())
+}
+
+/// The indexer learns the record from its transaction, the walk needs it.
+fn wait_for_spend_record(
+    read: impl Fn() -> Result<Option<custom_ring_sdk::LiveSpendRecord>>,
+    version: u64,
+) -> Result<custom_ring_sdk::LiveSpendRecord> {
+    for _ in 0..240 {
+        if let Some(live) = read()? {
+            if live.record.version == version {
+                return Ok(live);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    Err(anyhow!("spend record version {version} never indexed"))
 }
 
 /// A note stranded in an old tree spends into the active tree while the ring's
@@ -1718,6 +2189,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         tree: old_tree,
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
+        cosigner: None,
     }
     .send(rpc)?;
     wait_for_merkle_proof(
@@ -1792,6 +2264,7 @@ fn an_old_tree_note_migrates_into_the_active_tree() -> Result<()> {
         prepared: hop_prepared,
         interface_transfer_accounts: Vec::new(),
         auditor_tag,
+        cosigner: None,
     }
     .send(&env, &prover)?;
     let hop_outputs: Vec<u64> = AuditLookup {
@@ -1853,6 +2326,7 @@ fn a_transfer_outputs_apart_from_the_entries_tree() -> Result<()> {
         tree: input_tree,
         asset: DepositAsset::Sol,
         amount: DEFAULT_DEPOSIT,
+        cosigner: None,
     }
     .send(rpc)?;
     wait_for_merkle_proof(
@@ -2023,6 +2497,7 @@ struct RingTransfer<'a> {
     prepared: PreparedTransfer,
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     auditor_tag: [u8; 32],
+    cosigner: Option<&'a Keypair>,
 }
 
 struct RingTransferReceipt {
@@ -2034,22 +2509,30 @@ impl RingTransfer<'_> {
     fn send(self, env: &TestEnv, prover: &ProverClient) -> Result<RingTransferReceipt> {
         let rpc = env.client.rpc();
         let indexer = env.client.indexer();
-        let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: self.ring,
             sender: self.sender,
             prepared: self.prepared,
         })
         .with_tree(env.tree)
         .with_assets(&env.assets)
-        .with_interface_transfer_accounts(self.interface_transfer_accounts)
-        .prove(TransferProofEnvironment {
+        .with_interface_transfer_accounts(self.interface_transfer_accounts);
+        if let Some(cosigner) = self.cosigner {
+            transfer = transfer.with_cosigner(cosigner.pubkey());
+        }
+        let proven = transfer.prove(TransferProofEnvironment {
             indexer,
             rpc,
             prover,
         })?;
+        let signers: Vec<&dyn Signer> = self
+            .cosigner
+            .into_iter()
+            .map(|k| k as &dyn Signer)
+            .collect();
         let signature = V0WithLookupTable {
             payer: self.sender,
-            signers: &[],
+            signers: &signers,
             instruction: proven.instruction()?,
         }
         .send(rpc)?;

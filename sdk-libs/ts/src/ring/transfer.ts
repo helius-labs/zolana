@@ -4,8 +4,11 @@ import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
+  velocityWitnessOff,
   type CustomRingSourceOwner,
 } from "../client/prover/types.js";
+import { hashBytes } from "../hasher/index.js";
+import { addressBytes } from "../interface/internal.js";
 import { InstructionTag } from "../interface/program.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type {
@@ -54,6 +57,8 @@ import { fetchRingConfigs } from "./config.js";
 import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
+import type { SignerAccount } from "../interface/instructions/index.js";
+
 import { ringTransactInstruction, type RingTransactTrees } from "./instructions.js";
 import { fetchRingLookupTable } from "./lookup-table.js";
 
@@ -83,6 +88,8 @@ export interface RingTransferTransactionParams {
   readonly outputTree?: Address;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
+  /** The ring's co-signer when its scope covers the operation. */
+  readonly cosigner?: SignerAccount;
   readonly computeUnitLimit?: number;
   readonly computeUnitPriceMicroLamports?: bigint;
 }
@@ -250,6 +257,7 @@ type RingSpendParams = Pick<
   | "amount"
   | "outputTree"
   | "lookupTable"
+  | "cosigner"
   | "computeUnitLimit"
   | "computeUnitPriceMicroLamports"
 >;
@@ -355,6 +363,7 @@ async function buildRingSpend<R>(
           data: proven.data,
           ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
           ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
+          ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         }),
         fetchRingLookupTable(
           {
@@ -457,6 +466,12 @@ export async function proveCustomRingTransfer(
   const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
   const config = configs.config;
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
+  // The record slots of a velocity transfer are not assembled here.
+  if (policy !== undefined && policy.table.windowSlots !== 0n) {
+    throw new RingError("RING_VELOCITY_UNSUPPORTED", {
+      details: { ringProgramId: input.ringProgramId, windowSlots: policy.table.windowSlots },
+    });
+  }
   // A padded change slot pushes the custom-ring instruction past the packet limit
   // even behind an address lookup table.
   if (input.prepared.changeLayout !== "compact") {
@@ -542,6 +557,10 @@ export async function proveCustomRingTransfer(
     }
 
     const { answers, roots } = policyRound;
+    const velocity = velocityWitnessOff(
+      hashBytes(addressBytes(input.ringProgramId, "ringProgramId")) as Bytes32,
+      policyRound.config.namespaceOwnerHash,
+    );
     const proof = await input.client.proveCustomRingPolicy(
       {
         publicInputHash: policyPublicInputHash({
@@ -553,6 +572,10 @@ export async function proveCustomRingTransfer(
           stateRoot: roots.stateRoot,
           nullifierRoot: roots.nullifierRoot,
           entriesTreeId: policyRound.config.entriesTreeId,
+          ringId: velocity.ringId,
+          namespaceOwnerHash: velocity.namespaceOwnerHash,
+          windowIndex: velocity.windowIndex,
+          approvalRequired: velocity.approvalRequired,
         }),
         privateTxHash: data.privateTxHash,
         txViewingSecret: encrypted.audit.txViewingSecret,
@@ -581,6 +604,7 @@ export async function proveCustomRingTransfer(
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
         entriesTreeId: policyRound.config.entriesTreeId,
+        velocity,
         answers,
       },
       context,

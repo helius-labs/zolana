@@ -1,5 +1,8 @@
 use bytemuck::{from_bytes_mut, Pod};
-use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
+use custom_ring_interface::{
+    CoSigner, Delegate, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold, CO_SIGNER,
+    DELEGATE, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -147,6 +150,7 @@ pub(crate) struct PolicyConfigInitParams {
     pub entries_tree_id: u16,
     pub namespace_bump: u8,
     pub bump: u8,
+    pub namespace_owner_hash: [u8; 32],
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
     pub rules: EncodedRuleTable,
     pub generation_slot: u64,
@@ -164,6 +168,7 @@ impl PolicyConfigInitParams {
                 entries_tree_id: self.entries_tree_id.to_le_bytes(),
                 namespace_bump: self.namespace_bump,
                 bump: self.bump,
+                namespace_owner_hash: self.namespace_owner_hash,
                 sources: self.sources,
                 rules: self.rules,
                 generation: 1u32.to_le_bytes(),
@@ -173,11 +178,122 @@ impl PolicyConfigInitParams {
     }
 }
 
+impl Account for CoSigner {
+    const DISCRIMINATOR: u8 = CO_SIGNER;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidCoSigner;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct CoSignerInitParams {
+    pub signer: Address,
+    pub scope: u8,
+    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub threshold_count: u8,
+    pub bump: u8,
+}
+
+impl CoSignerInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub const fn value(self) -> CoSigner {
+        CoSigner {
+            discriminator: CO_SIGNER,
+            signer: self.signer,
+            scope: self.scope,
+            threshold_count: self.threshold_count,
+            thresholds: self.thresholds,
+            bump: self.bump,
+        }
+    }
+}
+
+impl Account for Delegate {
+    const DISCRIMINATOR: u8 = DELEGATE;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDelegate;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::DelegateAlreadySet;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDelegate;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct DelegateInitParams {
+    pub delegate: Address,
+    pub bump: u8,
+}
+
+impl DelegateInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(
+            account,
+            Delegate {
+                discriminator: DELEGATE,
+                delegate: self.delegate,
+                bump: self.bump,
+            },
+        )
+    }
+}
+
+impl Account for SpendWindow {
+    const DISCRIMINATOR: u8 = SPEND_WINDOW;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidSpendWindow;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct SpendWindowInitParams {
+    pub mint: Address,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub bump: u8,
+}
+
+impl SpendWindowInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub(crate) const fn value(self) -> SpendWindow {
+        SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint: self.mint,
+            window_slots: self.window_slots.to_le_bytes(),
+            deposit_cap: self.deposit_cap.to_le_bytes(),
+            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
+            window_start_slot: self.window_start_slot.to_le_bytes(),
+            deposited: [0; 8],
+            withdrawn: [0; 8],
+            bump: self.bump,
+        }
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}
+    impl Sealed for super::CoSigner {}
+    impl Sealed for super::Delegate {}
+    impl Sealed for super::SpendWindow {}
 }
 
 #[inline(always)]

@@ -93,6 +93,45 @@ export async function ringAuthAddress(ringProgramId: Address): Promise<Address> 
   return address;
 }
 
+/** Mirrors Rust `CustomRing::cosigner_pda`, uninitialized when the ring has no co-signer. */
+export async function ringCoSignerAddress(ringProgramId: Address): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("cosigner")],
+  });
+  return address;
+}
+
+/** Mirrors Rust `CustomRing::delegate_pda`, uninitialized when the ring has no delegate. */
+export async function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
+  return (await ringDelegatePda(ringProgramId))[0];
+}
+
+export function ringDelegatePda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("delegate")],
+  });
+}
+
+/** Mirrors Rust `CustomRing::spend_window_pda`, SOL under the zero address. */
+export async function ringSpendWindowAddress(
+  ringProgramId: Address,
+  mint: Address,
+): Promise<Address> {
+  return (await ringSpendWindowPda(ringProgramId, mint))[0];
+}
+
+export function ringSpendWindowPda(
+  ringProgramId: Address,
+  mint: Address,
+): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("window"), addressEncoder.encode(mint)],
+  });
+}
+
 export async function protocolConfigAddress(): Promise<Address> {
   return (await derive("protocol_config"))[0];
 }

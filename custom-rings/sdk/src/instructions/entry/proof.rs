@@ -51,6 +51,8 @@ pub enum EntryProofError {
     },
     #[error("proof is not a transact proof")]
     InvalidProof,
+    #[error("the spend of the record of {member:?} published no version {version}")]
+    BrokenSpendLineage { member: [u8; 32], version: u64 },
 }
 
 impl From<ClientError> for EntryProofError {
@@ -103,23 +105,79 @@ impl EntryWitness<'_> {
             .address(self.draft.list_id, &self.draft.member, tree_id)
             .map_err(|_| EntryProofError::Hashing)?;
         let slot = match self.spent {
-            None => InputSlot::claim(
-                self.owner,
-                self.draft.list_id,
-                &self.draft.member,
-                address,
-                tree_id,
-            )?,
+            None => {
+                let seed = entry_seed(self.draft.list_id, &self.draft.member)
+                    .map_err(|_| EntryProofError::Hashing)?;
+                InputSlot::claim(self.owner, seed, address, tree_id)?
+            }
             Some(spent) => InputSlot::spend(
                 indexer,
                 self.entries_tree,
                 self.owner,
-                &spent,
-                address,
+                SpentLeaf {
+                    data_hash: spent
+                        .data_hash(&address)
+                        .map_err(|_| EntryProofError::Hashing)?,
+                    blinding: spent.blinding(),
+                },
                 tree_id,
             )?,
         };
+        let draft = self.draft;
+        let entry = |blinding| ListEntry {
+            list_id: draft.list_id,
+            member: draft.member,
+            state: draft.state,
+            version: draft.version,
+            content_hash: draft.content_hash,
+            blinding,
+        };
+        let output_data_hash = entry([0u8; 32])
+            .data_hash(&address)
+            .map_err(|_| EntryProofError::Hashing)?;
+        let (blinding, proof) = NamespaceWrite {
+            owner: self.owner,
+            namespace: self.namespace,
+            entries_tree: self.entries_tree,
+            entries_tree_id: tree_id,
+            payer: self.payer,
+            slot,
+            output_data_hash,
+        }
+        .prove(indexer, rpc, prover, |blinding| {
+            entry(blinding).to_output_data().to_vec()
+        })?;
+        Ok((entry(blinding), proof))
+    }
+}
 
+pub(crate) struct SpentLeaf {
+    pub data_hash: [u8; 32],
+    pub blinding: [u8; 32],
+}
+
+pub(crate) struct NamespaceWrite<'a> {
+    pub owner: &'a ListNamespace,
+    pub namespace: Address,
+    pub entries_tree: Address,
+    pub entries_tree_id: u16,
+    pub payer: Address,
+    pub slot: InputSlot,
+    /// Must not depend on the derived blinding.
+    pub output_data_hash: [u8; 32],
+}
+
+impl NamespaceWrite<'_> {
+    /// `content` publishes the successor under the derived blinding.
+    pub(crate) fn prove<I: Rpc, R: Rpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+        prover: &ProverClient,
+        content: impl FnOnce([u8; 32]) -> Vec<u8>,
+    ) -> Result<([u8; 32], EntryProof), EntryProofError> {
+        let tree_id = self.entries_tree_id;
+        let slot = self.slot;
         // SPP derives every output blinding from the first nullifier and a private seed.
         let mut blinding_seed = [0u8; 32];
         OsRng.fill_bytes(&mut blinding_seed);
@@ -130,14 +188,6 @@ impl EntryWitness<'_> {
             .map_err(|_| EntryProofError::Hashing)?;
         let private_tx_blinding = derive_private_tx_blinding(&slot.nullifier, &blinding_seed)
             .map_err(|_| EntryProofError::Hashing)?;
-        let entry = ListEntry {
-            list_id: self.draft.list_id,
-            member: self.draft.member,
-            state: self.draft.state,
-            version: self.draft.version,
-            content_hash: self.draft.content_hash,
-            blinding,
-        };
 
         let non_inclusion = non_inclusion_proof(indexer, self.entries_tree, slot.nullifier)?;
         let owner_pk_hash = solana_owner_identity(self.namespace.as_array())
@@ -145,20 +195,19 @@ impl EntryWitness<'_> {
         let payer_hash =
             solana_owner_identity(self.payer.as_array()).map_err(|_| EntryProofError::Hashing)?;
 
-        let output_hash = entry
-            .utxo_hash(self.owner, &address, tree_id)
+        let output_data_hash = self.output_data_hash;
+        let output_hash = self
+            .owner
+            .leaf_hash(&output_data_hash, &blinding, tree_id)
             .map_err(|_| EntryProofError::Hashing)?;
-        let output_data_hash = entry
-            .data_hash(&address)
-            .map_err(|_| EntryProofError::Hashing)?;
-        let content = entry.to_output_data();
+        let content = content(blinding);
         let external = ExternalData::new(
             [0u8; 33],
             [0u8; 16],
             vec![TransactOutput {
                 utxo_hash: output_hash,
                 owner_tag: OwnerTag::Inline(self.namespace.to_bytes()),
-                data: Some(content.to_vec()),
+                data: Some(content),
             }],
             vec![self.namespace.to_bytes()],
             Vec::new(),
@@ -265,7 +314,7 @@ impl EntryWitness<'_> {
         };
         let proof = prover.prove_transfer(&inputs)?;
         Ok((
-            entry,
+            blinding,
             EntryProof {
                 proof: ProofCompressed::try_from(proof)
                     .map_err(|_| EntryProofError::InvalidProof)?
@@ -281,7 +330,7 @@ impl EntryWitness<'_> {
 
 /// The input the transfer spends. A claim carries an address slot and no state
 /// path, a spend carries the live version's leaf.
-struct InputSlot {
+pub(crate) struct InputSlot {
     utxo: ProofInputUtxo,
     input_hash: [u8; 32],
     /// The address a claim inserts, the chain element of its slot.
@@ -291,14 +340,13 @@ struct InputSlot {
 }
 
 impl InputSlot {
-    fn claim(
+    /// The address slot of `seed`, its blinding is the seed.
+    pub(crate) fn claim(
         owner: &ListNamespace,
-        list_id: ListId,
-        member: &Member,
+        seed: [u8; 32],
         address: [u8; 32],
         tree_id: u16,
     ) -> Result<Self, EntryProofError> {
-        let seed = entry_seed(list_id, member).map_err(|_| EntryProofError::Hashing)?;
         let utxo = ProofInputUtxo {
             domain: right_align(&ADDRESS_DOMAIN.to_be_bytes()),
             tree_id: tree_id_field(tree_id),
@@ -315,30 +363,26 @@ impl InputSlot {
         })
     }
 
-    fn spend<I: Rpc>(
+    pub(crate) fn spend<I: Rpc>(
         indexer: &I,
         tree: Address,
         owner: &ListNamespace,
-        spent: &ListEntry,
-        address: [u8; 32],
+        spent: SpentLeaf,
         tree_id: u16,
     ) -> Result<Self, EntryProofError> {
-        let input_hash = spent
-            .utxo_hash(owner, &address, tree_id)
+        let input_hash = owner
+            .leaf_hash(&spent.data_hash, &spent.blinding, tree_id)
             .map_err(|_| EntryProofError::Hashing)?;
-        let nullifier = entry_nullifier(&input_hash, &spent.blinding())
-            .map_err(|_| EntryProofError::Hashing)?;
-        let data_hash = spent
-            .data_hash(&address)
-            .map_err(|_| EntryProofError::Hashing)?;
+        let nullifier =
+            entry_nullifier(&input_hash, &spent.blinding).map_err(|_| EntryProofError::Hashing)?;
         let utxo = ProofInputUtxo {
             domain: right_align(&UTXO_DOMAIN.to_be_bytes()),
             tree_id: tree_id_field(tree_id),
             owner_hash: owner.owner_hash,
             asset: SOL_ASSET_FIELD,
             amount: [0u8; 32],
-            blinding: spent.blinding(),
-            data_hash,
+            blinding: spent.blinding,
+            data_hash: spent.data_hash,
             ..ProofInputUtxo::default()
         };
         Ok(Self {

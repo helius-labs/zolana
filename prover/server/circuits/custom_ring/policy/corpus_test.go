@@ -69,7 +69,7 @@ func TestPolicyHashCorpus(t *testing.T) {
 		for j, a := range tc.InlineAssets {
 			assets[j] = hexField(t, a)
 		}
-		got := hex32(hostPolicyHash(t, rules, assets, tc.InlineLimits, sources))
+		got := hex32(hostPolicyHash(t, rules, assets, tc.InlineLimits, sources, 0, nil))
 		if got != tc.PolicyHash {
 			t.Fatalf("case %d hashes to %s, the Rust side pins %s", i, got, tc.PolicyHash)
 		}

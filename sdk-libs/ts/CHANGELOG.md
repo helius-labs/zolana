@@ -2,6 +2,51 @@
 
 ## 0.1.6-alpha — unreleased
 
+Velocity rings bound each sender's outflow per mint over a fixed window and
+demand the co-signer above a threshold. The pinned rule table gains a window
+and velocity rows, the policy config account grows to 1604 bytes, the ring
+transact carries an approval byte, and the policy statement binds the ring
+id, the namespace owner and the window.
+
+Breaking
+
+- `RING_POLICY_VERSION` is 5 and `ringPolicyHash` folds `windowSlots` and
+  the velocity rows after the inline assets → every policy hash of an earlier
+  release differs, re-pin tables with the matching program release.
+- `RingPolicyConfig` adds `namespaceOwnerHash`, `windowSlots`,
+  `velocityCount` and `velocity`, and `decodeRingPolicyConfig` accepts only
+  the 1604-byte account → configs of an earlier program release no longer
+  decode.
+- `RuleTable` and `EncodedRuleTable` carry `windowSlots` and `velocity`,
+  `buildRuleTable` takes them as options and refuses rows without a window,
+  a zero mint, a repeated mint or a row without a bound.
+- `policyPublicInputHash` takes `ringId`, `namespaceOwnerHash`,
+  `windowIndex` and `approvalRequired`, and `CustomRingPolicyProofRequest`
+  carries a `velocity` witness → build it with `velocityWitnessOff` on a ring
+  without a window.
+- `proveCustomRingTransfer` refuses a ring with a window with
+  `RING_VELOCITY_UNSUPPORTED`, the record slots of a velocity transfer are
+  assembled by the Rust SDK only.
+
+Added
+
+- `SpendRecord`, `SpendCounters`, `encodeSpendRecord`, `decodeSpendRecord`,
+  `encodeSpendCounters`, `decodeSpendCounters`, `spendCountersCommitment`,
+  `spendCountersSpent`, `zeroSpendCounters`, `spendSeed`,
+  `RingListNamespace.spendAddress`, `RingListNamespace.spendRecordHashes`
+  and `RingListNamespace.leafHash` mirror the Rust spend record.
+- `readRingSpendRecord` walks a member's record lineage through the indexer
+  and returns the live version with the transaction that published it.
+- `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
+  build the tag 26 registration over a proven claim.
+- `ringTransactInstruction` and `ringDelegateTransactInstruction` take
+  `approvalRequired`.
+- `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
+  `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
+  `velocityWitnessOff`.
+- Ring error codes `RING_SPEND_RECORD_INVALID`,
+  `RING_SPEND_RECORD_LINEAGE_BROKEN` and `RING_VELOCITY_UNSUPPORTED`.
+
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
 entries tree, and a ring transfer can land its outputs in a tree other than
@@ -61,6 +106,12 @@ Breaking
   (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
   `outputTreeId`, and `blindingSeed` → run a prover from this release.
 
+- `ringTransactInstruction` and `ringDepositInstruction` place the ring's
+  co-signer accounts, `cosigner_pda` and `cosigner`, after the config and
+  ahead of the forwarded list, then one spend window account per public leg,
+  a ring program from this release refuses the old layout → rebuild ring
+  transactions with this release, pass `cosigner` when the ring's co-signer
+  scope covers the operation, an SPL leg needs its `withdrawal` accounts.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
   the upgrade `authority` alongside `payer`.
@@ -199,6 +250,27 @@ Added
   `RING_POLICY_CONFIG_INVALID`.
 - `ZolanaClient.proveCustomRingBase` proves the audit statement from a
   `CustomRingBaseProofRequest`.
+- `setRingDelegateInstruction` sets a ring's permanent delegate under the
+  upgrade authority, `fetchRingDelegate` and `decodeRingDelegate` read it as
+  `RingDelegate`, `ringDelegateAddress` derives its account, and
+  `ringDelegateTransactInstruction` builds a delegate move over the shielded
+  pool's authority rail from a proven transact, refusing a public leg with
+  `RING_DELEGATE_PUBLIC_LEG`, a malformed account is `RING_DELEGATE_INVALID`.
+- `setRingSpendWindowInstruction` and `clearRingSpendWindowInstruction` set
+  and close a mint's spend window, a cap on the ring's public deposits and
+  withdrawals per fixed window of slots, `fetchRingSpendWindow` and
+  `decodeRingSpendWindow` read it as `RingSpendWindow`,
+  `ringSpendWindowAddress` derives its account, and a malformed account is
+  `RING_SPEND_WINDOW_INVALID`.
+- `setRingCoSignerInstruction` and `clearRingCoSignerInstruction` set and
+  close a ring's co-signer, a second Solana key with a scope over transfers,
+  deposits and withdrawals (`RING_COSIGN_*`) and per-mint withdrawal
+  thresholds, `fetchRingCoSigner` and `decodeRingCoSigner` read it as
+  `RingCoSigner`, `ringCoSignerAddress` derives its account, and
+  `buildRingTransferTransaction`, `buildRingEntryTransaction`,
+  `buildRingExitTransaction`, `buildRingWithdrawalTransaction` and
+  `buildRingDepositTransaction` take `cosigner`. A scope or threshold table
+  the program refuses is `RING_CO_SIGNER_INVALID`.
 - `setRingPausedInstruction` pauses or resumes a ring under its own authority,
   the shielded pool refuses the ring's transactions while it is paused, and
   `RING_SET_PAUSED_COMPUTE_UNIT_LIMIT` is its compute budget.

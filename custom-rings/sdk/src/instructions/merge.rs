@@ -16,7 +16,7 @@ use zolana_transaction::{
     SppProofOutputUtxo,
 };
 
-use crate::CustomRing;
+use crate::{instructions::cosigner::cosigner_metas, CustomRing};
 
 pub use zolana_client::{MergeRingProver, MergeRingWitness};
 pub use zolana_transaction::instructions::merge::MERGE_INPUTS;
@@ -66,6 +66,7 @@ pub struct CustomRingMergeProofEnvironment<'a, I> {
 
 pub struct ProvenCustomRingMerge {
     ring: CustomRing,
+    cosigner: Option<Address>,
     pub data: MergeRingIxData,
     pub output_hash: [u8; 32],
     pub input_count: usize,
@@ -138,6 +139,7 @@ impl PreparedCustomRingMerge {
 
         Ok(ProvenCustomRingMerge {
             ring,
+            cosigner: None,
             data: result.ring_instruction_data(proof, output_ring_data_hash),
             output_hash: result.output_hash,
             input_count,
@@ -147,6 +149,13 @@ impl PreparedCustomRingMerge {
 }
 
 impl ProvenCustomRingMerge {
+    /// The ring's co-signer, a signer of the transaction when set.
+    #[must_use = "use the updated merge"]
+    pub fn with_cosigner(mut self, cosigner: Address) -> Self {
+        self.cosigner = Some(cosigner);
+        self
+    }
+
     pub fn instruction(
         self,
         input_tree: Address,
@@ -158,6 +167,7 @@ impl ProvenCustomRingMerge {
             input_tree,
             output_tree,
             payer,
+            cosigner: self.cosigner,
             data: self.data,
         }
         .instruction()
@@ -213,13 +223,15 @@ fn fetch_spend_proofs<I: Rpc>(
         .collect()
 }
 
-/// Client instruction for a proved custom-ring merge.
+/// Client instruction for a proved custom-ring merge, the ring's
+/// `[cosigner_pda, cosigner]` prefix precedes the forwarded list.
 #[must_use]
 pub struct CustomRingMergeInstruction {
     pub ring: CustomRing,
     pub input_tree: Address,
     pub output_tree: Address,
     pub payer: Address,
+    pub cosigner: Option<Address>,
     pub data: MergeRingIxData,
 }
 
@@ -230,9 +242,10 @@ impl CustomRingMergeInstruction {
             input_tree,
             output_tree,
             payer,
+            cosigner,
             data,
         } = self;
-        MergeRing {
+        let mut instruction = MergeRing {
             input_tree,
             output_tree,
             ring_program_id: ring.program_id(),
@@ -240,7 +253,11 @@ impl CustomRingMergeInstruction {
             data: data.merge,
             output_ring_data_hash: data.output_ring_data_hash,
         }
-        .instruction()
+        .instruction();
+        instruction
+            .accounts
+            .splice(0..0, cosigner_metas(ring, cosigner));
+        instruction
     }
 }
 
@@ -298,6 +315,7 @@ mod tests {
             },
         };
         let instruction = CustomRingMergeInstruction {
+            cosigner: None,
             ring,
             input_tree: Address::new_from_array([1; 32]),
             output_tree: Address::new_from_array([2; 32]),
@@ -307,11 +325,12 @@ mod tests {
         .instruction();
 
         assert_eq!(instruction.program_id, ring.program_id());
+        assert_eq!(instruction.accounts[0].pubkey, ring.cosigner_pda());
         assert_eq!(
-            instruction.accounts[2].pubkey,
+            instruction.accounts[4].pubkey,
             pda::ring_auth(&ring.program_id()).0
         );
-        assert!(!instruction.accounts[2].is_signer);
+        assert!(!instruction.accounts[4].is_signer);
         assert_eq!(
             instruction.data.first(),
             Some(&zolana_interface::instruction::tag::RING_MERGE_TRANSACT)

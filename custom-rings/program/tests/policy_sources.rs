@@ -10,13 +10,13 @@ use solana_account::Account;
 use solana_instruction::AccountMeta;
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
-use zolana_ring_policy::{ListId, ListSet};
+use zolana_ring_policy::{ListId, ListNamespace, ListSet};
 
 use crate::common::{
     authority, create_policy_fixture_with, curator_namespace_pda,
     curator_policy_config_account_with, curator_slot, curator_source_slots, entries_tree,
     initialized_curator_policy_config_account, initialized_policy_config_account, mixed_sources,
-    own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
+    namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     set_policy_source_fixture, setup_mollusk, specs_with_block_source, stored_policy_config,
     table_ix_data, EntryFixture, Fixture, ENTRIES_TREE_ID, RELEASED_RULES, WARPED_SLOT,
 };
@@ -302,18 +302,24 @@ fn an_own_served_kind_passes_the_source_gate() {
 #[test]
 fn the_layout_pins_every_field_offset() {
     let account = released_config();
-    assert_eq!(PolicyConfig::SIZE, 1179);
+    assert_eq!(PolicyConfig::SIZE, 1604);
     assert_eq!(account.data.len(), PolicyConfig::SIZE);
     assert_eq!(account.data[33..65], entries_tree().to_bytes());
     assert_eq!(account.data[65..67], ENTRIES_TREE_ID.to_le_bytes());
-    let sources = own_source_slots(&RELEASED_RULES);
-    assert_eq!(&account.data[69..333], bytemuck::bytes_of(&sources));
     assert_eq!(
-        &account.data[333..1167],
+        account.data[69..101],
+        ListNamespace::new(namespace_pda().0.as_array())
+            .expect("namespace owner")
+            .owner_hash
+    );
+    let sources = own_source_slots(&RELEASED_RULES);
+    assert_eq!(&account.data[101..365], bytemuck::bytes_of(&sources));
+    assert_eq!(
+        &account.data[365..1592],
         bytemuck::bytes_of(&RELEASED_RULES.encode())
     );
-    assert_eq!(account.data[1167..1171], 1u32.to_le_bytes());
-    assert_eq!(account.data[1171..1179], 0u64.to_le_bytes());
+    assert_eq!(account.data[1592..1596], 1u32.to_le_bytes());
+    assert_eq!(account.data[1596..1604], 0u64.to_le_bytes());
 }
 
 /// Both SPP trees must equal the entries tree, an entry written through another

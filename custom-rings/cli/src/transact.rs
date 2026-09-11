@@ -26,12 +26,13 @@ use crate::{
     line,
     list::{EntryMutation, ListError},
     ring_rpc::{RingRpcClient, RingRpcClientError, TransactionLookup},
+    spend::{Registration, SpendError},
     ui::{self, Icon},
     Context, ContextError, TransactArgs, TransferArgs, SENDER_KEYPAIR_FILE,
 };
 
 /// Covers the sender's lookup table rent and fees.
-const SENDER_FEE_BUDGET: u64 = 20_000_000;
+pub(crate) const SENDER_FEE_BUDGET: u64 = 20_000_000;
 /// Lookup table rent, the deposit and transact fees.
 const PAYER_FEE_BUDGET: u64 = 10_000_000;
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
@@ -44,6 +45,7 @@ pub struct DemoTransfer<'a> {
     pub payer: &'a dyn Signer,
     pub sender: ShieldedKeypair,
     pub amount: u64,
+    pub cosigner: Option<&'a dyn Signer>,
 }
 
 /// Whatever the two deposits hold above `amount` stays with the sender.
@@ -56,6 +58,7 @@ struct RingTransfer<'a> {
     amount: u64,
     tree: Address,
     assets: &'a AssetRegistry,
+    cosigner: Option<&'a dyn Signer>,
 }
 
 struct Deposited<'a> {
@@ -131,6 +134,16 @@ pub enum TransactError {
     ReaderNotGranted { reader: ReaderKey },
     #[error("amount {amount} does not split across the two deposits a ring transfer spends")]
     AmountTooSmall { amount: u64 },
+    #[error(transparent)]
+    Spend(Box<SpendError>),
+    #[error("the transfer needs the co-signer's approval, pass --cosigner-keypair")]
+    ApprovalNeedsCoSigner,
+}
+
+impl From<SpendError> for TransactError {
+    fn from(error: SpendError) -> Self {
+        Self::Spend(Box::new(error))
+    }
 }
 
 impl From<ListError> for TransactError {
@@ -150,11 +163,13 @@ pub fn run(ctx: &mut Context, args: TransactArgs) -> Result<(), TransactError> {
     {
         return Err(TransactError::ReaderNotGranted { reader: reader_key });
     }
+    let cosigner = cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
     let receipt = DemoTransfer {
         ring: ctx.ring,
         payer: &session.authority,
         sender: sender_keypair(ctx)?,
         amount: args.amount,
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
     }
     .run(session.env(ctx))?;
     line(
@@ -196,6 +211,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
     let session = Session::open(ctx, args.amount)?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
+    let cosigner = cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
     let sent = RingTransfer {
         ring: ctx.ring,
         payer: &session.authority,
@@ -205,6 +221,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
         amount: args.amount,
         tree: pda::tree(0),
         assets: &AssetRegistry::default(),
+        cosigner: cosigner.as_ref().map(|keypair| keypair as &dyn Signer),
     }
     .send(session.env(ctx))?;
     line("to", args.to);
@@ -238,15 +255,15 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
 }
 
 /// Opened only after the ring rpc serves the configured auditor.
-struct Session {
-    authority: solana_keypair::Keypair,
-    ring_rpc: RingRpcClient,
-    indexer: ZolanaIndexer,
-    prover: zolana_client::ProverClient,
+pub(crate) struct Session {
+    pub authority: solana_keypair::Keypair,
+    pub ring_rpc: RingRpcClient,
+    pub indexer: ZolanaIndexer,
+    pub prover: zolana_client::ProverClient,
 }
 
 impl Session {
-    fn open(ctx: &mut Context, deposited: u64) -> Result<Self, TransactError> {
+    pub fn open(ctx: &mut Context, deposited: u64) -> Result<Self, TransactError> {
         let needed = deposited
             .saturating_add(SENDER_FEE_BUDGET)
             .saturating_add(PAYER_FEE_BUDGET);
@@ -350,6 +367,7 @@ impl DemoTransfer<'_> {
             amount: self.amount,
             tree: pda::tree(0),
             assets: &assets,
+            cosigner: self.cosigner,
         }
         .deposit(env.indexer, env.rpc)?;
         if enrol {
@@ -395,6 +413,7 @@ impl<'a> RingTransfer<'a> {
                 tree: self.tree,
                 asset: DepositAsset::Sol,
                 amount,
+                cosigner: self.cosigner,
             }
             .send(rpc)?;
             utxos.push(utxo);
@@ -472,6 +491,17 @@ impl Deposited<'_> {
         );
         env.rpc
             .create_and_send_transaction(&[fee], this.payer.pubkey(), &[this.payer])?;
+        if policy_rules(this.ring, rpc)?.is_some_and(|rules| rules.window_slots() != 0) {
+            let outcome = Registration {
+                ring: this.ring,
+                sender: &sender,
+                rpc,
+                indexer: env.indexer,
+                prover: env.prover,
+            }
+            .ensure()?;
+            line("spend record", outcome.label());
+        }
 
         let tree_id = custom_ring_sdk::tree_id(rpc, this.tree)?;
         let inputs = utxos
@@ -485,17 +515,24 @@ impl Deposited<'_> {
                 .with_output_tree_id(tree_id);
         transfer.send(&this.recipient, SOL_MINT, this.amount)?;
         let prepared = transfer.prepare()?;
-        let proven = CustomRingTransfer::new(CustomRingTransferInput {
+        let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
             sender: &sender,
             prepared,
         })
         .with_tree(this.tree)
-        .with_assets(this.assets)
-        .prove(env)?;
+        .with_assets(this.assets);
+        if let Some(cosigner) = this.cosigner {
+            transfer = transfer.with_cosigner(cosigner.pubkey());
+        }
+        let proven = transfer.prove(env)?;
+        if proven.approval_required && this.cosigner.is_none() {
+            return Err(TransactError::ApprovalNeedsCoSigner);
+        }
+        let signers: Vec<&dyn Signer> = this.cosigner.into_iter().collect();
         let transact = V0WithLookupTable {
             payer: &sender,
-            signers: &[],
+            signers: &signers,
             instruction: proven.instruction()?,
         }
         .send(rpc)?;
@@ -516,11 +553,22 @@ fn policy_rules(ring: CustomRing, rpc: &SolanaRpc) -> Result<Option<RuleTable>, 
         .map_err(|error| TransactError::PolicyMatch(Box::new(error)))
 }
 
+/// Not checked against the ring's scope, the program decides.
+pub(crate) fn cosigner_keypair(
+    ctx: &Context,
+    path: Option<&Path>,
+) -> Result<Option<solana_keypair::Keypair>, FileError> {
+    path.map(|path| file::read_keypair(&ctx.project_path(path)))
+        .transpose()
+}
+
 /// Kept between runs, earlier change stays spendable with it.
 fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, TransactError> {
-    let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
-    let keypair = file::read_or_create_keypair(&path)?;
-    Ok(ShieldedKeypair::from_keypair(&keypair)?)
+    Ok(ShieldedKeypair::from_keypair(&sender_keypair_file(ctx)?)?)
+}
+
+pub(crate) fn sender_keypair_file(ctx: &Context) -> Result<solana_keypair::Keypair, FileError> {
+    file::read_or_create_keypair(&ctx.project_path(Path::new(SENDER_KEYPAIR_FILE)))
 }
 
 /// An `Err` from `probe` is final, `Retry` is kept for the timeout message.

@@ -57,6 +57,140 @@ const _: () = assert!(core::mem::align_of::<RingProgramConfig>() == 1);
 const _: () = assert!(ReadAccessRecord::SIZE == 36);
 const _: () = assert!(core::mem::align_of::<ReadAccessRecord>() == 1);
 
+pub const CO_SIGNER_PDA_SEED: &[u8] = b"cosigner";
+/// First byte of an initialized co-signer account.
+pub const CO_SIGNER: u8 = 4;
+pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
+
+/// Scope bits of [`CoSigner`], a transact is always a transfer and a public
+/// leg adds its class.
+pub const COSIGN_TRANSFERS: u8 = 1;
+pub const COSIGN_DEPOSITS: u8 = 2;
+pub const COSIGN_WITHDRAWALS: u8 = 4;
+pub const COSIGN_SCOPE_MASK: u8 = COSIGN_TRANSFERS | COSIGN_DEPOSITS | COSIGN_WITHDRAWALS;
+
+/// Withdrawals of `mint` in one transaction summed above `amount` need the
+/// co-signer, a withdrawn mint without a row always does.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct WithdrawalThreshold {
+    pub mint: Address,
+    /// Little endian.
+    pub amount: [u8; 8],
+}
+
+/// The ring's optional second signature, absent account means no requirement.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct CoSigner {
+    pub discriminator: u8,
+    pub signer: Address,
+    pub scope: u8,
+    pub threshold_count: u8,
+    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub bump: u8,
+}
+
+impl WithdrawalThreshold {
+    pub const fn amount(&self) -> u64 {
+        u64::from_le_bytes(self.amount)
+    }
+}
+
+impl CoSigner {
+    pub const SEED: &'static [u8] = CO_SIGNER_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub fn thresholds(&self) -> &[WithdrawalThreshold] {
+        &self.thresholds[..usize::from(self.threshold_count).min(MAX_CO_SIGNER_THRESHOLDS)]
+    }
+
+    pub fn threshold(&self, mint: &Address) -> Option<u64> {
+        self.thresholds()
+            .iter()
+            .find(|row| &row.mint == mint)
+            .map(WithdrawalThreshold::amount)
+    }
+}
+
+const _: () = assert!(CoSigner::SIZE == 356);
+const _: () = assert!(core::mem::align_of::<CoSigner>() == 1);
+
+pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
+/// First byte of an initialized delegate account.
+pub const DELEGATE: u8 = 6;
+
+/// The key that moves notes between members on the authority rail, set once.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct Delegate {
+    pub discriminator: u8,
+    pub delegate: Address,
+    pub bump: u8,
+}
+
+impl Delegate {
+    pub const SEED: &'static [u8] = DELEGATE_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+}
+
+const _: () = assert!(Delegate::SIZE == 34);
+const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
+
+pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
+/// First byte of an initialized spend window.
+pub const SPEND_WINDOW: u8 = 5;
+
+/// Caps per fixed window of slots, a zero cap leaves its direction uncapped,
+/// integers little endian.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct SpendWindow {
+    pub discriminator: u8,
+    /// SOL under the zero address.
+    pub mint: Address,
+    pub window_slots: [u8; 8],
+    pub deposit_cap: [u8; 8],
+    pub withdrawal_cap: [u8; 8],
+    /// First slot of the window the counters belong to.
+    pub window_start_slot: [u8; 8],
+    pub deposited: [u8; 8],
+    pub withdrawn: [u8; 8],
+    pub bump: u8,
+}
+
+impl SpendWindow {
+    pub const SEED: &'static [u8] = SPEND_WINDOW_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub const fn window_slots(&self) -> u64 {
+        u64::from_le_bytes(self.window_slots)
+    }
+
+    pub const fn deposit_cap(&self) -> u64 {
+        u64::from_le_bytes(self.deposit_cap)
+    }
+
+    pub const fn withdrawal_cap(&self) -> u64 {
+        u64::from_le_bytes(self.withdrawal_cap)
+    }
+
+    pub const fn window_start_slot(&self) -> u64 {
+        u64::from_le_bytes(self.window_start_slot)
+    }
+
+    pub const fn deposited(&self) -> u64 {
+        u64::from_le_bytes(self.deposited)
+    }
+
+    pub const fn withdrawn(&self) -> u64 {
+        u64::from_le_bytes(self.withdrawn)
+    }
+}
+
+const _: () = assert!(SpendWindow::SIZE == 82);
+const _: () = assert!(core::mem::align_of::<SpendWindow>() == 1);
+
 /// Seed of the account pinning the policy hash and the source map.
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";
 /// First byte of an initialized policy config.
@@ -86,6 +220,8 @@ pub struct PolicyConfig {
     pub entries_tree_id: [u8; 2],
     pub namespace_bump: u8,
     pub bump: u8,
+    /// The shielded owner of every record the ring's namespace holds.
+    pub namespace_owner_hash: [u8; 32],
     /// Non-empty exactly for the lists `rules` references.
     pub sources: [SourceSlot; N_SOURCE_SLOTS],
     pub rules: EncodedRuleTable,
@@ -124,8 +260,8 @@ impl PolicyConfig {
 }
 
 const _: () = assert!(core::mem::size_of::<SourceSlot>() == 33);
-const _: () = assert!(PolicyConfig::SIZE == 1179);
+const _: () = assert!(PolicyConfig::SIZE == 1604);
 const _: () = assert!(core::mem::align_of::<PolicyConfig>() == 1);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 333);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1167);
-const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1171);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, rules) == 365);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation) == 1592);
+const _: () = assert!(core::mem::offset_of!(PolicyConfig, generation_slot) == 1596);

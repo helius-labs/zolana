@@ -4,6 +4,8 @@ import { AccountRole, type Address, type Instruction } from "@solana/kit";
 import {
   SYSTEM_PROGRAM,
   meta,
+  ringCoSignerMetas,
+  ringSpendWindowMetas,
   ringTransactAccounts,
   type SignerAccount,
 } from "../interface/instructions/index.js";
@@ -18,10 +20,13 @@ import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
+  ringCoSignerAddress,
+  ringDelegateAddress,
 } from "../interface/pda/index.js";
-import type { TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
+import type { Bytes32, TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
+import { SOL_MINT } from "../transaction/asset.js";
 
 import { Writer } from "../interface/internal.js";
 
@@ -48,11 +53,13 @@ const RingProgramTag = Object.freeze({
   createConfig: 1,
   initSppRingConfig: 2,
   transact: 3,
+  delegateTransact: 25,
   createPolicy: 7,
   createEntry: 8,
   updateEntry: 9,
   setPolicySource: 10,
   setPolicyRules: 12,
+  registerSpend: 26,
 } as const);
 
 /** Rust `*_COMPUTE_UNIT_LIMIT`. */
@@ -64,6 +71,7 @@ export const RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
+export const RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
 export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
   (
@@ -143,32 +151,43 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`. */
+/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`, `[cosigner_pda, cosigner]` follow the config. */
+/** What every ring transact carries, the member and the delegate rail alike. */
+type RingTransactCommon = Readonly<{
+  ringProgramId: Address;
+  payer: SignerAccount;
+  inputTree: Address;
+  outputTree: Address;
+  /** Read for the policy roots, never forwarded to SPP. */
+  entriesTree?: Address;
+  /** False drops the policy_config and entries_tree accounts. */
+  hasPolicy?: boolean;
+  proof: Uint8Array;
+  /** History entries the ring statement binds, unread by a ring without rules. */
+  stateRootIndex: number;
+  nullifierRootIndex: number;
+  data: TransactInstructionData;
+  /** The ring's co-signer, a signer when set. */
+  cosigner?: SignerAccount;
+  /** The dual control bit the velocity statement proves, the co-signer then signs. */
+  approvalRequired?: boolean;
+}>;
+
 export async function ringTransactInstruction(
-  input: Readonly<{
-    ringProgramId: Address;
-    payer: SignerAccount;
-    inputTree: Address;
-    outputTree: Address;
-    /** Read for the policy roots, never forwarded to SPP. */
-    entriesTree?: Address;
-    /** False drops the policy_config and entries_tree accounts. */
-    hasPolicy?: boolean;
-    proof: Uint8Array;
-    /** History entries the ring statement binds, unread by a ring without rules. */
-    stateRootIndex: number;
-    nullifierRootIndex: number;
-    data: TransactInstructionData;
-    /** Non-payer input owners, the ed25519 rail adds them as signers. */
-    ownerSigners?: readonly SignerAccount[];
-    /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
-    withdrawal?: TransactWithdrawal;
-  }>,
+  input: RingTransactCommon &
+    Readonly<{
+      /** Non-payer input owners, the ed25519 rail adds them as signers. */
+      ownerSigners?: readonly SignerAccount[];
+      /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
+      withdrawal?: TransactWithdrawal;
+    }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
-  const [config, ringAuth] = await Promise.all([
+  const [config, ringAuth, cosignerPda, windows] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
   ]);
   const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
   const pool = await ringTransactAccounts({
@@ -180,17 +199,6 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
-  const proof = checkedCustomRingProof(input.proof);
-  const rootIndexes = new Writer()
-    .u16(input.stateRootIndex, "stateRootIndex")
-    .u16(input.nullifierRootIndex, "nullifierRootIndex")
-    .finish();
-  const transact = encodeTransactInstructionData(input.data);
-  const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
-  data[0] = RingProgramTag.transact;
-  data.set(proof, 1);
-  data.set(rootIndexes, 1 + proof.length);
-  data.set(transact, 1 + proof.length + rootIndexes.length);
   return {
     programAddress: input.ringProgramId,
     accounts: [
@@ -200,11 +208,91 @@ export async function ringTransactInstruction(
         ...(typeof input.payer === "string" ? {} : { signer: input.payer }),
       },
       { address: config, role: AccountRole.READONLY },
+      ...ringCoSignerMetas(cosignerPda, input.cosigner),
+      ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
+      ...windows,
+      ...pool,
+    ],
+    data: transactData(RingProgramTag.transact, input),
+  };
+}
+
+/** `tag || proof || root indexes || approval || SPP content`, the layout tag 3 and tag 25 share. */
+function transactData(
+  tag: number,
+  input: Readonly<{
+    proof: Uint8Array;
+    stateRootIndex: number;
+    nullifierRootIndex: number;
+    approvalRequired?: boolean;
+    data: TransactInstructionData;
+  }>,
+): Uint8Array {
+  const proof = checkedCustomRingProof(input.proof);
+  const rootIndexes = new Writer()
+    .u16(input.stateRootIndex, "stateRootIndex")
+    .u16(input.nullifierRootIndex, "nullifierRootIndex")
+    .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired")
+    .finish();
+  const transact = encodeTransactInstructionData(input.data);
+  const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
+  data[0] = tag;
+  data.set(proof, 1);
+  data.set(rootIndexes, 1 + proof.length);
+  data.set(transact, 1 + proof.length + rootIndexes.length);
+  return data;
+}
+
+/** Mirrors Rust `CustomRingDelegateTransact`, the delegate signs and value stays inside the ring. */
+export async function ringDelegateTransactInstruction(
+  input: RingTransactCommon & Readonly<{ delegate: SignerAccount }>,
+): Promise<Instruction> {
+  if (input.data.interfaceTransfers.length > 0) {
+    throw new RingError("RING_DELEGATE_PUBLIC_LEG", {
+      details: { legs: input.data.interfaceTransfers.length },
+    });
+  }
+  const hasPolicy = input.hasPolicy ?? true;
+  const [config, ringAuth, cosignerPda, delegatePda] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringDelegateAddress(input.ringProgramId),
+  ]);
+  const pool = await ringTransactAccounts({
+    payer: input.payer,
+    inputTree: input.inputTree,
+    outputTree: input.outputTree,
+    ringAuth,
+    inputs: input.data.inputs,
+  });
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(config, false, false),
+      ...ringCoSignerMetas(cosignerPda, input.cosigner),
+      meta(delegatePda, false, false),
+      meta(input.delegate, true, false),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
       ...pool,
     ],
-    data,
+    data: transactData(RingProgramTag.delegateTransact, input),
   };
+}
+
+/** The mint of every public leg in leg order, an SPL leg settles through `withdrawal`. */
+function settledMints(
+  data: TransactInstructionData,
+  withdrawal: TransactWithdrawal | undefined,
+): Address[] {
+  return data.interfaceTransfers.map((leg) => {
+    if (leg.kind === "solDeposit" || leg.kind === "solWithdrawal") return SOL_MINT;
+    if (withdrawal?.kind !== "spl") {
+      throw new RingError("RING_BUILD_WITHDRAWAL", { details: { leg: leg.kind } });
+    }
+    return withdrawal.mint;
+  });
 }
 
 /** The policy tier reads `policy_config` and `entries_tree`, read-only and before the SPP list. */
@@ -361,6 +449,30 @@ export async function updateRingEntryInstruction(
   return entryInstruction(input, data.finish());
 }
 
+/** Mirrors Rust `ProvenSpendRegistration::instruction`, the record content is derived on chain. */
+export async function registerRingSpendInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    /** The member, its Solana key is the record's identity. */
+    payer: SignerAccount;
+    entriesTree: Address;
+    /** The SPP output blinding the registration proof derived. */
+    blinding: Bytes32;
+    proof: RingEntryProof;
+  }>,
+): Promise<Instruction> {
+  const data = new Writer()
+    .u8(RingProgramTag.registerSpend, "tag")
+    .bytes(input.blinding, 32, "blinding")
+    .bytes(input.proof.privateTxBlinding, 32, "privateTxBlinding")
+    .u16(input.proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
+    .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")
+    .bytes(input.proof.proof.a, 32, "proof.a")
+    .bytes(input.proof.proof.b, 64, "proof.b")
+    .bytes(input.proof.proof.c, 32, "proof.c");
+  return entryInstruction(input, data.finish());
+}
+
 function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof): void {
   writer
     .u8(entryStateByte(entry), "state")
@@ -380,7 +492,7 @@ function entryStateByte(entry: ListEntry): number {
 
 /** Everything after the two config accounts is forwarded to SPP position for position. */
 async function entryInstruction(
-  input: RingEntryInstructionInput,
+  input: Pick<RingEntryInstructionInput, "ringProgramId" | "payer" | "entriesTree" | "proof">,
   data: Uint8Array,
 ): Promise<Instruction> {
   const [config, policyConfig, namespace, nullifierPda] = await Promise.all([
@@ -444,6 +556,14 @@ async function policyTableBody(
   for (const asset of encoded.inlineAssets) writer.bytes(asset, 32, "inlineAsset");
   writer.u8(encoded.inlineCount, "inlineLimits.length");
   for (const limit of encoded.inlineLimits) writer.u64(limit, "inlineLimit");
+  writer.u64(encoded.windowSlots, "windowSlots");
+  writer.u8(encoded.velocityCount, "velocity.length");
+  for (const row of encoded.velocity) {
+    writer
+      .bytes(row.asset, 32, "velocity.asset")
+      .u64(row.cap, "velocity.cap")
+      .u64(row.cosignAbove, "velocity.cosignAbove");
+  }
   return Object.freeze({
     data: writer.finish(),
     curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
@@ -454,9 +574,11 @@ async function policyTableBody(
 export async function ringLookupTableAddresses(
   input: Readonly<{ ringProgramId: Address; trees: RingTransactTrees }>,
 ): Promise<readonly Address[]> {
-  const [config, ringAuth] = await Promise.all([
+  const [config, ringAuth, cosignerPda, delegatePda] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
     ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringDelegateAddress(input.ringProgramId),
   ]);
   const policy = input.trees.hasPolicy
     ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
@@ -471,6 +593,8 @@ export async function ringLookupTableAddresses(
   });
   const addresses = [
     config,
+    cosignerPda,
+    delegatePda,
     ...[...policy, ...pool]
       .filter(
         (meta) =>

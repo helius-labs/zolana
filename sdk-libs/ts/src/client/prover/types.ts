@@ -133,6 +133,8 @@ export const RING_INLINE_ASSET_SLOTS = 8;
 export const RING_ANSWER_SLOTS = 10;
 /** Rust `MAX_SOURCES`, the positional source map width. */
 export const RING_SOURCE_SLOTS = 8;
+/** Rust `MAX_VELOCITY_ASSETS`, one counter per mint a spend record carries. */
+export const RING_VELOCITY_SLOTS = 8;
 export const RING_STATE_PATH_LENGTH = 32;
 export const RING_NULLIFIER_PATH_LENGTH = 40;
 
@@ -198,6 +200,60 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
+/** Mirrors Rust `VelocityRow`, a zero cap or threshold leaves that bound off. */
+export interface CustomRingVelocityRow {
+  readonly asset: Bytes32;
+  readonly cap: bigint;
+  readonly cosignAbove: bigint;
+}
+
+/** Mirrors Rust `SpendRecordWitness`, the counters matter only inside the current window. */
+export interface CustomRingSpendRecordWitness {
+  readonly version: bigint;
+  readonly window: bigint;
+  readonly commitment: Bytes32;
+  readonly salt: Bytes32;
+  readonly assets: readonly Bytes32[];
+  readonly spent: readonly bigint[];
+  readonly nextSalt: Bytes32;
+}
+
+/** Mirrors Rust `VelocityWitness`, zero rows on a ring without a window. */
+export interface CustomRingVelocityWitness {
+  readonly windowSlots: bigint;
+  readonly rows: readonly CustomRingVelocityRow[];
+  readonly ringId: Bytes32;
+  readonly namespaceOwnerHash: Bytes32;
+  readonly windowIndex: bigint;
+  readonly approvalRequired: boolean;
+  readonly record: CustomRingSpendRecordWitness;
+}
+
+/** Mirrors Rust `VelocityWitness::off`, a ring without a window still binds its id and namespace. */
+export function velocityWitnessOff(
+  ringId: Bytes32,
+  namespaceOwnerHash: Bytes32,
+): CustomRingVelocityWitness {
+  const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
+  return Object.freeze({
+    windowSlots: 0n,
+    rows: Object.freeze([]),
+    ringId,
+    namespaceOwnerHash,
+    windowIndex: 0n,
+    approvalRequired: false,
+    record: Object.freeze({
+      version: 0n,
+      window: 0n,
+      commitment: zero(),
+      salt: zero(),
+      assets: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => zero())),
+      spent: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => 0n)),
+      nextSalt: zero(),
+    }),
+  });
+}
+
 /** Mirrors Rust `CustomRingPolicyProofRequest`, `auditorPublicKey` is the uncompressed SEC1 point. */
 export interface CustomRingPolicyProofRequest {
   readonly publicInputHash: Bytes32;
@@ -221,6 +277,7 @@ export interface CustomRingPolicyProofRequest {
   readonly stateRoot: Bytes32;
   readonly nullifierRoot: Bytes32;
   readonly entriesTreeId: number;
+  readonly velocity: CustomRingVelocityWitness;
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 

@@ -35,6 +35,13 @@ import {
   ringPolicyHash,
   ruleAlternatives,
   verifiedRuleTable,
+  decodeSpendCounters,
+  decodeSpendRecord,
+  encodeSpendCounters,
+  encodeSpendRecord,
+  spendCountersCommitment,
+  spendCountersSpent,
+  zeroSpendCounters,
   type ListEntry,
   type Member,
   type Rule,
@@ -224,6 +231,8 @@ describe("rule tables", () => {
       rules: [perAsset],
       inlineAssets: [mint],
       inlineLimits: [2000n],
+      windowSlots: 0n,
+      velocity: [],
     });
     expect(limited.rules[0]?.guard).toEqual({ kind: "aboveAmountByAsset" });
     expect(limited.inlineLimits).toEqual([2000n]);
@@ -339,6 +348,16 @@ function entry(
 function fieldOf(value: number): Bytes32 {
   const bytes = new Uint8Array(32);
   bytes[31] = value;
+  return bytes as Bytes32;
+}
+
+function bigField(value: bigint): Bytes32 {
+  const bytes = new Uint8Array(32);
+  let rest = value;
+  for (let index = 31; rest > 0n; index -= 1) {
+    bytes[index] = Number(rest & 0xffn);
+    rest >>= 8n;
+  }
   return bytes as Bytes32;
 }
 
@@ -788,20 +807,20 @@ describe("policy hash", () => {
       [ListId.approval, records],
     ]);
     expect(ringPolicyHash(table, sources)).toEqual(
-      hex("1be5d2fc725c11918d3ecbd5fcd0f5d7e78635dcffb0d7312246eaa380a51a7d"),
+      hex("0cd58ace5288ed9548fac2d0050352dac919aef5e5796f9887dd5f5e8d326f8b"),
     );
   });
 
   it("matches the Go fixture for the empty, one-rule, two-rule and mixed tables", () => {
     expect(ringPolicyHash(buildRuleTable({ rules: [] }), owners([]))).toEqual(
-      hex("16fb955b8526ce537425c0fbef60b13ddb3ace36271b3d50ddaa8c16d65e1400"),
+      hex("03c1fced984142c41208e5ee7a935584fd362a6da3925531408d6d60f98f1a91"),
     );
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [require("outputOwner", ListId.allow)] }),
         owners([[ListId.allow, records]]),
       ),
-    ).toEqual(hex("2ac1455d7a647806afa55bcdf3a99d4fffd378975d7268d3897f1f56ab14cf75"));
+    ).toEqual(hex("2f7fc15128cf72e9e901c9310d547db4d374146aee2c61364cb68adcdab0b383"));
     expect(
       ringPolicyHash(
         buildRuleTable({
@@ -812,7 +831,7 @@ describe("policy hash", () => {
           [ListId.frozen, curator],
         ]),
       ),
-    ).toEqual(hex("1fd5912b36ce5c0bd249bf2f54020721f16eb70a52c3381ba8c71484e392f384"));
+    ).toEqual(hex("298fe99bce4dafd9d2661f145a6c5d7e3affaeb1cadb490f545ab14e709d9682"));
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [rule("outputOwner", [ListId.approval], [ListId.block])] }),
@@ -821,7 +840,7 @@ describe("policy hash", () => {
           [ListId.approval, records],
         ]),
       ),
-    ).toEqual(hex("1a571ee1f11ce84b282e90fc7bf4358419c64e05a086d976b02b577e1ade2752"));
+    ).toEqual(hex("1ecf7602a8d6d78dc9f03555c0486fae3ca793fa645a37a80b0a3190db0dfa4d"));
   });
 
   it("matches the Go fixture for a per-asset limit", () => {
@@ -829,9 +848,79 @@ describe("policy hash", () => {
       rules: [{ ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
       inlineAssets: [memberOfAsset(ASSET_MINT)],
       inlineLimits: [123n],
+      windowSlots: 0n,
+      velocity: [],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("0e70f40402bf8dd92ff898133027a599072c8b5e92a06aa15f8dfeebff212d1f"),
+      hex("147185d7c6d876ba091e8acae3e69c1645f4643acda6cfd9ea6cdafa016eeb4f"),
+    );
+  });
+
+  it("matches the Go fixture for a velocity row", () => {
+    const table = buildRuleTable({
+      rules: [require("outputOwner", ListId.allow)],
+      windowSlots: 216_000n,
+      velocity: [{ asset: memberOfAsset(ASSET_MINT), cap: 5000n, cosignAbove: 600n }],
+    });
+    expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
+      hex("2d96453d73209cd609d19ab14231b05dbb8d8ed29768688def4532b60c7fc5f2"),
+    );
+    expect(() => buildRuleTable({ rules: [], windowSlots: 1n })).toThrow(
+      expect.objectContaining({ details: { reason: "VelocityWithoutWindow" } }),
+    );
+    expect(() =>
+      buildRuleTable({
+        rules: [],
+        windowSlots: 1n,
+        velocity: [
+          { asset: memberOfAsset(ASSET_MINT), cap: 1n, cosignAbove: 0n },
+          { asset: memberOfAsset(ASSET_MINT), cap: 2n, cosignAbove: 0n },
+        ],
+      }),
+    ).toThrow(expect.objectContaining({ details: { reason: "DuplicateVelocityAsset" } }));
+    expect(() =>
+      buildRuleTable({
+        rules: [],
+        windowSlots: 1n,
+        velocity: [{ asset: memberOfAsset(ASSET_MINT), cap: 0n, cosignAbove: 0n }],
+      }),
+    ).toThrow(expect.objectContaining({ details: { reason: "VelocityRowWithoutBound" } }));
+  });
+
+  it("hashes the spend record like the Go fixture", () => {
+    const namespace = RingListNamespace.of(RECORDS_PDA, 7);
+    const sender = memberOfTag(filled(0xb2));
+    const address = namespace.spendAddress(sender);
+    expect(address).toEqual(
+      hex("0a01f0d4758639415a4c9c37e42d1878ea52f3f7e3821aed313835aec0850586"),
+    );
+    const counters = {
+      ...zeroSpendCounters([memberOfAsset(ASSET_MINT)]),
+      salt: bigField(0x5a17n),
+      spent: [700n, 0n, 0n, 0n, 0n, 0n, 0n, 0n],
+    };
+    expect(spendCountersCommitment(counters)).toEqual(
+      hex("2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76"),
+    );
+    expect(spendCountersSpent(counters, memberOfAsset(ASSET_MINT))).toBe(700n);
+    expect(decodeSpendCounters(encodeSpendCounters(counters))).toEqual(counters);
+    const record = {
+      member: sender,
+      version: 4n,
+      window: 3n,
+      countersCommitment: spendCountersCommitment(counters),
+      blinding: bigField(0x63n),
+    };
+    const hashes = namespace.spendRecordHashes(record);
+    expect(hashes.dataHash).toEqual(
+      hex("2f0e7fc685bb0fdd86c6b1b4b75b9e18ec84dae130f3b5cdba0f12ec987f6de3"),
+    );
+    expect(hashes.utxoHash).toEqual(
+      hex("05e7e17a7845a03bdac567ab45ebe5f11814cd25c24bbd5a3d0ac651c1bdb0fc"),
+    );
+    expect(decodeSpendRecord(encodeSpendRecord(record))).toEqual(record);
+    expect(spendCountersCommitment(zeroSpendCounters())).toEqual(
+      hex("03bcb66825613582f9362a608fd94f6c4be191680bca9f8e75b1fee93268e1df"),
     );
   });
 

@@ -8,7 +8,9 @@ import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
+  RING_VELOCITY_SLOTS,
   type CustomRingSourceOwner,
+  type CustomRingVelocityRow,
 } from "../client/prover/types.js";
 import { hashBytes, solanaOwnerIdentity } from "../hasher/index.js";
 import { Reader, Writer, addressBytes } from "../interface/internal.js";
@@ -90,11 +92,16 @@ export interface Rule {
   readonly guard: RuleGuard;
 }
 
-/** One limit per inline asset, zero outside a per-asset guard. */
+/** Mirrors Rust `VelocityRow`, a zero cap or threshold leaves that bound off. */
+export type VelocityRow = CustomRingVelocityRow;
+
+/** One limit per inline asset, zero outside a per-asset guard, velocity rows only with a window. */
 export interface RuleTable {
   readonly rules: readonly Rule[];
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
+  readonly windowSlots: bigint;
+  readonly velocity: readonly VelocityRow[];
 }
 
 /** Rust `GUARANTEED_LOAD`. */
@@ -219,19 +226,29 @@ function checkRule(rule: Rule): void {
 
 /** Mirrors Rust `EncodedRuleTable::decode`, the padding is checked by `decodeRingPolicyConfig`. */
 export function decodeRuleTable(
-  config: Pick<RingPolicyConfig, "rules" | "inlineAssets" | "inlineLimits">,
+  config: Pick<RingPolicyConfig, "rules" | "inlineAssets" | "inlineLimits"> &
+    Partial<Pick<RingPolicyConfig, "windowSlots" | "velocity">>,
 ): RuleTable {
   if (config.rules.length > RING_RULE_SLOTS) throw ruleTableInvalid("TooManyRules");
   if (config.inlineLimits.length !== config.inlineAssets.length) {
     throw ruleTableInvalid("MissingAssetLimit");
   }
-  return checkedRuleTable(config.rules.map(decodeRule), config.inlineAssets, config.inlineLimits);
+  return checkedRuleTable(
+    config.rules.map(decodeRule),
+    config.inlineAssets,
+    config.inlineLimits,
+    config.windowSlots ?? 0n,
+    config.velocity ?? [],
+  );
 }
 
 export interface RuleTableInput {
   readonly rules: readonly Rule[];
   readonly inlineAssets?: readonly Bytes32[];
   readonly inlineLimits?: readonly bigint[];
+  /** Comes with `velocity`, zero disables it. */
+  readonly windowSlots?: bigint;
+  readonly velocity?: readonly VelocityRow[];
 }
 
 /** Mirrors Rust `RuleTableBuilder::try_build`. */
@@ -250,6 +267,8 @@ export function buildRuleTable(input: RuleTableInput): RuleTable {
     input.rules,
     inlineAssets,
     inlineAssets.map((_, index) => inlineLimits[index] ?? 0n),
+    input.windowSlots ?? 0n,
+    input.velocity ?? [],
   );
   const perAssetGuard = table.rules.some((rule) => rule.guard.kind === "aboveAmountByAsset");
   if (perAssetGuard ? inlineLimits.length !== inlineAssets.length : inlineLimits.length !== 0) {
@@ -267,12 +286,22 @@ export function encodeRuleTable(table: RuleTable): EncodedRuleTable {
     inlineCount: table.inlineAssets.length,
     inlineAssets: table.inlineAssets,
     inlineLimits: table.inlineLimits,
+    windowSlots: table.windowSlots,
+    velocityCount: table.velocity.length,
+    velocity: table.velocity,
   });
 }
 
 export type EncodedRuleTable = Pick<
   RingPolicyConfig,
-  "ruleCount" | "rules" | "inlineCount" | "inlineAssets" | "inlineLimits"
+  | "ruleCount"
+  | "rules"
+  | "inlineCount"
+  | "inlineAssets"
+  | "inlineLimits"
+  | "windowSlots"
+  | "velocityCount"
+  | "velocity"
 >;
 
 /** The invariants both `decode` and `try_build` enforce. */
@@ -280,7 +309,10 @@ function checkedRuleTable(
   rules: readonly Rule[],
   inlineAssets: readonly Bytes32[],
   inlineLimits: readonly bigint[],
+  windowSlots: bigint,
+  velocity: readonly VelocityRow[],
 ): RuleTable {
+  checkVelocity(windowSlots, velocity);
   if (inlineAssets.length > RING_INLINE_ASSET_SLOTS) throw ruleTableInvalid("TooManyInlineAssets");
   if (inlineAssets.some((asset) => equalBytes(asset, ZERO_32))) {
     throw ruleTableInvalid("ZeroInlineAsset");
@@ -323,7 +355,31 @@ function checkedRuleTable(
     rules: Object.freeze([...rules]),
     inlineAssets: Object.freeze([...inlineAssets]),
     inlineLimits: Object.freeze([...inlineLimits]),
+    windowSlots,
+    velocity: Object.freeze(velocity.map((row) => Object.freeze({ ...row }))),
   });
+}
+
+/** Mirrors the velocity checks of Rust `RuleTableBuilder::try_build`. */
+function checkVelocity(windowSlots: bigint, velocity: readonly VelocityRow[]): void {
+  if (windowSlots < 0n || windowSlots > U64_MAX) throw ruleTableInvalid("LimitRange");
+  if (velocity.length > RING_VELOCITY_SLOTS) throw ruleTableInvalid("TooManyVelocityAssets");
+  if ((windowSlots === 0n) !== (velocity.length === 0)) {
+    throw ruleTableInvalid("VelocityWithoutWindow");
+  }
+  const assets = new Set<string>();
+  for (const row of velocity) {
+    if (row.asset.length !== 32 || equalBytes(row.asset, ZERO_32)) {
+      throw ruleTableInvalid("ZeroVelocityAsset");
+    }
+    for (const bound of [row.cap, row.cosignAbove]) {
+      if (bound < 0n || bound > U64_MAX) throw ruleTableInvalid("LimitRange");
+    }
+    if (row.cap === 0n && row.cosignAbove === 0n) throw ruleTableInvalid("VelocityRowWithoutBound");
+    const key = bytesKey(row.asset);
+    if (assets.has(key)) throw ruleTableInvalid("DuplicateVelocityAsset");
+    assets.add(key);
+  }
 }
 
 function ruleSignature(rule: Rule): string {
@@ -397,7 +453,7 @@ function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>
 }
 
 /** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 4;
+export const RING_POLICY_VERSION = 5;
 
 /** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
 export function ringPolicyHash(
@@ -415,6 +471,10 @@ export function ringPolicyHash(
   encoded.inlineAssets.forEach((asset, index) => {
     elements.push(asset, fieldU64(encoded.inlineLimits[index] ?? 0n));
   });
+  elements.push(fieldU64(encoded.windowSlots));
+  for (const row of encoded.velocity) {
+    elements.push(row.asset, fieldU64(row.cap), fieldU64(row.cosignAbove));
+  }
   return elements.reduce((chain, element) => poseidon([chain, element]));
 }
 
@@ -537,6 +597,124 @@ export interface EntryHashes {
 const POLICY_ADDRESS_DOMAIN = packedAscii("zolana:ring-policy:address:v1");
 const POLICY_RECORD_DOMAIN = packedAscii("zolana:ring-policy:record:v1");
 const POLICY_TABLE_DOMAIN = packedAscii("zolana:ring-policy:policy:v1");
+const SPEND_ADDRESS_DOMAIN = packedAscii("zolana:ring-policy:spend:v1");
+const SPEND_RECORD_DOMAIN = packedAscii("zolana:ring-spend:record:v1");
+
+/** Rust `SPEND_RECORD_LEN`, the plaintext content behind the envelope. */
+const SPEND_RECORD_LEN = 112;
+/** Rust `SPEND_COUNTERS_LEN`. */
+export const SPEND_COUNTERS_LENGTH = 32 + RING_VELOCITY_SLOTS * 40;
+
+/** Mirrors Rust `SpendRecord`, the published half of a spend record. */
+export interface SpendRecord {
+  readonly member: Member;
+  readonly version: bigint;
+  readonly window: bigint;
+  readonly countersCommitment: Bytes32;
+  readonly blinding: Bytes32;
+}
+
+/** Mirrors Rust `SpendCounters`, `commitment = HashChain(salt, asset_0, spent_0, ..)`. */
+export interface SpendCounters {
+  readonly salt: Bytes32;
+  readonly assets: readonly Bytes32[];
+  readonly spent: readonly bigint[];
+}
+
+/** Mirrors Rust `SpendCounters::zero`, every counter at zero under the zero salt. */
+export function zeroSpendCounters(assets: readonly Bytes32[] = []): SpendCounters {
+  if (assets.length > RING_VELOCITY_SLOTS) throw ruleTableInvalid("TooManyVelocityAssets");
+  return Object.freeze({
+    salt: ZERO_32,
+    assets: Object.freeze(
+      Array.from({ length: RING_VELOCITY_SLOTS }, (_, index) => assets[index] ?? ZERO_32),
+    ),
+    spent: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => 0n)),
+  });
+}
+
+/** Mirrors Rust `SpendCounters::commitment`. */
+export function spendCountersCommitment(counters: SpendCounters): Bytes32 {
+  const elements: Bytes32[] = [counters.salt];
+  for (let index = 0; index < RING_VELOCITY_SLOTS; index += 1) {
+    elements.push(counters.assets[index] ?? ZERO_32, fieldU64(counters.spent[index] ?? 0n));
+  }
+  return elements.reduce((chain, element) => poseidon([chain, element]));
+}
+
+/** The total spent in `asset`, zero for a mint the record does not carry. */
+export function spendCountersSpent(counters: SpendCounters, asset: Bytes32): bigint {
+  const index = counters.assets.findIndex((known) => equalBytes(known, asset));
+  return index < 0 ? 0n : (counters.spent[index] ?? 0n);
+}
+
+/** Mirrors Rust `SpendCounters::to_bytes`, `salt || (asset, spent) x 8`. */
+export function encodeSpendCounters(counters: SpendCounters): Uint8Array {
+  const writer = new Writer().bytes(counters.salt, 32, "salt");
+  for (let index = 0; index < RING_VELOCITY_SLOTS; index += 1) {
+    writer
+      .bytes(counters.assets[index] ?? ZERO_32, 32, "asset")
+      .u64(counters.spent[index] ?? 0n, "spent");
+  }
+  return writer.finish();
+}
+
+export function decodeSpendCounters(bytes: Uint8Array): SpendCounters {
+  if (bytes.length !== SPEND_COUNTERS_LENGTH) throw spendRecordInvalid("countersLength");
+  const reader = new Reader(bytes);
+  const salt = reader.bytes(32, "salt") as Bytes32;
+  const assets: Bytes32[] = [];
+  const spent: bigint[] = [];
+  for (let index = 0; index < RING_VELOCITY_SLOTS; index += 1) {
+    assets.push(reader.bytes(32, "asset") as Bytes32);
+    spent.push(reader.u64("spent"));
+  }
+  reader.done();
+  return Object.freeze({ salt, assets: Object.freeze(assets), spent: Object.freeze(spent) });
+}
+
+/** Mirrors Rust `SpendRecord::to_output_data`, the plaintext output-data envelope included. */
+export function encodeSpendRecord(record: SpendRecord): Uint8Array {
+  return new Writer()
+    .u8(0, "tag")
+    .u32(SPEND_RECORD_LEN, "length")
+    .bytes(record.member, 32, "member")
+    .u64(record.version, "version")
+    .u64(record.window, "window")
+    .bytes(record.countersCommitment, 32, "countersCommitment")
+    .bytes(record.blinding, 32, "blinding")
+    .finish();
+}
+
+/** Mirrors Rust `SpendRecord::from_record_bytes` over the plaintext output-data envelope. */
+export function decodeSpendRecord(outputData: Uint8Array): SpendRecord {
+  const reader = new Reader(outputData);
+  if (reader.u8("tag") !== 0) throw spendRecordInvalid("encoding");
+  if (reader.u32("length") !== SPEND_RECORD_LEN) throw spendRecordInvalid("length");
+  const member = checkedMember(reader.bytes(32, "member") as Bytes32);
+  const version = reader.u64("version");
+  const window = reader.u64("window");
+  const countersCommitment = reader.bytes(32, "countersCommitment") as Bytes32;
+  const blinding = reader.bytes(32, "blinding") as Bytes32;
+  reader.done();
+  return Object.freeze({ member, version, window, countersCommitment, blinding });
+}
+
+function spendRecordInvalid(reason: string): RingError {
+  return new RingError("RING_SPEND_RECORD_INVALID", { details: { reason } });
+}
+
+/** Mirrors Rust `spend_seed`, one lineage per member apart from every list. */
+export function spendSeed(member: Member): Bytes32 {
+  return poseidon([SPEND_ADDRESS_DOMAIN, member]);
+}
+
+export interface SpendRecordHashes {
+  readonly address: Bytes32;
+  readonly dataHash: Bytes32;
+  readonly utxoHash: Bytes32;
+  readonly nullifier: Bytes32;
+}
 
 /** Mirrors Rust `ListNamespace::new`, the shielded owner hash of the ring's entry notes. */
 export function ringNamespaceOwnerHash(namespacePda: Address): Bytes32 {
@@ -579,21 +757,52 @@ export class RingListNamespace {
       fieldU64(entry.version),
       entry.contentHash,
     ]);
-    const utxoHash = poseidon([
-      fieldU16(UTXO_DOMAIN),
-      treeIdField(this.treeId),
-      solAssetField(),
-      ZERO_32,
-      dataHash,
-      ringHash(),
-      poseidon([this.ownerHash, entry.blinding]),
-    ]);
+    const utxoHash = this.leafHash(dataHash, entry.blinding);
     return Object.freeze({
       address,
       dataHash,
       utxoHash,
       nullifier: entryNullifier(utxoHash, entry.blinding),
     });
+  }
+
+  /** Mirrors Rust `ListNamespace::spend_address`. */
+  spendAddress(member: Member): Bytes32 {
+    const seed = spendSeed(member);
+    return entryNullifier(this.addressSlotHash(seed), seed);
+  }
+
+  /** Mirrors Rust `SpendRecord::data_hash` and `utxo_hash`. */
+  spendRecordHashes(record: SpendRecord): SpendRecordHashes {
+    const address = this.spendAddress(record.member);
+    const dataHash = poseidon([
+      SPEND_RECORD_DOMAIN,
+      address,
+      record.member,
+      fieldU64(record.version),
+      fieldU64(record.window),
+      record.countersCommitment,
+    ]);
+    const utxoHash = this.leafHash(dataHash, record.blinding);
+    return Object.freeze({
+      address,
+      dataHash,
+      utxoHash,
+      nullifier: entryNullifier(utxoHash, record.blinding),
+    });
+  }
+
+  /** Mirrors Rust `ListNamespace::leaf_hash`, a zero-amount SOL data leaf in the default ring. */
+  leafHash(dataHash: Bytes32, blinding: Bytes32): Bytes32 {
+    return poseidon([
+      fieldU16(UTXO_DOMAIN),
+      treeIdField(this.treeId),
+      solAssetField(),
+      ZERO_32,
+      dataHash,
+      ringHash(),
+      poseidon([this.ownerHash, blinding]),
+    ]);
   }
 
   /** The address slot commitment, its blinding is the entry seed. */
@@ -826,6 +1035,99 @@ export async function readRingEntryLineages(
     }
   }
   return heads.map((head) => head.live);
+}
+
+/** The current version of a member's record with its origin, Rust `LiveSpendRecord`. */
+export interface LiveSpendRecord {
+  readonly record: SpendRecord;
+  readonly utxoHash: Bytes32;
+  readonly nullifier: Bytes32;
+  readonly txSignature: Signature;
+  readonly slot: bigint;
+  /** The counters travel in the publishing transaction's messages under its transaction key. */
+  readonly origin: Readonly<{
+    firstNullifier: Bytes32;
+    salt: Uint8Array | undefined;
+    messages: readonly Readonly<{ viewTag: Bytes32; data: Uint8Array }>[];
+  }>;
+}
+
+export interface ReadRingSpendRecordInput {
+  readonly indexer: EntryIndexer;
+  readonly entriesTree: Address;
+  readonly entriesTreeId: TreeId;
+  readonly namespace: Address;
+  readonly member: Member;
+}
+
+/** Mirrors Rust `ReadSpendRecord::read`, `undefined` until the member registers. */
+export async function readRingSpendRecord(
+  input: ReadRingSpendRecordInput,
+  context?: RequestContext,
+): Promise<LiveSpendRecord | undefined> {
+  const namespace = RingListNamespace.of(input.namespace, input.entriesTreeId);
+  const address = namespace.spendAddress(input.member);
+  let live: LiveSpendRecord | undefined;
+  let nullifier = address;
+  for (;;) {
+    const spenders: IndexedShieldedTransaction[] = [];
+    await collectPages(
+      "getShieldedTransactionsByNullifiers",
+      (cursor) =>
+        input.indexer.getShieldedTransactionsByNullifiers(
+          { nullifiers: [nullifier], ...(cursor === undefined ? {} : { cursor }) },
+          undefined,
+          context,
+        ),
+      (page) => spenders.push(...page.transactions),
+    );
+    const spender = spenders.find((transaction) =>
+      transaction.nullifiers.some((candidate) => equalBytes(candidate, nullifier)),
+    );
+    if (spender === undefined) return live;
+    const successor = spender.outputSlots
+      .filter((slot) => slot.outputContext.tree === input.entriesTree)
+      .map((slot) => decodeSpendSuccessor(namespace, input.member, slot))
+      .find((candidate) => candidate !== undefined);
+    if (successor === undefined) {
+      throw new RingError("RING_SPEND_RECORD_LINEAGE_BROKEN", {
+        details: {
+          member: bytesKey(input.member),
+          version: live === undefined ? 0 : Number(live.record.version + 1n),
+        },
+      });
+    }
+    const firstNullifier = spender.nullifiers[0];
+    if (firstNullifier === undefined) throw spendRecordInvalid("originNullifier");
+    nullifier = successor.nullifier;
+    live = Object.freeze({
+      ...successor,
+      txSignature: spender.txSignature,
+      slot: spender.slot,
+      origin: Object.freeze({
+        firstNullifier,
+        salt: spender.salt,
+        messages: spender.messages,
+      }),
+    });
+  }
+}
+
+function decodeSpendSuccessor(
+  namespace: RingListNamespace,
+  member: Member,
+  slot: OutputSlot,
+): Pick<LiveSpendRecord, "record" | "utxoHash" | "nullifier"> | undefined {
+  let record: SpendRecord;
+  try {
+    record = decodeSpendRecord(slot.payload);
+  } catch {
+    return undefined;
+  }
+  if (!equalBytes(record.member, member)) return undefined;
+  const hashes = namespace.spendRecordHashes(record);
+  if (!equalBytes(hashes.utxoHash, slot.outputContext.hash)) return undefined;
+  return { record, utxoHash: hashes.utxoHash, nullifier: hashes.nullifier };
 }
 
 /** Content is trusted only after it reproduces the on-chain commitment. */

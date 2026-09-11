@@ -34,6 +34,8 @@ import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
+  ringCoSignerAddress,
+  ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
   splAssetRegistryAddress,
@@ -302,22 +304,33 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring program forwards it to the shielded pool unchanged. */
+/** Mirrors Rust `RingDeposit::instruction`. The ring keeps `[cosigner_pda, cosigner]` and one spend window slot per settled mint, the shielded pool gets the rest unchanged. */
 export async function ringDepositInstruction(
   input: Readonly<{
     ringProgramId: Address;
     tree: Address;
     depositor: SignerAccount;
     deposits: readonly RingAssetDeposit[];
+    /** The ring's co-signer, a signer when set. */
+    cosigner?: SignerAccount;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
+  const [ringAuth, cosignerPda, windows] = await Promise.all([
+    ringAuthAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+    ringSpendWindowMetas(input.ringProgramId, [
+      ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
+      ...layout.splGroups.map((spl) => spl.mint),
+    ]),
+  ]);
   const { accounts, splInterfaceBumps } = await depositAccounts(
     input.tree,
     input.depositor,
     layout,
-    await ringAuthAddress(input.ringProgramId),
+    ringAuth,
   );
+  accounts.unshift(...ringCoSignerMetas(cosignerPda, input.cosigner), ...windows);
   return instruction(
     tagged(
       InstructionTag.ringDeposit,
@@ -343,6 +356,28 @@ export async function ringDepositInstruction(
     accounts,
     input.ringProgramId,
   );
+}
+
+/** `[cosigner_pda, cosigner]`, unset the slot repeats the PDA, a top-level slot inherits the message signer flag of its address. */
+export function ringCoSignerMetas(
+  cosignerPda: Address,
+  cosigner: SignerAccount | undefined,
+): Meta[] {
+  return [
+    meta(cosignerPda, false, false),
+    cosigner === undefined ? meta(cosignerPda, false, false) : meta(cosigner, true, false),
+  ];
+}
+
+/** One writable spend window slot per public leg, in leg order, SOL under the zero address. */
+export async function ringSpendWindowMetas(
+  ringProgramId: Address,
+  mints: readonly Address[],
+): Promise<Meta[]> {
+  const windows = await Promise.all(
+    mints.map((mint) => ringSpendWindowAddress(ringProgramId, mint)),
+  );
+  return windows.map((window) => meta(window, false, true));
 }
 
 function settlementAccounts(withdrawal?: TransactWithdrawal): Meta[] {

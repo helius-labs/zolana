@@ -11,5 +11,5 @@ pub use proof::{
 pub use request::CustomRingPrivateTxHash;
 pub use request_ring::{
     CustomRingBaseProofRequest, CustomRingOpening, CustomRingPolicyProofRequest, RuleAnswer,
-    SourceOwnerEntry, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
+    SourceOwnerEntry, SpendRecordWitness, VelocityWitness, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
 };

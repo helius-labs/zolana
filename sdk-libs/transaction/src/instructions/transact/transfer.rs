@@ -771,7 +771,7 @@ fn named_input_owner_tag(
 /// transaction to a third party. Self-attribution is always available, which is
 /// why [`ConfidentialTransfer::prepare`] keeps a real zero-amount change output
 /// for a self-paid transfer that would otherwise name nobody.
-fn dummy_owner_tag(
+pub(crate) fn dummy_owner_tag(
     inputs: &[SppProofInputUtxo],
     outputs: &[SppProofOutputUtxo],
     payer: &Address,
@@ -789,7 +789,7 @@ fn dummy_owner_tag(
 }
 
 /// Random `len` bytes for a dummy output slot.
-fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
+pub(crate) fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
     let mut data = vec![0u8; len];
     OsRng.fill_bytes(&mut data);
     data
@@ -798,7 +798,7 @@ fn random_dummy_ciphertext(len: usize) -> Vec<u8> {
 /// The exact ciphertext byte length of a real confidential slot, derived by
 /// encoding a throwaway output through the same path. This keeps dummy slots
 /// byte-length-indistinguishable from real ones without pinning a brittle constant.
-fn dummy_ciphertext_len(
+pub(crate) fn dummy_ciphertext_len(
     tx: &ViewingKey,
     throwaway_pubkey: P256Pubkey,
     salt: [u8; SALT_LEN],

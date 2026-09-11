@@ -9,7 +9,7 @@ use thiserror::Error;
 use zolana_interface::pda;
 use zolana_ring_policy::{
     Guard, ListId, ListSet, Member, MemberError, Mode, Rule, RuleSource, RuleTable, RuleTableError,
-    Subject, Writer, MAX_INLINE_ASSETS, MAX_RULES,
+    Subject, VelocityRow, Writer, MAX_INLINE_ASSETS, MAX_RULES, MAX_VELOCITY_ASSETS,
 };
 
 use crate::config::{Base58Address, PerCluster, Target};
@@ -25,9 +25,31 @@ pub struct PolicySpec {
     /// Every rule must hold, in row order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleSpec>,
+    /// A sender's outflow per mint over a fixed window, absent leaves spending unbounded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity: Option<VelocitySpec>,
 }
 
 pub type Sources = BTreeMap<ListName, Base58Address>;
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VelocitySpec {
+    /// Windows start at multiples of it, the counters reset at each.
+    pub window_slots: u64,
+    pub rows: Vec<VelocityRowSpec>,
+}
+
+/// A zero cap leaves the mint uncapped, a zero threshold never asks the co-signer.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VelocityRowSpec {
+    pub asset: Base58Address,
+    #[serde(default)]
+    pub cap: u64,
+    #[serde(default)]
+    pub cosign_above: u64,
+}
 
 /// Exactly one of `require`, `forbid`, `any` or `assets` beside the subject.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -83,6 +105,8 @@ pub(crate) struct PolicyRows {
     pub rules: Vec<Rule>,
     pub assets: Vec<[u8; 32]>,
     pub limits: Vec<u64>,
+    pub window_slots: u64,
+    pub velocity: Vec<VelocityRow>,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -126,6 +150,17 @@ pub enum PolicyError {
     },
     #[error("rule {} is refused, {message}", rule + 1)]
     Refused { rule: usize, message: &'static str },
+    #[error("{count} velocity rows exceed the {MAX_VELOCITY_ASSETS} slots of the table")]
+    TooManyVelocityRows { count: usize },
+    #[error("velocity row {} asset {mint} derives no member", row + 1)]
+    VelocityAsset {
+        row: usize,
+        mint: Address,
+        #[source]
+        source: MemberError,
+    },
+    #[error("the velocity table is refused, {message}")]
+    VelocityRefused { message: &'static str },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -551,16 +586,22 @@ impl PolicySpec {
                 count: assets.len(),
             });
         }
+        let (window_slots, velocity) = match &self.velocity {
+            None => (0, Vec::new()),
+            Some(spec) => (spec.window_slots, spec.rows()?),
+        };
         Ok(PolicyRows {
             rules: rows,
             assets,
             limits,
+            window_slots,
+            velocity,
         })
     }
 
     pub fn compile(&self, target: Target) -> Result<CompiledPolicy, PolicyError> {
         let rows = self.rows()?;
-        let rules = compile_rows(&rows.rules, &rows.assets, &rows.limits)?;
+        let rules = compile_rows(&rows)?;
         let referenced = rules.referenced();
         let shared_sources = self
             .sources
@@ -605,38 +646,83 @@ impl CompiledPolicy {
     }
 }
 
-fn build(rows: &[Rule], assets: &[[u8; 32]], limits: &[u64]) -> Result<RuleTable, RuleTableError> {
-    rows.iter()
-        .fold(
-            RuleTable::builder()
-                .inline_assets(assets)
-                .inline_limits(limits),
-            |builder, rule| builder.rule(*rule),
-        )
-        .try_build()
+impl VelocitySpec {
+    fn rows(&self) -> Result<Vec<VelocityRow>, PolicyError> {
+        if self.rows.len() > MAX_VELOCITY_ASSETS {
+            return Err(PolicyError::TooManyVelocityRows {
+                count: self.rows.len(),
+            });
+        }
+        self.rows
+            .iter()
+            .enumerate()
+            .map(|(row, spec)| {
+                let member =
+                    Member::asset(&spec.asset.0).map_err(|source| PolicyError::VelocityAsset {
+                        row,
+                        mint: spec.asset.0,
+                        source,
+                    })?;
+                Ok(VelocityRow {
+                    asset: *member.as_bytes(),
+                    cap: spec.cap,
+                    cosign_above: spec.cosign_above,
+                })
+            })
+            .collect()
+    }
 }
 
-/// The builder refusal named with the first row that triggers it.
-pub fn compile_rows(
-    rows: &[Rule],
-    assets: &[[u8; 32]],
-    limits: &[u64],
-) -> Result<RuleTable, PolicyError> {
-    build(rows, assets, limits).map_err(|error| PolicyError::Refused {
-        rule: first_refusal(rows, assets, limits, error),
-        message: error.message(),
+impl PolicyRows {
+    fn build(&self, rule_count: usize) -> Result<RuleTable, RuleTableError> {
+        self.rules[..rule_count]
+            .iter()
+            .fold(
+                RuleTable::builder()
+                    .inline_assets(&self.assets)
+                    .inline_limits(&self.limits)
+                    .window_slots(self.window_slots)
+                    .velocity(&self.velocity),
+                |builder, rule| builder.rule(*rule),
+            )
+            .try_build()
+    }
+}
+
+/// The builder refusal named with the first row that triggers it, a velocity
+/// refusal names the table.
+pub(crate) fn compile_rows(rows: &PolicyRows) -> Result<RuleTable, PolicyError> {
+    rows.build(rows.rules.len()).map_err(|error| match error {
+        RuleTableError::TooManyVelocityAssets
+        | RuleTableError::VelocityWithoutWindow
+        | RuleTableError::ZeroVelocityAsset
+        | RuleTableError::DuplicateVelocityAsset
+        | RuleTableError::VelocityRowWithoutBound => PolicyError::VelocityRefused {
+            message: error.message(),
+        },
+        _ => PolicyError::Refused {
+            rule: first_refusal(rows, error),
+            message: error.message(),
+        },
     })
 }
 
-fn first_refusal(
-    rows: &[Rule],
-    assets: &[[u8; 32]],
-    limits: &[u64],
-    error: RuleTableError,
-) -> usize {
-    (1..=rows.len())
-        .find(|len| build(&rows[..*len], assets, limits) == Err(error))
-        .map_or(rows.len().saturating_sub(1), |len| len - 1)
+fn first_refusal(rows: &PolicyRows, error: RuleTableError) -> usize {
+    (1..=rows.rules.len())
+        .find(|len| rows.build(*len) == Err(error))
+        .map_or(rows.rules.len().saturating_sub(1), |len| len - 1)
+}
+
+/// One sentence per velocity row, the wording every listing shares.
+pub fn describe_velocity(row: &VelocityRow) -> String {
+    let asset = hex::encode(&row.asset[..4]);
+    match (row.cap, row.cosign_above) {
+        (0, cosign) => format!("asset {asset}.. needs the co-signer above {cosign} per transfer"),
+        (cap, 0) => format!("asset {asset}.. is capped at {cap} per window"),
+        (cap, cosign) => format!(
+            "asset {asset}.. is capped at {cap} per window and needs the co-signer above {cosign} per transfer"
+        ),
+    }
 }
 
 /// One sentence per row, the wording every listing shares.

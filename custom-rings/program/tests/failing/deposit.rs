@@ -43,7 +43,8 @@ fn oversized_account_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = deposit_fixture();
     let mut filler = 100u8;
-    while fixture.instruction().accounts.len() <= MAX_CPI_ACCOUNTS {
+    // The co-signer and window slots stay behind, only the rest is forwarded.
+    while fixture.instruction().accounts.len() - 3 <= MAX_CPI_ACCOUNTS {
         filler += 1;
         fixture.push(Slot {
             label: "filler",
@@ -61,9 +62,17 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
     mollusk.add_program(&spp_id, "spp_recorder_program");
     let mut fixture = deposit_fixture();
     let metas = fixture.instruction().accounts.clone();
+    // The co-signer prefix and the window slots stay behind, SPP receives the
+    // list from the tree onward.
+    let tree_key = fixture.account_key("tree");
+    let forwarded = metas
+        .iter()
+        .position(|meta| meta.pubkey == tree_key)
+        .expect("tree in metas");
+    let spp = &metas[forwarded..];
     let mut recorder = account(1_000_000_000);
     recorder.owner = spp_id;
-    recorder.data = vec![0u8; metas.len()];
+    recorder.data = vec![0u8; spp.len()];
     fixture.set_account("tree", recorder);
 
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
@@ -71,10 +80,10 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
     let recorded = result
         .resulting_accounts
         .iter()
-        .find(|(key, _)| key == &metas[0].pubkey)
+        .find(|(key, _)| key == &tree_key)
         .map(|(_, account)| account.data.clone())
         .expect("tree in result");
-    let expected: Vec<u8> = metas
+    let expected: Vec<u8> = spp
         .iter()
         .map(|meta| {
             let signer = meta.is_signer || meta.pubkey == ring_auth_pda().0;

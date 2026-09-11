@@ -210,6 +210,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     ring_program_id: None,
                 },
             ],
+            spend_records: vec![],
             undecryptable_slots: vec![],
         }
     );

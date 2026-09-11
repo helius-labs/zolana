@@ -32,7 +32,7 @@ fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-fn confidential_output() -> TransactOutput {
+pub(crate) fn confidential_output() -> TransactOutput {
     let mut key = [0u8; 33];
     key[0] = 0x02;
     let mut body = vec![RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG];
@@ -48,7 +48,7 @@ fn confidential_output() -> TransactOutput {
     }
 }
 
-fn transact_data() -> TransactIxData {
+pub(crate) fn transact_data() -> TransactIxData {
     TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [3u8; 32],
@@ -73,6 +73,15 @@ fn transact_data() -> TransactIxData {
 }
 
 fn transact_body(state_root_index: u16, nullifier_root_index: u16) -> Vec<u8> {
+    body(state_root_index, nullifier_root_index, 0, transact_data())
+}
+
+pub(crate) fn body(
+    state_root_index: u16,
+    nullifier_root_index: u16,
+    approval_required: u8,
+    transact: TransactIxData,
+) -> Vec<u8> {
     let mut data = vec![tag::TRANSACT];
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
@@ -85,7 +94,8 @@ fn transact_body(state_root_index: u16, nullifier_root_index: u16) -> Vec<u8> {
             },
             state_root_index,
             nullifier_root_index,
-            transact: transact_data(),
+            approval_required,
+            transact,
         })
         .expect("serialize policy transact body"),
     );

@@ -22,6 +22,7 @@ use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError, ProverClient, Rpc,
     SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
+use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
     instruction::CreateProtocolConfig,
     pda,
@@ -69,10 +70,34 @@ pub struct TestEnv {
     pub sender: TestWallet,
     pub recipient: TestWallet,
     tree_creation_authority: Keypair,
+    ring_creation_authority: Keypair,
     standard_accounts: smart_account::StandardAccounts,
 }
 
 impl TestEnv {
+    /// Governance enables the authority rail for `ring` through the ring vault.
+    pub fn enable_authority_rail(&self, ring: CustomRing) -> Result<()> {
+        let activation = SetRingActivation {
+            authority: self.standard_accounts.ring_vault,
+            ring_config: ring.ring_auth_pda(),
+            activated: true,
+            ring_authority_transact_is_enabled: true,
+        }
+        .instruction();
+        let sync = smart_account::execute_sync_ix(
+            &self.standard_accounts.ring_settings,
+            0,
+            &[self.ring_creation_authority.pubkey()],
+            &[activation],
+        );
+        self.client.rpc().create_and_send_transaction(
+            &[sync],
+            self.payer.pubkey(),
+            &[&self.payer, &self.ring_creation_authority],
+        )?;
+        Ok(())
+    }
+
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
         let rpc = self.client.rpc();
@@ -471,6 +496,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         sender,
         recipient,
         tree_creation_authority,
+        ring_creation_authority,
         standard_accounts: accounts,
     })
 }

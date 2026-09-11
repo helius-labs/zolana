@@ -3,32 +3,43 @@
 //! canonical public-input hashing are defined in `custom-ring-interface` so a single
 //! definition serves both sides.
 
+mod delegate;
 mod instructions;
 mod lookup_table;
 mod shared;
 mod transfer;
 #[cfg(feature = "solana-rpc")]
 mod v0;
+mod velocity;
 mod witness;
 
 pub use custom_ring_interface::{
     tag, CreateConfigIxData, CustomRingProof, CustomRingTransactIxData, PolicyConfig,
-    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
-    CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    PolicyTableIxData, ReaderIxData, CONFIG_PDA_SEED, COSIGN_DEPOSITS, COSIGN_SCOPE_MASK,
+    COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, CO_SIGNER_PDA_SEED, CREATE_CONFIG_COMPUTE_UNIT_LIMIT,
+    CREATE_POLICY_COMPUTE_UNIT_LIMIT, DELEGATE_PDA_SEED, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
     INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_RECORD_PDA_SEED, SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
+    READ_ACCESS_RECORD_PDA_SEED, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
+    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
+    SET_DELEGATE_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
     SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
+    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT, SPEND_WINDOW_PDA_SEED,
 };
 
 pub use zolana_interface::instruction::{DepositAsset, DepositSplAccounts};
 pub use zolana_ring_client::{
-    auditor_view_tag, AuditEncryptionError, AuditorEncryption, AuditorMessage, AUDITOR_MESSAGE_LEN,
+    auditor_view_tag, counters_message, decrypt_counters, encrypt_counters, find_counters_message,
+    AuditEncryptionError, AuditorEncryption, AuditorMessage, SpendCountersError,
+    AUDITOR_MESSAGE_LEN, SPEND_COUNTERS_SLOT_INDEX,
 };
 pub use zolana_ring_policy::RuleTableError;
 
 pub use crate::{
+    delegate::{DelegateOutput, DelegateTransfer, DelegateTransferInput, ProvenDelegateTransfer},
     instructions::{
+        cosigner::{ClearCoSigner, SetCoSigner},
         create_config::{CreateConfig, CreateConfigError},
+        delegate::{CustomRingDelegateTransact, DelegateInstructionError, SetDelegate},
         deposit::Deposit,
         entry::{
             CreateEntry, CreatePolicy, EntryError, EntryProof, EntryProofEnvironment,
@@ -46,15 +57,22 @@ pub use crate::{
         set_paused::SetPaused,
         set_policy_rules::SetPolicyRules,
         set_policy_source::{SetSourceOwner, SourceOwner},
+        spend::{
+            LiveSpendRecord, ProvenSpendRegistration, ReadSpendRecord, RecordOrigin, RegisterSpend,
+            SpendProofEnvironment,
+        },
+        spend_window::{ClearSpendWindow, SetSpendWindow},
         transact::{
             to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
             CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
             CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
+            SpendRecordWitness, VelocityWitness,
         },
     },
     shared::{
-        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingConfig,
-        PolicyMatchError, ReaderKey, ReaderKeyError,
+        client_rules_match, policy_config_table, AccountReadError, CustomRing, CustomRingCoSigner,
+        CustomRingConfig, CustomRingDelegate, CustomRingSpendWindow, PolicyMatchError, ReaderKey,
+        ReaderKeyError,
     },
     transfer::{
         tree_id, tree_id_async, AsyncTransferProofEnvironment, CustomRingTransfer,

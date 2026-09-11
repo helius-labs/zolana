@@ -2,7 +2,10 @@ use solana_address::Address;
 use solana_instruction::Instruction;
 use zolana_interface::instruction::{DepositBuildError, RingAssetDeposit, RingDeposit};
 
-use crate::CustomRing;
+use crate::{
+    instructions::{cosigner::cosigner_metas, spend_window::window_metas},
+    CustomRing,
+};
 
 #[must_use]
 /// Ring deposit: SPP's `RING_DEPOSIT` instruction re-targeted at this program.
@@ -12,13 +15,16 @@ use crate::CustomRing;
 /// byte, tag included. Encoding and the account layout therefore stay in the
 /// interface builder; this wrapper exists to pin `ring_program_id`, which selects
 /// both the instruction target and the `ring_auth` PDA that has to sign inside the
-/// forwarded CPI. Those two must never disagree, and here they cannot.
+/// forwarded CPI. Those two must never disagree, and here they cannot. The ring's
+/// `[cosigner_pda, cosigner]` prefix and one spend window slot per settled mint
+/// precede the forwarded list.
 pub struct Deposit {
     pub ring: CustomRing,
     pub tree: Address,
     /// Funds the deposit; writable and a signer for SOL.
     pub depositor: Address,
     pub deposits: Vec<RingAssetDeposit>,
+    pub cosigner: Option<Address>,
 }
 
 impl Deposit {
@@ -28,14 +34,21 @@ impl Deposit {
             tree,
             depositor,
             deposits,
+            cosigner,
         } = self;
 
-        RingDeposit {
+        let deposit = RingDeposit {
             tree,
             depositor,
             ring_program_id: ring.program_id(),
             deposits,
-        }
-        .instruction()
+        };
+        let windows = window_metas(ring, deposit.settled_mints()?);
+        let mut instruction = deposit.instruction()?;
+        instruction.accounts.splice(
+            0..0,
+            cosigner_metas(ring, cosigner).into_iter().chain(windows),
+        );
+        Ok(instruction)
     }
 }

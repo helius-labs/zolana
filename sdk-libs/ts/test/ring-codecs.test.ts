@@ -33,12 +33,34 @@ import {
   RING_SET_PAUSED_COMPUTE_UNIT_LIMIT,
   createRingConfigInstruction,
   initSppRingConfigInstruction,
+  ringDelegateTransactInstruction,
   ringLookupTableAddresses,
   ringSettlementStatics,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
-import { setRingAuthorityInstruction, setRingPausedInstruction } from "../src/ring/config.js";
+import {
+  clearRingCoSignerInstruction,
+  clearRingSpendWindowInstruction,
+  setRingAuthorityInstruction,
+  setRingCoSignerInstruction,
+  setRingDelegateInstruction,
+  setRingPausedInstruction,
+  setRingSpendWindowInstruction,
+} from "../src/ring/config.js";
+import {
+  ringCoSignerAddress,
+  ringDelegateAddress,
+  ringSpendWindowAddress,
+} from "../src/interface/pda/index.js";
+import { SOL_MINT } from "../src/transaction/asset.js";
+import {
+  RING_COSIGN_TRANSFERS,
+  RING_COSIGN_WITHDRAWALS,
+  decodeRingCoSigner,
+  decodeRingDelegate,
+  decodeRingSpendWindow,
+} from "../src/ring/codecs.js";
 import { getProtocolConfigAddress } from "../src/addresses.js";
 import { passkeyReader } from "../src/ring/passkey.js";
 import {
@@ -118,12 +140,18 @@ function policyConfigBytes(
     0,
     253,
     252,
+    ...filled(46, 32),
     ...(parts.sources ?? new Uint8Array(33 * 8)),
     parts.ruleCount ?? parts.rules?.length ?? 0,
     ...table(parts.rules ?? [], 16),
     parts.inlineCount ?? parts.inlineAssets?.length ?? 0,
     ...table(parts.inlineAssets ?? [], 8),
     ...limits,
+    ...new Uint8Array(8),
+    0,
+    ...new Uint8Array(32 * 8),
+    ...new Uint8Array(8 * 8),
+    ...new Uint8Array(8 * 8),
     ...(parts.generation ?? new Uint8Array(4)),
     ...(parts.generationSlot ?? new Uint8Array(8)),
   ]);
@@ -199,6 +227,9 @@ describe("ring deposit", () => {
     });
     expect(instruction.programAddress).toBe(RING);
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
       [TREE, AccountRole.WRITABLE],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_AUTH, AccountRole.READONLY],
@@ -391,7 +422,7 @@ describe("ring config", () => {
 
   it("decodes the policy config account and rejects another layout", () => {
     const data = policyConfigBytes();
-    expect(data).toHaveLength(1179);
+    expect(data).toHaveLength(1604);
     const config = decodeRingPolicyConfig(data);
     expect(config.policyHash).toEqual(filled(42, 32));
     expect(config.entriesTree).toBe(addressOf(43));
@@ -405,6 +436,9 @@ describe("ring config", () => {
     expect(config.inlineCount).toBe(0);
     expect(config.inlineAssets).toEqual([]);
     expect(config.inlineLimits).toEqual([]);
+    expect(config.namespaceOwnerHash).toEqual(filled(46, 32));
+    expect(config.windowSlots).toBe(0n);
+    expect(config.velocity).toEqual([]);
     expect(config.generation).toBe(0);
     expect(config.generationSlot).toBe(0n);
     expect(() => decodeRingPolicyConfig(data.subarray(1))).toThrow("RING_POLICY_CONFIG_INVALID");
@@ -437,13 +471,13 @@ describe("ring config", () => {
       generation: [4, 3, 2, 1],
       generationSlot: [8, 7, 6, 5, 4, 3, 2, 1],
     });
-    expect(data[333]).toBe(1);
-    expect(data.subarray(334, 366)).toEqual(rule);
-    expect(data[846]).toBe(1);
-    expect(data.subarray(847, 879)).toEqual(member);
-    expect(data.subarray(1103, 1111)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
-    expect(data.subarray(1167, 1171)).toEqual(Uint8Array.from([4, 3, 2, 1]));
-    expect(data.subarray(1171)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
+    expect(data[365]).toBe(1);
+    expect(data.subarray(366, 398)).toEqual(rule);
+    expect(data[878]).toBe(1);
+    expect(data.subarray(879, 911)).toEqual(member);
+    expect(data.subarray(1135, 1143)).toEqual(Uint8Array.from([0, 0, 0, 0, 0, 0, 0, 123]));
+    expect(data.subarray(1592, 1596)).toEqual(Uint8Array.from([4, 3, 2, 1]));
+    expect(data.subarray(1596)).toEqual(Uint8Array.from([8, 7, 6, 5, 4, 3, 2, 1]));
     const config = decodeRingPolicyConfig(data);
     expect(config.ruleCount).toBe(1);
     expect(config.rules).toEqual([rule]);
@@ -464,6 +498,10 @@ describe("ring config", () => {
     expect(config.generation).toBe(0x01020304);
     expect(config.generationSlot).toBe(0x0102030405060708n);
     expect(config.sources[0]).toEqual({ listId: 1, namespace: addressOf(0x11) });
+    expect(config.namespaceOwnerHash).toEqual(
+      hex("2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196"),
+    );
+    expect(config.windowSlots).toBe(0n);
   });
 
   it("decodes every byte of an unsigned per-asset limit", () => {
@@ -514,6 +552,241 @@ describe("ring config", () => {
       [RING_CONFIG, AccountRole.WRITABLE],
     ]);
     expect(Buffer.from(handover.data ?? []).toString("hex")).toBe("06");
+  });
+
+  it("builds the co-signer set and clear like Rust", async () => {
+    const signer = addressOf(37);
+    const set = await setRingCoSignerInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      signer,
+      scope: RING_COSIGN_WITHDRAWALS,
+      thresholds: [{ mint: SOL_MINT, above: 10n }],
+    });
+    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.WRITABLE],
+      [SYSTEM, AccountRole.READONLY],
+    ]);
+    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
+      "14" +
+        Buffer.from(addressBytes(signer, "signer")).toString("hex") +
+        "0401" +
+        "00".repeat(32) +
+        "0a00000000000000",
+    );
+    const clear = await clearRingCoSignerInstruction({
+      ringProgramId: RING,
+      authority: AUTHORITY,
+      rentRecipient: PAYER,
+    });
+    expect(clear.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE],
+    ]);
+    expect([...(clear.data ?? [])]).toEqual([21]);
+    await expect(
+      setRingCoSignerInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        signer,
+        scope: 0,
+      }),
+    ).rejects.toThrow("RING_CO_SIGNER_INVALID");
+    await expect(
+      setRingCoSignerInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        signer,
+        scope: RING_COSIGN_TRANSFERS,
+        thresholds: [
+          { mint: SOL_MINT, above: 1n },
+          { mint: SOL_MINT, above: 2n },
+        ],
+      }),
+    ).rejects.toThrow("RING_CO_SIGNER_INVALID");
+  });
+
+  it("builds the spend window set and clear like Rust", async () => {
+    const mint = addressOf(60);
+    const set = await setRingSpendWindowInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      mint,
+      windowSlots: 100n,
+      withdrawalCap: 9n,
+    });
+    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
+      [SYSTEM, AccountRole.READONLY],
+    ]);
+    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
+      "16" +
+        Buffer.from(addressBytes(mint, "mint")).toString("hex") +
+        "6400000000000000" +
+        "0000000000000000" +
+        "0900000000000000",
+    );
+    const clear = await clearRingSpendWindowInstruction({
+      ringProgramId: RING,
+      authority: AUTHORITY,
+      mint,
+      rentRecipient: PAYER,
+    });
+    expect(clear.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, mint), AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE],
+    ]);
+    expect(Buffer.from(clear.data ?? []).toString("hex")).toBe(
+      "17" + Buffer.from(addressBytes(mint, "mint")).toString("hex"),
+    );
+    await expect(
+      setRingSpendWindowInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        authority: AUTHORITY,
+        mint,
+        windowSlots: 0n,
+      }),
+    ).rejects.toThrow("RING_SPEND_WINDOW_INVALID");
+  });
+
+  it("builds the delegate set like Rust and decodes the account", async () => {
+    const delegate = addressOf(47);
+    const [programData] = await getProgramDerivedAddress({
+      programAddress: address("BPFLoaderUpgradeab1e11111111111111111111111"),
+      seeds: [getAddressEncoder().encode(RING)],
+    });
+    const set = await setRingDelegateInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      authority: AUTHORITY,
+      delegate,
+    });
+    expect(set.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringDelegateAddress(RING), AccountRole.WRITABLE],
+      [SYSTEM, AccountRole.READONLY],
+      [RING, AccountRole.READONLY],
+      [programData, AccountRole.READONLY],
+    ]);
+    expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
+      "18" + Buffer.from(addressBytes(delegate, "delegate")).toString("hex"),
+    );
+    const data = Uint8Array.from([6, ...addressBytes(delegate, "delegate"), 254]);
+    expect(decodeRingDelegate(data)).toEqual({ delegate, bump: 254 });
+    expect(() => decodeRingDelegate(data.subarray(1))).toThrow("RING_DELEGATE_INVALID");
+    const zeroKey = Uint8Array.from(data);
+    zeroKey.fill(0, 1, 33);
+    expect(() => decodeRingDelegate(zeroKey)).toThrow("RING_DELEGATE_INVALID");
+  });
+
+  it("decodes the spend window account and rejects another layout", () => {
+    const mint = addressOf(60);
+    const data = Uint8Array.from([
+      5,
+      ...addressBytes(mint, "mint"),
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      7,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      9,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      176,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      251,
+    ]);
+    expect(decodeRingSpendWindow(data)).toEqual({
+      mint,
+      windowSlots: 100n,
+      depositCap: 7n,
+      withdrawalCap: 9n,
+      windowStartSlot: 1200n,
+      deposited: 1n,
+      withdrawn: 2n,
+      bump: 251,
+    });
+    expect(() => decodeRingSpendWindow(data.subarray(1))).toThrow("RING_SPEND_WINDOW_INVALID");
+    const zeroWindow = Uint8Array.from(data);
+    zeroWindow[33] = 0;
+    expect(() => decodeRingSpendWindow(zeroWindow)).toThrow("RING_SPEND_WINDOW_INVALID");
+  });
+
+  it("decodes the co-signer account and rejects another layout", () => {
+    const signer = addressOf(37);
+    const row = [...addressBytes(SOL_MINT, "mint"), 10, 0, 0, 0, 0, 0, 0, 0];
+    const data = Uint8Array.from([
+      4,
+      ...addressBytes(signer, "signer"),
+      RING_COSIGN_WITHDRAWALS,
+      1,
+      ...row,
+      ...new Uint8Array(7 * 40),
+      253,
+    ]);
+    const cosigner = decodeRingCoSigner(data);
+    expect(cosigner.signer).toBe(signer);
+    expect(cosigner.scope).toBe(RING_COSIGN_WITHDRAWALS);
+    expect(cosigner.bump).toBe(253);
+    expect(cosigner.thresholds).toEqual([{ mint: SOL_MINT, above: 10n }]);
+    expect(() => decodeRingCoSigner(data.subarray(1))).toThrow("RING_CO_SIGNER_INVALID");
+    const zeroScope = Uint8Array.from(data);
+    zeroScope[33] = 0;
+    expect(() => decodeRingCoSigner(zeroScope)).toThrow("RING_CO_SIGNER_INVALID");
   });
 
   it("builds the pause switch like Rust `SetPaused` for both states", async () => {
@@ -912,6 +1185,114 @@ describe("ring transact", () => {
     expect(tail).toEqual([SOL_INTERFACE, recipient]);
   });
 
+  it("places the delegate after the co-signer and refuses a public leg", async () => {
+    const delegate = addressOf(47);
+    const instruction = await ringDelegateTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      delegate,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      hasPolicy: false,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
+    });
+    expect(instruction.accounts?.slice(0, 7).map((meta) => [meta.address, meta.role])).toEqual([
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [RING_CONFIG, AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringDelegateAddress(RING), AccountRole.READONLY],
+      [delegate, AccountRole.READONLY_SIGNER],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    expect(instruction.data?.[0]).toBe(25);
+    const [policyConfig] = await getProgramDerivedAddress({
+      programAddress: RING,
+      seeds: [new TextEncoder().encode("policy")],
+    });
+    const policy = await ringDelegateTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      delegate,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      entriesTree: ENTRIES_TREE,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      data: transactData(),
+    });
+    expect(policy.accounts?.slice(4, 9).map((meta) => [meta.address, meta.role])).toEqual([
+      [await ringDelegateAddress(RING), AccountRole.READONLY],
+      [delegate, AccountRole.READONLY_SIGNER],
+      [policyConfig, AccountRole.READONLY],
+      [ENTRIES_TREE, AccountRole.READONLY],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    await expect(
+      ringDelegateTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        delegate,
+        inputTree: TREE,
+        outputTree: OUTPUT_TREE,
+        hasPolicy: false,
+        proof: customRingProof(),
+        stateRootIndex: 0,
+        nullifierRootIndex: 0,
+        data: { ...transactData(), interfaceTransfers: [{ kind: "solWithdrawal", amount: 1n }] },
+      }),
+    ).rejects.toThrow("RING_DELEGATE_PUBLIC_LEG");
+  });
+
+  it("places one spend window slot per public leg before the spp payer", async () => {
+    const recipient = addressOf(31);
+    const instruction = await ringTransactInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      inputTree: TREE,
+      outputTree: OUTPUT_TREE,
+      hasPolicy: false,
+      proof: customRingProof(),
+      stateRootIndex: 0,
+      nullifierRootIndex: 0,
+      withdrawal: { kind: "sol", recipient },
+      data: {
+        ...transactData(),
+        interfaceTransfers: [
+          { kind: "solWithdrawal", amount: 6n },
+          { kind: "solWithdrawal", amount: 6n },
+        ],
+      },
+    });
+    const window = await ringSpendWindowAddress(RING, SOL_MINT);
+    expect(instruction.accounts?.slice(4, 7).map((meta) => [meta.address, meta.role])).toEqual([
+      [window, AccountRole.WRITABLE],
+      [window, AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+    ]);
+    await expect(
+      ringTransactInstruction({
+        ringProgramId: RING,
+        payer: PAYER,
+        inputTree: TREE,
+        outputTree: OUTPUT_TREE,
+        hasPolicy: false,
+        proof: customRingProof(),
+        stateRootIndex: 0,
+        nullifierRootIndex: 0,
+        withdrawal: { kind: "sol", recipient },
+        data: {
+          ...transactData(),
+          interfaceTransfers: [{ kind: "splWithdrawal", amount: 1n, splInterfaceBump: 250 }],
+        },
+      }),
+    ).rejects.toThrow("RING_BUILD_WITHDRAWAL");
+  });
+
   it("appends the owner signers as readonly signers after the payer", async () => {
     const owner = addressOf(33);
     const instruction = await ringTransactInstruction({
@@ -977,6 +1358,8 @@ describe("ring transact", () => {
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [RING_CONFIG, AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [policyConfig, AccountRole.READONLY],
       [ENTRIES_TREE, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
@@ -987,11 +1370,11 @@ describe("ring transact", () => {
       [RING_AUTH, AccountRole.READONLY],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "0333333333333333333333333333333333333333333333333333333333333333333434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343435353535353535353535353535353535353535353535353535353535353535353636363636363636363636363636363636363636363636363636363636363636373737373737373737373737373737373737373737373737373737373737373700000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
+      "033333333333333333333333333333333333333333333333333333333333333333343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343535353535353535353535353535353535353535353535353535353535353535363636363636363636363636363636363636363636363636363636363636363637373737373737373737373737373737373737373737373737373737373737370000000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
     );
   });
 
-  it("places the entries tree read-only at index 3 before the spp payer", async () => {
+  it("places the entries tree read-only at index 5 before the spp payer", async () => {
     const instruction = await ringTransactInstruction({
       ringProgramId: RING,
       payer: PAYER,
@@ -1004,8 +1387,8 @@ describe("ring transact", () => {
       data: transactData(),
     });
     const accounts = instruction.accounts ?? [];
-    expect(accounts[3]).toMatchObject({ address: ENTRIES_TREE, role: AccountRole.READONLY });
-    expect(accounts[4]).toMatchObject({ address: PAYER, role: AccountRole.WRITABLE_SIGNER });
+    expect(accounts[5]).toMatchObject({ address: ENTRIES_TREE, role: AccountRole.READONLY });
+    expect(accounts[6]).toMatchObject({ address: PAYER, role: AccountRole.WRITABLE_SIGNER });
   });
 
   it("encodes the root indices little endian between proof and payload", async () => {

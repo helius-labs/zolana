@@ -1,7 +1,7 @@
 import { treeIdField } from "../../interface/tree-slot.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import type { RequestContext } from "../../interface/types.js";
+import type { Bytes32, RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -23,6 +23,7 @@ import {
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
 } from "./types.js";
 import type {
   CustomRingBaseProofRequest,
@@ -30,6 +31,8 @@ import type {
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingSpendRecordWitness,
+  CustomRingVelocityRow,
   Field,
   MergeInputs,
   Proof,
@@ -434,7 +437,57 @@ export function customRingPolicyProofRequest(
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
     entriesTreeId: hex32(treeIdField(inputs.entriesTreeId), "entriesTreeId"),
+    windowSlots: Number(inputs.velocity.windowSlots),
+    velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
+    velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
+    ringId: hex32(inputs.velocity.ringId, "ringId"),
+    namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
+    windowIndex: Number(inputs.velocity.windowIndex),
+    approvalRequired: inputs.velocity.approvalRequired,
+    record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+  });
+}
+
+/** Rows past the count are zero, the server refuses other padding. */
+function paddedVelocityRows(
+  rows: readonly CustomRingVelocityRow[],
+): readonly CustomRingVelocityRow[] {
+  if (rows.length > RING_VELOCITY_SLOTS) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: { field: "velocity", expected: RING_VELOCITY_SLOTS, actual: rows.length },
+    });
+  }
+  return Object.freeze(
+    Array.from(
+      { length: RING_VELOCITY_SLOTS },
+      (_, index) =>
+        rows[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
+    ),
+  );
+}
+
+function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    asset: hex32(row.asset, "velocity asset"),
+    cap: u64FieldHex(row.cap, "velocity cap"),
+    cosignAbove: u64FieldHex(row.cosignAbove, "velocity cosignAbove"),
+  });
+}
+
+function spendRecordJson(record: CustomRingSpendRecordWitness): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    version: Number(record.version),
+    window: Number(record.window),
+    commitment: hex32(record.commitment, "record commitment"),
+    salt: hex32(record.salt, "record salt"),
+    assets: sized(record.assets, RING_VELOCITY_SLOTS, "record assets").map((asset) =>
+      hex32(asset, "record assets"),
+    ),
+    spent: sized(record.spent, RING_VELOCITY_SLOTS, "record spent").map((spent) =>
+      u64FieldHex(spent, "record spent"),
+    ),
+    nextSalt: hex32(record.nextSalt, "record nextSalt"),
   });
 }
 

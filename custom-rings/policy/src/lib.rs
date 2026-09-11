@@ -11,6 +11,7 @@ mod entry;
 mod member;
 mod rule_table;
 pub mod schema;
+mod spend;
 
 pub use entry::{
     entry_nullifier, entry_seed, mutation_private_tx_hash, EntryState, ListEntry, ListId,
@@ -20,8 +21,12 @@ pub use member::{Member, MemberError};
 pub use rule_table::{
     AnswerLoad, EncodedRuleTable, Guard, Mode, PolicyHashError, Rule, RuleSource, RuleTable,
     RuleTableBuilder, RuleTableError, SourceMap, SourceMapError, SourceMapOwnerError, SourceOwner,
-    Subject, ANSWER_SLOTS, GUARANTEED_LOAD, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
-    POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_VERSION,
+    Subject, VelocityRow, ANSWER_SLOTS, GUARANTEED_LOAD, MAX_INLINE_ASSETS, MAX_RULES, MAX_SOURCES,
+    MAX_VELOCITY_ASSETS, POLICY_INPUT_SLOTS, POLICY_OUTPUT_SLOTS, POLICY_VERSION,
+};
+pub use spend::{
+    ring_id_field, spend_seed, SpendCounters, SpendRecord, SPEND_COUNTERS_LEN, SPEND_RECORD_LEN,
+    SPEND_RECORD_OUTPUT_DATA_LEN,
 };
 
 /// At most 31 bytes keeps the packed value below the field modulus.
@@ -42,6 +47,10 @@ pub const POLICY_ADDRESS_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:ad
 pub const POLICY_RECORD_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:record:v1");
 /// Separates policy hashes, frozen with every pinned config.
 pub const POLICY_TABLE_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:policy:v1");
+/// Separates spend record address seeds from entry seeds.
+pub const SPEND_ADDRESS_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-policy:spend:v1");
+/// Separates spend record leaves from entry leaves.
+pub const SPEND_RECORD_DOMAIN: [u8; 32] = packed_ascii(b"zolana:ring-spend:record:v1");
 
 pub(crate) fn field_u8(value: u8) -> [u8; 32] {
     zolana_hasher::primitives::right_align(&[value])

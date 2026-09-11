@@ -2,8 +2,12 @@ mod common;
 
 #[path = "failing/compute_units.rs"]
 mod compute_units;
+#[path = "failing/cosigner.rs"]
+mod cosigner;
 #[path = "failing/create_config.rs"]
 mod create_config;
+#[path = "failing/delegate.rs"]
+mod delegate;
 #[path = "failing/deposit.rs"]
 mod deposit;
 #[path = "failing/dispatch.rs"]
@@ -18,5 +22,7 @@ mod read_access;
 mod set_authority;
 #[path = "failing/set_paused.rs"]
 mod set_paused;
+#[path = "failing/spend_window.rs"]
+mod spend_window;
 #[path = "failing/transact.rs"]
 mod transact;

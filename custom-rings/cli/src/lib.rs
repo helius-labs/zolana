@@ -3,6 +3,8 @@
 pub mod authority;
 pub mod catalogue;
 pub mod config;
+pub mod cosigner;
+pub mod delegate;
 pub mod deploy;
 pub mod error;
 pub mod file;
@@ -19,11 +21,13 @@ pub mod probe;
 pub mod reader;
 pub mod release;
 pub mod ring_rpc;
+pub mod spend;
 pub mod status;
 pub mod step;
 pub mod tool;
 pub mod transact;
 pub mod ui;
+pub mod window;
 pub mod wizard;
 
 use std::path::{Path, PathBuf};
@@ -107,6 +111,18 @@ pub enum Command {
     /// Grant or revoke reads on the ring RPC.
     #[command(subcommand)]
     Reader(ReaderCommand),
+    /// Set, clear or show the ring's co-signer.
+    #[command(subcommand)]
+    Cosigner(CosignerCommand),
+    /// Set, clear or show a mint's spend window.
+    #[command(subcommand)]
+    Window(WindowCommand),
+    /// Set or show the permanent delegate, or move a note as the delegate.
+    #[command(subcommand)]
+    Delegate(DelegateCommand),
+    /// Register or show the sender's spend record on a velocity ring.
+    #[command(subcommand)]
+    Spend(SpendCommand),
     /// Read and mutate the ring's policy entries.
     #[command(subcommand)]
     List(ListCommand),
@@ -164,6 +180,82 @@ pub enum PolicyCommand {
         /// Confirms the replacement, proofs built against the old table are refused from now on.
         #[arg(long)]
         yes: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CosignerCommand {
+    /// Create or replace the co-signer, flags absent means the `[cosigner]` table of ring.toml.
+    Set {
+        /// The Solana key that signs beside the sender.
+        #[arg(long)]
+        signer: Option<Address>,
+        /// Operation classes the co-signer gates.
+        #[arg(long, value_delimiter = ',', requires = "signer")]
+        scope: Vec<cosigner::CosignScope>,
+        /// `<mint>=<amount>` per mint, `sol` for the native token, withdrawals above it need the co-signer.
+        #[arg(long, requires = "signer")]
+        threshold: Vec<cosigner::Threshold>,
+    },
+    /// Close the co-signer account, the rent returns to the authority.
+    Clear,
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DelegateCommand {
+    /// Set the delegate once, signed by the upgrade authority.
+    Set {
+        #[arg(long)]
+        delegate: Address,
+    },
+    Show,
+    /// Deposit lamports to a throwaway member and re-own them to a shielded address.
+    Move {
+        /// The recipient's base58 shielded address.
+        to: ShieldedAddress,
+        #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
+        amount: u64,
+        #[arg(long)]
+        delegate_keypair: PathBuf,
+        /// The co-signer keypair when the ring's co-signer scope covers transfers.
+        #[arg(long)]
+        cosigner_keypair: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SpendCommand {
+    /// Claim the sender's record with zero counters, once per member.
+    Register,
+    Show,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum WindowCommand {
+    /// Create or replace the window, the counters restart.
+    Set {
+        /// A mint address, `sol` for the native token.
+        #[arg(long)]
+        mint: window::Mint,
+        /// Window length, windows start at multiples of it.
+        #[arg(long)]
+        slots: u64,
+        /// Public deposits per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        deposit_cap: u64,
+        /// Public withdrawals per window, zero leaves them uncapped.
+        #[arg(long, default_value_t = 0)]
+        withdrawal_cap: u64,
+    },
+    /// Close the window account, the rent returns to the authority.
+    Clear {
+        #[arg(long)]
+        mint: window::Mint,
+    },
+    Show {
+        #[arg(long)]
+        mint: window::Mint,
     },
 }
 
@@ -272,6 +364,9 @@ pub struct TransactArgs {
     /// Lamports the recipient receives, deposited twice by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// The co-signer keypair when the ring's co-signer scope covers the demo.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -281,6 +376,9 @@ pub struct TransferArgs {
     /// Lamports the recipient receives, deposited by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// The co-signer keypair when the ring's co-signer scope covers the transfer.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -291,6 +389,9 @@ pub struct MergeArgs {
     /// Maximum number of notes to merge, from 2 through 8.
     #[arg(long, default_value_t = 8, value_parser = parse_merge_count)]
     pub count: usize,
+    /// The co-signer keypair when the ring's co-signer scope covers transfers.
+    #[arg(long)]
+    pub cosigner_keypair: Option<PathBuf>,
 }
 
 fn parse_merge_count(value: &str) -> Result<usize, String> {
@@ -327,6 +428,7 @@ impl Default for InitArgs {
 impl Default for TransactArgs {
     fn default() -> Self {
         Self {
+            cosigner_keypair: None,
             amount: DEFAULT_TRANSACT_AMOUNT,
         }
     }
@@ -550,6 +652,10 @@ pub fn run(cli: Cli) -> Result<(), CliError> {
         Command::RpcCheck => ring_rpc::run_check(&ctx)?,
         Command::Authority(command) => authority::run(&mut ctx, command)?,
         Command::Reader(command) => reader::run(&mut ctx, command)?,
+        Command::Cosigner(command) => cosigner::run(&mut ctx, command)?,
+        Command::Window(command) => window::run(&mut ctx, command)?,
+        Command::Delegate(command) => delegate::run(&mut ctx, command)?,
+        Command::Spend(command) => spend::run(&mut ctx, command)?,
         Command::List(command) => list::run(&mut ctx, command)?,
         Command::Policy(command) => policy::run(&mut ctx, command)?,
         Command::AuditorKey(args) => keys::run(&ctx.project_root, args)?,

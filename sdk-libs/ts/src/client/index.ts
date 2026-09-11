@@ -40,7 +40,9 @@ export {
   RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
   disabledRuleAnswer,
+  velocityWitnessOff,
 } from "./prover/types.js";
 export type {
   CircuitUtxo,
@@ -50,6 +52,9 @@ export type {
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
   CustomRingSourceOwner,
+  CustomRingSpendRecordWitness,
+  CustomRingVelocityRow,
+  CustomRingVelocityWitness,
   Field,
   Proof,
   RingTransactRoots,

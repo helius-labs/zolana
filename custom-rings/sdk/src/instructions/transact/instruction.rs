@@ -4,15 +4,22 @@ use solana_instruction::{AccountMeta, Instruction};
 use zolana_interface::instruction::{
     RingTransact, TransactInterfaceTransferAccounts, TransactIxData,
 };
+use zolana_transaction::SOL_MINT;
 
-use crate::CustomRing;
+use crate::{
+    instructions::{cosigner::cosigner_metas, spend_window::window_metas},
+    CustomRing,
+};
 
 #[must_use]
 /// Audited ring transact: the ring's auditor key-encryption proof followed by the
 /// SPP content it forwards.
 ///
-/// A policy ring prepends `[payer, config, policy_config, entries_tree]` to SPP's
-/// own `RING_TRANSACT` list, an audit-only ring prepends just `[payer, config]`.
+/// A policy ring prepends `[payer, config, cosigner_pda, cosigner, policy_config,
+/// entries_tree]` to SPP's own `RING_TRANSACT` list, an audit-only ring prepends
+/// just `[payer, config, cosigner_pda, cosigner]`, then one spend window slot
+/// per public leg. The `cosigner` slot signs only when the ring has a
+/// co-signer, else it repeats `cosigner_pda`.
 /// The config holds the auditor key the public-input hash is recomputed against,
 /// and a policy ring's `entries_tree` is the only tree the policy roots are read
 /// from. Everything after the prefix is forwarded to SPP position for
@@ -31,6 +38,8 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
+    /// The ring's co-signer, a signer of the transaction when set.
+    pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
     pub owner_signers: Vec<Address>,
     /// Settlement accounts for the content's `interface_transfers`, in the same
@@ -46,6 +55,8 @@ pub struct CustomRingTransact {
     /// History entries a policy statement binds, unread by a ring without rules.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    /// The dual control bit the velocity statement proves, the co-signer then signs.
+    pub approval_required: bool,
 }
 
 impl CustomRingTransact {
@@ -56,14 +67,21 @@ impl CustomRingTransact {
             input_tree,
             output_tree,
             entries_tree,
+            cosigner,
             owner_signers,
             interface_transfer_accounts,
             proof,
             transact,
             state_root_index,
             nullifier_root_index,
+            approval_required,
         } = self;
 
+        let windows: Vec<AccountMeta> = window_metas(
+            deployment,
+            interface_transfer_accounts.iter().map(settled_mint),
+        )
+        .collect();
         let ring = RingTransact {
             payer,
             input_tree,
@@ -75,12 +93,21 @@ impl CustomRingTransact {
         };
         // `.instruction()` (not `.cpi_instruction()`) is the client-facing form:
         // it targets a ring program and leaves `ring_config` unsigned.
-        let spp_accounts = ring.instruction().accounts;
+        let mut spp_accounts = ring.instruction().accounts;
+        // The program raises the namespace PDA as a signer inside its CPI.
+        let namespace = deployment.namespace_pda();
+        for meta in spp_accounts
+            .iter_mut()
+            .filter(|meta| meta.pubkey == namespace)
+        {
+            meta.is_signer = false;
+        }
         let transact = ring.data;
 
-        let mut accounts = Vec::with_capacity(4 + spp_accounts.len());
+        let mut accounts = Vec::with_capacity(6 + spp_accounts.len());
         accounts.push(AccountMeta::new(payer, true));
         accounts.push(AccountMeta::new_readonly(deployment.config_pda(), false));
+        accounts.extend(cosigner_metas(deployment, cosigner));
         if let Some(entries_tree) = entries_tree {
             accounts.push(AccountMeta::new_readonly(
                 deployment.policy_config_pda(),
@@ -90,12 +117,14 @@ impl CustomRingTransact {
             // tree.
             accounts.push(AccountMeta::new_readonly(entries_tree, false));
         }
+        accounts.extend(windows);
         accounts.extend(spp_accounts);
 
         let body = wincode::serialize(&CustomRingTransactIxData {
             proof,
             state_root_index,
             nullifier_root_index,
+            approval_required: u8::from(approval_required),
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());
@@ -107,5 +136,13 @@ impl CustomRingTransact {
             accounts,
             data,
         })
+    }
+}
+
+fn settled_mint(accounts: &TransactInterfaceTransferAccounts) -> Address {
+    match accounts {
+        TransactInterfaceTransferAccounts::Sol(_) => SOL_MINT,
+        TransactInterfaceTransferAccounts::SplDeposit(spl) => spl.mint,
+        TransactInterfaceTransferAccounts::SplWithdrawal(spl) => spl.mint,
     }
 }

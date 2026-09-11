@@ -1,7 +1,7 @@
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { DepositClient } from "../wallet/deposit.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { ringDepositInstruction } from "../interface/instructions/index.js";
+import { ringDepositInstruction, type SignerAccount } from "../interface/instructions/index.js";
 import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding, randomSalt } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
@@ -28,6 +28,8 @@ export interface RingDepositTransactionParams {
   readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
+  /** The ring's co-signer when its scope covers deposits. */
+  readonly cosigner?: SignerAccount;
 }
 
 /** Mirrors Rust `ring_deposit_sol`. The output is ring-bound, so only the ring's transact can spend it. */
@@ -75,6 +77,7 @@ export async function buildRingDepositTransaction(
         ringProgramId: input.ringProgramId,
         tree,
         depositor,
+        ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         deposits: [
           {
             asset: settlement,

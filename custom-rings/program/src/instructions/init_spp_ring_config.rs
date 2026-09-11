@@ -61,5 +61,5 @@ pub fn process_init_spp_ring_config_ix(
     // carries the authority, the ring config and the SPP program, so the CPI list
     // is selected explicitly instead of forwarded whole.
     let cpi_accounts = [&*payer, &*protocol_config, &*ring_auth, &*system_program];
-    cpi_spp_signed(program_id, cpi_accounts.as_slice(), &instruction_data)
+    cpi_spp_signed(program_id, cpi_accounts.as_slice(), &instruction_data, None)
 }

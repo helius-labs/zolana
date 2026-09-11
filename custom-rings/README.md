@@ -44,6 +44,55 @@ the pause move with it.
 Readers are on-chain records, so the same proposal flow grants a regulator a
 passkey without anyone sharing a key.
 
+A co-signer is a second Solana key the authority sets with `zolana-ring
+cosigner set`, scoped to transfers, deposits, withdrawals or any mix. Every
+transact and merge is a transfer and a public leg adds its class, so a
+transfer cannot hide behind a small deposit. Withdrawals carry per-mint
+thresholds summed over the legs of one transaction, a withdrawn mint without
+a threshold always needs the co-signer. The `[cosigner]` table of `ring.toml`
+holds the key, the scope names and the thresholds, `cosigner set` without
+flags applies it, `cosigner clear` closes the account and a ring without one
+demands nothing. The transact, transfer and merge commands take
+`--cosigner-keypair`.
+
+A delegate is a Solana key the upgrade authority sets once with `zolana-ring
+delegate set` and no instruction replaces or removes. It moves notes between
+members over the shielded pool's authority rail, proving the same audit or
+policy statement a member's transfer proves, with the members' identities as
+the screened parties. The ring refuses a public leg on that rail, so a
+delegate never withdraws, and the shielded pool refuses the rail until
+governance enables it for the ring with `set_ring_activation`. The delegate
+must hold the nullifier key of every note it moves, a custodial ring
+provisions the members' keys to it. A transfer-scoped co-signer gates a
+delegate move like any transfer. A compromised delegate is contained by
+governance disabling the rail or the authority pausing the ring.
+
+A spend window caps what the ring settles publicly in one mint. `zolana-ring
+window set --mint sol --slots 216000 --withdrawal-cap 1000000000` counts every
+public deposit and withdrawal of the mint over fixed windows of that many
+slots and refuses the transaction that would pass a cap, a zero cap leaves
+that direction open, a mint without a window is uncapped, and `window clear`
+closes the account. Windows are fixed, so a burst across one boundary can
+move up to twice the cap. Every transact and ring deposit names one window
+account per public leg, the SDKs derive them from the legs.
+
+A velocity policy bounds what one sender moves out of its own balance per
+mint over a window, shielded payments, exits and withdrawals alike, and
+demands the co-signer on any single transfer above a threshold. The
+`[policy.velocity]` table of `ring.toml` names the window length in slots
+and up to eight rows of mint, cap and co-sign threshold, a zero cap leaves
+the mint uncapped and a zero threshold never asks. The rows are part of the
+pinned table, only the upgrade authority moves them. Each member registers a
+spend record once with `zolana-ring spend register`, a zero-amount note the
+ring's namespace owns in the entries tree, and every transfer of that member
+spends the record into its successor inside the same proof, carrying the
+counters forward within the window and resetting them at a boundary. The
+counters travel encrypted under the transaction viewing key, so the sender
+and the auditor read them and the chain sees only their commitment. The
+`transact` and `transfer` commands register the sender on first use and
+refuse to send a transfer the proof marks for approval without
+`--cosigner-keypair`.
+
 ## How auditor visibility works
 
 Every transfer encrypts its transaction viewing key to the auditor under a
@@ -195,6 +244,14 @@ The proofs bind output commitments and ciphertext bytes to one private
 transaction hash. They do not prove that decrypted output plaintext opens its
 commitment. The RPC reports what it decrypts and marks unreadable slots. It
 cannot prove that reported values equal the committed UTXOs.
+
+A velocity ring keeps every note in its entries tree, takes no deposit leg on
+a transfer and closes the delegate rail. A spend record publishes the
+member's identity and its lineage in the clear, so an observer who knows an
+identity can count that member's transfers, not their amounts. The window is
+fixed, a sender may move up to twice the cap across one boundary. The
+TypeScript SDK refuses a transfer on a velocity ring, the record slots are
+assembled by the Rust SDK only.
 
 ## Reading a ring
 

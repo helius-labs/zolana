@@ -11,7 +11,7 @@ use crate::{
     policy::{SourceSpec, SubjectName},
 };
 
-const EXAMPLES: [&str; 7] = [
+const EXAMPLES: [&str; 8] = [
     "audit-only",
     "empty-policy",
     "own-blocklist",
@@ -19,6 +19,7 @@ const EXAMPLES: [&str; 7] = [
     "allowlist",
     "asset-allowlist-owner-threshold",
     "token-blocklist",
+    "velocity-window",
 ];
 
 fn path(name: &str) -> PathBuf {
@@ -40,6 +41,7 @@ struct Forms {
     entries_tree: bool,
     empty_table: bool,
     audit_only: bool,
+    velocity: bool,
 }
 
 #[test]
@@ -70,6 +72,7 @@ fn every_example_loads_and_compiles_on_both_clusters() {
                 forms.assets |= matches!(rule.source, RuleSource::InlineAssets);
             }
             forms.assets |= !compiled.rules.inline_assets().is_empty();
+            forms.velocity |= compiled.rules.window_slots() != 0;
         }
         forms.empty_table |= policy.rules.is_empty();
         forms.entries_tree |= policy.entries_tree.is_some();
@@ -108,4 +111,5 @@ fn every_example_loads_and_compiles_on_both_clusters() {
     assert!(forms.entries_tree, "an example names its tree");
     assert!(forms.empty_table, "an example pins an empty table");
     assert!(forms.audit_only, "an example carries no policy table");
+    assert!(forms.velocity, "an example bounds spending per window");
 }

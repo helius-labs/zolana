@@ -1,4 +1,6 @@
+pub mod cosigner;
 pub mod create_config;
+pub mod delegate;
 pub mod deposit;
 pub mod entry;
 pub mod grant_read_access;
@@ -10,4 +12,6 @@ pub mod set_authority;
 pub mod set_paused;
 pub mod set_policy_rules;
 pub mod set_policy_source;
+pub mod spend;
+pub mod spend_window;
 pub mod transact;

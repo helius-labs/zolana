@@ -99,17 +99,23 @@ func baseParams(t *testing.T) *BaseParameters {
 func rulesFreeParams(t *testing.T) *PolicyParameters {
 	t.Helper()
 	p := &PolicyParameters{
-		NIn:               1,
-		NOut:              1,
-		AddressChain:      big.NewInt(0x77),
-		ExternalDataHash:  big.NewInt(0x5eed),
-		PrivateTxBlinding: big.NewInt(0x5b1d),
-		StateRoot:         big.NewInt(0x0d),
-		NullifierRoot:     big.NewInt(0x0e),
-		EntriesTreeID:     big.NewInt(0x0f),
+		NIn:                1,
+		NOut:               1,
+		AddressChain:       big.NewInt(0x77),
+		ExternalDataHash:   big.NewInt(0x5eed),
+		PrivateTxBlinding:  big.NewInt(0x5b1d),
+		StateRoot:          big.NewInt(0x0d),
+		NullifierRoot:      big.NewInt(0x0e),
+		EntriesTreeID:      big.NewInt(0x0f),
+		RingID:             big.NewInt(0x5a),
+		NamespaceOwnerHash: big.NewInt(0x99),
+		Record:             zeroedRecord(),
 	}
 	for i := range p.Sources {
 		p.Sources[i] = SourceOwner{ListId: 0, OwnerHash: big.NewInt(0)}
+	}
+	for i := range p.Velocity {
+		p.Velocity[i] = VelocityRow{Asset: big.NewInt(0), Cap: big.NewInt(0), CosignAbove: big.NewInt(0)}
 	}
 	p.TxViewingSk = testScalar(0x11)
 	p.EphSk = testScalar(0x22)
@@ -171,7 +177,8 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	for range p.Sources {
 		policyElements = append(policyElements, big.NewInt(0), big.NewInt(0))
 	}
-	policyHash := spptest.MustHashChain(t, append(policyElements, big.NewInt(0)))
+	// The rule count, then the window length, both zero.
+	policyHash := spptest.MustHashChain(t, append(policyElements, big.NewInt(0), big.NewInt(0)))
 	elements := []*big.Int{p.PrivateTxHash}
 	for _, element := range auditChainElements {
 		value, ok := new(big.Int).SetString(element[2:], 16)
@@ -181,8 +188,22 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		elements = append(elements, value)
 	}
 	p.PublicInputHash = spptest.MustHashChain(t, append(elements,
-		policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID))
+		policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
+		p.RingID, p.NamespaceOwnerHash, big.NewInt(0), big.NewInt(0)))
 	return p
+}
+
+func zeroedRecord() SpendRecord {
+	record := SpendRecord{
+		Commitment: big.NewInt(0),
+		Salt:       big.NewInt(0),
+		NextSalt:   big.NewInt(0),
+	}
+	for i := range record.Assets {
+		record.Assets[i] = big.NewInt(0)
+		record.Spent[i] = big.NewInt(0)
+	}
+	return record
 }
 
 func openingHash(t *testing.T, slot Opening) *big.Int {

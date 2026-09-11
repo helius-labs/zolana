@@ -42,6 +42,47 @@ pub fn render(spec: &PolicySpec) -> Result<Table, PolicyError> {
     if !sources.is_empty() {
         policy.insert("sources", Item::Table(sources));
     }
+    if let Some(velocity) = &spec.velocity {
+        let mut table = Table::new();
+        table
+            .decor_mut()
+            .set_prefix("\n# A sender's outflow per mint over a window, windows start at multiples of the length and reset the counters.\n");
+        let slots =
+            i64::try_from(velocity.window_slots).map_err(|_| PolicyError::ThresholdTooLarge {
+                rule: 0,
+                amount: velocity.window_slots,
+            })?;
+        table.insert("window_slots", value(slots));
+        let rows: Array = velocity
+            .rows
+            .iter()
+            .map(|row| {
+                let mut inline = InlineTable::new();
+                inline.insert("asset", row.asset.0.to_string().into());
+                inline.insert(
+                    "cap",
+                    i64::try_from(row.cap)
+                        .map_err(|_| PolicyError::ThresholdTooLarge {
+                            rule: 0,
+                            amount: row.cap,
+                        })?
+                        .into(),
+                );
+                inline.insert(
+                    "cosign_above",
+                    i64::try_from(row.cosign_above)
+                        .map_err(|_| PolicyError::ThresholdTooLarge {
+                            rule: 0,
+                            amount: row.cosign_above,
+                        })?
+                        .into(),
+                );
+                Ok(inline)
+            })
+            .collect::<Result<Array, PolicyError>>()?;
+        table.insert("rows", value(rows));
+        policy.insert("velocity", Item::Table(table));
+    }
     let mut rules = ArrayOfTables::new();
     let mut assets = Vec::new();
     let mut limits = Vec::new();
