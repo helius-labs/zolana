@@ -4,7 +4,7 @@ use wincode::{SchemaRead, SchemaWrite};
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof,
+            CircuitId, InputUtxo, OwnerTag, TransactOutput, TransactProof, TreeContext,
         },
         tag::TRANSACT,
     },
@@ -90,9 +90,12 @@ pub fn process_create_ix(accounts: &mut [AccountView], data: &[u8]) -> ProgramRe
         TransactInputs {
             inputs: vec![InputUtxo {
                 nullifier_hash: address,
+                tree_index: 0,
             }],
-            utxo_tree_root_index,
-            nullifier_tree_root_index,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index,
+                nullifier_tree_root_index,
+            }],
         },
     );
     let transact_bytes = transact

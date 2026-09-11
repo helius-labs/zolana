@@ -348,7 +348,9 @@ fn the_policy_transact_carries_the_policy_config() {
 }
 
 fn transact_payload() -> zolana_interface::instruction::instruction_data::transact::TransactIxData {
-    use zolana_interface::instruction::instruction_data::transact::{CircuitId, TransactProof};
+    use zolana_interface::instruction::instruction_data::transact::{
+        CircuitId, TransactProof, TreeContext,
+    };
     zolana_interface::instruction::instruction_data::transact::TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
@@ -362,7 +364,9 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
-        utxo_tree_root_index: 0,
-        nullifier_tree_root_index: 0,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }

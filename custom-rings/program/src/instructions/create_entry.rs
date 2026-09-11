@@ -1,6 +1,6 @@
 use custom_ring_interface::CreateEntryIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::instruction_data::transact::InputUtxo;
+use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TreeContext};
 use zolana_program::TransactInputs;
 use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 
@@ -44,9 +44,12 @@ pub fn process_create_entry_ix(
         inputs: TransactInputs {
             inputs: vec![InputUtxo {
                 nullifier_hash: address,
+                tree_index: 0,
             }],
-            utxo_tree_root_index: ix.utxo_tree_root_index,
-            nullifier_tree_root_index: ix.nullifier_tree_root_index,
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: ix.utxo_tree_root_index,
+                nullifier_tree_root_index: ix.nullifier_tree_root_index,
+            }],
         },
         input_hash: [0u8; 32],
         address_nullifier: address,

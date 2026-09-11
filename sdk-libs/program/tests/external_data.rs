@@ -3,7 +3,7 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
-            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
         },
         tag,
     },
@@ -71,9 +71,12 @@ fn ix_data() -> TransactIxData {
         proof: proof(),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
+            tree_index: 0,
         }],
-        utxo_tree_root_index: 3,
-        nullifier_tree_root_index: 2,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 3,
+            nullifier_tree_root_index: 2,
+        }],
     }
 }
 
@@ -121,8 +124,7 @@ fn into_ix_data_round_trips_through_from() {
         owned.proof,
         TransactInputs {
             inputs: owned.inputs.clone(),
-            utxo_tree_root_index: owned.utxo_tree_root_index,
-            nullifier_tree_root_index: owned.nullifier_tree_root_index,
+            tree_contexts: owned.tree_contexts.clone(),
         },
     );
     assert_eq!(rebuilt, owned);
