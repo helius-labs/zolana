@@ -282,6 +282,8 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
+/// The ring program, the prover's two ring keys and the ring rpc, the ring cli
+/// embeds the lock and is uploaded next to them.
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;
@@ -573,12 +575,12 @@ fn git_head() -> Result<String> {
     Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
-/// Build the initialized account set fully in-process with LiteSVM. No maintainer
-/// keypairs and no running validator are needed: every authority is generated
-/// here.
 /// Public on purpose, the localnet protocol authority is nobody's secret.
 const LOCALNET_SNAPSHOT_AUTHORITY_SEED: [u8; 32] = *b"zolana localnet snapshot authori";
 
+/// Build the initialized account set fully in-process with LiteSVM. No maintainer
+/// keypairs and no running validator are needed: every authority is generated
+/// here.
 pub(crate) fn generate_account_snapshots(deploy_dir: &Path, accounts_dir: &Path) -> Result<()> {
     let shielded_so = deploy_dir.join("shielded_pool_program.so");
     require_file(&shielded_so, "run `just build-programs` first")?;
@@ -1118,6 +1120,8 @@ mod tests {
         }
     }
 
+    /// The ring cli reads `release_tag`, `ring_program`, `proving_key`, `audit_key`
+    /// and `binaries`.
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
         let lock = json!({
