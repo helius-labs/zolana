@@ -615,6 +615,7 @@ build-cli:
 
 test-cli:
     cargo nextest run -p zolana-cli
+    cargo nextest run -p xtask
 
 # === Bench ===
 #
@@ -1275,8 +1276,7 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     cargo build -q -p custom-ring-cli
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
       tools/ci/nextest-suite.sh -p custom-ring-test-validator --test ring --no-capture
-    # The custom-ring proving key is guaranteed here.
-    tools/ci/nextest-suite.sh -p custom-ring-sdk --run-ignored all -E 'binary(custom_ring_circuit)'
+    tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
     if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
       cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
     fi
@@ -1641,7 +1641,8 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # Routing and timeout tests do not need Redis.
+    # The `server` package's handler tests need redis, the queue-routing and
+    # timeout unit tests do not.
     go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout)$'
 
 [private]
