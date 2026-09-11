@@ -1,11 +1,9 @@
 use anyhow::Result;
 use solana_instruction::Instruction;
 use solana_keypair::{read_keypair_file, Keypair};
-use solana_message::{v1, VersionedMessage};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::versioned::VersionedTransaction;
 use std::{
     collections::BTreeSet,
     fs,
@@ -13,7 +11,8 @@ use std::{
     process::Command,
 };
 use zolana_client::{
-    transaction_size::v1_transaction_size, ClientError, Proof, ProofCompressed, Rpc, SolanaRpc,
+    transaction_size::v1_transaction_size, ClientError, ComputeBudgetConfig, Proof,
+    ProofCompressed, Rpc, SolanaRpc,
 };
 use zolana_interface::instruction::instruction_data::merge_transact::MergeProof;
 use zolana_smart_account_client::SMART_ACCOUNT_PROGRAM_ID;
@@ -41,23 +40,19 @@ pub fn pack_merge_proof(proof: &Proof) -> Result<MergeProof> {
 pub const MAX_COMPUTE_UNIT_LIMIT: u32 = 1_400_000;
 /// What the runtime grants per instruction when nothing asks for a budget.
 pub const DEFAULT_COMPUTE_UNITS_PER_INSTRUCTION: u32 = 200_000;
-/// The v1 header has no implicit default: leaving this unset would load zero
-/// bytes of account data.
-pub const LOADED_ACCOUNTS_DATA_SIZE_LIMIT: u32 = 64 * 1024 * 1024;
 
-const COMPUTE_BUDGET_REQUEST_HEAP_FRAME: u8 = 1;
 const COMPUTE_BUDGET_SET_UNIT_LIMIT: u8 = 2;
+const COMPUTE_BUDGET_SET_UNIT_PRICE: u8 = 3;
 
 /// A v1 message carries its compute ceilings in the header, so a compute-budget
 /// instruction in the list would only spend bytes the wide shapes cannot spare.
-/// Lift what one carries into the config and drop it from the list. An unset
-/// config field means zero rather than a default, so both ceilings are always
-/// written; without an explicit limit the runtime's per-instruction default is
-/// reproduced so a send keeps the budget it had.
+/// Lift what one carries into the budget and drop it from the list; a list with
+/// no budget instruction keeps the per-instruction default the runtime granted
+/// it.
 #[track_caller]
-pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, v1::TransactionConfig) {
+pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, ComputeBudgetConfig) {
     let mut compute_unit_limit = None;
-    let mut heap_size = None;
+    let mut compute_unit_price = None;
     let mut kept: Vec<Instruction> = Vec::with_capacity(ixs.len());
     for instruction in ixs {
         if instruction.program_id != solana_compute_budget_interface::ID {
@@ -68,14 +63,25 @@ pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, v1::Trans
             .data
             .split_first()
             .expect("a compute-budget instruction carries a discriminant");
-        let value = value
-            .get(..4)
-            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-            .map(u32::from_le_bytes)
-            .expect("a compute-budget instruction carries a u32");
         match *discriminant {
-            COMPUTE_BUDGET_SET_UNIT_LIMIT => compute_unit_limit = Some(value),
-            COMPUTE_BUDGET_REQUEST_HEAP_FRAME => heap_size = Some(value),
+            COMPUTE_BUDGET_SET_UNIT_LIMIT => {
+                compute_unit_limit = Some(
+                    value
+                        .get(..4)
+                        .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+                        .map(u32::from_le_bytes)
+                        .expect("set_compute_unit_limit carries a u32"),
+                )
+            }
+            COMPUTE_BUDGET_SET_UNIT_PRICE => {
+                compute_unit_price = Some(
+                    value
+                        .get(..8)
+                        .and_then(|bytes| <[u8; 8]>::try_from(bytes).ok())
+                        .map(u64::from_le_bytes)
+                        .expect("set_compute_unit_price carries a u64"),
+                )
+            }
             other => panic!("compute-budget instruction {other} has no v1 header field"),
         }
     }
@@ -86,13 +92,12 @@ pub fn split_compute_budget(ixs: &[Instruction]) -> (Vec<Instruction>, v1::Trans
             .unwrap_or(MAX_COMPUTE_UNIT_LIMIT)
             .min(MAX_COMPUTE_UNIT_LIMIT)
     });
-    let mut config = v1::TransactionConfig::empty()
-        .with_compute_unit_limit(compute_unit_limit)
-        .with_loaded_accounts_data_size_limit(LOADED_ACCOUNTS_DATA_SIZE_LIMIT);
-    if let Some(heap_size) = heap_size {
-        config = config.with_heap_size(heap_size);
-    }
-    (kept, config)
+    let budget = ComputeBudgetConfig::new(compute_unit_limit);
+    let budget = match compute_unit_price {
+        Some(price) => budget.with_compute_unit_price(price),
+        None => budget,
+    };
+    (kept, budget)
 }
 
 /// Send as a transaction **v1** message, the only format whose 4 KB limit fits a
@@ -107,17 +112,12 @@ pub fn send_transaction_v1(
     payer: &Pubkey,
     signers: &[&Keypair],
 ) -> std::result::Result<Signature, ClientError> {
-    let (instructions, config) = split_compute_budget(ixs);
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    let message = v1::Message::try_compile_with_config(payer, &instructions, blockhash, config)
-        .map_err(|error| ClientError::TransactionCompile(error.to_string()))?;
+    let (instructions, budget) = split_compute_budget(ixs);
     let signers: Vec<&dyn Signer> = signers
         .iter()
         .map(|signer| *signer as &dyn Signer)
         .collect();
-    let transaction = VersionedTransaction::try_new(VersionedMessage::V1(message), &signers)
-        .map_err(|error| ClientError::SolanaTransactionSigning(error.to_string()))?;
-    rpc.process_versioned_transaction(transaction)
+    rpc.create_and_send_v1_transaction(&instructions, *payer, &signers, budget)
 }
 
 /// Wire size of the v1 transaction [`send_transaction_v1`] would build, without

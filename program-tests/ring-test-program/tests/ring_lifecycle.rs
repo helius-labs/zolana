@@ -181,7 +181,9 @@ fn dump_ring_transact_fixture() -> Result<()> {
             RpcTransactionConfig {
                 encoding: Some(UiTransactionEncoding::Base64),
                 commitment: Some(CommitmentConfig::confirmed()),
-                max_supported_transaction_version: Some(0),
+                // The ring transact goes out as v1; an RPC asked for a lower
+                // maximum answers with an error instead of the transaction.
+                max_supported_transaction_version: Some(1),
             },
         )?;
         let path = fixtures.join(name);
