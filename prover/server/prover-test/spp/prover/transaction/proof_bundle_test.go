@@ -342,7 +342,7 @@ func TestExternalDataPrefixMatchesTransactExternalDataLayout(t *testing.T) {
 	}
 
 	wantHash := protocol.Sha256BEField(
-		[]byte{12},
+		[]byte{16},
 		want,
 		protocol.SolInterface[:],
 		sol.userAccount[:],
