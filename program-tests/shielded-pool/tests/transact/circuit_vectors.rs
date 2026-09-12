@@ -62,17 +62,6 @@ fn fe_at(vector: &Value, key: &str) -> [u8; 32] {
         .unwrap_or_else(|| panic!("vector key {key}")))
 }
 
-/// The packed `input_flags` element. The Go host renamed this entry from
-/// `allow_dummy_inputs` when the per-input tree indexes joined the dummy-input
-/// policy in the same element, so both spellings resolve to the same public
-/// input and either vector generation pins the same assembly.
-fn input_flags_at(vector: &Value) -> [u8; 32] {
-    match vector.get("input_flags") {
-        Some(_) => fe_at(vector, "input_flags"),
-        None => fe_at(vector, "allow_dummy_inputs"),
-    }
-}
-
 fn fe_list(vector: &Value, key: &str) -> Vec<[u8; 32]> {
     vector
         .get(key)
@@ -196,7 +185,7 @@ pub fn public_input_hash_vector_pins_the_confidential_rail_assembly() {
         public_slot_amounts: &public_slot_amounts,
         ring_program_id: fe_at(&vector, "ring_program_id"),
         signer_pk_hashes: &signer_pk_hashes,
-        input_flags: input_flags_at(&vector),
+        input_flags: fe_at(&vector, "input_flags"),
         output_owner_pk_hashes: Some(&output_owner_pk_hashes),
     }
     .hash();

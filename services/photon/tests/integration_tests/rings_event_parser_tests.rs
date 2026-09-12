@@ -215,7 +215,7 @@ fn parses_ring_transact_event_against_the_spp_inner_instruction() {
     let accounts: Vec<Pubkey> = (0..8u8)
         .map(|i| Pubkey::new_from_array([0x60 + i; 32]))
         .collect();
-    let ring_config = accounts.get(5).copied().expect("ring_config account");
+    let ring_config = accounts.get(4).copied().expect("ring_config account");
     let owner = accounts.get(6).copied().expect("owner account");
     let expected = GeneralEvent {
         inputs: vec![test_input(6, 27)],

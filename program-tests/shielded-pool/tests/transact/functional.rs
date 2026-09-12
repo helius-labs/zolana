@@ -38,7 +38,7 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     shape::Shape,
-    state::{discriminator::RING_CONFIG, read_tree_id, RingConfig},
+    state::{discriminator::RING_CONFIG, read_tree_id, RingConfig, TreeFeeSchedule},
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     verifying_keys::RingP256ProofData,
     INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
@@ -1876,6 +1876,23 @@ fn transact_spends_real_utxos_from_two_input_trees() {
     assert_two_tree_transact(Some(5_000_000));
 }
 
+const FIRST_TREE_FEE_PER_NULLIFIER: u64 = 123;
+const SECOND_TREE_FEE_PER_NULLIFIER: u64 = 457;
+
+fn set_fee_per_nullifier(env: &mut Pool, tree: &Pubkey, fee_per_nullifier: u64) {
+    let authority = env.authority.insecure_clone();
+    env.rpc
+        .set_tree_fees(
+            &authority,
+            tree,
+            TreeFeeSchedule {
+                fee_per_nullifier,
+                ..TreeFeeSchedule::default()
+            },
+        )
+        .expect("set nullifier fee");
+}
+
 fn assert_two_tree_transact(second_input_amount: Option<u64>) {
     let mut env = proof_env();
     let second_tree = env
@@ -1885,6 +1902,8 @@ fn assert_two_tree_transact(second_input_amount: Option<u64>) {
 
     let payer = env.rpc.payer.pubkey();
     let first_tree = env.tree;
+    set_fee_per_nullifier(&mut env, &first_tree, FIRST_TREE_FEE_PER_NULLIFIER);
+    set_fee_per_nullifier(&mut env, &second_tree, SECOND_TREE_FEE_PER_NULLIFIER);
     let (transact_ix_data, expected_output_root) =
         build_two_tree_transact_ix(&mut env, second_tree, second_input_amount);
     let expected_output_hashes: Vec<[u8; 32]> = transact_ix_data

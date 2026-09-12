@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { ClientError } from "../src/client/error.js";
 import { inputFlags } from "../src/client/internal.js";
 import { assemble } from "../src/client/prover/assembly.js";
 import type { NonInclusionProof, SpendProof } from "../src/client/rpc.js";
@@ -242,7 +241,7 @@ describe("a transact spending from two trees", () => {
     const strayRoot = nonInclusionProof(fixture.dummyProofs[0]?.leaf ?? fill(0), TREE_0);
 
     expect(() => assemble(fixture.proofInputs, fixture.spendProofs, [strayRoot])).toThrow(
-      ClientError,
+      expect.objectContaining({ code: "CLIENT_NULLIFIER_ROOT_MISMATCH" }),
     );
   });
 });
