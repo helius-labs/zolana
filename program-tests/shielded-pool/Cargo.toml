@@ -263,6 +263,10 @@ name = "transact_circuit_vectors"
 path = "tests/transact/circuit_vectors.rs"
 
 [[test]]
+name = "transact_external_data"
+path = "tests/transact/external_data.rs"
+
+[[test]]
 name = "transact_signer_run"
 path = "tests/transact/signer_run.rs"
 

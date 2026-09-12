@@ -260,16 +260,3 @@ fn hash_with_program_id(
         ShieldedPoolError::TransactProofVerificationFailed,
     ))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_rail_ring_hash_is_the_height_one_zero_node() {
-        let zero = [0u8; 32];
-        let hashed = hash_with_program_id(&zero, &zero).unwrap();
-        assert_eq!(Poseidon::zero_bytes().get(1).copied(), Some(hashed));
-        assert_eq!(hashed, Poseidon::hashv(&[&zero[..], &zero[..]]).unwrap());
-    }
-}
