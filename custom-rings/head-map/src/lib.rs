@@ -17,7 +17,6 @@ pub const FIELD_MAX: [u8; 32] = [
 ];
 
 /// The root of the sentinel-only tree, the value a ring's head map initializes to.
-/// `new()` computes it, `a_fresh_map_is_the_pinned_empty_root` verifies the match.
 pub use custom_ring_interface::HEAD_MAP_EMPTY_ROOT as EMPTY_ROOT;
 pub use custom_ring_interface::{head_map_leaf, HEAD_MAP_HEIGHT};
 
@@ -117,7 +116,7 @@ impl HeadMap {
             .map(|element| element.nullifier)
     }
 
-    /// Registers `member` with its genesis nullifier, splicing the covering low element.
+    /// Splices the covering low element and appends the member's genesis.
     pub fn register(
         &mut self,
         member: [u8; 32],
@@ -176,7 +175,7 @@ impl HeadMap {
         })
     }
 
-    /// Advances `member`'s leaf from `spent` to `successor`.
+    /// The successor pointer stays fixed, only the nullifier advances.
     pub fn transfer(
         &mut self,
         member: &[u8; 32],
@@ -325,10 +324,10 @@ mod tests {
     #[test]
     fn register_witnesses_reach_the_reference_root_on_chain() {
         let mut map = HeadMap::new().expect("map");
-        let first = map.register(member(9), member(90)).expect("first");
+        let first = map.register(member(4), member(40)).expect("first");
         assert_eq!(insert_of(&first).verify(), Ok(first.new_root));
         // The second member's low element is a real member, not the sentinel.
-        let second = map.register(member(4), member(40)).expect("second");
+        let second = map.register(member(9), member(90)).expect("second");
         assert_eq!(insert_of(&second).verify(), Ok(second.new_root));
     }
 

@@ -19,7 +19,7 @@ type CompressedRegisterCircuit struct {
 	HeadNewRoot frontend.Variable
 	Member      frontend.Variable
 	Genesis     frontend.Variable
-	// The canonical append cursor, bound so Photon reproduces the position.
+	// Canonical append cursor, bound to fix the insertion position.
 	NewIndex frontend.Variable
 
 	LowMember    frontend.Variable

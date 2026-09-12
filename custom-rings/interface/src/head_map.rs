@@ -3,7 +3,7 @@ use zolana_hasher::{
     Poseidon,
 };
 
-/// Member-keyed indexed-tree height, the on-chain root advances in lockstep.
+/// Matches the circuit height and the on-chain tree.
 pub const HEAD_MAP_HEIGHT: usize = 40;
 
 /// The register proof's single public input, the program recomputes it from the

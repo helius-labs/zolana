@@ -1,5 +1,5 @@
 // The member-keyed indexed tree behind the compressed velocity rail, mirroring
-// the Rust `zolana_ring_head_map` reference and the Go circuit: the leaf is
+// the Rust `zolana_ring_head_map` reference and the Go circuit. The leaf is
 // Poseidon(member, next, nullifier) and the root advances with the on-chain
 // root. Photon maintains the tree and serves witnesses, the client verifies
 // them here before proving.

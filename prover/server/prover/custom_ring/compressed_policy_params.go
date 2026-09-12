@@ -24,7 +24,7 @@ type CompressedPolicyParameters struct {
 	HeadProof   [policy.HeadMapHeight]*big.Int
 }
 
-// The base request rides nested so its own codec and guards apply unchanged.
+// The base request nests to reuse its codec and guards.
 type compressedPolicyParametersJSON struct {
 	CircuitType string          `json:"circuitType"`
 	Policy      json.RawMessage `json:"policy"`
