@@ -12,8 +12,11 @@ use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateAssetCounter, CreateProtocolConfig, CreateTree},
     pda,
-    state::{nullifier_tree_params, ProtocolConfig, SplAssetCounter},
-    BPF_LOADER_UPGRADEABLE_PUBKEY, SHIELDED_POOL_PROGRAM_ID,
+    state::{
+        nullifier_tree_params, tree_account_size, tree_creation_lamports, ProtocolConfig,
+        SplAssetCounter,
+    },
+    BPF_LOADER_UPGRADEABLE_PUBKEY, NULLIFIER_PDA_SIZE, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_smart_account_client::{
     create_role_smart_account_ix,
@@ -94,6 +97,26 @@ impl Cluster {
     }
 }
 
+/// Permissionless gates written into the protocol config at creation. The
+/// defaults are the conservative launch posture: governance admits trees and
+/// rings, anyone may create an SPL interface.
+#[derive(Clone, Copy)]
+struct ProtocolConfigFlags {
+    tree_creation_is_permissionless: bool,
+    ring_activation_is_permissionless: bool,
+    spl_interface_creation_is_permissionless: bool,
+}
+
+impl Default for ProtocolConfigFlags {
+    fn default() -> Self {
+        Self {
+            tree_creation_is_permissionless: false,
+            ring_activation_is_permissionless: false,
+            spl_interface_creation_is_permissionless: true,
+        }
+    }
+}
+
 pub struct Options {
     cluster: Cluster,
     rpc_url: Option<String>,
@@ -101,6 +124,10 @@ pub struct Options {
     protocol_signers: Vec<PathBuf>,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
+    accept_existing_threshold: bool,
+    zero_tree_fees: bool,
+    resume: bool,
+    config_flags: ProtocolConfigFlags,
     yes: bool,
     dry_run: bool,
 }
@@ -113,6 +140,10 @@ impl Options {
         let mut protocol_signers = Vec::new();
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
+        let mut accept_existing_threshold = false;
+        let mut zero_tree_fees = false;
+        let mut resume = false;
+        let mut config_flags = ProtocolConfigFlags::default();
         let mut yes = false;
         let mut dry_run = false;
 
@@ -169,6 +200,19 @@ impl Options {
                     };
                     *slot = Some(key);
                 }
+                "--tree-creation-permissionless" => {
+                    config_flags.tree_creation_is_permissionless = parse_bool(args.next(), &arg);
+                }
+                "--ring-activation-permissionless" => {
+                    config_flags.ring_activation_is_permissionless = parse_bool(args.next(), &arg);
+                }
+                "--spl-interface-creation-permissionless" => {
+                    config_flags.spl_interface_creation_is_permissionless =
+                        parse_bool(args.next(), &arg);
+                }
+                "--accept-existing-threshold" => accept_existing_threshold = true,
+                "--zero-tree-fees" => zero_tree_fees = true,
+                "--resume" => resume = true,
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -181,7 +225,15 @@ impl Options {
 
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
         let required_protocol_signers = usize::from(Role::Protocol.threshold());
-        if protocol_signers.len() != required_protocol_signers {
+        // Reusing smart accounts created under an earlier policy means the live
+        // threshold, not this build's, decides how many signatures the Squads
+        // execute needs; the on-chain program rejects too few.
+        let signers_ok = if accept_existing_threshold {
+            (1..=authorities::PROTOCOL.len()).contains(&protocol_signers.len())
+        } else {
+            protocol_signers.len() == required_protocol_signers
+        };
+        if !signers_ok {
             usage_and_exit(&format!(
                 "--protocol-signer must be passed {required_protocol_signers} times for the \
                  {}-of-{} protocol policy (received {})",
@@ -217,6 +269,10 @@ impl Options {
             protocol_signers,
             upgrade_authority,
             reuse_settings,
+            accept_existing_threshold,
+            zero_tree_fees,
+            resume,
+            config_flags,
             yes,
             dry_run,
         }
@@ -241,8 +297,24 @@ pub(crate) fn load_keypair(path: &PathBuf, label: &str) -> Result<Keypair> {
 }
 
 pub(crate) fn load_protocol_signers(paths: &[PathBuf]) -> Result<Vec<Keypair>> {
+    load_protocol_signers_with_policy(paths, true)
+}
+
+/// `enforce_threshold` of `false` accepts any non-empty subset of the protocol
+/// authorities, for reusing smart accounts whose live threshold predates this
+/// build's role policy. Membership and distinctness are still enforced, and the
+/// Squads program rejects a signer set smaller than its own threshold.
+pub(crate) fn load_protocol_signers_with_policy(
+    paths: &[PathBuf],
+    enforce_threshold: bool,
+) -> Result<Vec<Keypair>> {
     let required = usize::from(Role::Protocol.threshold());
-    if paths.len() != required {
+    let count_ok = if enforce_threshold {
+        paths.len() == required
+    } else {
+        (1..=authorities::PROTOCOL.len()).contains(&paths.len())
+    };
+    if !count_ok {
         bail!(
             "the {}-of-{} protocol policy requires {required} signer keypairs, got {}",
             Role::Protocol.threshold(),
@@ -251,7 +323,7 @@ pub(crate) fn load_protocol_signers(paths: &[PathBuf]) -> Result<Vec<Keypair>> {
         );
     }
 
-    let mut signers = Vec::with_capacity(required);
+    let mut signers = Vec::with_capacity(paths.len());
     for (index, path) in paths.iter().enumerate() {
         let label = format!("protocol-signer #{}", index + 1);
         let signer = load_keypair(path, &label)?;
@@ -274,7 +346,10 @@ pub(crate) fn load_protocol_signers(paths: &[PathBuf]) -> Result<Vec<Keypair>> {
 
 fn load_signers(options: &Options) -> Result<Signers> {
     let payer = load_keypair(&options.payer, "payer")?;
-    let protocol_signers = load_protocol_signers(&options.protocol_signers)?;
+    let protocol_signers = load_protocol_signers_with_policy(
+        &options.protocol_signers,
+        !options.accept_existing_threshold,
+    )?;
     let upgrade_authority = options
         .upgrade_authority
         .as_ref()
@@ -358,20 +433,25 @@ pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
     ]
 }
 
+/// `expected_threshold` of `None` accepts whatever threshold the settings
+/// account already carries, for reusing a deployment created under an earlier
+/// role policy. The member set is still pinned either way.
 fn verify_settings_policy(
     label: &str,
     settings_key: &Pubkey,
     data: &[u8],
     expected_members: &[Pubkey],
-    expected_threshold: u16,
+    expected_threshold: Option<u16>,
 ) -> Result<()> {
     let threshold = settings_threshold(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
-    if threshold != expected_threshold {
-        bail!(
-            "{label} smart account settings {settings_key} has threshold {threshold}, expected \
-             {expected_threshold}"
-        );
+    if let Some(expected_threshold) = expected_threshold {
+        if threshold != expected_threshold {
+            bail!(
+                "{label} smart account settings {settings_key} has threshold {threshold}, \
+                 expected {expected_threshold}"
+            );
+        }
     }
     let member_keys = settings_member_keys(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
@@ -399,7 +479,11 @@ fn verify_settings_policy(
 /// `Settings` owned by the smart-account program, must list the expected role
 /// members at the required threshold, and must be the canonical PDA of the
 /// seed stored inside it.
-fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[RoleAddrs; 5]> {
+fn load_reused_roles(
+    rpc: &SolanaRpc,
+    settings_keys: &[Pubkey; 5],
+    accept_existing_threshold: bool,
+) -> Result<[RoleAddrs; 5]> {
     let mut roles = Vec::with_capacity(Role::ALL.len());
     for ((role, settings_key), expected_members) in Role::ALL
         .into_iter()
@@ -422,7 +506,7 @@ fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[Ro
             settings_key,
             &account.data,
             expected_members,
-            role.threshold(),
+            (!accept_existing_threshold).then(|| role.threshold()),
         )?;
         let seed = settings_seed(&account.data).with_context(|| {
             format!(
@@ -638,9 +722,20 @@ fn fund_protocol_vault(
     vault: &Pubkey,
     lamports: u64,
 ) -> Result<()> {
+    fund_vault(rpc, cluster, payer, vault, lamports, "protocol_vault")
+}
+
+fn fund_vault(
+    rpc: &mut SolanaRpc,
+    cluster: Cluster,
+    payer: &Keypair,
+    vault: &Pubkey,
+    lamports: u64,
+    label: &str,
+) -> Result<()> {
     if cluster.allows_airdrop() {
         rpc.airdrop(vault, lamports)
-            .map_err(|e| anyhow!("airdrop to protocol vault {vault} failed: {e}"))?;
+            .map_err(|e| anyhow!("airdrop to {label} {vault} failed: {e}"))?;
     } else {
         let instructions = [system_transfer_ix(&payer.pubkey(), vault, lamports)];
         rpc.create_and_send_transaction(
@@ -649,9 +744,9 @@ fn fund_protocol_vault(
             &[payer],
             ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
-        .map_err(|e| anyhow!("transfer to protocol vault {vault} failed: {e}"))?;
+        .map_err(|e| anyhow!("transfer to {label} {vault} failed: {e}"))?;
     }
-    println!("funded protocol_vault={vault} lamports={lamports}");
+    println!("funded {label}={vault} lamports={lamports}");
     Ok(())
 }
 
@@ -760,6 +855,7 @@ fn send_protocol_config(
     protocol_signers: &[Keypair],
     initialization_authority: InitializationAuthority<'_>,
     roles: &[RoleAddrs; 5],
+    flags: ProtocolConfigFlags,
 ) -> Result<()> {
     // Merging is now a per-user opt-in set via the user-registry
     // `set_merging_enabled` instruction, not a protocol-config field, so the
@@ -774,12 +870,12 @@ fn send_protocol_config(
         initialization_authority: initialization_authority_key,
         protocol_authority: protocol.vault.to_bytes().into(),
         tree_creation_authority: tree.vault.to_bytes().into(),
-        tree_creation_is_permissionless: false,
+        tree_creation_is_permissionless: flags.tree_creation_is_permissionless,
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
         fee_authority: protocol.vault.to_bytes().into(),
-        ring_activation_is_permissionless: false,
-        spl_interface_creation_is_permissionless: true,
+        ring_activation_is_permissionless: flags.ring_activation_is_permissionless,
+        spl_interface_creation_is_permissionless: flags.spl_interface_creation_is_permissionless,
     }
     .instruction();
 
@@ -872,39 +968,79 @@ fn next_tree_id(rpc: &SolanaRpc, initialized: bool) -> Result<u16> {
     zolana_program_test::next_tree_id(rpc).context("reading next_tree_id from protocol_config")
 }
 
-fn create_tree(
-    rpc: &SolanaRpc,
-    payer: &Keypair,
-    protocol_signer: &Keypair,
+/// The tree vault funds its own tree account, so the only signer the inner
+/// instruction needs is the vault the Squads execute already signs for. An
+/// external payer would have to sign inside the CPI, which the smart-account
+/// program deployed on devnet does not propagate.
+struct TreeCreation<'a> {
+    cluster: Cluster,
     tree_id: u16,
-    tree_settings: &Pubkey,
-    tree_vault: Pubkey,
+    settings: &'a Pubkey,
+    vault: Pubkey,
     fees: TreeFeeSchedule,
-) -> Result<Pubkey> {
-    let create = CreateTree {
-        payer: payer.pubkey(),
-        authority: tree_vault,
-        tree_id,
-        nullifier_params: nullifier_tree_params(),
-        fees,
-    };
-    let steps = execute_sync_each(
-        tree_settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &create.instructions(),
-    );
-    let signature = rpc
-        .create_and_send_transaction(
-            &steps,
-            to_address(&payer.pubkey()),
-            &[payer, protocol_signer],
-            ComputeBudgetConfig::for_instruction_count(steps.len()),
-        )
-        .map_err(|e| anyhow!("create_tree failed: {e}"))?;
-    let tree = create.tree();
-    println!("created tree={tree} tree_id={tree_id} sig={signature}");
-    Ok(tree)
+}
+
+impl TreeCreation<'_> {
+    fn send(
+        self,
+        rpc: &mut SolanaRpc,
+        payer: &Keypair,
+        protocol_signer: &Keypair,
+    ) -> Result<Pubkey> {
+        // The program funds the tree with its own rent plus the working capital
+        // that sponsors nullifier PDA rent, so the vault must hold the same
+        // total.
+        let tree_rent = rpc
+            .get_minimum_balance_for_rent_exemption(tree_account_size())
+            .context("rent for tree account")?;
+        let nullifier_pda_rent = rpc
+            .get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)
+            .context("rent for nullifier pda")?;
+        let tree_lamports =
+            tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
+                .ok_or_else(|| anyhow!("tree creation lamports overflowed"))?;
+        let vault_balance = rpc
+            .get_account(to_address(&self.vault))
+            .context("fetching tree vault")?
+            .map(|account| account.lamports)
+            .unwrap_or_default();
+        let needed = tree_lamports.saturating_add(VAULT_FUNDING_BUFFER_LAMPORTS);
+        if vault_balance < needed {
+            fund_vault(
+                rpc,
+                self.cluster,
+                payer,
+                &self.vault,
+                needed - vault_balance,
+                "tree_vault",
+            )?;
+        }
+        let create = CreateTree {
+            payer: self.vault,
+            authority: self.vault,
+            tree_id: self.tree_id,
+            nullifier_params: nullifier_tree_params(),
+            fees: self.fees,
+        };
+        let steps = execute_sync_each(
+            self.settings,
+            0,
+            &[protocol_signer.pubkey()],
+            &create.instructions(),
+        );
+        let signature = rpc
+            .create_and_send_transaction(
+                &steps,
+                to_address(&payer.pubkey()),
+                &[payer, protocol_signer],
+                ComputeBudgetConfig::for_instruction_count(steps.len()),
+            )
+            .map_err(|e| anyhow!("create_tree failed: {e}"))?;
+        let tree = create.tree();
+        let tree_id = self.tree_id;
+        println!("created tree={tree} tree_id={tree_id} sig={signature}");
+        Ok(tree)
+    }
 }
 
 pub fn run(options: Options) -> Result<()> {
@@ -922,10 +1058,12 @@ pub fn run(options: Options) -> Result<()> {
 
     let stored_protocol_authority = read_stored_protocol_authority(&rpc)?;
     let initialized = stored_protocol_authority.is_some();
-    if let Some(stored_protocol_authority) = stored_protocol_authority.filter(|_| !options.dry_run)
+    if let Some(stored_protocol_authority) =
+        stored_protocol_authority.filter(|_| !options.dry_run && !options.resume)
     {
         bail!(
-            "protocol already initialized: {} exists with protocol_authority {}",
+            "protocol already initialized: {} exists with protocol_authority {}; pass --resume \
+             to finish an interrupted init instead",
             pda::protocol_config(),
             stored_protocol_authority
         );
@@ -935,7 +1073,7 @@ pub fn run(options: Options) -> Result<()> {
     let reused_roles = options
         .reuse_settings
         .as_ref()
-        .map(|settings| load_reused_roles(&rpc, settings))
+        .map(|settings| load_reused_roles(&rpc, settings, options.accept_existing_threshold))
         .transpose()
         .context("resolving the smart accounts to reuse")?;
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
@@ -961,10 +1099,14 @@ pub fn run(options: Options) -> Result<()> {
         tree: pda::tree(tree_id),
     };
     let closes_per_transaction = forester_close.closes_per_transaction()?;
-    let fees = at_cost_for_transaction_size(
-        nullifier_tree_params().input_queue_zkp_batch_size,
-        closes_per_transaction,
-    )?;
+    let fees = if options.zero_tree_fees {
+        TreeFeeSchedule::default()
+    } else {
+        at_cost_for_transaction_size(
+            nullifier_tree_params().input_queue_zkp_batch_size,
+            closes_per_transaction,
+        )?
+    };
 
     println!("cluster={}", options.cluster.name());
     println!("rpc_url={url}");
@@ -973,6 +1115,20 @@ pub fn run(options: Options) -> Result<()> {
     println!("deploy_upgrade_authority={deploy_upgrade_authority:?}");
     println!("smart_account_index={}", program_config.smart_account_index);
     println!("reuse_existing_smart_accounts={}", reused_roles.is_some());
+    println!(
+        "tree_creation_is_permissionless={}",
+        options.config_flags.tree_creation_is_permissionless
+    );
+    println!(
+        "ring_activation_is_permissionless={}",
+        options.config_flags.ring_activation_is_permissionless
+    );
+    println!(
+        "spl_interface_creation_is_permissionless={}",
+        options
+            .config_flags
+            .spl_interface_creation_is_permissionless
+    );
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
     for (index, signer) in signers.protocol_signers.iter().enumerate() {
@@ -1039,20 +1195,25 @@ pub fn run(options: Options) -> Result<()> {
 
         created
     };
-    let initialization_authority = resolve_initialization_authority(
-        deploy_upgrade_authority.ok_or_else(|| {
-            anyhow!("an uninitialized protocol must have a loader-v3 upgrade authority")
-        })?,
-        signers.upgrade_authority.as_ref(),
-        created[0].vault,
-    )?;
-    send_protocol_config(
-        &rpc,
-        &signers.payer,
-        &signers.protocol_signers,
-        initialization_authority,
-        &created,
-    )?;
+    if initialized {
+        println!("protocol_config already exists, skipping");
+    } else {
+        let initialization_authority = resolve_initialization_authority(
+            deploy_upgrade_authority.ok_or_else(|| {
+                anyhow!("an uninitialized protocol must have a loader-v3 upgrade authority")
+            })?,
+            signers.upgrade_authority.as_ref(),
+            created[0].vault,
+        )?;
+        send_protocol_config(
+            &rpc,
+            &signers.payer,
+            &signers.protocol_signers,
+            initialization_authority,
+            &created,
+            options.config_flags,
+        )?;
+    }
     let protocol = &created[0];
     let tree = &created[1];
     send_asset_counter(
@@ -1066,15 +1227,14 @@ pub fn run(options: Options) -> Result<()> {
     let tree_signer = signers.protocol_signers.first().ok_or_else(|| {
         anyhow!("the protocol policy did not provide a signer for tree initialization")
     })?;
-    let tree_account = create_tree(
-        &rpc,
-        &signers.payer,
-        tree_signer,
+    let tree_account = TreeCreation {
+        cluster: options.cluster,
         tree_id,
-        &tree.settings,
-        tree.vault,
+        settings: &tree.settings,
+        vault: tree.vault,
         fees,
-    )?;
+    }
+    .send(&mut rpc, &signers.payer, tree_signer)?;
 
     println!("init_protocol=complete");
     println!("protocol_config={}", pda::protocol_config());
@@ -1085,6 +1245,14 @@ pub fn run(options: Options) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_bool(value: Option<String>, flag: &str) -> bool {
+    match value.as_deref() {
+        Some("true") => true,
+        Some("false") => false,
+        _ => usage_and_exit(&format!("{flag} expects true|false")),
+    }
 }
 
 fn usage_and_exit(message: &str) -> ! {
@@ -1113,6 +1281,17 @@ fn print_help() {
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
     println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
     println!("  --forester-settings <PUBKEY>          expected role members");
+    println!("  --resume                              finish an interrupted init: skip the");
+    println!("                                        accounts that already exist");
+    println!("  --zero-tree-fees                      create the tree with an all-zero fee");
+    println!("                                        schedule instead of the at-cost one");
+    println!("  --accept-existing-threshold           reuse settings whose threshold predates");
+    println!("                                        this build's role policy (members still");
+    println!("                                        pinned); allows 1..=5 protocol signers");
+    println!("  --tree-creation-permissionless <true|false>       default: false");
+    println!("  --ring-activation-permissionless <true|false>     default: false");
+    println!("  --spl-interface-creation-permissionless <true|false>");
+    println!("                                        default: true");
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");

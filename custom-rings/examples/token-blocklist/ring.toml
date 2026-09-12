@@ -23,7 +23,7 @@ ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 
 [policy]
 # every entry the rules read lives in the named tree
-entries_tree = "7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE"
+entries_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
 
 # each asset must not be on the block list
 [[policy.rules]]

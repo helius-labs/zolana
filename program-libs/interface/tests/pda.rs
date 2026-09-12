@@ -25,8 +25,8 @@ fn nullifier_pda_bump_recreates_address() {
 #[test]
 fn nullifier_pda_matches_typescript_vector() {
     let tree = Pubkey::from_str_const("2RJD1KnDRGEkvuFfAGrJ7PD28LRE9LRDjZznDywagzmr");
-    let expected = Pubkey::from_str_const("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm");
-    assert_eq!(pda::nullifier_pda(&tree, &[7u8; 32]), (expected, 252));
+    let expected = Pubkey::from_str_const("HT4BbdfZvtEf5pDQHp5E3x4AV8qnTKFL4Bd13yhsK67w");
+    assert_eq!(pda::nullifier_pda(&tree, &[7u8; 32]), (expected, 255));
 }
 
 #[test]

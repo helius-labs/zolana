@@ -63,7 +63,7 @@ const PARITY_INPUT = {
   ],
   resolvedOwnerTags: [INLINE_OWNER, INLINE_OWNER],
 };
-const PARITY_DIGEST = "008e8259154c81c2233306b9d9aa4cbf0148173357a5969abfebb886027904de";
+const PARITY_DIGEST = "002569689bff7ef057bf95d5436d9dba68b906eec4255c9008ed23db042092f4";
 
 describe("externalDataHash", () => {
   it("reproduces the Rust parity digest", () => {

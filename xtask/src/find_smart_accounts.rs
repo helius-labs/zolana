@@ -20,6 +20,7 @@ pub struct Options {
     vault: Option<Pubkey>,
     protocol_config: Option<Pubkey>,
     max_index: Option<u128>,
+    accept_existing_threshold: bool,
 }
 
 impl Options {
@@ -29,6 +30,7 @@ impl Options {
         let mut vault = None;
         let mut protocol_config = None;
         let mut max_index = None;
+        let mut accept_existing_threshold = false;
 
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
@@ -71,6 +73,7 @@ impl Options {
                         usage_and_exit(&format!("--max-index {value:?}: {e}"))
                     }));
                 }
+                "--accept-existing-threshold" => accept_existing_threshold = true,
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -89,6 +92,7 @@ impl Options {
             vault,
             protocol_config,
             max_index,
+            accept_existing_threshold,
         }
     }
 
@@ -215,9 +219,10 @@ pub fn run(options: Options) -> Result<()> {
         let (settings, _) = role.settings_pda(base_index);
         let (vault, _) = role.vault_pda(base_index);
         let (threshold, member_keys) = read_policy(&rpc, &settings, role)?;
-        if threshold != role.threshold() {
+        if !options.accept_existing_threshold && threshold != role.threshold() {
             bail!(
-                "{} settings {settings} has threshold {threshold}, expected {}",
+                "{} settings {settings} has threshold {threshold}, expected {} (pass \
+                 --accept-existing-threshold to reuse a set created under an earlier policy)",
                 role.label(),
                 role.threshold()
             );
@@ -276,6 +281,8 @@ fn print_help() {
     println!("  --vault <PUBKEY>                      the protocol role vault to search for");
     println!("  --protocol-config <PUBKEY>            read the vault from this config account");
     println!("                                        and cross-check tree/ring/forester");
+    println!("  --accept-existing-threshold           report a set whose threshold predates");
+    println!("                                        this build's role policy");
     println!("  --max-index <N>                       scan bound, default: the live Squads");
     println!("                                        smart_account_index");
     println!("  -h | --help                           print this help");

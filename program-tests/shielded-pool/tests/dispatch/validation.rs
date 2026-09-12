@@ -106,12 +106,16 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::UPDATE_PROTOCOL_CONFIG,
         tag::CREATE_TREE,
         tag::PAUSE_TREE,
-        tag::BATCH_UPDATE_NULLIFIER_TREE,
+        tag::SET_TREE_FEES,
+        tag::CLAIM_TREE_LAMPORTS,
         tag::CREATE_ASSET_COUNTER,
         tag::CREATE_SPL_INTERFACE,
         tag::CREATE_RING_CONFIG,
         tag::UPDATE_RING_CONFIG,
         tag::UPDATE_RING_CONFIG_OWNER,
+        tag::SET_RING_ACTIVATION,
+        tag::BATCH_UPDATE_NULLIFIER_TREE,
+        tag::CLOSE_NULLIFIER_PDAS,
         tag::EMIT_EVENT,
         tag::DEPOSIT,
         tag::TRANSACT,
@@ -120,10 +124,6 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::RING_TRANSACT,
         tag::RING_MERGE_TRANSACT,
         tag::RING_AUTHORITY_TRANSACT,
-        tag::CLOSE_NULLIFIER_PDAS,
-        tag::SET_TREE_FEES,
-        tag::CLAIM_TREE_LAMPORTS,
-        tag::SET_RING_ACTIVATION,
     ];
     assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =

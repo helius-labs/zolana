@@ -257,11 +257,11 @@ func TestProofUtxoJSONUsesRingFields(t *testing.T) {
 	}
 }
 
-const canonicalExternalDataHash = "008e8259154c81c2233306b9d9aa4cbf0148173357a5969abfebb886027904de"
+const canonicalExternalDataHash = "002569689bff7ef057bf95d5436d9dba68b906eec4255c9008ed23db042092f4"
 
 func canonicalExternalDataFixture() externalDataPreimage {
 	data := externalDataPreimage{
-		InstructionDiscriminator: 12,
+		InstructionDiscriminator: 16,
 		ExpiryUnixTs:             1234567890,
 		InterfaceTransfers: []resolvedInterfaceTransfer{
 			{amount: 1234567890, asset: protocol.SolInterface},
@@ -342,7 +342,7 @@ func TestExternalDataPrefixMatchesTransactExternalDataLayout(t *testing.T) {
 	}
 
 	wantHash := protocol.Sha256BEField(
-		[]byte{12},
+		[]byte{16},
 		want,
 		protocol.SolInterface[:],
 		sol.userAccount[:],
