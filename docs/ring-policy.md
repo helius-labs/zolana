@@ -135,11 +135,11 @@ rows = [
 ```
 
 `EncodedRuleTable::hash` chains `POLICY_TABLE_DOMAIN`, `POLICY_VERSION`, the
-eight source slots, the rule count, every row, the inline asset-limit pairs,
-the window length and every velocity row as mint, cap and threshold. The
-count closes the variable-length preimage. The source map ties the table to
-the entries serving each list. `POLICY_VERSION` moves with any change of the
-row encoding.
+eight source slots, the rule, inline and velocity counts, every row, the
+inline asset-limit pairs, the window length and every velocity row as mint,
+cap and threshold. The counts close the variable-length preimage. The source
+map ties the table to the entries serving each list. `POLICY_VERSION` moves
+with any change of the row encoding.
 
 ## The answer budget
 
@@ -519,13 +519,13 @@ the cli loads and re-renders.
   whose tier differs from the chain (`TierDrift`).
 - The program reads a config account of another size as uninitialized, the
   SDK refuses it.
-- A windowed velocity ring keeps every note of a transfer in its entries
-  tree, takes no deposit leg on a transfer, closes the delegate rail and
-  needs a registered record before a member's first transfer. A per-transfer
-  cap ring keeps none of these, each transfer stands alone against its cap.
-  Windows are fixed, a boundary admits up to twice the cap. A member spends
-  only its own notes in one transfer. The record publishes the member's
-  identity and lineage.
+- A velocity ring, per transfer or windowed, takes no deposit leg on a
+  transfer and closes the delegate rail. A windowed ring additionally keeps
+  every note of a transfer in its entries tree and needs a registered record
+  before a member's first transfer, a per-transfer cap ring keeps neither and
+  each transfer stands alone against its cap. Windows are fixed, a boundary
+  admits up to twice the cap. A member spends only its own notes in one
+  transfer. The record publishes the member's identity and lineage.
 
 ## The cycle
 
