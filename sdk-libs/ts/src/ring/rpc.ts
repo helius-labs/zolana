@@ -20,7 +20,9 @@ import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
+import type { AuditedRingSpendRecord } from "./audit.js";
 import { RingError } from "./error.js";
+import { memberOfIdentity, type SpendCounters } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
@@ -318,6 +320,8 @@ export interface DecryptedRingTransaction {
   readonly signers: readonly Address[];
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
+  /** Empty unless a velocity transfer published one. */
+  readonly spendRecords: readonly AuditedRingSpendRecord[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -664,6 +668,44 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
           amount: integer(leg["amount"], "withdrawals.amount"),
         });
       }),
+    ),
+    spendRecords: Object.freeze(
+      list(wire["spendRecords"], "spendRecords").map((entry, index) =>
+        decodeSpendRecord(record(entry, `spendRecords[${index}]`)),
+      ),
+    ),
+  });
+}
+
+function decodeSpendRecord(entry: Record<string, unknown>): AuditedRingSpendRecord {
+  const counters = entry["counters"];
+  return Object.freeze({
+    slotIndex: Number(integer(entry["slotIndex"], "spendRecords.slotIndex")),
+    record: Object.freeze({
+      member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
+      version: integer(entry["version"], "spendRecords.version"),
+      window: integer(entry["window"], "spendRecords.window"),
+      countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
+      blinding: hash(entry["blinding"], "spendRecords.blinding"),
+    }),
+    ...(counters === undefined || counters === null
+      ? {}
+      : { counters: decodeSpendCounters(record(counters, "spendRecords.counters")) }),
+  });
+}
+
+function decodeSpendCounters(counters: Record<string, unknown>): SpendCounters {
+  return Object.freeze({
+    salt: hash(counters["salt"], "spendRecords.counters.salt"),
+    assets: Object.freeze(
+      list(counters["assets"], "spendRecords.counters.assets").map((asset) =>
+        hash(asset, "spendRecords.counters.assets"),
+      ),
+    ),
+    spent: Object.freeze(
+      list(counters["spent"], "spendRecords.counters.spent").map((value) =>
+        integer(value, "spendRecords.counters.spent"),
+      ),
     ),
   });
 }

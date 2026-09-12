@@ -1683,13 +1683,36 @@ describe("ring read request", () => {
                   nullifiers: [addressOf(3)],
                   signers: [addressOf(11)],
                   withdrawals: [],
+                  spendRecords: [
+                    {
+                      slotIndex: 2,
+                      member: addressOf(12),
+                      version: 3,
+                      window: 5,
+                      countersCommitment: addressOf(13),
+                      blinding: addressOf(14),
+                      counters: {
+                        salt: addressOf(15),
+                        assets: Array.from({ length: 8 }, (_, index) => addressOf(16 + index)),
+                        spent: ["__U64_MAX__", 0, 0, 0, 0, 0, 0, 0],
+                      },
+                    },
+                    {
+                      slotIndex: 3,
+                      member: addressOf(24),
+                      version: 1,
+                      window: 5,
+                      countersCommitment: addressOf(25),
+                      blinding: addressOf(26),
+                    },
+                  ],
                 },
               ],
               skipped: [{ slot: 7, txSignature: signatureOf(2), reason: "invalidAuditData" }],
               cursor: "AQID",
             },
           },
-        }),
+        }).replace('"__U64_MAX__"', "18446744073709551615"),
         JSON_HEADERS,
       );
     }) as typeof globalThis.fetch;
@@ -1723,6 +1746,23 @@ describe("ring read request", () => {
     expect(item?.outputs[0]?.ownerTag).toEqual(filled(11, 32));
     expect(item?.signers).toEqual([addressOf(11)]);
     expect(item?.withdrawals).toEqual([]);
+    expect(item?.spendRecords).toHaveLength(2);
+    const spend = item?.spendRecords[0];
+    expect(spend?.slotIndex).toBe(2);
+    expect(spend?.record).toMatchObject({ version: 3n, window: 5n });
+    expect(spend?.record.member).toEqual(filled(12, 32));
+    expect(spend?.record.countersCommitment).toEqual(filled(13, 32));
+    expect(spend?.record.blinding).toEqual(filled(14, 32));
+    expect(spend?.counters?.salt).toEqual(filled(15, 32));
+    expect(spend?.counters?.assets).toEqual(
+      Array.from({ length: 8 }, (_, index) => filled(16 + index, 32)),
+    );
+    // The velocity counter is a full-range u64, decoded past `Number` precision.
+    expect(spend?.counters?.spent).toEqual([18446744073709551615n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]);
+    const absent = item?.spendRecords[1];
+    expect(absent?.slotIndex).toBe(3);
+    expect(absent?.record.member).toEqual(filled(24, 32));
+    expect(absent?.counters).toBeUndefined();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
     const auth = params["auth"] as Record<string, unknown>;
@@ -1776,6 +1816,7 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [addressOf(11), addressOf(12)],
                   withdrawals: [],
+                  spendRecords: [],
                 },
               ],
               skipped: [],
@@ -1816,6 +1857,7 @@ describe("ring read request", () => {
                   nullifiers: [],
                   signers: [],
                   withdrawals,
+                  spendRecords: [],
                 },
               ],
               skipped: [],

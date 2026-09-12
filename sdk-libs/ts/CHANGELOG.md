@@ -42,6 +42,8 @@ Added
   and returns the live version with the transaction that published it.
 - `auditRingTransaction` reports a velocity ring's `spendRecords`, each with
   the counters recovered from its message when the window is live.
+- `DecryptedRingTransaction.spendRecords` carries the same records over the ring
+  RPC, so `RingRpc.getDecryptedTransactions` returns them with each transaction.
 - `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
   build the tag 26 registration over a proven claim, and pin the member's
   record head so no later transfer can spend a forged record.

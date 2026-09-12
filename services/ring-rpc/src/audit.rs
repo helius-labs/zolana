@@ -11,9 +11,10 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedTransaction,
-        DecryptedTransactionsPage, DecryptedWithdrawal, GetDecryptedTransactionsResponse,
-        ReadAttestation, ReadAuth, SkippedReason, SkippedTransaction, AUDIT_PAGE_LIMIT,
+        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedSpendCounters,
+        DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
+        GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
+        SkippedTransaction, AUDIT_PAGE_LIMIT,
     },
     authorize::{self, AuthorityCheck, ReadCheck, Unauthorized},
     error::RingRpcError,
@@ -376,6 +377,23 @@ fn decrypted_transaction(
                 recipient: withdrawal.recipient.to_bytes().into(),
                 asset: withdrawal.asset.to_bytes().into(),
                 amount: withdrawal.amount,
+            })
+            .collect(),
+        spend_records: audited
+            .spend_records
+            .into_iter()
+            .map(|spend| DecryptedSpendRecord {
+                slot_index: spend.slot_index,
+                member: (*spend.record.member.as_bytes()).into(),
+                version: spend.record.version,
+                window: spend.record.window,
+                counters_commitment: spend.record.counters_commitment.into(),
+                blinding: spend.record.blinding.into(),
+                counters: spend.counters.map(|counters| DecryptedSpendCounters {
+                    salt: counters.salt.into(),
+                    assets: counters.assets.iter().map(|asset| (*asset).into()).collect(),
+                    spent: counters.spent.to_vec(),
+                }),
             })
             .collect(),
     }
