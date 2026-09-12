@@ -160,9 +160,7 @@ pub fn validate_input_tree_contexts(
         }
         previous = Some(input.tree_index);
     }
-    let last_context = u8::try_from(context_count.saturating_sub(1))
-        .map_err(|_| ShieldedPoolError::InvalidTreeContextCount)?;
-    if previous != Some(last_context) {
+    if previous.map(|index| usize::from(index) + 1) != Some(context_count) {
         return Err(ShieldedPoolError::UnreferencedTreeContext);
     }
     Ok(())

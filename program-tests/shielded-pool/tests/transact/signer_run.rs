@@ -229,14 +229,15 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
     let mut owner_hashes = OwnerHashCache::new();
 
     proof_inputs
-        .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
+        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
         .unwrap();
     assert_eq!(owner_hashes.len(), 2);
 
     proof_inputs
-        .fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes)
+        .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
         .unwrap();
     assert_eq!(owner_hashes.len(), 3);
+    assert_eq!(proof_inputs.unique_owner_signer_count, 2);
     assert_eq!(
         proof_inputs.output_owner_pk_hashes[0],
         proof_inputs.signer_pk_hashes[0]
@@ -244,6 +245,37 @@ fn owner_hashes_are_reused_between_outputs_and_signers() {
     assert_eq!(
         proof_inputs.output_owner_pk_hashes[0],
         proof_inputs.output_owner_pk_hashes[2]
+    );
+}
+
+#[test]
+fn owner_signer_hashing_rejects_a_cache_populated_by_output_owners() {
+    let utxo_hash = [0u8; 32];
+    let outputs = [ResolvedOutput {
+        utxo_hash: &utxo_hash,
+        owner_tag: [2; 32],
+        data: None,
+    }];
+    let payer = get_account_view([1; 32], [0; 32], true, false, false, vec![]);
+    let owner_signers = [get_account_view(
+        [2; 32],
+        [0; 32],
+        true,
+        false,
+        false,
+        vec![],
+    )];
+    let mut proof_inputs = TransactProofInputs::new(CircuitId::ConfidentialEddsa(1, 1, 1));
+    let mut owner_hashes = OwnerHashCache::new();
+    proof_inputs
+        .fill_output_owner_pk_hashes(OutputOwnerMode::All, &outputs, &mut owner_hashes)
+        .unwrap();
+
+    assert_eq!(
+        proof_inputs.fill_owner_signer_hashes(&payer, &owner_signers, &mut owner_hashes),
+        Err(ProgramError::Custom(
+            ShieldedPoolError::InvalidTransactShape as u32
+        ))
     );
 }
 

@@ -39,14 +39,13 @@ const MAX_OWNER_HASHES: usize = MAX_SIGNERS + MAX_OUTPUTS;
 struct OwnerHashEntry {
     owner_tag: [u8; 32],
     hash: [u8; 32],
-    /// Set once the tag has been counted as an owner signer, so a tag first
-    /// cached as an output owner is still counted the first time it signs.
-    is_signer: bool,
 }
 
 /// Owner identity hashes computed in this instruction, keyed by owner tag, so a
 /// tag that appears as an output owner and as a signer is hashed once. Backed by
 /// uninitialized storage: nothing is zero-filled on construction.
+/// Populate all signers before output owners, so every cache hit during signer
+/// collection identifies an already-counted signer.
 #[derive(Default)]
 pub struct OwnerHashCache {
     entries: RefArrayVec<OwnerHashEntry, MAX_OWNER_HASHES>,
@@ -67,42 +66,37 @@ impl OwnerHashCache {
         self.entries.is_empty()
     }
 
-    fn entry_mut(&mut self, owner_tag: &[u8; 32]) -> Option<&mut OwnerHashEntry> {
+    fn entry(&self, owner_tag: &[u8; 32]) -> Option<&OwnerHashEntry> {
         self.entries
-            .iter_mut()
+            .iter()
             .find(|entry| pubkey_eq(&entry.owner_tag, owner_tag))
     }
 
-    fn insert(&mut self, owner_tag: &[u8; 32], is_signer: bool) -> Result<[u8; 32], ProgramError> {
+    fn insert(&mut self, owner_tag: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
         let hash = solana_owner_identity(owner_tag)?;
         self.entries
             .try_push(OwnerHashEntry {
                 owner_tag: *owner_tag,
                 hash,
-                is_signer,
             })
             .map_err(|_| ShieldedPoolError::InvalidTransactShape)?;
         Ok(hash)
     }
 
     fn output_owner_hash(&mut self, owner_tag: &[u8; 32]) -> Result<[u8; 32], ProgramError> {
-        if let Some(entry) = self.entry_mut(owner_tag) {
+        if let Some(entry) = self.entry(owner_tag) {
             return Ok(entry.hash);
         }
-        self.insert(owner_tag, false)
+        self.insert(owner_tag)
     }
 
     /// The identity hash of `address` the first time it is seen as a signer;
     /// `None` once it has already been counted.
     fn new_signer_hash(&mut self, address: &[u8; 32]) -> Result<Option<[u8; 32]>, ProgramError> {
-        if let Some(entry) = self.entry_mut(address) {
-            if entry.is_signer {
-                return Ok(None);
-            }
-            entry.is_signer = true;
-            return Ok(Some(entry.hash));
+        if self.entry(address).is_some() {
+            return Ok(None);
         }
-        self.insert(address, true).map(Some)
+        self.insert(address).map(Some)
     }
 }
 
@@ -200,9 +194,9 @@ impl TransactProofInputs {
         Ok(())
     }
 
-    // Assign the payer and ordered, first-occurrence-deduplicated EdDSA signer
-    // identities. The payer occupies slot zero and is marked as a signer first,
-    // so an appended payer is ignored.
+    /// Assign the payer and ordered, first-occurrence-deduplicated EdDSA signer
+    /// identities. The cache must be empty: collect all signers before hashing
+    /// output owners. The payer occupies slot zero, so an appended payer is ignored.
     #[profile]
     pub fn fill_owner_signer_hashes(
         &mut self,
@@ -210,6 +204,9 @@ impl TransactProofInputs {
         owner_signers: &[AccountView],
         owner_hashes: &mut OwnerHashCache,
     ) -> Result<(), ProgramError> {
+        if !owner_hashes.entries.is_empty() {
+            return Err(ShieldedPoolError::InvalidTransactShape.into());
+        }
         let payer_address = payer.address().to_bytes();
         self.signer_pk_hashes[0] = owner_hashes
             .new_signer_hash(&payer_address)?

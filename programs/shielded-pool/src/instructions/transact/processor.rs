@@ -58,13 +58,7 @@ pub fn process_transact_ix(
     let resolved_outputs = resolve_outputs(accounts, &ix)?;
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
-    // 5. Derive the circuit-specific fixed-width output-owner commitment.
-    proof_inputs.fill_output_owner_pk_hashes(
-        ix.circuit.output_owner_mode(),
-        &resolved_outputs,
-        &mut owner_hashes,
-    )?;
-    // 6. Check accounts.
+    // 5. Check accounts.
     let mut transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
@@ -74,22 +68,28 @@ pub fn process_transact_ix(
             transact_accounts
         }
     };
-    // 6. Add owner signer hashes to proof inputs.
+    // 6. Hash all signers before output owners: cache hits deduplicate signers.
     proof_inputs.fill_owner_signer_hashes(
         transact_accounts.payer,
         transact_accounts.owner_signers,
         &mut owner_hashes,
     )?;
+    // 7. Derive the circuit-specific fixed-width output-owner commitment.
+    proof_inputs.fill_output_owner_pk_hashes(
+        ix.circuit.output_owner_mode(),
+        &resolved_outputs,
+        &mut owner_hashes,
+    )?;
 
-    // 7. Process sol and spl transfers.
+    // 8. Process sol and spl transfers.
     proof_inputs.assign_public_amounts_and_assets(
         &ix.interface_transfers,
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+    // 9. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
     let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
-    // 9. Append new utxo hashes.
+    // 10. Append new utxo hashes.
     let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
