@@ -121,6 +121,7 @@ pub struct Options {
     protocol_signers: Vec<PathBuf>,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
+    accept_existing_threshold: bool,
     config_flags: ProtocolConfigFlags,
     yes: bool,
     dry_run: bool,
@@ -134,6 +135,7 @@ impl Options {
         let mut protocol_signers = Vec::new();
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
+        let mut accept_existing_threshold = false;
         let mut config_flags = ProtocolConfigFlags::default();
         let mut yes = false;
         let mut dry_run = false;
@@ -201,6 +203,7 @@ impl Options {
                     config_flags.spl_interface_creation_is_permissionless =
                         parse_bool(args.next(), &arg);
                 }
+                "--accept-existing-threshold" => accept_existing_threshold = true,
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -213,7 +216,15 @@ impl Options {
 
         let payer = payer.unwrap_or_else(|| usage_and_exit("--payer is required"));
         let required_protocol_signers = usize::from(Role::Protocol.threshold());
-        if protocol_signers.len() != required_protocol_signers {
+        // Reusing smart accounts created under an earlier policy means the live
+        // threshold, not this build's, decides how many signatures the Squads
+        // execute needs; the on-chain program rejects too few.
+        let signers_ok = if accept_existing_threshold {
+            (1..=authorities::PROTOCOL.len()).contains(&protocol_signers.len())
+        } else {
+            protocol_signers.len() == required_protocol_signers
+        };
+        if !signers_ok {
             usage_and_exit(&format!(
                 "--protocol-signer must be passed {required_protocol_signers} times for the \
                  {}-of-{} protocol policy (received {})",
@@ -249,6 +260,7 @@ impl Options {
             protocol_signers,
             upgrade_authority,
             reuse_settings,
+            accept_existing_threshold,
             config_flags,
             yes,
             dry_run,
@@ -391,20 +403,25 @@ pub(crate) fn expected_role_members() -> [&'static [Pubkey]; 5] {
     ]
 }
 
+/// `expected_threshold` of `None` accepts whatever threshold the settings
+/// account already carries, for reusing a deployment created under an earlier
+/// role policy. The member set is still pinned either way.
 fn verify_settings_policy(
     label: &str,
     settings_key: &Pubkey,
     data: &[u8],
     expected_members: &[Pubkey],
-    expected_threshold: u16,
+    expected_threshold: Option<u16>,
 ) -> Result<()> {
     let threshold = settings_threshold(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
-    if threshold != expected_threshold {
-        bail!(
-            "{label} smart account settings {settings_key} has threshold {threshold}, expected \
-             {expected_threshold}"
-        );
+    if let Some(expected_threshold) = expected_threshold {
+        if threshold != expected_threshold {
+            bail!(
+                "{label} smart account settings {settings_key} has threshold {threshold}, \
+                 expected {expected_threshold}"
+            );
+        }
     }
     let member_keys = settings_member_keys(data)
         .with_context(|| format!("decoding {label} smart account settings {settings_key}"))?;
@@ -432,7 +449,11 @@ fn verify_settings_policy(
 /// `Settings` owned by the smart-account program, must list the expected role
 /// members at the required threshold, and must be the canonical PDA of the
 /// seed stored inside it.
-fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[RoleAddrs; 5]> {
+fn load_reused_roles(
+    rpc: &SolanaRpc,
+    settings_keys: &[Pubkey; 5],
+    accept_existing_threshold: bool,
+) -> Result<[RoleAddrs; 5]> {
     let mut roles = Vec::with_capacity(Role::ALL.len());
     for ((role, settings_key), expected_members) in Role::ALL
         .into_iter()
@@ -455,7 +476,7 @@ fn load_reused_roles(rpc: &SolanaRpc, settings_keys: &[Pubkey; 5]) -> Result<[Ro
             settings_key,
             &account.data,
             expected_members,
-            role.threshold(),
+            (!accept_existing_threshold).then(|| role.threshold()),
         )?;
         let seed = settings_seed(&account.data).with_context(|| {
             format!(
@@ -969,7 +990,7 @@ pub fn run(options: Options) -> Result<()> {
     let reused_roles = options
         .reuse_settings
         .as_ref()
-        .map(|settings| load_reused_roles(&rpc, settings))
+        .map(|settings| load_reused_roles(&rpc, settings, options.accept_existing_threshold))
         .transpose()
         .context("resolving the smart accounts to reuse")?;
     let roles = reused_roles.unwrap_or_else(|| derive_roles(program_config.smart_account_index));
@@ -1170,6 +1191,9 @@ fn print_help() {
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
     println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
     println!("  --forester-settings <PUBKEY>          expected role members");
+    println!("  --accept-existing-threshold           reuse settings whose threshold predates");
+    println!("                                        this build's role policy (members still");
+    println!("                                        pinned); allows 1..=5 protocol signers");
     println!("  --tree-creation-permissionless <true|false>       default: false");
     println!("  --ring-activation-permissionless <true|false>     default: false");
     println!("  --spl-interface-creation-permissionless <true|false>");
