@@ -301,3 +301,64 @@ fn sdk_account(accounts: &[Pubkey], index: usize, context: &str) -> Result<Pubke
         ))
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Devnet slot 492480571.
+    const VERSION_1_TRANSACTION: &str = r#"{
+        "meta": {
+            "computeUnitsConsumed": 150,
+            "costUnits": 1481,
+            "err": null,
+            "fee": 10000,
+            "innerInstructions": [],
+            "loadedAddresses": {"readonly": [], "writable": []},
+            "logMessages": [
+                "Program 11111111111111111111111111111111 invoke [1]",
+                "Program 11111111111111111111111111111111 success"
+            ],
+            "postBalances": [186075591481, 1000000, 1],
+            "postTokenBalances": [],
+            "preBalances": [186076601481, 0, 1],
+            "preTokenBalances": [],
+            "rewards": null,
+            "status": {"Ok": null}
+        },
+        "transaction": [
+            "gQEAAQ8AAADy9w1C57Jkve55/n0evk8h1V29Nq+WNjW/apyV99YdCAEDPJBEOvrHznm+JIY1gvt1x6JkQoct90T995JbS/vOpH2QdlSnm2Um+5lt81NwkwX9AGps4zj4PfkCUwgZYyu/GQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAiBMAAAAAAADQBwAAAAABAAICDAAAAQIAAABAQg8AAAAAAFFfm76ICVd7iVN/uBVLqSdY6ZrZH0apLSUPPd+v+d9AsaMhO7GBd3wzf8mDxqeAvlE/UCIGuihGS/8w40CSDAE=",
+            "base64"
+        ],
+        "version": 1
+    }"#;
+
+    #[test]
+    fn parses_version_1_transaction() {
+        let transaction: EncodedTransactionWithStatusMeta =
+            serde_json::from_str(VERSION_1_TRANSACTION).unwrap();
+        let payer = Pubkey::from_str("55R41dbRU13QhLpAgha1841wR5M6sAcZhXd4S1LGupBn").unwrap();
+        let recipient = Pubkey::from_str("AivMvWMKoiXbqxok1xvW7ES5CWr3DG3TYR94iy1SBdBe").unwrap();
+        let system_program = Pubkey::from_str("11111111111111111111111111111111").unwrap();
+
+        assert_eq!(
+            parse_transaction_info(transaction).unwrap(),
+            TransactionInfo {
+                instruction_groups: vec![InstructionGroup {
+                    outer_instruction: Instruction {
+                        program_id: system_program,
+                        data: vec![2, 0, 0, 0, 64, 66, 15, 0, 0, 0, 0, 0],
+                        accounts: vec![payer, recipient],
+                        stack_height: Some(1),
+                    },
+                    inner_instructions: Vec::new(),
+                }],
+                signature: Signature::from_str(
+                    "2dMwts34QC98z5E9dt16RcSr793Qe94DSFbgYyZwoT9TEmgNUuYBSNoKdtsV86o5yrR24P143y5o4qoeAyWzZ1Sg",
+                )
+                .unwrap(),
+                error: None,
+            }
+        );
+    }
+}
