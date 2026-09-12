@@ -321,12 +321,15 @@ async function buildRingSpend<R>(
         ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
         ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
       }),
-      fetchRingLookupTable({
-        client: input.client,
-        ringProgramId: input.ringProgramId,
-        address: input.lookupTable,
-        tree: proven.tree,
-      }),
+      fetchRingLookupTable(
+        {
+          client: input.client,
+          ringProgramId: input.ringProgramId,
+          address: input.lookupTable,
+          tree: proven.tree,
+        },
+        context,
+      ),
       input.client.getLatestBlockhash(context),
     ]);
     return compileUnsignedTransaction({

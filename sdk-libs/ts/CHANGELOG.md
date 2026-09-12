@@ -3,10 +3,18 @@
 ## 0.1.6-alpha.1 — unreleased
 
 Custom rings support withdrawing the entire selected balance without a change
-output. Existing wallet and transaction interfaces are unchanged.
+output. Solana RPC calls support a configurable transport and a request timeout,
+and ring lookup table reads accept cancellation.
+
+Added
+
+- `ZolanaClientConfig.solanaRpcTransport` accepts a Solana Kit transport separately from the indexer and prover `fetch` option.
+- `ZolanaClientConfig.solanaRpcRequestTimeoutMs` bounds each Solana RPC request, including raw `solanaRpc` calls, to 30 seconds by default, with a shorter `RequestContext` deadline taking precedence.
+- `fetchRingLookupTable` accepts an optional `RequestContext` for cancellation and timeouts.
 
 Fixed
 
+- `ZolanaClient` RPC reads and `buildRingLookupTableTransaction` now stop waiting on cancellation even when an injected RPC transport ignores its signal.
 - `buildRingWithdrawalTransaction` no longer rejects full-balance withdrawals when every output is dummy.
 
 ## 0.1.6-alpha — 2026-09-03

@@ -132,6 +132,15 @@ The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
 state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
 It's planned to make indexer and prover available through using the same Helius RPC URL.
 
+`fetch` customizes indexer and prover requests. To customize Solana requests,
+pass a Solana Kit `RpcTransport` as `solanaRpcTransport`. Each Solana RPC
+request, including calls through `client.solanaRpc`, has a 30-second timeout;
+set `solanaRpcRequestTimeoutMs` to change it. A shorter `RequestContext.timeoutMs`
+still takes precedence. Cancellation stops waiting and signals the transport;
+a custom transport must honor that signal to stop its underlying network work.
+A timeout does not prove that a submitted transaction failed, and the client
+does not automatically retry it.
+
 **Devnet:**
 
 | Service    | Host the SDK uses                                                   | Notes                                                                                     |

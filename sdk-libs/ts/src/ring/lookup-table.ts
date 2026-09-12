@@ -6,6 +6,7 @@ import {
 } from "@solana-program/address-lookup-table";
 import { createNoopSigner, type Address, type Transaction } from "@solana/kit";
 
+import { runKitRpc } from "../client/kit.js";
 import type { BlockhashProvider, KitRpcAccess, TreeContext } from "../client/ports.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import type { RequestContext } from "../interface/types.js";
@@ -38,7 +39,9 @@ export async function buildRingLookupTableTransaction(
     const [addresses, slot, lifetime] = await Promise.all([
       ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
       // The create instruction checks the slot against SlotHashes, so it must be finalized.
-      input.client.solanaRpc.getSlot({ commitment: "finalized" }).send(),
+      runKitRpc("getSlot", context, (abortSignal) =>
+        input.client.solanaRpc.getSlot({ commitment: "finalized" }).send({ abortSignal }),
+      ),
       input.client.getLatestBlockhash(context),
     ]);
     const recentSlot = BigInt(slot);
@@ -77,12 +80,16 @@ export async function fetchRingLookupTable(
     address: Address;
     tree?: Address;
   }>,
+  context?: RequestContext,
 ): Promise<readonly Address[]> {
   const tree = input.tree ?? input.client.tree;
   const [table, required] = await Promise.all([
-    fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
-      commitment: input.client.commitment,
-    }),
+    runKitRpc("getAccountInfo", context, (abortSignal) =>
+      fetchMaybeAddressLookupTable(input.client.solanaRpc, input.address, {
+        commitment: input.client.commitment,
+        abortSignal,
+      }),
+    ),
     ringLookupTableAddresses({ ringProgramId: input.ringProgramId, tree }),
   ]);
   if (!table.exists) {
