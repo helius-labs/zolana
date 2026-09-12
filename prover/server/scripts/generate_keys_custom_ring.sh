@@ -22,14 +22,16 @@ echo "Generating custom-ring-policy -> ${keys_dir}/custom_ring_policy.key"
 ./light-prover setup-custom-ring-policy --output "$keys_dir/custom_ring_policy.key" --vk-out "$tmp_dir/custom_ring_policy.vkbin"
 echo "Generating custom-ring-base -> ${keys_dir}/custom_ring_base.key"
 ./light-prover setup-custom-ring-base --output "$keys_dir/custom_ring_base.key" --vk-out "$tmp_dir/custom_ring_base.vkbin"
+echo "Generating custom-ring-compressed-policy -> ${keys_dir}/custom_ring_compressed_policy.key"
+./light-prover setup-compressed-policy --output "$keys_dir/custom_ring_compressed_policy.key" --vk-out "$tmp_dir/custom_ring_compressed_policy.vkbin"
 
-for pair in custom_ring_policy:policy_verifying_key.rs custom_ring_base:base_verifying_key.rs; do
+for pair in custom_ring_policy:policy_verifying_key.rs custom_ring_base:base_verifying_key.rs custom_ring_compressed_policy:compressed_policy_verifying_key.rs; do
     stem="${pair%%:*}"
     module="${pair##*:}"
     "$xtask" bsb22-vk "$tmp_dir/$stem.vkbin" "$vkey_dir" "$module"
     rustfmt "$vkey_dir/$module"
 done
 
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --only-release
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --release custom_ring_compressed_policy.key --only-release
 
 echo "Done. Ring proving keys in ${keys_dir}, verifying keys in ${vkey_dir}"
