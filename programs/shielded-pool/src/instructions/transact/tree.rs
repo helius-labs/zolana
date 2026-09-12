@@ -97,7 +97,7 @@ pub(crate) fn apply_input_trees(
         };
         // 4. Release the tree-data borrow before the CPIs. The helper collects
         // this tree's fee before debiting it for any PDA rent.
-        let (tree_pdas, rest) = core::mem::take(&mut remaining_pdas)
+        let (tree_pdas, rest) = remaining_pdas
             .split_at_mut_checked(tree_inputs.len())
             .ok_or(ShieldedPoolError::InvalidNullifierPda)?;
         create_nullifier_pdas(

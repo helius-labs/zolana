@@ -324,10 +324,7 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
     /// is absorbed at once, so the count follows from `num_inserted` and is
     /// always 0, 1, or 2.
     pub fn num_pending(&self) -> usize {
-        match self.num_inserted {
-            0 => 0,
-            inserted => ((inserted - 1) % 3) as usize,
-        }
+        (self.num_inserted.saturating_sub(1) % 3) as usize
     }
 
     /// Add a value to the current hash chain, and advance batch state. The

@@ -109,10 +109,7 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     // Poseidon(0, 0), the `ring_hash` of every default-rail entry under no ring
     // program, is the height-1 zero node; the table lookup replaces a syscall
     // per entry.
-    let zero_ring_hash = Poseidon::zero_bytes()
-        .get(1)
-        .copied()
-        .ok_or(ShieldedPoolError::TransactProofVerificationFailed)?;
+    let zero_ring_hash = Poseidon::zero_bytes()[1];
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
     // Loaded before hashing: every entry is hashed under the id of the tree it

@@ -207,10 +207,7 @@ impl TransactProofInputs {
         if !owner_hashes.entries.is_empty() {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
         }
-        let payer_address = payer.address().to_bytes();
-        self.signer_pk_hashes[0] = owner_hashes
-            .new_signer_hash(&payer_address)?
-            .ok_or(ShieldedPoolError::InvalidTransactShape)?;
+        self.signer_pk_hashes[0] = owner_hashes.insert(payer.address().as_array())?;
 
         let mut unique_count = 1usize;
         for signer in owner_signers {
