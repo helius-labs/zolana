@@ -972,67 +972,75 @@ fn next_tree_id(rpc: &SolanaRpc, initialized: bool) -> Result<u16> {
 /// instruction needs is the vault the Squads execute already signs for. An
 /// external payer would have to sign inside the CPI, which the smart-account
 /// program deployed on devnet does not propagate.
-fn create_tree(
-    rpc: &mut SolanaRpc,
+struct TreeCreation<'a> {
     cluster: Cluster,
-    payer: &Keypair,
-    protocol_signer: &Keypair,
     tree_id: u16,
-    tree_settings: &Pubkey,
-    tree_vault: Pubkey,
+    settings: &'a Pubkey,
+    vault: Pubkey,
     fees: TreeFeeSchedule,
-) -> Result<Pubkey> {
-    // The program funds the tree with its own rent plus the working capital that
-    // sponsors nullifier PDA rent, so the vault must hold the same total.
-    let tree_rent = rpc
-        .get_minimum_balance_for_rent_exemption(tree_account_size())
-        .context("rent for tree account")?;
-    let nullifier_pda_rent = rpc
-        .get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)
-        .context("rent for nullifier pda")?;
-    let tree_lamports =
-        tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
-            .ok_or_else(|| anyhow!("tree creation lamports overflowed"))?;
-    let vault_balance = rpc
-        .get_account(to_address(&tree_vault))
-        .context("fetching tree vault")?
-        .map(|account| account.lamports)
-        .unwrap_or_default();
-    let needed = tree_lamports.saturating_add(VAULT_FUNDING_BUFFER_LAMPORTS);
-    if vault_balance < needed {
-        fund_vault(
-            rpc,
-            cluster,
-            payer,
-            &tree_vault,
-            needed - vault_balance,
-            "tree_vault",
-        )?;
+}
+
+impl TreeCreation<'_> {
+    fn send(
+        self,
+        rpc: &mut SolanaRpc,
+        payer: &Keypair,
+        protocol_signer: &Keypair,
+    ) -> Result<Pubkey> {
+        // The program funds the tree with its own rent plus the working capital
+        // that sponsors nullifier PDA rent, so the vault must hold the same
+        // total.
+        let tree_rent = rpc
+            .get_minimum_balance_for_rent_exemption(tree_account_size())
+            .context("rent for tree account")?;
+        let nullifier_pda_rent = rpc
+            .get_minimum_balance_for_rent_exemption(NULLIFIER_PDA_SIZE)
+            .context("rent for nullifier pda")?;
+        let tree_lamports =
+            tree_creation_lamports(&nullifier_tree_params(), tree_rent, nullifier_pda_rent)
+                .ok_or_else(|| anyhow!("tree creation lamports overflowed"))?;
+        let vault_balance = rpc
+            .get_account(to_address(&self.vault))
+            .context("fetching tree vault")?
+            .map(|account| account.lamports)
+            .unwrap_or_default();
+        let needed = tree_lamports.saturating_add(VAULT_FUNDING_BUFFER_LAMPORTS);
+        if vault_balance < needed {
+            fund_vault(
+                rpc,
+                self.cluster,
+                payer,
+                &self.vault,
+                needed - vault_balance,
+                "tree_vault",
+            )?;
+        }
+        let create = CreateTree {
+            payer: self.vault,
+            authority: self.vault,
+            tree_id: self.tree_id,
+            nullifier_params: nullifier_tree_params(),
+            fees: self.fees,
+        };
+        let steps = execute_sync_each(
+            self.settings,
+            0,
+            &[protocol_signer.pubkey()],
+            &create.instructions(),
+        );
+        let signature = rpc
+            .create_and_send_transaction(
+                &steps,
+                to_address(&payer.pubkey()),
+                &[payer, protocol_signer],
+                ComputeBudgetConfig::for_instruction_count(steps.len()),
+            )
+            .map_err(|e| anyhow!("create_tree failed: {e}"))?;
+        let tree = create.tree();
+        let tree_id = self.tree_id;
+        println!("created tree={tree} tree_id={tree_id} sig={signature}");
+        Ok(tree)
     }
-    let create = CreateTree {
-        payer: tree_vault,
-        authority: tree_vault,
-        tree_id,
-        nullifier_params: nullifier_tree_params(),
-        fees,
-    };
-    let steps = execute_sync_each(
-        tree_settings,
-        0,
-        &[protocol_signer.pubkey()],
-        &create.instructions(),
-    );
-    let signature = rpc
-        .create_and_send_transaction(
-            &steps,
-            to_address(&payer.pubkey()),
-            &[payer, protocol_signer],
-            ComputeBudgetConfig::for_instruction_count(steps.len()),
-        )
-        .map_err(|e| anyhow!("create_tree failed: {e}"))?;
-    let tree = create.tree();
-    println!("created tree={tree} tree_id={tree_id} sig={signature}");
-    Ok(tree)
 }
 
 pub fn run(options: Options) -> Result<()> {
@@ -1219,16 +1227,14 @@ pub fn run(options: Options) -> Result<()> {
     let tree_signer = signers.protocol_signers.first().ok_or_else(|| {
         anyhow!("the protocol policy did not provide a signer for tree initialization")
     })?;
-    let tree_account = create_tree(
-        &mut rpc,
-        options.cluster,
-        &signers.payer,
-        tree_signer,
+    let tree_account = TreeCreation {
+        cluster: options.cluster,
         tree_id,
-        &tree.settings,
-        tree.vault,
+        settings: &tree.settings,
+        vault: tree.vault,
         fees,
-    )?;
+    }
+    .send(&mut rpc, &signers.payer, tree_signer)?;
 
     println!("init_protocol=complete");
     println!("protocol_config={}", pda::protocol_config());
