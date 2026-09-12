@@ -202,7 +202,10 @@ impl Deploy<'_> {
             let account = rpc
                 .get_account(self.ring.policy_config_pda())
                 .map_err(|error| DeployError::Client(Box::new(error)))?;
-            ensure_policy_config_compatible(program, account.map(|account| account.data.len()))?;
+            ensure_policy_config_compatible(
+                program,
+                account.map(|account| (account.owner, account.data.len())),
+            )?;
         }
         let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
         Ok(DeployPlan::Upload {
@@ -342,14 +345,17 @@ impl ProgramBinary {
 /// A live policy config from an earlier layout the new program cannot load.
 fn ensure_policy_config_compatible(
     program: Address,
-    data_len: Option<usize>,
+    policy_config: Option<(Address, usize)>,
 ) -> Result<(), DeployError> {
-    match data_len {
-        Some(found) if found != PolicyConfig::SIZE => Err(DeployError::IncompatiblePolicyConfig {
-            program,
-            found,
-            expected: PolicyConfig::SIZE,
-        }),
+    match policy_config {
+        // Only a program-owned account is a real policy config, a donated PDA is not.
+        Some((owner, found)) if owner == program && found != PolicyConfig::SIZE => {
+            Err(DeployError::IncompatiblePolicyConfig {
+                program,
+                found,
+                expected: PolicyConfig::SIZE,
+            })
+        }
         _ => Ok(()),
     }
 }
@@ -493,10 +499,18 @@ mod tests {
     #[test]
     fn an_incompatible_policy_config_refuses_the_upgrade() {
         let program = Address::from([7u8; 32]);
+        let foreign = Address::from([9u8; 32]);
         assert!(ensure_policy_config_compatible(program, None).is_ok());
-        assert!(ensure_policy_config_compatible(program, Some(PolicyConfig::SIZE)).is_ok());
+        assert!(
+            ensure_policy_config_compatible(program, Some((program, PolicyConfig::SIZE))).is_ok()
+        );
+        // A donated or foreign-owned PDA is not a policy config to guard.
+        assert!(
+            ensure_policy_config_compatible(program, Some((foreign, PolicyConfig::SIZE - 1)))
+                .is_ok()
+        );
         assert!(matches!(
-            ensure_policy_config_compatible(program, Some(PolicyConfig::SIZE - 1)),
+            ensure_policy_config_compatible(program, Some((program, PolicyConfig::SIZE - 1))),
             Err(DeployError::IncompatiblePolicyConfig { found, expected, .. })
                 if found == PolicyConfig::SIZE - 1 && expected == PolicyConfig::SIZE
         ));
