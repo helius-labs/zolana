@@ -344,14 +344,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn transfer_witnesses_reach_the_reference_root() {
-        let mut map = HeadMap::new().expect("map");
-        map.register(member(5), member(50)).expect("register");
-        let witness = map
-            .transfer(&member(5), &member(50), member(51))
-            .expect("transfer");
-        let verified = custom_ring_interface::HeadMapTransfer {
+    fn transfer_of(witness: &TransferWitness) -> custom_ring_interface::HeadMapTransfer<'_> {
+        custom_ring_interface::HeadMapTransfer {
             root: &witness.old_root,
             member: &witness.member,
             next: &witness.next,
@@ -360,7 +354,52 @@ mod tests {
             index: witness.index,
             proof: &witness.proof,
         }
-        .verify();
-        assert_eq!(verified, Ok(witness.new_root));
+    }
+
+    #[test]
+    fn transfer_witnesses_reach_the_reference_root() {
+        let mut map = HeadMap::new().expect("map");
+        map.register(member(5), member(50)).expect("register");
+        let witness = map
+            .transfer(&member(5), &member(50), member(51))
+            .expect("transfer");
+        assert_eq!(transfer_of(&witness).verify(), Ok(witness.new_root));
+    }
+
+    #[test]
+    fn a_stale_root_or_wrong_proof_length_is_refused_on_chain() {
+        use custom_ring_interface::HeadMapError;
+        let mut map = HeadMap::new().expect("map");
+        let register = map.register(member(5), member(50)).expect("register");
+        let transfer = map
+            .transfer(&member(5), &member(50), member(51))
+            .expect("transfer");
+
+        let mut stale = register.clone();
+        stale.old_root = [9; 32];
+        assert_eq!(insert_of(&stale).verify(), Err(HeadMapError::RootMismatch));
+
+        let mut short = register.clone();
+        short.low_proof.pop();
+        assert_eq!(insert_of(&short).verify(), Err(HeadMapError::ProofLength));
+
+        let mut occupied = register.clone();
+        occupied.new_proof[0] = [7; 32];
+        assert_eq!(insert_of(&occupied).verify(), Err(HeadMapError::SlotOccupied));
+
+        let mut stale_transfer = transfer.clone();
+        stale_transfer.old_root = [9; 32];
+        assert_eq!(
+            transfer_of(&stale_transfer).verify(),
+            Err(HeadMapError::RootMismatch)
+        );
+
+        // A successor swapped in for the consumed leaf no longer opens the root.
+        let mut wrong_spent = transfer.clone();
+        wrong_spent.spent = wrong_spent.successor;
+        assert_eq!(
+            transfer_of(&wrong_spent).verify(),
+            Err(HeadMapError::RootMismatch)
+        );
     }
 }

@@ -84,4 +84,38 @@ describe("ring head map", () => {
       }),
     ).toThrow("out of range");
   });
+
+  it("rejects a stale root and a wrong proof length", () => {
+    const zeros = headMapZeroBytes();
+    const lowProof = zeros.slice(0, HEAD_MAP_HEIGHT);
+    const insert = {
+      root: HEAD_MAP_EMPTY_ROOT,
+      appendIndex: 1n,
+      member: member(0x1234),
+      genesis: member(0x5e),
+      lowMember: ZERO,
+      lowNext: HEAD_MAP_FIELD_MAX,
+      lowNullifier: ZERO,
+      lowIndex: 0n,
+      lowProof,
+      newProof: [headMapLeaf(ZERO, member(0x1234), ZERO), ...zeros.slice(1, HEAD_MAP_HEIGHT)],
+    };
+    expect(() => verifyHeadMapInsert({ ...insert, root: member(9) })).toThrow("root mismatch");
+    expect(() => verifyHeadMapInsert({ ...insert, lowProof: lowProof.slice(1) })).toThrow(
+      "proof length",
+    );
+
+    const transferProof = insert.newProof;
+    expect(() =>
+      verifyHeadMapTransfer({
+        root: member(9),
+        member: member(0x1234),
+        next: HEAD_MAP_FIELD_MAX,
+        spent: member(0x5e),
+        successor: member(0x77),
+        index: 1n,
+        proof: transferProof,
+      }),
+    ).toThrow("root mismatch");
+  });
 });
