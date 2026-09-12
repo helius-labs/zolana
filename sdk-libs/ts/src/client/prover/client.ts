@@ -437,12 +437,12 @@ export function customRingPolicyProofRequest(
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
     entriesTreeId: hex32(treeIdField(inputs.entriesTreeId), "entriesTreeId"),
-    windowSlots: Number(inputs.velocity.windowSlots),
+    windowSlots: u64Json(inputs.velocity.windowSlots, "windowSlots"),
     velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
     velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
     ringId: hex32(inputs.velocity.ringId, "ringId"),
     namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
-    windowIndex: Number(inputs.velocity.windowIndex),
+    windowIndex: u64Json(inputs.velocity.windowIndex, "windowIndex"),
     approvalRequired: inputs.velocity.approvalRequired,
     record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
@@ -477,8 +477,8 @@ function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, un
 
 function spendRecordJson(record: CustomRingSpendRecordWitness): Readonly<Record<string, unknown>> {
   return Object.freeze({
-    version: Number(record.version),
-    window: Number(record.window),
+    version: u64Json(record.version, "record version"),
+    window: u64Json(record.window, "record window"),
     commitment: hex32(record.commitment, "record commitment"),
     salt: hex32(record.salt, "record salt"),
     assets: sized(record.assets, RING_VELOCITY_SLOTS, "record assets").map((asset) =>
