@@ -20,18 +20,18 @@ export interface CreateTreeData {
   readonly fees: TreeFeeSchedule;
 }
 
-export const SHIELDED_POOL_PROGRAM_ID = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+export const SHIELDED_POOL_PROGRAM_ID = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 export const USER_REGISTRY_PROGRAM_ID = address("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
 export const SOL_INTERFACE = encodeBase58(
   Uint8Array.from([
-    226, 231, 179, 96, 7, 216, 134, 74, 16, 116, 193, 73, 186, 110, 210, 48, 2, 97, 154, 130, 121,
-    53, 28, 232, 140, 221, 183, 236, 109, 212, 72, 117,
+    25, 103, 86, 200, 133, 185, 152, 90, 206, 95, 120, 116, 156, 29, 95, 209, 115, 140, 160, 250,
+    226, 120, 50, 30, 39, 35, 88, 131, 164, 254, 252, 146,
   ]),
 );
 export const SHIELDED_POOL_CPI_AUTHORITY = encodeBase58(
   Uint8Array.from([
-    109, 182, 246, 114, 43, 36, 173, 152, 203, 138, 114, 231, 209, 50, 184, 236, 107, 139, 188, 29,
-    115, 163, 218, 113, 6, 134, 33, 44, 204, 50, 186, 87,
+    69, 71, 220, 185, 216, 143, 158, 144, 194, 192, 35, 58, 192, 36, 234, 87, 129, 254, 240, 115,
+    136, 34, 89, 207, 13, 241, 99, 80, 189, 28, 84, 235,
   ]),
 );
 export const SPL_TOKEN_PROGRAM_ID = address("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -46,24 +46,24 @@ export const InstructionTag = Object.freeze({
   updateProtocolConfig: 1,
   createTree: 2,
   pauseTree: 3,
-  batchUpdateNullifierTree: 4,
-  createAssetCounter: 5,
-  createSplInterface: 6,
-  createRingConfig: 7,
-  updateRingConfig: 8,
-  updateRingConfigOwner: 9,
-  emitEvent: 10,
-  deposit: 11,
-  transact: 12,
-  mergeTransact: 13,
-  ringDeposit: 14,
-  ringTransact: 15,
-  ringMergeTransact: 16,
-  ringAuthorityTransact: 17,
-  closeNullifierPdas: 18,
-  setTreeFees: 19,
-  claimTreeLamports: 20,
-  setRingActivation: 21,
+  setTreeFees: 4,
+  claimTreeLamports: 5,
+  createAssetCounter: 6,
+  createSplInterface: 7,
+  createRingConfig: 8,
+  updateRingConfig: 9,
+  updateRingConfigOwner: 10,
+  setRingActivation: 11,
+  batchUpdateNullifierTree: 12,
+  closeNullifierPdas: 13,
+  emitEvent: 14,
+  deposit: 15,
+  transact: 16,
+  mergeTransact: 17,
+  ringDeposit: 18,
+  ringTransact: 19,
+  ringMergeTransact: 20,
+  ringAuthorityTransact: 21,
 } as const);
 export type InstructionTag = (typeof InstructionTag)[keyof typeof InstructionTag];
 

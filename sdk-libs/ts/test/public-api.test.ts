@@ -112,7 +112,7 @@ describe("public package surface", () => {
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
     expect(TREE).toBe("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
-    expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+    expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
   });
 

@@ -47,7 +47,7 @@ program_so() {
 
 program_id() {
     case "$1" in
-        shielded-pool) echo "sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG" ;;
+        shielded-pool) echo "sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6" ;;
         user-registry) echo "regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD" ;;
         *) return 1 ;;
     esac

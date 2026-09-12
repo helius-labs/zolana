@@ -16,7 +16,7 @@ use zolana_interface::state::tree::read_tree_id;
 use crate::error::CompressionError;
 
 pub const DEFAULT_TREE: Address = address!("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
-pub const SPP_PROGRAM: Address = address!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+pub const SPP_PROGRAM: Address = address!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {
