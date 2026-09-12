@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use custom_ring_sdk::CustomRing;
+use custom_ring_sdk::{CustomRing, PolicyConfig};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -105,6 +105,12 @@ pub enum DeployError {
         expected: String,
         found: String,
     },
+    #[error("program {program} keeps a policy config of {found} bytes, the release needs {expected}, deploy a fresh ring")]
+    IncompatiblePolicyConfig {
+        program: Address,
+        found: usize,
+        expected: usize,
+    },
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -189,6 +195,14 @@ impl Deploy<'_> {
         }
         if deployed.is_some() && binary.deployed_sha256(rpc, self.ring)? == Some(binary.sha256) {
             return Ok(DeployPlan::Present);
+        }
+        // Records key off a policy config layout, an in-place upgrade over an
+        // earlier one strands them.
+        if deployed.is_some() {
+            let account = rpc
+                .get_account(self.ring.policy_config_pda())
+                .map_err(|error| DeployError::Client(Box::new(error)))?;
+            ensure_policy_config_compatible(program, account.map(|account| account.data.len()))?;
         }
         let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
         Ok(DeployPlan::Upload {
@@ -322,6 +336,21 @@ impl ProgramBinary {
             });
         }
         Ok(())
+    }
+}
+
+/// A live policy config from an earlier layout the new program cannot load.
+fn ensure_policy_config_compatible(
+    program: Address,
+    data_len: Option<usize>,
+) -> Result<(), DeployError> {
+    match data_len {
+        Some(found) if found != PolicyConfig::SIZE => Err(DeployError::IncompatiblePolicyConfig {
+            program,
+            found,
+            expected: PolicyConfig::SIZE,
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -459,6 +488,18 @@ mod tests {
         assert_eq!(deployed_bytes(&data, 3 + 8), Some(&data[meta..]));
         assert_eq!(deployed_bytes(&data, 3 + 9), None);
         assert_eq!(deployed_bytes(&data[..meta - 1], 0), None);
+    }
+
+    #[test]
+    fn an_incompatible_policy_config_refuses_the_upgrade() {
+        let program = Address::from([7u8; 32]);
+        assert!(ensure_policy_config_compatible(program, None).is_ok());
+        assert!(ensure_policy_config_compatible(program, Some(PolicyConfig::SIZE)).is_ok());
+        assert!(matches!(
+            ensure_policy_config_compatible(program, Some(PolicyConfig::SIZE - 1)),
+            Err(DeployError::IncompatiblePolicyConfig { found, expected, .. })
+                if found == PolicyConfig::SIZE - 1 && expected == PolicyConfig::SIZE
+        ));
     }
 
     #[test]
