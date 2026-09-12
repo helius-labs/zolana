@@ -210,12 +210,18 @@ pub enum DelegateCommand {
         delegate: Address,
     },
     Show,
-    /// Deposit lamports to a throwaway member and re-own them to a shielded address.
+    /// Move a source member's ring balance to a shielded address over the delegate rail.
     Move {
         /// The recipient's base58 shielded address.
         to: ShieldedAddress,
+        /// The source member's keypair, its ring notes fund the move.
+        #[arg(long)]
+        source: PathBuf,
         #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
         amount: u64,
+        /// The mint moved, SOL by default.
+        #[arg(long)]
+        mint: Option<Address>,
         #[arg(long)]
         delegate_keypair: PathBuf,
         /// The co-signer keypair when the ring's co-signer scope covers transfers.
@@ -461,6 +467,8 @@ pub enum ContextError {
     Config(#[from] ConfigError),
     #[error(transparent)]
     Fund(#[from] FundError),
+    #[error("the authority holds {balance} lamports, the move needs {required}")]
+    AuthorityUnderfunded { required: u64, balance: u64 },
     #[error(transparent)]
     Client(Box<ClientError>),
 }
@@ -498,6 +506,19 @@ impl Context {
     pub fn authority_funded_for(&mut self, required: u64) -> Result<Keypair, ContextError> {
         let authority = self.config.config_authority()?;
         self.fund_authority(&authority, required)?;
+        Ok(authority)
+    }
+
+    /// Reads the authority without funding it.
+    pub fn authority_with_balance(&self, required: u64) -> Result<Keypair, ContextError> {
+        let authority = self.config.config_authority()?;
+        let balance = self
+            .rpc
+            .get_balance(authority.pubkey())
+            .map_err(|error| ContextError::Client(Box::new(error)))?;
+        if balance < required {
+            return Err(ContextError::AuthorityUnderfunded { required, balance });
+        }
         Ok(authority)
     }
 

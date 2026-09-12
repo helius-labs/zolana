@@ -34,7 +34,7 @@ use crate::{
 /// Covers the sender's lookup table rent and fees.
 pub(crate) const SENDER_FEE_BUDGET: u64 = 20_000_000;
 /// Lookup table rent, the deposit and transact fees.
-const PAYER_FEE_BUDGET: u64 = 10_000_000;
+pub(crate) const PAYER_FEE_BUDGET: u64 = 10_000_000;
 const INDEXER_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 
