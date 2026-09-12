@@ -14,8 +14,9 @@ use crate::common::{
     entries_tree, initialized_curator_policy_config_account, largest_table, mixed_sources,
     namespace_pda, own_source_slots, own_specs, policy_config_account_with, policy_hash_for,
     program_data_account, rent_recipient, set_policy_rules_fixture, setup_mollusk,
-    specs_with_block_source, stored_policy_config, table_ix_data, PINNED_RULES, RELEASED_RULES,
-    TRANSFER_CAP_RULES, WARPED_SLOT,
+    specs_with_block_source, stored_policy_config, table_ix_data, velocity_policy_config_account,
+    PINNED_RULES, RELEASED_RULES, TRANSFER_CAP_RULES, VELOCITY_RULES, VELOCITY_WINDOW_SLOTS,
+    WARPED_SLOT,
 };
 
 fn custom(error: CustomRingError) -> ProgramError {
@@ -84,6 +85,29 @@ fn rows_without_a_window_pin_under_the_next_generation() {
         config.rules.velocity_mode(),
         zolana_ring_policy::VelocityMode::PerTransfer
     ));
+}
+
+/// Records store a window index, not its duration, so the duration is pinned.
+#[test]
+fn a_changed_window_duration_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    table.window_slots = VELOCITY_WINDOW_SLOTS + 100;
+    let fixture = set_policy_rules_fixture(velocity_policy_config_account(), &table);
+    fixture.expect_err(&mollusk, custom(CustomRingError::VelocityWindowImmutable));
+}
+
+/// The same duration re-pins the rows under the next generation.
+#[test]
+fn the_same_window_duration_re_pins() {
+    let (mut mollusk, _) = setup_mollusk();
+    mollusk.warp_to_slot(WARPED_SLOT);
+    let table = table_ix_data(&VELOCITY_RULES, &own_specs(&VELOCITY_RULES));
+    let config = stored_policy_config(
+        &mollusk,
+        &set_policy_rules_fixture(velocity_policy_config_account(), &table),
+    );
+    assert_eq!(config.rules.window_slots(), VELOCITY_WINDOW_SLOTS);
 }
 
 #[test]

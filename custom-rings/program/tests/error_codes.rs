@@ -65,6 +65,7 @@ fn error_codes_are_stable() {
         (SpendRecordUnregistered as u32, 8161),
         (SpendRecordHeadMismatch as u32, 8162),
         (SpendRecordAlreadyRegistered as u32, 8163),
+        (VelocityWindowImmutable as u32, 8164),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -136,6 +137,7 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidSpendRecordHead
         | SpendRecordUnregistered
         | SpendRecordHeadMismatch
-        | SpendRecordAlreadyRegistered => {}
+        | SpendRecordAlreadyRegistered
+        | VelocityWindowImmutable => {}
     }
 }
