@@ -118,7 +118,7 @@ describe("tree fee schedule", () => {
   });
 
   it("builds set_tree_fees with a read-only config and a writable tree", async () => {
-    expect(InstructionTag.setTreeFees).toBe(19);
+    expect(InstructionTag.setTreeFees).toBe(4);
     const authority = { address: AUTHORITY } as TransactionSigner;
     const instruction = await setTreeFeesInstruction({ authority, tree: TREE, fees: FEES });
 
