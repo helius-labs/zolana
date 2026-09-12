@@ -1,7 +1,34 @@
-use zolana_hasher::{Hasher, HasherError, Poseidon};
+use zolana_hasher::{
+    hash_chain::create_hash_chain_from_slice, primitives::right_align, Hasher, HasherError,
+    Poseidon,
+};
 
 /// Member-keyed indexed-tree height, the on-chain root advances in lockstep.
 pub const HEAD_MAP_HEIGHT: usize = 40;
+
+/// The register proof's single public input, the program recomputes it from the
+/// member and genesis it authorizes and the on-chain append cursor.
+pub struct CompressedRegisterPublicInput<'a> {
+    pub head_old_root: &'a [u8; 32],
+    pub head_new_root: &'a [u8; 32],
+    pub member: &'a [u8; 32],
+    pub genesis: &'a [u8; 32],
+    pub new_index: u64,
+}
+
+impl CompressedRegisterPublicInput<'_> {
+    /// `HashChain([head_old_root, head_new_root, member, genesis, new_index])`,
+    /// mirroring the circuit element for element.
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        create_hash_chain_from_slice(&[
+            *self.head_old_root,
+            *self.head_new_root,
+            *self.member,
+            *self.genesis,
+            right_align(&self.new_index.to_be_bytes()),
+        ])
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeadMapError {
