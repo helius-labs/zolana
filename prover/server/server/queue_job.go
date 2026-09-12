@@ -636,7 +636,7 @@ func (w *BaseQueueWorker) generateProof(job *ProofJob) (*common.Proof, error) {
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeCircuitType)
 	case common.MergeRingCircuitType:
 		proof, proofError = w.processMergeProof(job.Payload, common.MergeRingCircuitType)
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		proof, proofError = w.processCustomRingProof(job.Payload, proofRequestMeta.CircuitType)
 	default:
 		return nil, fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType)
@@ -745,6 +745,16 @@ func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage, circui
 			return nil, fmt.Errorf("custom-ring policy: %w", err)
 		}
 		return customring.ProvePolicy(ps, &params)
+	case common.CompressedPolicyCircuitType:
+		var params customring.CompressedPolicyParameters
+		if err := json.Unmarshal(payload, &params); err != nil {
+			return nil, fmt.Errorf("unmarshal custom-ring compressed policy params: %w", err)
+		}
+		ps, err := w.keyManager.GetRingSystem(common.CompressedPolicyCircuitType)
+		if err != nil {
+			return nil, fmt.Errorf("custom-ring compressed policy: %w", err)
+		}
+		return customring.ProveCompressedPolicy(ps, &params)
 	default:
 		return nil, fmt.Errorf("unknown custom-ring circuit type: %s", circuitType)
 	}

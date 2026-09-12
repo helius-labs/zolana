@@ -740,7 +740,7 @@ func runCli() {
 							workersStarted = append(workersStarted, "transfer")
 						}
 
-						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] {
+						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] || enabledCircuitsMap["custom-ring-compressed-policy"] {
 							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
 							workers = append(workers, customRingWorker)
 							go customRingWorker.Start()

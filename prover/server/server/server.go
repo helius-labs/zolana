@@ -850,6 +850,7 @@ func servedCircuits() []common.CircuitType {
 		common.MergeRingCircuitType,
 		common.CustomRingBaseCircuitType,
 		common.CustomRingPolicyCircuitType,
+		common.CompressedPolicyCircuitType,
 	}
 }
 
@@ -1105,7 +1106,7 @@ func GetQueueNameForCircuit(circuitType common.CircuitType) string {
 		common.MergeCircuitType,
 		common.MergeRingCircuitType:
 		return "zk_transfer_queue"
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		return "zk_custom_ring_queue"
 	default:
 		return ""
@@ -1118,7 +1119,7 @@ func (handler proveHandler) getEstimatedTime(circuitType common.CircuitType) str
 		return "10-30 seconds"
 	case common.TransferP256RingCircuitType:
 		return "30-180 seconds"
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		return "1-10 seconds"
 	default:
 		return "1-3 seconds"
@@ -1131,7 +1132,7 @@ func (handler proveHandler) getEstimatedTimeSeconds(circuitType common.CircuitTy
 		return 30
 	case common.TransferP256RingCircuitType:
 		return 180
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		return 10
 	case common.TransferConfidentialCircuitType, common.TransferRingCircuitType, common.TransferRingAuthorityCircuitType:
 		return 30
@@ -1147,7 +1148,7 @@ const maxSyncProofTimeout = 5 * time.Minute
 
 func (handler proveHandler) syncProofTimeout(circuitType common.CircuitType) time.Duration {
 	switch circuitType {
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		// Includes lazy key download and loading.
 		return maxSyncProofTimeout
 	default:
@@ -1175,7 +1176,7 @@ func (handler proveHandler) processProofSync(buf []byte) (*common.Proof, *Error)
 		return handler.mergeProof(buf)
 	case common.MergeRingCircuitType:
 		return handler.mergeRingProof(buf)
-	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType:
+	case common.CustomRingBaseCircuitType, common.CustomRingPolicyCircuitType, common.CompressedPolicyCircuitType:
 		return handler.customRingProof(buf, proofRequestMeta.CircuitType)
 	default:
 		return nil, malformedBodyError(fmt.Errorf("unknown circuit type: %s", proofRequestMeta.CircuitType))
@@ -1261,6 +1262,20 @@ func (handler proveHandler) customRingProof(buf []byte, circuitType common.Circu
 		}
 
 		proof, err := customring.ProvePolicy(ps, &params)
+		if err != nil {
+			return nil, provingError(errors.New("custom ring proof failed"))
+		}
+		return proof, nil
+	case common.CompressedPolicyCircuitType:
+		var params customring.CompressedPolicyParameters
+		if err := json.Unmarshal(buf, &params); err != nil {
+			return nil, malformedBodyError(err)
+		}
+		ps, err := handler.keyManager.GetRingSystem(common.CompressedPolicyCircuitType)
+		if err != nil {
+			return nil, provingError(fmt.Errorf("custom-ring compressed policy: %w", err))
+		}
+		proof, err := customring.ProveCompressedPolicy(ps, &params)
 		if err != nil {
 			return nil, provingError(errors.New("custom ring proof failed"))
 		}
