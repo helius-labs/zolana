@@ -75,3 +75,13 @@ func TestCompressedCircuitRejectsForeignRecord(t *testing.T) {
 		&CompressedPolicyCircuit{}, assignment, test.WithCurves(ecc.BN254),
 	)
 }
+
+// The public input pins the advanced root, a claimed new root the transition
+// does not reach is refused.
+func TestCompressedCircuitRejectsWrongNewRoot(t *testing.T) {
+	assignment := compressedRoundTrip(t)
+	assignment.HeadNewRoot = big.NewInt(0xbad)
+	test.NewAssert(t).SolvingFailed(
+		&CompressedPolicyCircuit{}, assignment, test.WithCurves(ecc.BN254),
+	)
+}

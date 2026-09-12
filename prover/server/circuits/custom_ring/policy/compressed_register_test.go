@@ -65,3 +65,13 @@ func TestCompressedRegisterRejectsOccupiedSlot(t *testing.T) {
 		&CompressedRegisterCircuit{}, assignment, test.WithCurves(ecc.BN254),
 	)
 }
+
+// The public input binds the member, an insertion for a different member than
+// the proof pins is refused.
+func TestCompressedRegisterRejectsWrongMember(t *testing.T) {
+	assignment := registerRoundTrip(t)
+	assignment.Member = big.NewInt(0x4321)
+	test.NewAssert(t).SolvingFailed(
+		&CompressedRegisterCircuit{}, assignment, test.WithCurves(ecc.BN254),
+	)
+}
