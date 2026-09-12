@@ -94,6 +94,26 @@ impl Cluster {
     }
 }
 
+/// Permissionless gates written into the protocol config at creation. The
+/// defaults are the conservative launch posture: governance admits trees and
+/// rings, anyone may create an SPL interface.
+#[derive(Clone, Copy)]
+struct ProtocolConfigFlags {
+    tree_creation_is_permissionless: bool,
+    ring_activation_is_permissionless: bool,
+    spl_interface_creation_is_permissionless: bool,
+}
+
+impl Default for ProtocolConfigFlags {
+    fn default() -> Self {
+        Self {
+            tree_creation_is_permissionless: false,
+            ring_activation_is_permissionless: false,
+            spl_interface_creation_is_permissionless: true,
+        }
+    }
+}
+
 pub struct Options {
     cluster: Cluster,
     rpc_url: Option<String>,
@@ -101,6 +121,7 @@ pub struct Options {
     protocol_signers: Vec<PathBuf>,
     upgrade_authority: Option<PathBuf>,
     reuse_settings: Option<[Pubkey; 5]>,
+    config_flags: ProtocolConfigFlags,
     yes: bool,
     dry_run: bool,
 }
@@ -113,6 +134,7 @@ impl Options {
         let mut protocol_signers = Vec::new();
         let mut upgrade_authority = None;
         let mut reuse_settings: [Option<Pubkey>; 5] = [None; 5];
+        let mut config_flags = ProtocolConfigFlags::default();
         let mut yes = false;
         let mut dry_run = false;
 
@@ -169,6 +191,16 @@ impl Options {
                     };
                     *slot = Some(key);
                 }
+                "--tree-creation-permissionless" => {
+                    config_flags.tree_creation_is_permissionless = parse_bool(args.next(), &arg);
+                }
+                "--ring-activation-permissionless" => {
+                    config_flags.ring_activation_is_permissionless = parse_bool(args.next(), &arg);
+                }
+                "--spl-interface-creation-permissionless" => {
+                    config_flags.spl_interface_creation_is_permissionless =
+                        parse_bool(args.next(), &arg);
+                }
                 "--yes" => yes = true,
                 "--dry-run" => dry_run = true,
                 "--help" | "-h" => {
@@ -217,6 +249,7 @@ impl Options {
             protocol_signers,
             upgrade_authority,
             reuse_settings,
+            config_flags,
             yes,
             dry_run,
         }
@@ -760,6 +793,7 @@ fn send_protocol_config(
     protocol_signers: &[Keypair],
     initialization_authority: InitializationAuthority<'_>,
     roles: &[RoleAddrs; 5],
+    flags: ProtocolConfigFlags,
 ) -> Result<()> {
     // Merging is now a per-user opt-in set via the user-registry
     // `set_merging_enabled` instruction, not a protocol-config field, so the
@@ -774,12 +808,12 @@ fn send_protocol_config(
         initialization_authority: initialization_authority_key,
         protocol_authority: protocol.vault.to_bytes().into(),
         tree_creation_authority: tree.vault.to_bytes().into(),
-        tree_creation_is_permissionless: false,
+        tree_creation_is_permissionless: flags.tree_creation_is_permissionless,
         forester_authority: forester.vault.to_bytes().into(),
         ring_creation_authority: ring.vault.to_bytes().into(),
         fee_authority: protocol.vault.to_bytes().into(),
-        ring_activation_is_permissionless: false,
-        spl_interface_creation_is_permissionless: true,
+        ring_activation_is_permissionless: flags.ring_activation_is_permissionless,
+        spl_interface_creation_is_permissionless: flags.spl_interface_creation_is_permissionless,
     }
     .instruction();
 
@@ -973,6 +1007,20 @@ pub fn run(options: Options) -> Result<()> {
     println!("deploy_upgrade_authority={deploy_upgrade_authority:?}");
     println!("smart_account_index={}", program_config.smart_account_index);
     println!("reuse_existing_smart_accounts={}", reused_roles.is_some());
+    println!(
+        "tree_creation_is_permissionless={}",
+        options.config_flags.tree_creation_is_permissionless
+    );
+    println!(
+        "ring_activation_is_permissionless={}",
+        options.config_flags.ring_activation_is_permissionless
+    );
+    println!(
+        "spl_interface_creation_is_permissionless={}",
+        options
+            .config_flags
+            .spl_interface_creation_is_permissionless
+    );
     println!("treasury={}", program_config.treasury);
     println!("payer={}", signers.payer.pubkey());
     for (index, signer) in signers.protocol_signers.iter().enumerate() {
@@ -1052,6 +1100,7 @@ pub fn run(options: Options) -> Result<()> {
         &signers.protocol_signers,
         initialization_authority,
         &created,
+        options.config_flags,
     )?;
     let protocol = &created[0];
     let tree = &created[1];
@@ -1087,6 +1136,14 @@ pub fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
+fn parse_bool(value: Option<String>, flag: &str) -> bool {
+    match value.as_deref() {
+        Some("true") => true,
+        Some("false") => false,
+        _ => usage_and_exit(&format!("{flag} expects true|false")),
+    }
+}
+
 fn usage_and_exit(message: &str) -> ! {
     eprintln!("error: {message}");
     print_help();
@@ -1113,6 +1170,10 @@ fn print_help() {
     println!("  --ring-settings <PUBKEY>              are required together; each must be a");
     println!("  --merge-settings <PUBKEY>             Squads Settings account listing the");
     println!("  --forester-settings <PUBKEY>          expected role members");
+    println!("  --tree-creation-permissionless <true|false>       default: false");
+    println!("  --ring-activation-permissionless <true|false>     default: false");
+    println!("  --spl-interface-creation-permissionless <true|false>");
+    println!("                                        default: true");
     println!("  --yes                                 confirm irreversible mainnet sends");
     println!("  --dry-run                             derive + print addresses, send nothing");
     println!("  -h | --help                           print this help");
