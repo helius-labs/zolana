@@ -195,6 +195,14 @@ impl HeadMapRoot {
 const _: () = assert!(HeadMapRoot::SIZE == 42);
 const _: () = assert!(core::mem::align_of::<HeadMapRoot>() == 1);
 
+/// Root of the sentinel-only head map, the value a fresh ring initializes to.
+/// The reference tree `zolana_ring_head_map` pins the same bytes against its
+/// computed root.
+pub const HEAD_MAP_EMPTY_ROOT: [u8; 32] = [
+    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
+    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
+];
+
 pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;

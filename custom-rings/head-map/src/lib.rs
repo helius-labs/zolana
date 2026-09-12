@@ -20,10 +20,8 @@ pub const FIELD_MAX: [u8; 32] = [
 ];
 
 /// The root of the sentinel-only tree, the value a ring's head map initializes to.
-pub const EMPTY_ROOT: [u8; 32] = [
-    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
-    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
-];
+/// `new()` computes it, `a_fresh_map_is_the_pinned_empty_root` verifies the match.
+pub use custom_ring_interface::HEAD_MAP_EMPTY_ROOT as EMPTY_ROOT;
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HeadMapError {

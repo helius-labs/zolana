@@ -11340,6 +11340,7 @@ dependencies = [
 name = "zolana-ring-head-map"
 version = "0.1.0"
 dependencies = [
+ "custom-ring-interface",
  "thiserror 2.0.20",
  "zolana-hasher",
  "zolana-merkle-tree",
