@@ -248,9 +248,9 @@ transaction hash. They do not prove that decrypted output plaintext opens its
 commitment. The RPC reports what it decrypts and marks unreadable slots. It
 cannot prove that reported values equal the committed UTXOs.
 
-A windowed velocity ring keeps every note in its entries tree, takes no
-deposit leg on a transfer and closes the delegate rail, a per-transfer cap
-ring keeps none of these. A spend record publishes the member's identity and
+A velocity cap ring, per transfer or windowed, takes no deposit leg on a
+transfer and closes the delegate rail. A windowed ring additionally keeps
+every note in its entries tree. A spend record publishes the member's identity and
 its lineage in the clear, so an observer who knows an identity can count that
 member's transfers, not their amounts. The window is fixed, a sender may move
 up to twice the cap across one boundary.

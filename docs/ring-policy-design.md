@@ -1,5 +1,8 @@
 # The Ring Policy Construction
 
+The compressed spend-head design applies to fresh ring deployments only.
+Migration from per-member `SpendRecordHead` PDAs is out of scope.
+
 A v3 custom ring guarantees its auditor can decrypt every transfer. It cannot
 refuse one. This document explains the plane that adds refusal. The rules ride
 the transfer proof the ring already verifies. The chain never learns whom they
@@ -159,12 +162,12 @@ One hash binds table and map together:
 ```
 policy_hash = chain(POLICY_TABLE_DOMAIN, POLICY_VERSION,
                     (list_id_1, owner_1) ... (list_id_8, owner_8),
-                    len, rule_1 ... rule_len,
+                    len, inline_count, velocity_count, rule_1 ... rule_len,
                     (inline_member, inline_limit) ...,
                     window_slots, (asset, cap, cosign_above) ...)
 ```
 
-`POLICY_VERSION` is 5 and moves with any change of the preimage.
+`POLICY_VERSION` is 6 and moves with any change of the preimage.
 
 `chain` is the left fold `acc = Poseidon(acc, next)`. All eight slots enter
 unconditionally, empty slots as zeros. Hashing only referenced slots would
