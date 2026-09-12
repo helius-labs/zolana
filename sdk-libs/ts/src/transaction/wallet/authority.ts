@@ -108,6 +108,12 @@ export interface SpendSession {
         plaintext: Uint8Array;
         slotIndex: number;
       }>[];
+      /** Protocol counter seal, never a caller message channel. */
+      counterMessage?: Readonly<{
+        viewTag: Bytes32;
+        plaintext: Uint8Array;
+        slotIndex: number;
+      }>;
     }>,
   ): Promise<EncryptedCustomRingTransfer>;
   /** Opens a message sealed under the transaction key of a past `firstNullifier`. */

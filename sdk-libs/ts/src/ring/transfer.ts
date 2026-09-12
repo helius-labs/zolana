@@ -567,7 +567,7 @@ export async function proveCustomRingTransfer(
     outputs: moneyOutputs,
     assets: input.assets,
     auditorPublicKey: config.auditorPublicKey,
-    ...(plan === undefined ? {} : { sealedMessages: [plan.countersSeal] }),
+    ...(plan === undefined ? {} : { counterMessage: plan.countersSeal }),
   });
   try {
     // Money slots, then a length-matched gap for the dummies, then the record.

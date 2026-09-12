@@ -1,4 +1,5 @@
 import type { Bytes16, Bytes32, Bytes33, MessageData } from "../../interface/types.js";
+import { TransactionError } from "../error.js";
 import { auditorMessageData, encryptTransactionViewingSecret } from "../../keypair/audit.js";
 import { randomSalt } from "../../keypair/bytes.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
@@ -102,6 +103,12 @@ export function encryptCustomRingTransferWith(
       plaintext: Uint8Array;
       slotIndex: number;
     }>[];
+    /** Protocol counter seal, never a caller message channel. */
+    counterMessage?: Readonly<{
+      viewTag: Bytes32;
+      plaintext: Uint8Array;
+      slotIndex: number;
+    }>;
   }>,
 ): EncryptedCustomRingTransfer {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
@@ -113,7 +120,12 @@ export function encryptCustomRingTransferWith(
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
     ephemeralSecret = encryption.ephemeralSecret;
     const recipient = tx.publicKey();
-    const sealedMessages: readonly MessageData[] = (input.sealedMessages ?? []).map((message) => {
+    const outbound = [
+      ...(input.sealedMessages ?? []),
+      ...(input.counterMessage === undefined ? [] : [input.counterMessage]),
+    ];
+    checkDistinctSlots(input.outputs.length, outbound);
+    const sealedMessages: readonly MessageData[] = outbound.map((message) => {
       const ciphertext = tx.encryptSlot(recipient, message.plaintext, salt, message.slotIndex);
       const body = new Uint8Array(P256_PUBLIC_KEY_LENGTH + ciphertext.length);
       body.set(recipient.toBytes(), 0);
@@ -136,6 +148,22 @@ export function encryptCustomRingTransferWith(
     tx.destroy();
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
+  }
+}
+
+/** One keystream per slot under a fixed key and salt, a repeat is a two-time pad. */
+function checkDistinctSlots(
+  outputCount: number,
+  messages: readonly Readonly<{ slotIndex: number }>[],
+): void {
+  const slots = new Set<number>(Array.from({ length: outputCount }, (_, index) => index));
+  for (const message of messages) {
+    if (slots.has(message.slotIndex)) {
+      throw new TransactionError("TRANSACTION_DUPLICATE_SLOT_INDEX", {
+        slotIndex: message.slotIndex,
+      });
+    }
+    slots.add(message.slotIndex);
   }
 }
 

@@ -63,6 +63,10 @@ Added
   type carry a program-derived owner into a proof input.
 - `SpendSession.openSealedMessage` opens a message sealed under a past
   transaction key, and `ZolanaClient.getSlot` reads the current slot.
+- `SpendSession.encryptCustomRingTransfer` seals the protocol counter through a
+  separate `counterMessage` input and rejects a slot index shared by an output
+  or another sealed message with `TRANSACTION_DUPLICATE_SLOT_INDEX`, so no two
+  ciphertexts reuse a keystream.
 
 Custom rings come in two tiers, an audit-only ring proves the auditor
 encryption alone and a policy ring proves its rule table over a dedicated
