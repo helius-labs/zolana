@@ -12,7 +12,7 @@ use zolana_interface::{
 };
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
-    instructions::transact::{assign_output_blindings, PublicTransfers},
+    instructions::transact::{assign_output_blindings, validate_input_tree_order, PublicTransfers},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
@@ -333,33 +333,28 @@ fn resolve_input_trees(spends: &[TransferSpendInput]) -> Result<InputTrees, Clie
 /// padding decisions: each slot with a [`SpendProof`] is a real spend hashed
 /// under its own tree's id; each slot without one is a dummy hashed under the
 /// tree it was assigned, with a zero private owner hash and its own nullifier
-/// non-inclusion witness. Inputs are emitted tree by tree in first-use order,
-/// so each tree owns a contiguous run and the published tree indexes are
-/// non-decreasing. A transaction must spend at least one real input, because
+/// non-inclusion witness. Inputs must already be grouped tree by tree in
+/// first-use order, including padding. Assembly preserves the order committed
+/// by the signing hash. A transaction must spend at least one real input, because
 /// the input trees come from the real spends.
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
     owner_mode: &OwnerMode,
 ) -> Result<AssembledInputs, ClientError> {
     let trees = resolve_input_trees(spends)?;
-
-    let mut grouped: Vec<(u8, &TransferSpendInput)> = Vec::with_capacity(spends.len());
-    for spend in spends {
-        let tree_index = trees
-            .index_of(spend)
-            .ok_or(ClientError::InputTreeUnresolved {
-                tree_id: spend.tree_id,
-            })?;
-        grouped.push((tree_index, spend));
-    }
-    grouped.sort_by_key(|(tree_index, _)| *tree_index);
+    validate_input_tree_order(spends.iter().map(|spend| spend.tree_id))?;
 
     let mut inputs = Vec::with_capacity(spends.len());
     let mut input_hashes = Vec::with_capacity(spends.len());
     let mut nullifiers = Vec::with_capacity(spends.len());
     let mut input_tree_indexes = Vec::with_capacity(spends.len());
 
-    for (index, (tree_index, spend)) in grouped.into_iter().enumerate() {
+    for (index, spend) in spends.iter().enumerate() {
+        let tree_index = trees
+            .index_of(spend)
+            .ok_or(ClientError::InputTreeUnresolved {
+                tree_id: spend.tree_id,
+            })?;
         let tree = trees.get(tree_index)?;
         input_tree_indexes.push(tree_index);
         let Some(proof) = &spend.proof else {
@@ -753,15 +748,13 @@ mod tests {
             .all(|input| input.tree_slot == BigUint::ZERO));
     }
 
-    /// Two input trees each populate their own slot, and the inputs are emitted
-    /// tree by tree so the published indexes are non-decreasing even though the
-    /// caller interleaved them.
+    /// Two input trees each populate their own slot without changing input order.
     #[test]
     fn inputs_from_two_trees_fill_two_slots_grouped_by_tree() {
         let spends = [
             spend_in(1, 0xAA, 0, 0x11, 3, 0x33),
-            spend_in(2, 0xBB, 1, 0x12, 4, 0x34),
             spend_in(3, 0xAA, 0, 0x11, 3, 0x33),
+            spend_in(2, 0xBB, 1, 0x12, 4, 0x34),
             dummy_in(1, Some((0x34, 7))),
         ];
 
@@ -806,6 +799,29 @@ mod tests {
                 BigUint::from(1u8),
             ]
         );
+    }
+
+    #[test]
+    fn interleaved_inputs_are_rejected_without_reordering() {
+        for last in [
+            spend_in(3, 0xAA, 4, 0x11, 3, 0x33),
+            dummy_in(4, Some((0x33, 7))),
+        ] {
+            let spends = [
+                spend_in(1, 0xAA, 4, 0x11, 3, 0x33),
+                spend_in(2, 0xBB, 1, 0x12, 4, 0x34),
+                last,
+            ];
+            assert!(matches!(
+                assemble_inputs(&spends, &OwnerMode::RingP256),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::InterleavedInputTrees {
+                        index: 2,
+                        tree_id: 4
+                    }
+                ))
+            ));
+        }
     }
 
     #[test]

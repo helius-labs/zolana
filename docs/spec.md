@@ -1692,12 +1692,15 @@ Total transaction size by circuit shape. Computed by `cargo run -p xtask -- tx-s
 
 | Circuit | N | M | ix data (B) | transfer (B / addresses) | deposit / withdraw (B / addresses) |
 | --- | --- | --- | --- | --- | --- |
-| 2 in 2 out | 2 | 2 | 431 | — | 783 / 7 |
-| 1 in 2 out | 1 | 2 | 395 | — | 747 / 7 |
-| 3 in 3 out | 3 | 3 | 583 | 793 / 3 | 935 / 7 |
-| 5 in 3 out | 5 | 3 | 655 | 865 / 3 | 1007 / 7 |
-| 1 in 8 out | 1 | 8 | 1091\* | 1301\* / 3 | 1443\* / 7 |
+| 2 in 2 out | 2 | 2 | 494 | — | 854 / 7 |
+| 1 in 2 out | 1 | 2 | 461 | — | 821 / 7 |
+| 3 in 3 out | 3 | 3 | 643 | 861 / 3 | 1003 / 7 |
+| 5 in 3 out | 5 | 3 | 709 | 927 / 3 | 1069 / 7 |
+| 1 in 8 out | 1 | 8 | 1157\* | 1375\* / 3 | 1517\* / 7 |
 
+These ciphertext-layout comparisons include the serialized 192-byte proof and
+use synthetic account lists that omit the System Program and nullifier PDAs;
+the builder table below measures complete instruction account layouts.
 Transaction sizes are Solana transaction v1 messages with all accounts inline
 and the same pubkey for `input_tree` and `output_tree`; a distinct output tree
 adds one 32-byte account key. v1 carries its compute ceilings in the message
@@ -1712,21 +1715,35 @@ Public legs add both instruction data and settlement account groups. For a
 
 | Public legs | ix data (B) | transaction (B) | addresses |
 | --- | --- | --- | --- |
-| 0 | 583 | 793 | 3 |
-| 1 | 593 | 968 | 8 |
-| 5 | 633 | 1284 | 16 |
+| 0 | 643 | 861 | 3 |
+| 1 | 653 | 1036 | 8 |
+| 5 | 693 | 1352 | 16 |
 
 Five legs in this table are a transaction-size datapoint, not a protocol
 maximum. Every transaction has to fit the 4,096-byte transaction v1 limit, which
 the five-leg example above clears; under the older 1,232-byte legacy packet it
 did not, and had to be split.
 
+Complete builder layouts, with one writable nullifier PDA per input, one input
+tree also used for outputs, no extra owner signers, and no public legs:
+
+| Transaction | ix data (B) | transaction v1 (B) | addresses |
+| --- | --- | --- | --- |
+| Transact 2 in 3 out | 610 | 927 | 6 |
+| Transact 3 in 3 out | 643 | 993 | 7 |
+| Transact 5 in 3 out | 709 | 1125 | 9 |
+| Transact 36 in 2 out | 1616 | 3055 | 40 |
+| Ring transact EdDSA 36 in 2 out | 1616 | 3120 | 42 |
+| Ring transact P256 36 in 2 out | 1713 | 3217 | 42 |
+| Merge 8 in 1 out, direct | 527 | 1171 | 14 |
+| Merge 8 in 1 out, execute_sync | 561 | 1207 | 16 |
+| Merge 36 in 1 out, direct | 1423 | 2991 | 42 |
+| Merge 36 in 1 out, execute_sync | 1485 | 3055 | 44 |
+
 v1 imposes a second ceiling that the byte count does not show: a message may
 name at most **64 account addresses**, and a transact adds one nullifier PDA per
-input. Neither ceiling binds at any supported shape — the widest, a 36-input
-merge through `execute_sync`, measures 3,125 bytes and 44 addresses — but they
-run out together rather than one dominating: bytes and addresses both exhaust at
-roughly 58 inputs. Aggregating repeated legs into one proof slot does not remove
+input. Both ceilings allow the layouts above; extra trees, signers, settlement
+legs, or output data consume the remaining budget. Aggregating repeated legs into one proof slot does not remove
 their individual account metas, so a client that runs out of either must still
 choose a smaller proof shape, use fewer legs, or split the operation.
 
@@ -1738,7 +1755,7 @@ choose a smaller proof shape, use fewer legs, or split the operation.
    (`ZeroNetInterfaceTransferAmount`). Duplicate settlement-leg assets are valid.
 3. Parse exactly one settlement account group per leg, in order, and validate its kind, custody account, mint, authority, and token program. Reordering a group changes `external_data_hash`.
 4. Aggregate each resolved asset in `i128`, adding deposits and subtracting withdrawals while preserving first-appearance order. Reject a final net magnitude above `u64::MAX`. Drop zero-net groups; reject more than `N_PUBLIC_SLOTS` remaining distinct assets. Pad the remaining pairwise-distinct `(asset, net_amount)` proof slots with `(0, 0)`.
-5. `tree_contexts` holds between one and `MAX_INPUT_TREES = 2` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. The `tree_index` sequence across `inputs` starts at zero, never decreases, and never grows by more than one. That single rule gives all three properties the rest of the instruction relies on: every index addresses a declared entry, each tree owns one contiguous run, and no declared entry goes unreferenced (a jump of more than one is exactly a skipped entry). The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
+5. `tree_contexts` holds between one and `MAX_INPUT_TREES = 2` entries, one per input tree account, and each entry's root indexes reference non-stale roots in its own tree. Every input's `tree_index` must be less than `tree_contexts.len()`. The index sequence starts at zero, never decreases, and never grows by more than one, giving each tree one contiguous run without skipped indexes. The last input must reference `tree_contexts.len() - 1`, so no declared context goes unused. Bounds and full coverage are checked separately from ordering. The same tree account may not be passed twice. See [Tree Slot Chain](#tree-slot-chain) and [`input_flags`](#input-flags).
 6. Every tree account permits its respective write: nullifier insertion in each input tree and UTXO append in `output_tree`.
 7. Proof verifies against the three aggregated public slots.
 8. Append each `outputs[i].utxo_hash` (in order) to `output_tree`'s UTXO sparse Merkle tree.

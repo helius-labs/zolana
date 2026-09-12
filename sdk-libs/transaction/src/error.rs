@@ -70,6 +70,9 @@ pub enum TransactionError {
     #[error("inputs span {got} trees, a proof resolves roots for at most {max}")]
     TooManyInputTrees { got: usize, max: usize },
 
+    #[error("input {index} returns to tree {tree_id}; group inputs by tree before signing")]
+    InterleavedInputTrees { index: usize, tree_id: u16 },
+
     #[error("no participant a padding slot may name: every real input owner is the fee payer and the transaction has no real output")]
     NoDummyOwnerTagParticipant,
 

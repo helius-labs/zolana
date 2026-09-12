@@ -300,7 +300,7 @@ impl ConfidentialTransfer {
         prepared.finalize_inner(tx_viewing_pk, salt, slots, allow_p256_sender)
     }
 
-    pub fn prepare(self) -> Result<PreparedTransfer, TransactionError> {
+    pub fn prepare(mut self) -> Result<PreparedTransfer, TransactionError> {
         if self.public_transfers.len() > zolana_interface::MAX_INTERFACE_TRANSFERS {
             return Err(TransactionError::TooManyInterfaceTransfers {
                 got: self.public_transfers.len(),
@@ -321,6 +321,7 @@ impl ConfidentialTransfer {
         // gets one circuit tree slot and one root-index pair; padding is hashed
         // under one of them.
         let input_tree_ids = input_tree_ids(&self.inputs)?;
+        group_inputs_by_tree(&mut self.inputs, &input_tree_ids)?;
         let spl_asset = self.spl_asset()?;
         let public_sol = self.public_amount(&SOL_MINT)?;
         let public_spl = match spl_asset {
@@ -604,20 +605,12 @@ impl PreparedTransfer {
                 ..Default::default()
             });
         }
-        // Every dummy is hashed under one of the declared input trees, both here
-        // for the nullifier the client requests a non-inclusion witness for and
-        // in the prover, which rehashes the slot under the tree it selects. A
-        // dummy under any other id would request a witness for a different
-        // value, so one that names no declared tree takes the first.
         let padding_tree_id = *input_tree_ids.first().ok_or(TransactionError::NoInputs)?;
-        for spend in inputs.iter_mut().filter(|spend| spend.is_dummy()) {
-            if !input_tree_ids.contains(&spend.tree_id) {
-                spend.tree_id = padding_tree_id;
-            }
-        }
         while inputs.len() < shape.n_inputs() {
             inputs.push(SppProofInputUtxo::new_dummy().in_tree(padding_tree_id));
         }
+        // Padding belongs in its tree's run before the signing hash is derived.
+        group_inputs_by_tree(&mut inputs, &input_tree_ids)?;
 
         // Length-matched random ciphertext for every position without a real
         // encoding: padded slots and zero-value change slots.
@@ -732,7 +725,7 @@ pub(super) fn sender_owner_tag(
 
 /// The ids of the trees the real inputs are spent from, in first-use order. A
 /// transact may spend from at most [`MAX_INPUT_TREES`] trees, so a wider spread
-/// is rejected before proving. Dummies are ignored: `finalize` assigns
+/// is rejected before proving. Dummies are ignored: grouping assigns
 /// each one a declared tree, so a caller-supplied dummy never declares one.
 fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, TransactionError> {
     let mut tree_ids: Vec<u16> = Vec::with_capacity(1);
@@ -751,6 +744,27 @@ fn input_tree_ids(inputs: &[SppProofInputUtxo]) -> Result<Vec<u16>, TransactionE
         });
     }
     Ok(tree_ids)
+}
+
+/// Stable grouping keeps the first real input in place. A dummy naming no
+/// declared tree takes the first tree, so its nullifier is hashed under the
+/// same tree here and in the prover.
+fn group_inputs_by_tree(
+    inputs: &mut [SppProofInputUtxo],
+    tree_ids: &[u16],
+) -> Result<(), TransactionError> {
+    let padding_tree_id = *tree_ids.first().ok_or(TransactionError::NoInputs)?;
+    for input in inputs.iter_mut().filter(|input| input.is_dummy()) {
+        if !tree_ids.contains(&input.tree_id) {
+            input.tree_id = padding_tree_id;
+        }
+    }
+    inputs.sort_by_key(|input| {
+        tree_ids
+            .iter()
+            .position(|tree_id| *tree_id == input.tree_id)
+    });
+    Ok(())
 }
 
 /// View tag of the first real input owner that is not the fee payer, if any.
@@ -1087,11 +1101,49 @@ mod tests {
                 ed25519_input(&sender, 10).in_tree(4),
             ],
             ed25519_address(&sender),
-        );
+        )
+        .with_shape(Shape::IN5_OUT3);
 
+        let first_nullifier = first_nullifier(&transfer.inputs).unwrap();
         let prepared = transfer.prepare().expect("prepare");
 
+        assert_eq!(prepared.first_nullifier, first_nullifier);
         assert_eq!(prepared.input_tree_ids, vec![4, 1]);
+        assert_eq!(
+            prepared
+                .inputs
+                .iter()
+                .map(|input| input.tree_id)
+                .collect::<Vec<_>>(),
+            vec![4, 4, 1]
+        );
+
+        let viewing_key = sender
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .unwrap();
+        let salt = random_salt();
+        let slots = encode_confidential_slots(
+            &prepared.outputs,
+            &AssetRegistry::default(),
+            &viewing_key,
+            salt,
+        )
+        .unwrap();
+        let proof_inputs = prepared
+            .finalize(viewing_key.pubkey(), salt, slots)
+            .expect("finalize");
+        assert_eq!(
+            proof_inputs
+                .input_utxos
+                .iter()
+                .map(|input| input.tree_id)
+                .collect::<Vec<_>>(),
+            vec![4, 4, 4, 4, 1]
+        );
+        assert!(proof_inputs.input_utxos.get(2).unwrap().is_dummy());
+        proof_inputs
+            .message_hash()
+            .expect("grouped padding is signable");
     }
 
     #[test]

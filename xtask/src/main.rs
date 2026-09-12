@@ -622,11 +622,6 @@ fn tx_size(args: Vec<String>) {
         }
     };
 
-    // TransactIxData.proof carries the compressed Groth16 points.
-    const TRANSACT_PROOF_LEN: usize = 128;
-    // Legacy flat proof (pre-enum, always 192 B, no tag) for the baseline table.
-    const LEGACY_PROOF_LEN: usize = 192;
-
     /// One measured shape, in both formats it could be sent in.
     struct ShapeSizes {
         ix_len: usize,
@@ -638,8 +633,7 @@ fn tx_size(args: Vec<String>) {
 
     let make_tx_sizes = |outputs_spec: &[(OwnerTag, Option<usize>)],
                          n: usize,
-                         proof: TransactProof,
-                         serialized_proof_len: usize|
+                         proof: TransactProof|
      -> ShapeSizes {
         let transfer_data = build_ix_data(Vec::new(), n, proof, outputs_spec);
         let shield_data = build_ix_data(
@@ -652,16 +646,9 @@ fn tx_size(args: Vec<String>) {
             outputs_spec,
         );
 
-        // The simulated proof length only moves bytes, never account keys, so
-        // it adjusts the wire sizes and leaves the address counts alone.
-        let adj = serialized_proof_len as isize - TRANSACT_PROOF_LEN as isize;
-        let adjust = |v: usize| (v as isize + adj) as usize;
-        let adjust_v1 = |size: TransactionSize| TransactionSize {
-            bytes: adjust(size.bytes),
-            addresses: size.addresses,
-        };
-
-        let ix_len = adjust(make_ix_bytes(&transfer_data).len());
+        // Measure the serialized proof itself (32-byte a, 128-byte b, 32-byte c)
+        // along with the rest of the instruction, with no simulated adjustment.
+        let ix_len = make_ix_bytes(&transfer_data).len();
 
         let ta = transfer_accounts(payer_pk, tree_pk, spp_pk);
         let sa = shield_accounts(
@@ -687,10 +674,10 @@ fn tx_size(args: Vec<String>) {
 
         ShapeSizes {
             ix_len,
-            transfer_legacy: adjust(legacy_tx_len(transfer_ix.clone())),
-            transfer_v1: adjust_v1(v1_tx_size(std::slice::from_ref(&transfer_ix))),
-            shield_legacy: adjust(legacy_tx_len(shield_ix.clone())),
-            shield_v1: adjust_v1(v1_tx_size(std::slice::from_ref(&shield_ix))),
+            transfer_legacy: legacy_tx_len(transfer_ix.clone()),
+            transfer_v1: v1_tx_size(std::slice::from_ref(&transfer_ix)),
+            shield_legacy: legacy_tx_len(shield_ix.clone()),
+            shield_v1: v1_tx_size(std::slice::from_ref(&shield_ix)),
         }
     };
 
@@ -756,7 +743,7 @@ fn tx_size(args: Vec<String>) {
             current_sender_data_len(r),
             current_recipient_data_len,
         );
-        let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed(), LEGACY_PROOF_LEN);
+        let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
         print_shape_row(n, m, &sizes, r > 0);
     }
 
@@ -772,7 +759,7 @@ fn tx_size(args: Vec<String>) {
             OPT_SENDER_DATA_LEN,
             OPT_RECIPIENT_DATA_LEN,
         );
-        let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+        let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
         print_shape_row(n, m, &sizes, r > 0);
     }
 
@@ -794,7 +781,7 @@ fn tx_size(args: Vec<String>) {
     ];
     for &(label, tag, tag_bytes) in &sender_tag_kinds {
         let spec = transfer_layout(3, tag, OPT_SENDER_DATA_LEN, OPT_RECIPIENT_DATA_LEN);
-        let sizes = make_tx_sizes(&spec, 3, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+        let sizes = make_tx_sizes(&spec, 3, TransactProof::zeroed());
         println!(
             "| {:<16} | {:>9} | {:>11} | {:>15} | {:>20} |",
             label,
@@ -813,7 +800,7 @@ fn tx_size(args: Vec<String>) {
     print_shape_header();
     let (n, m) = (1usize, 8usize);
     let spec = split_layout(m, OPT_SENDER_DATA_LEN);
-    let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed(), TRANSACT_PROOF_LEN);
+    let sizes = make_tx_sizes(&spec, n, TransactProof::zeroed());
     print_shape_row(n, m, &sizes, true);
 
     println!();

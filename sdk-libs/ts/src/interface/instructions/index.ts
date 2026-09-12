@@ -26,6 +26,7 @@ import {
   type DepositSplAccounts,
   type RingAssetDeposit,
   type TransactInstructionData,
+  type TreeContext,
   type TransactWithdrawal,
   type TreeFeeSchedule,
 } from "../types.js";
@@ -372,13 +373,26 @@ export async function nullifierPdaAccounts(
   return nullifierPdas.map((pda) => meta(pda, false, true));
 }
 
+function validateSingleInputTree(
+  inputs: readonly InputUtxo[],
+  treeContexts: readonly TreeContext[],
+): void {
+  if (treeContexts.length !== 1 || inputs.some((input) => input.treeIndex !== 0)) {
+    fail("INTERFACE_INVALID_SHAPE", {
+      reason: "single-tree builder requires one tree context and tree index zero for every input",
+    });
+  }
+}
+
 async function transactAccounts(
   payer: SignerAccount,
   inputTree: Address,
   outputTree: Address,
   inputs: readonly InputUtxo[],
+  treeContexts: readonly TreeContext[],
   withdrawal?: TransactWithdrawal,
 ): Promise<Meta[]> {
+  validateSingleInputTree(inputs, treeContexts);
   const accounts = [
     meta(payer, true, true),
     meta(outputTree, false, true),
@@ -410,6 +424,7 @@ export async function transactInstruction(
       input.inputTree,
       input.outputTree,
       input.data.inputs,
+      input.data.treeContexts,
       input.withdrawal,
     ),
   );
@@ -427,10 +442,12 @@ export async function ringTransactAccounts(
     outputTree: Address;
     ringAuth: Address;
     inputs: readonly InputUtxo[];
+    treeContexts: readonly TreeContext[];
     ownerSigners?: readonly SignerAccount[];
     withdrawal?: TransactWithdrawal;
   }>,
 ): Promise<readonly Meta[]> {
+  validateSingleInputTree(input.inputs, input.treeContexts);
   return [
     meta(input.payer, true, true),
     meta(input.outputTree, false, true),

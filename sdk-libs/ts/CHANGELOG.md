@@ -27,6 +27,10 @@ Breaking
   with the matching program version.
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
   three or more trees across separate transactions.
+- `ringTransactAccounts` requires `treeContexts`, and both it and
+  `transactInstruction` reject multiple contexts or nonzero input tree indexes
+  with `INTERFACE_INVALID_SHAPE` → pass the instruction's contexts and keep
+  these single-tree builders' inputs on `inputTree`.
 - `transactInstruction` and `ringTransactAccounts` place input trees after
   `payer`, `output_tree`, SPP, System Program, and the optional ring config,
   immediately before nullifier PDAs → update manual account lists and CPI
@@ -96,7 +100,7 @@ Breaking
 - `TransactInstructionData` carries one `TreeContext` per input tree in place of
   `utxoTreeRootIndex` and `nullifierTreeRootIndex`, every `InputUtxo` names its
   context with `treeIndex`, `SppProofInputs.inputTreeIds()` and
-  `PreparedTransfer.inputTreeIds` list the up to five trees one spend may draw
+  `PreparedTransfer.inputTreeIds` list the up to two trees one spend may draw
   from, `inputTreeSlots` takes those trees as an array, and the transfer prover
   request replaces `allowDummyInputs` with `inputFlags`, the dummy-input policy
   in bit 0 and input `i`'s three-bit tree index at bits `1 + 3i` → order inputs
@@ -141,15 +145,6 @@ Breaking
   account for a policy ring → pass the value given to
   `createRingConfigInstruction`, a policy ring registers only after its policy
   config exists.
-- `buildRingLookupTableTransaction` reads the tier and a policy ring's entries
-  tree from the chain, accepts `outputTree`, and needs `getAccount` on
-  `RingLookupTableClient`, `fetchRingLookupTable` and
-  `ringLookupTableAddresses` take the trees as `RingTransactTrees`, and the
-  fetch refuses a table extended in the current slot with
-  `RING_LOOKUP_TABLE_NOT_READY` → rebuild a policy ring's table, one built by
-  an earlier version is refused with `RING_LOOKUP_TABLE_INCOMPLETE`, pass a
-  `ProvenRingTransfer` as the `trees` of the fetch, and wait one slot after
-  the extension before the first transfer.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
   gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
@@ -184,7 +179,7 @@ Breaking
 - State-tree root history retains one final root per updated slot in a dense
   500-entry cyclic buffer. Its cursor, length, and capacity are native `u16`s,
   and it stores the latest update slot as a `u64`, making pre-release
-  30,344-byte tree accounts incompatible → deploy fresh 39,952-byte trees
+  30,344-byte tree accounts incompatible → deploy fresh 40,080-byte trees
   and reindex Photon as one coordinated upgrade.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the

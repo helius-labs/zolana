@@ -243,6 +243,7 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       withdrawal: TransactWithdrawal.spl({
         mint,
         splTokenInterface,
@@ -267,6 +268,7 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       ownerSigners: [owner],
     });
     expect(pool.map((meta) => [meta.address, meta.role])).toContainEqual([

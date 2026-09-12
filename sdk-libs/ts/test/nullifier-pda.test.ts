@@ -1,5 +1,6 @@
 import { AccountRole, address } from "@solana/kit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as pda from "../src/interface/pda/index.js";
 
 import prefixVector from "../../../test-vectors/transact_account_prefix.json" with { type: "json" };
 
@@ -73,6 +74,40 @@ async function nullifierPdas(inputs: readonly InputUtxo[]) {
 }
 
 describe("nullifier PDA accounts", () => {
+  it("rejects unsupported tree declarations before deriving nullifier accounts", async () => {
+    const context = { utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 };
+    const derive = vi.spyOn(pda, "nullifierPdaAddress");
+    try {
+      for (const data of [
+        { ...transactData([input(71)]), treeContexts: [] },
+        { ...transactData([input(71)]), treeContexts: [context, context] },
+        transactData([{ ...input(71), treeIndex: 1 }]),
+      ]) {
+        await expect(
+          transactInstruction({
+            payer: PAYER,
+            inputTree: TREE,
+            outputTree: OUTPUT_TREE,
+            data,
+          }),
+        ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+        await expect(
+          ringTransactAccounts({
+            payer: PAYER,
+            inputTree: TREE,
+            outputTree: OUTPUT_TREE,
+            ringAuth: RING_AUTH,
+            inputs: data.inputs,
+            treeContexts: data.treeContexts,
+          }),
+        ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+      }
+      expect(derive).not.toHaveBeenCalled();
+    } finally {
+      derive.mockRestore();
+    }
+  });
+
   it("derives the PDA from the input tree and the nullifier", async () => {
     const [expected] = await nullifierPda(TREE, filled(7, 32));
     expect(await nullifierPdaAddress(TREE, filled(7, 32))).toBe(expected);
@@ -132,6 +167,7 @@ describe("nullifier PDA accounts", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs,
+      treeContexts: transactData(inputs).treeContexts,
       ownerSigners: [OWNER],
     });
 

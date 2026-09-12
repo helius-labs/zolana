@@ -171,6 +171,7 @@ export async function ringTransactInstruction(
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
+    treeContexts: input.data.treeContexts,
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });

@@ -72,6 +72,24 @@ pub fn first_nullifier(input_utxos: &[SppProofInputUtxo]) -> Result<[u8; 32], Tr
         .nullifier()
 }
 
+/// Each tree must own one contiguous run, including padding. Validate before
+/// deriving order-sensitive hashes; prover assembly preserves this order.
+pub fn validate_input_tree_order(
+    tree_ids: impl IntoIterator<Item = u16>,
+) -> Result<(), TransactionError> {
+    let mut seen = Vec::new();
+    for (index, tree_id) in tree_ids.into_iter().enumerate() {
+        if seen.last() == Some(&tree_id) {
+            continue;
+        }
+        if seen.contains(&tree_id) {
+            return Err(TransactionError::InterleavedInputTrees { index, tree_id });
+        }
+        seen.push(tree_id);
+    }
+    Ok(())
+}
+
 /// Assigns the final deterministic blinding to every physical output slot.
 /// Call this before hashing or encrypting any output.
 pub fn assign_output_blindings(
@@ -134,6 +152,7 @@ impl PublicTransfers {
 
 #[derive(Clone)]
 pub struct SppProofInputs {
+    /// One contiguous run per tree, including padding; group before signing.
     pub input_utxos: Vec<SppProofInputUtxo>,
     pub output_utxos: Vec<SppProofOutputUtxo>,
     /// The transaction's private random root seed. The output blinding seed
@@ -253,6 +272,7 @@ impl SppProofInputs {
     }
 
     pub fn check_shape(&self) -> Result<Shape, TransactionError> {
+        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         let n_in = self.input_utxos.len();
         let n_out = self.output_utxos.len();
         SPP_SUPPORTED_SHAPES
@@ -339,6 +359,7 @@ impl SppProofInputs {
     }
 
     pub fn input_utxo_hashes(&self) -> Result<Vec<InputUtxoContext>, TransactionError> {
+        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         self.input_utxos
             .iter()
             .filter(|spend| !spend.is_dummy())
@@ -354,6 +375,7 @@ impl SppProofInputs {
     }
 
     pub fn message_hash(&self) -> Result<[u8; 32], TransactionError> {
+        validate_input_tree_order(self.input_utxos.iter().map(|input| input.tree_id))?;
         // Dummies contribute zero to match circuit private_tx hashing.
         let mut input_hashes = Vec::with_capacity(self.input_utxos.len());
         for spend in &self.input_utxos {
@@ -409,6 +431,29 @@ mod tests {
             },
             keypair,
         )
+    }
+
+    #[test]
+    fn interleaved_p256_inputs_are_rejected_before_signing() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        for last in [
+            input(&keypair).in_tree(4),
+            SppProofInputUtxo::new_dummy().in_tree(4),
+        ] {
+            let proof_inputs = SppProofInputs::new(
+                vec![input(&keypair).in_tree(4), input(&keypair).in_tree(1), last],
+                Vec::new(),
+                ExternalData::new([0u8; 33], [0u8; 16], Vec::new(), Vec::new(), Vec::new()),
+                Address::default(),
+            );
+            let expected = TransactionError::InterleavedInputTrees {
+                index: 2,
+                tree_id: 4,
+            };
+            assert_eq!(proof_inputs.message_hash(), Err(expected.clone()));
+            assert_eq!(proof_inputs.check_shape(), Err(expected.clone()));
+            assert!(matches!(proof_inputs.input_utxo_hashes(), Err(error) if error == expected));
+        }
     }
 
     #[test]
