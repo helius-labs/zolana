@@ -111,7 +111,7 @@ describe("public package surface", () => {
     expect(ViewingKey).not.toHaveProperty("fromSeed");
     expect(wallet.identity).toEqual(keypair.shieldedAddress());
     expect(SOL_MINT).toBe("11111111111111111111111111111111");
-    expect(TREE).toBe("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
+    expect(TREE).toBe("33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN");
     expect(SHIELDED_POOL_PROGRAM_ID).toBe("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
     expect(USER_REGISTRY_PROGRAM_ID).toBe("regyS5rkAcw2YzDJCmTwCTHs2s246FXxbmuRZ42u2PD");
   });
@@ -342,7 +342,7 @@ describe("address and instruction builders", () => {
     expect(treeWithBump(0)).toEqual([TREE, 254]);
     expect(treeWithBump(0)).toEqual(await kitTreePda(0));
     expect(treeWithBump(1)).toEqual(await kitTreePda(1));
-    expect(treeWithBump(7)).toEqual([address("AA1StGw39a5tcHovwUhoZkn89mr2SsSrVTuQdE5KfYoZ"), 255]);
+    expect(treeWithBump(7)).toEqual([address("4q8pT6x2J6b75gFFGjT3Fayh4jQMimTWpUVWQgVVmHiq"), 252]);
     expect(getTreeAddress(7 << 8)).not.toBe(getTreeAddress(7));
     expect(() => getTreeAddress(0x1_0000)).toThrow();
   });
