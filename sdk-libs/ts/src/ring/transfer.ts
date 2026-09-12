@@ -130,6 +130,8 @@ export interface RingWithdrawalTransactionParams {
   readonly outputTree?: Address;
   /** Must be at least one slot old. */
   readonly lookupTable: Address;
+  /** The ring's co-signer when its scope covers the withdrawal. */
+  readonly cosigner?: SignerAccount;
   readonly computeUnitLimit?: number;
   readonly computeUnitPriceMicroLamports?: bigint;
 }
