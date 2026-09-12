@@ -90,15 +90,15 @@ pub(crate) fn create_nullifier_pdas<'n>(
         let queue_index = first_queue_index
             .checked_add(position)
             .ok_or(ProgramError::ArithmeticOverflow)?;
-        CreateNullifierPda {
+        create_nullifier_pda(
+            nullifier_pda,
             tree_address,
             nullifier,
-            record: NullifierPda {
+            NullifierPda {
                 queue_index,
                 tree_id: input_tree.tree_id,
             },
-        }
-        .execute(nullifier_pda)?;
+        )?;
         rent.top_up(tree, nullifier_pda)?;
     }
     Ok(())
@@ -117,37 +117,34 @@ fn collect_forester_fee(payer: &AccountView, tree: &AccountView, amount: u64) ->
     .invoke()
 }
 
-struct CreateNullifierPda<'a> {
-    tree_address: &'a [u8; 32],
-    nullifier: &'a [u8; 32],
+#[inline(never)]
+fn create_nullifier_pda(
+    nullifier_pda: &mut AccountView,
+    tree_address: &[u8; 32],
+    nullifier: &[u8; 32],
     record: NullifierPda,
-}
-
-impl CreateNullifierPda<'_> {
-    #[inline(never)]
-    fn execute(self, nullifier_pda: &mut AccountView) -> ProgramResult {
-        let bump = load_unused_nullifier_pda(nullifier_pda, self.tree_address, self.nullifier)?;
-        let bump_seed = [bump];
-        let seeds = [
-            Seed::from(NULLIFIER_PDA_SEED),
-            Seed::from(self.tree_address.as_ref()),
-            Seed::from(self.nullifier.as_ref()),
-            Seed::from(bump_seed.as_ref()),
-        ];
-        Assign {
-            account: nullifier_pda,
-            owner: &crate::ID,
-        }
-        .invoke_signed(&[Signer::from(&seeds)])?;
-        // SPP now owns the writable account, so it can allocate the record
-        // directly, whether or not the address was pre-funded.
-        nullifier_pda.resize(NULLIFIER_PDA_SIZE)?;
-
-        let mut data = nullifier_pda
-            .try_borrow_mut()
-            .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
-        self.record
-            .write_to(&mut data)
-            .ok_or(ShieldedPoolError::InvalidNullifierPda.into())
+) -> ProgramResult {
+    let bump = load_unused_nullifier_pda(nullifier_pda, tree_address, nullifier)?;
+    let bump_seed = [bump];
+    let seeds = [
+        Seed::from(NULLIFIER_PDA_SEED),
+        Seed::from(tree_address.as_ref()),
+        Seed::from(nullifier.as_ref()),
+        Seed::from(bump_seed.as_ref()),
+    ];
+    Assign {
+        account: nullifier_pda,
+        owner: &crate::ID,
     }
+    .invoke_signed(&[Signer::from(&seeds)])?;
+    // SPP now owns the writable account, so it can allocate the record
+    // directly, whether or not the address was pre-funded.
+    nullifier_pda.resize(NULLIFIER_PDA_SIZE)?;
+
+    let mut data = nullifier_pda
+        .try_borrow_mut()
+        .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
+    record
+        .write_to(&mut data)
+        .ok_or(ShieldedPoolError::InvalidNullifierPda.into())
 }
