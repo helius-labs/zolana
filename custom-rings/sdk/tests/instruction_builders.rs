@@ -21,7 +21,7 @@ use zolana_interface::{
         CircuitId, DepositAsset, DepositAssetKind, DepositSplAccounts, EncryptedRingDepositData,
         InputUtxo, InterfaceTransfer, MessageData, RingAssetDeposit, RingDepositEntry,
         RingDepositIxData, TransactInterfaceTransferAccounts, TransactIxData, TransactProof,
-        TransactSolTransferAccounts,
+        TransactSolTransferAccounts, TreeContext,
     },
     pda, BPF_LOADER_UPGRADEABLE_ID, N_PUBLIC_SLOTS, RING_AUTH_PDA_SEED,
 };
@@ -622,6 +622,10 @@ fn transact_data(interface_transfers: Vec<InterfaceTransfer>) -> TransactIxData 
             view_tag: [64; 32],
             data: vec![65; 65],
         }],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 
@@ -659,11 +663,11 @@ fn custom_ring_transact_prepends_payer_and_config_to_the_spp_list() {
             AccountMeta::new_readonly(ring().policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree(), false),
             AccountMeta::new(payer(), true),
-            AccountMeta::new(input_tree(), false),
             AccountMeta::new(output_tree(), false),
             AccountMeta::new_readonly(pda::shielded_pool_program_id(), false),
             AccountMeta::new_readonly(SYSTEM_PROGRAM, false),
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
+            AccountMeta::new(input_tree(), false),
             AccountMeta::new_readonly(owner_signer(), true),
         ]
     );
@@ -706,7 +710,7 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
     .expect("serialize the custom-ring transact content");
 
     // The policy config and entries tree sit before the forwarded SPP list.
-    let ring_config_index = 9;
+    let ring_config_index = 8;
     let ring_config = instruction
         .accounts
         .get(ring_config_index)
@@ -717,20 +721,18 @@ fn custom_ring_transact_leaves_ring_config_unsigned() {
 
 /// SPP creates one nullifier PDA per spent input, derived from the input
 /// tree and the input's nullifier. The interface builder places them right after
-/// `ring_config` and before the owner signers; the wrapper must forward them.
+/// the input trees and before the owner signers; the wrapper must forward them.
 #[test]
-fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
+fn custom_ring_transact_forwards_trees_then_nullifier_pdas_after_ring_config() {
     let mut transact = transact_data(Vec::new());
     transact.inputs = vec![
         InputUtxo {
             nullifier_hash: [71; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         },
         InputUtxo {
             nullifier_hash: [72; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         },
     ];
 
@@ -753,11 +755,12 @@ fn custom_ring_transact_forwards_nullifier_pdas_after_ring_config() {
     assert_eq!(
         instruction
             .accounts
-            .get(7..)
-            .expect("ring_config, nullifier PDA and owner signer metas")
+            .get(6..)
+            .expect("ring_config, input tree, nullifier PDA and owner signer metas")
             .to_vec(),
         vec![
             AccountMeta::new_readonly(ring().ring_auth_pda(), false),
+            AccountMeta::new(input_tree(), false),
             AccountMeta::new(pda::nullifier_pda(&input_tree(), &[71; 32]).0, false),
             AccountMeta::new(pda::nullifier_pda(&input_tree(), &[72; 32]).0, false),
             AccountMeta::new_readonly(owner_signer(), true),

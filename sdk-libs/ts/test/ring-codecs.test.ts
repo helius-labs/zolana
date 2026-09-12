@@ -243,6 +243,7 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       withdrawal: TransactWithdrawal.spl({
         mint,
         splTokenInterface,
@@ -267,6 +268,7 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       ownerSigners: [owner],
     });
     expect(pool.map((meta) => [meta.address, meta.role])).toContainEqual([
@@ -850,10 +852,11 @@ describe("ring transact", () => {
     salt: filled(42, 16) as Bytes16,
     proof: {
       a: filled(43, 32) as Bytes32,
-      b: filled(44, 64) as never,
+      b: filled(44, 128) as never,
       c: filled(45, 32) as Bytes32,
     },
     inputs: [],
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
     interfaceTransfers: [],
     outputs: [],
     messages: [],
@@ -905,10 +908,11 @@ describe("ring transact", () => {
         salt: filled(42, 16) as Bytes16,
         proof: {
           a: filled(43, 32) as Bytes32,
-          b: filled(44, 64) as never,
+          b: filled(44, 128) as never,
           c: filled(45, 32) as Bytes32,
         },
         inputs: [],
+        treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
         interfaceTransfers: [],
         outputs: [],
         messages: [],
@@ -947,14 +951,14 @@ describe("ring transact", () => {
       [policyConfig, AccountRole.READONLY],
       [ENTRIES_TREE, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SPP, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING_AUTH, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "0333333333333333333333333333333333333333333333333333333333333333333434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343435353535353535353535353535353535353535353535353535353535353535353636363636363636363636363636363636363636363636363636363636363636373737373737373737373737373737373737373737373737373737373737373700000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d00",
+      "0333333333333333333333333333333333333333333333333333333333333333333434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343435353535353535353535353535353535353535353535353535353535353535353636363636363636363636363636363636363636363636363636363636363636373737373737373737373737373737373737373737373737373737373737373700000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );
   });
 

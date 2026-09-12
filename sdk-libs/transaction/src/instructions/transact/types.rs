@@ -1,7 +1,7 @@
 use borsh::BorshDeserialize;
 use solana_address::Address;
 use zolana_event::{MessageData, OutputDataEncoding, ProoflessOutput};
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_keypair::{hash::poseidon, random_blinding, P256Pubkey, ShieldedAddress};
 
 use super::external_data::ExternalData;
@@ -232,11 +232,11 @@ impl<'a> PrivateTxHash<'a> {
     }
 
     pub fn hash(&self) -> Result<[u8; 32], TransactionError> {
-        let input_chain = create_hash_chain_from_slice(self.input_hashes)?;
-        let output_chain = create_hash_chain_from_slice(self.output_hashes)?;
+        let input_chain = create_hash_chain_4_from_slice(self.input_hashes)?;
+        let output_chain = create_hash_chain_4_from_slice(self.output_hashes)?;
         let address_chain = match self.address_nullifiers {
-            Some(address_nullifiers) => create_hash_chain_from_slice(address_nullifiers)?,
-            None => create_hash_chain_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
+            Some(address_nullifiers) => create_hash_chain_4_from_slice(address_nullifiers)?,
+            None => create_hash_chain_4_from_slice(&vec![[0u8; 32]; self.input_hashes.len()])?,
         };
         Ok(poseidon(&[
             &input_chain,

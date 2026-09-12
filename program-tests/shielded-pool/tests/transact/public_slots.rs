@@ -1,6 +1,6 @@
 //! Public-slot aggregation unit tests, moved out of the program crate
 //! (`transact/interface_transfer.rs`): order-independent intermediate zero
-//! nets and the final zero-net rejection (error 7045).
+//! nets and the final zero-net rejection (error 7040).
 
 use shielded_pool_program::testing::{Settlement, SettlementAccountsSol, TransactProofInputs};
 use zolana_account_checks::account_info::test_account_info::get_account_view;

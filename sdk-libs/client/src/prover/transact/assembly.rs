@@ -2,16 +2,17 @@ use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_event::is_confidential_encrypted_output;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::solana_owner_identity,
 };
 use zolana_interface::{
+    instruction::instruction_data::transact::{InputUtxo, TreeContext},
     tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
-    INPUT_TREES,
+    INPUT_TREES, MAX_INPUT_TREES,
 };
 use zolana_keypair::{Curve, NullifierKey};
 use zolana_transaction::{
-    instructions::transact::{assign_output_blindings, PublicTransfers},
+    instructions::transact::{assign_output_blindings, validate_input_tree_order, PublicTransfers},
     utxo::{derive_output_blinding_seed, derive_transact_output_blinding},
     ExternalData, ProofInputUtxo, SppProofOutputUtxo, Utxo,
 };
@@ -36,8 +37,9 @@ pub struct TransferSpendInput {
     /// commitment, so it must be the id of the tree the state proof came from.
     // TODO(tree-id): resolve the tree id from the tree account.
     pub tree_id: u16,
-    /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy sits
-    /// in tree slot 0, so it has no state proof of its own.
+    /// `Some` for a real spend, `None` for a padding (dummy) slot. A dummy has
+    /// no state proof of its own; it takes the tree slot of the tree whose raw
+    /// id `tree_id` names.
     pub proof: Option<SpendProof>,
     /// Padding slots only: the fetched non-inclusion proof for the dummy's own
     /// nullifier. The circuit checks non-inclusion for every slot, dummies
@@ -75,13 +77,28 @@ pub(crate) struct AssembledInputs {
     pub inputs: Vec<TransferInput>,
     pub input_hashes: Vec<[u8; 32]>,
     pub nullifiers: Vec<[u8; 32]>,
-    /// The circuit's tree slots: slot 0 is `input_tree`, the one tree every
-    /// input is spent from; slots 1..4 are all zero.
+    /// The circuit's tree slots: one populated slot per input tree, in the
+    /// order the tree accounts are passed; the remaining slots are all zero.
     pub tree_slots: [TreeSlot; INPUT_TREES],
-    /// Index into `input_tree`'s UTXO root cache, shared by every input.
-    pub utxo_tree_root_index: u16,
-    /// Index into `input_tree`'s nullifier root cache, shared by every input.
-    pub nullifier_tree_root_index: u16,
+    /// One root-index pair per input tree, in the same order as `tree_slots`.
+    pub tree_contexts: Vec<TreeContext>,
+    /// Each assembled input's index into `tree_contexts`, in slot order.
+    /// Non-decreasing, so every tree owns one contiguous run of inputs.
+    pub input_tree_indexes: Vec<u8>,
+}
+
+impl AssembledInputs {
+    /// The one input tree of a single-tree spend. Merge resolves roots from one
+    /// tree per instruction, so it rejects anything wider here.
+    pub fn single_tree_context(&self) -> Result<TreeContext, ClientError> {
+        match self.tree_contexts.as_slice() {
+            [context] => Ok(*context),
+            contexts => Err(ClientError::TooManyInputTrees {
+                got: contexts.len(),
+                max: 1,
+            }),
+        }
+    }
 }
 
 pub(crate) struct AssembledOutputs {
@@ -164,10 +181,12 @@ pub(crate) enum OwnerMode {
     RingAuthority,
 }
 
-/// The one tree a set of padded inputs is spent from (SPP's `input_tree`) and
-/// the roots every input is proven against. It fills circuit tree slot 0; the
-/// other slots stay zero.
+/// One tree a set of padded inputs is spent from: the tree account SPP
+/// resolves roots from, the raw id its UTXOs are hashed under, and the two
+/// roots every input in its run is proven against. It fills one circuit tree
+/// slot.
 struct InputTree {
+    address: Address,
     tree_id: u16,
     utxo_root: [u8; 32],
     utxo_root_index: u16,
@@ -175,100 +194,173 @@ struct InputTree {
     nullifier_root_index: u16,
 }
 
-impl InputTree {
+/// The input trees a spend declares, in first-use order. A tree's position here
+/// is both its circuit tree slot and the `tree_index` its inputs carry in the
+/// instruction, so the proof and the program route every input to the same
+/// tree.
+struct InputTrees {
+    trees: Vec<InputTree>,
+}
+
+impl InputTrees {
+    fn get(&self, tree_index: u8) -> Result<&InputTree, ClientError> {
+        self.trees
+            .get(usize::from(tree_index))
+            .ok_or(ClientError::TooManyInputTrees {
+                got: usize::from(tree_index).saturating_add(1),
+                max: MAX_INPUT_TREES,
+            })
+    }
+
+    /// The slot an input selects: its tree account for a real spend, the tree
+    /// its padding was hashed under for a dummy.
+    fn index_of(&self, spend: &TransferSpendInput) -> Option<u8> {
+        let position = match &spend.proof {
+            Some(proof) => self
+                .trees
+                .iter()
+                .position(|tree| tree.address == proof.state.merkle_context.tree),
+            None => self
+                .trees
+                .iter()
+                .position(|tree| tree.tree_id == spend.tree_id),
+        }?;
+        u8::try_from(position).ok()
+    }
+
     fn tree_slots(&self) -> [TreeSlot; INPUT_TREES] {
         let mut slots = [TreeSlot::ZERO; INPUT_TREES];
-        if let Some(first) = slots.first_mut() {
-            *first = TreeSlot::new(self.tree_id, self.utxo_root, self.nullifier_root);
+        for (slot, tree) in slots.iter_mut().zip(self.trees.iter()) {
+            *slot = TreeSlot::new(tree.tree_id, tree.utxo_root, tree.nullifier_root);
         }
         slots
     }
+
+    fn tree_contexts(&self) -> Vec<TreeContext> {
+        self.trees
+            .iter()
+            .map(|tree| TreeContext {
+                utxo_tree_root_index: tree.utxo_root_index,
+                nullifier_tree_root_index: tree.nullifier_root_index,
+            })
+            .collect()
+    }
 }
 
-/// Resolve the single input tree and its two roots. SPP resolves roots from
-/// one `input_tree` per instruction, so every real input must come from the
-/// same tree and share the tree id, UTXO root and root index its state proof
-/// was fetched against, and every non-inclusion proof (dummies included) must
-/// share one nullifier root and root index.
-fn resolve_input_tree(spends: &[TransferSpendInput]) -> Result<InputTree, ClientError> {
-    let mut trees: Vec<Address> = Vec::with_capacity(1);
-    let mut state: Option<(u16, [u8; 32], u16)> = None;
-    let mut nullifier: Option<([u8; 32], u16)> = None;
+/// Resolve the input trees and their roots, in first-use order. SPP resolves
+/// one root pair per declared tree, so every real input from a tree must share
+/// that tree's id, UTXO root and root index, and every non-inclusion proof of
+/// that tree's run (its padding included) must share its nullifier root and
+/// root index. Raw tree ids must be distinct across the declared trees: a
+/// dummy carries only the id it was hashed under, so a repeated id would leave
+/// its slot ambiguous.
+fn resolve_input_trees(spends: &[TransferSpendInput]) -> Result<InputTrees, ClientError> {
+    let mut trees: Vec<InputTree> = Vec::with_capacity(1);
 
     for spend in spends {
-        let nullifier_proof = match &spend.proof {
-            Some(proof) => Some(&proof.nullifier),
-            None => spend.nullifier_proof.as_ref(),
-        };
-        if let Some(nf) = nullifier_proof {
-            match nullifier {
-                Some(known) if known != (nf.root, nf.root_index) => {
-                    return Err(ClientError::NullifierRootMismatch)
-                }
-                Some(_) => {}
-                None => nullifier = Some((nf.root, nf.root_index)),
-            }
-        }
-
         let Some(proof) = &spend.proof else {
             continue;
         };
-        let tree = proof.state.merkle_context.tree;
-        if !trees.contains(&tree) {
-            trees.push(tree);
+        let address = proof.state.merkle_context.tree;
+        let nullifier_proof = &proof.nullifier;
+        match trees.iter().find(|tree| tree.address == address) {
+            Some(tree) => {
+                if (tree.tree_id, tree.utxo_root, tree.utxo_root_index)
+                    != (spend.tree_id, proof.state.root, proof.state.root_index)
+                {
+                    return Err(ClientError::InputTreeRootMismatch);
+                }
+                if (tree.nullifier_root, tree.nullifier_root_index)
+                    != (nullifier_proof.root, nullifier_proof.root_index)
+                {
+                    return Err(ClientError::NullifierRootMismatch);
+                }
+            }
+            None => {
+                if trees.iter().any(|tree| tree.tree_id == spend.tree_id) {
+                    return Err(ClientError::DuplicateInputTreeId {
+                        tree_id: spend.tree_id,
+                    });
+                }
+                trees.push(InputTree {
+                    address,
+                    tree_id: spend.tree_id,
+                    utxo_root: proof.state.root,
+                    utxo_root_index: proof.state.root_index,
+                    nullifier_root: nullifier_proof.root,
+                    nullifier_root_index: nullifier_proof.root_index,
+                });
+            }
         }
-        if trees.first() != Some(&tree) {
-            // A foreign tree is reported after the pass, with the full count.
+    }
+
+    if trees.len() > MAX_INPUT_TREES {
+        return Err(ClientError::TooManyInputTrees {
+            got: trees.len(),
+            max: MAX_INPUT_TREES,
+        });
+    }
+    // The input trees supply the ids every dummy is hashed under, so a proof
+    // without a real spend has nothing to anchor its padding to.
+    if trees.is_empty() {
+        return Err(ClientError::NoInputs);
+    }
+    let trees = InputTrees { trees };
+
+    for spend in spends {
+        if spend.proof.is_some() {
             continue;
         }
-        let current = (spend.tree_id, proof.state.root, proof.state.root_index);
-        match state {
-            Some(known) if known != current => return Err(ClientError::InputTreeRootMismatch),
-            Some(_) => {}
-            None => state = Some(current),
+        let tree_index = trees
+            .index_of(spend)
+            .ok_or(ClientError::InputTreeUnresolved {
+                tree_id: spend.tree_id,
+            })?;
+        let tree = trees.get(tree_index)?;
+        if let Some(nullifier_proof) = &spend.nullifier_proof {
+            if (tree.nullifier_root, tree.nullifier_root_index)
+                != (nullifier_proof.root, nullifier_proof.root_index)
+            {
+                return Err(ClientError::NullifierRootMismatch);
+            }
         }
     }
 
-    if trees.len() > 1 {
-        return Err(ClientError::MultipleInputTreesUnsupported { got: trees.len() });
-    }
-    // The input tree supplies the tree id every dummy is hashed under, so a
-    // proof without a real spend has nothing to anchor its padding to.
-    let (Some((tree_id, utxo_root, utxo_root_index)), Some((nullifier_root, nullifier_root_index))) =
-        (state, nullifier)
-    else {
-        return Err(ClientError::NoInputs);
-    };
-
-    Ok(InputTree {
-        tree_id,
-        utxo_root,
-        utxo_root_index,
-        nullifier_root,
-        nullifier_root_index,
-    })
+    Ok(trees)
 }
 
 /// Convert the already-padded inputs into circuit witness fields. Makes no
 /// padding decisions: each slot with a [`SpendProof`] is a real spend hashed
-/// under the input tree's id; each slot without one is a dummy hashed under
-/// the same id that uses a zero private owner hash and its own nullifier
-/// non-inclusion witness. Every input points at tree slot 0. A transaction
-/// must spend at least one real input, because the input tree comes from it.
+/// under its own tree's id; each slot without one is a dummy hashed under the
+/// tree it was assigned, with a zero private owner hash and its own nullifier
+/// non-inclusion witness. Inputs must already be grouped tree by tree in
+/// first-use order, including padding. Assembly preserves the order committed
+/// by the signing hash. A transaction must spend at least one real input, because
+/// the input trees come from the real spends.
 pub(crate) fn assemble_inputs(
     spends: &[TransferSpendInput],
     owner_mode: &OwnerMode,
 ) -> Result<AssembledInputs, ClientError> {
-    let input_tree = resolve_input_tree(spends)?;
+    let trees = resolve_input_trees(spends)?;
+    validate_input_tree_order(spends.iter().map(|spend| spend.tree_id))?;
 
     let mut inputs = Vec::with_capacity(spends.len());
     let mut input_hashes = Vec::with_capacity(spends.len());
     let mut nullifiers = Vec::with_capacity(spends.len());
+    let mut input_tree_indexes = Vec::with_capacity(spends.len());
 
     for (index, spend) in spends.iter().enumerate() {
+        let tree_index = trees
+            .index_of(spend)
+            .ok_or(ClientError::InputTreeUnresolved {
+                tree_id: spend.tree_id,
+            })?;
+        let tree = trees.get(tree_index)?;
+        input_tree_indexes.push(tree_index);
         let Some(proof) = &spend.proof else {
             let (mut input, nullifier) =
-                TransferInput::new_dummy(&spend.utxo.blinding, input_tree.tree_id, &[0u8; 32])?;
+                TransferInput::new_dummy(&spend.utxo.blinding, tree.tree_id, &[0u8; 32])?;
+            input.tree_slot = BigUint::from(tree_index);
             if let Some(nf) = &spend.nullifier_proof {
                 check_path_length(nf.path.len(), NULLIFIER_TREE_HEIGHT)?;
                 input.nullifier_low_value = be(&nf.low_element);
@@ -326,7 +418,7 @@ pub(crate) fn assemble_inputs(
             nullifier_next_value: be(&nf.high_element),
             nullifier_low_path_elements: nf.path.iter().map(be).collect(),
             nullifier_low_path_index: BigUint::from(nf.low_element_index),
-            tree_slot: BigUint::ZERO,
+            tree_slot: BigUint::from(tree_index),
             nullifier: be(&nullifier),
             owner_pk_hash: be(&owner_pk_hash),
             nullifier_secret: be(&nullifier_secret),
@@ -339,9 +431,9 @@ pub(crate) fn assemble_inputs(
         inputs,
         input_hashes,
         nullifiers,
-        tree_slots: input_tree.tree_slots(),
-        utxo_tree_root_index: input_tree.utxo_root_index,
-        nullifier_tree_root_index: input_tree.nullifier_root_index,
+        tree_slots: trees.tree_slots(),
+        tree_contexts: trees.tree_contexts(),
+        input_tree_indexes,
     })
 }
 
@@ -415,7 +507,10 @@ pub struct PublicInputs<'a> {
     pub public_transfers: &'a PublicTransfers,
     /// Per-tx ring program (pk_field-encoded); 0 on default transact.
     pub ring_program_id: &'a [u8; 32],
-    pub allow_dummy_inputs: &'a [u8; 32],
+    /// The transaction's dummy-input policy packed with every input's tree
+    /// index, built by [`zolana_interface::tree_slot::pack_input_flags`]. It
+    /// occupies the element the plain dummy-input boolean used to.
+    pub input_flags: &'a [u8; 32],
     /// Payer first, then unique appended owner signers, then zero padding.
     pub signer_pk_hashes: &'a [[u8; 32]],
     /// Appended by owner-signed rails. The default rail publishes every slot;
@@ -435,8 +530,8 @@ impl PublicInputs<'_> {
         let slots = self.public_transfers.interleaved();
         let mut elements = Vec::with_capacity(12 + after_private_tx.len() + slots.len());
         elements.extend([
-            create_hash_chain_from_slice(self.nullifiers)?,
-            create_hash_chain_from_slice(self.output_hashes)?,
+            create_hash_chain_4_from_slice(self.nullifiers)?,
+            create_hash_chain_4_from_slice(self.output_hashes)?,
             tree_slots_hash_chain(self.tree_slots)?,
             tree_id_field(self.output_tree_id),
             *self.private_tx,
@@ -447,13 +542,36 @@ impl PublicInputs<'_> {
         elements.extend([
             *self.ring_program_id,
             create_right_hash_chain_from_slice(self.signer_pk_hashes)?,
-            *self.allow_dummy_inputs,
+            *self.input_flags,
         ]);
         if let Some(output_owner_pk_hashes) = self.output_owner_pk_hashes {
-            elements.push(create_hash_chain_from_slice(output_owner_pk_hashes)?);
+            elements.push(create_hash_chain_4_from_slice(output_owner_pk_hashes)?);
         }
-        Ok(create_hash_chain_from_slice(&elements)?)
+        Ok(create_hash_chain_4_from_slice(&elements)?)
     }
+}
+
+/// Pair each published nullifier with the index of the tree its input is
+/// nullified in, in slot order. The two vectors come from one
+/// [`assemble_inputs`] pass, so a length mismatch is a builder bug.
+pub fn input_utxos(
+    nullifiers: &[[u8; 32]],
+    tree_indexes: &[u8],
+) -> Result<Vec<InputUtxo>, ClientError> {
+    if nullifiers.len() != tree_indexes.len() {
+        return Err(ClientError::WitnessInputCountMismatch {
+            got: tree_indexes.len(),
+            expected: nullifiers.len(),
+        });
+    }
+    Ok(nullifiers
+        .iter()
+        .zip(tree_indexes)
+        .map(|(nullifier_hash, tree_index)| InputUtxo {
+            nullifier_hash: *nullifier_hash,
+            tree_index: *tree_index,
+        })
+        .collect())
 }
 
 pub(crate) fn bool_field(value: bool) -> [u8; 32] {
@@ -522,11 +640,13 @@ mod tests {
         }
     }
 
-    /// A real spend of `amount` from the tree named by `tree`, proven against
-    /// `(state_root, state_root_index)` and `(nullifier_root, 7)`.
-    fn spend(
+    /// A real spend from the tree account named by `tree`, whose UTXOs are
+    /// hashed under `tree_id`, proven against `(state_root, state_root_index)`
+    /// and `(nullifier_root, 7)`.
+    fn spend_in(
         seed: u8,
         tree: u8,
+        tree_id: u16,
         state_root: u8,
         state_root_index: u16,
         nullifier_root: u8,
@@ -544,7 +664,7 @@ mod tests {
             nullifier_key: owner.nullifier_key.clone(),
             data_hash: None,
             ring_data_hash: None,
-            tree_id: 0,
+            tree_id,
             proof: Some(SpendProof {
                 state: merkle_proof(tree, state_root, state_root_index),
                 nullifier: non_inclusion_proof(nullifier_root, 7),
@@ -553,9 +673,21 @@ mod tests {
         }
     }
 
-    /// A padding slot; `nullifier_proof` is the dummy's own non-inclusion
-    /// witness against `(nullifier_root, nullifier_root_index)` when given.
-    fn dummy(nullifier_proof: Option<(u8, u16)>) -> TransferSpendInput {
+    /// A real spend from the tree account named by `tree`, under tree id 0.
+    fn spend(
+        seed: u8,
+        tree: u8,
+        state_root: u8,
+        state_root_index: u16,
+        nullifier_root: u8,
+    ) -> TransferSpendInput {
+        spend_in(seed, tree, 0, state_root, state_root_index, nullifier_root)
+    }
+
+    /// A padding slot hashed under tree id `tree_id`; `nullifier_proof` is the
+    /// dummy's own non-inclusion witness against
+    /// `(nullifier_root, nullifier_root_index)` when given.
+    fn dummy_in(tree_id: u16, nullifier_proof: Option<(u8, u16)>) -> TransferSpendInput {
         TransferSpendInput {
             utxo: Utxo {
                 owner: zolana_keypair::PublicKey::zeroed(),
@@ -568,11 +700,16 @@ mod tests {
             nullifier_key: zolana_keypair::NullifierKey::from_secret([0u8; 31]),
             data_hash: None,
             ring_data_hash: None,
-            tree_id: 0,
+            tree_id,
             proof: None,
             nullifier_proof: nullifier_proof
                 .map(|(root, root_index)| non_inclusion_proof(root, root_index)),
         }
+    }
+
+    /// A padding slot under tree id 0.
+    fn dummy(nullifier_proof: Option<(u8, u16)>) -> TransferSpendInput {
+        dummy_in(0, nullifier_proof)
     }
 
     #[test]
@@ -586,8 +723,14 @@ mod tests {
         let assembled =
             assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
 
-        assert_eq!(assembled.utxo_tree_root_index, 3);
-        assert_eq!(assembled.nullifier_tree_root_index, 7);
+        assert_eq!(
+            assembled.tree_contexts,
+            vec![TreeContext {
+                utxo_tree_root_index: 3,
+                nullifier_tree_root_index: 7,
+            }]
+        );
+        assert_eq!(assembled.input_tree_indexes, vec![0, 0, 0]);
         assert_eq!(
             assembled.tree_slots,
             [
@@ -605,17 +748,120 @@ mod tests {
             .all(|input| input.tree_slot == BigUint::ZERO));
     }
 
+    /// Two input trees each populate their own slot without changing input order.
     #[test]
-    fn inputs_from_two_trees_are_rejected() {
+    fn inputs_from_two_trees_fill_two_slots_grouped_by_tree() {
         let spends = [
-            spend(1, 0xAA, 0x11, 3, 0x33),
-            spend(2, 0xBB, 0x11, 3, 0x33),
-            spend(3, 0xCC, 0x11, 3, 0x33),
+            spend_in(1, 0xAA, 0, 0x11, 3, 0x33),
+            spend_in(3, 0xAA, 0, 0x11, 3, 0x33),
+            spend_in(2, 0xBB, 1, 0x12, 4, 0x34),
+            dummy_in(1, Some((0x34, 7))),
+        ];
+
+        let assembled =
+            assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa).expect("assemble inputs");
+
+        assert_eq!(
+            assembled.tree_contexts,
+            vec![
+                TreeContext {
+                    utxo_tree_root_index: 3,
+                    nullifier_tree_root_index: 7,
+                },
+                TreeContext {
+                    utxo_tree_root_index: 4,
+                    nullifier_tree_root_index: 7,
+                },
+            ]
+        );
+        assert_eq!(assembled.input_tree_indexes, vec![0, 0, 1, 1]);
+        assert_eq!(
+            assembled.tree_slots,
+            [
+                TreeSlot::new(0, [0x11; 32], [0x33; 32]),
+                TreeSlot::new(1, [0x12; 32], [0x34; 32]),
+                TreeSlot::ZERO,
+                TreeSlot::ZERO,
+                TreeSlot::ZERO,
+            ]
+        );
+        let slots: Vec<BigUint> = assembled
+            .inputs
+            .iter()
+            .map(|input| input.tree_slot.clone())
+            .collect();
+        assert_eq!(
+            slots,
+            vec![
+                BigUint::ZERO,
+                BigUint::ZERO,
+                BigUint::from(1u8),
+                BigUint::from(1u8),
+            ]
+        );
+    }
+
+    #[test]
+    fn interleaved_inputs_are_rejected_without_reordering() {
+        for last in [
+            spend_in(3, 0xAA, 4, 0x11, 3, 0x33),
+            dummy_in(4, Some((0x33, 7))),
+        ] {
+            let spends = [
+                spend_in(1, 0xAA, 4, 0x11, 3, 0x33),
+                spend_in(2, 0xBB, 1, 0x12, 4, 0x34),
+                last,
+            ];
+            assert!(matches!(
+                assemble_inputs(&spends, &OwnerMode::RingP256),
+                Err(ClientError::Transaction(
+                    zolana_transaction::TransactionError::InterleavedInputTrees {
+                        index: 2,
+                        tree_id: 4
+                    }
+                ))
+            ));
+        }
+    }
+
+    #[test]
+    fn more_input_trees_than_the_program_limit_are_rejected() {
+        let spends: Vec<TransferSpendInput> = (0..=MAX_INPUT_TREES)
+            .map(|index| {
+                let marker = u8::try_from(index).expect("tree marker");
+                let tree_id = u16::try_from(index).expect("tree id");
+                spend_in(marker, 0xA0 + marker, tree_id, 0x11, 3, 0x33)
+            })
+            .collect();
+
+        assert!(matches!(
+            assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa),
+            Err(ClientError::TooManyInputTrees { got, max }) if got == MAX_INPUT_TREES + 1 && max == MAX_INPUT_TREES
+        ));
+    }
+
+    /// A dummy names its tree by the raw id it was hashed under, so two trees
+    /// sharing an id would leave its slot ambiguous.
+    #[test]
+    fn two_trees_with_the_same_tree_id_are_rejected() {
+        let spends = [
+            spend_in(1, 0xAA, 4, 0x11, 3, 0x33),
+            spend_in(2, 0xBB, 4, 0x12, 4, 0x34),
         ];
 
         assert!(matches!(
             assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa),
-            Err(ClientError::MultipleInputTreesUnsupported { got: 3 })
+            Err(ClientError::DuplicateInputTreeId { tree_id: 4 })
+        ));
+    }
+
+    #[test]
+    fn padding_hashed_under_an_undeclared_tree_is_rejected() {
+        let spends = [spend(1, 0xAA, 0x11, 3, 0x33), dummy_in(9, Some((0x33, 7)))];
+
+        assert!(matches!(
+            assemble_inputs(&spends, &OwnerMode::ConfidentialEddsa),
+            Err(ClientError::InputTreeUnresolved { tree_id: 9 })
         ));
     }
 

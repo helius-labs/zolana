@@ -7,7 +7,7 @@ use zolana_account_checks::AccountError;
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{SetTreeFees, UpdateProtocolConfigData},
-    state::{default_tree_fees, TreeFeeSchedule},
+    state::{nullifier_tree_params, TreeFeeSchedule},
 };
 use zolana_program_test::Rejection;
 use zolana_test_utils::mollusk::{
@@ -156,22 +156,39 @@ fn set_tree_fees_is_gated_by_the_fee_authority_alone() {
 fn set_tree_fees_stores_insolvent_schedules() {
     let mut pool = Pool::initialized();
     let authority = pool.authority.insecure_clone();
-    let valid = default_tree_fees(250).expect("default tree fees");
+    let batch_size = nullifier_tree_params().input_queue_zkp_batch_size;
+    // One lamport per input funds the batch append, and one funds its close.
+    // This positive baseline breaks even exactly, independent of default fees.
+    let balanced = TreeFeeSchedule {
+        fee_per_nullifier: 2,
+        append_reimbursement: batch_size,
+        close_reimbursement: 1,
+    };
     let insolvent = [
         TreeFeeSchedule {
-            append_reimbursement: valid.append_reimbursement + 1,
-            ..valid
+            append_reimbursement: batch_size.checked_add(1).expect("batch size plus one"),
+            ..balanced
         },
         TreeFeeSchedule {
-            close_reimbursement: valid.close_reimbursement + 1,
-            ..valid
+            close_reimbursement: 2,
+            ..balanced
         },
         TreeFeeSchedule {
-            fee_per_nullifier: valid.fee_per_nullifier - 1,
-            ..valid
+            fee_per_nullifier: 1,
+            ..balanced
         },
     ];
     for fees in insolvent {
+        let required = TreeFeeSchedule::at_cost(
+            batch_size,
+            fees.append_reimbursement,
+            fees.close_reimbursement,
+        )
+        .expect("at-cost schedule");
+        assert!(
+            fees.fee_per_nullifier < required.fee_per_nullifier,
+            "fixture must be insolvent: {fees:?}"
+        );
         pool.rpc
             .create_and_send_default_payer_transaction(
                 &[set_fees_ix(&pool, &authority, fees)],

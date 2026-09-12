@@ -10,20 +10,22 @@ import (
 	"github.com/iden3/go-iden3-crypto/poseidon"
 )
 
-func calculateHashChain(hashes []*big.Int, length int) *big.Int {
-	if len(hashes) == 0 {
+// hashChain4 mirrors gadget.HashChain4: the head is the first element and
+// every later group of up to three elements is absorbed by one 4-input
+// Poseidon call, a partial trailing group zero-padded.
+func hashChain4(elements []*big.Int) *big.Int {
+	if len(elements) == 0 {
 		return big.NewInt(0)
 	}
-	if len(hashes) == 1 {
-		return hashes[0]
+	head := elements[0]
+	for start := 1; start < len(elements); start += 3 {
+		inputs := []*big.Int{head, big.NewInt(0), big.NewInt(0), big.NewInt(0)}
+		for offset := 0; offset < 3 && start+offset < len(elements); offset++ {
+			inputs[1+offset] = elements[start+offset]
+		}
+		head, _ = poseidon.Hash(inputs)
 	}
-
-	hashChain := hashes[0]
-	for i := 1; i < length; i++ {
-
-		hashChain, _ = poseidon.Hash([]*big.Int{hashChain, hashes[i]})
-	}
-	return hashChain
+	return head
 }
 
 func BuildTestAddressTree(treeHeight uint32, batchSize uint32, previousTree *merkletree.IndexedMerkleTree, startIndex uint64) (*nullifiertree.BatchAddressAppendParameters, error) {
@@ -107,25 +109,18 @@ func BuildTestAddressTree(treeHeight uint32, batchSize uint32, previousTree *mer
 }
 
 func computeNewElementsHashChain(values []big.Int) *big.Int {
-	if len(values) == 0 {
-		return big.NewInt(0)
+	elements := make([]*big.Int, len(values))
+	for i := range values {
+		elements[i] = &values[i]
 	}
-
-	result := new(big.Int).Set(&values[0])
-	for i := 1; i < len(values); i++ {
-		hash, _ := poseidon.Hash([]*big.Int{result, &values[i]})
-		result = hash
-	}
-	return result
+	return hashChain4(elements)
 }
 
 func computePublicInputHash(oldRoot *big.Int, newRoot *big.Int, hashchainHash *big.Int, startIndex uint64) *big.Int {
-	inputs := []*big.Int{
+	return hashChain4([]*big.Int{
 		oldRoot,
 		newRoot,
 		hashchainHash,
 		new(big.Int).SetUint64(startIndex),
-	}
-	return calculateHashChain(inputs, 4)
-
+	})
 }

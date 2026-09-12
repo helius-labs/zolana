@@ -5,7 +5,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxData,
-        TransactOutput, TransactProof,
+        TransactOutput, TransactProof, TreeContext,
     },
     N_PUBLIC_SLOTS,
 };
@@ -65,7 +65,7 @@ fn emit_event_is_an_explicit_account_free_noop() {
 /// proof) on the given circuit selector. The transact-family processors map a
 /// parse failure to the same bare `InvalidInstructionData` as the dispatcher,
 /// so distinguishing dispatch from rejection for those tags needs a payload
-/// that parses; the selector family must match the dispatched tag (7039).
+/// that parses; the selector family must match the dispatched tag (7035).
 fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
         proof: TransactProof::zeroed(),
@@ -76,8 +76,7 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
         salt: [0u8; 16],
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         }],
         interface_transfers: Vec::new(),
         data_hash: None,
@@ -88,6 +87,10 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
             data: None,
         }],
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
     .serialize()
     .expect("transact payload serialization is infallible")

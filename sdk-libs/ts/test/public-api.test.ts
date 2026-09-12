@@ -56,11 +56,13 @@ import {
   TREE_ACCOUNT_SIZE,
   TREE_ALLOCATION_STEP,
   TREE_CREATION_STEP_COUNT,
+  defaultTreeFees,
+  encodeTreeFeeSchedule,
   nullifierTreeParams,
   type Bytes16,
   type Bytes32,
   type Bytes33,
-  type Bytes64,
+  type Bytes128,
 } from "../src/interface/index.js";
 import { treeWithBump } from "../src/interface/pda/index.js";
 import { internalUserRecordPda } from "../src/wallet/registry.js";
@@ -353,7 +355,7 @@ describe("address and instruction builders", () => {
     });
     expect(NULLIFIER_TREE_ROOT_HISTORY_CAPACITY).toBe(100);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
-    expect(TREE_ACCOUNT_SIZE).toBe(39_952);
+    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
     expect(TREE_CREATION_STEP_COUNT).toBe(Math.ceil(TREE_ACCOUNT_SIZE / TREE_ALLOCATION_STEP));
     expect(TREE_CREATION_STEP_COUNT).toBe(4);
     expect(STATE_ROOT_OFFSET).toBe(80);
@@ -376,7 +378,8 @@ describe("address and instruction builders", () => {
     expect(step?.accounts?.[0]).toMatchObject({ signer: payer });
     expect(step?.accounts?.[1]).toMatchObject({ signer: authority });
     // tag, tree_id u16, batch size u64, zkp batch size u64, height u32, then the
-    // at-cost fee schedule for 250: fee_per_nullifier 190, append 5000, close 170.
+    // three u64s of the fee schedule, taken from the encoder so the sponsored
+    // defaults stay protocol truth rather than literals repeated here.
     expect(step?.data).toEqual(
       Uint8Array.of(
         InstructionTag.createTree,
@@ -402,30 +405,7 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
-        190,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        136,
-        19,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        170,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
+        ...encodeTreeFeeSchedule(defaultTreeFees(NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE)),
       ),
     );
   });
@@ -442,7 +422,8 @@ describe("address and instruction builders", () => {
       },
     });
     expect(step?.accounts?.[3]?.address).toBe(getTreeAddress(0x0102));
-    // ceil((5000 + 2 * 170) / 2) = 2670 lamports per nullifier for a ZKP batch of 2.
+    // A custom ZKP batch size reaches the fee schedule, which the sponsored
+    // defaults price at zero for every batch size.
     expect(step?.data).toEqual(
       Uint8Array.of(
         InstructionTag.createTree,
@@ -468,30 +449,7 @@ describe("address and instruction builders", () => {
         0,
         0,
         0,
-        110,
-        10,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        136,
-        19,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        170,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
+        ...encodeTreeFeeSchedule(defaultTreeFees(2n)),
       ),
     );
   });
@@ -569,21 +527,22 @@ describe("address and instruction builders", () => {
         salt: new Uint8Array(16) as Bytes16,
         proof: {
           a: new Uint8Array(32) as Bytes32,
-          b: new Uint8Array(64) as Bytes64,
+          b: new Uint8Array(128) as Bytes128,
           c: new Uint8Array(32) as Bytes32,
         },
         inputs: [],
+        treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
         interfaceTransfers: [],
         outputs: [],
         messages: [],
       },
     });
 
-    expect(instruction.accounts?.[1]).toMatchObject({
+    expect(instruction.accounts?.[4]).toMatchObject({
       address: TREE,
       role: AccountRole.WRITABLE,
     });
-    expect(instruction.accounts?.[2]).toMatchObject({
+    expect(instruction.accounts?.[1]).toMatchObject({
       address: OWNER,
       role: AccountRole.WRITABLE,
     });

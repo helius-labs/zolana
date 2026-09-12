@@ -28,7 +28,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-02: tree accounts must be writable**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_non_writable_tree_meta`
   - Kind: precondition
-  - Statement: `transact` can only succeed when the second and third accounts (`input_tree`, `output_tree`) are writable.
+  - Statement: `transact` can only succeed when `output_tree` (index 1) and every input tree in the dynamic run after the fixed prefix are writable.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:33-34` (`fn validate_and_parse`)
   - Error: account-checks error / `TreeError::NotWritable` path
   - Severity: High
@@ -62,9 +62,9 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative + property; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-45: the signer run is payer-first, deduplicated, and width-bounded**
-  - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `owner_signer_run_is_bounded_by_max_signers`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_unsigned_eddsa_input_owner`. The overflow case is a unit test: with `MAX_SIGNERS = 37` a transaction cannot carry enough signatures to overrun the bound end to end.
+  - Covered by: `program-tests/shielded-pool/tests/transact/signer_run.rs` (`owner_signers_are_first_occurrence_deduplicated_with_payer_first`, `owner_signer_run_is_bounded_by_max_signers`, `consolidation_shape_rejects_an_owner_signer_run_past_its_slots`, `zero_suffix_optimization_matches_fixed_width_right_fold`, `zero_suffix_constants_cover_every_supported_width`, `fixed_signer_hash_chain_rejects_empty_signer_prefix`), `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_unsigned_eddsa_input_owner`. The overflow case is a unit test: the address budget that fixes `owner_signer_slots` also stops a transaction from carrying enough signer accounts to overrun the bound end to end.
   - Kind: precondition + postcondition
-  - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the unique prefix must be non-empty and fit `MAX_SIGNERS = MAX_INPUTS + 1` slots (more unique signers returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `n_inputs + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
+  - Statement: authorization identities come from the accounts array, not instruction data: slot 0 is the payer (a duplicate payer in `owner_signers` is ignored), then the eddsa owner signers in first-occurrence order; the owner signer run must not exceed `owner_signer_slots(n_inputs) = min(n_inputs, 64 - 4 - n_inputs)` accounts and the unique prefix must be non-empty and fit `MAX_SIGNERS` (the widest `Shape::signer_width`, 25) slots (more returns 7006), and every owner-signer account must actually sign. The public input folds the run as a right-folded chain zero-padded to `Shape::signer_width = owner_signer_slots(n_inputs) + 1` (a one-element run folds to itself), so the witness and the on-chain recompute agree on exactly one canonical encoding of any signer set.
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`, `fn fixed_signer_hash_chain`, `SIGNER_ZERO_SUFFIX_CHAINS`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006` (an unsigned would-be owner signer ends the run at the loader's first-non-signer scan, leaving an unparsable account)
   - Severity: Critical (spend authorization)
@@ -82,7 +82,7 @@ covers the whole group) and referenced from the coverage matrix.
 - [ ] **INV-TRANSACT-40: input/output tree split**
   - Partial coverage: all functional tests exercise the two-account layout; no test asserts distinct input/output trees.
   - Kind: precondition
-  - Statement: the account layout is `payer` (signer), `input_tree` (writable), `output_tree` (writable); both trees are loaded with owner/discriminator/pause checks; nullifiers queue into the input tree (which also supplies both root histories and the `allow_dummy_inputs` flag and receives the forester fee), outputs append to the output tree, and the emitted event records the output tree's address. The program does not require the two to be the same account. (Replaces the single-`tree` wording of INV-TRANSACT-02/03.)
+  - Statement: the account layout is `payer` (signer), `output_tree` (writable), SPP, System Program, optional ring config, input trees, nullifier PDAs, owner signers, and settlement groups; all trees are loaded with owner/discriminator/pause checks; nullifiers queue into the input tree (which also supplies both root histories and the `allow_dummy_inputs` flag and receives the forester fee), outputs append to the output tree, and the emitted event records the output tree's address. The program does not require the two to be the same account. (Replaces the single-`tree` wording of INV-TRANSACT-02/03.)
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:32-36`, `transact/processor.rs:77-98`, `transact/tree.rs`
   - Error: `ShieldedPoolError::InvalidTreeAccounts = 7001` / `ShieldedPoolError::TreePaused = 7013`
   - Severity: High
@@ -91,9 +91,9 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-41: trailing system program account is mandatory**
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_wrong_trailing_system_program_account` (merge-side unit also exists, see INV-MERGE-18)
   - Kind: precondition
-  - Statement: after the settlement groups, the next account must be the system program (kept in the account keys so the forester-fee Transfer CPI resolves); any other address returns Err.
+  - Statement: the fixed prefix account at index 3 must be the system program (kept in the account keys so the forester-fee Transfer CPI resolves); any other address returns Err.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:115-118` (`fn from_iter`)
-  - Error: `ShieldedPoolError::InvalidSystemProgram = 7028`
+  - Error: `ShieldedPoolError::InvalidSystemProgram = 7024`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
@@ -131,14 +131,14 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: every output whose `OwnerTag::Account(i)` references an index with no account in the transaction makes the instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/transact/event.rs:27-32` (`fn resolve_outputs`), `program-libs/interface/src/instruction/instruction_data/transact.rs:225-235` (`fn fetch_tag`)
-  - Error: `ShieldedPoolError::OwnerTagAccountMissing = 7025`
+  - Error: `ShieldedPoolError::OwnerTagAccountMissing = 7021`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-11: a RingP256 proof with an invalid BSB22 commitment is rejected before pairing**
   - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `p256_ring_transfer_updates_recipient_wallet` (bad-commitment leg)
   - Kind: precondition
-  - Statement: a `CircuitId::RingP256` selector whose embedded `RingP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only and `MissingP256SigningKey = 7024` stays retired — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
+  - Statement: a `CircuitId::RingP256` selector whose embedded `RingP256ProofData.bsb22_commitment` does not verify against the proof returns the encoding error before any pairing work. (The pre-PR164 `P256SigningKey` owner-tag variant and `p256_signing_pk_x` field did NOT return; `OwnerTag` is `Inline`/`Account` only — the decode-level rejection of the retired discriminant is covered by INV-XC-32.)
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, commitment leg)
   - Error: `ShieldedPoolError::InvalidTransactProofEncoding = 7007`
   - Severity: Critical (spend authorization)
@@ -152,15 +152,15 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: before any account is read, `Transact` accepts only `CircuitId::ConfidentialEddsa`, `RingTransact` only `RingEddsa`, `RingAuthorityTransact` only `RingAuthority`; any other selector returns Err. The untrusted selector is validated before it may drive account parsing, proof-input layout, or key selection.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
-  - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
+  - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
   - Suggested test: negative per (tag, selector family) pair; harness: mollusk unit
 
 - [x] **INV-TRANSACT-35: selector shape must equal the payload shape and be supported**
   - Covered by: `program-tests/shielded-pool/tests/transact/validate_circuit.rs` `selector_dimensions_are_fail_closed`, `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_an_unsupported_proof_shape`, `program-tests/shielded-pool/tests/transact/signer_run.rs` `owner_signer_run_is_bounded_by_max_signers`, `program-libs/interface/tests/circuit.rs` `supported_shapes_are_fail_closed`
   - Kind: precondition
-  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits the fixed-width `MAX_SIGNERS` (`MAX_INPUTS + 1`) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
+  - Statement: the instruction returns Err unless `circuit.num_inputs() == inputs.len()`, `circuit.num_outputs() == outputs.len()`, `circuit.num_public_asset_slots() <= N_PUBLIC_SLOTS` (3), `circuit.is_supported()`, and the payer-first deduplicated signer run fits `owner_signer_slots(n_inputs)` owner accounts and the fixed-width `MAX_SIGNERS` (the widest `Shape::signer_width`, 25) array. The retired per-input `eddsa_signer_index` field (and its 255 P256 sentinel) is deleted from the wire: fail-closed is the fixed-width `InputUtxo` decode plus the signer-run bound, not a field check.
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:152-163` (`fn validate_circuit_type`); supported-shape table `program-libs/interface/src/verifying_keys/circuit.rs:73-96`; signer-run bound `programs/shielded-pool/src/instructions/transact/account.rs` (`fn from_iter`, `owner_signer_slots`) and `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn fill_owner_signer_hashes`)
   - Error: `ShieldedPoolError::InvalidTransactShape = 7006`
   - Severity: Critical
   - Suggested test: negative per dimension; harness: mollusk unit
@@ -168,9 +168,9 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-36: interface-transfer wire limits**
   - Covered by: `program-libs/interface/tests/transact.rs` `interface_transfer_validation_accepts_many_transfers_up_to_limit`, `interface_transfer_count_rejects_protocol_overflow_during_serialization`, `external_data_preimage_rejects_slice_overflow`; `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `zero_interface_transfer_is_rejected`
   - Kind: precondition
-  - Statement: more than `MAX_INTERFACE_TRANSFERS` (255) legs returns 7035; any leg with amount 0 returns 7036.
+  - Statement: more than `MAX_INTERFACE_TRANSFERS` (255) legs returns 7031; any leg with amount 0 returns 7032.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs:77-87` (`fn validate_interface_transfers`), called from `programs/shielded-pool/src/instructions/transact/account.rs:48`
-  - Error: `ShieldedPoolError::TooManyInterfaceTransfers = 7035` / `ShieldedPoolError::ZeroInterfaceTransferAmount = 7036`
+  - Error: `ShieldedPoolError::TooManyInterfaceTransfers = 7031` / `ShieldedPoolError::ZeroInterfaceTransferAmount = 7032`
   - Severity: Medium
   - Suggested test: negative at the boundary (255 ok, 256 rejected; zero leg rejected); harness: mollusk unit
 
@@ -206,9 +206,9 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-16: SPL settlement token accounts must be initialized token-program accounts**
   - Covered by: `program-tests/shielded-pool/tests/transact/settlement.rs` `spl_withdrawal_rejects_a_user_token_account_not_owned_by_the_token_program`, `spl_withdrawal_rejects_a_user_token_account_with_a_wrong_length`, `spl_withdrawal_rejects_an_uninitialized_user_token_account`
   - Kind: precondition
-  - Statement: every settlement token account (vault, user token account) must be owned by the settlement token program — SPL Token or Token-2022 (a wrong token-program account returns `UnsupportedSplTokenProgram = 7041`) — must unpack as `PodStateWithExtensions<PodAccount>` (extension-bearing Token-2022 accounts are legal; the exact-165 length rule is gone), and must have state `Initialized`; any other violation returns Err. (Token-2022 wording superseded by INV-TRANSACT-43.)
+  - Statement: every settlement token account (vault, user token account) must be owned by the settlement token program — SPL Token or Token-2022 (a wrong token-program account returns `UnsupportedSplTokenProgram = 7037`) — must unpack as `PodStateWithExtensions<PodAccount>` (extension-bearing Token-2022 accounts are legal; the exact-165 length rule is gone), and must have state `Initialized`; any other violation returns Err. (Token-2022 wording superseded by INV-TRANSACT-43.)
   - Location: `programs/shielded-pool/src/instructions/settlement/validate.rs:29-37, 85-121, 128-149` (`fn validate_token_program`, `fn validate_spl_settlement`, `fn read_token_account`)
-  - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009` / `ShieldedPoolError::UnsupportedSplTokenProgram = 7041`
+  - Error: `ShieldedPoolError::InvalidSettlementAccounts = 7009` / `ShieldedPoolError::UnsupportedSplTokenProgram = 7037`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
@@ -226,16 +226,16 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: for every `SplDeposit` leg, the `depositor` account (the transfer authority) must be a signer.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:56-57` (`fn from_iter`)
-  - Error: `ShieldedPoolError::SplDepositorMustSign = 7040`
+  - Error: `ShieldedPoolError::SplDepositorMustSign = 7036`
   - Severity: Critical (theft of third-party tokens)
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-TRANSACT-43: settlement token program must be SPL Token or Token-2022**
-  - Covered by: `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `spl_withdrawal_rejects_a_shifted_token_program_account` (7041), `token_2022_withdrawal_accounts_reach_proof_verification`; `program-tests/shielded-pool/tests/transact/mixed_interface_transfers.rs` `token_2022_withdrawals_settle_independently` (positive legs); supersedes the stale wording of INV-TRANSACT-16
+  - Covered by: `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `spl_withdrawal_rejects_a_shifted_token_program_account` (7037), `token_2022_withdrawal_accounts_reach_proof_verification`; `program-tests/shielded-pool/tests/transact/mixed_interface_transfers.rs` `token_2022_withdrawals_settle_independently` (positive legs); supersedes the stale wording of INV-TRANSACT-16
   - Kind: precondition
   - Statement: the `token_program` account must be the SPL Token or Token-2022 program id; vault and user token accounts must be owned by that program, unpack as `PodStateWithExtensions<PodAccount>` (extension-bearing Token-2022 accounts are legal — the exact-165 length rule is gone), and have state `Initialized`.
   - Location: `programs/shielded-pool/src/instructions/settlement/validate.rs:29-37, 128-149` (`fn validate_token_program`, `fn read_token_account`)
-  - Error: `ShieldedPoolError::UnsupportedSplTokenProgram = 7041` (bad program) / `ShieldedPoolError::InvalidSettlementAccounts = 7009` (bad accounts)
+  - Error: `ShieldedPoolError::UnsupportedSplTokenProgram = 7037` (bad program) / `ShieldedPoolError::InvalidSettlementAccounts = 7009` (bad accounts)
   - Severity: High
   - Suggested test: negative (shifted token program); harness: mollusk unit
 
@@ -244,9 +244,9 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-37: public-slot count and net-amount overflow gates**
   - Covered by: `program-tests/shielded-pool/tests/transact/interface_transfers.rs` `four_distinct_public_assets_are_rejected`, `same_asset_aggregate_overflow_is_rejected`
   - Kind: precondition
-  - Statement: a batch of legs naming more distinct assets than the circuit's public slots returns 7037; a per-asset i128 net overflow or a net whose magnitude exceeds u64 returns 7038.
+  - Statement: a batch of legs naming more distinct assets than the circuit's public slots returns 7033; a per-asset i128 net overflow or a net whose magnitude exceeds u64 returns 7034.
   - Location: `programs/shielded-pool/src/instructions/transact/interface_transfer.rs:54-72, 95-100` (`fn process_interface_transfers`, `fn checked_slot_amount`)
-  - Error: `ShieldedPoolError::TooManyPublicAssets = 7037` / `ShieldedPoolError::PublicAssetAmountOverflow = 7038`
+  - Error: `ShieldedPoolError::TooManyPublicAssets = 7033` / `ShieldedPoolError::PublicAssetAmountOverflow = 7034`
   - Severity: High
   - Suggested test: negative at the slot boundary and at the u64 magnitude boundary; harness: mollusk unit
 
@@ -274,7 +274,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: the proof rail (uncommitted eddsa vs BSB22-committed P256) is selected ONLY by the `CircuitId` discriminant in instruction data, validated against the dispatched tag before any account is read; there is no sentinel value anywhere in the payload that can reroute a proof to another rail. (Replaces the pre-PR164 255-signer-index selection model; the retired `eddsa_signer_index` field is deleted from the wire.)
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`), `program-libs/interface/src/verifying_keys/circuit.rs` (`CircuitId`)
-  - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
+  - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: Critical
   - Suggested test: negative per (tag, selector) pair + cross-rail grafting (both exist); harness: mollusk unit + program-tests integration
 
@@ -350,19 +350,19 @@ covers the whole group) and referenced from the coverage matrix.
 - [x] **INV-TRANSACT-28: SPL settlement direction follows the leg variant**
   - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `transact_spl_deposit_settles_exact_token_deltas` and `shield_then_withdraw_spl_with_a_real_proof` (positive user-to-vault and negative vault-to-user transfers assert exact token deltas with real proofs).
   - Kind: postcondition
-  - Statement: after a successful SPL settlement of amount `a`, a deposit leg (`InterfaceTransfer::SplDeposit`) transfers exactly `a` tokens from the user token account to the vault with the depositor as authority (which must sign, else `SplDepositorMustSign = 7040`), and a withdrawal leg (`InterfaceTransfer::SplWithdrawal`) transfers exactly `a` tokens from the vault to the user token account signed by the `[b"cpi_authority", 254]` PDA.
+  - Statement: after a successful SPL settlement of amount `a`, a deposit leg (`InterfaceTransfer::SplDeposit`) transfers exactly `a` tokens from the user token account to the vault with the depositor as authority (which must sign, else `SplDepositorMustSign = 7036`), and a withdrawal leg (`InterfaceTransfer::SplWithdrawal`) transfers exactly `a` tokens from the vault to the user token account signed by the `[b"cpi_authority", 254]` PDA.
   - Location: `programs/shielded-pool/src/instructions/settlement/spl.rs:58-80, 84-101` (`fn settle_spl_deposit`, `fn settle_spl_withdrawal`)
   - Severity: Critical
   - Suggested test: positive both directions; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-TRANSACT-42: the tree's insertion fee is collected from the payer per queued input and credited to the fee balance**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (exact on-chain deltas: the input tree gains `inputs.len() * fees.fee_per_nullifier`, the payer loses the signature fee plus that amount, the header's `fee_balance` grows by the same amount); `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (the credited balance is what PDA funding must stay above, INV-TRANSACT-49); overflow legs `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026), `program-libs/tree/tests/fees.rs` `credit_insertion_fee_overflow_is_reported`, `zero_schedule_charges_and_pays_nothing`
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (exact on-chain deltas: the input tree gains `inputs.len() * fees.fee_per_nullifier`, the payer loses the signature fee plus that amount, the header's `fee_balance` grows by the same amount); `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (the credited balance is what PDA funding must stay above, INV-TRANSACT-49); overflow legs `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7022), `program-libs/tree/tests/fees.rs` `credit_insertion_fee_overflow_is_reported`, `zero_schedule_charges_and_pays_nothing`
   - Kind: postcondition
-  - Statement: while queueing the inputs, the input tree's `fee_balance` increases by exactly `fee = tree.fees.fee_per_nullifier * inputs.len()` (the schedule stored in the tree header, INV-SET-FEES-07; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI, before any PDA is funded from the tree; a fee-computation or balance overflow returns 7026; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001. The payer never pays into a tree other than the input tree.
-  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs` (`fn apply_input_tree`, `credit_insertion_fee`), `transact/processor.rs` (`collect_forester_fee` before `create_nullifier_pdas`), `shared.rs` (`fn collect_forester_fee`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
-  - Error: `ShieldedPoolError::InvalidForesterFee = 7026` / `InvalidTreeAccounts = 7001`
+  - Statement: while queueing the inputs, the input tree's `fee_balance` increases by exactly `fee = tree.fees.fee_per_nullifier * inputs.len()` (the schedule stored in the tree header, INV-SET-FEES-07; no constant fee exists any more), and the payer then transfers exactly `fee` lamports to the input tree via one System-Program CPI, before any PDA is funded from the tree; a fee-computation or balance overflow returns 7022; a zero fee (all-zero schedule) skips the CPI; the tree must be writable and program-owned else 7001. The payer never pays into a tree other than the input tree.
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs` (`fn apply_input_tree`, `credit_insertion_fee`), `transact/processor.rs` (`create_nullifier_pdas`), `nullifier_pda/create.rs` (`fn create_nullifier_pdas` carries the fee on the first PDA's `CreateAccount`, `fn collect_forester_fee` for the pre-funded fallback), `program-libs/tree/src/fees.rs` (`fn TreeAccount::credit_insertion_fee`)
+  - Error: `ShieldedPoolError::InvalidForesterFee = 7022` / `InvalidTreeAccounts = 7001`
   - Severity: High (fund movement)
-  - Suggested test: none remaining (exact deltas and the reachable 7026 overflow legs are pinned; the applied-batches multiplication cannot overflow from a u32 — type-bound pinned in `applied_batches_cannot_overflow_by_type_bound`)
+  - Suggested test: none remaining (exact deltas and the reachable 7022 overflow legs are pinned; the applied-batches multiplication cannot overflow from a u32 — type-bound pinned in `applied_batches_cannot_overflow_by_type_bound`)
 
 - [x] **INV-TRANSACT-44: SPL deposit settles only if the vault gains exactly the nominal amount**
   - Covered by: `program-tests/shielded-pool/tests/spl_interface/rejection.rs` `transfer_fee_deposit_is_rejected_when_vault_receives_less_than_nominal_amount`
@@ -379,7 +379,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_sends_valid_proof` (frame assertions: every lamport balance unchanged except the payer's signature fee and the forester fee to the input tree)
   - Kind: frame
   - Statement: after a successful `transact` with an empty `interface_transfers` list, every account's token balance is unchanged, and the only lamport movements are the payer's transaction fee and the insertion fee (`input_tree.fees.fee_per_nullifier` × input count, credited to the tree's `fee_balance`) from the payer to the input tree (only the tree accounts' data changes).
-  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn process_transact_ix`), `shared.rs` (`fn collect_forester_fee`)
+  - Location: `programs/shielded-pool/src/instructions/transact/processor.rs` (`fn process_transact_ix`), `nullifier_pda/create.rs` (`fn create_nullifier_pdas`, `fn collect_forester_fee`)
   - Severity: High
   - Suggested test: positive; harness: program-tests integration (`cargo test-sbf`)
 
@@ -415,7 +415,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_dummy_inputs_after_capacity_threshold`
   - Kind: precondition
   - Statement: when the nullifier tree has strictly fewer free leaves than the state tree (queue reservations count against nullifier capacity), the on-chain `allow_dummy_inputs` public input is false; a proof carrying dummy input slots commits to `allow_dummy_inputs = true`, so the public input hash mismatches and verification fails. Equality of the two remaining capacities still allows dummies.
-  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:20-21` (`fn apply_input_tree`), `program-libs/tree/src/lib.rs:279-290` (`fn allow_dummy_inputs`); the merge rail gates the same flag with the explicit `NullifierTreeTooFullForMerge` (`programs/shielded-pool/src/instructions/merge/processor.rs:100-106`)
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:20-21` (`fn apply_input_tree`), `program-libs/tree/src/lib.rs:279-290` (`fn allow_dummy_inputs`); merge proofs bind the same flag in `programs/shielded-pool/src/instructions/merge/verify.rs`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability: near-capacity trees must not accept spends they cannot nullify)
   - Suggested test: negative (queue cursor moved past the threshold, roots unchanged); harness: program-tests integration (`cargo test-sbf`)
@@ -447,7 +447,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: both ring transact variants return `RingPaused` whenever the valid signing config is activated and has a nonzero `paused` field. For `ring_authority_transact`, this check precedes `ring_authority_transact_is_enabled`. A config that is not activated returns `RingNotActivated` ahead of both checks.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `transact/account.rs` (`fn validate_and_parse`)
-  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Error: `ShieldedPoolError::RingPaused = 7042`
   - Severity: Critical
   - Suggested test: negative; harness: litesvm
 
@@ -514,7 +514,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: `ring_authority_transact` returns Err whenever the signing ring's `ring_authority_transact_is_enabled` field is exactly 0.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:157-159` (`fn validate_and_parse`, `require_enabled = true`)
-  - Error: `ShieldedPoolError::RingAuthorityTransactDisabled = 7022`
+  - Error: `ShieldedPoolError::RingAuthorityTransactDisabled = 7020`
   - Severity: Critical (authority containment)
   - Suggested test: negative; harness: mollusk unit
 
@@ -543,7 +543,7 @@ covers the whole group) and referenced from the coverage matrix.
   - Kind: precondition
   - Statement: `ring_authority_transact` accepts only the `CircuitId::RingAuthority` selector; a BSB22-committed `RingP256` selector (or any other family) under the authority tag is rejected by the pre-account selector-family validation. The authority rail itself carries no commitment: `TransactProof` is the plain 128-byte Groth16 triple.
   - Location: `programs/shielded-pool/src/instructions/transact/processor.rs:139-151` (`fn validate_circuit_type`)
-  - Error: `ShieldedPoolError::MismatchedCircuitType = 7039`
+  - Error: `ShieldedPoolError::MismatchedCircuitType = 7035`
   - Severity: High
   - Suggested test: negative per selector family (exists); harness: mollusk unit
 

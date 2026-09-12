@@ -352,7 +352,7 @@ impl<R: Rpc> ZolanaClient<R> {
             self.compute_budget(),
             fee_payer,
             TransactTrees {
-                input_tree: signed.input_tree,
+                input_trees: vec![signed.input_tree],
                 output_tree: self.output_tree,
             },
             owner_signers,
@@ -391,7 +391,7 @@ impl<R: Rpc> ZolanaClient<R> {
             self.compute_budget(),
             fee_payer,
             TransactTrees {
-                input_tree: signed.input_tree,
+                input_trees: vec![signed.input_tree],
                 output_tree: self.output_tree,
             },
             owner_signers,
@@ -444,7 +444,7 @@ impl<R: AsyncRpc> ZolanaClient<R> {
             self.compute_budget(),
             fee_payer,
             TransactTrees {
-                input_tree: signed.input_tree,
+                input_trees: vec![signed.input_tree],
                 output_tree: self.output_tree,
             },
             owner_signers,
@@ -944,7 +944,9 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
 }
 
 struct TransactTrees {
-    input_tree: Address,
+    /// The trees the inputs are nullified in, in the order their contexts are
+    /// declared. `ZolanaClient` signs from one tree today, so this holds one.
+    input_trees: Vec<Address>,
     output_tree: Address,
 }
 
@@ -964,7 +966,7 @@ fn build_unsigned_message(
     .validate()?;
     let transact_ix = Transact {
         payer: fee_payer,
-        input_tree: trees.input_tree,
+        input_trees: trees.input_trees,
         output_tree: trees.output_tree,
         owner_signers,
         interface_transfer_accounts: settlement_transfers,
@@ -1484,7 +1486,7 @@ mod tests {
             .finish_submission_unsigned_sync_with(&shielded, payer.pubkey(), blockhash, |_| {
                 Ok(ProofCompressed {
                     a: [0u8; 32],
-                    b: [0u8; 64],
+                    b: [0u8; 128],
                     c: [0u8; 32],
                     commitment: None,
                 })

@@ -95,19 +95,19 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_stale_nullifier_root_index`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
-  - Statement: each of these instructions returns Err whenever any input's `utxo_tree_root_index` or `nullifier_tree_root_index` is out of range of the root history, or the referenced root-history slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
+  - Statement: each of these instructions returns Err whenever its `utxo_tree_root_index` or `nullifier_tree_root_index` (one pair per instruction, shared by every input) is out of range of the root history, or the referenced root-history slot is zero (uninitialized or a synthetic stale-root fixture). Production reclaim naturally overwrites old roots instead of zeroing them.
   - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:25-30` and `merge/processor.rs:155-160` (root reads), `program-libs/tree/src/lib.rs:296-308` (`fn get_nullifier_tree_root`), error mapping `programs/shielded-pool/src/instructions/shared.rs:25` (`tree_error`, `TreeError::InvalidRootIndex`)
   - Error: `ShieldedPoolError::StaleNullifierRoot = 7015`
   - Severity: Critical (spending against a pre-nullification root)
   - Suggested test: negative; harness: program-tests integration (`cargo test-sbf`)
 
 - [x] **INV-XC-10: every nullifier is inserted at most once**
-  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7048 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7048); `nullifier/nullifier_pdas.rs` `transact_rejects_a_pending_nullifier`, `transact_rejects_the_same_nullifier_twice_in_one_instruction` (see INV-TRANSACT-47 in `tree.md`)
+  - Covered by: `program-tests/shielded-pool/tests/transact/withdrawal.rs` `shield_before_authority_rotation_then_withdraw_sol` (cross-transaction replay -> 7043 with rollback); `transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction` (two equal nullifiers in one instruction -> 7043); `nullifier/nullifier_pdas.rs` `transact_rejects_a_pending_nullifier`, `transact_rejects_the_same_nullifier_twice_in_one_instruction` (see INV-TRANSACT-47 in `tree.md`)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, MergeTransact, RingMergeTransact
   - Statement: for every 32-byte nullifier value, at most one queue insertion ever succeeds across all instructions and all transactions (including two inputs with the same nullifier inside one instruction); every later insertion attempt makes its instruction return Err.
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs` (`load_unused_nullifier_pda`: an initialized PDA rejects the insertion), `transact/tree.rs` and `merge/processor.rs` (`insert_nullifier_into_queue`), `program-libs/tree/src/nullifier_tree/merkle_tree_update.rs`
-  - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7048`
+  - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7043`
   - Severity: Critical (double-spend)
   - Suggested test: negative (same nullifier twice across transactions, and twice within one instruction); harness: program-tests integration (`cargo test-sbf`)
 
@@ -128,9 +128,9 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/ring-test-program/tests/p256_ring_lifecycle.rs` `cross_rail_proof_grafting_is_rejected`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed P256 proof under the RingEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the RingP256 selector can carry no valid BSB22 commitment (a zeroed one decodes as the point at infinity, so the graft fails at pairing, 7008; garbage bytes fail at encoding, 7007); a wrong selector FAMILY under any tag is rejected pre-account with 7039 (INV-TRANSACT-34).
+  - Statement: a proof is only valid under the circuit selector family it was built for: a BSB22-committed P256 proof under the RingEddsa selector fails pairing against the eddsa verifying key (7008); an uncommitted eddsa proof under the RingP256 selector can carry no valid BSB22 commitment (a zeroed one decodes as the point at infinity, so the graft fails at pairing, 7008; garbage bytes fail at encoding, 7007); a wrong selector FAMILY under any tag is rejected pre-account with 7035 (INV-TRANSACT-34).
   - Location: `programs/shielded-pool/src/instructions/transact/verify.rs` (`fn verify`, selector-keyed verifying key + commitment leg), `transact/processor.rs:139-151` (`fn validate_circuit_type`)
-  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidTransactProofEncoding = 7007` / `MismatchedCircuitType = 7039`
+  - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008` / `InvalidTransactProofEncoding = 7007` / `MismatchedCircuitType = 7035`
   - Severity: Critical (cross-rail grafting)
   - Suggested test: negative both graft directions (exists); harness: program-tests integration (`cargo test-sbf`)
 
@@ -273,7 +273,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Affects: RingTransact, RingAuthorityTransact, RingDeposit, RingMergeTransact
   - Statement: each operational ring instruction requires the `ring_config` account to be a signer, validates owner + size + discriminator, and requires `activated == 1` and `paused == 0` (the `ring_auth` derivation is checked exactly once, at `create_ring_config`); consequently a valid, signed config of ring A can never authorize an operation attributed to ring B, and neither an inactive nor a paused ring can mutate protocol state. The activation check precedes the pause check. Administrative config update and rotation remain available while paused or inactive.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs:140-163` (`RingTransactAccounts::validate_and_parse`), `deposit/account.rs:77-78`, `merge_ring/account.rs:22-39`, `ring_config/loader.rs:14-20`
-  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / `ShieldedPoolError::RingPaused = 7047` / signer errors
+  - Error: `ShieldedPoolError::InvalidRingConfig = 7014` / `ShieldedPoolError::RingPaused = 7042` / signer errors
   - Severity: Critical
   - Suggested test: negative (unsigned config; config faked with correct bytes but wrong owner); harness: mollusk unit
 
@@ -293,7 +293,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
 - [x] **INV-XC-28: error codes are stable**
   - Kind: state
   - Affects: all instructions
-  - Statement: every `ShieldedPoolError` discriminant equals exactly its documented code (live range 7000..7019, 7022, 7025..7055 — 52 variants, including `ZeroNetInterfaceTransferAmount = 7045`, `SplAssetCounterAlreadyInitialized = 7046`, `RingPaused = 7047`, the nullifier-PDA codes 7048..7054, and `InvalidReimbursementRecipient = 7055` (a program-owned `reimbursement_recipient` on `batch_update_nullifier_tree` or `close_nullifier_pdas`); 7020/7021/7023/7024 retired; 7044 retired in place, kept for wire-code stability), pinned one-by-one with a compiler-exhaustive variant match and a count assert.
+  - Statement: every `ShieldedPoolError` discriminant equals its documented code in the consecutive range 7000..7065 (66 variants), pinned one-by-one with a compiler-exhaustive variant match, a continuity assertion, and a shared Rust/TypeScript fixture.
   - Location: `program-libs/interface/src/error.rs`; pin test `error.rs` (`fn error_codes_are_stable`)
   - Severity: Medium (client ABI)
   - Suggested test: positive (exists: `error_codes_are_stable`); harness: `cargo test -p zolana-interface`
@@ -303,7 +303,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/tests/error_conversions.rs` `interface_error_conversions_are_stable`, `tree_error_conversions_are_stable` (full per-variant tables incl. the catch-all enumeration)
   - Kind: state
   - Affects: all instructions using loaders or trees
-  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012, AlreadyInitialized -> 7046; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, FeeOverflow -> 7026, and every other variant -> 7001.
+  - Statement: `InterfaceError` converts exactly as InvalidDiscriminator -> 7012, Unauthorized -> 7003, InvalidAccountData -> 7011, InvalidProtocolConfigData -> 7012, AlreadyInitialized -> 7041; `TreeError` converts exactly as Paused -> 7013, TreeIsFull -> 7004, FeeOverflow -> 7022, and every other variant -> 7001.
   - Location: `program-libs/interface/src/error.rs` (`impl From<InterfaceError>`, `impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: none remaining (table test exists)
@@ -320,7 +320,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-tests/shielded-pool/tests/tree/contract.rs` `tree_error_table_is_stable` (full per-variant table incl. the `FeeOverflow` leg and every catch-all variant), `deposit_rejects_an_append_to_a_full_utxo_tree` (7004 full-tree append leg, deposit path via `From<TreeError>`), `program-libs/interface/tests/error_conversions.rs` `tree_error_conversions_are_stable` (the interface `From<TreeError>` table)
   - Kind: state
   - Affects: Transact, RingTransact, RingAuthorityTransact, Deposit, RingDeposit, MergeTransact, RingMergeTransact, CreateTree, SetTreeFees, CloseNullifierPdas (via `tree_error`); BatchUpdateNullifierTree (via `From<TreeError>` for the load, `tree_error` for the reimbursement)
-  - Statement: `tree_error` maps `Paused -> 7013`, `InvalidRootIndex -> 7015`, `TreeIsFull -> 7004` (a full UTXO tree on append), `FeeOverflow -> 7026` (insertion-fee credit or reimbursement multiplication overflow), every other variant -> 7001. The `From<TreeError>` impl agrees on `Paused`/`TreeIsFull`/`FeeOverflow` but maps `InvalidRootIndex -> 7001` (the batch-update path has no stale-root reads, so the 7015 leg exists only in `tree_error`).
+  - Statement: `tree_error` maps `Paused -> 7013`, `InvalidRootIndex -> 7015`, `TreeIsFull -> 7004` (a full UTXO tree on append), `FeeOverflow -> 7022` (insertion-fee credit or reimbursement multiplication overflow), every other variant -> 7001. The `From<TreeError>` impl agrees on `Paused`/`TreeIsFull`/`FeeOverflow` but maps `InvalidRootIndex -> 7001` (the batch-update path has no stale-root reads, so the 7015 leg exists only in `tree_error`).
   - Location: `programs/shielded-pool/src/instructions/shared.rs` (`fn tree_error`), `program-libs/interface/src/error.rs` (`impl From<TreeError>`)
   - Severity: Medium
   - Suggested test: positive (table test incl. the 7004 leg); harness: mollusk unit
@@ -329,7 +329,7 @@ instructions; per-instruction files reference these IDs instead of duplicating t
   - Covered by: `program-libs/interface/src/instruction/instruction_data/transact.rs` units `rejects_retired_field_bearing_payload`, `rejects_retired_owner_tag_discriminant`
   - Kind: precondition
   - Affects: Transact, RingTransact, RingAuthorityTransact
-  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly 3 fields (nullifier, two root indices) and `RingP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
+  - Statement: payloads carrying the retired `p256_signing_pk_x` field encoding, the retired `OwnerTag::P256SigningKey` discriminant, or the retired per-input `eddsa_signer_index` byte fail deserialization (both owned and ref decoders) — the pre-PR172 P256 surface did NOT return and cannot be reintroduced by old clients. The NEW PR172 wire surface is fixed-width: `InputUtxo` is exactly one field (the 32-byte nullifier hash; the root-index pair sits once per instruction after `inputs`) and `RingP256ProofData` a statically-sized `(Bsb22Commitment, optional default_owner_tag)` adapter, so selector-bearing payloads decode allocation-free and any length drift fails closed.
   - Location: `program-libs/interface/src/instruction/instruction_data/transact.rs` (decoder tests), `program-libs/interface/src/verifying_keys/circuit.rs` (`RingP256ProofData`, `FixedOptionOwnerTag`)
   - Error: decode error (`ProgramError::InvalidInstructionData` at dispatch)
   - Severity: Medium

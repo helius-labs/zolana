@@ -10,7 +10,7 @@ use zolana_client::{
     TreeSlotFields,
 };
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::{hash_bytes, p256_owner_identity, solana_owner_identity},
 };
 use zolana_interface::{
@@ -18,8 +18,9 @@ use zolana_interface::{
         instruction_data::transact::{CircuitId, TransactIxData},
         tag, Transact,
     },
+    shape::Shape,
     state::{discriminator::RING_CONFIG, RingConfig},
-    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    tree_slot::{pack_input_flags, tree_id_field, tree_slots_hash_chain},
     verifying_keys::RingP256ProofData,
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -27,10 +28,10 @@ use zolana_keypair::{hash::sha256, pubkey::PublicKey, NullifierKey, ShieldedKeyp
 use zolana_program_test::RING_TEST_PROGRAM_ID;
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, derive_test_transfer_output_blindings, dummy_input,
-    dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
-    inline_outputs, new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof,
-    set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    dummy_transfer_output, external_data_hash_for_discriminator, inline_outputs, input_utxo,
+    new_transact_ix_data, output_owner_pk_hashes, pack_transact_proof, set_output_owner_tags,
+    single_tree_slots, sol_public_slots, spend_input, test_private_tx_blinding, SpendInputArgs,
+    TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, SyncWalletAuthority};
 
@@ -64,7 +65,7 @@ impl RingTransactProof {
     pub fn instruction(&self, payer: Pubkey, tree: Pubkey) -> Instruction {
         let mut ix = Transact {
             payer,
-            input_tree: tree,
+            input_trees: vec![tree],
             output_tree: tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: Vec::new(),
@@ -73,7 +74,7 @@ impl RingTransactProof {
         .instruction();
         *ix.data.first_mut().expect("instruction tag byte") = tag::RING_TRANSACT;
         ix.accounts
-            .insert(5, AccountMeta::new_readonly(self.ring_config, true));
+            .insert(4, AccountMeta::new_readonly(self.ring_config, true));
         ix
     }
 }
@@ -191,8 +192,9 @@ impl RealRingTransact {
         let mut transact_ix_data = new_transact_ix_data(
             nullifiers
                 .iter()
-                .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+                .map(|nullifier| input_utxo(*nullifier))
                 .collect(),
+            utxo_root_index,
             Vec::new(),
             inline_outputs(&output_hashes, &vec![payer_bytes; n_outputs]),
         );
@@ -219,13 +221,13 @@ impl RealRingTransact {
         .expect("private tx hash");
 
         let mut signer_pk_hashes = vec![payer_hash];
-        signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
+        signer_pk_hashes.resize(Shape::new(n_inputs, n_outputs).signer_width(), zero);
         let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
         let published_output_owner_pk_hashes = vec![zero; n_outputs];
 
         let mut chain = vec![
-            create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
-            create_hash_chain_from_slice(&output_hashes).expect("output chain"),
+            create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+            create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
             tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
             tree_id_field(tree_id),
             private_tx,
@@ -251,13 +253,15 @@ impl RealRingTransact {
         }
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_pk_hashes).expect("signer chain"));
-        chain.push(fe(1));
+        let input_flags =
+            pack_input_flags(true, std::iter::repeat_n(0u8, n_inputs)).expect("input flags");
+        chain.push(input_flags);
         chain.push(
-            create_hash_chain_from_slice(&published_output_owner_pk_hashes)
+            create_hash_chain_4_from_slice(&published_output_owner_pk_hashes)
                 .expect("output owner chain"),
         );
         let public_input_hash =
-            create_hash_chain_from_slice(&chain).expect("ring public input hash");
+            create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
         let n_in = u8::try_from(n_inputs).expect("supported ring input count");
         let n_out = u8::try_from(n_outputs).expect("supported ring output count");
@@ -327,7 +331,7 @@ impl RealRingTransact {
                     public_amounts: public_slot_amounts.map(|amount| be(&amount)),
                     ring_program_id: be(&ring_field),
                     signer_pk_hashes: signer_pk_hashes.iter().map(be).collect(),
-                    allow_dummy_inputs: BigUint::from(1u8),
+                    input_flags: be(&input_flags),
                     published_output_owner_pk_hashes: published_output_owner_pk_hashes
                         .iter()
                         .map(be)

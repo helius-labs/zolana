@@ -1,6 +1,7 @@
 use custom_ring_interface::UpdateEntryIxData;
 use pinocchio::{AccountView, Address, ProgramResult};
-use zolana_interface::instruction::instruction_data::transact::InputUtxo;
+use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TreeContext};
+use zolana_program::TransactInputs;
 use zolana_ring_policy::{EntryState, ListEntry, ListId, Member};
 
 use crate::{
@@ -55,10 +56,15 @@ pub fn process_update_entry_ix(
             content_hash: ix.content_hash,
             blinding: ix.blinding,
         },
-        input: InputUtxo {
-            nullifier_hash: nullifier,
-            nullifier_tree_root_index: ix.nullifier_tree_root_index,
-            utxo_tree_root_index: ix.utxo_tree_root_index,
+        inputs: TransactInputs {
+            inputs: vec![InputUtxo {
+                nullifier_hash: nullifier,
+                tree_index: 0,
+            }],
+            tree_contexts: vec![TreeContext {
+                utxo_tree_root_index: ix.utxo_tree_root_index,
+                nullifier_tree_root_index: ix.nullifier_tree_root_index,
+            }],
         },
         input_hash: spent_hash,
         address_nullifier: [0u8; 32],

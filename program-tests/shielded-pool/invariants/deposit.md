@@ -100,16 +100,16 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: two declared asset groups resolving to the same asset (all-zero SOL identity or same registry mint) return Err; one asset's settlement can never be split across two transfers.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:133-141` (`fn validate_and_parse`)
-  - Error: `ShieldedPoolError::DuplicateDepositAsset = 7031`
+  - Error: `ShieldedPoolError::DuplicateDepositAsset = 7027`
   - Severity: Critical (settlement split)
   - Suggested test: negative; harness: mollusk unit
 
 - [x] **INV-DEPOSIT-23: more than MAX_DEPOSIT_ASSETS declared assets is rejected**
-  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `deposit_batch_rejects_more_assets_than_any_layout_supports` (six declared groups → 7034)
+  - Covered by: `program-tests/shielded-pool/tests/deposit/rejection.rs` `deposit_batch_rejects_more_assets_than_any_layout_supports` (six declared groups → 7030)
   - Kind: precondition
   - Statement: an `assets` list longer than `MAX_DEPOSIT_ASSETS` (5) returns Err at account parsing; the `ArrayMap` insert guard is the second, defensive gate.
   - Location: `programs/shielded-pool/src/instructions/deposit/account.rs:58-63`, `deposit/processor.rs:133-139`
-  - Error: `ShieldedPoolError::TooManyDepositAssets = 7034`
+  - Error: `ShieldedPoolError::TooManyDepositAssets = 7030`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
@@ -146,7 +146,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: `deposit`/`ring_deposit` return Err whenever the `deposits` entry list is empty, before any account is parsed.
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:70-73` (`fn process_deposit_internal`)
-  - Error: `ShieldedPoolError::EmptyDepositBatch = 7029`
+  - Error: `ShieldedPoolError::EmptyDepositBatch = 7025`
   - Severity: Medium
   - Suggested test: negative; harness: mollusk unit
 
@@ -155,7 +155,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: every entry whose `asset_index` has no corresponding declared asset group returns Err (checked per entry during hashing, and again defensively at settlement fan-out).
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:99-102, 168-174` (`fn process_deposit_internal`)
-  - Error: `ShieldedPoolError::InvalidDepositAssetIndex = 7030`
+  - Error: `ShieldedPoolError::InvalidDepositAssetIndex = 7026`
   - Severity: High (settlement binding)
   - Suggested test: negative; harness: mollusk unit
 
@@ -164,7 +164,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: the running `checked_add` sum of entry amounts per `asset_index` returns Err on u64 overflow.
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:127-131` (`fn process_deposit_internal`)
-  - Error: `ShieldedPoolError::DepositAmountOverflow = 7032`
+  - Error: `ShieldedPoolError::DepositAmountOverflow = 7028`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
@@ -173,7 +173,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: after the batch loop, if the number of funded asset indices differs from the number of validated settlement groups, the instruction returns Err (an unused group would otherwise pass validation without settling).
   - Location: `programs/shielded-pool/src/instructions/deposit/processor.rs:160-164` (`fn process_deposit_internal`)
-  - Error: `ShieldedPoolError::UnreferencedDepositAsset = 7033`
+  - Error: `ShieldedPoolError::UnreferencedDepositAsset = 7029`
   - Severity: High
   - Suggested test: negative; harness: mollusk unit
 
@@ -283,7 +283,7 @@ each selecting its asset by `asset_index` into `assets`.
   - Kind: precondition
   - Statement: after signer and structural validation, `ring_deposit` returns `RingPaused` whenever `ring_config.paused` is nonzero, mutates no state, and succeeds again after the config authority clears the flag.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`), `deposit/account.rs` (`fn validate_and_parse`)
-  - Error: `ShieldedPoolError::RingPaused = 7047`
+  - Error: `ShieldedPoolError::RingPaused = 7042`
   - Severity: Critical
   - Suggested test: pause/reject/unpause/succeed; harness: litesvm
 

@@ -81,11 +81,14 @@ type TransferParameters struct {
 	BlindingSeed *big.Int
 	// PublicAssets/PublicAmounts are the uniform public movement slots, both of
 	// length shared.NPublicSlots.
-	PublicAssets                 []*big.Int
-	PublicAmounts                []*big.Int
-	RingProgramID                *big.Int
-	SignerPkHashes               []*big.Int
-	AllowDummyInputs             *big.Int
+	PublicAssets   []*big.Int
+	PublicAmounts  []*big.Int
+	RingProgramID  *big.Int
+	SignerPkHashes []*big.Int
+	// InputFlags packs the dummy-input policy in bit 0 and every input's
+	// TreeSlot in its own TreeIndexBits field, so the circuit can bind each
+	// private slot selection to the index SPP routes the nullifier by.
+	InputFlags                   *big.Int
 	PublishedOutputOwnerPkHashes []*big.Int
 
 	// Variant selects the Solana-only instantiation: confidential default-ring,

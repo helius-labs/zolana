@@ -3,20 +3,22 @@ use zolana_interface::{
     instruction::{
         instruction_data::transact::{
             CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OwnerTag,
-            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof,
+            TransactIxData, TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
         },
         tag,
     },
     SOL_INTERFACE,
 };
-use zolana_program::{ExternalDataHashError, SettlementAccounts, TransactExternalData};
+use zolana_program::{
+    ExternalDataHashError, SettlementAccounts, TransactExternalData, TransactInputs,
+};
 
 const TRANSACT_TAG: [u8; 1] = [tag::TRANSACT];
 
 fn proof() -> TransactProof {
     TransactProof {
         a: [1u8; 32],
-        b: [2u8; 64],
+        b: [2u8; 128],
         c: [3u8; 32],
     }
 }
@@ -69,8 +71,11 @@ fn ix_data() -> TransactIxData {
         proof: proof(),
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 2,
+            tree_index: 0,
+        }],
+        tree_contexts: vec![TreeContext {
             utxo_tree_root_index: 3,
+            nullifier_tree_root_index: 2,
         }],
     }
 }
@@ -117,7 +122,10 @@ fn into_ix_data_round_trips_through_from() {
         owned.private_tx_hash,
         owned.circuit,
         owned.proof,
-        owned.inputs.clone(),
+        TransactInputs {
+            inputs: owned.inputs.clone(),
+            tree_contexts: owned.tree_contexts.clone(),
+        },
     );
     assert_eq!(rebuilt, owned);
     assert_eq!(TransactExternalData::from(&rebuilt), external);

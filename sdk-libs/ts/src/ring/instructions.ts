@@ -171,6 +171,7 @@ export async function ringTransactInstruction(
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
+    treeContexts: input.data.treeContexts,
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
@@ -362,7 +363,7 @@ function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof)
     .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(proof.proof.a, 32, "proof.a")
-    .bytes(proof.proof.b, 64, "proof.b")
+    .bytes(proof.proof.b, 128, "proof.b")
     .bytes(proof.proof.c, 32, "proof.c");
 }
 
@@ -388,9 +389,9 @@ async function entryInstruction(
       meta(policyConfig, false, false),
       meta(input.payer, true, true),
       meta(input.entriesTree, false, true),
-      meta(input.entriesTree, false, true),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
       meta(SYSTEM_PROGRAM, false, false),
+      meta(input.entriesTree, false, true),
       meta(nullifierPda, false, true),
       meta(namespace, false, false),
     ],

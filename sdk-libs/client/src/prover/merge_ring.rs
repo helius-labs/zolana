@@ -8,7 +8,7 @@
 //! identity against).
 
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::merge_ring::PreparedMergeRing, utxo::program_id_proof_input_hash,
@@ -88,7 +88,7 @@ impl MergeRingProver {
         let ring_program_id_proof_input_hash = program_id_proof_input_hash(&Some(ring_program_id))?;
         let mut elements = merge.head.to_vec();
         elements.extend([output_ring_data_hash, ring_program_id_proof_input_hash]);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         Ok(merge.finish(
             public_input,

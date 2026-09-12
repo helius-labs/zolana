@@ -121,7 +121,7 @@ impl LifecycleHarness {
 
         let withdraw_ix = Transact {
             payer: fee_payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             owner_signers: Vec::new(),
             interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

@@ -1,5 +1,4 @@
 use crate::instructions::shared::caused_by;
-use borsh::BorshDeserialize;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError, NullifierPda, NULLIFIER_PDA_SEED, NULLIFIER_PDA_SIZE,
@@ -42,8 +41,7 @@ pub(crate) fn load_nullifier_pda(
     let data = nullifier_pda
         .try_borrow()
         .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
-    let record = NullifierPda::try_from_slice(&data)
-        .map_err(caused_by(ShieldedPoolError::InvalidNullifierPda))?;
+    let record = NullifierPda::read_from(&data).ok_or(ShieldedPoolError::InvalidNullifierPda)?;
     // Queue indices start at 1. A zero record is an account the program never
     // wrote, e.g. a system-allocated account assigned to the program.
     if record.queue_index == 0 {

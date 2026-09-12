@@ -5,10 +5,21 @@ use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
 use zolana_hasher::HasherError;
 use zolana_interface::instruction::instruction_data::transact::{
     validate_interface_transfers, CircuitId, ExternalDataPreimage, InputUtxo, InterfaceTransfer,
-    MessageData, TransactIxData, TransactOutput, TransactProof,
+    MessageData, TransactIxData, TransactOutput, TransactProof, TreeContext,
 };
 
 pub type SettlementAccounts = [[u8; 32]; 2];
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TransactInputs {
+    /// The spent inputs in slot order. Each carries the `tree_index` of the
+    /// tree it is nullified in, and the indexes are non-decreasing, so every
+    /// tree owns one contiguous run.
+    pub inputs: Vec<InputUtxo>,
+    /// One root-index pair per input tree, in the order the tree accounts are
+    /// passed.
+    pub tree_contexts: Vec<TreeContext>,
+}
 
 #[derive(Debug)]
 pub enum ExternalDataHashError {
@@ -129,7 +140,7 @@ impl TransactExternalData {
         private_tx_hash: [u8; 32],
         circuit: CircuitId,
         proof: TransactProof,
-        inputs: Vec<InputUtxo>,
+        inputs: TransactInputs,
     ) -> TransactIxData {
         TransactIxData {
             expiry_unix_ts: self.expiry_unix_ts,
@@ -143,7 +154,8 @@ impl TransactExternalData {
             private_tx_hash,
             circuit,
             proof,
-            inputs,
+            inputs: inputs.inputs,
+            tree_contexts: inputs.tree_contexts,
         }
     }
 }

@@ -14,8 +14,8 @@ use zolana_interface::{
     },
     pda,
     state::{
-        tree_account_size, TreeFeeSchedule, NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE,
-        NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
+        tree_account_size, TreeFeeSchedule, AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS,
+        NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE, NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
     },
     NullifierPda, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS,
 };
@@ -26,7 +26,7 @@ use zolana_test_utils::{
         nullifier_pda_addresses, nullifier_pda_rent, tree_close_before_index, tree_fees,
         tree_fees_from,
     },
-    transact::{eddsa_input_utxo, fe, inline_output},
+    transact::{fe, inline_output, input_utxo, single_tree_context},
 };
 use zolana_tree::{TreeAccount, TreeAccountLayout, UTXO_TREE_HEIGHT};
 
@@ -47,7 +47,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
         circuit: CircuitId::ConfidentialEddsa(n_in as u8, n_out as u8, N_PUBLIC_SLOTS as u8),
         tx_viewing_pk: [0u8; 33],
         salt: [0u8; 16],
-        inputs: (1..=n_in).map(|n| eddsa_input_utxo(fe(n), 0)).collect(),
+        inputs: (1..=n_in).map(|n| input_utxo(fe(n))).collect(),
         interface_transfers: Vec::new(),
         data_hash: None,
         ring_data_hash: None,
@@ -55,6 +55,7 @@ fn transfer_ix_data(n_in: u64, n_out: u64) -> TransactIxData {
             .map(|n| inline_output(fe(n), fe(n)))
             .collect(),
         messages: Vec::new(),
+        tree_contexts: single_tree_context(0),
     }
 }
 
@@ -68,7 +69,7 @@ fn nullifiers_of(data: &TransactIxData) -> Vec<[u8; 32]> {
 fn transact_instruction(env: &Pool, data: TransactIxData) -> Instruction {
     Transact {
         payer: env.rpc.payer.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -665,12 +666,11 @@ fn close_funded(env: &mut Pool, fee_balance: u64, nullifiers: &[[u8; 32]]) -> u6
     payer_after + CLOSE_TRANSACTION_FEE - payer_before
 }
 
-/// The at-cost close reimbursement for a 4,096-byte transaction v1: a forester
-/// pays one 5,000-lamport base fee and closes 109 PDAs in it. The protocol
-/// default is zero, so a schedule that actually pays has to be set here -- and
-/// `close_with_a_zero_schedule_pays_nothing_and_still_closes` below covers the
-/// default.
-const AT_COST_CLOSE_REIMBURSEMENT: u64 = 46;
+/// The canonical at-cost close reimbursement. The protocol default is zero
+/// (maintenance is sponsored), so a schedule that actually pays has to be set
+/// here -- and `close_with_a_zero_schedule_pays_nothing_and_still_closes`
+/// below covers the default.
+const AT_COST_CLOSE_REIMBURSEMENT: u64 = AT_COST_CLOSE_REIMBURSEMENT_LAMPORTS;
 
 #[test]
 fn close_pays_the_closer_from_the_fee_balance() {
@@ -713,7 +713,7 @@ fn close_pays_only_what_the_fee_balance_holds() {
         .expect("set a paying fee schedule");
     let nullifiers = [fe(1), fe(2), fe(3)];
 
-    // Below the 138 lamports three closes are owed, so the balance binds.
+    // Below the 264 lamports three closes are owed, so the balance binds.
     let paid = close_funded(&mut env, 100, &nullifiers);
 
     assert_eq!(paid, 100, "a short fee balance pays out in full and stops");

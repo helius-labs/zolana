@@ -2,13 +2,9 @@
 //! and pool tree, build a valid (2,3) Groth16 proof on the Solana-only eddsa
 //! rail, assemble the `transact` instruction data, and send it to the program.
 //!
-//! The two inputs are circuit dummies (`is_dummy = 1`), so they need no real
-//! UTXOs or merkle proofs, but they carry distinct non-zero nullifiers plus the
-//! real on-chain tree roots and the payer's owner hash. The proof is therefore
-//! bound to exactly what the program reconstructs on-chain: the `external_data`
-//! hash (via the shared `ExternalDataPreimage` from the interface crate), the
-//! payer pubkey hash, the per-input owner hashes, the tree roots, and the
-//! nullifier/output hash chains.
+//! Covers real deposited UTXOs and circuit dummies, including spends across two
+//! input trees. Proofs bind each input to its tree roots and owner, and bind the
+//! instruction's external data, nullifiers, and outputs.
 //!
 //! Requires `cargo build-sbf -p shielded-pool-program`.
 
@@ -32,7 +28,7 @@ use zolana_client::{
 };
 use zolana_hasher::Poseidon;
 use zolana_hasher::{
-    hash_chain::{create_hash_chain_from_slice, create_right_hash_chain_from_slice},
+    hash_chain::{create_hash_chain_4_from_slice, create_right_hash_chain_from_slice},
     primitives::{hash_bytes, solana_owner_identity},
 };
 use zolana_interface::{
@@ -42,23 +38,25 @@ use zolana_interface::{
         tag, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     shape::Shape,
-    state::{discriminator::RING_CONFIG, RingConfig},
-    tree_slot::{tree_id_field, tree_slots_hash_chain},
+    state::{discriminator::RING_CONFIG, read_tree_id, RingConfig, TreeFeeSchedule},
+    tree_slot::{tree_id_field, tree_slots_hash_chain, TreeSlot},
     verifying_keys::RingP256ProofData,
-    NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
+    INPUT_TREES, NULLIFIER_PDA_SIZE, N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program_test::{test_blinding, Rejection};
 use zolana_test_utils::nullifier_pda::{
-    assert_nullifier_pdas, nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
+    assert_nullifier_pda, assert_nullifier_pdas, assert_tree_lamports_after_spend,
+    nullifier_pda_addresses, nullifier_pda_rent, tree_fees,
 };
 use zolana_test_utils::transact::{
     build_transfer_prover_inputs, change_and_dummy_outputs, derive_test_transfer_output_blindings,
-    dummy_input, dummy_transfer_output, eddsa_input_utxo, external_data_hash_for_discriminator, fe,
-    inline_outputs, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
-    pack_transact_proof, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    test_private_tx_blinding, SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
+    dummy_input, dummy_transfer_output, external_data_hash_for_discriminator, fe, inline_outputs,
+    input_utxo, input_utxo_in_tree, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    pack_transact_proof, real_output, set_output_owner_tags, single_tree_slots, sol_public_slots,
+    spend_input, test_private_tx_blinding, transact_input_flags, transfer_output, tree_contexts,
+    SpendInputArgs, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::{instructions::transact::PrivateTxHash, Data, Utxo, SOL_MINT};
 use zolana_tree::TreeAccount;
@@ -184,8 +182,9 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &vec![input_owner_bytes; n_outputs]),
     );
@@ -228,7 +227,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
     let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
     let owner_signer_hash =
         solana_owner_identity(&input_owner_bytes).expect("input owner identity");
-    let mut signer_hashes = vec![zero; n_inputs + 1];
+    let mut signer_hashes = vec![zero; Shape::new(n_inputs, n_outputs).signer_width()];
     if let Some(first) = signer_hashes.first_mut() {
         *first = payer_hash;
     }
@@ -250,7 +249,7 @@ fn build_valid_transact_ix_for_owner_with_discriminator(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -440,8 +439,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, utxo_root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        utxo_root_index,
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -489,13 +489,15 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
     // transfer slots (all idle here), then ring/signer/dummy-policy, then the
     // variant appendix (RingEddsa: the output-owner chain; RingAuthority:
     // nothing — its signer element is the bare payer hash).
-    let signer_hashes: Vec<[u8; 32]> = std::iter::once(payer_hash)
-        .chain(std::iter::repeat_n(zero, usize::from(n_inputs)))
-        .collect();
+    let mut signer_hashes =
+        vec![zero; Shape::new(usize::from(n_inputs), usize::from(n_outputs)).signer_width()];
+    if let Some(first) = signer_hashes.first_mut() {
+        *first = payer_hash;
+    }
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let mut chain = vec![
-        create_hash_chain_from_slice(&nullifiers).expect("nullifier chain"),
-        create_hash_chain_from_slice(&output_hashes).expect("output chain"),
+        create_hash_chain_4_from_slice(&nullifiers).expect("nullifier chain"),
+        create_hash_chain_4_from_slice(&output_hashes).expect("output chain"),
         tree_slots_hash_chain(&tree_slots).expect("tree slot chain"),
         tree_id_field(tree_id),
         private_tx,
@@ -514,9 +516,9 @@ fn build_valid_ring_ix<const IS_AUTHORITY: bool>(
         chain.push(ring_field);
         chain.push(create_right_hash_chain_from_slice(&signer_hashes).expect("signer hash chain"));
         chain.push(fe(1));
-        chain.push(create_hash_chain_from_slice(&published_owners).expect("output owner chain"));
+        chain.push(create_hash_chain_4_from_slice(&published_owners).expect("output owner chain"));
     }
-    let public_input_hash = create_hash_chain_from_slice(&chain).expect("ring public input hash");
+    let public_input_hash = create_hash_chain_4_from_slice(&chain).expect("ring public input hash");
 
     let mut prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
         inputs: prover_inputs,
@@ -597,7 +599,7 @@ fn transact_sends_valid_proof() {
     // and the eddsa signer the inputs reference (`eddsa_signer_index = 0`).
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -762,7 +764,7 @@ fn transact_rejects_tampered_output_owner_tag() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -804,7 +806,7 @@ fn transact_rejects_tampered_public_amount() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -846,7 +848,7 @@ fn transact_rejects_tampered_private_transaction_hash() {
     data.private_tx_hash = fe(42);
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -875,7 +877,7 @@ fn transact_rejects_tampered_external_data() {
     data.data_hash = Some([0x5A; 32]);
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -913,7 +915,7 @@ fn transact_rejects_out_of_field_output_hash() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -959,7 +961,7 @@ fn transact_rejects_unsigned_eddsa_input_owner() {
     let owner_signer_index = 5 + transact_ix_data.inputs.len();
     let mut ix = Transact {
         payer,
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1004,7 +1006,7 @@ fn transact_rejects_a_substituted_input_signer() {
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, bound_owner.pubkey());
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![substitute_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1051,7 +1053,7 @@ fn transact_rejects_a_substituted_payer() {
     let transact_ix_data = build_valid_transact_ix_for_owner(&mut env, input_owner.pubkey());
     let ix = Transact {
         payer: substitute_payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![input_owner.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -1092,7 +1094,7 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1103,10 +1105,10 @@ fn transact_rejects_replay_under_the_ring_transact_tag() {
 
     // A structurally valid RingConfig at a keypair address: `load_ring_config`
     // accepts it, and the keypair signs in place of a ring's `ring_auth` PDA.
-    // The ring loader reads it after the SPP + system-program prefix (index 5).
+    // The ring loader reads it after the SPP + system-program prefix (index 4).
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
 
     let error = env
         .rpc
@@ -1141,7 +1143,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
     transact_ix_data.circuit = CircuitId::RingEddsa(2, 3, N_PUBLIC_SLOTS as u8);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1152,7 +1154,7 @@ fn ring_transact_rejects_a_confidential_proof_bound_to_the_ring_tag() {
 
     let ring_config = write_signed_ring_config(&mut env, Pubkey::new_unique(), true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[ix], &[&ring_config])
@@ -1189,7 +1191,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let transact_ix_data = build_valid_ring_ix::<false>(&mut env, ring_a, 2, 3);
     let mut base_ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1202,7 +1204,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut wrong_ring_ix = base_ix.clone();
     wrong_ring_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
@@ -1220,7 +1222,7 @@ fn ring_transact_rejects_a_proof_bound_to_a_different_ring() {
     let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same ring proof with the bound ring's config succeeds");
@@ -1250,7 +1252,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring_a, 2, 2);
     let mut base_ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1264,7 +1266,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let mut wrong_ring_ix = base_ix.clone();
     wrong_ring_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_b.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_b.pubkey(), true));
     let error = env
         .rpc
         .create_and_send_default_payer_transaction(&[wrong_ring_ix], &[&config_b])
@@ -1282,7 +1284,7 @@ fn ring_authority_transact_rejects_a_proof_bound_to_a_different_ring() {
     let config_a = write_signed_ring_config(&mut env, ring_a, true);
     base_ix
         .accounts
-        .insert(5, AccountMeta::new_readonly(config_a.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(config_a.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction(&[base_ix], &[&config_a])
         .expect("the same ring-authority proof with the bound ring's config succeeds");
@@ -1304,7 +1306,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
     let transact_ix_data = build_valid_ring_ix::<true>(&mut env, ring, 4, 4);
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1315,7 +1317,7 @@ fn ring_authority_transact_accepts_the_maximum_square_shape() {
 
     let ring_config = write_signed_ring_config(&mut env, ring, true);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
             &[ix],
@@ -1359,7 +1361,7 @@ fn transact_accepts_the_consolidation_shape() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1421,7 +1423,7 @@ fn ring_transact_accepts_the_consolidation_shape() {
         .collect();
     let mut ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1432,7 +1434,7 @@ fn ring_transact_accepts_the_consolidation_shape() {
 
     let ring_config = write_signed_ring_config(&mut env, ring, false);
     ix.accounts
-        .insert(5, AccountMeta::new_readonly(ring_config.pubkey(), true));
+        .insert(4, AccountMeta::new_readonly(ring_config.pubkey(), true));
     let (utxo_next_before, nullifier_next_before) = tree_progress(&env.rpc, &tree);
     env.rpc
         .create_and_send_default_payer_transaction_with_budget(
@@ -1532,7 +1534,7 @@ fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
     }
     let ix = Transact {
         payer,
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: extra_signers.iter().map(|signer| signer.pubkey()).collect(),
         interface_transfer_accounts: Vec::new(),
@@ -1609,7 +1611,7 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
 
     let ix = Transact {
         payer,
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1626,4 +1628,450 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
         .last_transaction_trace()
         .expect("capacity-gate transaction trace")
         .assert_rolled_back_except(&[payer]);
+}
+
+/// Build a 2x3 spend from two trees. The first input is a funded deposit;
+/// `second_input_amount` funds a real deposit in the second tree when present,
+/// otherwise that tree supplies a dummy input. Return the instruction and the
+/// expected output-tree root after appending the proven outputs.
+fn build_two_tree_transact_ix(
+    env: &mut Pool,
+    second_tree: Pubkey,
+    second_input_amount: Option<u64>,
+) -> (TransactIxData, [u8; 32]) {
+    let payer = env.rpc.payer.insecure_clone();
+    let payer_bytes = payer.pubkey().to_bytes();
+    let zero = [0u8; 32];
+    let n_outputs = 3;
+    let first_input_amount = 7_000_000u64;
+    let output_amount = first_input_amount
+        .checked_add(second_input_amount.unwrap_or(0))
+        .expect("total deposited amount");
+
+    let nullifier_key = NullifierKey::from_secret([9u8; 31]);
+    let nullifier_pk = nullifier_key.pubkey().expect("nullifier pubkey");
+    let owner_public_key = PublicKey::from_ed25519(&payer_bytes);
+    let owner_pk_hash = owner_public_key
+        .owner_proof_input_hash()
+        .expect("owner pk hash");
+    let owner_field = owner_hash(&owner_public_key, &nullifier_pk).expect("owner field");
+    let tree_id = env.tree_id;
+    let nf_tree = nullifier_tree().expect("indexed nullifier tree");
+    let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
+    let mut root_indexes = Vec::new();
+    let mut input_hashes = Vec::new();
+    let mut nullifiers = Vec::new();
+    let mut prover_input_list = Vec::new();
+    let input_trees = [
+        (env.tree, Some(first_input_amount)),
+        (second_tree, second_input_amount),
+    ];
+    for (slot_index, (slot, (tree, amount))) in tree_slots.iter_mut().zip(input_trees).enumerate() {
+        let input_tree_id = read_tree_id(&env.rpc.account_data(&tree).expect("input tree account"))
+            .expect("input tree id");
+        let (mut input, nullifier, input_hash) = if let Some(amount) = amount {
+            assert!(amount > 0, "real inputs must carry funds");
+            let deposit = env
+                .rpc
+                .deposit_sol(&tree, &payer, amount, owner_field)
+                .expect("funded deposit into input tree");
+            let utxo = env
+                .rpc
+                .indexed_deposit_utxo(&deposit, owner_public_key)
+                .expect("indexed deposit UTXO");
+            assert_eq!((utxo.asset, utxo.amount), (SOL_MINT, amount));
+            let hash = utxo
+                .hash(&nullifier_pk, &zero, &zero, input_tree_id)
+                .expect("input UTXO hash");
+            assert_eq!(
+                hash, deposit.utxo_hash,
+                "commitment from the actual deposit"
+            );
+            let mut state_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+            state_tree.append(&hash).expect("append deposited UTXO");
+            assert_eq!(
+                state_tree.root(),
+                current_tree_roots(&env.rpc, &tree).1,
+                "inclusion witness matches this input tree's root"
+            );
+            let state_path = state_tree.get_proof_of_leaf(0, true).expect("state proof");
+            let nullifier = nullifier_key
+                .nullifier(&hash, &utxo.blinding)
+                .expect("input nullifier");
+            let non_inclusion = nf_tree
+                .get_non_inclusion_proof(&BigUint::from_bytes_be(&nullifier))
+                .expect("nullifier non-inclusion proof");
+            let input = spend_input(SpendInputArgs {
+                utxo: &utxo,
+                owner_field: &owner_field,
+                state_path: &state_path,
+                state_path_index: 0,
+                non_inclusion: &non_inclusion,
+                tree_id: input_tree_id,
+                nullifier: &nullifier,
+                owner_pk_hash: &owner_pk_hash,
+                nullifier_key: &nullifier_key,
+            })
+            .expect("real input witness");
+            (input, nullifier, hash)
+        } else {
+            let (input, nullifier) =
+                dummy_input(&[2u8; 31], &nf_tree, input_tree_id).expect("dummy input");
+            (input, nullifier, zero)
+        };
+        let (utxo_root_index, utxo_root, nullifier_root) = current_tree_roots(&env.rpc, &tree);
+        assert_eq!(nf_tree.root(), nullifier_root, "nullifier root gate");
+        *slot = TreeSlot::new(input_tree_id, utxo_root, nullifier_root);
+        input.tree_slot = BigUint::from(slot_index);
+        root_indexes.push((utxo_root_index, 0));
+        input_hashes.push(input_hash);
+        nullifiers.push(nullifier);
+        prover_input_list.push(input);
+    }
+    assert_ne!(tree_slots[0].id, tree_slots[1].id, "distinct input trees");
+    let nullifier = *nullifiers.first().expect("first input nullifier");
+
+    let change_nullifier_key = NullifierKey::from_secret([11u8; 31]);
+    let change_nullifier_pk = change_nullifier_key
+        .pubkey()
+        .expect("change output nullifier pubkey");
+    let dummy_output_blindings: Vec<[u8; 31]> = (0..n_outputs - 1)
+        .map(|offset| {
+            [2u8.checked_add(u8::try_from(offset).expect("supported output count"))
+                .expect("dummy-output seed"); 31]
+        })
+        .collect();
+    let change = real_output(
+        owner_public_key,
+        change_nullifier_pk,
+        SOL_MINT,
+        output_amount,
+        [1u8; 31],
+    );
+    let mut outputs = vec![transfer_output(&change, tree_id).expect("funded output")];
+    for blinding in &dummy_output_blindings {
+        outputs.push(
+            dummy_transfer_output(blinding, tree_id)
+                .expect("dummy output")
+                .0,
+        );
+    }
+    let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
+        .expect("derive output blindings");
+
+    let mut transact_ix_data = new_transact_ix_data(
+        nullifiers
+            .iter()
+            .enumerate()
+            .map(|(index, hash)| {
+                input_utxo_in_tree(*hash, u8::try_from(index).expect("tree index"))
+            })
+            .collect(),
+        root_indexes.first().expect("first root indexes").0,
+        Vec::new(),
+        inline_outputs(&output_hashes, &vec![payer_bytes; n_outputs]),
+    );
+    transact_ix_data.tree_contexts = tree_contexts(&root_indexes);
+
+    let owner_pk_hashes =
+        output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
+    let mut output_nullifier_pks = vec![zero; n_outputs];
+    if let Some(change) = output_nullifier_pks.first_mut() {
+        *change = change_nullifier_pk;
+    }
+    set_output_owner_tags(&mut outputs, &owner_pk_hashes, &output_nullifier_pks);
+
+    let external_data_hash =
+        external_data_hash_for_discriminator(&transact_ix_data, tag::TRANSACT, &[])
+            .expect("external data hash");
+
+    let change_output_hash = *output_hashes.first().expect("change output hash");
+    let private_tx_blinding = test_private_tx_blinding(&nullifier).expect("private tx blinding");
+    let private_tx = PrivateTxHash::new(
+        &input_hashes,
+        &[change_output_hash, zero, zero],
+        &external_data_hash,
+        &private_tx_blinding,
+    )
+    .hash()
+    .expect("private tx hash");
+
+    let payer_hash = solana_owner_identity(&payer_bytes).expect("payer identity");
+    let signer_hashes = vec![payer_hash, zero, zero];
+    let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
+    let input_flags = transact_input_flags(&prover_input_list);
+    let public_input_hash = PublicInputs {
+        nullifiers: &nullifiers,
+        output_hashes: &output_hashes,
+        tree_slots: &tree_slots,
+        output_tree_id: tree_id,
+        private_tx: &private_tx,
+        external_data_hash: &external_data_hash,
+        public_transfers: &PublicTransfers {
+            assets: public_slot_assets,
+            amounts: public_slot_amounts,
+        },
+        ring_program_id: &zero,
+        input_flags: &input_flags,
+        signer_pk_hashes: &signer_hashes,
+        output_owner_pk_hashes: Some(&owner_pk_hashes),
+    }
+    .hash()
+    .expect("public input hash");
+
+    let prover_inputs = build_transfer_prover_inputs(TransferProverInputsArgs {
+        inputs: prover_input_list,
+        outputs,
+        tree_slots,
+        output_tree_id: tree_id,
+        blinding_seed: TEST_BLINDING_SEED,
+        external_data_hash,
+        private_tx_hash: private_tx,
+        public_slot_assets,
+        public_slot_amounts,
+        signer_pk_hashes: signer_hashes,
+        public_input_hash,
+    });
+    let proof = ProverClient::local()
+        .prove_transfer(&prover_inputs)
+        .expect("prove two-tree transact");
+    {
+        let public_inputs = [public_input_hash];
+        let verifying_key = transact_ix_data
+            .circuit
+            .verifying_key()
+            .expect("supported confidential verifying key");
+        Groth16Verifier::new(&proof.a, &proof.b, &proof.c, &public_inputs, verifying_key)
+            .expect("construct transact verifier")
+            .verify()
+            .expect("two-tree proof verifies locally");
+    }
+    transact_ix_data.proof = pack_transact_proof(&proof).expect("pack transact proof");
+    transact_ix_data.private_tx_hash = private_tx;
+    let mut expected_output_tree = MerkleTree::<Poseidon>::new(STATE_TREE_HEIGHT, 0);
+    expected_output_tree
+        .append(input_hashes.first().expect("first deposited UTXO"))
+        .expect("append existing leaf");
+    for hash in &output_hashes {
+        expected_output_tree
+            .append(hash)
+            .expect("append proven output");
+    }
+    (transact_ix_data, expected_output_tree.root())
+}
+
+/// One `transact` spending an input from each of two trees: every nullifier PDA
+/// lands under the tree its input names, each tree queues only its own run and
+/// pays its own forester fee, and the event carries one input-tree sequence per
+/// tree so the indexer can rebuild the spend.
+#[test]
+fn transact_spends_two_input_trees_with_a_valid_proof() {
+    assert_two_tree_transact(None);
+}
+
+#[test]
+fn transact_spends_real_utxos_from_two_input_trees() {
+    // Both inclusion paths are required, and the output carries their combined
+    // 12 million lamports with no public deposit or withdrawal in the spend.
+    assert_two_tree_transact(Some(5_000_000));
+}
+
+const FIRST_TREE_FEE_PER_NULLIFIER: u64 = 123;
+const SECOND_TREE_FEE_PER_NULLIFIER: u64 = 457;
+
+fn set_fee_per_nullifier(env: &mut Pool, tree: &Pubkey, fee_per_nullifier: u64) {
+    let authority = env.authority.insecure_clone();
+    env.rpc
+        .set_tree_fees(
+            &authority,
+            tree,
+            TreeFeeSchedule {
+                fee_per_nullifier,
+                ..TreeFeeSchedule::default()
+            },
+        )
+        .expect("set nullifier fee");
+}
+
+fn assert_two_tree_transact(second_input_amount: Option<u64>) {
+    let mut env = proof_env();
+    let second_tree = env
+        .rpc
+        .create_tree(&env.authority)
+        .expect("create the second input tree");
+
+    let payer = env.rpc.payer.pubkey();
+    let first_tree = env.tree;
+    set_fee_per_nullifier(&mut env, &first_tree, FIRST_TREE_FEE_PER_NULLIFIER);
+    set_fee_per_nullifier(&mut env, &second_tree, SECOND_TREE_FEE_PER_NULLIFIER);
+    let (transact_ix_data, expected_output_root) =
+        build_two_tree_transact_ix(&mut env, second_tree, second_input_amount);
+    let expected_output_hashes: Vec<[u8; 32]> = transact_ix_data
+        .outputs
+        .iter()
+        .map(|output| output.utxo_hash)
+        .collect();
+    let nullifiers: Vec<[u8; 32]> = transact_ix_data
+        .inputs
+        .iter()
+        .map(|input| input.nullifier_hash)
+        .collect();
+    let [first_nullifier, second_nullifier] = nullifiers.as_slice() else {
+        panic!("the two-tree fixture spends exactly two inputs");
+    };
+
+    let (first_utxo_next_before, first_nullifier_next_before) =
+        tree_progress(&env.rpc, &first_tree);
+    let (second_utxo_next_before, second_nullifier_next_before) =
+        tree_progress(&env.rpc, &second_tree);
+    let (first_fees, first_fee_before) = tree_fees(&env.rpc, &first_tree).expect("first tree fees");
+    let (second_fees, second_fee_before) =
+        tree_fees(&env.rpc, &second_tree).expect("second tree fees");
+    let first_tree_before = env
+        .rpc
+        .svm
+        .get_account(&first_tree)
+        .expect("first tree account");
+    let second_tree_before = env
+        .rpc
+        .svm
+        .get_account(&second_tree)
+        .expect("second tree account");
+    let second_utxo_root_before = current_tree_roots(&env.rpc, &second_tree).1;
+
+    let ix = Transact {
+        payer,
+        input_trees: vec![first_tree, second_tree],
+        output_tree: first_tree,
+        owner_signers: Vec::new(),
+        interface_transfer_accounts: Vec::new(),
+        data: transact_ix_data,
+    }
+    .instruction();
+
+    let indexed = env
+        .rpc
+        .create_and_send_default_payer_transaction(&[ix], &[])
+        .expect("two-tree transact with a valid proof");
+
+    // Outputs all land in the output tree; each input tree queues exactly the
+    // run of nullifiers its own inputs named.
+    let (first_utxo_next_after, first_nullifier_next_after) = tree_progress(&env.rpc, &first_tree);
+    let (second_utxo_next_after, second_nullifier_next_after) =
+        tree_progress(&env.rpc, &second_tree);
+    assert_eq!(
+        first_utxo_next_after,
+        first_utxo_next_before + 3,
+        "three outputs appended to the output tree"
+    );
+    assert_eq!(
+        second_utxo_next_after, second_utxo_next_before,
+        "the second input tree appends no output"
+    );
+    assert_eq!(
+        first_nullifier_next_after,
+        first_nullifier_next_before + 1,
+        "the first tree queues its own input only"
+    );
+    assert_eq!(
+        second_nullifier_next_after,
+        second_nullifier_next_before + 1,
+        "the second tree queues its own input only"
+    );
+    assert_eq!(
+        (
+            current_tree_roots(&env.rpc, &first_tree).1,
+            current_tree_roots(&env.rpc, &second_tree).1,
+        ),
+        (expected_output_root, second_utxo_root_before),
+        "the output tree contains the funded output and padding; the other UTXO root is unchanged"
+    );
+    assert_eq!(
+        (
+            env.rpc.indexer().root(&first_tree),
+            env.rpc.indexer().root(&second_tree),
+        ),
+        (expected_output_root, second_utxo_root_before),
+        "the indexer tracks both trees independently"
+    );
+    for nullifier in &nullifiers {
+        assert!(env.rpc.indexer().is_nullifier_spent(nullifier));
+    }
+
+    // Each nullifier PDA is derived under, and paid for by, the tree its input
+    // named.
+    assert_nullifier_pda(
+        &env.rpc,
+        &first_tree,
+        first_nullifier,
+        first_nullifier_next_before,
+    )
+    .expect("first tree nullifier PDA");
+    assert_nullifier_pda(
+        &env.rpc,
+        &second_tree,
+        second_nullifier,
+        second_nullifier_next_before,
+    )
+    .expect("second tree nullifier PDA");
+    assert_tree_lamports_after_spend(&env.rpc, &first_tree, &first_tree_before, 1)
+        .expect("first tree funds its nullifier PDA");
+    assert_tree_lamports_after_spend(&env.rpc, &second_tree, &second_tree_before, 1)
+        .expect("second tree funds its nullifier PDA");
+
+    let (_, first_fee_after) = tree_fees(&env.rpc, &first_tree).expect("first tree fees after");
+    let (_, second_fee_after) = tree_fees(&env.rpc, &second_tree).expect("second tree fees after");
+    assert_eq!(
+        first_fee_after,
+        first_fee_before + first_fees.fee_per_nullifier,
+        "the first tree collected exactly one nullifier fee"
+    );
+    assert_eq!(
+        second_fee_after,
+        second_fee_before + second_fees.fee_per_nullifier,
+        "the second tree collected exactly one nullifier fee"
+    );
+
+    // The event carries one sequence per input tree, in context order, so the
+    // indexer can attribute every nullifier to the tree that queued it.
+    let event = match indexed.events.as_slice() {
+        [event] => event.decoded.as_ref().expect("decode transact event"),
+        events => panic!("expected exactly one transact event, got {events:?}"),
+    };
+    assert_eq!(event.output_tree, first_tree.to_bytes());
+    assert_eq!(event.first_output_leaf_index, first_utxo_next_before);
+    let rebuilt: Vec<([u8; 32], [u8; 32], u64)> = event
+        .inputs
+        .iter()
+        .map(|input| (input.nullifier, input.tree, input.input_queue_seq))
+        .collect();
+    assert_eq!(
+        rebuilt,
+        vec![
+            (
+                *first_nullifier,
+                first_tree.to_bytes(),
+                first_nullifier_next_before
+            ),
+            (
+                *second_nullifier,
+                second_tree.to_bytes(),
+                second_nullifier_next_before
+            ),
+        ],
+        "the indexer attributes each nullifier to the tree that queued it"
+    );
+    assert_eq!(
+        event
+            .outputs
+            .iter()
+            .map(|output| output.utxo_hash)
+            .collect::<Vec<_>>(),
+        expected_output_hashes,
+        "the event preserves the proven outputs"
+    );
+    assert!(
+        event.spl_transfers.is_empty(),
+        "the spend has no public funding"
+    );
 }

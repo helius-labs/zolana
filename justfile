@@ -273,7 +273,7 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v6"
+    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
     for name in custom_ring_policy.key custom_ring_base.key; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
@@ -661,14 +661,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v8"
+swap-keys-tag := "swap-keys-v9"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v9"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v10"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -796,7 +796,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v5"
+escrow-keys-tag := "escrow-keys-v6"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
@@ -1570,15 +1570,18 @@ build-spp-keys:
     python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
-# CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
-# is prover/server/scripts/rotate_proving_keys.sh.
+# (proving-keys/<version-hash>) comes from the committed lockfile. The two
+# custom-ring keys are skipped: the lockfile marks them `source: release`, so they
+# are pinned there but served from their own GitHub release, never from the object
+# store. Needs the aws CLI with bucket write access. Full rotation (regen keys +
+# vkeys + lock + upload) is prover/server/scripts/rotate_proving_keys.sh.
 publish-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
     prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' \
+        --exclude 'custom_ring_policy.key' --exclude 'custom_ring_base.key'
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target

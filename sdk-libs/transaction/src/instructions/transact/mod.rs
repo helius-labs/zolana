@@ -16,13 +16,16 @@ pub mod transfer;
 pub mod types;
 
 pub use external_data::{ExternalData, SettlementTransfer};
-pub use shape::{canonical_shape, resolve_shape, Shape, SPP_AUTO_SHAPES, SPP_SUPPORTED_SHAPES};
+pub use shape::{
+    auto_shapes, canonical_shape, resolve_shape, Shape, SPP_CONSOLIDATION_SHAPE,
+    SPP_SUPPORTED_SHAPES,
+};
 pub use slots::{encode_confidential_slots, encrypt_transaction_data, EncryptedTransactionData};
 pub use split::{ConfidentialSplit, PreparedSplit};
 pub use spp_proof_inputs::{
     assign_output_blindings, first_nullifier, get_transaction_viewing_key, inputs_require_p256,
-    prepare_output_blindings, signed_magnitude_to_field, signed_to_field, PublicTransfers,
-    SppProofInputs,
+    prepare_output_blindings, signed_magnitude_to_field, signed_to_field,
+    validate_input_tree_order, PublicTransfers, SppProofInputs,
 };
 pub use transfer::{
     ChangeLayout, ConfidentialTransfer, PreparedTransfer, PublicTransferRequest, Recipient,

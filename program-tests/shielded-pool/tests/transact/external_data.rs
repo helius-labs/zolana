@@ -1,9 +1,14 @@
+//! External-data-hash assembly unit tests, moved out of the program crate
+//! (`transact/processor.rs`): the program appends one resolved address per
+//! `OwnerTag::Account` output in output order and nothing for inline tags, so
+//! the digest stays tag + prefix when every owner is inline.
+
 use shielded_pool_program::testing::hash_external_data;
 use zolana_hasher::{sha256::Sha256BE, Hasher};
 use zolana_interface::instruction::{
     instruction_data::transact::{
         CircuitId, OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput,
-        TransactProof,
+        TransactProof, TreeContext,
     },
     tag::InstructionTag,
 };
@@ -34,6 +39,10 @@ fn serialized_ix(owner_tags: &[OwnerTag]) -> Vec<u8> {
         circuit: CircuitId::ConfidentialEddsa(1, 2, 3),
         proof: TransactProof::zeroed(),
         inputs: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
     .serialize()
     .unwrap()

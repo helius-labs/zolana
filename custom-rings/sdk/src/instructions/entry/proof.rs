@@ -15,7 +15,7 @@ use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput, TransactProof},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    tree_slot::{tree_id_field, TreeSlot},
+    tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
@@ -199,7 +199,8 @@ impl EntryWitness<'_> {
         let signer_hashes = [payer_hash, owner_pk_hash];
         let output_owner_hashes = [owner_pk_hash];
         let public_transfers = PublicTransfers::default();
-        let allow_dummy_inputs = right_align(&1u64.to_be_bytes());
+        // One real input in tree slot 0, dummy inputs allowed.
+        let input_flags = pack_input_flags(true, [0u8]).map_err(|_| EntryProofError::Hashing)?;
         let public_hash = PublicInputs {
             nullifiers: &[slot.nullifier],
             output_hashes: &[output_hash],
@@ -209,7 +210,7 @@ impl EntryWitness<'_> {
             external_data_hash: &external_hash,
             public_transfers: &public_transfers,
             ring_program_id: &[0u8; 32],
-            allow_dummy_inputs: &allow_dummy_inputs,
+            input_flags: &input_flags,
             signer_pk_hashes: &signer_hashes,
             output_owner_pk_hashes: Some(&output_owner_hashes),
         }
@@ -259,7 +260,7 @@ impl EntryWitness<'_> {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: signer_hashes.iter().map(be).collect(),
-            allow_dummy_inputs: BigUint::from(1u8),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };

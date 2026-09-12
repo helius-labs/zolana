@@ -14,6 +14,7 @@ use zolana_interface::{
             CircuitId, ExternalDataPreimage, ResolvedOutput, TransactIxDataRef,
         },
         tag::InstructionTag,
+        validate_input_tree_contexts,
     },
     N_PUBLIC_SLOTS,
 };
@@ -22,13 +23,12 @@ use super::{
     account::{RingTransactAccounts, TransactAccounts},
     event::{build_transact_event, resolve_outputs},
     interface_transfer::settle_interface_transfers,
-    tree::{apply_input_tree, apply_output_tree},
+    tree::{apply_input_trees, apply_output_tree},
 };
 use crate::instructions::{
     event::emit_event,
-    nullifier_pda::create_nullifier_pdas,
     settlement::Settlement,
-    shared::{check_field_element, check_field_elements, check_not_expired, collect_forester_fee},
+    shared::{check_field_element, check_field_elements, check_not_expired},
     transact::verify::{OwnerHashCache, TransactProof, TransactProofInputs},
 };
 
@@ -46,8 +46,9 @@ pub fn process_transact_ix(
     // 1. Deserialize instruction data.
     let (ix, external_data_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
         .map_err(caused_by(ProgramError::InvalidInstructionData))?;
-    // 2. Validate declared circuit type.
+    // 2. Validate declared circuit type and the declared input trees.
     validate_circuit_type(&ix, instruction)?;
+    validate_input_tree_contexts(&ix.inputs, &ix.tree_contexts)?;
 
     // 3. Check proof is not expired.
     let clock = Clock::get()?;
@@ -57,13 +58,7 @@ pub fn process_transact_ix(
     let resolved_outputs = resolve_outputs(accounts, &ix)?;
     let mut proof_inputs = Box::new(TransactProofInputs::new(ix.circuit));
     let mut owner_hashes = Box::new(OwnerHashCache::new());
-    // 5. Derive the circuit-specific fixed-width output-owner commitment.
-    proof_inputs.fill_output_owner_pk_hashes(
-        ix.circuit.output_owner_mode(),
-        &resolved_outputs,
-        &mut owner_hashes,
-    )?;
-    // 6. Check accounts.
+    // 5. Check accounts.
     let mut transact_accounts = match ix.circuit {
         CircuitId::ConfidentialEddsa(..) => TransactAccounts::validate_and_parse(accounts, &ix)?,
         CircuitId::RingEddsa(..) | CircuitId::RingAuthority(..) | CircuitId::RingP256(..) => {
@@ -73,44 +68,29 @@ pub fn process_transact_ix(
             transact_accounts
         }
     };
-    // 6. Add owner signer hashes to proof inputs.
+    // 6. Hash all signers before output owners: cache hits deduplicate signers.
     proof_inputs.fill_owner_signer_hashes(
         transact_accounts.payer,
         transact_accounts.owner_signers,
         &mut owner_hashes,
     )?;
+    // 7. Derive the circuit-specific fixed-width output-owner commitment.
+    proof_inputs.fill_output_owner_pk_hashes(
+        ix.circuit.output_owner_mode(),
+        &resolved_outputs,
+        &mut owner_hashes,
+    )?;
 
-    // 7. Process sol and spl transfers.
+    // 8. Process sol and spl transfers.
     proof_inputs.assign_public_amounts_and_assets(
         &ix.interface_transfers,
         &transact_accounts.settlements,
         usize::from(ix.circuit.num_public_asset_slots()),
     )?;
-    // 8. Resolve the input tree's roots and insert nullifiers into queue.
-    let input_tree_result = apply_input_tree(transact_accounts.input_tree, &ix, &mut proof_inputs)?;
-    // The fee transfer CPI includes the tree, so it must run before
-    // create_nullifier_pdas moves tree lamports directly: a CPI boundary syncs
-    // only its own accounts into the transaction context, and a pending tree
-    // debit without the matching nullifier PDA credits trips the runtime's
-    // UnbalancedInstruction check.
-    collect_forester_fee(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        input_tree_result.forester_fee,
-    )?;
-    create_nullifier_pdas(
-        transact_accounts.payer,
-        transact_accounts.input_tree,
-        &mut transact_accounts.nullifier_pdas,
-        &input_tree_result,
-    )?;
-    // 9. Append new utxo hashes.
-    let tree_write = apply_output_tree(
-        transact_accounts.output_tree,
-        &ix,
-        input_tree_result.inputs,
-        clock.slot,
-    )?;
+    // 9. Resolve each input tree's roots, queue its nullifiers and create its PDAs.
+    let input_tree_sequences = apply_input_trees(&mut transact_accounts, &ix, &mut proof_inputs)?;
+    // 10. Append new utxo hashes.
+    let tree_write = apply_output_tree(transact_accounts.output_tree, &ix, clock.slot)?;
     proof_inputs.assign_output_tree_id(tree_write.output_tree_id);
 
     let tag = [instruction as u8];
@@ -128,7 +108,7 @@ pub fn process_transact_ix(
 
     settle_interface_transfers(&ix.interface_transfers, &transact_accounts.settlements)?;
 
-    let event = build_transact_event(tree_write)?;
+    let event = build_transact_event(tree_write, &input_tree_sequences);
     emit_event(EventKind::Transact, &event)
 }
 

@@ -36,13 +36,15 @@ fn test_cached_tree_update_region_layout_and_size() {
 #[test]
 fn test_state_struct_sizes() {
     const ZKP: usize = 4;
+    const COUNTERS: usize = 7 * 8;
+    const PENDING_VALUES: usize = 2 * 32;
     const HASH_CHAINS: usize = ZKP * 32;
     const CACHED_TREE_UPDATES: usize = ZKP * 65;
     // A batch is padded to the alignment of its metadata words.
-    const BATCH: usize = 448;
+    const BATCH: usize = 512;
     const ROOT_HISTORY: usize = 8 + ZKP * 32;
     assert_eq!(
-        (56 + HASH_CHAINS + CACHED_TREE_UPDATES).next_multiple_of(8),
+        (COUNTERS + PENDING_VALUES + HASH_CHAINS + CACHED_TREE_UPDATES).next_multiple_of(8),
         BATCH
     );
     assert_eq!(core::mem::size_of::<Batch<ZKP>>(), BATCH);

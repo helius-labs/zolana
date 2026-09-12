@@ -125,8 +125,8 @@ pub fn find_event_sites<'a>(
 /// `deposit/account.rs`, and `merge_ring/account.rs`.
 fn ring_config_index(source_instruction_tag: u8) -> Option<usize> {
     match InstructionTag::try_from(source_instruction_tag).ok()? {
-        // payer, input_tree, output_tree, pool, system_program, ring_config
-        InstructionTag::RingTransact | InstructionTag::RingAuthorityTransact => Some(5),
+        // payer, output_tree, pool, system_program, ring_config, input_trees...
+        InstructionTag::RingTransact | InstructionTag::RingAuthorityTransact => Some(4),
         // tree, depositor, ring_config
         InstructionTag::RingDeposit => Some(2),
         // input_tree, output_tree, ring_config
@@ -193,8 +193,8 @@ mod tests {
     #[test]
     fn ring_config_comes_from_each_instruction_own_position() {
         for (source_tag, index) in [
-            (tag::RING_TRANSACT, 5u8),
-            (tag::RING_AUTHORITY_TRANSACT, 5),
+            (tag::RING_TRANSACT, 4u8),
+            (tag::RING_AUTHORITY_TRANSACT, 4),
             (tag::RING_DEPOSIT, 2),
             (tag::RING_MERGE_TRANSACT, 2),
         ] {

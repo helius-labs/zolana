@@ -9,6 +9,9 @@
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_hasher::primitives::solana_owner_identity;
+use zolana_interface::{
+    instruction::instruction_data::transact::TreeContext, tree_slot::pack_input_flags,
+};
 use zolana_transaction::{
     instructions::{
         ring_authority::PreparedRingAuthority,
@@ -68,10 +71,11 @@ pub struct RingAuthorityProofResult {
     pub nullifiers: Vec<[u8; 32]>,
     pub output_hashes: Vec<[u8; 32]>,
     pub private_tx_hash: [u8; 32],
-    /// Index into `input_tree`'s UTXO root cache, shared by every input.
-    pub utxo_tree_root_index: u16,
-    /// Index into `input_tree`'s nullifier root cache, shared by every input.
-    pub nullifier_tree_root_index: u16,
+    /// One root-index pair per input tree, in the order the tree accounts are
+    /// passed. An input selects its pair with its `tree_index`.
+    pub tree_contexts: Vec<TreeContext>,
+    /// Each input's index into `tree_contexts`, parallel to `nullifiers`.
+    pub input_tree_indexes: Vec<u8>,
 }
 
 impl RingAuthorityProver {
@@ -79,6 +83,10 @@ impl RingAuthorityProver {
         resolve_shape(self.shape, self.inputs.len(), self.outputs.len())?;
 
         let assembled_inputs = assemble_inputs(&self.inputs, &OwnerMode::RingAuthority)?;
+        let input_flags = pack_input_flags(
+            self.allow_dummy_inputs,
+            assembled_inputs.input_tree_indexes.iter().copied(),
+        )?;
         let first_nullifier = assembled_inputs
             .nullifiers
             .first()
@@ -117,9 +125,7 @@ impl RingAuthorityProver {
             external_data_hash: &external_data_hash,
             public_transfers: &self.public_transfers,
             ring_program_id: &ring_program_id,
-            allow_dummy_inputs: &crate::prover::transact::assembly::bool_field(
-                self.allow_dummy_inputs,
-            ),
+            input_flags: &input_flags,
             signer_pk_hashes: &signer_pk_hashes,
             output_owner_pk_hashes: None,
         }
@@ -137,7 +143,7 @@ impl RingAuthorityProver {
             public_amounts: self.public_transfers.amounts.map(|amount| be(&amount)),
             ring_program_id: be(&ring_program_id),
             signer_pk_hashes: vec![be(&payer_pk_hash)],
-            allow_dummy_inputs: BigUint::from(u8::from(self.allow_dummy_inputs)),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: Vec::new(),
             public_input_hash: be(&public_input),
         };
@@ -148,8 +154,8 @@ impl RingAuthorityProver {
             nullifiers: assembled_inputs.nullifiers,
             output_hashes: assembled_outputs.output_hashes,
             private_tx_hash: private_tx,
-            utxo_tree_root_index: assembled_inputs.utxo_tree_root_index,
-            nullifier_tree_root_index: assembled_inputs.nullifier_tree_root_index,
+            tree_contexts: assembled_inputs.tree_contexts,
+            input_tree_indexes: assembled_inputs.input_tree_indexes,
         })
     }
 }

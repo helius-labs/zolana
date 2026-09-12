@@ -6,7 +6,7 @@
 //! plain key: `execute_sync_ix` has the smart-account program CPI into the
 //! shielded pool with the vault PDA as the signer, and the outer transaction is
 //! signed by a smart-account member. Proof generation lives in `prover/client`;
-//! this module handles submission once a compressed proof and root are ready.
+//! this module handles submission once a proof and root are ready.
 
 use solana_commitment_config::CommitmentConfig;
 use solana_hash::Hash;
@@ -59,9 +59,9 @@ pub fn build_forester_execute_ix(
         new_root: batch_update.new_root,
         old_root: batch_update.old_root,
         zkp_batch_index: batch_update.zkp_batch_index,
-        compressed_proof_a: batch_update.compressed_proof.a,
-        compressed_proof_b: batch_update.compressed_proof.b,
-        compressed_proof_c: batch_update.compressed_proof.c,
+        proof_a: batch_update.proof.a,
+        proof_b: batch_update.proof.b,
+        proof_c: batch_update.proof.c,
     }
     .instruction();
     execute_sync_ix(settings, account_index, &[*member], &[inner])
@@ -118,9 +118,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
-                b: [3u8; 64],
+                b: [3u8; 128],
                 c: [4u8; 32],
             },
         }
@@ -140,9 +140,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof_a: [2u8; 32],
-            compressed_proof_b: [3u8; 64],
-            compressed_proof_c: [4u8; 32],
+            proof_a: [2u8; 32],
+            proof_b: [3u8; 128],
+            proof_c: [4u8; 32],
         }
         .instruction();
 
@@ -151,9 +151,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
-                b: [3u8; 64],
+                b: [3u8; 128],
                 c: [4u8; 32],
             },
         };

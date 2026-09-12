@@ -1,7 +1,5 @@
 use zolana_interface::{
-    instruction::instruction_data::transact::{
-        CircuitId, InputUtxo, TransactIxData, TransactProof,
-    },
+    instruction::instruction_data::transact::{CircuitId, TransactIxData, TransactProof},
     N_PUBLIC_SLOTS,
 };
 use zolana_transaction::instructions::{
@@ -12,7 +10,10 @@ use zolana_transaction::instructions::{
 use crate::{
     error::ClientError,
     prover::{
-        transact::{assembly::TransferSpendInput, eddsa::TransferProver},
+        transact::{
+            assembly::{input_utxos, TransferSpendInput},
+            eddsa::TransferProver,
+        },
         ProofCompressed, ProverClient, TransferInputs,
     },
     rpc::{MerkleProof, NonInclusionProof},
@@ -175,7 +176,7 @@ pub fn into_prover_with_dummy_policy(
         return Err(ClientError::P256TransactUnsupported);
     }
     let shape = proof_inputs.check_shape()?;
-    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.n_inputs() + 1)?;
+    let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
     let public_transfers = proof_inputs.public_transfers()?;
     let SppProofInputs {
         input_utxos: inputs,
@@ -272,16 +273,7 @@ pub fn assemble_with_dummy_policy(
         });
     }
 
-    // SPP resolves one `input_tree` per instruction, so every input (dummies
-    // included) references the same pair of root indexes.
-    let inputs = nullifiers
-        .iter()
-        .map(|nullifier_hash| InputUtxo {
-            nullifier_hash: *nullifier_hash,
-            nullifier_tree_root_index: result.nullifier_tree_root_index,
-            utxo_tree_root_index: result.utxo_tree_root_index,
-        })
-        .collect();
+    let inputs = input_utxos(&nullifiers, &result.input_tree_indexes)?;
 
     let ix = TransactIxData {
         proof: TransactProof::zeroed(),
@@ -289,6 +281,7 @@ pub fn assemble_with_dummy_policy(
         private_tx_hash: private_tx,
         circuit: circuit_id,
         inputs,
+        tree_contexts: result.tree_contexts,
         interface_transfers,
         data_hash,
         ring_data_hash,

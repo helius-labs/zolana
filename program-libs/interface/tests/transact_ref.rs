@@ -6,7 +6,7 @@ use std::{
 
 use zolana_interface::instruction::{
     CircuitId, InputUtxo, InterfaceTransfer, MessageData, OwnerTag, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactProof,
+    TransactIxDataRef, TransactOutput, TransactProof, TreeContext,
 };
 
 struct CountingAllocator;
@@ -48,6 +48,9 @@ fn consume_ref(view: &TransactIxDataRef<'_>) {
     for input in &view.inputs {
         black_box(input);
     }
+    for tree_context in &view.tree_contexts {
+        black_box(tree_context);
+    }
     for transfer in &view.interface_transfers {
         black_box(transfer);
     }
@@ -70,8 +73,11 @@ fn transact_ref_decode_only_allocates_element_vectors() {
         proof: TransactProof::zeroed(),
         inputs: vec![InputUtxo {
             nullifier_hash: [5; 32],
-            nullifier_tree_root_index: 6,
+            tree_index: 0,
+        }],
+        tree_contexts: vec![TreeContext {
             utxo_tree_root_index: 7,
+            nullifier_tree_root_index: 6,
         }],
         interface_transfers: vec![InterfaceTransfer::SolDeposit { amount: 8 }],
         data_hash: Some([9; 32]),
@@ -94,7 +100,7 @@ fn transact_ref_decode_only_allocates_element_vectors() {
     COUNTING.store(false, Ordering::Relaxed);
     assert_eq!(
         ALLOCATIONS.load(Ordering::Relaxed),
-        4,
+        5,
         "one allocation for each owned element vector"
     );
 

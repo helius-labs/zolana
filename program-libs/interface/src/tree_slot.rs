@@ -8,16 +8,16 @@
 //! Each input selects its slot privately, so a UTXO cannot be hashed under one
 //! tree and proven against another's roots. Populated slots come first;
 //! unused slots are all zero and sit at the end, so their suffix of the
-//! right-folded chain is a constant ([`ZERO_TREE_SLOT_SUFFIX_CHAINS`]). SPP
-//! spends from a single `input_tree`, so it populates slot 0 only and starts
-//! the chain from the four-slot zero suffix.
+//! right-folded chain is a constant ([`ZERO_TREE_SLOT_SUFFIX_CHAINS`]). A
+//! spend populates one slot per input tree it declares, in account order, and
+//! starts the chain from the zero suffix of the unused remainder.
 
 use zolana_hasher::{
     hash_chain::create_right_hash_chain_from_slice, primitives::right_align, Hasher, HasherError,
     Poseidon,
 };
 
-use crate::INPUT_TREES;
+use crate::{error::ShieldedPoolError, INPUT_TREES, MAX_TRANSACT_INPUTS};
 
 /// One tree slot: the raw `u16` tree id as a field element and the two roots
 /// SPP resolved for that tree. An unused slot is all zero.
@@ -56,6 +56,53 @@ pub fn tree_id_field(tree_id: u16) -> [u8; 32] {
     right_align(&tree_id.to_be_bytes())
 }
 
+/// Bits one input's tree index occupies in the packed `input_flags` element.
+pub const INPUT_FLAGS_TREE_INDEX_BITS: usize = 3;
+
+/// Bit position of input `index`'s tree index in `input_flags`. Bit 0 is the
+/// dummy-input policy, so input `i` occupies bits `1 + 3i ..= 3 + 3i`.
+pub const fn input_flags_tree_index_shift(index: usize) -> usize {
+    1 + INPUT_FLAGS_TREE_INDEX_BITS * index
+}
+
+/// Three bits hold every valid tree index.
+const _: () = assert!(INPUT_TREES <= 1 << INPUT_FLAGS_TREE_INDEX_BITS);
+/// The packed element is built in a single `u128` limb; a wider shape would
+/// need a two-limb builder in every mirror.
+const _: () = assert!(input_flags_tree_index_shift(MAX_TRANSACT_INPUTS) <= 128);
+
+/// Pack the transaction's dummy-input policy and every input's tree index into
+/// the single `input_flags` public-input element (spec: `transact`
+/// `input_flags`). Mirrored by the Go circuit, the Go host and the TypeScript
+/// client, so the layout is fixed:
+///
+/// ```text
+/// input_flags = allow_dummy_inputs                       (bit 0)
+///             | tree_index[i] << (1 + 3 * i)   for each input i
+/// ```
+///
+/// The value is built as a big-endian `u128` and right-aligned into a
+/// 32-byte field element. `tree_indexes` is the inputs' `tree_index` in input
+/// order; the circuit decodes exactly `1 + 3 * n_inputs` bits, so an index
+/// outside `0..INPUT_TREES` or an input count above [`MAX_TRANSACT_INPUTS`]
+/// is rejected here rather than silently aliasing another input's bits.
+pub fn pack_input_flags(
+    allow_dummy_inputs: bool,
+    tree_indexes: impl IntoIterator<Item = u8>,
+) -> Result<[u8; 32], ShieldedPoolError> {
+    let mut flags = u128::from(allow_dummy_inputs);
+    for (index, tree_index) in tree_indexes.into_iter().enumerate() {
+        if index >= MAX_TRANSACT_INPUTS {
+            return Err(ShieldedPoolError::InvalidTransactShape);
+        }
+        if usize::from(tree_index) >= INPUT_TREES {
+            return Err(ShieldedPoolError::InputTreeIndexOutOfRange);
+        }
+        flags |= u128::from(tree_index) << input_flags_tree_index_shift(index);
+    }
+    Ok(right_align(&flags.to_be_bytes()))
+}
+
 /// Right-folds every slot's [`TreeSlot::hash`]:
 /// `h = hash_4; for k in (0..4).rev() { h = Poseidon(hash_k, h) }`.
 pub fn tree_slots_hash_chain(slots: &[TreeSlot; INPUT_TREES]) -> Result<[u8; 32], HasherError> {
@@ -69,7 +116,7 @@ pub fn tree_slots_hash_chain(slots: &[TreeSlot; INPUT_TREES]) -> Result<[u8; 32]
 /// Right hash chain over `m` all-zero slots, at index `m - 1`:
 /// `S(1) = Z`, `S(m) = Poseidon(Z, S(m - 1))` with `Z = Poseidon(0, 0, 0)`.
 /// Pinned by `zero_suffix_chains_match_recomputation`.
-pub const ZERO_TREE_SLOT_SUFFIX_CHAINS: [[u8; 32]; INPUT_TREES - 1] = [
+pub static ZERO_TREE_SLOT_SUFFIX_CHAINS: [[u8; 32]; INPUT_TREES - 1] = [
     [
         0x0b, 0xc1, 0x88, 0xd2, 0x7d, 0xcc, 0xea, 0xdc, 0x1d, 0xcf, 0xb6, 0xaf, 0x0a, 0x7a, 0xf0,
         0x8f, 0xe2, 0x86, 0x4e, 0xec, 0xec, 0x96, 0xc5, 0xae, 0x7c, 0xee, 0x6d, 0xb3, 0x1b, 0xa5,

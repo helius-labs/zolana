@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"time"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
@@ -92,12 +93,14 @@ func runCli() {
 				},
 				Action: func(context *cli.Context) error {
 					circuit := common.CircuitType(context.String("circuit"))
-					nInputs := uint32(context.Uint("n-inputs"))
+					nInputs, err := transferSetupInputCount(context.Uint("n-inputs"))
+					if err != nil {
+						return err
+					}
 					nOutputs := uint32(context.Uint("n-outputs"))
 					path := context.String("output")
 
 					var ps *common.TransferProofSystem
-					var err error
 					switch circuit {
 					case common.TransferConfidentialCircuitType,
 						common.TransferRingCircuitType,
@@ -1065,6 +1068,16 @@ func writeKey(path string, write func(io.Writer) (int64, error)) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return file.Close()
+}
+
+// Validate before narrowing the CLI value or allocating a circuit's signer
+// vector: oversized counts leave no transaction address budget for that vector.
+func transferSetupInputCount(value uint) (uint32, error) {
+	const maxInputs = txcircuit.MaxTransactionAddresses - txcircuit.FixedTransactAddresses
+	if value < 1 || value > maxInputs {
+		return 0, fmt.Errorf("setup-transfer: n-inputs must be between 1 and %d, got %d", maxInputs, value)
+	}
+	return uint32(value), nil
 }
 
 func checkRingKeyName(path string, want string) error {

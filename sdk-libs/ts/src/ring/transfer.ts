@@ -1,5 +1,5 @@
 import type { BlockhashProvider, Prover, TreeContext } from "../client/ports.js";
-import { bigintToBytes, hashChain } from "../client/internal.js";
+import { bigintToBytes, hashChain4 } from "../client/internal.js";
 import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js";
 import {
   RING_INLINE_ASSET_SLOTS,
@@ -605,7 +605,7 @@ function paddedRows(rows: readonly Bytes32[], width: number): readonly Bytes32[]
  * @internal
  */
 export function ringAddressChain(nIn: number): Bytes32 {
-  return bigintToBytes(hashChain(Array.from({ length: nIn }, () => 0n))) as Bytes32;
+  return bigintToBytes(hashChain4(Array.from({ length: nIn }, () => 0n))) as Bytes32;
 }
 
 /** Mirrors Rust `RingMembership::validate`. @internal */

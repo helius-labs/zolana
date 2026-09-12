@@ -1,5 +1,8 @@
 import { AccountRole, address } from "@solana/kit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as pda from "../src/interface/pda/index.js";
+
+import prefixVector from "../../../test-vectors/transact_account_prefix.json" with { type: "json" };
 
 import {
   mergeTransactInstruction,
@@ -10,10 +13,11 @@ import {
 import { InstructionTag, SHIELDED_POOL_PROGRAM_ID, SOL_INTERFACE } from "../src/interface/index.js";
 import { nullifierPdaAddress, nullifierPda } from "../src/interface/pda/index.js";
 import type {
+  Address,
   Bytes16,
   Bytes32,
   Bytes33,
-  Bytes64,
+  Bytes128,
   InputUtxo,
   MergeTransactInstructionData,
   TransactInstructionData,
@@ -25,17 +29,20 @@ const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
 const RING_AUTH = address("9vyTbYGyh3cwxkAQpjjFQGXmdJP6p9B6YcQ5pNuXPNbh");
 const OWNER = address("4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi");
 const SYSTEM = address("11111111111111111111111111111111");
+const PREFIX_ADDRESSES = new Map<string, Address>([
+  ["payer", PAYER],
+  ["outputTree", OUTPUT_TREE],
+  ["program", SHIELDED_POOL_PROGRAM_ID],
+  ["systemProgram", SYSTEM],
+  ["ringConfig", RING_AUTH],
+]);
 
 function filled(byte: number, length: number): Uint8Array {
   return new Uint8Array(length).fill(byte);
 }
 
 function input(byte: number): InputUtxo {
-  return {
-    nullifierHash: filled(byte, 32) as Bytes32,
-    nullifierTreeRootIndex: 0,
-    utxoTreeRootIndex: 0,
-  };
+  return { nullifierHash: filled(byte, 32) as Bytes32, treeIndex: 0 };
 }
 
 function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
@@ -47,10 +54,11 @@ function transactData(inputs: readonly InputUtxo[]): TransactInstructionData {
     salt: filled(42, 16) as Bytes16,
     proof: {
       a: filled(43, 32) as Bytes32,
-      b: filled(44, 64) as Bytes64,
+      b: filled(44, 128) as Bytes128,
       c: filled(45, 32) as Bytes32,
     },
     inputs,
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
     interfaceTransfers: [],
     outputs: [],
     messages: [],
@@ -66,6 +74,40 @@ async function nullifierPdas(inputs: readonly InputUtxo[]) {
 }
 
 describe("nullifier PDA accounts", () => {
+  it("rejects unsupported tree declarations before deriving nullifier accounts", async () => {
+    const context = { utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 };
+    const derive = vi.spyOn(pda, "nullifierPdaAddress");
+    try {
+      for (const data of [
+        { ...transactData([input(71)]), treeContexts: [] },
+        { ...transactData([input(71)]), treeContexts: [context, context] },
+        transactData([{ ...input(71), treeIndex: 1 }]),
+      ]) {
+        await expect(
+          transactInstruction({
+            payer: PAYER,
+            inputTree: TREE,
+            outputTree: OUTPUT_TREE,
+            data,
+          }),
+        ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+        await expect(
+          ringTransactAccounts({
+            payer: PAYER,
+            inputTree: TREE,
+            outputTree: OUTPUT_TREE,
+            ringAuth: RING_AUTH,
+            inputs: data.inputs,
+            treeContexts: data.treeContexts,
+          }),
+        ).rejects.toMatchObject({ code: "INTERFACE_INVALID_SHAPE" });
+      }
+      expect(derive).not.toHaveBeenCalled();
+    } finally {
+      derive.mockRestore();
+    }
+  });
+
   it("derives the PDA from the input tree and the nullifier", async () => {
     const [expected] = await nullifierPda(TREE, filled(7, 32));
     expect(await nullifierPdaAddress(TREE, filled(7, 32))).toBe(expected);
@@ -90,7 +132,7 @@ describe("nullifier PDA accounts", () => {
     });
   });
 
-  it("places one writable PDA per input after the system program in transact", async () => {
+  it("places one writable PDA per input after the fixed prefix and input tree in transact", async () => {
     const inputs = [input(71), input(72)];
     const instruction = await transactInstruction({
       payer: PAYER,
@@ -101,12 +143,15 @@ describe("nullifier PDA accounts", () => {
     });
 
     const [first, second] = await nullifierPdas(inputs);
+    expect(
+      instruction.accounts?.slice(0, prefixVector.transact.length).map((meta) => meta.address),
+    ).toEqual(prefixVector.transact.map((name) => PREFIX_ADDRESSES.get(name)));
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
       [first, AccountRole.WRITABLE],
       [second, AccountRole.WRITABLE],
       [SOL_INTERFACE, AccountRole.WRITABLE],
@@ -114,7 +159,7 @@ describe("nullifier PDA accounts", () => {
     ]);
   });
 
-  it("keeps ring_config at index 5 and puts the PDAs before the owner signers", async () => {
+  it("keeps ring_config at index 4 and puts the PDAs before the owner signers", async () => {
     const inputs = [input(71), input(72)];
     const accounts = await ringTransactAccounts({
       payer: PAYER,
@@ -122,17 +167,21 @@ describe("nullifier PDA accounts", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs,
+      treeContexts: transactData(inputs).treeContexts,
       ownerSigners: [OWNER],
     });
 
     const [first, second] = await nullifierPdas(inputs);
+    expect(accounts.slice(0, prefixVector.ringTransact.length).map((meta) => meta.address)).toEqual(
+      prefixVector.ringTransact.map((name) => PREFIX_ADDRESSES.get(name)),
+    );
     expect(accounts.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING_AUTH, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
       [first, AccountRole.WRITABLE],
       [second, AccountRole.WRITABLE],
       [OWNER, AccountRole.READONLY_SIGNER],
@@ -145,15 +194,15 @@ describe("nullifier PDA accounts", () => {
       expiryUnixTs: 0xffff_ffff_ffff_ffffn,
       proof: {
         a: filled(43, 32) as Bytes32,
-        b: filled(44, 64) as Bytes64,
+        b: filled(44, 128) as Bytes128,
         c: filled(45, 32) as Bytes32,
       },
       outputUtxoHash: filled(46, 32) as Bytes32,
       eddsaOwner: true,
       privateTxHash: filled(47, 32) as Bytes32,
       nullifiers,
-      utxoTreeRootIndexes: Array.from({ length: 8 }, () => 0),
-      nullifierTreeRootIndexes: Array.from({ length: 8 }, () => 0),
+      utxoTreeRootIndex: 0,
+      nullifierTreeRootIndex: 0,
     };
     const instruction = await mergeTransactInstruction({
       inputTree: TREE,

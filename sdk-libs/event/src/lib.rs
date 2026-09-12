@@ -51,6 +51,8 @@ pub enum EventDecodeError {
     /// The event names more input trees than the instruction data can assign
     /// inputs to.
     UnsupportedInputTreeCount(usize),
+    /// An input's `tree_index` names no entry in the event's input trees.
+    InputTreeIndexOutOfRange(u8),
     /// The emitting instruction's account list is shorter than the settlement
     /// groups its interface transfers require.
     MissingSettlementAccount,

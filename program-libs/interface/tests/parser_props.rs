@@ -23,7 +23,7 @@ use zolana_interface::instruction::instruction_data::{
     },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof,
+        TransactOutput, TransactProof, TreeContext,
     },
 };
 
@@ -48,7 +48,7 @@ mod strategies {
     }
 
     pub fn transact_proof() -> impl Strategy<Value = TransactProof> {
-        (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>())
+        (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>())
             .prop_map(|(a, b, c)| TransactProof { a, b, c })
     }
 
@@ -72,11 +72,17 @@ mod strategies {
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-        (any::<[u8; 32]>(), any::<u16>(), any::<u16>()).prop_map(
-            |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index)| InputUtxo {
-                nullifier_hash,
-                nullifier_tree_root_index,
+        (any::<[u8; 32]>(), any::<u8>()).prop_map(|(nullifier_hash, tree_index)| InputUtxo {
+            nullifier_hash,
+            tree_index,
+        })
+    }
+
+    pub fn tree_context() -> impl Strategy<Value = TreeContext> {
+        (any::<u16>(), any::<u16>()).prop_map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
                 utxo_tree_root_index,
+                nullifier_tree_root_index,
             },
         )
     }
@@ -121,11 +127,13 @@ mod strategies {
                 prop::collection::vec(transact_output(), 0..=8),
                 prop::collection::vec(message_data(), 0..=3),
             ),
+            prop::collection::vec(tree_context(), 0..=5),
         )
             .prop_map(
                 |(
                     (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
+                    tree_contexts,
                 )| TransactIxData {
                     expiry_unix_ts,
                     private_tx_hash,
@@ -139,6 +147,7 @@ mod strategies {
                     ring_data_hash,
                     outputs,
                     messages,
+                    tree_contexts,
                 },
             )
     }
@@ -146,11 +155,11 @@ mod strategies {
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
-            (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
+            (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
             prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_DEFAULT_INPUT_COUNT),
+            any::<u16>(),
+            any::<u16>(),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -192,6 +201,7 @@ fn assert_ref_matches_owned(
     prop_assert_eq!(view.salt, &owned.salt);
     prop_assert_eq!(view.proof, owned.proof);
     prop_assert_eq!(&view.inputs, &owned.inputs);
+    prop_assert_eq!(&view.tree_contexts, &owned.tree_contexts);
     prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
     prop_assert_eq!(view.data_hash, owned.data_hash);
     prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
@@ -257,7 +267,9 @@ proptest! {
             + wincode::serialize(&owned.circuit).expect("serialize circuit").len()
             + wincode::serialize(&owned.proof).expect("serialize proof").len()
             + 1
-            + inputs_len;
+            + inputs_len
+            + 1
+            + 4 * owned.tree_contexts.len();
         let prefix = bytes.get(..bytes.len() - tail_len).expect("prefix in bytes");
         let start = leading.len();
         let mut buffer = leading;
@@ -313,42 +325,27 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the supported input counts, and
-    /// only when the three per-input vectors agree on that count.
+    /// The merge view decoder accepts exactly the supported input counts and
+    /// reads back the one root-index pair whatever its value.
     #[test]
     fn merge_shape_guard_accepts_exactly_the_supported_shapes(
         owned in strategies::merge_ix_data(),
         nullifier_count in 0usize..=40,
-        root_count in 0usize..=40,
-        agreed_count in 0usize..=40,
     ) {
         let bytes = owned.serialize().expect("serialize merge ix");
-        prop_assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_ok());
+        let view = MergeTransactIxDataRef::from_bytes(&bytes);
+        prop_assert!(view.is_ok());
+        if let Ok(view) = view {
+            prop_assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
+            prop_assert_eq!(view.nullifier_tree_root_index, owned.nullifier_tree_root_index);
+        }
 
-        let mut wrong_nullifiers = owned.clone();
-        wrong_nullifiers.nullifiers = vec![[7u8; 32]; nullifier_count];
-        let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
+        let mut resized = owned.clone();
+        resized.nullifiers = vec![[7u8; 32]; nullifier_count];
+        let bytes = resized.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_DEFAULT_INPUT_COUNT
-        );
-
-        let mut wrong_roots = owned.clone();
-        wrong_roots.nullifier_tree_root_index = vec![3u16; root_count];
-        let bytes = wrong_roots.serialize().expect("serialize merge ix");
-        prop_assert_eq!(
-            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_DEFAULT_INPUT_COUNT
-        );
-
-        let mut agreed = owned.clone();
-        agreed.nullifiers = vec![[7u8; 32]; agreed_count];
-        agreed.utxo_tree_root_index = vec![1u16; agreed_count];
-        agreed.nullifier_tree_root_index = vec![3u16; agreed_count];
-        let bytes = agreed.serialize().expect("serialize merge ix");
-        prop_assert_eq!(
-            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            MERGE_SUPPORTED_INPUT_COUNTS.contains(&agreed_count)
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&nullifier_count)
         );
     }
 

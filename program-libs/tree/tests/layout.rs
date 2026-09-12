@@ -2,22 +2,24 @@ use core::mem::{offset_of, size_of};
 
 use zolana_tree::{
     nullifier_tree::{
+        batch::Batch,
         constants::NULLIFIER_TREE_ZKP_BATCHES,
         layout::{NullifierTreeLayout, RootHistory},
     },
-    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeFeeSchedule, UtxoTreeLayout,
-    TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
+    NullifierTreeInitParams, TreeAccount, TreeAccountLayout, TreeError, TreeFeeSchedule,
+    UtxoTreeLayout, TREE_RESERVED_BYTES, UTXO_TREE_HEIGHT,
 };
 
 type Layout = TreeAccountLayout<UTXO_TREE_HEIGHT, NULLIFIER_TREE_ZKP_BATCHES>;
 type UtxoLayout = UtxoTreeLayout<UTXO_TREE_HEIGHT>;
 type NullifierLayout = NullifierTreeLayout<NULLIFIER_TREE_ZKP_BATCHES>;
 type NullifierRoots = RootHistory<NULLIFIER_TREE_ZKP_BATCHES>;
+type NullifierBatch = Batch<NULLIFIER_TREE_ZKP_BATCHES>;
 
 #[test]
 fn account_layout_is_pinned() {
-    assert_eq!(size_of::<Layout>(), 39_952);
-    assert_eq!(TreeAccount::account_size(), 39_952);
+    assert_eq!(size_of::<Layout>(), 40_080);
+    assert_eq!(TreeAccount::account_size(), 40_080);
     assert_eq!(offset_of!(Layout, tree_id), 2);
     assert_eq!(offset_of!(Layout, fees), 8);
     assert_eq!(offset_of!(Layout, fee_balance), 32);
@@ -38,9 +40,40 @@ fn account_layout_is_pinned() {
     assert_eq!(offset_of!(UtxoLayout, subtrees), 56);
     assert_eq!(offset_of!(UtxoLayout, root_history), 1_080);
 
+    assert_eq!(size_of::<NullifierLayout>(), 22_928);
     assert_eq!(offset_of!(NullifierLayout, root_history), 72);
     assert_eq!(offset_of!(NullifierRoots, current_index), 0);
     assert_eq!(offset_of!(NullifierRoots, roots), 8);
+    assert_eq!(offset_of!(NullifierLayout, batches), 3_280);
+    assert_eq!(size_of::<NullifierBatch>(), 9_824);
+    assert_eq!(offset_of!(NullifierBatch, start_index), 48);
+}
+
+/// The previous layout had no pending-value buffers and was 39,952 bytes. Such
+/// an account must not load as the current layout.
+#[test]
+fn previous_layout_size_is_rejected() {
+    let mut bytes = vec![0u8; 39_952];
+    assert!(matches!(
+        TreeAccount::from_bytes(&mut bytes, [2u8; 32]),
+        Err(TreeError::Deserialize)
+    ));
+    assert!(matches!(
+        TreeAccount::init(
+            &mut bytes,
+            7,
+            UTXO_TREE_HEIGHT as u8,
+            [2u8; 32],
+            1,
+            NullifierTreeInitParams::default(),
+            TreeFeeSchedule {
+                fee_per_nullifier: 0,
+                append_reimbursement: 0,
+                close_reimbursement: 0,
+            },
+        ),
+        Err(TreeError::InvalidBufferSize)
+    ));
 }
 
 #[test]

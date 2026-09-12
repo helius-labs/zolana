@@ -34,8 +34,8 @@ fn merge_ix_data(eddsa_owner: bool) -> MergeTransactIxData {
         eddsa_owner,
         private_tx_hash: [0u8; 32],
         nullifiers: (1..=MERGE_DEFAULT_INPUT_COUNT as u64).map(fe).collect(),
-        utxo_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
-        nullifier_tree_root_index: vec![0; MERGE_DEFAULT_INPUT_COUNT],
+        utxo_tree_root_index: 0,
+        nullifier_tree_root_index: 0,
     }
 }
 
@@ -44,8 +44,6 @@ const UNSUPPORTED_MERGE_INPUT_COUNTS: [usize; 4] = [7, 9, 35, 37];
 fn merge_ix_data_at_input_count(input_count: usize) -> MergeTransactIxData {
     let mut data = merge_ix_data(true);
     data.nullifiers = (1..=input_count as u64).map(fe).collect();
-    data.utxo_tree_root_index = vec![0; input_count];
-    data.nullifier_tree_root_index = vec![0; input_count];
     data
 }
 
@@ -146,14 +144,6 @@ fn merge_rejects_a_wrong_input_count_shape() {
             .unwrap_or_else(|| panic!("a {input_count}-input merge must be rejected"));
         Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
     }
-
-    let mut data = merge_ix_data(true);
-    data.utxo_tree_root_index.pop();
-    let ix = merge_instruction(&rpc, &tree, record, data);
-    let error = rpc
-        .create_and_send_default_payer_transaction(&[ix], &[])
-        .expect_err("disagreeing vector lengths must be rejected");
-    Rejection::pool(ShieldedPoolError::InvalidMergeShape).assert_litesvm(error);
 }
 
 #[test]
@@ -176,40 +166,6 @@ fn merge_accepts_the_wide_shape_and_fails_only_on_the_proof() {
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
         .at(0)
         .assert_litesvm(error);
-}
-
-#[test]
-fn merge_rejects_inputs_that_reference_different_root_indexes() {
-    let (mut rpc, tree) = merge_env();
-    let payer = rpc.payer.pubkey();
-    let record = write_user_record(&mut rpc, payer, None, true);
-
-    // SPP resolves both roots from the single `input_tree`, so the proof binds
-    // one tree slot and every input must name the same pair of root indexes.
-    for data in [
-        {
-            let mut data = merge_ix_data(true);
-            *data
-                .utxo_tree_root_index
-                .last_mut()
-                .expect("merge utxo root indexes") = 1;
-            data
-        },
-        {
-            let mut data = merge_ix_data(true);
-            *data
-                .nullifier_tree_root_index
-                .last_mut()
-                .expect("merge nullifier root indexes") = 1;
-            data
-        },
-    ] {
-        let ix = merge_instruction(&rpc, &tree, record, data);
-        let error = rpc
-            .create_and_send_default_payer_transaction(&[ix], &[])
-            .expect_err("a merge with mixed root indexes must be rejected");
-        Rejection::pool(ShieldedPoolError::InputTreeRootIndexMismatch).assert_litesvm(error);
-    }
 }
 
 #[test]
@@ -342,10 +298,7 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
     // tree has strictly fewer free nullifier leaves than state leaves, flipping
     // `allow_dummy_inputs` to false. The roots are unchanged, so every parse
-    // and tree step still succeeds; the explicit 7044 capacity gate in
-    // `merge/processor.rs` fires before proof verification -- the same zeroed
-    // proof that reaches verification (7008) on a fresh tree must not get
-    // there here.
+    // and tree step still succeeds; the proof fails verification (7008).
     let mut account = rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
@@ -390,10 +343,9 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             ComputeBudgetConfig::new(1_400_000),
         )
         .expect_err("a merge past the capacity threshold must be rejected");
-    // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
-    // flag is false while the merge proof assumes true, so the capacity
-    // overflow now fails at proof verification. The merge is the only
-    // instruction the transaction carries.
+    // The on-chain `allow_dummy_inputs` flag is false while the merge proof
+    // assumes true, so the capacity overflow fails at proof verification.
+    // The merge is the only instruction the transaction carries.
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
         .at(0)
         .assert_litesvm(error);
@@ -459,12 +411,12 @@ fn default_rail_merge_rejects_undecompressable_proof_points_exactly() {
     let tree_before = rpc.account_data(&tree).expect("tree data");
 
     // 0xFF-filled points carry invalid compression flag bits, so the verifier
-    // fails at G1/G2 decompression -- the 7007 encoding error, distinct from
+    // fails at G1 decompression -- the 7007 encoding error, distinct from
     // the 7008 pairing failure of a well-formed but non-verifying proof.
     let mut data = merge_ix_data(true);
     data.proof = MergeProof {
         a: [0xFF; 32],
-        b: [0xFF; 64],
+        b: [0xFF; 128],
         c: [0xFF; 32],
     };
     let ix = merge_instruction(&rpc, &tree, record, data);

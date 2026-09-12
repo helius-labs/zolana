@@ -2,14 +2,13 @@ use arrayvec::ArrayVec;
 use pinocchio::{error::ProgramError, AccountView};
 use zolana_interface::{
     error::ShieldedPoolError,
-    event::{Input, InputTreeSequence, TransactEvent},
+    event::{InputTreeSequence, TransactEvent},
     instruction::instruction_data::transact::{ResolvedOutput, TransactIxDataRef},
 };
 
 use super::verify::MAX_OUTPUTS;
 
 pub struct TreeWrite {
-    pub inputs: Vec<Input>,
     pub first_output_leaf_index: u64,
     pub output_tree: [u8; 32],
     /// Raw id of `output_tree`; every output is hashed under it, so the proof
@@ -36,17 +35,17 @@ pub(crate) fn resolve_outputs<'a>(
 /// Build the emitted [`TransactEvent`]: the trees and the values assigned while
 /// writing them. Everything else the indexer reads from the instruction data
 /// and account list when it rebuilds the `GeneralEvent`.
-pub fn build_transact_event(tree_write: TreeWrite) -> Result<TransactEvent, ProgramError> {
-    let first_input = tree_write
-        .inputs
-        .first()
-        .ok_or(ShieldedPoolError::InvalidTransactShape)?;
-    Ok(TransactEvent {
-        input_trees: vec![InputTreeSequence {
-            tree: first_input.tree,
-            first_input_queue_seq: first_input.input_queue_seq,
-        }],
+///
+/// `input_tree_sequences` is in declared-context order, so an input's queue
+/// number is its tree's `first_input_queue_seq` plus its rank within that
+/// tree's input run.
+pub fn build_transact_event(
+    tree_write: TreeWrite,
+    input_tree_sequences: &[InputTreeSequence],
+) -> TransactEvent {
+    TransactEvent {
+        input_trees: input_tree_sequences.to_vec(),
         output_tree: tree_write.output_tree,
         first_output_leaf_index: tree_write.first_output_leaf_index,
-    })
+    }
 }

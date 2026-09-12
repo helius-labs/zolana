@@ -138,7 +138,7 @@ mod program_unit {
         assert_eq!(recipient.lamports(), 1_000);
     }
 
-    /// 7026 leg: recipient.lamports() + amount overflows u64.
+    /// 7022 leg: recipient.lamports() + amount overflows u64.
     #[test]
     fn reimbursement_recipient_balance_overflow_is_invalid_forester_fee() {
         let mut tree = get_account_view([1; 32], ID.to_bytes(), false, true, false, vec![0; 10]);

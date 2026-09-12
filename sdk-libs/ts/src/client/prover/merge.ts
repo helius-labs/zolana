@@ -25,7 +25,7 @@ import {
   bytesToBigInt,
   checkedBytes,
   field,
-  hashChain,
+  hashChain4,
   poseidon,
 } from "../internal.js";
 import type { NonInclusionProof, SpendProof } from "../rpc.js";
@@ -50,8 +50,8 @@ export interface MergeAssembly {
   readonly expiryUnixTs: bigint;
   readonly outputHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
   readonly privateTxHash: Bytes32;
   readonly publicInputHash: Bytes32;
   /// Recomputed on-chain from the instruction; surfaced so the caller need not
@@ -249,9 +249,9 @@ function assembleMergeUnchecked(
   const privateTxBlinding = mergePrivateTxBlinding(material.nullifierKey, firstNullifier);
   const privateTxHash = bigintToBytes(
     poseidon([
-      hashChain(inputHashes),
+      hashChain4(inputHashes),
       bytesToBigInt(outputHash),
-      hashChain(Array.from({ length: MERGE_INPUTS }, () => 0n)),
+      hashChain4(Array.from({ length: MERGE_INPUTS }, () => 0n)),
       bytesToBigInt(externalDataHash),
       bytesField(privateTxBlinding, "merge private tx blinding"),
     ]),
@@ -261,11 +261,11 @@ function assembleMergeUnchecked(
     prepared.signingPublicKey.ownerProofInputHash(),
     "merge owner public key",
   );
-  const treeSlots = inputTreeSlots(inputTree.slot);
+  const treeSlots = inputTreeSlots([inputTree.slot]);
   const outputTreeIdField = bytesToBigInt(treeIdField(prepared.outputTreeId));
   const publicInputHash = bigintToBytes(
-    hashChain([
-      hashChain(nullifiers.map(bytesToBigInt)),
+    hashChain4([
+      hashChain4(nullifiers.map(bytesToBigInt)),
       bytesToBigInt(outputHash),
       bytesToBigInt(treeSlotsHashChain(treeSlots)),
       outputTreeIdField,
@@ -294,14 +294,8 @@ function assembleMergeUnchecked(
     outputRingDataHash: asField(0n),
     ringProgramId: asField(0n),
   });
-  // Every input references the same root history positions; the shielded pool
-  // rejects a merge whose entries disagree.
-  const utxoTreeRootIndexes = Object.freeze(
-    Array.from({ length: MERGE_INPUTS }, () => inputTree.utxoRootIndex),
-  );
-  const nullifierTreeRootIndexes = Object.freeze(
-    Array.from({ length: MERGE_INPUTS }, () => inputTree.nullifierRootIndex),
-  );
+  const utxoTreeRootIndex = inputTree.utxoRootIndex;
+  const nullifierTreeRootIndex = inputTree.nullifierRootIndex;
   const instructionData = (
     proof: MergeTransactInstructionData["proof"],
   ): MergeTransactInstructionData =>
@@ -314,8 +308,8 @@ function assembleMergeUnchecked(
       nullifiers: Object.freeze(
         nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32),
       ),
-      utxoTreeRootIndexes,
-      nullifierTreeRootIndexes,
+      utxoTreeRootIndex,
+      nullifierTreeRootIndex,
     });
   return Object.freeze({
     proverInputs,
@@ -327,8 +321,8 @@ function assembleMergeUnchecked(
     // data than the one it was proved with.
     outputHash: new Uint8Array(outputHash) as Bytes32,
     nullifiers: Object.freeze(nullifiers.map((nullifier) => new Uint8Array(nullifier) as Bytes32)),
-    utxoTreeRootIndexes,
-    nullifierTreeRootIndexes,
+    utxoTreeRootIndex,
+    nullifierTreeRootIndex,
     privateTxHash: new Uint8Array(privateTxHash) as Bytes32,
     publicInputHash,
     externalDataHash,
@@ -379,7 +373,7 @@ function copyMergeProof(
 ): MergeTransactInstructionData["proof"] {
   return Object.freeze({
     a: checkedBytes(proof.a, 32, "merge proof a"),
-    b: checkedBytes(proof.b, 64, "merge proof b"),
+    b: checkedBytes(proof.b, 128, "merge proof b"),
     c: checkedBytes(proof.c, 32, "merge proof c"),
   });
 }

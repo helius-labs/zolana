@@ -35,7 +35,7 @@ import {
   copy,
   decodeAddress,
   equal,
-  hashChain,
+  hashChain4,
   hashBytes,
   poseidon,
   sha256Bytes,
@@ -53,7 +53,7 @@ import {
   type ProofOutputUtxo,
   type TreeId,
 } from "../utxo.js";
-import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
+import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
 import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
@@ -453,9 +453,9 @@ export interface PrivateTxHashInput {
 }
 
 /**
- * `Poseidon(chain(inputs), chain(outputs), chain(address nullifiers),
- * external_data_hash, blinding)`, the value a transact proof publishes and the
- * owners sign over. The circuit reads one address nullifier per input slot, so
+ * `Poseidon(hashChain4(inputs), hashChain4(outputs), hashChain4(address
+ * nullifiers), external_data_hash, blinding)`, the value a transact proof
+ * publishes and the owners sign over. The circuit reads one address nullifier per input slot, so
  * a set of a different length would silently shift the address chain rather
  * than fail.
  */
@@ -471,9 +471,9 @@ export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
   }
   const addressNullifiers = input.addressNullifiers ?? input.inputHashes.map(() => copy(ZERO_32));
   return poseidon([
-    hashChain(input.inputHashes),
-    hashChain(input.outputHashes),
-    hashChain(addressNullifiers),
+    hashChain4(input.inputHashes),
+    hashChain4(input.outputHashes),
+    hashChain4(addressNullifiers),
     input.externalDataHash,
     checked<Bytes32>(input.blinding, 32, "private tx blinding"),
   ]);
@@ -523,23 +523,51 @@ export function createEncryptedTransaction(
 }
 
 /**
- * The tree every input of one proof is spent from. Mirrors Rust
- * `input_tree_id`: the circuit publishes one input tree slot, so inputs from
- * two trees cannot share a proof.
+ * The trees one proof spends from, in the order the inputs first name them.
+ * Mirrors Rust `input_tree_ids`: a transact permits `MAX_INPUT_TREES` trees,
+ * and each tree owns one contiguous run of inputs, so an input's tree index
+ * never decreases and every run's nullifiers stay consecutive under their own
+ * tree.
  */
-export function inputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
-  const first = inputs[0];
-  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId[] {
+  const trees: TreeId[] = [];
   inputs.forEach((input, index) => {
-    if (input.treeId !== first.treeId) {
-      throw new TransactionError("TRANSACTION_INPUT_TREE_MISMATCH", {
+    const open = trees.at(-1);
+    if (open === input.treeId) return;
+    if (trees.includes(input.treeId)) {
+      throw new TransactionError("TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE", {
         index,
         treeId: input.treeId,
-        expected: first.treeId,
       });
     }
+    if (trees.length === MAX_INPUT_TREES) {
+      throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
+        index,
+        got: trees.length + 1,
+        max: MAX_INPUT_TREES,
+      });
+    }
+    trees.push(input.treeId);
   });
-  return first.treeId;
+  if (trees.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  return Object.freeze(trees);
+}
+
+/**
+ * The one tree a rail that publishes a single input tree spends from: merge,
+ * and the custom-ring openings, which hash every slot under one tree id.
+ */
+export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
+  const trees = inputTreeIds(inputs);
+  const first = trees[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  if (trees.length !== 1) {
+    throw new TransactionError("TRANSACTION_INPUT_TREE_MISMATCH", {
+      treeCount: trees.length,
+      expected: first,
+    });
+  }
+  return first;
 }
 
 export class SppProofInputs {
@@ -573,7 +601,7 @@ export class SppProofInputs {
     ) {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
-    inputTreeId(this.inputUtxos);
+    inputTreeIds(this.inputUtxos);
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
     this.blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
@@ -585,9 +613,9 @@ export class SppProofInputs {
     return exactShape(this.inputUtxos.length, this.outputs.length);
   }
 
-  /** The tree every input is spent from. */
-  inputTreeId(): TreeId {
-    return inputTreeId(this.inputUtxos);
+  /** The trees the inputs are spent from, in the order they name them. */
+  inputTreeIds(): readonly TreeId[] {
+    return inputTreeIds(this.inputUtxos);
   }
 
   /**
@@ -691,8 +719,8 @@ export interface PreparedTransfer {
   readonly firstNullifier: Bytes32;
   /** The private root seed; only the prover request may carry it. */
   readonly blindingSeed: Bytes32;
-  /** The tree every input is spent from. */
-  readonly inputTreeId: TreeId;
+  /** The trees the inputs are spent from, one contiguous run of inputs each. */
+  readonly inputTreeIds: readonly TreeId[];
   /** The tree the outputs are appended to. */
   readonly outputTreeId: TreeId;
   readonly shape: Shape;
@@ -734,7 +762,7 @@ export class ConfidentialTransfer {
   readonly #payer: Address;
   readonly #recipients: Recipient[] = [];
   readonly #blindingSeed = randomBlinding();
-  readonly #inputTreeId: TreeId;
+  readonly #inputTreeIds: readonly TreeId[];
   #outputTreeId: TreeId = DEFAULT_TREE_ID;
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
@@ -757,7 +785,7 @@ export class ConfidentialTransfer {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
     });
-    this.#inputTreeId = inputTreeId(inputs);
+    this.#inputTreeIds = inputTreeIds(inputs);
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payer = feePayer;
@@ -964,7 +992,7 @@ export class ConfidentialTransfer {
       outputs: Object.freeze(outputs),
       firstNullifier,
       blindingSeed: copy(this.#blindingSeed),
-      inputTreeId: this.#inputTreeId,
+      inputTreeIds: this.#inputTreeIds,
       outputTreeId: this.#outputTreeId,
       shape,
       payer: this.#payer,
@@ -1097,16 +1125,22 @@ function finalizeTransfer(
       }),
     ),
   ];
-  // Every dummy is hashed under the input tree's id, both here for the
+  // A dummy is hashed under the tree of the run it sits in, both here for the
   // nullifier the client requests a non-inclusion witness for and in the
-  // prover, which rehashes the slot under the single input tree.
-  const inputUtxos = prepared.inputs.map((input) =>
-    input.isDummy() && input.treeId !== prepared.inputTreeId
-      ? input.withTreeId(prepared.inputTreeId)
-      : input,
-  );
+  // prover, which rehashes the slot under that run's tree. Padding closes the
+  // last run, so the tree indexes never decrease.
+  const lastTreeId = prepared.inputTreeIds.at(-1);
+  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  let runTreeId = lastTreeId;
+  const inputUtxos = prepared.inputs.map((input) => {
+    if (!input.isDummy()) {
+      runTreeId = input.treeId;
+      return input;
+    }
+    return input.treeId === runTreeId ? input : input.withTreeId(runTreeId);
+  });
   while (inputUtxos.length < prepared.shape.inputs) {
-    inputUtxos.push(ProofInputUtxo.dummy(undefined, prepared.inputTreeId));
+    inputUtxos.push(ProofInputUtxo.dummy(undefined, lastTreeId));
   }
 
   // Length-matched random ciphertext for every position without a real encoding:

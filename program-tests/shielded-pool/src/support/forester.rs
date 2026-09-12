@@ -9,7 +9,7 @@ use solana_signer::Signer;
 use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
@@ -133,7 +133,7 @@ impl NullifierTestForester {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: compressed.a,
                 b: compressed.b,
                 c: compressed.c,
@@ -148,9 +148,9 @@ impl NullifierTestForester {
                 new_root: batch_update.new_root,
                 old_root: batch_update.old_root,
                 zkp_batch_index: batch_update.zkp_batch_index,
-                compressed_proof_a: batch_update.compressed_proof.a,
-                compressed_proof_b: batch_update.compressed_proof.b,
-                compressed_proof_c: batch_update.compressed_proof.c,
+                proof_a: batch_update.proof.a,
+                proof_b: batch_update.proof.b,
+                proof_c: batch_update.proof.c,
             }
             .instruction(),
             batch_values.len(),
@@ -219,7 +219,7 @@ impl NullifierTestForester {
         let new_root = reference.root();
         let mut start_index_bytes = [0u8; 32];
         start_index_bytes[24..].copy_from_slice(&plan.start_index.to_be_bytes());
-        let public_input_hash = create_hash_chain_from_array([
+        let public_input_hash = create_hash_chain_4_from_slice(&[
             plan.current_root,
             new_root,
             plan.leaves_hash_chain,

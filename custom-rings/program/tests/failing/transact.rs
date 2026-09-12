@@ -16,6 +16,7 @@ use zolana_interface::{
     event::{CONFIDENTIAL_ENCRYPTED_SCHEME_TAG, RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG},
     instruction::{
         CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        TreeContext,
     },
     verifying_keys::{Bsb22Commitment, RingP256ProofData},
     N_PUBLIC_SLOTS,
@@ -75,6 +76,10 @@ fn transact(messages: Vec<MessageData>) -> TransactIxData {
         ring_data_hash: None,
         outputs: Vec::new(),
         messages,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 

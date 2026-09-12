@@ -85,7 +85,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![taker_solana.pubkey()],
         interface_transfer_accounts: Vec::new(),

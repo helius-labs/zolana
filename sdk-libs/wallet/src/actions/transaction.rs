@@ -8,8 +8,8 @@ use zolana_interface::{
         TransactSplWithdrawalAccounts,
     },
     pda,
-    shape::{Shape, SPP_AUTO_SHAPES},
-    MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
+    shape::Shape,
+    MAX_INPUT_TREES, MAX_INTERFACE_TRANSFERS, SPL_TOKEN_2022_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
 };
 use zolana_keypair::{
     shielded::ShieldedAddress, viewing_key::ViewTag, NullifierKey, ShieldedKeypair,
@@ -18,7 +18,7 @@ use zolana_transaction::{
     instructions::{
         merge::{Merge, PreparedMerge, MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT},
         transact::{
-            ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
+            auto_shapes, ConfidentialSplit, ConfidentialTransfer, PreparedSplit, PreparedTransfer,
             SettlementTarget, SppProofInputs,
         },
         types::SppProofInputUtxo,
@@ -234,7 +234,7 @@ fn create_transfer_with_recipient<R>(
     };
     let inputs = select_inputs(
         request.wallet,
-        tree,
+        &[tree],
         request.asset,
         request.amount,
         is_default_ring_spendable,
@@ -563,10 +563,11 @@ pub struct SpendInputParams<'a> {
     pub amount: u64,
 }
 
-/// Every input lives in `tree`.
+/// Inputs are grouped by tree in first-use order. `trees` contains exactly those
+/// trees, in the same order as the input groups.
 pub struct SelectedSpendInputs {
     pub inputs: Vec<SppProofInputUtxo>,
-    pub tree: Address,
+    pub trees: Vec<Address>,
 }
 
 /// Default-ring notes only, a ring entry spends them through
@@ -575,11 +576,11 @@ pub async fn select_spend_inputs<A: WalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
 ) -> Result<SelectedSpendInputs, ClientError> {
-    let (tree, inputs) = unsigned_spend_inputs(request)?;
+    let (trees, inputs) = unsigned_spend_inputs(request)?;
     let nullifier_key = authority.spend_nullifier_key().await?;
     Ok(SelectedSpendInputs {
         inputs: spend_proof_inputs(inputs, nullifier_key),
-        tree,
+        trees,
     })
 }
 
@@ -587,58 +588,75 @@ pub fn select_spend_inputs_sync<A: SyncWalletAuthority + ?Sized>(
     request: SpendInputParams<'_>,
     authority: &A,
 ) -> Result<SelectedSpendInputs, ClientError> {
-    let (tree, inputs) = unsigned_spend_inputs(request)?;
+    let (trees, inputs) = unsigned_spend_inputs(request)?;
     let nullifier_key = authority.spend_nullifier_key()?;
     Ok(SelectedSpendInputs {
         inputs: spend_proof_inputs(inputs, nullifier_key),
-        tree,
+        trees,
     })
 }
 
 fn unsigned_spend_inputs(
     request: SpendInputParams<'_>,
-) -> Result<(Address, Vec<UnsignedSpendInput>), ClientError> {
+) -> Result<(Vec<Address>, Vec<UnsignedSpendInput>), ClientError> {
     // Mirrors the TS eligibility, a default note carrying ring data proves on
     // no rail.
     let eligible =
         |entry: &WalletUtxo| is_default_ring_spendable(entry) && entry.ring_data_hash.is_none();
-    let tree = resolve_spend_tree(request.wallet, request.asset, eligible)?;
-    let inputs = select_bounded_inputs(
-        request.wallet,
-        tree,
-        request.asset,
-        request.amount,
-        eligible,
-    )?;
-    Ok((tree, inputs))
+    let mut selected =
+        select_bounded_inputs(request.wallet, request.asset, request.amount, eligible)?;
+    let mut trees = Vec::new();
+    for entry in &selected {
+        if !trees.contains(&entry.output_context.tree) {
+            trees.push(entry.output_context.tree);
+        }
+    }
+    if trees.len() > MAX_INPUT_TREES {
+        return Err(ClientError::AmbiguousTree {
+            asset: request.asset,
+            tree_count: trees.len(),
+        });
+    }
+    selected.sort_by_key(|entry| {
+        trees
+            .iter()
+            .position(|tree| *tree == entry.output_context.tree)
+    });
+    let inputs = selected
+        .into_iter()
+        .map(|entry| UnsignedSpendInput {
+            utxo: entry.utxo.clone(),
+            utxo_hash: entry.output_context.hash,
+            nullifier: entry.nullifier,
+            data_hash: entry.data_hash,
+            ring_data_hash: entry.ring_data_hash,
+            tree_id: entry.tree_id,
+        })
+        .collect();
+    Ok((trees, inputs))
 }
 
-/// Largest first, a fragmented balance covers with the fewest notes.
+/// Largest first, a fragmented balance covers with the fewest notes. Candidates
+/// come from every eligible tree, so a balance that straddles a tree rollover
+/// still covers. Tree limits apply to the selected notes.
 fn select_bounded_inputs(
     wallet: &Wallet,
-    tree: Address,
     asset: Address,
     amount: u64,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Vec<UnsignedSpendInput>, ClientError> {
+) -> Result<Vec<&WalletUtxo>, ClientError> {
     // Zero selects a note whose whole change would cross the ring boundary.
     if amount == 0 {
         return Err(ClientError::ZeroSpendAmount);
     }
-    let max_inputs = SPP_AUTO_SHAPES
-        .iter()
+    let max_inputs = auto_shapes()
         .map(|shape| shape.n_inputs())
         .max()
         .unwrap_or(0);
     let mut candidates: Vec<&WalletUtxo> = wallet
         .utxos
         .iter()
-        .filter(|entry| {
-            !entry.spent
-                && entry.utxo.asset == asset
-                && entry.output_context.tree == tree
-                && eligible(entry)
-        })
+        .filter(|entry| !entry.spent && entry.utxo.asset == asset && eligible(entry))
         .collect();
     candidates.sort_by_key(|entry| std::cmp::Reverse(entry.utxo.amount));
     let mut total = 0u64;
@@ -649,15 +667,8 @@ fn select_bounded_inputs(
     }
     let mut selected = Vec::new();
     let mut available = 0u64;
-    for entry in candidates.iter().take(max_inputs) {
-        selected.push(UnsignedSpendInput {
-            utxo: entry.utxo.clone(),
-            utxo_hash: entry.output_context.hash,
-            nullifier: entry.nullifier,
-            data_hash: entry.data_hash,
-            ring_data_hash: entry.ring_data_hash,
-            tree_id: entry.tree_id,
-        });
+    for entry in candidates.iter().copied().take(max_inputs) {
+        selected.push(entry);
         available += entry.utxo.amount;
         if available >= amount {
             return Ok(selected);
@@ -1144,7 +1155,7 @@ fn select_withdrawal_inputs(
         }
         inputs.extend(select_inputs(
             wallet,
-            tree,
+            &[tree],
             *asset,
             *amount,
             is_default_ring_spendable,
@@ -1172,12 +1183,15 @@ fn named_input_tree(
         .ok_or(ClientError::InputUtxoUnavailable { hash })
 }
 
-/// Each caller passes the predicate its own input selection applies.
-fn resolve_spend_tree(
+/// The distinct pool trees holding eligible funds, in the order a spend
+/// declares them. A transact spends from at most [`MAX_INPUT_TREES`] trees, so
+/// a wider spread still needs the caller to name a tree. Each caller passes the
+/// predicate its own input selection applies.
+fn resolve_spend_trees(
     wallet: &Wallet,
     asset: Address,
     eligible: impl Fn(&WalletUtxo) -> bool,
-) -> Result<Address, ClientError> {
+) -> Result<Vec<Address>, ClientError> {
     let trees: BTreeSet<Address> = wallet
         .utxos
         .iter()
@@ -1185,19 +1199,41 @@ fn resolve_spend_tree(
         .map(|entry| entry.output_context.tree)
         .collect();
 
-    match trees.len() {
-        0 => Err(ClientError::InsufficientBalance {
+    if trees.is_empty() {
+        return Err(ClientError::InsufficientBalance {
             requested: 1,
             available: 0,
+        });
+    }
+    if trees.len() > MAX_INPUT_TREES {
+        return Err(ClientError::AmbiguousTree {
+            asset,
+            tree_count: trees.len(),
+        });
+    }
+    Ok(trees.into_iter().collect())
+}
+
+/// The one tree a single-tree action binds to. Splits spend one input, and the
+/// transfer and withdrawal paths still pass one `input_tree` account, so they
+/// ask the owner to name a tree rather than pick one.
+fn resolve_spend_tree(
+    wallet: &Wallet,
+    asset: Address,
+    eligible: impl Fn(&WalletUtxo) -> bool,
+) -> Result<Address, ClientError> {
+    match resolve_spend_trees(wallet, asset, eligible)?.as_slice() {
+        [tree] => Ok(*tree),
+        trees => Err(ClientError::AmbiguousTree {
+            asset,
+            tree_count: trees.len(),
         }),
-        1 => Ok(*trees.iter().next().expect("single tree")),
-        tree_count => Err(ClientError::AmbiguousTree { asset, tree_count }),
     }
 }
 
 fn select_inputs(
     wallet: &Wallet,
-    tree: Address,
+    trees: &[Address],
     asset: Address,
     amount: u64,
     eligible: impl Fn(&WalletUtxo) -> bool,
@@ -1207,7 +1243,7 @@ fn select_inputs(
     for entry in wallet.utxos.iter().filter(|entry| {
         !entry.spent
             && entry.utxo.asset == asset
-            && entry.output_context.tree == tree
+            && trees.contains(&entry.output_context.tree)
             && eligible(entry)
     }) {
         selected.push(UnsignedSpendInput {
@@ -2539,7 +2575,7 @@ mod tests {
 
         let selected = select_inputs(
             &wallet,
-            Address::default(),
+            &[Address::default()],
             SOL_MINT,
             10,
             is_default_ring_spendable,
@@ -2553,7 +2589,7 @@ mod tests {
         assert!(matches!(
             select_inputs(
                 &wallet,
-                Address::default(),
+                &[Address::default()],
                 SOL_MINT,
                 50,
                 is_default_ring_spendable
@@ -2584,7 +2620,7 @@ mod tests {
         )
         .expect("two plain utxos cover the amount");
 
-        assert_eq!(selected.tree, Address::default());
+        assert_eq!(selected.trees, vec![Address::default()]);
         assert_eq!(amounts(&selected.inputs), vec![15, 10]);
         assert!(selected
             .inputs
@@ -2677,8 +2713,10 @@ mod tests {
         ));
     }
 
+    /// A balance that straddles a tree rollover covers from both trees, and the
+    /// selection reports them in declaration order.
     #[test]
-    fn select_spend_inputs_requires_one_default_tree() {
+    fn select_spend_inputs_spans_the_trees_holding_the_balance() {
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let mut wallet = sol_wallet(&keypair);
         push_utxo(&mut wallet, &keypair, 10, [1u8; 31]);
@@ -2691,16 +2729,93 @@ mod tests {
             .output_context
             .tree = RING_TREE;
 
+        let selected = select_spend_inputs_sync(
+            SpendInputParams {
+                wallet: &wallet,
+                asset: SOL_MINT,
+                amount: 15,
+            },
+            &keypair,
+        )
+        .expect("both trees together cover the amount");
+
+        assert_eq!(selected.trees, vec![Address::default(), RING_TREE]);
+        assert_eq!(amounts(&selected.inputs), vec![10, 10]);
+    }
+
+    #[test]
+    fn select_spend_inputs_groups_selected_notes_and_omits_unused_trees() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for (marker, amount, tree_id) in [(1, 40, 4), (2, 30, 1), (3, 20, 4), (4, 10, 2)] {
+            let hash = push_utxo(&mut wallet, &keypair, amount, [marker; 31]);
+            let entry = wallet
+                .utxos
+                .iter_mut()
+                .find(|entry| entry.output_context.hash == hash)
+                .expect("pushed utxo");
+            entry.tree_id = tree_id;
+            entry.output_context.tree = Address::new_from_array([tree_id as u8; 32]);
+        }
+
+        for (amount, expected_trees, expected_inputs) in [
+            (40, vec![4], vec![(4, 40)]),
+            (90, vec![4, 1], vec![(4, 40), (4, 20), (1, 30)]),
+        ] {
+            let selected = select_spend_inputs_sync(
+                SpendInputParams {
+                    wallet: &wallet,
+                    asset: SOL_MINT,
+                    amount,
+                },
+                &keypair,
+            )
+            .expect("only the selected trees count toward the limit");
+            assert_eq!(
+                selected.trees,
+                expected_trees
+                    .into_iter()
+                    .map(|id| Address::new_from_array([id; 32]))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                selected
+                    .inputs
+                    .iter()
+                    .map(|input| (input.tree_id, input.utxo.amount))
+                    .collect::<Vec<_>>(),
+                expected_inputs
+            );
+        }
+    }
+
+    /// A selection that actually needs more than `MAX_INPUT_TREES` is rejected.
+    #[test]
+    fn select_spend_inputs_refuse_more_trees_than_the_program_limit() {
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let mut wallet = sol_wallet(&keypair);
+        for index in 0..=MAX_INPUT_TREES {
+            let marker = u8::try_from(index).expect("utxo marker");
+            let hash = push_utxo(&mut wallet, &keypair, 10, [marker + 1; 31]);
+            wallet
+                .utxos
+                .iter_mut()
+                .find(|entry| entry.output_context.hash == hash)
+                .expect("pushed utxo")
+                .output_context
+                .tree = Address::new_from_array([marker + 1; 32]);
+        }
+
         assert!(matches!(
             select_spend_inputs_sync(
                 SpendInputParams {
                     wallet: &wallet,
                     asset: SOL_MINT,
-                    amount: 15,
+                    amount: u64::try_from(MAX_INPUT_TREES).unwrap() * 10 + 1,
                 },
                 &keypair,
             ),
-            Err(ClientError::AmbiguousTree { tree_count: 2, .. })
+            Err(ClientError::AmbiguousTree { tree_count, .. }) if tree_count == MAX_INPUT_TREES + 1
         ));
     }
 

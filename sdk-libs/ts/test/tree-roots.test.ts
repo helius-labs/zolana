@@ -20,7 +20,7 @@ import { filled, treeAccount } from "./helpers/tree-account.js";
 
 describe("tree head roots", () => {
   it("pins the Rust root history offsets", () => {
-    expect(TREE_ACCOUNT_SIZE).toBe(39_952);
+    expect(TREE_ACCOUNT_SIZE).toBe(40_080);
     expect(STATE_ROOT_HISTORY_CAPACITY).toBe(500);
     expect(UTXO_ROOT_HISTORY_CAPACITY).toBe(STATE_ROOT_HISTORY_CAPACITY);
     expect(UTXO_ROOT_HISTORY_CURSOR_OFFSET).toBe(112);
@@ -33,7 +33,7 @@ describe("tree head roots", () => {
   });
 
   it("reads the Rust account layout", () => {
-    const account = new Uint8Array(39_952);
+    const account = new Uint8Array(40_080);
     const header = new DataView(account.buffer);
     account[0] = StateDiscriminator.treeAccount;
     header.setUint16(112, 2, true);

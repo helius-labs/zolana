@@ -45,10 +45,10 @@ use zolana_test_utils::{
     transact::{
         build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
         derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output,
-        eddsa_input_utxo, external_data_hash, fe, inline_outputs, new_transact_ix_data,
-        nullifier_tree, output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer,
-        public_sol_field, real_output, set_output_owner_tags, single_tree_slots, sol_leg,
-        sol_public_slots, spend_input, test_private_tx_blinding, transfer_output, SpendInputArgs,
+        external_data_hash, fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree,
+        output_owner_pk_hashes, pack_transact_proof, prove_and_verify_transfer, public_sol_field,
+        real_output, set_output_owner_tags, single_tree_slots, sol_leg, sol_public_slots,
+        spend_input, test_private_tx_blinding, transfer_output, SpendInputArgs,
         TransferProverInputsArgs, TEST_BLINDING_SEED,
     },
 };
@@ -563,8 +563,9 @@ fn bench_transfer_shape(
     let mut transact_ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, 0))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        0,
         Vec::new(),
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -589,11 +590,12 @@ fn bench_transfer_shape(
     .hash()
     .expect("private tx hash");
     // The signer run the proof binds: the payer owns every input here, so the
-    // unique run is just the payer hash, zero-padded to the n_inputs + 1
-    // circuit width. The program derives the same value with
-    // `solana_owner_identity`.
-    let mut signer_pk_hashes = vec![owner_hash];
-    signer_pk_hashes.extend(std::iter::repeat_n(zero, n_inputs));
+    // unique run is just the payer hash, zero-padded to the shape's signer
+    // width. The program derives the same value with `solana_owner_identity`.
+    let mut signer_pk_hashes = vec![zero; Shape::new(n_inputs, n_outputs).signer_width()];
+    if let Some(first) = signer_pk_hashes.first_mut() {
+        *first = owner_hash;
+    }
 
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(zero);
     let public_input_hash = PublicInputs {
@@ -608,7 +610,7 @@ fn bench_transfer_shape(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -635,7 +637,7 @@ fn bench_transfer_shape(
 
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -810,10 +812,8 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
 
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -854,7 +854,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_pk_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -880,7 +880,7 @@ fn bench_withdrawal_sol(mollusk: &mut Mollusk, program_id: &Pubkey, bench: &mut 
 
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

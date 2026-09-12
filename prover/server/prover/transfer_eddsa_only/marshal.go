@@ -57,7 +57,7 @@ type TransferParametersJSON struct {
 	PublicAmounts                []string                    `json:"publicAmounts"`
 	RingProgramID                string                      `json:"ringProgramId"`
 	SignerPkHashes               []string                    `json:"signerPkHashes"`
-	AllowDummyInputs             string                      `json:"allowDummyInputs"`
+	InputFlags                   string                      `json:"inputFlags"`
 	PublishedOutputOwnerPkHashes []string                    `json:"publishedOutputOwnerPkHashes"`
 	PublicInputHash              string                      `json:"publicInputHash"`
 }
@@ -89,7 +89,7 @@ func (p *TransferParameters) CreateTransferParametersJSON() TransferParametersJS
 		PublicAmounts:                common.FeHexSlice(p.PublicAmounts),
 		RingProgramID:                common.FeHex(p.RingProgramID),
 		SignerPkHashes:               common.FeHexSlice(p.SignerPkHashes),
-		AllowDummyInputs:             common.FeHex(p.AllowDummyInputs),
+		InputFlags:                   common.FeHex(p.InputFlags),
 		PublishedOutputOwnerPkHashes: common.FeHexSlice(p.PublishedOutputOwnerPkHashes),
 		PublicInputHash:              common.FeHex(p.PublicInputHash),
 	}
@@ -175,7 +175,7 @@ func (p *TransferParameters) UpdateWithJSON(params TransferParametersJSON) error
 	if p.SignerPkHashes, err = common.FeFromHexSlice(params.SignerPkHashes); err != nil {
 		return err
 	}
-	if p.AllowDummyInputs, err = common.FeFromHex(params.AllowDummyInputs); err != nil {
+	if p.InputFlags, err = common.FeFromHex(params.InputFlags); err != nil {
 		return err
 	}
 	if p.PublishedOutputOwnerPkHashes, err = common.FeFromHexSlice(params.PublishedOutputOwnerPkHashes); err != nil {

@@ -7,7 +7,8 @@ use zolana_interface::{
         instruction_data::transact::{InterfaceTransfer, TransactIxDataRef},
         validate_interface_transfers,
     },
-    MAX_INTERFACE_TRANSFERS,
+    shape::owner_signer_slots,
+    INPUT_TREES, MAX_INTERFACE_TRANSFERS,
 };
 
 use super::verify::MAX_INPUTS;
@@ -19,7 +20,9 @@ use crate::instructions::settlement::{
 
 pub struct TransactAccounts<'a> {
     pub payer: &'a AccountView,
-    pub input_tree: &'a mut AccountView,
+    /// One account per declared tree context, in context order. An input's
+    /// `tree_index` selects its tree from this run.
+    pub input_trees: ArrayVec<&'a mut AccountView, INPUT_TREES>,
     pub output_tree: &'a mut AccountView,
     pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_INPUTS>,
     pub owner_signers: &'a [AccountView],
@@ -28,13 +31,13 @@ pub struct TransactAccounts<'a> {
 
 impl<'a> TransactAccounts<'a> {
     /// 1. payer - mut signer
-    /// 2. input tree - mut
-    /// 3. output tree - mut
-    /// 4. self program - program id match
-    /// 5. system program - program id match
-    /// 6. I nullifier PDAs - mut, one per input in `inputs` order
-    ///    6 + I: N signers - signer
-    ///    6 + I + N: transfer settlement accounts -
+    /// 2. output tree - mut
+    /// 3. self program - program id match
+    /// 4. system program - program id match
+    /// 5. T input trees - mut, one per declared tree context, in context order
+    ///    5 + T: I nullifier PDAs - mut, one per input in `inputs` order
+    ///    5 + T + I: N signers - signer
+    ///    5 + T + I + N: transfer settlement accounts -
     pub fn validate_and_parse(
         accounts: &'a mut [AccountView],
         ix: &TransactIxDataRef<'_>,
@@ -42,11 +45,11 @@ impl<'a> TransactAccounts<'a> {
         let mut iter = AccountIterator::new(accounts);
 
         let payer: &AccountView = iter.next_signer("payer")?;
-        let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
+        let input_trees = parse_input_trees(&mut iter, ix)?;
 
-        Self::from_iter(iter, ix, payer, input_tree, output_tree, true)
+        Self::from_iter(iter, ix, payer, input_trees, output_tree, true)
     }
 
     /// 1. Validate spl interface transfers.
@@ -54,7 +57,7 @@ impl<'a> TransactAccounts<'a> {
         mut iter: AccountIterator<'a>,
         ix: &TransactIxDataRef<'_>,
         payer: &'a AccountView,
-        input_tree: &'a mut AccountView,
+        input_trees: ArrayVec<&'a mut AccountView, INPUT_TREES>,
         output_tree: &'a mut AccountView,
         allow_owner_signers: bool,
     ) -> Result<Box<Self>, ProgramError> {
@@ -63,7 +66,7 @@ impl<'a> TransactAccounts<'a> {
 
         let mut this = Box::new(Self {
             payer,
-            input_tree,
+            input_trees,
             output_tree,
             nullifier_pdas: ArrayVec::new(),
             owner_signers: &[],
@@ -81,7 +84,7 @@ impl<'a> TransactAccounts<'a> {
             .iter()
             .position(|account| !account.is_signer())
             .unwrap_or(remaining.len());
-        if signer_count > usize::from(ix.circuit.num_inputs())
+        if signer_count > owner_signer_slots(usize::from(ix.circuit.num_inputs()))
             || (!allow_owner_signers && signer_count != 0)
         {
             return Err(ShieldedPoolError::InvalidTransactShape.into());
@@ -187,8 +190,8 @@ pub struct RingTransactAccounts;
 
 impl RingTransactAccounts {
     /// Parse the accounts shared by `ring_transact` and `ring_authority_transact`:
-    /// `payer`, `input_tree`, `output_tree`, SPP, System Program, the `RingConfig`
-    /// account (the ring's `ring_auth` PDA), one writable nullifier PDA per input
+    /// `payer`, `output_tree`, SPP, System Program, the `RingConfig`
+    /// account (the ring's `ring_auth` PDA), the input-tree run, one writable nullifier PDA per input
     /// in `inputs` order, then owner signers and settlement
     /// accounts. Returns the parsed transact accounts and the ring's
     /// `program_id`, read from the validated, unpaused `RingConfig` (never
@@ -202,7 +205,6 @@ impl RingTransactAccounts {
     ) -> Result<(Box<TransactAccounts<'a>>, [u8; 32]), ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let payer: &AccountView = iter.next_signer("payer")?;
-        let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         validate_program_prefix(&mut iter)?;
         // The `ring_config` must sign (only the ring program can sign for its
@@ -216,18 +218,44 @@ impl RingTransactAccounts {
         if require_ring_authority_enabled && !ring_authority_is_enabled {
             return Err(ShieldedPoolError::RingAuthorityTransactDisabled.into());
         }
+        let input_trees = parse_input_trees(&mut iter, ix)?;
         // Ring authority instruction does not require any signatures.
         let allow_owner_signers = !require_ring_authority_enabled;
         let transact_accounts = TransactAccounts::from_iter(
             iter,
             ix,
             payer,
-            input_tree,
+            input_trees,
             output_tree,
             allow_owner_signers,
         )?;
         Ok((transact_accounts, ring_program_id))
     }
+}
+
+/// The input-tree run after the fixed prefix: one writable tree per declared
+/// tree context, in context order. The caller must validate the context count
+/// with `validate_input_tree_contexts` first. Duplicate trees are rejected here
+/// so no tree is credited or queued twice in one instruction.
+fn parse_input_trees<'a>(
+    iter: &mut AccountIterator<'a>,
+    ix: &TransactIxDataRef<'_>,
+) -> Result<ArrayVec<&'a mut AccountView, INPUT_TREES>, ProgramError> {
+    let tree_count = ix.tree_contexts.len();
+    let mut input_trees: ArrayVec<&'a mut AccountView, INPUT_TREES> = ArrayVec::new();
+    for _ in 0..tree_count {
+        let input_tree = iter.next_mut("input_tree")?;
+        if input_trees
+            .iter()
+            .any(|tree| address_eq(tree.address(), input_tree.address()))
+        {
+            return Err(ShieldedPoolError::DuplicateInputTree.into());
+        }
+        input_trees
+            .try_push(input_tree)
+            .map_err(|_| ShieldedPoolError::InvalidTreeContextCount)?;
+    }
+    Ok(input_trees)
 }
 
 fn validate_program_prefix(iter: &mut AccountIterator<'_>) -> Result<(), ProgramError> {

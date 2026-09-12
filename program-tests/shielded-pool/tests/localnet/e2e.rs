@@ -193,7 +193,7 @@ fn phase_shield(cycle: &mut SolCycle) -> TestResult<ShieldedPayer> {
     );
     assert_eq!(
         rpc_state_root(&cycle.rpc, &cycle.tree_pubkey)?,
-        cycle.indexer.root()
+        cycle.indexer.root(&cycle.tree_pubkey)
     );
 
     assert_eq!(cycle.nf_tree.root(), nullifier_root, "nullifier root gate");
@@ -298,7 +298,7 @@ fn phase_transfer(cycle: &mut SolCycle, shielded: &ShieldedPayer) -> TestResult<
 
     let transfer_ix = Transact {
         payer: cycle.payer.pubkey(),
-        input_tree: cycle.tree_pubkey,
+        input_trees: vec![cycle.tree_pubkey],
         output_tree: cycle.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -427,7 +427,7 @@ fn phase_unshield(
 
     let withdraw_ix = Transact {
         payer: cycle.recipient_owner.pubkey(),
-        input_tree: cycle.tree_pubkey,
+        input_trees: vec![cycle.tree_pubkey],
         output_tree: cycle.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

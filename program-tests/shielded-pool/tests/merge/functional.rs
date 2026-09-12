@@ -60,7 +60,9 @@ fn merge_at_input_count(input_count: usize, real_input_count: usize) {
     );
 
     const LAMPORTS_PER_SIGNATURE: u64 = 5_000;
-    const FEE_PER_NULLIFIER: u64 = 20;
+    // The protocol sponsors nullifier-tree maintenance, so the sponsored
+    // default charges nothing per nullifier and the fee balance stays put.
+    const FEE_PER_NULLIFIER: u64 = 0;
     let (fees, fee_balance_after) = tree_fees(&pool.rpc, &tree).expect("tree fees");
     assert_eq!(
         fees,

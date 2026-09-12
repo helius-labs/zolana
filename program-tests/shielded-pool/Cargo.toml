@@ -263,6 +263,10 @@ name = "transact_circuit_vectors"
 path = "tests/transact/circuit_vectors.rs"
 
 [[test]]
+name = "transact_external_data"
+path = "tests/transact/external_data.rs"
+
+[[test]]
 name = "transact_signer_run"
 path = "tests/transact/signer_run.rs"
 
@@ -273,10 +277,6 @@ path = "tests/transact/public_slots.rs"
 [[test]]
 name = "transact_validate_circuit"
 path = "tests/transact/validate_circuit.rs"
-
-[[test]]
-name = "transact_external_data"
-path = "tests/transact/external_data.rs"
 
 [[test]]
 name = "spl_interface_validation"

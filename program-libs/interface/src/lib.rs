@@ -32,10 +32,16 @@ pub const UTXO_DOMAIN: u16 = 3;
 pub const N_PUBLIC_SLOTS: usize = 3;
 
 /// Number of tree slots a spend proof publishes (mirrors Go
-/// `circuits/spp_transaction/shared` `InputTrees`). SPP spends from one
-/// `input_tree`, which fills slot 0; slots 1.. stay all zero. See
-/// [`tree_slot`].
+/// `circuits/spp_transaction/shared` `InputTrees`). A spend fills one slot per
+/// declared input tree, in account order; the remaining slots stay all zero.
+/// See [`tree_slot`].
 pub const INPUT_TREES: usize = 5;
+
+/// Maximum input trees one transact may spend from. The proof retains
+/// [`INPUT_TREES`] slots; slots beyond this program limit remain zero.
+pub const MAX_INPUT_TREES: usize = 2;
+
+const _: () = assert!(MAX_INPUT_TREES > 0 && MAX_INPUT_TREES <= INPUT_TREES);
 
 pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
     zolana_hasher::p256::is_reserved_derivation_point(key)
@@ -48,9 +54,10 @@ pub fn is_reserved_p256_derivation_point(key: &[u8; 33]) -> bool {
 pub const MAX_INTERFACE_TRANSFERS: usize = 32;
 
 /// Maximum number of outputs any supported transact circuit shape publishes.
-pub const MAX_OUTPUTS: usize = shape::max_outputs(&shape::SPP_SUPPORTED_SHAPES);
+pub const MAX_OUTPUTS: usize = 8;
 
-pub const MAX_TRANSACT_INPUTS: usize = shape::max_inputs(&shape::SPP_SUPPORTED_SHAPES);
+/// Maximum number of inputs any supported transact circuit shape spends.
+pub const MAX_TRANSACT_INPUTS: usize = 36;
 
 /// Native-SOL asset id in the SPP public transcript and UTXO commitments:
 /// `pk_field` of the all-zero address, i.e. `Poseidon(0, 0)`, big-endian. The

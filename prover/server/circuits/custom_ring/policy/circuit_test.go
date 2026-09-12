@@ -872,7 +872,7 @@ func (s *statement) buildTransaction(
 	}
 	s.outputs = []UtxoWires{created, second}
 
-	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
+	s.addressChain = spptest.MustHashChain4(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.externalDataHash = big.NewInt(0x5eed)
 	s.privateTxBlinding = big.NewInt(0x5b1d)
 	s.updateHashes(t)

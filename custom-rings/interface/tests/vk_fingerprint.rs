@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00c0b9a0ec76a64aeb689a50abcdb88361dd82549ff44047f407df5599757549",
+        fingerprint, "00641a12478db23f03e4a9990a59bd51eeb3a4e514f07a90ac53bdde4e2a7dcb",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }

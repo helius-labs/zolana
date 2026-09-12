@@ -50,7 +50,7 @@ func asCustomRingP256(a *testAssignment, authorization p256Authorization) fronte
 			PublicAssets:                 a.PublicAssets,
 			PublicAmounts:                a.PublicAmounts,
 			RingProgramID:                a.RingProgramID,
-			AllowDummyInputs:             a.AllowDummyInputs,
+			InputFlags:                   a.InputFlags,
 			SignerPkHashes:               a.TransactionSignerPkHashes(),
 			PublishedOutputOwnerPkHashes: a.PublishedOutputOwnerPkHashes(),
 			PublicInputHash:              a.PublicInputHash,
@@ -172,7 +172,7 @@ func refreshCustomRingP256PublicInputHashWithOwner(
 		ExternalDataHash:           spptest.AsBigInt(assignment.ExternalDataHash),
 		RingProgramID:              spptest.AsBigInt(assignment.RingProgramID),
 		SignerPkHashes:             spptest.ToBigInts(assignment.TransactionSignerPkHashes()),
-		AllowDummyInputs:           spptest.AsBigInt(assignment.AllowDummyInputs),
+		InputFlags:                 spptest.AsBigInt(assignment.InputFlags),
 		BindOutputOwnerTags:        true,
 		OutputOwnerPkHashes:        spptest.ToBigInts(assignment.PublishedOutputOwnerPkHashes()),
 	}
