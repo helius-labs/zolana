@@ -204,7 +204,7 @@ fn deposit_batch_rejects_more_assets_than_any_layout_supports() {
 fn deposit_batch_rejects_an_empty_assets_list() {
     // Zero declared asset groups is rejected at account parsing, before any
     // settlement account is read. The batch itself is non-empty, so the
-    // empty-batch gate (7029) is not the branch that fires.
+    // empty-batch gate (7025) is not the branch that fires.
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
     let tree = pool.tree;

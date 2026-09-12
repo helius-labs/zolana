@@ -298,10 +298,7 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
     // tree has strictly fewer free nullifier leaves than state leaves, flipping
     // `allow_dummy_inputs` to false. The roots are unchanged, so every parse
-    // and tree step still succeeds; the explicit 7044 capacity gate in
-    // `merge/processor.rs` fires before proof verification -- the same zeroed
-    // proof that reaches verification (7008) on a fresh tree must not get
-    // there here.
+    // and tree step still succeeds; the proof fails verification (7008).
     let mut account = rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
@@ -346,10 +343,9 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             ComputeBudgetConfig::new(1_400_000),
         )
         .expect_err("a merge past the capacity threshold must be rejected");
-    // PR172 removed the explicit 7044 gate: the on-chain `allow_dummy_inputs`
-    // flag is false while the merge proof assumes true, so the capacity
-    // overflow now fails at proof verification. The merge is the only
-    // instruction the transaction carries.
+    // The on-chain `allow_dummy_inputs` flag is false while the merge proof
+    // assumes true, so the capacity overflow fails at proof verification.
+    // The merge is the only instruction the transaction carries.
     Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
         .at(0)
         .assert_litesvm(error);

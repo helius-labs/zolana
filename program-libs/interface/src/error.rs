@@ -67,113 +67,98 @@ pub enum ShieldedPoolError {
     InvalidUserRecord = 7018,
     #[error("merge_transact instruction shape is invalid")]
     InvalidMergeShape = 7019,
-    // 7020 retired: was `InvalidMergeOutputScheme` (merge output ciphertext had
-    // to be verifiably encrypted); merge outputs are now deterministically
-    // derived, so there is no ciphertext scheme to check.
-    // 7021 retired: was `MismatchedTransactProofVariant`; transact proofs no
-    // longer have rail-specific variants.
     #[error("ring_authority_transact is disabled for this ring")]
-    RingAuthorityTransactDisabled = 7022,
-    // 7023 retired.
-    // 7024 retired.
+    RingAuthorityTransactDisabled = 7020,
     #[error("output owner tag account index is out of range")]
-    OwnerTagAccountMissing = 7025,
+    OwnerTagAccountMissing = 7021,
     #[error("forester fee calculation overflowed or used an invalid tree configuration")]
-    InvalidForesterFee = 7026,
+    InvalidForesterFee = 7022,
     #[error("tree does not contain enough fee funds to reimburse the forester")]
-    InsufficientForesterFeeBalance = 7027,
+    InsufficientForesterFeeBalance = 7023,
     #[error("system program account is invalid")]
-    InvalidSystemProgram = 7028,
+    InvalidSystemProgram = 7024,
     #[error("deposit batch contains no entries")]
-    EmptyDepositBatch = 7029,
+    EmptyDepositBatch = 7025,
     #[error("deposit entry references an asset index out of range")]
-    InvalidDepositAssetIndex = 7030,
+    InvalidDepositAssetIndex = 7026,
     #[error("deposit settlement accounts contain a duplicate asset")]
-    DuplicateDepositAsset = 7031,
+    DuplicateDepositAsset = 7027,
     #[error("deposit batch amounts overflow for an asset")]
-    DepositAmountOverflow = 7032,
+    DepositAmountOverflow = 7028,
     #[error("deposit settlement asset is not referenced by any entry")]
-    UnreferencedDepositAsset = 7033,
+    UnreferencedDepositAsset = 7029,
     #[error("deposit batch exceeds the maximum number of assets")]
-    TooManyDepositAssets = 7034,
+    TooManyDepositAssets = 7030,
     #[error("transact interface transfer count exceeds the u8 wire encoding")]
-    TooManyInterfaceTransfers = 7035,
+    TooManyInterfaceTransfers = 7031,
     #[error("transact interface transfers must have nonzero amounts")]
-    ZeroInterfaceTransferAmount = 7036,
+    ZeroInterfaceTransferAmount = 7032,
     #[error("transact exceeds the maximum number of distinct public assets")]
-    TooManyPublicAssets = 7037,
+    TooManyPublicAssets = 7033,
     #[error("transact public settlement amounts overflow while aggregating an asset")]
-    PublicAssetAmountOverflow = 7038,
+    PublicAssetAmountOverflow = 7034,
     #[error("circuit selector type does not match the dispatched instruction")]
-    MismatchedCircuitType = 7039,
+    MismatchedCircuitType = 7035,
     #[error("SPL deposit authority must sign")]
-    SplTokenAuthorityMustSign = 7040,
+    SplTokenAuthorityMustSign = 7036,
     #[error("SPL token program is not supported")]
-    UnsupportedSplTokenProgram = 7041,
+    UnsupportedSplTokenProgram = 7037,
     #[error("SPL token mint account is invalid")]
-    InvalidSplTokenMint = 7042,
+    InvalidSplTokenMint = 7038,
     #[error("Token-2022 mint extension is not supported")]
-    UnsupportedToken2022Extension = 7043,
-    // Retired (PR172): the explicit capacity gate was removed; a merge past the
-    // dummy-input threshold now fails at proof verification (7008) because the
-    // on-chain `allow_dummy_inputs` flag flips to false. The variant stays so
-    // the wire-code table never reuses 7044.
-    #[error("nullifier tree is too full to process a merge")]
-    NullifierTreeTooFullForMerge = 7044,
+    UnsupportedToken2022Extension = 7039,
     #[error("transact interface transfers for one asset must not net to zero")]
-    ZeroNetInterfaceTransferAmount = 7045,
+    ZeroNetInterfaceTransferAmount = 7040,
     #[error("SPL asset counter is already initialized")]
-    SplAssetCounterAlreadyInitialized = 7046,
+    SplAssetCounterAlreadyInitialized = 7041,
     #[error("ring is paused")]
-    RingPaused = 7047,
+    RingPaused = 7042,
     #[error("nullifier is already queued in the nullifier tree")]
-    NullifierAlreadyQueued = 7048,
+    NullifierAlreadyQueued = 7043,
     #[error("tree does not hold enough lamports to fund a nullifier PDA")]
-    InsufficientNullifierPdaRent = 7049,
+    InsufficientNullifierPdaRent = 7044,
     #[error("nullifier PDA batch is not reclaimable yet")]
-    NullifierPdaNotClosable = 7050,
+    NullifierPdaNotClosable = 7045,
     #[error("nullifier PDA account is invalid")]
-    InvalidNullifierPda = 7051,
+    InvalidNullifierPda = 7046,
     #[error("tree id does not match the protocol config's next tree id")]
-    InvalidTreeId = 7052,
+    InvalidTreeId = 7047,
     #[error("nullifier PDA belongs to a different tree")]
-    NullifierPdaTreeMismatch = 7053,
+    NullifierPdaTreeMismatch = 7048,
     #[error("tree id space is exhausted")]
-    TreeIdOverflow = 7054,
+    TreeIdOverflow = 7049,
     #[error("reimbursement recipient must not be a program-owned account")]
-    InvalidReimbursementRecipient = 7055,
+    InvalidReimbursementRecipient = 7050,
     #[error("output utxo hash is not a canonical BN254 field element")]
-    NonCanonicalOutputUtxoHash = 7056,
+    NonCanonicalOutputUtxoHash = 7051,
     #[error("input nullifier is not a canonical BN254 field element")]
-    NonCanonicalInputNullifier = 7057,
+    NonCanonicalInputNullifier = 7052,
     #[error("private tx hash is not a canonical BN254 field element")]
-    NonCanonicalPrivateTxHash = 7058,
+    NonCanonicalPrivateTxHash = 7053,
     #[error("ring data hash is not a canonical BN254 field element")]
-    NonCanonicalRingDataHash = 7059,
+    NonCanonicalRingDataHash = 7054,
     #[error("deposit entry field is not a canonical BN254 field element")]
-    NonCanonicalDepositField = 7060,
+    NonCanonicalDepositField = 7055,
     #[error("nullifier tree root is not a canonical BN254 field element")]
-    NonCanonicalRoot = 7061,
+    NonCanonicalRoot = 7056,
     #[error("tree holds no lamports above its rent, fee balance, and working capital")]
-    NoClaimableTreeLamports = 7062,
+    NoClaimableTreeLamports = 7057,
     #[error("deposit blinding derivation failed")]
-    DepositBlindingDerivationFailed = 7063,
+    DepositBlindingDerivationFailed = 7058,
     #[error("ring is not activated by governance")]
-    RingNotActivated = 7064,
-    #[error("every input must reference the same UTXO-tree and nullifier-tree roots")]
-    InputTreeRootIndexMismatch = 7065,
+    RingNotActivated = 7059,
     #[error("external data hash preimage exceeds the supported slice count")]
-    TooManyExternalDataHashSlices = 7066,
+    TooManyExternalDataHashSlices = 7060,
     #[error("transact must declare between one and MAX_INPUT_TREES input trees")]
-    InvalidTreeContextCount = 7067,
+    InvalidTreeContextCount = 7061,
     #[error("input references a tree index beyond the declared input trees")]
-    InputTreeIndexOutOfRange = 7068,
+    InputTreeIndexOutOfRange = 7062,
     #[error("inputs must be grouped by tree in non-decreasing tree-index order")]
-    InputsNotGroupedByTree = 7069,
+    InputsNotGroupedByTree = 7063,
     #[error("a declared input tree is referenced by no input")]
-    UnreferencedTreeContext = 7070,
+    UnreferencedTreeContext = 7064,
     #[error("the same input tree account is passed twice")]
-    DuplicateInputTree = 7071,
+    DuplicateInputTree = 7065,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -240,54 +225,52 @@ mod tests {
                 MergeDisabled => 7017,
                 InvalidUserRecord => 7018,
                 InvalidMergeShape => 7019,
-                RingAuthorityTransactDisabled => 7022,
-                OwnerTagAccountMissing => 7025,
-                InvalidForesterFee => 7026,
-                InsufficientForesterFeeBalance => 7027,
-                InvalidSystemProgram => 7028,
-                EmptyDepositBatch => 7029,
-                InvalidDepositAssetIndex => 7030,
-                DuplicateDepositAsset => 7031,
-                DepositAmountOverflow => 7032,
-                UnreferencedDepositAsset => 7033,
-                TooManyDepositAssets => 7034,
-                TooManyInterfaceTransfers => 7035,
-                ZeroInterfaceTransferAmount => 7036,
-                TooManyPublicAssets => 7037,
-                PublicAssetAmountOverflow => 7038,
-                MismatchedCircuitType => 7039,
-                SplTokenAuthorityMustSign => 7040,
-                UnsupportedSplTokenProgram => 7041,
-                InvalidSplTokenMint => 7042,
-                UnsupportedToken2022Extension => 7043,
-                NullifierTreeTooFullForMerge => 7044,
-                ZeroNetInterfaceTransferAmount => 7045,
-                SplAssetCounterAlreadyInitialized => 7046,
-                RingPaused => 7047,
-                NullifierAlreadyQueued => 7048,
-                InsufficientNullifierPdaRent => 7049,
-                NullifierPdaNotClosable => 7050,
-                InvalidNullifierPda => 7051,
-                InvalidTreeId => 7052,
-                NullifierPdaTreeMismatch => 7053,
-                TreeIdOverflow => 7054,
-                InvalidReimbursementRecipient => 7055,
-                NonCanonicalOutputUtxoHash => 7056,
-                NonCanonicalInputNullifier => 7057,
-                NonCanonicalPrivateTxHash => 7058,
-                NonCanonicalRingDataHash => 7059,
-                NonCanonicalDepositField => 7060,
-                NonCanonicalRoot => 7061,
-                NoClaimableTreeLamports => 7062,
-                DepositBlindingDerivationFailed => 7063,
-                RingNotActivated => 7064,
-                InputTreeRootIndexMismatch => 7065,
-                TooManyExternalDataHashSlices => 7066,
-                InvalidTreeContextCount => 7067,
-                InputTreeIndexOutOfRange => 7068,
-                InputsNotGroupedByTree => 7069,
-                UnreferencedTreeContext => 7070,
-                DuplicateInputTree => 7071,
+                RingAuthorityTransactDisabled => 7020,
+                OwnerTagAccountMissing => 7021,
+                InvalidForesterFee => 7022,
+                InsufficientForesterFeeBalance => 7023,
+                InvalidSystemProgram => 7024,
+                EmptyDepositBatch => 7025,
+                InvalidDepositAssetIndex => 7026,
+                DuplicateDepositAsset => 7027,
+                DepositAmountOverflow => 7028,
+                UnreferencedDepositAsset => 7029,
+                TooManyDepositAssets => 7030,
+                TooManyInterfaceTransfers => 7031,
+                ZeroInterfaceTransferAmount => 7032,
+                TooManyPublicAssets => 7033,
+                PublicAssetAmountOverflow => 7034,
+                MismatchedCircuitType => 7035,
+                SplTokenAuthorityMustSign => 7036,
+                UnsupportedSplTokenProgram => 7037,
+                InvalidSplTokenMint => 7038,
+                UnsupportedToken2022Extension => 7039,
+                ZeroNetInterfaceTransferAmount => 7040,
+                SplAssetCounterAlreadyInitialized => 7041,
+                RingPaused => 7042,
+                NullifierAlreadyQueued => 7043,
+                InsufficientNullifierPdaRent => 7044,
+                NullifierPdaNotClosable => 7045,
+                InvalidNullifierPda => 7046,
+                InvalidTreeId => 7047,
+                NullifierPdaTreeMismatch => 7048,
+                TreeIdOverflow => 7049,
+                InvalidReimbursementRecipient => 7050,
+                NonCanonicalOutputUtxoHash => 7051,
+                NonCanonicalInputNullifier => 7052,
+                NonCanonicalPrivateTxHash => 7053,
+                NonCanonicalRingDataHash => 7054,
+                NonCanonicalDepositField => 7055,
+                NonCanonicalRoot => 7056,
+                NoClaimableTreeLamports => 7057,
+                DepositBlindingDerivationFailed => 7058,
+                RingNotActivated => 7059,
+                TooManyExternalDataHashSlices => 7060,
+                InvalidTreeContextCount => 7061,
+                InputTreeIndexOutOfRange => 7062,
+                InputsNotGroupedByTree => 7063,
+                UnreferencedTreeContext => 7064,
+                DuplicateInputTree => 7065,
             }
         }
 
@@ -334,7 +317,6 @@ mod tests {
             UnsupportedSplTokenProgram,
             InvalidSplTokenMint,
             UnsupportedToken2022Extension,
-            NullifierTreeTooFullForMerge,
             ZeroNetInterfaceTransferAmount,
             SplAssetCounterAlreadyInitialized,
             RingPaused,
@@ -355,7 +337,6 @@ mod tests {
             NoClaimableTreeLamports,
             DepositBlindingDerivationFailed,
             RingNotActivated,
-            InputTreeRootIndexMismatch,
             TooManyExternalDataHashSlices,
             InvalidTreeContextCount,
             InputTreeIndexOutOfRange,
@@ -363,14 +344,25 @@ mod tests {
             UnreferencedTreeContext,
             DuplicateInputTree,
         ];
-        for variant in variants {
+        for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
                 variant as u32,
                 expected_code(variant),
                 "error code drifted: {variant:?}"
             );
+            assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 68, "variant count drifted");
+        assert_eq!(variants.len(), 66, "variant count drifted");
+
+        let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
+            "../../../test-vectors/shielded_pool_errors.json"
+        ))
+        .unwrap();
+        let actual = variants
+            .into_iter()
+            .map(|variant| (format!("{variant:?}"), variant as u32))
+            .collect();
+        assert_eq!(expected, actual, "shared error-code fixture drifted");
     }
 }

@@ -15,7 +15,7 @@ use zolana_interface::error::ShieldedPoolError;
 /// `c`, and the BSB22 pair) are compressed, `b` is the raw big-endian G2 point.
 /// The pairing syscall validates `b` (curve and subgroup membership) when it
 /// converts the point, so no separate decompression or check is needed.
-pub struct CompressedGroth16Proof<'a> {
+pub struct Groth16Proof<'a> {
     pub a: &'a [u8; 32],
     pub b: &'a [u8; 128],
     pub c: &'a [u8; 32],
@@ -27,7 +27,7 @@ pub struct CompressedGroth16Proof<'a> {
 #[inline(never)]
 #[profile]
 pub fn verify_groth16(
-    proof: CompressedGroth16Proof,
+    proof: Groth16Proof,
     public_input_hash: [u8; 32],
     verifying_key: &Groth16Verifyingkey,
     encoding_err: ShieldedPoolError,

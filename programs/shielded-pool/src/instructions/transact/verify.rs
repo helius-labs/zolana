@@ -359,7 +359,7 @@ impl<'a> TransactProof<'a> {
             .circuit
             .bsb22_commitment()
             .map(|value| (&value.commitment, &value.commitment_pok));
-        let proof = verifier::CompressedGroth16Proof {
+        let proof = verifier::Groth16Proof {
             a: &proof_data.a,
             b: &proof_data.b,
             c: &proof_data.c,

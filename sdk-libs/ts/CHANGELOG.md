@@ -21,6 +21,10 @@ priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
+  7000–7065 matching the program, remove retired names, and include tree-context
+  errors → replace hardcoded codes with the exported constants and use this SDK
+  with the matching program version.
 - `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
   three or more trees across separate transactions.
 - `transactInstruction` and `ringTransactAccounts` place input trees after
@@ -355,7 +359,7 @@ Added
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.
-- `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
+- `ShieldedPoolError` names errors for deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
   `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,

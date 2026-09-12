@@ -196,7 +196,7 @@ The instruction also receives the writable PDA.
    `rent_minimum + fee_balance`.
 8. Derive the canonical PDA and bump. Require the supplied address to
    match. An initialized PDA fails with
-   `ShieldedPoolError::NullifierAlreadyQueued` (7048).
+   `ShieldedPoolError::NullifierAlreadyQueued` (7043).
 9. Accept an unused PDA that is System-owned, empty, and optionally
    prefunded. A PDA with zero lamports is created through a System
    `CreateAccount` signed with the PDA seeds, funded with zero lamports by the
@@ -317,7 +317,7 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
     `min(fees.append_reimbursement * num_update, fee_balance)` from the tree
     to the writable `reimbursement_recipient` account and subtract the paid
     amount from `fee_balance`. The recipient must not be program-owned
-    (`ShieldedPoolError::InvalidReimbursementRecipient`, 7055), checked before
+    (`ShieldedPoolError::InvalidReimbursementRecipient`, 7050), checked before
     any state change. A short fee balance pays what it holds and never fails
     the update, so a fee increase cannot stall the queue. A call that only
     caches or evicts pays nothing.
@@ -410,7 +410,7 @@ them.
    `protocol_config.forester_authority`
    (`ShieldedPoolError::UnauthorizedCaller`, 7003).
 2. Require the recipient not to be program-owned
-   (`ShieldedPoolError::InvalidReimbursementRecipient`, 7055). This rejects
+   (`ShieldedPoolError::InvalidReimbursementRecipient`, 7050). This rejects
    the tree itself, open nullifier PDAs, and the protocol config as
    recipients.
 3. Require at least one PDA account.
@@ -418,12 +418,12 @@ them.
 For every PDA account:
 
 4. Require program ownership, an exact ten-byte Borsh payload, and
-   `PDA.queue_index >= 1` (`ShieldedPoolError::InvalidNullifierPda`, 7051).
+   `PDA.queue_index >= 1` (`ShieldedPoolError::InvalidNullifierPda`, 7046).
    Queue sequences start at 1, so an all-zero record is an account the
    program never wrote, such as a system-allocated account assigned to the
    program.
 5. Require `PDA.tree_id` to equal the tree header's `tree_id`
-   (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7053).
+   (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7048).
 6. Require `PDA.queue_index < w`.
 7. Transfer every PDA lamport to the tree and close the PDA.
 

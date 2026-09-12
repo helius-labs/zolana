@@ -11,7 +11,7 @@
 //! - a duplicate nullifier inside one instruction (7002)
 //! - a negative clock (7005) and a paused tree on the ring rails (7013)
 //! - ring-config defects on the ring rails (7014 / signer error)
-//! - paused ring configs on both ring transact rails (7047)
+//! - paused ring configs on both ring transact rails (7042)
 
 use shielded_pool_tests::support::{fixtures::Pool, transact::write_ring_config_account};
 

@@ -58,7 +58,7 @@ impl<'a> MergeProof<'a> {
         let public_input_hash = self.public_input_hash()?;
         let p = &self.ix.proof;
         let encoding_err = ShieldedPoolError::InvalidTransactProofEncoding;
-        let proof = verifier::CompressedGroth16Proof {
+        let proof = verifier::Groth16Proof {
             a: p.a,
             b: p.b,
             c: p.c,

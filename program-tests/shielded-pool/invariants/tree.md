@@ -12,7 +12,7 @@ would drain the tree's PDA working capital); its `reimbursement_recipient` recei
 paid out of the tree's `fee_balance`, never PDA rent; the PDA payload is a
 discriminator-less 10-byte Borsh `NullifierPda { queue_index, tree_id }`; a
 duplicate pending nullifier surfaces as
-`ShieldedPoolError::NullifierAlreadyQueued = 7048`.
+`ShieldedPoolError::NullifierAlreadyQueued = 7043`.
 
 Fee model (`program-libs/tree/src/fees.rs`): the tree header stores
 `fees: TreeFeeSchedule { fee_per_nullifier, append_reimbursement, close_reimbursement }`
@@ -52,11 +52,11 @@ now states H=32 and lists tag 4.
 ### Account Constraints
 
 - [x] **INV-CREATE-TREE-03: tree account must be the canonical tree PDA and, once allocated, program-owned**
-  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_a_non_canonical_tree_address` (address derived from another tree id -> 7016), `tree_creation_rejects_a_skipped_tree_id` (a fresh allocation must use exactly `protocol_config.next_tree_id` -> 7052; no account is created)
+  - Covered by: `program-tests/shielded-pool/tests/admin/rejection.rs` `tree_creation_rejects_a_non_canonical_tree_address` (address derived from another tree id -> 7016), `tree_creation_rejects_a_skipped_tree_id` (a fresh allocation must use exactly `protocol_config.next_tree_id` -> 7047; no account is created)
   - Kind: precondition
   - Statement: `create_tree` returns Err unless the tree address equals `find_program_address([TREE_PDA_SEED, tree_id.to_le_bytes()], program)`; a fresh allocation (System-owned, zero-length account) is created by the program as that PDA and must carry `tree_id == protocol_config.next_tree_id`, and every continuation step on an already allocated account returns Err unless the account is writable and owned by the shielded-pool program.
   - Location: `programs/shielded-pool/src/instructions/create_tree/processor.rs` (`fn process_create_tree`: `verify_pda`, `is_unallocated`, `next_tree_id` check), `create_tree/allocate.rs` (`fn TreeAllocation::create`, `fn grow_tree`)
-  - Error: `ShieldedPoolError::InvalidPda = 7016` / `InvalidTreeId = 7052` / `InvalidTreeAccounts = 7001`
+  - Error: `ShieldedPoolError::InvalidPda = 7016` / `InvalidTreeId = 7047` / `InvalidTreeAccounts = 7001`
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 
@@ -203,11 +203,11 @@ now states H=32 and lists tag 4.
 ### Forester Reimbursement
 
 - [x] **INV-BATCH-NULL-08: forester reimbursement is paid from the fee balance to a non-program recipient and preserves the tree's rent floor**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_a_program_owned_reimbursement_recipient` (tree as recipient -> exact 7055, tree bytes unchanged); `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_recipient_must_not_be_program_owned` (7055), `reimbursement_moves_funded_lamports_and_preserves_rent`, `reimbursement_cannot_spend_tree_rent` (7027 leg), `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7026 leg); `program-libs/tree/tests/fees.rs` `take_append_reimbursement_pays_up_to_the_balance` (owed above the balance pays exactly the balance and leaves 0; owed below pays in full), `take_reimbursement_saturates_to_the_balance` (an owed amount that overflows the multiplication is capped at the balance), `zero_schedule_charges_and_pays_nothing`
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/batch.rs` `batch_update_rejects_a_program_owned_reimbursement_recipient` (tree as recipient -> exact 7050, tree bytes unchanged); `program-tests/shielded-pool/tests/tree/contract.rs` `reimbursement_recipient_must_not_be_program_owned` (7050), `reimbursement_moves_funded_lamports_and_preserves_rent`, `reimbursement_cannot_spend_tree_rent` (7023 leg), `reimbursement_recipient_balance_overflow_is_invalid_forester_fee` (7022 leg); `program-libs/tree/tests/fees.rs` `take_append_reimbursement_pays_up_to_the_balance` (owed above the balance pays exactly the balance and leaves 0; owed below pays in full), `take_reimbursement_saturates_to_the_balance` (an owed amount that overflows the multiplication is capped at the balance), `zero_schedule_charges_and_pays_nothing`
   - Kind: precondition + postcondition
-  - Statement: the `reimbursement_recipient` must not be owned by the shielded-pool program (this rejects the tree itself, nullifier PDAs, and the protocol config), checked before any state change; when an update applies `num_update` batches, the tree pays exactly `paid = min(fees.append_reimbursement * num_update, fee_balance_before)` to the recipient and `fee_balance` decreases by exactly `paid`, so a short fee balance (for example right after `set_tree_fees` raised the reimbursement) pays what it holds and never fails the update; `paid == 0` skips the lamport move; the move fails with 7027 if it would leave the tree below its rent-exempt minimum (defense in depth: the lamport invariant makes this unreachable), with 7026 on an owed-amount or recipient-balance overflow; an update that applies zero batches (no event produced) pays nothing.
+  - Statement: the `reimbursement_recipient` must not be owned by the shielded-pool program (this rejects the tree itself, nullifier PDAs, and the protocol config), checked before any state change; when an update applies `num_update` batches, the tree pays exactly `paid = min(fees.append_reimbursement * num_update, fee_balance_before)` to the recipient and `fee_balance` decreases by exactly `paid`, so a short fee balance (for example right after `set_tree_fees` raised the reimbursement) pays what it holds and never fails the update; `paid == 0` skips the lamport move; the move fails with 7023 if it would leave the tree below its rent-exempt minimum (defense in depth: the lamport invariant makes this unreachable), with 7022 on an owed-amount or recipient-balance overflow; an update that applies zero batches (no event produced) pays nothing.
   - Location: `programs/shielded-pool/src/instructions/batch_update_nullifier_tree.rs` (`check_reimbursement_recipient`, `take_append_reimbursement`, `pay_reimbursement`), `shared.rs` (`fn check_reimbursement_recipient`, `fn pay_reimbursement`, `fn pay_reimbursement_with_rent_minimum`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::take_append_reimbursement`, `fn take_reimbursement`)
-  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7055` / `InsufficientForesterFeeBalance = 7027` / `InvalidForesterFee = 7026`
+  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7050` / `InsufficientForesterFeeBalance = 7023` / `InvalidForesterFee = 7022`
   - Severity: High (tree-fund drainage)
   - Suggested test: positive + negative (recipient, rent floor, short balance); harness: mollusk unit + tree unit
 
@@ -291,11 +291,11 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Suggested test: positive; harness: program-tests integration (proofs tier)
 
 - [x] **INV-TRANSACT-49: the tree funds only the missing PDA rent and never drops below its rent floor plus the fee balance**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_tree_short_of_nullifier_pda_rent` (bare rent and `rent + 2 * nullifier_pda_rent - 1` both rejected, no PDA survives), `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (`fee_balance = 1_000_000` written into the header and funded; tree at `rent + fee_balance + 2 * nullifier_pda_rent - 1` rejects a 2-input spend with exact 7049 and leaves no PDA), `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_tops_up_prefunded_nullifier_pdas` (underfunded PDA topped up to exactly its rent, overfunded PDA keeps its surplus, tree debited only the missing rent), `transact_creates_one_nullifier_pda_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `forester_fee - n * nullifier_pda_rent`)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_tree_short_of_nullifier_pda_rent` (bare rent and `rent + 2 * nullifier_pda_rent - 1` both rejected, no PDA survives), `transact_rejects_when_working_capital_would_borrow_from_the_fee_pool` (`fee_balance = 1_000_000` written into the header and funded; tree at `rent + fee_balance + 2 * nullifier_pda_rent - 1` rejects a 2-input spend with exact 7044 and leaves no PDA), `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_tops_up_prefunded_nullifier_pdas` (underfunded PDA topped up to exactly its rent, overfunded PDA keeps its surplus, tree debited only the missing rent), `transact_creates_one_nullifier_pda_per_input` (`assert_tree_lamports_after_spend`: tree delta is exactly `forester_fee - n * nullifier_pda_rent`)
   - Kind: postcondition + precondition
   - Statement: for every created PDA the tree's lamports decrease by exactly `max(0, Rent::minimum_balance(10) - nullifier_pda_lamports_before)`; if that debit would leave the tree below `Rent::minimum_balance(tree.data_len()) + fee_balance` (the fee balance as credited by this instruction's own insertion fee, INV-TRANSACT-42) the instruction returns Err and no PDA is created, so working capital never borrows from collected fees. A PDA prefunded above its rent keeps the surplus and costs the tree nothing.
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/create.rs` (`struct NullifierPdaRent`, `fn create_nullifier_pdas`; `tree_minimum = rent + reserved_lamports`), `transact/processor.rs` (`create_nullifier_pdas(.., input_tree_result.fee_balance)`), `merge/processor.rs`
-  - Error: `ShieldedPoolError::InsufficientNullifierPdaRent = 7049`
+  - Error: `ShieldedPoolError::InsufficientNullifierPdaRent = 7044`
   - Severity: High (tree-fund drainage, liveness once working capital is exhausted)
   - Suggested test: positive + negative boundary; harness: program-tests integration
 
@@ -304,18 +304,18 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
 - [x] **INV-TRANSACT-47: a nullifier with a live PDA cannot be queued again**
   - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_a_pending_nullifier` (PDA from an earlier queueing, fixture-written), `transact_rejects_the_same_nullifier_twice_in_one_instruction`; `program-tests/shielded-pool/tests/nullifier/nullifier_pdas_proof.rs` `transact_rejects_a_nullifier_queued_by_an_earlier_transaction` (real first spend, replay rejected, first PDA unchanged); `program-tests/shielded-pool/tests/transact/guard.rs` `transact_rejects_a_duplicate_nullifier_within_one_instruction`
   - Kind: precondition (state: pending non-inclusion)
-  - Statement: PDA creation requires the PDA account to be System-owned with zero data; an account at the canonical PDA address that is program-owned or non-empty (a PDA created by an earlier transaction, or by an earlier input of the same instruction) makes the instruction return Err. Together with the Merkle non-inclusion proof this gives INV-XC-10 (at most one successful queue insertion per nullifier); the pending half now surfaces as 7048 instead of 7002.
+  - Statement: PDA creation requires the PDA account to be System-owned with zero data; an account at the canonical PDA address that is program-owned or non-empty (a PDA created by an earlier transaction, or by an earlier input of the same instruction) makes the instruction return Err. Together with the Merkle non-inclusion proof this gives INV-XC-10 (at most one successful queue insertion per nullifier); the pending half now surfaces as 7043 instead of 7002.
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs:10-28` (`fn load_unused_nullifier_pda`)
-  - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7048`
+  - Error: `ShieldedPoolError::NullifierAlreadyQueued = 7043`
   - Severity: Critical (double-spend)
   - Suggested test: negative (across transactions and within one instruction); harness: program-tests integration
 
 - [x] **INV-TRANSACT-48: every PDA slot must hold the canonical, writable PDA**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_swapped_nullifier_pdas` (7051), `transact_rejects_a_foreign_account_in_a_nullifier_pda_slot` (7051), `transact_rejects_a_read_only_nullifier_pda` (account-checks `AccountNotMutable` = 20002), `transact_rejects_missing_nullifier_pda_accounts` (account-checks `NotEnoughAccountKeys` = 20014)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `transact_rejects_swapped_nullifier_pdas` (7046), `transact_rejects_a_foreign_account_in_a_nullifier_pda_slot` (7046), `transact_rejects_a_read_only_nullifier_pda` (account-checks `AccountNotMutable` = 20002), `transact_rejects_missing_nullifier_pda_accounts` (account-checks `NotEnoughAccountKeys` = 20014)
   - Kind: precondition
   - Statement: the `n` accounts following the fixed prefix (after `system_program`, or after `ring_config` on the ring rails) are consumed as writable PDAs in input order; a missing account, a read-only meta, or an address that is not `find_program_address(["nullifier", input_tree, nullifier_i])` makes the instruction return Err. PDA accounts are trusted only through this derivation, never through their position.
   - Location: `programs/shielded-pool/src/instructions/transact/account.rs` (`nullifier_pdas` via `next_mut("nullifier_pda")`), `nullifier_pda/loader.rs:15-23` (`verify_pda`)
-  - Error: `ShieldedPoolError::InvalidNullifierPda = 7051` / account-checks 20002 / 20014
+  - Error: `ShieldedPoolError::InvalidNullifierPda = 7046` / account-checks 20002 / 20014
   - Severity: High
   - Suggested test: negative; harness: program-tests integration
 
@@ -361,11 +361,11 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Suggested test: negative; harness: program-tests integration
 
 - [x] **INV-CLOSE-PDA-04: each PDA must be a writable, program-owned `NULLIFIER_PDA_SIZE`-byte record of this tree**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_nullifier_pda_of_another_tree` (record with a foreign `tree_id` -> 7053), `close_rejects_a_non_nullifier_pda_account` (System-owned account; program-owned account of another size), `close_rejects_a_zero_queue_index_record` (program-owned ten-byte all-zero record -> 7051), `close_rejects_the_same_nullifier_pda_twice_in_one_instruction` (already closed within the instruction: System-owned, empty), `close_rejects_a_read_only_nullifier_pda_meta` (account-checks `AccountNotMutable` = 20002)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_nullifier_pda_of_another_tree` (record with a foreign `tree_id` -> 7048), `close_rejects_a_non_nullifier_pda_account` (System-owned account; program-owned account of another size), `close_rejects_a_zero_queue_index_record` (program-owned ten-byte all-zero record -> 7046), `close_rejects_the_same_nullifier_pda_twice_in_one_instruction` (already closed within the instruction: System-owned, empty), `close_rejects_a_read_only_nullifier_pda_meta` (account-checks `AccountNotMutable` = 20002)
   - Kind: precondition
   - Statement: every PDA account must be writable, owned by the program, exactly `NULLIFIER_PDA_SIZE` bytes, decode as `NullifierPda` with `queue_index >= 1` (queue indices start at 1, so an all-zero record was never program-written), and carry `tree_id` equal to the tree's id; any violation makes the instruction return Err. The address is not re-derived: a record can only exist at a nullifier PDA address because `create_nullifier_pdas` derives it with `verify_pda` (INV-TRANSACT-46), and the record's own `queue_index` decides closability (INV-CLOSE-PDA-06).
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/loader.rs` (`fn load_nullifier_pda`)
-  - Error: `ShieldedPoolError::InvalidNullifierPda = 7051` / `NullifierPdaTreeMismatch = 7053` / account-checks 20002
+  - Error: `ShieldedPoolError::InvalidNullifierPda = 7046` / `NullifierPdaTreeMismatch = 7048` / account-checks 20002
   - Severity: Critical (closing a foreign PDA would re-enable a pending double spend)
   - Suggested test: negative; harness: program-tests integration
 
@@ -381,11 +381,11 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Suggested test: negative; harness: program-tests integration
 
 - [x] **INV-CLOSE-PDA-09: the reimbursement recipient must not be program-owned**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_program_owned_reimbursement_recipient` (the tree, an open nullifier PDA, and the protocol config each rejected with exact 7055; every PDA survives, tree bytes unchanged)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_a_program_owned_reimbursement_recipient` (the tree, an open nullifier PDA, and the protocol config each rejected with exact 7050; every PDA survives, tree bytes unchanged)
   - Kind: precondition
   - Statement: the fourth account (`reimbursement_recipient`) must not be owned by the shielded-pool program; the check runs before the tree is loaded or any PDA is touched, so the tree cannot pay itself, a live nullifier PDA cannot be credited above its rent, and the protocol config cannot absorb fees.
   - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`check_reimbursement_recipient`), `shared.rs` (`fn check_reimbursement_recipient`)
-  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7055`
+  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7050`
   - Severity: High (fee-pool misdirection)
   - Suggested test: negative (three program-owned recipients); harness: program-tests integration
 
@@ -396,18 +396,18 @@ the proof-backed binary `nullifier_pdas_proof` covers the success path.
   - Kind: postcondition
   - Statement: after a successful close of `n` PDAs, the `reimbursement_recipient` gains exactly `paid = min(fees.close_reimbursement * n, fee_balance_before)`, the tree's `fee_balance` is exactly `fee_balance_before - paid`, and the tree's lamports change by exactly `sum(closed PDA lamports) - paid`; `paid == 0` skips the lamport move and still closes every PDA. The payout never fails the close (a short fee balance pays what it holds), and the tree keeps at least `rent_minimum + fee_balance_after`.
   - Location: `programs/shielded-pool/src/instructions/close_nullifier_pdas.rs` (`take_close_reimbursement`, `pay_reimbursement`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::take_close_reimbursement`, `fn take_reimbursement`), `shared.rs` (`fn pay_reimbursement`)
-  - Error: `ShieldedPoolError::InsufficientForesterFeeBalance = 7027` (defense-in-depth rent guard) / `InvalidForesterFee = 7026` (overflow)
+  - Error: `ShieldedPoolError::InsufficientForesterFeeBalance = 7023` (defense-in-depth rent guard) / `InvalidForesterFee = 7022` (overflow)
   - Severity: High (fund movement; cleanup liveness incentive)
   - Suggested test: positive (full, capped, zero, foreign recipient); harness: program-tests integration
 
 ### PDA Reclaimability Gate
 
 - [x] **INV-CLOSE-PDA-06: a PDA is closable iff `queue_index < close_before_index`**
-  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_nullifier_pda_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_nullifier_pda_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_nullifier_pdas` rejected with 7050 and no lamports move)
+  - Covered by: `program-tests/shielded-pool/tests/nullifier/nullifier_pdas.rs` `close_rejects_nullifier_pda_before_batch_is_reclaimable` (fresh tree, `w = 0`), `close_honours_the_watermark_boundary` (`queue_index == w` rejected, `queue_index == w - 1` closed; `w` set by a LiteSVM fixture that writes `close_before_index` into the tree bytes because making a batch reclaimable requires two full batches to be queued and applied); localnet: `tests/localnet/photon/forester.rs` `phase_assert_nullifier_pda_cleanup` (drained but not yet reclaimable batch, `w == 0`, `close_nullifier_pdas` rejected with 7045 and no lamports move)
   - Kind: precondition
   - Statement: for every PDA in the instruction, `PDA.queue_index < tree.close_before_index` must hold; otherwise the instruction returns Err. Queue indices equal leaf indices and start at 1. `close_before_index` advances when a batch's final ZKP update lands (`w = max(w, current.start_index)`), after its full root-history window has overwritten every older accepted root, so a closable PDA's nullifier is contained in every accepted nullifier-tree root (spec property "safe PDA lifetime"). Batch storage may already have been reused; reuse does not affect the watermark or PDA lifetime.
   - Location: `programs/shielded-pool/src/instructions/nullifier_pda/close.rs:15-17`, `program-libs/interface/src/state/nullifier_pda.rs:15-17` (`fn is_closable`), `program-libs/tree/src/nullifier_tree/merkle_tree_update.rs` (`fn advance_nullifier_pda_close_watermark`)
-  - Error: `ShieldedPoolError::NullifierPdaNotClosable = 7050`
+  - Error: `ShieldedPoolError::NullifierPdaNotClosable = 7045`
   - Severity: Critical (early close re-enables a stale non-inclusion proof)
   - Suggested test: negative boundary + positive; harness: program-tests integration; end-to-end reclaimability remains uncovered on localnet (see the note in `phase_assert_nullifier_pda_cleanup`)
 
@@ -491,7 +491,7 @@ so a schedule can be fixed while writes are frozen.
   - Suggested test: negative (short, long); harness: mollusk unit
 
 - [x] **INV-SET-FEES-06: any schedule is stored regardless of the tree's ZKP batch size**
-  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_stores_insolvent_schedules` (the default schedule with `append_reimbursement + 1`, with `close_reimbursement + 1`, and with `fee_per_nullifier - 1`: each succeeds and `tree_fees()` reads `(fees, 0)`); `program-libs/tree/tests/fees.rs` `zero_schedule_charges_and_pays_nothing`
+  - Covered by: `program-tests/shielded-pool/tests/admin/set_tree_fees.rs` `set_tree_fees_stores_insolvent_schedules` (an explicit positive break-even schedule with `append_reimbursement + 1`, with `close_reimbursement + 1`, and with `fee_per_nullifier - 1`: each is asserted insolvent, succeeds, and `tree_fees()` reads `(fees, 0)`); `program-libs/tree/tests/fees.rs` `zero_schedule_charges_and_pays_nothing`
   - Kind: postcondition
   - Statement: `set_tree_fees` performs no solvency check against `Z = tree.nullifier_tree.zkp_batch_size`; a schedule whose payouts exceed `fee_per_nullifier * Z` is stored verbatim and only truncates future payouts to `min(owed, fee_balance)`. The all-zero schedule disables fees and payouts.
   - Location: `programs/shielded-pool/src/instructions/set_tree_fees.rs` (`set_fee_schedule`), `program-libs/tree/src/fees.rs` (`fn TreeAccount::take_reimbursement`)
@@ -570,11 +570,11 @@ touches forester money. It works on paused trees.
   - Suggested test: negative + positive on paused; harness: mollusk unit + litesvm
 
 - [x] **INV-CLAIM-04: the recipient must not be program-owned**
-  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_program_owned_recipient` (protocol config as recipient -> exact 7055, rolled back), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only recipient meta -> account-checks `AccountNotMutable`)
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_rejects_a_program_owned_recipient` (protocol config as recipient -> exact 7050, rolled back), `mollusk_claim_tree_lamports_rejects_every_account_privilege_downgrade` (read-only recipient meta -> account-checks `AccountNotMutable`)
   - Kind: precondition
   - Statement: the recipient must be writable and not owned by the shielded-pool program (this rejects the tree itself, nullifier PDAs, unallocated tree PDAs, and the protocol config), checked before any state change.
   - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs` (`check_reimbursement_recipient`)
-  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7055`
+  - Error: `ShieldedPoolError::InvalidReimbursementRecipient = 7050`
   - Severity: High
   - Suggested test: negative; harness: litesvm + mollusk unit
 
@@ -592,12 +592,12 @@ touches forester money. It works on paused trees.
 ### Success Postconditions
 
 - [x] **INV-CLAIM-06: the tree ends exactly at its reserve and the surplus reaches the recipient**
-  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_pays_exactly_the_surplus` (airdropped surplus moves in full; tree lamports equal the reserve), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (forged `fee_balance` stays in the tree and in the header), `claim_tree_lamports_recovers_a_rent_reduction` (halving `Rent` releases exactly the old minus the new reserve), `claim_tree_lamports_rejects_a_tree_without_surplus` (a tree at its reserve fails with exact 7062 and is rolled back)
+  - Covered by: `program-tests/shielded-pool/tests/admin/claim_tree_lamports.rs` `claim_tree_lamports_pays_exactly_the_surplus` (airdropped surplus moves in full; tree lamports equal the reserve), `claim_tree_lamports_keeps_the_fee_balance_and_works_on_a_paused_tree` (forged `fee_balance` stays in the tree and in the header), `claim_tree_lamports_recovers_a_rent_reduction` (halving `Rent` releases exactly the old minus the new reserve), `claim_tree_lamports_rejects_a_tree_without_surplus` (a tree at its reserve fails with exact 7057 and is rolled back)
   - Kind: postcondition
   - Statement: after a successful claim `tree.lamports == rent_minimum(tree) + fee_balance + (NUM_BATCHES + 1) * input_queue_batch_size * rent_minimum(NULLIFIER_PDA_SIZE)` at the Rent sysvar of that slot, and the recipient gains exactly the difference; a tree at or below that reserve returns `NoClaimableTreeLamports` and moves nothing. `fee_balance` and the working capital are never claimable.
   - Location: `programs/shielded-pool/src/instructions/claim_tree_lamports.rs`, `program-libs/interface/src/state/tree.rs` (`fn tree_working_capital_lamports`), `shared.rs` (`pay_reimbursement_with_rent_minimum`)
-  - Error: `ShieldedPoolError::NoClaimableTreeLamports = 7062`
-  - Severity: Critical (an over-claim would make nullifier PDA creation fail with 7028 and halt spends)
+  - Error: `ShieldedPoolError::NoClaimableTreeLamports = 7057`
+  - Severity: Critical (an over-claim would make nullifier PDA creation fail with 7024 and halt spends)
   - Suggested test: positive with exact balances; harness: litesvm + mollusk unit
 
 ### Frame Conditions

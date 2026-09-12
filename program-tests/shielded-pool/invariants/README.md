@@ -134,7 +134,7 @@ Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
 `TreeFeeSchedule` and `fee_balance`, `set_tree_fees` (tag 19) and
 `protocol_config.fee_authority` were added, `batch_update_nullifier_tree` and
 `close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
-`reimbursement_recipient` (7055), `claim_tree_lamports` (tag 20) lets the fee
+`reimbursement_recipient` (7050), `claim_tree_lamports` (tag 20) lets the fee
 authority sweep surplus lamports, and the constant 20-lamport insertion fee is
 gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-01..10,
 INV-TRANSACT-46..50, INV-CREATE-TREE-10, INV-UPDATE-PC-08 (33, all covered);

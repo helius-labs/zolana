@@ -227,10 +227,10 @@ describe("protocol config fee authority", () => {
   });
 
   it("names the fee error code", () => {
-    expect(ShieldedPoolError.InvalidReimbursementRecipient).toBe(7055);
-    expect(decodeShieldedPoolError(7055)).toEqual({
+    expect(ShieldedPoolError.InvalidReimbursementRecipient).toBe(7050);
+    expect(decodeShieldedPoolError(7050)).toEqual({
       kind: "known",
-      code: 7055,
+      code: 7050,
       name: "InvalidReimbursementRecipient",
     });
   });
