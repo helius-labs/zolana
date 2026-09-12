@@ -1436,6 +1436,8 @@ func hostPolicyHash(
 		elements = append(elements, big.NewInt(slot.listId), slot.owner)
 	}
 	elements = append(elements, big.NewInt(int64(len(rules))))
+	elements = append(elements, big.NewInt(int64(len(inlineAssets))))
+	elements = append(elements, big.NewInt(int64(len(velocity))))
 	for _, r := range rules {
 		elements = append(elements, r.packed())
 	}

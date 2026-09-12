@@ -167,13 +167,22 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NI
 		length = api.Add(length, api.Mul(bit, size))
 	}
 
-	// 2. Hash the domain, version, source map and rule count.
+	// 2. Hash the domain, version, source map, and the section counts that bind
+	// the inline and velocity partitions.
+	inlineLength := frontend.Variable(0)
+	for _, bit := range inlineEnabled {
+		inlineLength = api.Add(inlineLength, bit)
+	}
+	velocityLength := frontend.Variable(0)
+	for _, bit := range velocityEnabled {
+		velocityLength = api.Add(velocityLength, bit)
+	}
 	preimage := make([]frontend.Variable, 0, 3+2*NSources)
 	preimage = append(preimage, policyTableDomain, PolicyVersion)
 	for _, source := range c.Sources {
 		preimage = append(preimage, source.ListId, source.OwnerHash)
 	}
-	head := gadget.HashChain(api, append(preimage, length))
+	head := gadget.HashChain(api, append(preimage, length, inlineLength, velocityLength))
 
 	// 3. Append the selected packed rules.
 	packed := make([]frontend.Variable, NRules)

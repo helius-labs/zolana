@@ -200,5 +200,5 @@ fn the_corpus_fixture_is_the_generated_corpus() {
 
 #[test]
 fn the_policy_version_is_pinned() {
-    assert_eq!(POLICY_VERSION, 5);
+    assert_eq!(POLICY_VERSION, 6);
 }

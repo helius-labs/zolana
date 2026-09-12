@@ -453,7 +453,7 @@ function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>
 }
 
 /** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 5;
+export const RING_POLICY_VERSION = 6;
 
 /** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
 export function ringPolicyHash(
@@ -467,7 +467,12 @@ export function ringPolicyHash(
   const encoded = encodeRuleTable(table);
   const elements: Bytes32[] = [POLICY_TABLE_DOMAIN, fieldU8(RING_POLICY_VERSION)];
   for (const slot of owners) elements.push(fieldU8(slot.listId), slot.ownerHash);
-  elements.push(fieldU8(encoded.ruleCount), ...encoded.rules);
+  elements.push(
+    fieldU8(encoded.ruleCount),
+    fieldU8(encoded.inlineAssets.length),
+    fieldU8(encoded.velocity.length),
+    ...encoded.rules,
+  );
   encoded.inlineAssets.forEach((asset, index) => {
     elements.push(asset, fieldU64(encoded.inlineLimits[index] ?? 0n));
   });
@@ -1026,7 +1031,7 @@ export async function readRingEntryLineages(
           details: {
             listId: head.pair.listId,
             member: bytesKey(head.pair.member),
-            version: head.live === undefined ? 0 : Number(head.live.entry.version + 1n),
+            version: head.live === undefined ? 0n : head.live.entry.version + 1n,
           },
         });
       }
@@ -1093,7 +1098,7 @@ export async function readRingSpendRecord(
       throw new RingError("RING_SPEND_RECORD_LINEAGE_BROKEN", {
         details: {
           member: bytesKey(input.member),
-          version: live === undefined ? 0 : Number(live.record.version + 1n),
+          version: live === undefined ? 0n : live.record.version + 1n,
         },
       });
     }

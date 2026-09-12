@@ -177,8 +177,9 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	for range p.Sources {
 		policyElements = append(policyElements, big.NewInt(0), big.NewInt(0))
 	}
-	// The rule count, then the window length, both zero.
-	policyHash := spptest.MustHashChain(t, append(policyElements, big.NewInt(0), big.NewInt(0)))
+	// The rule, inline and velocity counts, then the window length, all zero.
+	policyHash := spptest.MustHashChain(t, append(policyElements,
+		big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0)))
 	elements := []*big.Int{p.PrivateTxHash}
 	for _, element := range auditChainElements {
 		value, ok := new(big.Int).SetString(element[2:], 16)

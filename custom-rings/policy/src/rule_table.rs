@@ -19,7 +19,7 @@ pub const POLICY_INPUT_SLOTS: usize = 5;
 /// Output slots the policy opens per transfer, a circuit width.
 pub const POLICY_OUTPUT_SLOTS: usize = 4;
 /// Enters `policy_hash`, bump it with any change of the encoding below.
-pub const POLICY_VERSION: u8 = 5;
+pub const POLICY_VERSION: u8 = 6;
 
 /// Distinct sender keys and live outputs of one transfer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1072,7 +1072,7 @@ impl EncodedRuleTable {
         }
         let velocity = self.velocity_rows().map_err(PolicyHashError::Table)?;
         let mut elements = Vec::with_capacity(
-            4 + 2 * MAX_SOURCES + rows.len() + 2 * members.len() + 3 * velocity.len(),
+            6 + 2 * MAX_SOURCES + rows.len() + 2 * members.len() + 3 * velocity.len(),
         );
         elements.push(POLICY_TABLE_DOMAIN);
         elements.push(field_u8(POLICY_VERSION));
@@ -1081,6 +1081,8 @@ impl EncodedRuleTable {
             elements.push(slot.owner_hash);
         }
         elements.push(field_u8(self.rule_count));
+        elements.push(field_u8(self.inline_count));
+        elements.push(field_u8(self.velocity_count));
         elements.extend_from_slice(rows);
         for (member, limit) in members.iter().zip(limits) {
             elements.push(*member);
