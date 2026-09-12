@@ -34,6 +34,8 @@ pub enum DelegateError {
     WrongDelegate(Address, Address),
     #[error("the source holds {held} lamports in the ring, the move needs {needed}")]
     InsufficientNotes { needed: u64, held: u64 },
+    #[error("the delegate move supports SOL only, not {0}")]
+    UnsupportedMint(Address),
 }
 
 impl<E: Into<TransactError>> From<E> for DelegateError {
@@ -119,6 +121,9 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         delegate_keypair,
         cosigner_path,
     } = plan;
+    if mint != SOL_MINT {
+        return Err(DelegateError::UnsupportedMint(mint));
+    }
 
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
     let stored = ctx
@@ -145,14 +150,23 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
     let tree = pda::tree(0);
     let tree_id = custom_ring_sdk::tree_id(&ctx.rpc, tree)?;
     let notes = select_source_notes(&wallet, ctx.ring.program_id(), mint, tree_id, amount)?;
-    let selected: u64 = notes.iter().map(|utxo| utxo.amount).sum();
+    let selected: u64 = notes.iter().map(|(utxo, _, _)| utxo.amount).sum();
 
     let authority = ctx.authority_with_balance(SENDER_FEE_BUDGET + PAYER_FEE_BUDGET)?;
     ctx.ring_rpc().check_serves(ctx.ring.program_id())?;
 
     let inputs: Vec<SppProofInputUtxo> = notes
         .into_iter()
-        .map(|utxo| SppProofInputUtxo::new(utxo, &source).in_tree(tree_id))
+        .map(|(utxo, data_hash, ring_data_hash)| {
+            let mut input = SppProofInputUtxo::new(utxo, &source).in_tree(tree_id);
+            if let Some(data_hash) = data_hash {
+                input = input.with_data_hash(data_hash);
+            }
+            if let Some(ring_data_hash) = ring_data_hash {
+                input = input.with_ring_data_hash(ring_data_hash);
+            }
+            input
+        })
         .collect();
     let mut outputs = vec![DelegateOutput {
         recipient: to,
@@ -198,6 +212,9 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
     Ok(())
 }
 
+/// A selected note with the committed hashes that rebuild its input commitment.
+type SelectedNote = (Utxo, Option<[u8; 32]>, Option<[u8; 32]>);
+
 /// The source's own unspent notes of the mint in the tree, largest first, up to the amount.
 fn select_source_notes(
     wallet: &Wallet,
@@ -205,8 +222,8 @@ fn select_source_notes(
     mint: Address,
     tree_id: u16,
     amount: u64,
-) -> Result<Vec<Utxo>, DelegateError> {
-    let mut notes: Vec<Utxo> = wallet
+) -> Result<Vec<SelectedNote>, DelegateError> {
+    let mut notes: Vec<SelectedNote> = wallet
         .utxos
         .iter()
         .filter(|held| {
@@ -215,16 +232,16 @@ fn select_source_notes(
                 && held.utxo.ring_program_id == Some(ring)
                 && held.utxo.asset == mint
         })
-        .map(|held| held.utxo.clone())
+        .map(|held| (held.utxo.clone(), held.data_hash, held.ring_data_hash))
         .collect();
-    notes.sort_by_key(|utxo| std::cmp::Reverse(utxo.amount));
+    notes.sort_by_key(|(utxo, _, _)| std::cmp::Reverse(utxo.amount));
     let mut selected = Vec::new();
     let mut held = 0u64;
     for note in notes {
         if held >= amount {
             break;
         }
-        held = held.saturating_add(note.amount);
+        held = held.saturating_add(note.0.amount);
         selected.push(note);
     }
     if held < amount {
@@ -299,8 +316,21 @@ mod tests {
         );
         let selected =
             select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 8).expect("selected");
-        let sum: u64 = selected.iter().map(|utxo| utxo.amount).sum();
+        let sum: u64 = selected.iter().map(|(utxo, _, _)| utxo.amount).sum();
         assert!(sum >= 8);
+    }
+
+    #[test]
+    fn carries_the_committed_data_hashes() {
+        let owner = ShieldedKeypair::new_ed25519().expect("keypair");
+        let mut held = note(&owner, Some(ring().program_id()), SOL_MINT, 0, 9, false);
+        held.data_hash = Some([1; 32]);
+        held.ring_data_hash = Some([2; 32]);
+        let wallet = wallet_with(&owner, vec![held]);
+        let selected =
+            select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 9).expect("selected");
+        assert_eq!(selected[0].1, Some([1; 32]));
+        assert_eq!(selected[0].2, Some([2; 32]));
     }
 
     #[test]
