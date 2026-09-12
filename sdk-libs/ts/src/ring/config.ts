@@ -156,7 +156,7 @@ export async function fetchRingCoSigner(
 ): Promise<RingCoSigner | undefined> {
   const address = await ringCoSignerAddress(ringProgramId);
   const account = await client.getAccount(address, context);
-  if (account === undefined) return undefined;
+  if (account === undefined || account.data.length === 0) return undefined;
   if (account.owner !== ringProgramId) {
     throw new RingError("RING_CO_SIGNER_INVALID", {
       details: { ringProgramId, owner: account.owner },
@@ -254,7 +254,7 @@ export async function fetchRingDelegate(
 ): Promise<RingDelegate | undefined> {
   const [address, bump] = await ringDelegatePda(ringProgramId);
   const account = await client.getAccount(address, context);
-  if (account === undefined) return undefined;
+  if (account === undefined || account.data.length === 0) return undefined;
   if (account.owner !== ringProgramId) {
     throw new RingError("RING_DELEGATE_INVALID", {
       details: { ringProgramId, owner: account.owner },
@@ -306,7 +306,7 @@ export async function fetchRingSpendWindow(
 ): Promise<RingSpendWindow | undefined> {
   const [address, bump] = await ringSpendWindowPda(ringProgramId, mint);
   const account = await client.getAccount(address, context);
-  if (account === undefined) return undefined;
+  if (account === undefined || account.data.length === 0) return undefined;
   if (account.owner !== ringProgramId) {
     throw new RingError("RING_SPEND_WINDOW_INVALID", {
       details: { ringProgramId, owner: account.owner },

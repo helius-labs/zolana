@@ -8,6 +8,7 @@ import {
   getBase58Decoder,
   getProgramDerivedAddress,
   generateKeyPairSigner,
+  type Address,
   type MessagePartialSigner,
 } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -42,12 +43,16 @@ import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/cod
 import {
   clearRingCoSignerInstruction,
   clearRingSpendWindowInstruction,
+  fetchRingCoSigner,
+  fetchRingDelegate,
+  fetchRingSpendWindow,
   setRingAuthorityInstruction,
   setRingCoSignerInstruction,
   setRingDelegateInstruction,
   setRingPausedInstruction,
   setRingSpendWindowInstruction,
 } from "../src/ring/config.js";
+import { ownedAccount } from "./helpers/ring-accounts.js";
 import {
   ringCoSignerAddress,
   ringDelegateAddress,
@@ -787,6 +792,22 @@ describe("ring config", () => {
     const zeroScope = Uint8Array.from(data);
     zeroScope[33] = 0;
     expect(() => decodeRingCoSigner(zeroScope)).toThrow("RING_CO_SIGNER_INVALID");
+  });
+
+  it("reads an optional control as unconfigured for an empty PDA", async () => {
+    const reader = (owner: Address, data: Uint8Array) => ({
+      getAccount: () => Promise.resolve(ownedAccount(owner, data)),
+    });
+    const ringEmpty = reader(RING, new Uint8Array(0));
+    expect(await fetchRingCoSigner(ringEmpty, RING)).toBeUndefined();
+    expect(await fetchRingDelegate(ringEmpty, RING)).toBeUndefined();
+    expect(await fetchRingSpendWindow(ringEmpty, RING, SOL_MINT)).toBeUndefined();
+    // A prefunded, system-owned empty PDA also reads as unconfigured.
+    expect(await fetchRingCoSigner(reader(SYSTEM, new Uint8Array(0)), RING)).toBeUndefined();
+    // A nonempty foreign-owned account stays strict.
+    await expect(fetchRingCoSigner(reader(addressOf(9), new Uint8Array(50)), RING)).rejects.toThrow(
+      "RING_CO_SIGNER_INVALID",
+    );
   });
 
   it("builds the pause switch like Rust `SetPaused` for both states", async () => {

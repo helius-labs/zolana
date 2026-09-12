@@ -232,7 +232,7 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
-        let Some(cosigner) = AccountRead::decode::<CoSigner>(self.program_id, address, account)?
+        let Some(cosigner) = AccountRead::decode_optional::<CoSigner>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -274,7 +274,7 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
-        let Some(delegate) = AccountRead::decode::<Delegate>(self.program_id, address, account)?
+        let Some(delegate) = AccountRead::decode_optional::<Delegate>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -314,7 +314,7 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
-        let Some(window) = AccountRead::decode::<SpendWindow>(self.program_id, address, account)?
+        let Some(window) = AccountRead::decode_optional::<SpendWindow>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -538,6 +538,19 @@ impl AccountRead {
             return Err(AccountReadError::InvalidAccount { address });
         }
         Ok(Some(*value))
+    }
+
+    /// An existing but empty canonical PDA reads as unconfigured, matching the
+    /// program's `data_len() == 0`, a nonempty malformed account stays strict.
+    fn decode_optional<T: ReadableAccount>(
+        program_id: Address,
+        address: Address,
+        account: Option<Account>,
+    ) -> Result<Option<T>, AccountReadError> {
+        match account {
+            Some(account) if account.data.is_empty() => Ok(None),
+            other => Self::decode(program_id, address, other),
+        }
     }
 }
 
@@ -867,5 +880,51 @@ mod tests {
             policy_config_table(&unsourced),
             Err(PolicyMatchError::MissingSource(ListId::Block))
         ));
+    }
+
+    fn empty(owner: [u8; 32]) -> Account {
+        Account {
+            lamports: 1,
+            data: Vec::new(),
+            owner: Pubkey::new_from_array(owner),
+            executable: false,
+            rent_epoch: 0,
+        }
+    }
+
+    #[test]
+    fn an_optional_control_reads_unconfigured_for_an_empty_pda() {
+        let mint = Address::new_from_array([7u8; 32]);
+        for (address, account) in [
+            (ring().cosigner_pda(), empty(ring().program_id().to_bytes())),
+            (ring().delegate_pda(), empty(ring().program_id().to_bytes())),
+            (ring().spend_window_pda(&mint), empty([0u8; 32])),
+        ] {
+            let rpc = AccountRpc {
+                address,
+                account: Some(account),
+            };
+            let read = if address == ring().spend_window_pda(&mint) {
+                ring().read_spend_window(&rpc, &mint).map(|w| w.is_none())
+            } else if address == ring().delegate_pda() {
+                ring().read_delegate(&rpc).map(|d| d.is_none())
+            } else {
+                ring().read_cosigner(&rpc).map(|c| c.is_none())
+            };
+            assert_eq!(read.expect("empty control"), true);
+        }
+
+        // A nonempty malformed account stays strict.
+        let truncated = AccountRpc {
+            address: ring().cosigner_pda(),
+            account: Some(Account {
+                lamports: 1,
+                data: vec![0u8; 4],
+                owner: Pubkey::new_from_array(ring().program_id().to_bytes()),
+                executable: false,
+                rent_epoch: 0,
+            }),
+        };
+        assert!(ring().read_cosigner(&truncated).is_err());
     }
 }
