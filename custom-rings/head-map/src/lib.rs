@@ -7,11 +7,8 @@
 //! the program and the clients all agree with this reference.
 
 use thiserror::Error;
-use zolana_hasher::{Hasher, Poseidon};
+use zolana_hasher::Poseidon;
 use zolana_merkle_tree::MerkleTree;
-
-/// The indexed-tree height, the member key space folds into the sorted list.
-pub const HEAD_MAP_HEIGHT: usize = 40;
 
 /// BN254 scalar field order minus one, the sentinel high member closing the list.
 pub const FIELD_MAX: [u8; 32] = [
@@ -22,6 +19,7 @@ pub const FIELD_MAX: [u8; 32] = [
 /// The root of the sentinel-only tree, the value a ring's head map initializes to.
 /// `new()` computes it, `a_fresh_map_is_the_pinned_empty_root` verifies the match.
 pub use custom_ring_interface::HEAD_MAP_EMPTY_ROOT as EMPTY_ROOT;
+pub use custom_ring_interface::{head_map_leaf, HEAD_MAP_HEIGHT};
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HeadMapError {
@@ -39,15 +37,6 @@ pub enum HeadMapError {
     HeadMismatch,
 }
 
-/// The leaf preimage binding a member to its successor pointer and current nullifier.
-pub fn head_map_leaf(
-    member: &[u8; 32],
-    next: &[u8; 32],
-    nullifier: &[u8; 32],
-) -> Result<[u8; 32], HeadMapError> {
-    Poseidon::hashv(&[member, next, nullifier]).map_err(|_| HeadMapError::Hashing)
-}
-
 /// One sorted-list element, ordered by `member`, `next` points at the successor member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Element {
@@ -59,7 +48,7 @@ struct Element {
 
 impl Element {
     fn leaf(&self) -> Result<[u8; 32], HeadMapError> {
-        head_map_leaf(&self.member, &self.next, &self.nullifier)
+        head_map_leaf(&self.member, &self.next, &self.nullifier).map_err(|_| HeadMapError::Hashing)
     }
 }
 
@@ -315,6 +304,43 @@ mod tests {
         assert_eq!(
             map.transfer(&member(7), &member(70), member(71)),
             Err(HeadMapError::Unregistered)
+        );
+    }
+
+    fn insert_of(witness: &RegisterWitness) -> custom_ring_interface::HeadMapInsert<'_> {
+        custom_ring_interface::HeadMapInsert {
+            root: &witness.old_root,
+            append_index: witness.new_index,
+            member: &witness.member,
+            genesis: &witness.genesis,
+            low_member: &witness.low_member,
+            low_next: &witness.low_next,
+            low_nullifier: &witness.low_nullifier,
+            low_index: witness.low_index,
+            low_proof: &witness.low_proof,
+            new_proof: &witness.new_proof,
+        }
+    }
+
+    #[test]
+    fn register_witnesses_reach_the_reference_root_on_chain() {
+        let mut map = HeadMap::new().expect("map");
+        let first = map.register(member(9), member(90)).expect("first");
+        assert_eq!(insert_of(&first).verify(), Ok(first.new_root));
+        // The second member's low element is a real member, not the sentinel.
+        let second = map.register(member(4), member(40)).expect("second");
+        assert_eq!(insert_of(&second).verify(), Ok(second.new_root));
+    }
+
+    #[test]
+    fn an_out_of_range_member_is_refused_on_chain() {
+        let mut map = HeadMap::new().expect("map");
+        let witness = map.register(member(5), member(50)).expect("register");
+        let mut tampered = witness.clone();
+        tampered.member = [0; 32];
+        assert_eq!(
+            insert_of(&tampered).verify(),
+            Err(custom_ring_interface::HeadMapError::OutOfRange)
         );
     }
 }

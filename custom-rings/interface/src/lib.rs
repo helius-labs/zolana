@@ -2,6 +2,7 @@
 //! custom ring program, shared by the program, the SDK, and the services.
 
 pub mod base_public_input;
+pub mod head_map;
 #[cfg(feature = "verifying-keys")]
 pub mod base_verifying_key;
 pub mod instruction;
@@ -11,6 +12,7 @@ pub mod policy_verifying_key;
 pub mod state;
 
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
+pub use head_map::{head_map_leaf, HeadMapError, HeadMapInsert, HEAD_MAP_HEIGHT};
 pub use instruction::{
     tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,
     PolicyTableIxData, ReaderIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,

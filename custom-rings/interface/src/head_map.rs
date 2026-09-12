@@ -1,0 +1,87 @@
+use zolana_hasher::{Hasher, HasherError, Poseidon};
+
+/// Member-keyed indexed-tree height, the on-chain root advances in lockstep.
+pub const HEAD_MAP_HEIGHT: usize = 40;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeadMapError {
+    Hashing,
+    ProofLength,
+    OutOfRange,
+    RootMismatch,
+    SlotOccupied,
+}
+
+/// Leaf preimage binding a member to its successor pointer and current nullifier.
+pub fn head_map_leaf(
+    member: &[u8; 32],
+    next: &[u8; 32],
+    nullifier: &[u8; 32],
+) -> Result<[u8; 32], HasherError> {
+    Poseidon::hashv(&[member, next, nullifier])
+}
+
+fn root_from_proof(
+    leaf: [u8; 32],
+    mut index: u64,
+    proof: &[[u8; 32]],
+) -> Result<[u8; 32], HasherError> {
+    let mut node = leaf;
+    for sibling in proof {
+        node = if index & 1 == 0 {
+            Poseidon::hashv(&[&node[..], &sibling[..]])?
+        } else {
+            Poseidon::hashv(&[&sibling[..], &node[..]])?
+        };
+        index >>= 1;
+    }
+    Ok(node)
+}
+
+/// Inserts a member off a client-supplied low element and empty append slot.
+pub struct HeadMapInsert<'a> {
+    pub root: &'a [u8; 32],
+    pub append_index: u64,
+    pub member: &'a [u8; 32],
+    pub genesis: &'a [u8; 32],
+    pub low_member: &'a [u8; 32],
+    pub low_next: &'a [u8; 32],
+    pub low_nullifier: &'a [u8; 32],
+    pub low_index: u64,
+    pub low_proof: &'a [[u8; 32]],
+    pub new_proof: &'a [[u8; 32]],
+}
+
+impl HeadMapInsert<'_> {
+    /// The advanced root, or the first check the witness fails.
+    pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
+        if self.low_proof.len() != HEAD_MAP_HEIGHT || self.new_proof.len() != HEAD_MAP_HEIGHT {
+            return Err(HeadMapError::ProofLength);
+        }
+        // Strict order proves the member absent between the low element and its successor.
+        if !(self.low_member < self.member && self.member < self.low_next) {
+            return Err(HeadMapError::OutOfRange);
+        }
+        let low_old = self.leaf(self.low_member, self.low_next, self.low_nullifier)?;
+        if &self.reduce(low_old, self.low_index, self.low_proof)? != self.root {
+            return Err(HeadMapError::RootMismatch);
+        }
+        let low_new = self.leaf(self.low_member, self.member, self.low_nullifier)?;
+        let spliced = self.reduce(low_new, self.low_index, self.low_proof)?;
+        // A non-empty append slot would overwrite a live member.
+        let empty = Poseidon::zero_bytes()[0];
+        if self.reduce(empty, self.append_index, self.new_proof)? != spliced {
+            return Err(HeadMapError::SlotOccupied);
+        }
+        let member_leaf = self.leaf(self.member, self.low_next, self.genesis)?;
+        self.reduce(member_leaf, self.append_index, self.new_proof)
+    }
+
+    fn leaf(&self, member: &[u8; 32], next: &[u8; 32], nullifier: &[u8; 32]) -> Result<[u8; 32], HeadMapError> {
+        head_map_leaf(member, next, nullifier).map_err(|_| HeadMapError::Hashing)
+    }
+
+    fn reduce(&self, leaf: [u8; 32], index: u64, proof: &[[u8; 32]]) -> Result<[u8; 32], HeadMapError> {
+        root_from_proof(leaf, index, proof).map_err(|_| HeadMapError::Hashing)
+    }
+}
