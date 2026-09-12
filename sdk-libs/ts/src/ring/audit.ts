@@ -260,12 +260,10 @@ function isUnknownAsset(error: unknown): boolean {
   return error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET";
 }
 
-/** `undefined` for a slot this audit cannot open, Rust `OutputAudit::run`. */
+/** `undefined` for a slot this audit cannot open, Rust `spend_record`. */
 function auditSpendRecord(slot: OutputSlot): SpendRecord | undefined {
   try {
-    const frame = readOutputData(slot.payload);
-    if (frame.encoding !== "plaintext") return undefined;
-    return decodeSpendRecord(frame.body);
+    return decodeSpendRecord(slot.payload);
   } catch {
     return undefined;
   }
