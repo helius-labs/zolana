@@ -81,6 +81,14 @@ type CustomRingPolicyCircuit struct {
 }
 
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
+	chain, _ := c.constrainPolicy(api)
+	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
+	return nil
+}
+
+// constrainPolicy returns the public-input chain unhashed for the compressed
+// variant to extend before the final hash.
+func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.Variable, transactionContext) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
@@ -112,6 +120,5 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 		policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
 	)
-	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
-	return nil
+	return chain, txContext
 }

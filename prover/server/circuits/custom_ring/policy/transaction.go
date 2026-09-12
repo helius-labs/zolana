@@ -40,6 +40,9 @@ type utxoView struct {
 	record frontend.Variable
 	// Only selected UTXO slots outside the record can create policy obligations.
 	live frontend.Variable
+	// The compressed head map folds the record entry nullifier over these.
+	hash     frontend.Variable
+	blinding frontend.Variable
 }
 
 // transactionContext supplies checked inputs and outputs to policy evaluation.
@@ -145,6 +148,8 @@ func (w UtxoWires) checkSlot(
 		active:        active,
 		record:        record,
 		live:          api.Mul(active, isUtxo, api.Sub(1, record)),
+		hash:          hash,
+		blinding:      w.Blinding,
 	}
 }
 
