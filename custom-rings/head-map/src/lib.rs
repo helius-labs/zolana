@@ -19,6 +19,12 @@ pub const FIELD_MAX: [u8; 32] = [
     0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00,
 ];
 
+/// The root of the sentinel-only tree, the value a ring's head map initializes to.
+pub const EMPTY_ROOT: [u8; 32] = [
+    3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51,
+    161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
+];
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HeadMapError {
     #[error("head map hashing failed")]
@@ -250,11 +256,10 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_map_is_the_sentinel_and_is_deterministic() {
-        let a = HeadMap::new().expect("map");
-        let b = HeadMap::new().expect("map");
-        assert_eq!(a.root(), b.root());
-        assert_eq!(a.head(&[0; 32]), Some([0; 32]));
+    fn a_fresh_map_is_the_pinned_empty_root() {
+        let map = HeadMap::new().expect("map");
+        assert_eq!(map.root(), EMPTY_ROOT);
+        assert_eq!(map.head(&[0; 32]), Some([0; 32]));
     }
 
     #[test]

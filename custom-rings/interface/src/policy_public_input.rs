@@ -23,12 +23,11 @@ pub struct CustomRingPolicyPublicInput<'a> {
 }
 
 impl CustomRingPolicyPublicInput<'_> {
-    /// `HashChain([audit elements 1..8, policy_hash, state_root, nullifier_root,
-    /// entries_tree_id, ring_id, namespace_owner_hash, window_index,
-    /// approval_required])`, mirroring the circuit element for element.
-    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+    /// The sixteen chained elements, audit block then policy tail, the compressed
+    /// variant appends the head-map roots to these.
+    fn elements(&self) -> Result<[[u8; 32]; 16], HasherError> {
         let audit = self.audit.elements()?;
-        create_hash_chain_from_slice(&[
+        Ok([
             audit[0],
             audit[1],
             audit[2],
@@ -46,5 +45,34 @@ impl CustomRingPolicyPublicInput<'_> {
             zolana_hasher::primitives::right_align(&self.window_index.to_be_bytes()),
             zolana_hasher::primitives::right_align(&[u8::from(self.approval_required)]),
         ])
+    }
+
+    /// `HashChain([audit elements 1..8, policy_hash, state_root, nullifier_root,
+    /// entries_tree_id, ring_id, namespace_owner_hash, window_index,
+    /// approval_required])`, mirroring the circuit element for element.
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        create_hash_chain_from_slice(&self.elements()?)
+    }
+}
+
+/// The compressed windowed variant, the policy tail followed by the head map's
+/// old and new roots, a separate verifying key from the per-record-PDA circuit.
+pub struct CompressedPolicyPublicInput<'a> {
+    pub policy: CustomRingPolicyPublicInput<'a>,
+    /// The head-map root the transition reads, checked equal to the on-chain root.
+    pub head_old_root: &'a [u8; 32],
+    /// The head-map root the transition writes, the on-chain root advances to it.
+    pub head_new_root: &'a [u8; 32],
+}
+
+impl CompressedPolicyPublicInput<'_> {
+    /// The sixteen policy elements followed by `head_old_root`, `head_new_root`.
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        let policy = self.policy.elements()?;
+        let mut chain = [[0u8; 32]; 18];
+        chain[..16].copy_from_slice(&policy);
+        chain[16] = *self.head_old_root;
+        chain[17] = *self.head_new_root;
+        create_hash_chain_from_slice(&chain)
     }
 }

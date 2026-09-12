@@ -163,6 +163,38 @@ impl SpendRecordHead {
 const _: () = assert!(SpendRecordHead::SIZE == 34);
 const _: () = assert!(core::mem::align_of::<SpendRecordHead>() == 1);
 
+pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
+/// First byte of an initialized head map root account.
+pub const HEAD_MAP_ROOT: u8 = 8;
+
+/// A ring's compressed spend-record head map, the tree lives off chain and only
+/// the root and the append cursor advance on chain.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct HeadMapRoot {
+    pub discriminator: u8,
+    pub root: [u8; 32],
+    /// Little endian, the next free leaf index a registration appends at.
+    pub next_index: [u8; 8],
+    pub bump: u8,
+}
+
+impl HeadMapRoot {
+    pub const SEED: &'static [u8] = HEAD_MAP_ROOT_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub const fn root(&self) -> &[u8; 32] {
+        &self.root
+    }
+
+    pub fn next_index(&self) -> u64 {
+        u64::from_le_bytes(self.next_index)
+    }
+}
+
+const _: () = assert!(HeadMapRoot::SIZE == 42);
+const _: () = assert!(core::mem::align_of::<HeadMapRoot>() == 1);
+
 pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;
