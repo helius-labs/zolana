@@ -1,14 +1,17 @@
-import { getAddressDecoder } from "@solana/kit";
+import { AccountRole, getAddressDecoder } from "@solana/kit";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { initializePoseidon } from "../src/hasher/index.js";
-import type { Bytes32 } from "../src/interface/types.js";
+import { initializePoseidon, solanaOwnerIdentity } from "../src/hasher/index.js";
+import { addressBytes } from "../src/interface/internal.js";
+import { ringSpendRecordHeadAddress } from "../src/interface/pda/index.js";
+import type { Bytes32, TransactProof } from "../src/interface/types.js";
 import { ShieldedAddress } from "../src/keypair/shielded.js";
 import { ShieldedPublicKey } from "../src/keypair/public-key.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { Utxo, ProofInputUtxo, createProofOutput } from "../src/transaction/utxo.js";
 import type { ProofInputUtxo as InputUtxo, ProofOutputUtxo } from "../src/transaction/utxo.js";
+import { registerRingSpendInstruction } from "../src/ring/instructions.js";
 import { chargeRows, recordShape, senderOutflow } from "../src/ring/velocity.js";
 import { memberOfAsset, memberOfIdentity } from "../src/ring/policy.js";
 import type { VelocityRow } from "../src/ring/policy.js";
@@ -106,5 +109,40 @@ describe("velocity outflow and charge", () => {
     expect(
       chargeRows(member, RING, [moneyInput(300n)], [], rows, NAMESPACE_OWNER).approvalRequired,
     ).toBe(false);
+  });
+});
+
+describe("spend registration", () => {
+  const PAYER = addressOf(filled(0x21));
+  const TREE = addressOf(filled(0x40));
+
+  function proof(): TransactProof {
+    return {
+      a: filled(1),
+      b: new Uint8Array(64).fill(2) as never,
+      c: filled(3),
+    };
+  }
+
+  it("pins the payer's record head as the trailing account", async () => {
+    const instruction = await registerRingSpendInstruction({
+      ringProgramId: RING,
+      payer: PAYER,
+      entriesTree: TREE,
+      blinding: filled(7),
+      proof: {
+        proof: proof(),
+        utxoTreeRootIndex: 0,
+        nullifierTreeRootIndex: 0,
+        nullifier: filled(9),
+        privateTxBlinding: filled(0),
+      },
+    });
+    const member = solanaOwnerIdentity(addressBytes(PAYER, "payer"));
+    const head = await ringSpendRecordHeadAddress(RING, member);
+    const accounts = instruction.accounts ?? [];
+    const last = accounts[accounts.length - 1];
+    expect(last?.address).toBe(head);
+    expect(last?.role).toBe(AccountRole.WRITABLE);
   });
 });

@@ -15,19 +15,20 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
-use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
+use zolana_ring_policy::{entry_nullifier, ring_id_field, ListNamespace, VelocityMode};
 
 use crate::{
     error::CustomRingError,
     instructions::{
         cosign::{require_approval, require_cosigner, Demand},
-        loader::{load_config, load_policy_config, validate_spp_program},
-        policy_shared::{namespace_address, verify_spend_record_output},
+        loader::{load_config, load_policy_config, load_spend_record_head, validate_spp_program},
+        policy_shared::{namespace_address, verify_spend_record_output, VerifiedSpendRecord},
         public_legs::{apply_spend_windows, PublicLegs},
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
+    state::advance_spend_record_head,
 };
 
 /// Verifies the ring proof against the recomputed public input, then CPIs SPP
@@ -151,6 +152,13 @@ pub(crate) fn verify_and_forward(
         return Err(CustomRingError::InvalidInstructionData.into());
     }
 
+    // The record head precedes the forwarded list, SPP never sees it.
+    let record_head_account = if record_mode {
+        Some(iter.next_mut("record_head")?)
+    } else {
+        None
+    };
+
     // The forwarded list is validated before the pairing so a malformed account
     // list costs no verification.
     let rest = iter.remaining_mut()?;
@@ -220,13 +228,13 @@ pub(crate) fn verify_and_forward(
 
     let namespace = match policy {
         Some((binding, entries_tree_account)) => {
-            let namespace = if record_mode {
-                let record = transact
+            let (namespace, advance) = if record_mode {
+                let record_output = transact
                     .outputs
                     .last()
                     .ok_or(CustomRingError::InvalidSpendRecord)?;
-                verify_spend_record_output(
-                    record,
+                let VerifiedSpendRecord { record, leaf } = verify_spend_record_output(
+                    record_output,
                     &ListNamespace {
                         owner_hash: binding.namespace_owner_hash,
                     },
@@ -234,9 +242,26 @@ pub(crate) fn verify_and_forward(
                     binding.entries_tree_id,
                 )?;
                 require_entries_tree(spp_accounts, &binding.entries_tree)?;
-                Some(binding.namespace_bump)
+
+                // The consumed record must be the member's current head.
+                let head_account = record_head_account.ok_or(ProgramError::NotEnoughAccountKeys)?;
+                let consumed = transact
+                    .inputs
+                    .last()
+                    .ok_or(CustomRingError::SpendRecordUnregistered)?;
+                {
+                    let head =
+                        load_spend_record_head(program_id, head_account, record.member.as_bytes())?
+                            .ok_or(CustomRingError::SpendRecordUnregistered)?;
+                    if head.nullifier() != &consumed.nullifier_hash {
+                        return Err(CustomRingError::SpendRecordHeadMismatch.into());
+                    }
+                }
+                let successor = entry_nullifier(&leaf, &record.blinding)
+                    .map_err(|_| CustomRingError::HashingFailed)?;
+                (Some(binding.namespace_bump), Some((head_account, successor)))
             } else {
-                None
+                (None, None)
             };
             if approval_required {
                 require_approval(program_id, cosigner_account, cosigner)?;
@@ -272,6 +297,9 @@ pub(crate) fn verify_and_forward(
                 .map_err(|_| CustomRingError::HashingFailed)?,
                 &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
             )?;
+            if let Some((head_account, successor)) = advance {
+                advance_spend_record_head(head_account, successor)?;
+            }
             namespace
         }
         None => {

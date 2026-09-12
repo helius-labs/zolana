@@ -22,13 +22,15 @@ import {
   ringAuthAddress,
   ringCoSignerAddress,
   ringDelegateAddress,
+  ringSpendRecordHeadAddress,
 } from "../interface/pda/index.js";
+import { solanaOwnerIdentity } from "../hasher/index.js";
 import type { Bytes32, TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
-import { Writer } from "../interface/internal.js";
+import { Writer, addressBytes } from "../interface/internal.js";
 
 import { checkedCustomRingProof } from "./codecs.js";
 import {
@@ -186,6 +188,8 @@ export async function ringTransactInstruction(
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
       withdrawal?: TransactWithdrawal;
+      /** The sender's record head, present only on a windowed velocity transfer. */
+      recordHead?: Address;
     }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
@@ -223,6 +227,9 @@ export async function ringTransactInstruction(
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
+      ...(input.recordHead === undefined
+        ? []
+        : [{ address: input.recordHead, role: AccountRole.WRITABLE }]),
       ...windows,
       ...pool,
     ],
@@ -483,7 +490,14 @@ export async function registerRingSpendInstruction(
     .bytes(input.proof.proof.a, 32, "proof.a")
     .bytes(input.proof.proof.b, 64, "proof.b")
     .bytes(input.proof.proof.c, 32, "proof.c");
-  return entryInstruction(input, data.finish());
+  const instruction = await entryInstruction(input, data.finish());
+  const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
+  const member = solanaOwnerIdentity(addressBytes(payerAddress, "payer"));
+  const recordHead = await ringSpendRecordHeadAddress(input.ringProgramId, member);
+  return {
+    ...instruction,
+    accounts: [...(instruction.accounts ?? []), meta(recordHead, false, true)],
+  };
 }
 
 function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof): void {

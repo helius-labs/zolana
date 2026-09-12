@@ -61,6 +61,10 @@ fn error_codes_are_stable() {
         (DelegateOnVelocityRing as u32, 8157),
         (ApprovalWithoutCoSigner as u32, 8158),
         (VelocityDisabled as u32, 8159),
+        (InvalidSpendRecordHead as u32, 8160),
+        (SpendRecordUnregistered as u32, 8161),
+        (SpendRecordHeadMismatch as u32, 8162),
+        (SpendRecordAlreadyRegistered as u32, 8163),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -128,6 +132,10 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidSpendRecord
         | DelegateOnVelocityRing
         | ApprovalWithoutCoSigner
-        | VelocityDisabled => {}
+        | VelocityDisabled
+        | InvalidSpendRecordHead
+        | SpendRecordUnregistered
+        | SpendRecordHeadMismatch
+        | SpendRecordAlreadyRegistered => {}
     }
 }

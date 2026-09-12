@@ -132,6 +132,18 @@ export function ringSpendWindowPda(
   });
 }
 
+/** Mirrors Rust `CustomRing::spend_record_head_pda`, one head per member. */
+export async function ringSpendRecordHeadAddress(
+  ringProgramId: Address,
+  member: Uint8Array,
+): Promise<Address> {
+  const [address] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("record"), member],
+  });
+  return address;
+}
+
 export async function protocolConfigAddress(): Promise<Address> {
   return (await derive("protocol_config"))[0];
 }

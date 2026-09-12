@@ -443,6 +443,7 @@ fn the_policy_transact_carries_the_policy_config() {
         input_tree: solana_address::Address::new_from_array([2u8; 32]),
         output_tree: solana_address::Address::new_from_array([2u8; 32]),
         entries_tree: Some(solana_address::Address::new_from_array([4u8; 32])),
+        record_head: None,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: custom_ring_sdk::CustomRingProof {

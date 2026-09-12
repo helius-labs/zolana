@@ -66,6 +66,7 @@ import {
   type RuleTable,
 } from "./policy.js";
 import { fetchRingConfigs, ringPolicyNamespaceAddress } from "./config.js";
+import { ringSpendRecordHeadAddress } from "../interface/pda/index.js";
 import { MAX_SPEND_INPUTS, selectUtxos, type SpendSelectionErrors } from "../flows/select.js";
 import { reserveEntries, reservedUtxoKeys, unreserved } from "../flows/reserve.js";
 import { RingError, wrapRingError } from "./error.js";
@@ -161,6 +162,8 @@ export type ProvenRingTransfer = RingTransactTrees &
     nullifierRootIndex: number;
     /** Non-payer ed25519 input owners, they sign the transaction beside the fee payer. */
     ownerSigners: readonly Address[];
+    /** The sender's record head, present only on a windowed velocity transfer. */
+    recordHead?: Address;
   }>;
 
 /** Returns a v0 transaction over `lookupTable`, signed by the fee payer only. */
@@ -386,6 +389,7 @@ async function buildRingSpend<R>(
           ...(proven.ownerSigners.length === 0 ? {} : { ownerSigners: proven.ownerSigners }),
           ...(plan.withdrawal === undefined ? {} : { withdrawal: plan.withdrawal }),
           ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
+          ...(proven.recordHead === undefined ? {} : { recordHead: proven.recordHead }),
         }),
         fetchRingLookupTable(
           {
@@ -503,6 +507,7 @@ export async function proveCustomRingTransfer(
 
   let velocity: CustomRingVelocityWitness | undefined;
   let plan: VelocityPlan | undefined;
+  let recordHead: Address | undefined;
   if (policy !== undefined && policy.table.velocity.length !== 0) {
     const sender = memberOfIdentity(prepared.owner.signingPublicKey.ownerProofInputHash());
     if (policy.table.windowSlots === 0n) {
@@ -550,6 +555,7 @@ export async function proveCustomRingTransfer(
         output: plan.recordOutput,
       });
       velocity = plan.witness;
+      recordHead = await ringSpendRecordHeadAddress(input.ringProgramId, sender);
     }
   }
   const approvalRequired = velocity?.approvalRequired ?? false;
@@ -703,6 +709,7 @@ export async function proveCustomRingTransfer(
       hasPolicy: true,
       stateRootIndex: roots.stateRootIndex,
       nullifierRootIndex: roots.nullifierRootIndex,
+      ...(recordHead === undefined ? {} : { recordHead }),
     });
   } finally {
     encrypted.audit.txViewingSecret.fill(0);
@@ -805,6 +812,7 @@ export function frameDummyOutputs(
 function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
   const asset = input.asset;
   const outputTree = input.outputTree;
+  const cosigner = input.cosigner;
   const computeUnitLimit = input.computeUnitLimit;
   const computeUnitPriceMicroLamports = input.computeUnitPriceMicroLamports;
   return Object.freeze({
@@ -817,6 +825,7 @@ function normalizeRingTransferBase(input: RingSpendParams): RingSpendParams {
     lookupTable: input.lookupTable,
     ...(asset === undefined ? {} : { asset }),
     ...(outputTree === undefined ? {} : { outputTree }),
+    ...(cosigner === undefined ? {} : { cosigner }),
     ...(computeUnitLimit === undefined ? {} : { computeUnitLimit }),
     ...(computeUnitPriceMicroLamports === undefined ? {} : { computeUnitPriceMicroLamports }),
   });

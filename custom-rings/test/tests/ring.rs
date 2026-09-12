@@ -774,6 +774,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
             input_tree: env.tree,
             output_tree: env.tree,
             entries_tree: Some(env.tree),
+            record_head: None,
             owner_signers: proven.owner_signers.clone(),
             interface_transfer_accounts: Vec::new(),
             proof: proven.proof,

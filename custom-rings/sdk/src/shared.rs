@@ -2,8 +2,9 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    CoSigner, Delegate, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendWindow, CO_SIGNER,
-    DELEGATE, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG, SPEND_WINDOW,
+    CoSigner, Delegate, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendRecordHead,
+    SpendWindow, CO_SIGNER, DELEGATE, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
+    SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -131,6 +132,11 @@ impl CustomRing {
 
     fn delegate_pda_with_bump(self) -> (Address, u8) {
         Address::find_program_address(&[Delegate::SEED], &self.program_id)
+    }
+
+    /// The member's spend record head, its nullifier chains every windowed transfer.
+    pub fn spend_record_head_pda(self, member: &[u8; 32]) -> Address {
+        Address::find_program_address(&[SpendRecordHead::SEED, member], &self.program_id).0
     }
 
     /// SOL under the zero address.

@@ -117,6 +117,8 @@ pub struct ProvenTransfer {
     output_tree: Address,
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring.
     entries_tree: Option<Address>,
+    /// The sender's record head, `Some` only on a windowed velocity transfer.
+    record_head: Option<Address>,
     ring: CustomRing,
 }
 
@@ -517,8 +519,8 @@ impl<'a> CustomRingTransfer<'a> {
                 .map_err(|_| TransferError::PolicyHashing)?;
             Member::owner_identity(&sender).map_err(|_| TransferError::PolicyHashing)
         };
-        let (plan, velocity_witness) = match limit {
-            SpendLimit::Unbounded => (None, None),
+        let (plan, velocity_witness, record_head) = match limit {
+            SpendLimit::Unbounded => (None, None, None),
             SpendLimit::PerTransfer {
                 rows,
                 namespace_owner_hash,
@@ -539,14 +541,15 @@ impl<'a> CustomRingTransfer<'a> {
                     .map_err(|_| TransferError::PolicyHashing)?;
                 let witness =
                     VelocityWitness::per_transfer(&charges, ring_id, *namespace_owner_hash);
-                (None, Some(witness))
+                (None, Some(witness), None)
             }
             SpendLimit::PerWindow(facts) => {
                 let facts: &VelocityFacts = facts;
+                let member = sender_identity()?;
                 let plan = VelocityPlanInput {
                     facts,
                     outflows: Outflows {
-                        sender: sender_identity()?,
+                        sender: member,
                         ring: program_id,
                         inputs: &prepared.inputs,
                         outputs: &prepared.outputs,
@@ -560,7 +563,8 @@ impl<'a> CustomRingTransfer<'a> {
                 .plan()?;
                 append_record_slots(&mut prepared, &plan)?;
                 let witness = plan.witness;
-                (Some(plan), Some(witness))
+                let head = self.ring.spend_record_head_pda(member.as_bytes());
+                (Some(plan), Some(witness), Some(head))
             }
         };
 
@@ -617,6 +621,7 @@ impl<'a> CustomRingTransfer<'a> {
             ring: self.ring,
             cosigner: self.cosigner,
             velocity: velocity_witness,
+            record_head,
         })
     }
 }
@@ -871,6 +876,7 @@ struct StagedTransfer {
     ring: CustomRing,
     cosigner: Option<Address>,
     velocity: Option<VelocityWitness>,
+    record_head: Option<Address>,
 }
 
 impl StagedTransfer {
@@ -963,6 +969,7 @@ impl StagedTransfer {
                 interface_transfer_accounts: self.interface_transfer_accounts,
                 ring: self.ring,
                 cosigner: self.cosigner,
+                record_head: self.record_head,
             },
         ))
     }
@@ -1110,6 +1117,7 @@ struct WitnessedTransfer {
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
     cosigner: Option<Address>,
+    record_head: Option<Address>,
 }
 
 impl WitnessedTransfer {
@@ -1158,6 +1166,7 @@ impl WitnessedTransfer {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             entries_tree,
+            record_head: self.record_head,
             ring: self.ring,
         })
     }
@@ -1171,6 +1180,7 @@ impl ProvenTransfer {
             input_tree: self.input_tree,
             output_tree: self.output_tree,
             entries_tree: self.entries_tree,
+            record_head: self.record_head,
             cosigner: self.cosigner,
             owner_signers: self.owner_signers.clone(),
             interface_transfer_accounts: self.interface_transfer_accounts.clone(),

@@ -5,12 +5,14 @@ use bytemuck::Zeroable;
 use custom_ring_interface::{
     tag, CoSigner, CreateConfigIxData, CreateEntryIxData, Delegate, PolicyConfig,
     PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterSpendIxData, RingProgramConfig,
-    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow,
-    UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold, WithdrawalThresholdIxData,
+    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec,
+    SpendRecordHead, SpendWindow, UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold,
+    WithdrawalThresholdIxData,
     CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
     MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
     READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD, SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW,
+    SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -883,6 +885,52 @@ pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
     }
 }
 
+/// The record head PDA for the member `owner_tag(tag)` derives.
+pub fn spend_record_head_pda(tag: [u8; 32]) -> (Pubkey, u8) {
+    let member = Member::owner_tag(&tag).expect("member");
+    Pubkey::find_program_address(
+        &[SPEND_RECORD_HEAD_PDA_SEED, member.as_bytes()],
+        &program_id(),
+    )
+}
+
+/// An initialized head pinning `nullifier` as the member's current record.
+pub fn spend_record_head_account(nullifier: [u8; 32], bump: u8) -> Account {
+    let head = SpendRecordHead {
+        discriminator: SPEND_RECORD_HEAD,
+        nullifier,
+        bump,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&head).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// A system-owned empty account at the head PDA, register creates over it.
+pub fn uninitialized_head_account() -> Account {
+    Account {
+        lamports: 0,
+        data: Vec::new(),
+        owner: Pubkey::new_from_array([0u8; 32]),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+/// The record head slot a windowed velocity transfer reads at position six.
+pub fn spend_record_head_slot(tag: [u8; 32], account: Account) -> Slot {
+    let (address, _) = spend_record_head_pda(tag);
+    Slot {
+        label: "record_head",
+        meta: AccountMeta::new(address, false),
+        account,
+    }
+}
+
 pub fn policy_config_account_with(
     rules: &RuleTable,
     sources: [SourceSlot; N_SOURCE_SLOTS],
@@ -1318,7 +1366,9 @@ pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture 
         })
         .expect("register_spend data"),
     );
-    Fixture::new(data, entry_mutation_slots(policy_config, payer))
+    let mut slots = entry_mutation_slots(policy_config, payer);
+    slots.push(spend_record_head_slot(payer.to_bytes(), uninitialized_head_account()));
+    Fixture::new(data, slots)
 }
 
 /// An initialized policy-ring config as this program would have written it.

@@ -38,6 +38,8 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
+    /// The sender's record head, `Some` only on a windowed velocity transfer.
+    pub record_head: Option<Address>,
     /// The ring's co-signer, a signer of the transaction when set.
     pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
@@ -67,6 +69,7 @@ impl CustomRingTransact {
             input_tree,
             output_tree,
             entries_tree,
+            record_head,
             cosigner,
             owner_signers,
             interface_transfer_accounts,
@@ -116,6 +119,9 @@ impl CustomRingTransact {
             // An existing ring may alias entries_tree with the writable SPP input
             // tree.
             accounts.push(AccountMeta::new_readonly(entries_tree, false));
+            if let Some(record_head) = record_head {
+                accounts.push(AccountMeta::new(record_head, false));
+            }
         }
         accounts.extend(windows);
         accounts.extend(spp_accounts);

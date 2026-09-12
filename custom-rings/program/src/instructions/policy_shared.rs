@@ -439,12 +439,18 @@ impl NamespaceWrite<'_> {
     }
 }
 
+/// The successor record and its leaf, checked against the output the proof binds.
+pub(crate) struct VerifiedSpendRecord {
+    pub record: SpendRecord,
+    pub leaf: [u8; 32],
+}
+
 pub(crate) fn verify_spend_record_output(
     output: &TransactOutput,
     owner: &ListNamespace,
     namespace_address: &Address,
     tree_id: u16,
-) -> Result<(), ProgramError> {
+) -> Result<VerifiedSpendRecord, ProgramError> {
     if output.owner_tag != OwnerTag::Inline(namespace_address.to_bytes()) {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
@@ -467,7 +473,7 @@ pub(crate) fn verify_spend_record_output(
     if leaf != output.utxo_hash {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
-    Ok(())
+    Ok(VerifiedSpendRecord { record, leaf })
 }
 
 pub(crate) fn entry_spend_input(

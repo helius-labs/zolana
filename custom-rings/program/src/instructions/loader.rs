@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendWindow};
+use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendRecordHead, SpendWindow};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -125,6 +125,26 @@ pub fn load_spend_window<'a>(
     }
     check.verify_stored_bump(window.bump)?;
     Ok(Some(window))
+}
+
+pub fn load_spend_record_head<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+    member: &[u8; 32],
+) -> Result<Option<Ref<'a, SpendRecordHead>>, ProgramError> {
+    let check = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[SpendRecordHead::SEED, member],
+        mismatch: CustomRingError::InvalidSpendRecordHead,
+    };
+    if account.data_len() == 0 {
+        check.verify()?;
+        return Ok(None);
+    }
+    let head = load_account::<SpendRecordHead>(program_id, account)?;
+    check.verify_stored_bump(head.bump)?;
+    Ok(Some(head))
 }
 
 #[inline(always)]

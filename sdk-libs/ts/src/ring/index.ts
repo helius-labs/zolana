@@ -51,6 +51,7 @@ export {
 export {
   ringCoSignerAddress,
   ringDelegateAddress,
+  ringSpendRecordHeadAddress,
   ringSpendWindowAddress,
 } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";

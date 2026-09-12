@@ -141,6 +141,7 @@ impl ProvenSpendRegistration {
                 AccountMeta::new_readonly(Address::default(), false),
                 AccountMeta::new(pda::nullifier_pda(&entries_tree, &proof.nullifier).0, false),
                 AccountMeta::new_readonly(ring.namespace_pda(), false),
+                AccountMeta::new(ring.spend_record_head_pda(record.member.as_bytes()), false),
             ],
             data,
         })
