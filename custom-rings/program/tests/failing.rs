@@ -12,6 +12,8 @@ mod delegate;
 mod deposit;
 #[path = "failing/dispatch.rs"]
 mod dispatch;
+#[path = "failing/head_map_root.rs"]
+mod head_map_root;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
 #[path = "failing/merge.rs"]

@@ -139,6 +139,8 @@ pub enum CustomRingError {
     SpendRecordAlreadyRegistered = 8163,
     #[error("the velocity window duration cannot change once set")]
     VelocityWindowImmutable = 8164,
+    #[error("head map root account is invalid")]
+    InvalidHeadMapRoot = 8165,
 }
 
 impl From<CustomRingError> for ProgramError {

@@ -32,6 +32,7 @@ pub mod tag {
     /// Tag 3 data over the SPP authority rail, signed by the delegate.
     pub const DELEGATE_TRANSACT: u8 = 25;
     pub const REGISTER_SPEND: u8 = 26;
+    pub const CREATE_HEAD_MAP_ROOT: u8 = 27;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -42,6 +43,7 @@ pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_DELEGATE_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {

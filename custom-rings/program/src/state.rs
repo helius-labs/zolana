@@ -1,8 +1,8 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, PolicyConfig, SourceSlot, SpendRecordHead, SpendWindow,
-    WithdrawalThreshold, CO_SIGNER, DELEGATE, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
-    POLICY_CONFIG, SPEND_RECORD_HEAD, SPEND_WINDOW,
+    CoSigner, Delegate, HeadMapRoot, PolicyConfig, SourceSlot, SpendRecordHead, SpendWindow,
+    WithdrawalThreshold, CO_SIGNER, DELEGATE, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT,
+    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_RECORD_HEAD, SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -309,6 +309,37 @@ pub(crate) fn advance_spend_record_head(
     Ok(())
 }
 
+impl Account for HeadMapRoot {
+    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+pub(crate) struct HeadMapRootInitParams {
+    pub bump: u8,
+}
+
+impl HeadMapRootInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        // Leaf 0 holds the sentinel, the first registration appends at 1.
+        init_account(
+            account,
+            HeadMapRoot {
+                discriminator: HEAD_MAP_ROOT,
+                root: HEAD_MAP_EMPTY_ROOT,
+                next_index: 1u64.to_le_bytes(),
+                bump: self.bump,
+            },
+        )
+    }
+}
+
 pub(crate) struct SpendWindowInitParams {
     pub mint: Address,
     pub window_slots: u64,
@@ -348,6 +379,7 @@ mod sealed {
     impl Sealed for super::Delegate {}
     impl Sealed for super::SpendWindow {}
     impl Sealed for super::SpendRecordHead {}
+    impl Sealed for super::HeadMapRoot {}
 }
 
 #[inline(always)]

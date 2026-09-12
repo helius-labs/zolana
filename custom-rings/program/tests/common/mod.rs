@@ -8,7 +8,8 @@ use custom_ring_interface::{
     SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec,
     SpendRecordHead, SpendWindow, UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold,
     WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE,
-    DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    DELEGATE_PDA_SEED, HEAD_MAP_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
+    POLICY_CONFIG,
     POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
     READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD,
     SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
@@ -585,6 +586,40 @@ pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Ac
                 account: initialized_config_account(authority(), auditor_pubkey(2)),
             },
             window_slot(mint, existing),
+            system_program_slot(),
+        ],
+    )
+}
+
+pub fn head_map_root_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[HEAD_MAP_ROOT_PDA_SEED], &program_id())
+}
+
+/// `[payer(w,s), authority(s), config, head_map_root(w), system_program]`.
+pub fn create_head_map_root_fixture(existing: Option<Account>) -> Fixture {
+    Fixture::new(
+        vec![tag::CREATE_HEAD_MAP_ROOT],
+        vec![
+            Slot {
+                label: "payer",
+                meta: AccountMeta::new(payer(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "authority",
+                meta: AccountMeta::new_readonly(authority(), true),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "config",
+                meta: AccountMeta::new_readonly(config_pda().0, false),
+                account: initialized_config_account(authority(), auditor_pubkey(2)),
+            },
+            Slot {
+                label: "head_map_root",
+                meta: AccountMeta::new(head_map_root_pda().0, false),
+                account: existing.unwrap_or_else(|| account(0)),
+            },
             system_program_slot(),
         ],
     )
