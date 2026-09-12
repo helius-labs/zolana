@@ -1,8 +1,8 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, PolicyConfig, SourceSlot, SpendRecordHead, SpendWindow, WithdrawalThreshold,
-    CO_SIGNER, DELEGATE, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_RECORD_HEAD,
-    SPEND_WINDOW,
+    CoSigner, Delegate, PolicyConfig, SourceSlot, SpendRecordHead, SpendWindow,
+    WithdrawalThreshold, CO_SIGNER, DELEGATE, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
+    POLICY_CONFIG, SPEND_RECORD_HEAD, SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,

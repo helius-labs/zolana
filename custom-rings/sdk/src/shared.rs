@@ -232,7 +232,8 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingCoSigner>, AccountReadError> {
-        let Some(cosigner) = AccountRead::decode_optional::<CoSigner>(self.program_id, address, account)?
+        let Some(cosigner) =
+            AccountRead::decode_optional::<CoSigner>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -274,7 +275,8 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingDelegate>, AccountReadError> {
-        let Some(delegate) = AccountRead::decode_optional::<Delegate>(self.program_id, address, account)?
+        let Some(delegate) =
+            AccountRead::decode_optional::<Delegate>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -314,7 +316,8 @@ impl CustomRing {
         address: Address,
         account: Option<Account>,
     ) -> Result<Option<CustomRingSpendWindow>, AccountReadError> {
-        let Some(window) = AccountRead::decode_optional::<SpendWindow>(self.program_id, address, account)?
+        let Some(window) =
+            AccountRead::decode_optional::<SpendWindow>(self.program_id, address, account)?
         else {
             return Ok(None);
         };
@@ -911,7 +914,7 @@ mod tests {
             } else {
                 ring().read_cosigner(&rpc).map(|c| c.is_none())
             };
-            assert_eq!(read.expect("empty control"), true);
+            assert!(read.expect("empty control"));
         }
 
         // A nonempty malformed account stays strict.

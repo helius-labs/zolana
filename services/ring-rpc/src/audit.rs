@@ -391,7 +391,11 @@ fn decrypted_transaction(
                 blinding: spend.record.blinding.into(),
                 counters: spend.counters.map(|counters| DecryptedSpendCounters {
                     salt: counters.salt.into(),
-                    assets: counters.assets.iter().map(|asset| (*asset).into()).collect(),
+                    assets: counters
+                        .assets
+                        .iter()
+                        .map(|asset| (*asset).into())
+                        .collect(),
                     spent: counters.spent.to_vec(),
                 }),
             })

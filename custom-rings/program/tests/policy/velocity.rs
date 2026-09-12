@@ -41,7 +41,10 @@ fn velocity_transact() -> TransactIxData {
         nullifier_tree_root_index: 0,
         utxo_tree_root_index: 0,
     }];
-    content.outputs = vec![confidential_output(), spend_record_output(RECORD_MEMBER_TAG)];
+    content.outputs = vec![
+        confidential_output(),
+        spend_record_output(RECORD_MEMBER_TAG),
+    ];
     content
 }
 
