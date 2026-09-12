@@ -63,6 +63,15 @@ fn a_windowed_merge_into_the_entries_tree_reaches_the_spp_cpi() {
 }
 
 #[test]
+fn a_windowed_merge_consolidates_a_foreign_input_into_the_entries_tree() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_merge_fixture(velocity_policy_config_account());
+    // The input tree stays foreign, only the created output must be the entries tree.
+    fixture.substitute("output_tree", entries_tree());
+    fixture.expect_spp_cpi(&mollusk);
+}
+
+#[test]
 fn a_per_transfer_merge_keeps_its_tree_choice() {
     let (mollusk, _) = setup_mollusk();
     policy_merge_fixture(transfer_cap_policy_config_account()).expect_spp_cpi(&mollusk);

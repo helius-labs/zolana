@@ -21,11 +21,11 @@ pub(crate) enum Forward {
 }
 
 impl Forward {
-    /// Destination trees the SPP account list leads with.
-    const fn tree_count(self) -> usize {
+    /// The SPP tree the forward creates a note in.
+    const fn destination_tree(self) -> core::ops::Range<usize> {
         match self {
-            Forward::Deposit => 1,
-            Forward::Merge => 2,
+            Forward::Deposit => 0..1,
+            Forward::Merge => 1..2,
         }
     }
 }
@@ -65,10 +65,10 @@ pub fn process_spp_forward_ix(
     validate_spp_program(spp_accounts)?;
     if let Some(policy_config_account) = policy_config_account {
         let policy = load_policy_config(program_id, policy_config_account)?;
-        // A windowed velocity ring keeps every note in its entries tree.
+        // A windowed ring creates notes only in the entries tree, a merge input may be foreign.
         if let VelocityMode::PerWindow { .. } = policy.rules.velocity_mode() {
             let trees = spp_accounts
-                .get(0..kind.tree_count())
+                .get(kind.destination_tree())
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
             require_entries_trees(trees, &policy.entries_tree)?;
         }

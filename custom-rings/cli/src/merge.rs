@@ -85,6 +85,7 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         CustomRingMergeProofEnvironment {
             indexer: &indexer,
             prover: &ctx.prover(),
+            rpc: &ctx.rpc,
         },
     )?;
     let output_hash = proven.output_hash;

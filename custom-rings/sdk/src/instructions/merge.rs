@@ -59,9 +59,11 @@ pub struct PreparedCustomRingMerge {
     inner: PreparedMergeRing,
 }
 
-pub struct CustomRingMergeProofEnvironment<'a, I> {
+pub struct CustomRingMergeProofEnvironment<'a, I, R> {
     pub indexer: &'a I,
     pub prover: &'a ProverClient,
+    /// Account reads take the Solana RPC, the indexer serves proofs only.
+    pub rpc: &'a R,
 }
 
 pub struct ProvenCustomRingMerge {
@@ -112,15 +114,15 @@ impl PreparedCustomRingMerge {
         }
     }
 
-    pub fn prove<I: Rpc>(
+    pub fn prove<I: Rpc, R: Rpc>(
         self,
         nullifier_key: NullifierKey,
         input_tree: Address,
-        env: CustomRingMergeProofEnvironment<'_, I>,
+        env: CustomRingMergeProofEnvironment<'_, I, R>,
     ) -> Result<ProvenCustomRingMerge, ClientError> {
         let ring = self.ring;
         // A malformed config faults at the on-chain load, treat it as no policy.
-        let has_policy = match ring.read_config(env.indexer) {
+        let has_policy = match ring.read_config(env.rpc) {
             Ok(config) => config.is_some_and(|config| config.has_policy),
             Err(AccountReadError::Client(client)) => return Err(client),
             Err(AccountReadError::InvalidAccount { .. }) => false,
