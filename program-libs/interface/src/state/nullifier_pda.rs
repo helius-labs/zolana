@@ -28,4 +28,12 @@ impl NullifierPda {
         data[8..].copy_from_slice(&self.tree_id.to_le_bytes());
         Some(())
     }
+
+    pub fn read_from(data: &[u8]) -> Option<Self> {
+        let data: &[u8; NULLIFIER_PDA_SIZE] = data.try_into().ok()?;
+        Some(Self {
+            queue_index: u64::from_le_bytes(data[..8].try_into().ok()?),
+            tree_id: u16::from_le_bytes(data[8..].try_into().ok()?),
+        })
+    }
 }
