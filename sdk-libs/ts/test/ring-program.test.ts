@@ -11,7 +11,12 @@ import { describe, expect, it, vi } from "vitest";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "../src/ring/config.js";
+import {
+  BPF_LOADER_UPGRADEABLE_ID,
+  ringPolicyConfigAddress,
+  ringProgramDataAddress,
+} from "../src/ring/config.js";
+import { RING_POLICY_CONFIG_SIZE } from "../src/ring/codecs.js";
 import {
   CLOCK_SYSVAR as CLOCK,
   RENT_SYSVAR as RENT,
@@ -104,6 +109,15 @@ describe("program data", () => {
     // @ts-expect-error a structural copy is not a checked binary
     void verifyRingProgram(client, PROGRAM, copy).catch(() => undefined);
     expect(binary.sha256).toEqual(sha256(elf(64)));
+  });
+
+  it("pins its bytes and hash against mutation through the exposed copy", () => {
+    const binary = RingProgramBinary.parse(elf(128));
+    const pinned = binary.sha256;
+    binary.bytes.fill(0xff);
+    expect(binary.bytes).toEqual(elf(128));
+    expect(binary.sha256).toEqual(pinned);
+    expect(binary.byteLength).toBe(128);
   });
 
   it("verifies the deployed bytes and names a missing, different or occupied program", async () => {
@@ -270,6 +284,7 @@ describe("deployment", () => {
       program,
       buffer,
       programData: await ringProgramDataAddress(program.address),
+      policyConfig: await ringPolicyConfigAddress(program.address),
     };
   }
 
@@ -294,6 +309,7 @@ describe("deployment", () => {
     /** Sends resolve only through their abort signal. */
     readonly hangSends?: boolean;
     readonly occupiedBy?: Address;
+    readonly policyConfig?: Readonly<{ owner?: Address; size: number }>;
   }
 
   /** The extend and then the program exist once a send follows the buffer content read. */
@@ -386,6 +402,14 @@ describe("deployment", () => {
         }
         if (account === keys.program.address && options.occupiedBy !== undefined) {
           return ownedAccount(options.occupiedBy, new Uint8Array());
+        }
+        if (account === keys.policyConfig) {
+          return options.policyConfig === undefined
+            ? undefined
+            : ownedAccount(
+                options.policyConfig.owner ?? keys.program.address,
+                new Uint8Array(options.policyConfig.size),
+              );
         }
         const deployed = finished
           ? {
@@ -634,5 +658,28 @@ describe("deployment", () => {
       causeCode: "RING_PROGRAM_KEYPAIR_INVALID",
     });
     expect(program.address).toBe(keys.program.address);
+  });
+
+  it("refuses an upgrade the on-chain policy config would not survive before any send", async () => {
+    const keys = await signers();
+    const deployed = { authority: keys.authority.address, bytes: new Uint8Array(1_000) };
+    const incompatible = chain(keys, {
+      deployed,
+      policyConfig: { size: RING_POLICY_CONFIG_SIZE - 1 },
+    });
+    await expect(deployRingProgram(params(keys, incompatible))).rejects.toMatchObject({
+      code: "RING_DEPLOY_PROGRAM",
+      causeCode: "RING_POLICY_CONFIG_INCOMPATIBLE",
+    });
+    expect(incompatible.sends).toHaveLength(0);
+    // A foreign-owned account at the PDA is not a policy the upgraded program loads.
+    const foreign = chain(keys, { deployed, policyConfig: { owner: SYSTEM_PROGRAM, size: 0 } });
+    await expect(deployRingProgram(params(keys, foreign))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
+    const compatible = chain(keys, { deployed, policyConfig: { size: RING_POLICY_CONFIG_SIZE } });
+    await expect(deployRingProgram(params(keys, compatible))).resolves.toMatchObject({
+      kind: "upgraded",
+    });
   });
 });

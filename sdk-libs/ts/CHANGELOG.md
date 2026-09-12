@@ -431,6 +431,14 @@ Fixed
   which produced a duplicate UTXO hash and nullifier and left the second UTXO
   unspendable; the shielded pool now derives every deposit blinding from the
   tree and the leaf index, so each deposit is unique.
+- `deployRingProgram` upgrading a ring reads its `RingPolicyConfig` first and
+  refuses a program-owned account whose size the deploying program cannot load,
+  with `RING_POLICY_CONFIG_INCOMPATIBLE`, before any transaction, so an
+  incompatible upgrade fails before spending instead of leaving the ring
+  unreadable.
+- `RingProgramBinary.bytes` returns a copy and the class adds `byteLength`, so
+  the binary a deploy and `verifyRingProgram` check against `sha256` cannot
+  change after parsing.
 
 Dependencies
 

@@ -43,7 +43,12 @@ import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { equalBytes } from "../wallet/internal.js";
 
-import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "./config.js";
+import {
+  BPF_LOADER_UPGRADEABLE_ID,
+  ringPolicyConfigAddress,
+  ringProgramDataAddress,
+} from "./config.js";
+import { RING_POLICY_CONFIG_SIZE } from "./codecs.js";
 import { RingError, wrapRingError } from "./error.js";
 
 export const RENT_SYSVAR = address("SysvarRent111111111111111111111111111111111");
@@ -91,8 +96,13 @@ export class RingProgramBinary {
     return new RingProgramBinary(new Uint8Array(bytes));
   }
 
+  /** The bytes the hash pins stay immutable to callers. */
   get bytes(): Uint8Array {
-    return this.#bytes;
+    return new Uint8Array(this.#bytes);
+  }
+
+  get byteLength(): number {
+    return this.#bytes.length;
   }
 }
 
@@ -164,7 +174,7 @@ export async function verifyRingProgram(
   context?: RequestContext,
 ): Promise<RingProgramData> {
   const programData = await fetchRingProgramData(client, ringProgramId, context);
-  const found = programData?.deployedHash(binary.bytes.length);
+  const found = programData?.deployedHash(binary.byteLength);
   if (programData === undefined || found === undefined) {
     throw new RingError("RING_PROGRAM_NOT_DEPLOYED", { details: { ringProgramId } });
   }
@@ -347,8 +357,14 @@ export async function deployRingProgram(
     const existing = await fetchRingProgramData(params.client, params.ringProgramId, context);
     const present = deployPlan(params, existing);
     if (present !== undefined) return Object.freeze({ kind: "present", programData: present });
+    // Precedes any paid step, a rejected upgrade spends nothing.
+    if (existing !== undefined) {
+      await ensurePolicyConfigCompatible(params, context);
+    }
     const bufferSigner = params.buffer ?? (await generateKeyPairSigner());
-    const length = params.binary.bytes.length;
+    const length = params.binary.byteLength;
+    // bytes copies on each read.
+    const image = params.binary.bytes;
     const bufferRent = await rent(params, BUFFER_METADATA_SIZE + length, context);
     const upload = await bufferState(params, bufferSigner.address, context);
     const programRent = existing === undefined ? await rent(params, PROGRAM_SIZE, context) : 0n;
@@ -389,7 +405,7 @@ export async function deployRingProgram(
                 buffer: bufferSigner.address,
                 authority: params.authority,
                 offset,
-                bytes: params.binary.bytes.subarray(offset, offset + chunk),
+                bytes: image.subarray(offset, offset + chunk),
               }),
           }),
         ]),
@@ -474,6 +490,21 @@ export async function deployRingProgram(
   }
 }
 
+/** An equal size is not proof the target binary is compatible. */
+async function ensurePolicyConfigCompatible(
+  params: RingProgramDeployParams,
+  context: RequestContext | undefined,
+): Promise<void> {
+  const policyConfig = await ringPolicyConfigAddress(params.ringProgramId);
+  const account = await params.client.getAccount(policyConfig, context);
+  if (account === undefined || account.owner !== params.ringProgramId) return;
+  if (account.data.length !== RING_POLICY_CONFIG_SIZE) {
+    throw new RingError("RING_POLICY_CONFIG_INCOMPATIBLE", {
+      details: { ringProgramId: params.ringProgramId, policyConfig, size: account.data.length },
+    });
+  }
+}
+
 type DeployOptions = Readonly<{ concurrency: number; attempts: number }>;
 
 function deployOptions(params: RingProgramDeployParams): DeployOptions {
@@ -510,7 +541,7 @@ function deployPlan(
 }
 
 function holdsBinary(data: RingProgramData, binary: RingProgramBinary): boolean {
-  const deployed = data.deployedHash(binary.bytes.length);
+  const deployed = data.deployedHash(binary.byteLength);
   return deployed !== undefined && equalBytes(deployed, binary.sha256);
 }
 
@@ -543,7 +574,7 @@ async function bufferState(
   buffer: Address,
   context: RequestContext | undefined,
 ): Promise<BufferState> {
-  const size = BUFFER_METADATA_SIZE + params.binary.bytes.length;
+  const size = BUFFER_METADATA_SIZE + params.binary.byteLength;
   const account = await params.client.getAccount(buffer, context);
   if (account === undefined) return "missing";
   const reader = new Reader(
@@ -571,7 +602,7 @@ async function checkFunding(
   context: RequestContext | undefined,
 ): Promise<void> {
   const { existing } = input;
-  const length = params.binary.bytes.length;
+  const length = params.binary.byteLength;
   let required = DEPLOY_FEE_BUDGET + (input.upload === "missing" ? input.bufferRent : 0n);
   if (existing === undefined) {
     const programDataRent = await rent(params, PROGRAM_DATA_METADATA_SIZE + length, context);
