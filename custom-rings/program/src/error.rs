@@ -67,7 +67,7 @@ pub enum CustomRingError {
     #[error("entry state is unknown")]
     InvalidEntryState = 8127,
     // 8128 retired, an empty policy table is valid.
-    #[error("entry mutations must use the default tree")]
+    #[error("the tree must be the policy entries tree")]
     InvalidPolicyTree = 8129,
     #[error("entry version overflows")]
     EntryVersionOverflow = 8130,

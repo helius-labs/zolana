@@ -7,12 +7,11 @@ use custom_ring_interface::{
     PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterSpendIxData, RingProgramConfig,
     SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec,
     SpendRecordHead, SpendWindow, UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold,
-    WithdrawalThresholdIxData,
-    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
-    READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED,
-    RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD, SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW,
-    SPEND_WINDOW_PDA_SEED,
+    WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE,
+    DELEGATE_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD,
+    SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -1367,7 +1366,10 @@ pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture 
         .expect("register_spend data"),
     );
     let mut slots = entry_mutation_slots(policy_config, payer);
-    slots.push(spend_record_head_slot(payer.to_bytes(), uninitialized_head_account()));
+    slots.push(spend_record_head_slot(
+        payer.to_bytes(),
+        uninitialized_head_account(),
+    ));
     Fixture::new(data, slots)
 }
 
@@ -1609,15 +1611,61 @@ fn sol_deposit_slots() -> Vec<Slot> {
     ]
 }
 
-/// A SOL-only ring deposit, `[cosigner_pda, cosigner, window(w)]` precede the
-/// SPP list.
-pub fn deposit_fixture() -> Fixture {
+/// The SPP list of a ring merge, `[input_tree(w), output_tree(w), ring_config,
+/// spp_program, system_program, sol_interface]`.
+fn sol_merge_slots() -> Vec<Slot> {
+    vec![
+        Slot {
+            label: "input_tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([54; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "output_tree",
+            meta: AccountMeta::new(Pubkey::new_from_array([55; 32]), false),
+            account: account(1_000_000_000),
+        },
+        Slot {
+            label: "ring_config",
+            meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+            account: account(1_000_000_000),
+        },
+        spp_program_slot(),
+        system_program_slot(),
+        Slot {
+            label: "sol_interface",
+            meta: AccountMeta::new(Pubkey::new_from_array([53; 32]), false),
+            account: account(1_000_000_000),
+        },
+    ]
+}
+
+/// The forward prefix, `config` leads and a policy ring adds `policy_config`
+/// after the co-signer.
+fn forward_prefix(config: Account, policy_config: Option<Account>) -> Vec<Slot> {
     let [cosigner_pda, cosigner] = cosigner_slots();
     let mut slots = vec![
+        Slot {
+            label: "config",
+            meta: AccountMeta::new_readonly(config_pda().0, false),
+            account: config,
+        },
         cosigner_pda,
         cosigner,
-        window_slot(Pubkey::new_from_array([0; 32]), None),
     ];
+    if let Some(policy_config) = policy_config {
+        slots.push(Slot {
+            label: "policy_config",
+            meta: AccountMeta::new_readonly(policy_config_pda().0, false),
+            account: policy_config,
+        });
+    }
+    slots
+}
+
+fn deposit_fixture_with(config: Account, policy_config: Option<Account>) -> Fixture {
+    let mut slots = forward_prefix(config, policy_config);
+    slots.push(window_slot(Pubkey::new_from_array([0; 32]), None));
     slots.extend(sol_deposit_slots());
     Fixture::new(
         ring_deposit_data(vec![DepositAssetKind::Sol], SOL_DEPOSIT_AMOUNT),
@@ -1625,12 +1673,43 @@ pub fn deposit_fixture() -> Fixture {
     )
 }
 
-/// A merge forwards the same SPP list as a deposit, with no window slot.
-pub fn merge_fixture() -> Fixture {
-    let [cosigner_pda, cosigner] = cosigner_slots();
-    let mut slots = vec![cosigner_pda, cosigner];
-    slots.extend(sol_deposit_slots());
+/// A SOL-only audit-only ring deposit, `[config, cosigner_pda, cosigner,
+/// window(w)]` precede the SPP list.
+pub fn deposit_fixture() -> Fixture {
+    deposit_fixture_with(
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+        None,
+    )
+}
+
+/// A SOL-only policy ring deposit holding `policy_config`.
+pub fn policy_deposit_fixture(policy_config: Account) -> Fixture {
+    deposit_fixture_with(
+        initialized_config_account(authority(), auditor_pubkey(2)),
+        Some(policy_config),
+    )
+}
+
+fn merge_fixture_with(config: Account, policy_config: Option<Account>) -> Fixture {
+    let mut slots = forward_prefix(config, policy_config);
+    slots.extend(sol_merge_slots());
     Fixture::new(vec![tag::MERGE], slots)
+}
+
+/// An audit-only ring merge, no window slot and no policy config.
+pub fn merge_fixture() -> Fixture {
+    merge_fixture_with(
+        audit_only_config_account(authority(), auditor_pubkey(2)),
+        None,
+    )
+}
+
+/// A policy ring merge holding `policy_config`.
+pub fn policy_merge_fixture(policy_config: Account) -> Fixture {
+    merge_fixture_with(
+        initialized_config_account(authority(), auditor_pubkey(2)),
+        Some(policy_config),
+    )
 }
 
 pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {

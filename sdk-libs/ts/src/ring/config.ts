@@ -1,9 +1,4 @@
-import {
-  getProgramDerivedAddress,
-  type Address,
-  type Instruction,
-  type ProgramDerivedAddress,
-} from "@solana/kit";
+import { getProgramDerivedAddress, type Address, type Instruction } from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
@@ -11,8 +6,12 @@ import { Writer, addressBytes } from "../interface/internal.js";
 import {
   ringAuthAddress,
   ringCoSignerAddress,
+  ringConfigAddress,
+  ringConfigPda,
   ringDelegateAddress,
   ringDelegatePda,
+  ringPolicyConfigAddress,
+  ringPolicyConfigPda,
   ringSpendWindowAddress,
   ringSpendWindowPda,
 } from "../interface/pda/index.js";
@@ -46,28 +45,7 @@ const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
 
-export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringConfigPda(ringProgramId))[0];
-}
-
-function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("config")],
-  });
-}
-
-/** Mirrors Rust `CustomRing::policy_config_pda`. */
-export async function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringPolicyConfigPda(ringProgramId))[0];
-}
-
-function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("policy")],
-  });
-}
+export { ringConfigAddress, ringPolicyConfigAddress };
 
 /** Mirrors Rust `CustomRing::namespace_pda`, the shielded owner of every policy entry. */
 export async function ringPolicyNamespaceAddress(ringProgramId: Address): Promise<Address> {

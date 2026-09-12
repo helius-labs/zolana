@@ -55,7 +55,9 @@ import {
 import { ownedAccount } from "./helpers/ring-accounts.js";
 import {
   ringCoSignerAddress,
+  ringConfigAddress,
   ringDelegateAddress,
+  ringPolicyConfigAddress,
   ringSpendWindowAddress,
 } from "../src/interface/pda/index.js";
 import { SOL_MINT } from "../src/transaction/asset.js";
@@ -215,6 +217,7 @@ describe("ring deposit", () => {
       ringProgramId: RING,
       tree: TREE,
       depositor: PAYER,
+      hasPolicy: false,
       deposits: [
         {
           asset: DepositAsset.sol(),
@@ -232,6 +235,7 @@ describe("ring deposit", () => {
     });
     expect(instruction.programAddress).toBe(RING);
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringCoSignerAddress(RING), AccountRole.READONLY],
       [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
@@ -246,6 +250,42 @@ describe("ring deposit", () => {
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
       "0e010001001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f2020202020202020202020202020202020202020202020202020202020202020c0cf6a0000000000002121212121212121212121212121212121212121212121212121212121212121030303030303030303030303030303030303030303030303030303030303030303222222222222222222222222222222220300232425",
     );
+  });
+
+  it("adds policy_config after the co-signer for a policy ring", async () => {
+    const instruction = await ringDepositInstruction({
+      ringProgramId: RING,
+      tree: TREE,
+      depositor: PAYER,
+      hasPolicy: true,
+      deposits: [
+        {
+          asset: DepositAsset.sol(),
+          viewTag: filled(31, 32) as Bytes32,
+          ownerUtxoHash: filled(32, 32) as Bytes32,
+          amount: 7_000_000n,
+          ringDataHash: filled(33, 32) as Bytes32,
+          encrypted: {
+            txViewingPublicKey: filled(3, 33) as Bytes33,
+            salt: filled(34, 16) as Bytes16,
+            ciphertext: Uint8Array.of(35, 36, 37),
+          },
+        },
+      ],
+    });
+    expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
+      [await ringConfigAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringCoSignerAddress(RING), AccountRole.READONLY],
+      [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
+      [await ringSpendWindowAddress(RING, SOL_MINT), AccountRole.WRITABLE],
+      [TREE, AccountRole.WRITABLE],
+      [PAYER, AccountRole.WRITABLE_SIGNER],
+      [RING_AUTH, AccountRole.READONLY],
+      [SPP, AccountRole.READONLY],
+      [SYSTEM, AccountRole.READONLY],
+      [SOL_INTERFACE, AccountRole.WRITABLE],
+    ]);
   });
 
   it("decodes the output the shielded pool publishes", () => {

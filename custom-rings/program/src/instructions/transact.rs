@@ -3,7 +3,6 @@ use custom_ring_interface::{
     AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
 use pinocchio::{
-    address::address_eq,
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
@@ -22,7 +21,10 @@ use crate::{
     instructions::{
         cosign::{require_approval, require_cosigner, Demand},
         loader::{load_config, load_policy_config, load_spend_record_head, validate_spp_program},
-        policy_shared::{namespace_address, verify_spend_record_output, VerifiedSpendRecord},
+        policy_shared::{
+            namespace_address, require_entries_trees, verify_spend_record_output,
+            VerifiedSpendRecord,
+        },
         public_legs::{apply_spend_windows, PublicLegs},
         roots::load_roots,
         shared::cpi_spp_signed,
@@ -259,7 +261,10 @@ pub(crate) fn verify_and_forward(
                 }
                 let successor = entry_nullifier(&leaf, &record.blinding)
                     .map_err(|_| CustomRingError::HashingFailed)?;
-                (Some(binding.namespace_bump), Some((head_account, successor)))
+                (
+                    Some(binding.namespace_bump),
+                    Some((head_account, successor)),
+                )
             } else {
                 (None, None)
             };
@@ -354,13 +359,7 @@ fn require_entries_tree(spp_accounts: &[AccountView], entries_tree: &Address) ->
     let trees = spp_accounts
         .get(1..3)
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if trees
-        .iter()
-        .any(|tree| !address_eq(tree.address(), entries_tree))
-    {
-        return Err(CustomRingError::InvalidPolicyTree.into());
-    }
-    Ok(())
+    require_entries_trees(trees, entries_tree)
 }
 
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out

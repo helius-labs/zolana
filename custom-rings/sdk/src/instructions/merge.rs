@@ -1,7 +1,7 @@
 //! Custom-ring binding for SPP's owner-preserving merge.
 
 use solana_address::Address;
-use solana_instruction::Instruction;
+use solana_instruction::{AccountMeta, Instruction};
 use zolana_client::{
     ClientError, NonInclusionProof, ProofCompressed, ProverClient, Rpc, SpendProof,
 };
@@ -16,7 +16,7 @@ use zolana_transaction::{
     SppProofOutputUtxo,
 };
 
-use crate::{instructions::cosigner::cosigner_metas, CustomRing};
+use crate::{instructions::cosigner::cosigner_metas, AccountReadError, CustomRing};
 
 pub use zolana_client::{MergeRingProver, MergeRingWitness};
 pub use zolana_transaction::instructions::merge::MERGE_INPUTS;
@@ -67,6 +67,7 @@ pub struct CustomRingMergeProofEnvironment<'a, I> {
 pub struct ProvenCustomRingMerge {
     ring: CustomRing,
     cosigner: Option<Address>,
+    has_policy: bool,
     pub data: MergeRingIxData,
     pub output_hash: [u8; 32],
     pub input_count: usize,
@@ -118,6 +119,12 @@ impl PreparedCustomRingMerge {
         env: CustomRingMergeProofEnvironment<'_, I>,
     ) -> Result<ProvenCustomRingMerge, ClientError> {
         let ring = self.ring;
+        // A malformed config faults at the on-chain load, treat it as no policy.
+        let has_policy = match ring.read_config(env.indexer) {
+            Ok(config) => config.is_some_and(|config| config.has_policy),
+            Err(AccountReadError::Client(client)) => return Err(client),
+            Err(AccountReadError::InvalidAccount { .. }) => false,
+        };
         let output_ring_data_hash = self.inner.output.ring_data_hash.unwrap_or_default();
         let merged_amount = self.inner.output.amount;
         let commitments = self.input_utxo_hashes()?;
@@ -140,6 +147,7 @@ impl PreparedCustomRingMerge {
         Ok(ProvenCustomRingMerge {
             ring,
             cosigner: None,
+            has_policy,
             data: result.ring_instruction_data(proof, output_ring_data_hash),
             output_hash: result.output_hash,
             input_count,
@@ -168,6 +176,7 @@ impl ProvenCustomRingMerge {
             output_tree,
             payer,
             cosigner: self.cosigner,
+            has_policy: self.has_policy,
             data: self.data,
         }
         .instruction()
@@ -232,6 +241,8 @@ pub struct CustomRingMergeInstruction {
     pub output_tree: Address,
     pub payer: Address,
     pub cosigner: Option<Address>,
+    /// Mirrors the ring config's policy flag.
+    pub has_policy: bool,
     pub data: MergeRingIxData,
 }
 
@@ -243,6 +254,7 @@ impl CustomRingMergeInstruction {
             output_tree,
             payer,
             cosigner,
+            has_policy,
             data,
         } = self;
         let mut instruction = MergeRing {
@@ -254,9 +266,12 @@ impl CustomRingMergeInstruction {
             output_ring_data_hash: data.output_ring_data_hash,
         }
         .instruction();
-        instruction
-            .accounts
-            .splice(0..0, cosigner_metas(ring, cosigner));
+        let mut prefix = vec![AccountMeta::new_readonly(ring.config_pda(), false)];
+        prefix.extend(cosigner_metas(ring, cosigner));
+        if has_policy {
+            prefix.push(AccountMeta::new_readonly(ring.policy_config_pda(), false));
+        }
+        instruction.accounts.splice(0..0, prefix);
         instruction
     }
 }
@@ -320,17 +335,19 @@ mod tests {
             input_tree: Address::new_from_array([1; 32]),
             output_tree: Address::new_from_array([2; 32]),
             payer: Address::new_from_array([3; 32]),
+            has_policy: false,
             data,
         }
         .instruction();
 
         assert_eq!(instruction.program_id, ring.program_id());
-        assert_eq!(instruction.accounts[0].pubkey, ring.cosigner_pda());
+        assert_eq!(instruction.accounts[0].pubkey, ring.config_pda());
+        assert_eq!(instruction.accounts[1].pubkey, ring.cosigner_pda());
         assert_eq!(
-            instruction.accounts[4].pubkey,
+            instruction.accounts[5].pubkey,
             pda::ring_auth(&ring.program_id()).0
         );
-        assert!(!instruction.accounts[4].is_signer);
+        assert!(!instruction.accounts[5].is_signer);
         assert_eq!(
             instruction.data.first(),
             Some(&zolana_interface::instruction::tag::RING_MERGE_TRANSACT)

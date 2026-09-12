@@ -250,7 +250,7 @@ cannot prove that reported values equal the committed UTXOs.
 
 A velocity cap ring, per transfer or windowed, takes no deposit leg on a
 transfer and closes the delegate rail. A windowed ring additionally keeps
-every note in its entries tree. A spend record publishes the member's identity and
+every note in its entries tree, deposits and merges included. A spend record publishes the member's identity and
 its lineage in the clear, so an observer who knows an identity can count that
 member's transfers, not their amounts. The window is fixed, a sender may move
 up to twice the cap across one boundary.

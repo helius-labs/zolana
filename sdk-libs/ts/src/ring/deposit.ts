@@ -12,6 +12,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
+import { fetchRingProgramConfig } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
 
 const ZERO_32 = new Uint8Array(32) as Bytes32;
@@ -50,6 +51,7 @@ export async function buildRingDepositTransaction(
     const depositor = input.depositor ?? input.feePayer;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
+    const { hasPolicy } = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
     const settlement = await resolveDepositSettlement(
       {
         asset,
@@ -77,6 +79,7 @@ export async function buildRingDepositTransaction(
         ringProgramId: input.ringProgramId,
         tree,
         depositor,
+        hasPolicy,
         ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         deposits: [
           {

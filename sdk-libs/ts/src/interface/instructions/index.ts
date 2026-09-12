@@ -35,6 +35,8 @@ import {
   protocolConfigAddress,
   ringAuthAddress,
   ringCoSignerAddress,
+  ringConfigAddress,
+  ringPolicyConfigAddress,
   ringSpendWindowAddress,
   solInterfaceAddress,
   splAssetCounterAddress,
@@ -304,7 +306,7 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring keeps `[cosigner_pda, cosigner]` and one spend window slot per settled mint, the shielded pool gets the rest unchanged. */
+/** Mirrors Rust `RingDeposit::instruction`. The ring keeps `[config, cosigner_pda, cosigner, policy_config?]` and one spend window slot per settled mint, the shielded pool gets the rest unchanged. */
 export async function ringDepositInstruction(
   input: Readonly<{
     ringProgramId: Address;
@@ -313,12 +315,16 @@ export async function ringDepositInstruction(
     deposits: readonly RingAssetDeposit[];
     /** The ring's co-signer, a signer when set. */
     cosigner?: SignerAccount;
+    /** True when the ring runs a policy, its `policy_config` joins the prefix. */
+    hasPolicy: boolean;
   }>,
 ): Promise<Instruction> {
   const layout = depositLayout(input.deposits);
-  const [ringAuth, cosignerPda, windows] = await Promise.all([
+  const [ringAuth, config, cosignerPda, policyConfig, windows] = await Promise.all([
     ringAuthAddress(input.ringProgramId),
+    ringConfigAddress(input.ringProgramId),
     ringCoSignerAddress(input.ringProgramId),
+    input.hasPolicy ? ringPolicyConfigAddress(input.ringProgramId) : undefined,
     ringSpendWindowMetas(input.ringProgramId, [
       ...(layout.hasSol ? [SYSTEM_PROGRAM] : []),
       ...layout.splGroups.map((spl) => spl.mint),
@@ -330,7 +336,12 @@ export async function ringDepositInstruction(
     layout,
     ringAuth,
   );
-  accounts.unshift(...ringCoSignerMetas(cosignerPda, input.cosigner), ...windows);
+  accounts.unshift(
+    meta(config, false, false),
+    ...ringCoSignerMetas(cosignerPda, input.cosigner),
+    ...(policyConfig === undefined ? [] : [meta(policyConfig, false, false)]),
+    ...windows,
+  );
   return instruction(
     tagged(
       InstructionTag.ringDeposit,

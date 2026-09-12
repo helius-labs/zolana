@@ -13,7 +13,11 @@ use solana_pubkey::Pubkey;
 use mollusk_svm::result::ProgramResult;
 use zolana_interface::SHIELDED_POOL_PROGRAM_ID;
 
-use crate::common::{account, deposit_fixture, ring_auth_pda, setup_mollusk, Slot};
+use crate::common::{
+    account, deposit_fixture, entries_tree, initialized_policy_config_account,
+    policy_deposit_fixture, ring_auth_pda, setup_mollusk, transfer_cap_policy_config_account,
+    velocity_policy_config_account, Slot,
+};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -43,8 +47,8 @@ fn oversized_account_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = deposit_fixture();
     let mut filler = 100u8;
-    // The co-signer and window slots stay behind, only the rest is forwarded.
-    while fixture.instruction().accounts.len() - 3 <= MAX_CPI_ACCOUNTS {
+    // The config, co-signer and window slots stay behind, only the rest forwards.
+    while fixture.instruction().accounts.len() - 4 <= MAX_CPI_ACCOUNTS {
         filler += 1;
         fixture.push(Slot {
             label: "filler",
@@ -91,4 +95,38 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
         })
         .collect();
     assert_eq!(recorded, expected);
+}
+
+#[test]
+fn a_windowed_deposit_off_the_entries_tree_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    // The default tree is foreign to the policy's entries tree.
+    policy_deposit_fixture(velocity_policy_config_account())
+        .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
+}
+
+#[test]
+fn a_windowed_deposit_into_the_entries_tree_reaches_the_spp_cpi() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = policy_deposit_fixture(velocity_policy_config_account());
+    fixture.substitute("tree", entries_tree());
+    fixture.expect_spp_cpi(&mollusk);
+}
+
+#[test]
+fn a_per_transfer_deposit_keeps_its_tree_choice() {
+    let (mollusk, _) = setup_mollusk();
+    policy_deposit_fixture(transfer_cap_policy_config_account()).expect_spp_cpi(&mollusk);
+}
+
+#[test]
+fn an_ordinary_policy_deposit_keeps_its_tree_choice() {
+    let (mollusk, _) = setup_mollusk();
+    policy_deposit_fixture(initialized_policy_config_account()).expect_spp_cpi(&mollusk);
+}
+
+#[test]
+fn an_audit_only_deposit_keeps_its_tree_choice() {
+    let (mollusk, _) = setup_mollusk();
+    deposit_fixture().expect_spp_cpi(&mollusk);
 }

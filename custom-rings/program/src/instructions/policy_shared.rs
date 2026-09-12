@@ -40,6 +40,20 @@ use crate::{
     },
 };
 
+/// Every listed tree is the policy's entries tree, else the ring escapes it.
+pub(crate) fn require_entries_trees(
+    trees: &[AccountView],
+    entries_tree: &Address,
+) -> ProgramResult {
+    if trees
+        .iter()
+        .any(|tree| !address_eq(tree.address(), entries_tree))
+    {
+        return Err(CustomRingError::InvalidPolicyTree.into());
+    }
+    Ok(())
+}
+
 /// The ring's own namespace owner, curator sources enter only through the
 /// authority gated source map writes.
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]

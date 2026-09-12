@@ -248,6 +248,8 @@ pub enum DepositError {
     Instruction(#[from] DepositBuildError),
     #[error(transparent)]
     Client(#[from] ClientError),
+    #[error(transparent)]
+    AccountRead(#[from] AccountReadError),
 }
 
 impl<'a> CustomRingTransfer<'a> {
@@ -1213,12 +1215,17 @@ impl RingDeposit<'_> {
             }
             .encrypt(&self.recipient.viewing_pubkey())?,
         };
+        let has_policy = self
+            .ring
+            .read_config(rpc)?
+            .is_some_and(|config| config.has_policy);
         let ix = Deposit {
             ring: self.ring,
             tree: self.tree,
             depositor: self.payer.pubkey(),
             deposits: vec![deposit],
             cosigner: self.cosigner.map(Signer::pubkey),
+            has_policy,
         }
         .instruction()?;
         let mut signers = vec![self.payer];

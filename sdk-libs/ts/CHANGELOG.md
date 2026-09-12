@@ -133,6 +133,10 @@ Breaking
   a ring program from this release refuses the old layout → rebuild ring
   transactions with this release, pass `cosigner` when the ring's co-signer
   scope covers the operation, an SPL leg needs its `withdrawal` accounts.
+- `ringDepositInstruction` takes `hasPolicy` and joins the ring's `policy_config`
+  to the prefix for a policy ring, so a windowed velocity ring confines the
+  deposit to its entries tree → pass the ring's policy state, or let
+  `buildRingDepositTransaction` read it from the config.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
 - `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
   the upgrade `authority` alongside `payer`.

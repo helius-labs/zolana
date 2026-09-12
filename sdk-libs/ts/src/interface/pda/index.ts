@@ -102,6 +102,29 @@ export async function ringCoSignerAddress(ringProgramId: Address): Promise<Addre
   return address;
 }
 
+export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
+  return (await ringConfigPda(ringProgramId))[0];
+}
+
+export function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("config")],
+  });
+}
+
+/** Mirrors Rust `CustomRing::policy_config_pda`. */
+export async function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
+  return (await ringPolicyConfigPda(ringProgramId))[0];
+}
+
+export function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("policy")],
+  });
+}
+
 /** Mirrors Rust `CustomRing::delegate_pda`, uninitialized when the ring has no delegate. */
 export async function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
   return (await ringDelegatePda(ringProgramId))[0];

@@ -427,12 +427,13 @@ fn builders_place_the_canonical_config_and_ring_auth_pdas() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
+        has_policy: false,
     }
     .instruction()
     .expect("single SOL deposit");
-    // `[cosigner_pda, cosigner, window]` precede the forwarded list.
+    // `[config, cosigner_pda, cosigner, window]` precede the forwarded list.
     assert_eq!(
-        deposit.accounts.get(5).expect("ring_config meta").pubkey,
+        deposit.accounts.get(6).expect("ring_config meta").pubkey,
         ring_auth
     );
 }
@@ -461,6 +462,7 @@ fn ring_auth_is_never_a_signer_in_the_outer_instruction() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
+        has_policy: false,
     }
     .instruction()
     .expect("single SOL deposit");
@@ -480,6 +482,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
         tree,
         depositor,
         deposits: vec![entry.clone()],
+        has_policy: false,
     }
     .instruction()
     .expect("single SOL deposit");
@@ -494,6 +497,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     assert_eq!(
         instruction.accounts,
         vec![
+            AccountMeta::new_readonly(ring().config_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new_readonly(ring().cosigner_pda(), false),
             AccountMeta::new(ring().spend_window_pda(&Address::default()), false),
@@ -545,6 +549,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
         tree: Address::new_from_array([13; 32]),
         depositor: payer(),
         deposits: vec![spl_entry, sol_deposit_entry()],
+        has_policy: false,
     }
     .instruction()
     .expect("mixed batch");
@@ -572,7 +577,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(2..4)
+            .get(3..5)
             .expect("window metas")
             .to_vec(),
         vec![
@@ -583,7 +588,7 @@ fn deposit_batches_index_each_entry_into_its_settlement_accounts() {
     assert_eq!(
         instruction
             .accounts
-            .get(8..)
+            .get(9..)
             .expect("settlement metas")
             .to_vec(),
         vec![
@@ -1310,11 +1315,12 @@ fn the_cosigner_slot_signs_only_when_set() {
         tree: input_tree(),
         depositor: payer(),
         deposits: vec![sol_deposit_entry()],
+        has_policy: false,
     }
     .instruction()
     .expect("deposit");
     assert_eq!(
-        deposit.accounts[1],
+        deposit.accounts[2],
         AccountMeta::new_readonly(cosigner, true)
     );
 }
