@@ -334,6 +334,9 @@ func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
 	if circuitType == CompressedPolicyCircuitType {
 		return m.keyPath(CompressedPolicyKeyFile)
 	}
+	if circuitType == CompressedRegisterCircuitType {
+		return m.keyPath(CompressedRegisterKeyFile)
+	}
 	return ""
 }
 

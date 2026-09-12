@@ -283,6 +283,53 @@ func runCli() {
 				},
 			},
 			{
+				Name: "setup-compressed-register",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-compressed-register reads"},
+					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
+				},
+				Action: func(context *cli.Context) error {
+					if err := checkRingKeyName(context.String("output"), common.CompressedRegisterKeyFile); err != nil {
+						return err
+					}
+					ps, err := customring.SetupCompressedRegister()
+					if err != nil {
+						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("vk-out"); path != "" {
+						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
+							return err
+						}
+					}
+					return writeRingProofSystem(ps, context.String("output"))
+				},
+			},
+			{
+				Name:  "convert-compressed-register",
+				Usage: "Wrap an existing compressed-register gnark pk/vk pair into a proving system file without a new setup",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
+					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.ConvertCompressedRegister{
+						ProvingKeyPath:   context.String("pk"),
+						VerifyingKeyPath: context.String("vk"),
+					}.Run()
+					if err != nil {
+						return err
+					}
+					return writeRingProofSystem(ps, context.String("output"))
+				},
+			},
+			{
 				Name:  "convert-custom-ring-policy",
 				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
 				Flags: []cli.Flag{
@@ -740,7 +787,7 @@ func runCli() {
 							workersStarted = append(workersStarted, "transfer")
 						}
 
-						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] || enabledCircuitsMap["custom-ring-compressed-policy"] {
+						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] || enabledCircuitsMap["custom-ring-compressed-policy"] || enabledCircuitsMap["custom-ring-compressed-register"] {
 							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
 							workers = append(workers, customRingWorker)
 							go customRingWorker.Start()
@@ -1128,6 +1175,8 @@ func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
 		want = common.CustomRingBaseKeyFile
 	case common.CompressedPolicyCircuitType:
 		want = common.CompressedPolicyKeyFile
+	case common.CompressedRegisterCircuitType:
+		want = common.CompressedRegisterKeyFile
 	}
 	if err := checkRingKeyName(path, want); err != nil {
 		return err

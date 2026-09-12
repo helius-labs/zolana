@@ -38,6 +38,10 @@ const (
 	// CompressedPolicyCircuitType adds the in-circuit head-map transition,
 	// the windowed velocity rail with no per-member head account.
 	CompressedPolicyCircuitType CircuitType = "custom-ring-compressed-policy"
+
+	// CompressedRegisterCircuitType proves one head-map insertion for a fresh
+	// member on the compressed rail.
+	CompressedRegisterCircuitType CircuitType = "custom-ring-compressed-register"
 )
 
 const CustomRingPolicyKeyFile = "custom_ring_policy.key"
@@ -45,3 +49,5 @@ const CustomRingPolicyKeyFile = "custom_ring_policy.key"
 const CustomRingBaseKeyFile = "custom_ring_base.key"
 
 const CompressedPolicyKeyFile = "custom_ring_compressed_policy.key"
+
+const CompressedRegisterKeyFile = "custom_ring_compressed_register.key"
