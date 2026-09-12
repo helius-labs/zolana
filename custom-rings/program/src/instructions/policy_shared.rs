@@ -115,11 +115,13 @@ pub(crate) struct TableBinding<'a> {
 }
 
 impl TableBinding<'_> {
+    /// Boxed so the table stays off the caller's SBF frame, the writer borrows it
+    /// from the heap.
     #[inline(never)]
-    pub fn bind(self) -> Result<BoundTable, ProgramError> {
+    pub fn bind(self) -> Result<Box<BoundTable>, ProgramError> {
         let rules = decode_policy_table(self.table)?;
         let sources = self.resolve_sources(rules.referenced())?;
-        Ok(BoundTable { rules, sources })
+        Ok(Box::new(BoundTable { rules, sources }))
     }
 
     /// The map is a bijection with the lists the table references.

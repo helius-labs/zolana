@@ -145,37 +145,44 @@ impl Account for PolicyConfig {
     }
 }
 
-pub(crate) struct PolicyConfigInitParams {
+/// Borrows the bound rules and sources so no full `PolicyConfig` lands on the
+/// SBF frame.
+pub(crate) struct PolicyConfigInit<'a> {
     pub policy_hash: [u8; 32],
     pub entries_tree: Address,
     pub entries_tree_id: u16,
     pub namespace_bump: u8,
     pub bump: u8,
     pub namespace_owner_hash: [u8; 32],
-    pub sources: [SourceSlot; N_SOURCE_SLOTS],
-    pub rules: EncodedRuleTable,
+    pub sources: &'a [SourceSlot; N_SOURCE_SLOTS],
+    pub rules: &'a EncodedRuleTable,
     pub generation_slot: u64,
 }
 
-impl PolicyConfigInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            PolicyConfig {
-                discriminator: POLICY_CONFIG,
-                policy_hash: self.policy_hash,
-                entries_tree: self.entries_tree,
-                entries_tree_id: self.entries_tree_id.to_le_bytes(),
-                namespace_bump: self.namespace_bump,
-                bump: self.bump,
-                namespace_owner_hash: self.namespace_owner_hash,
-                sources: self.sources,
-                rules: self.rules,
-                generation: 1u32.to_le_bytes(),
-                generation_slot: self.generation_slot.to_le_bytes(),
-            },
-        )
+impl PolicyConfigInit<'_> {
+    pub fn write(self, account: &mut AccountView) -> ProgramResult {
+        let mut data = account
+            .try_borrow_mut()
+            .map_err(|_| CustomRingError::PolicyConfigAlreadyInitialized)?;
+        if data.len() != PolicyConfig::SIZE {
+            return Err(CustomRingError::InvalidPolicyConfigPda.into());
+        }
+        if data.first() != Some(&0) {
+            return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
+        }
+        let config: &mut PolicyConfig = from_bytes_mut(&mut data[..]);
+        config.discriminator = POLICY_CONFIG;
+        config.policy_hash = self.policy_hash;
+        config.entries_tree = self.entries_tree;
+        config.entries_tree_id = self.entries_tree_id.to_le_bytes();
+        config.namespace_bump = self.namespace_bump;
+        config.bump = self.bump;
+        config.namespace_owner_hash = self.namespace_owner_hash;
+        config.sources = *self.sources;
+        config.rules = *self.rules;
+        config.generation = 1u32.to_le_bytes();
+        config.generation_slot = self.generation_slot.to_le_bytes();
+        Ok(())
     }
 }
 

@@ -2,10 +2,10 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_config, UpgradeAuthorityCheck},
-        policy_shared::{compute_policy_hash, namespace_pda, BoundTable, TableBinding},
+        policy_shared::{compute_policy_hash, namespace_pda, TableBinding},
         shared::PdaCheck,
     },
-    state::PolicyConfigInitParams,
+    state::PolicyConfigInit,
 };
 use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{
@@ -72,14 +72,14 @@ pub fn process_create_policy_ix(
     let namespace_owner_hash = ListNamespace::new(own_namespace.as_array())
         .map_err(|_| CustomRingError::HashingFailed)?
         .owner_hash;
-    let BoundTable { rules, sources } = TableBinding {
+    let bound = TableBinding {
         table: &ix,
         curators,
         own_namespace: &own_namespace,
         entries_tree: entries_tree.address(),
     }
     .bind()?;
-    let policy_hash = compute_policy_hash(&rules, &sources)?;
+    let policy_hash = compute_policy_hash(&bound.rules, &bound.sources)?;
     let generation_slot = Clock::get()?.slot;
 
     let bump_seed = [bump];
@@ -96,18 +96,18 @@ pub fn process_create_policy_ix(
         &[Signer::from(seeds.as_ref())],
     )?;
 
-    PolicyConfigInitParams {
+    PolicyConfigInit {
         policy_hash,
         entries_tree: *entries_tree.address(),
         entries_tree_id,
         namespace_bump,
         bump,
         namespace_owner_hash,
-        sources,
-        rules,
+        sources: &bound.sources,
+        rules: &bound.rules,
         generation_slot,
     }
-    .init(policy_config)
+    .write(policy_config)
 }
 
 /// The raw tree id the config pins for every entry hash.
