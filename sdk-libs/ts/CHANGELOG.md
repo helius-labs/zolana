@@ -1,6 +1,15 @@
 # Changelog
 
-## 0.1.6-alpha — unreleased
+## 0.1.6-alpha.1 — unreleased
+
+Custom rings support withdrawing the entire selected balance without a change
+output. Existing wallet and transaction interfaces are unchanged.
+
+Fixed
+
+- `buildRingWithdrawalTransaction` no longer rejects full-balance withdrawals when every output is dummy.
+
+## 0.1.6-alpha — 2026-09-03
 
 The wallet authority is replaced by a key interface a remote holder can
 answer: `WalletKeys` exposes the derivations a wallet needs and proving,

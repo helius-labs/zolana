@@ -501,7 +501,7 @@ export function checkRingMembership(prepared: PreparedTransfer, ringProgramId: A
   }
 }
 
-/** A dummy copies the length of a real slot with its ring binding, else of the first real slot, mirrors Rust `frame_dummy_outputs`. */
+/** Prefer a real slot's length; a full withdrawal retains the canonical dummy length supplied by finalization. Mirrors Rust `frame_dummy_outputs`. */
 export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
   const external = proofInputs.externalData;
   const templates = proofInputs.outputs.flatMap((output, index) => {
@@ -517,9 +517,10 @@ export function frameDummyOutputs(proofInputs: SppProofInputs): SppProofInputs {
     if (output === undefined || !output.isDummy()) return encoded;
     const inRing = output.ringProgramId !== undefined;
     const template = templates.find((candidate) => candidate.inRing === inRing) ?? templates[0];
+    const encodedLength = template?.length ?? encoded.data?.length;
     const ciphertextLength =
-      template === undefined ? 0 : template.length - CONFIDENTIAL_BODY_OVERHEAD;
-    if (template === undefined || ciphertextLength <= 0) {
+      encodedLength === undefined ? 0 : encodedLength - CONFIDENTIAL_BODY_OVERHEAD;
+    if (ciphertextLength <= 0) {
       throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "invalid dummy output" } });
     }
     const key = ViewingKey.generate();

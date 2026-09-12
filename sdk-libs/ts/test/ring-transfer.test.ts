@@ -1,3 +1,4 @@
+import framingVector from "../vectors/ring-full-withdrawal-v1.json" with { type: "json" };
 import { p256 } from "@noble/curves/nist.js";
 import { address, getAddressDecoder, getAddressEncoder, type Address } from "@solana/kit";
 import { describe, expect, it, vi } from "vitest";
@@ -36,7 +37,9 @@ import {
   ConfidentialTransfer,
   type IndexedShieldedTransaction,
   type PreparedTransfer,
-  type SppProofInputs,
+  SppProofInputs,
+  WithdrawalTarget,
+  createExternalData,
 } from "../src/transaction/instructions/transact.js";
 import { EncryptedScheme, readOutputData } from "../src/transaction/serialization/codecs.js";
 import { ProofInputUtxo, Utxo } from "../src/transaction/utxo.js";
@@ -274,6 +277,97 @@ describe("withCompactChange", () => {
       "RING_DATA_OUTSIDE_RING",
     );
   });
+});
+
+async function fullWithdrawalInputs(): Promise<SppProofInputs> {
+  const sender = actor(3);
+  const input = ownedInput(sender, {
+    owner: sender.keypair.signingPublicKey(),
+    asset: SOL_MINT,
+    amount: 10n,
+    blinding: scalar(6),
+    ringProgramId: RING,
+  });
+  const transfer = new ConfidentialTransfer(sender.address, [input], sender.address.solanaAddress())
+    .withCompactChange()
+    .withRingProgramId(RING);
+  transfer.withdraw(
+    SOL_MINT,
+    10n,
+    WithdrawalTarget.sol({ recipient: sender.address.solanaAddress() }),
+  );
+  const prepared = transfer.prepare();
+  const auditor = ViewingKey.generate();
+  const encrypted = await withTransactionKey(sender.keys, prepared.firstNullifier, (tx) =>
+    encryptCustomRingTransfer(tx, {
+      outputs: prepared.outputs,
+      assets: new AssetRegistry(),
+      auditorPublicKey: auditor.publicKey(),
+    }),
+  );
+  try {
+    return prepared.finalize({
+      txViewingPublicKey: encrypted.txViewingPublicKey,
+      salt: encrypted.salt,
+      payload: encrypted.payload,
+      messages: [encrypted.auditorMessage],
+      instructionDiscriminator: InstructionTag.ringTransact,
+    });
+  } finally {
+    encrypted.audit.txViewingSecret.fill(0);
+    encrypted.audit.ephemeralSecret.fill(0);
+    auditor.destroy();
+  }
+}
+
+it("frames full-withdrawal dummy outputs using the shared Rust vector without changing the spend", async () => {
+  const input = await fullWithdrawalInputs();
+  expect(input.outputs.every((output) => output.isDummy())).toBe(true);
+  expect(input.outputs).toHaveLength(framingVector.outputs);
+  const originalData = input.externalData.outputs.map((output) => output.data?.slice());
+  const framed = frameDummyOutputs(input);
+  expect(framed.inputUtxos).toEqual(input.inputUtxos);
+  expect(framed.outputs).toEqual(input.outputs);
+  for (const field of [
+    "instructionDiscriminator",
+    "expiryUnixTs",
+    "interfaceTransfers",
+    "dataHash",
+    "ringDataHash",
+    "txViewingPublicKey",
+    "salt",
+    "resolvedOwnerTags",
+    "messages",
+  ] as const) {
+    expect(framed.externalData[field]).toEqual(input.externalData[field]);
+  }
+  for (const [index, output] of framed.externalData.outputs.entries()) {
+    const original = input.externalData.outputs[index];
+    expect(output.utxoHash).toEqual(original?.utxoHash);
+    expect(output.ownerTag).toEqual(original?.ownerTag);
+    expect(output.data).toHaveLength(framingVector.encodedLength);
+    expect(original?.data).toEqual(originalData[index]);
+    const body = readOutputData(output.data ?? new Uint8Array());
+    expect(body.encoding).toBe("encrypted");
+    expect(body.scheme).toBe(framingVector.scheme);
+    expect([2, 3]).toContain(body.body[0]);
+  }
+});
+it("refuses full-withdrawal framing with missing or truncated dummy data", async () => {
+  const input = await fullWithdrawalInputs();
+  for (const data of [undefined, new Uint8Array(39)]) {
+    const outputs = input.externalData.outputs.map((output) => ({
+      utxoHash: output.utxoHash,
+      ownerTag: output.ownerTag,
+      ...(data === undefined ? {} : { data }),
+    }));
+    const damaged = new SppProofInputs({
+      ...input,
+      externalData: createExternalData({ ...input.externalData, outputs }),
+    });
+    expect(() => frameDummyOutputs(damaged)).toThrow("RING_BUILD_TRANSFER");
+    expect(damaged.externalData.outputs).toEqual(outputs);
+  }
 });
 
 describe("frameDummyOutputs", () => {

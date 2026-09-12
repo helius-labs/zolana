@@ -591,7 +591,7 @@ fn validate_transfer_accounts(
     Ok(())
 }
 
-/// A dummy copies the length of a real slot with its ring binding, else of the first real slot.
+/// Prefer a real slot's length; a full withdrawal retains the canonical dummy length supplied by finalization.
 fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), TransferError> {
     let templates: Vec<(bool, usize)> = proof_inputs
         .output_utxos
@@ -615,11 +615,12 @@ fn frame_dummy_outputs(proof_inputs: &mut SppProofInputs) -> Result<(), Transfer
             continue;
         }
         let in_ring = output.ring_program_id.is_some();
-        let (_, encoded_len) = templates
+        let encoded_len = templates
             .iter()
             .find(|(ring, _)| *ring == in_ring)
             .or_else(|| templates.first())
-            .copied()
+            .map(|(_, length)| *length)
+            .or_else(|| encoded.data.as_ref().map(Vec::len))
             .ok_or(TransferError::InvalidDummyOutput)?;
         let key = ViewingKey::new().pubkey();
         let ciphertext_len = encoded_len
@@ -1157,6 +1158,97 @@ mod tests {
             assert_eq!(data.len(), default_len);
             assert!(output.ring_program_id.is_none());
             assert!(ring_confidential_encrypted_output_body(data).is_none());
+        }
+    }
+
+    fn full_withdrawal_inputs() -> SppProofInputs {
+        let (sender, _) = prepared_transfer(4);
+        let input = SppProofInputUtxo::new(
+            Utxo {
+                owner: sender.signing_pubkey(),
+                asset: SOL_MINT,
+                amount: 10,
+                blinding: random_blinding(),
+                ring_program_id: Some(ring().program_id()),
+                data: Data::default(),
+            },
+            &sender,
+        );
+        let recipient = solana_signer::Signer::pubkey(&sender);
+        let mut transfer = ConfidentialTransfer::new(
+            sender.shielded_address().expect("address"),
+            vec![input],
+            recipient,
+        )
+        .with_compact_change()
+        .with_ring_program_id(ring().program_id());
+        transfer
+            .withdraw(
+                SOL_MINT,
+                10,
+                SettlementTarget::Sol {
+                    user_sol_account: recipient,
+                },
+            )
+            .expect("withdraw");
+        let prepared = transfer.prepare().expect("prepare");
+        let key = sender
+            .get_transaction_viewing_key(&prepared.first_nullifier)
+            .expect("transaction key");
+        let salt = random_salt();
+        let slots =
+            encode_confidential_slots(&prepared.outputs, &AssetRegistry::default(), &key, salt)
+                .expect("slots");
+        prepared
+            .finalize(key.pubkey(), salt, slots)
+            .expect("finalize")
+    }
+
+    #[test]
+    fn dummy_framing_full_withdrawal_matches_typescript_vector() {
+        let vector: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../sdk-libs/ts/vectors/ring-full-withdrawal-v1.json"
+        ))
+        .expect("vector");
+        let mut inputs = full_withdrawal_inputs();
+        assert!(inputs.output_utxos.iter().all(|output| output.is_dummy()));
+        assert_eq!(
+            inputs.output_utxos.len() as u64,
+            vector["outputs"].as_u64().expect("outputs")
+        );
+        let original = inputs.clone();
+        frame_dummy_outputs(&mut inputs).expect("frame full withdrawal");
+        assert_eq!(inputs.payer, original.payer);
+        let mut restored = inputs.external_data.clone();
+        restored.outputs = original.external_data.outputs.clone();
+        assert_eq!(
+            restored.hash().expect("restored hash"),
+            original.external_data.hash().expect("original hash")
+        );
+        for (encoded, before) in inputs
+            .external_data
+            .outputs
+            .iter()
+            .zip(&original.external_data.outputs)
+        {
+            assert_eq!(encoded.utxo_hash, before.utxo_hash);
+            assert_eq!(encoded.owner_tag, before.owner_tag);
+            let data = encoded.data.as_ref().expect("framed dummy");
+            assert_eq!(
+                data.len() as u64,
+                vector["encodedLength"].as_u64().expect("length")
+            );
+            assert_eq!(data[5] as u64, vector["scheme"].as_u64().expect("scheme"));
+            assert!(confidential_encrypted_output_body(data).is_some());
+        }
+        for data in [None, Some(vec![0u8; 39])] {
+            let mut damaged = original.clone();
+            damaged.external_data.outputs[0].data = data.clone();
+            assert!(matches!(
+                frame_dummy_outputs(&mut damaged),
+                Err(TransferError::InvalidDummyOutput)
+            ));
+            assert_eq!(damaged.external_data.outputs[0].data, data);
         }
     }
 
