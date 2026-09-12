@@ -113,8 +113,9 @@ describe("program data", () => {
 
   it("pins its bytes and hash against mutation through the exposed copy", () => {
     const binary = RingProgramBinary.parse(elf(128));
-    const pinned = binary.sha256;
+    const pinned = new Uint8Array(binary.sha256);
     binary.bytes.fill(0xff);
+    binary.sha256.fill(0);
     expect(binary.bytes).toEqual(elf(128));
     expect(binary.sha256).toEqual(pinned);
     expect(binary.byteLength).toBe(128);

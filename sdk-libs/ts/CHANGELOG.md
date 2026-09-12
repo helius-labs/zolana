@@ -446,9 +446,12 @@ Fixed
   with `RING_POLICY_CONFIG_INCOMPATIBLE`, before any transaction, so an
   incompatible upgrade fails before spending instead of leaving the ring
   unreadable.
-- `RingProgramBinary.bytes` returns a copy and the class adds `byteLength`, so
-  the binary a deploy and `verifyRingProgram` check against `sha256` cannot
-  change after parsing.
+- `RingProgramBinary.bytes` and `RingProgramBinary.sha256` return copies and the
+  class adds `byteLength`, so the binary a deploy and `verifyRingProgram` check
+  against the hash cannot change after parsing.
+- `RingRpc.getDecryptedTransactions` rejects a spend record whose `slotIndex`
+  leaves the u32 range or whose counters do not hold exactly eight assets and
+  eight spent amounts.
 
 Dependencies
 

@@ -82,11 +82,11 @@ const LoaderTag = Object.freeze({
 /** A structural copy is not a checked binary. */
 export class RingProgramBinary {
   readonly #bytes: Uint8Array;
-  readonly sha256: Bytes32;
+  readonly #sha256: Bytes32;
 
   private constructor(bytes: Uint8Array) {
     this.#bytes = bytes;
-    this.sha256 = sha256(bytes) as Bytes32;
+    this.#sha256 = sha256(bytes) as Bytes32;
   }
 
   static parse(bytes: Uint8Array): RingProgramBinary {
@@ -99,6 +99,11 @@ export class RingProgramBinary {
   /** The bytes the hash pins stay immutable to callers. */
   get bytes(): Uint8Array {
     return new Uint8Array(this.#bytes);
+  }
+
+  /** A copy, the pinned hash never changes under a caller. */
+  get sha256(): Bytes32 {
+    return new Uint8Array(this.#sha256) as Bytes32;
   }
 
   get byteLength(): number {

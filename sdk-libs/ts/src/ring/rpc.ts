@@ -14,6 +14,7 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
@@ -680,11 +681,11 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
 function decodeSpendRecord(entry: Record<string, unknown>): AuditedRingSpendRecord {
   const counters = entry["counters"];
   return Object.freeze({
-    slotIndex: Number(integer(entry["slotIndex"], "spendRecords.slotIndex")),
+    slotIndex: u32(entry["slotIndex"], "spendRecords.slotIndex"),
     record: Object.freeze({
       member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
-      version: integer(entry["version"], "spendRecords.version"),
-      window: integer(entry["window"], "spendRecords.window"),
+      version: u64(entry["version"], "spendRecords.version"),
+      window: u64(entry["window"], "spendRecords.window"),
       countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
       blinding: hash(entry["blinding"], "spendRecords.blinding"),
     }),
@@ -695,19 +696,29 @@ function decodeSpendRecord(entry: Record<string, unknown>): AuditedRingSpendReco
 }
 
 function decodeSpendCounters(counters: Record<string, unknown>): SpendCounters {
+  const assets = list(counters["assets"], "spendRecords.counters.assets");
+  const spent = list(counters["spent"], "spendRecords.counters.spent");
+  if (assets.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.assets");
+  if (spent.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.spent");
   return Object.freeze({
     salt: hash(counters["salt"], "spendRecords.counters.salt"),
-    assets: Object.freeze(
-      list(counters["assets"], "spendRecords.counters.assets").map((asset) =>
-        hash(asset, "spendRecords.counters.assets"),
-      ),
-    ),
-    spent: Object.freeze(
-      list(counters["spent"], "spendRecords.counters.spent").map((value) =>
-        integer(value, "spendRecords.counters.spent"),
-      ),
-    ),
+    assets: Object.freeze(assets.map((asset) => hash(asset, "spendRecords.counters.assets"))),
+    spent: Object.freeze(spent.map((value) => u64(value, "spendRecords.counters.spent"))),
   });
+}
+
+/** A slot index, rejected outside the u32 range. */
+function u32(value: unknown, path: string): number {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffffn) throw invalid(path);
+  return Number(decoded);
+}
+
+/** A protocol u64, rejected when negative. */
+function u64(value: unknown, path: string): bigint {
+  const decoded = integer(value, path);
+  if (decoded < 0n) throw invalid(path);
+  return decoded;
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {

@@ -1930,6 +1930,62 @@ describe("ring read request", () => {
     ]);
   });
 
+  it("rejects a spend record off the protocol shape", async () => {
+    const spendRecordPage = (record: Record<string, unknown>) =>
+      (async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              context: { blockTime: 1_700_000_000, slot: 9 },
+              value: {
+                items: [
+                  {
+                    slot: 8,
+                    txSignature: signatureOf(1),
+                    txViewingPk: Buffer.from(hex(P256_HEX)).toString("base64"),
+                    outputs: [],
+                    undecryptableSlots: [],
+                    nullifiers: [],
+                    signers: [],
+                    withdrawals: [],
+                    spendRecords: [record],
+                  },
+                ],
+                skipped: [],
+              },
+            },
+          }),
+          JSON_HEADERS,
+        )) as typeof globalThis.fetch;
+    const counters = {
+      salt: addressOf(15),
+      assets: Array.from({ length: 8 }, (_, index) => addressOf(16 + index)),
+      spent: [1, 0, 0, 0, 0, 0, 0, 0],
+    };
+    const base = {
+      member: addressOf(12),
+      version: 3,
+      window: 5,
+      countersCommitment: addressOf(13),
+      blinding: addressOf(14),
+    };
+    const malformed: readonly Record<string, unknown>[] = [
+      { slotIndex: 2, ...base, counters: { ...counters, spent: [1, 0, 0, 0, 0, 0, 0] } },
+      { slotIndex: 2, ...base, counters: { ...counters, assets: counters.assets.slice(0, 7) } },
+      { slotIndex: 0x1_0000_0000, ...base, counters },
+    ];
+    for (const record of malformed) {
+      await expect(
+        new RingRpc("http://ring.example", {
+          fetch: spendRecordPage(record),
+          allowInsecureHttp: true,
+        }).getDecryptedTransactions({ ringProgramId: addressOf(7), signer: await anyReader() }),
+      ).rejects.toMatchObject({ code: "RING_RPC" });
+    }
+  });
+
   it("sends a passkey assertion under camelCase keys", async () => {
     const bodies: Record<string, unknown>[] = [];
     const fetch = (async (_input: URL | string, init?: RequestInit) => {
