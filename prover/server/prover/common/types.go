@@ -34,8 +34,14 @@ const (
 	// CustomRingPolicyCircuitType folds the audit statement with policy
 	// enforcement in one proof and one verification per transact.
 	CustomRingPolicyCircuitType CircuitType = "custom-ring-policy"
+
+	// CompressedPolicyCircuitType adds the in-circuit head-map transition,
+	// the windowed velocity rail with no per-member head account.
+	CompressedPolicyCircuitType CircuitType = "custom-ring-compressed-policy"
 )
 
 const CustomRingPolicyKeyFile = "custom_ring_policy.key"
 
 const CustomRingBaseKeyFile = "custom_ring_base.key"
+
+const CompressedPolicyKeyFile = "custom_ring_compressed_policy.key"
