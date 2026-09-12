@@ -5,6 +5,7 @@ import {
   type Address,
   type Commitment,
   type Instruction,
+  type RpcTransport,
   type Signature,
   type Transaction,
 } from "@solana/kit";
@@ -93,6 +94,10 @@ export interface ZolanaClientConfig {
    */
   readonly solanaRpcUrl?: string | URL;
   readonly solanaRpcSubscriptionsUrl?: string | URL;
+  /** Optional Solana Kit transport; the fetch option applies only to indexer/prover requests. */
+  readonly solanaRpcTransport?: RpcTransport;
+  /** Maximum duration of each Solana RPC request, default 30,000 ms; context may expire sooner. */
+  readonly solanaRpcRequestTimeoutMs?: number;
   readonly indexerUrl?: string | URL | undefined;
   readonly proverUrl?: string | URL | undefined;
   /** Sent by the indexer client. A URL that already carries a key needs none. */
@@ -167,6 +172,12 @@ export class ZolanaClient
     const endpoints = resolveClientEndpoints(input);
     const kit = createKitClients({
       solanaRpcUrl: endpoints.solana,
+      ...(input.solanaRpcTransport === undefined
+        ? {}
+        : { solanaRpcTransport: input.solanaRpcTransport }),
+      ...(input.solanaRpcRequestTimeoutMs === undefined
+        ? {}
+        : { solanaRpcRequestTimeoutMs: input.solanaRpcRequestTimeoutMs }),
       ...(endpoints.solanaRpcSubscriptions === undefined
         ? {}
         : { solanaRpcSubscriptionsUrl: endpoints.solanaRpcSubscriptions }),
