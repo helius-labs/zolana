@@ -75,15 +75,13 @@ pub(crate) fn apply_input_trees(
                 .map_err(|_| shape)?;
 
             // 3. Queue its nullifiers and credit its insertion fee.
-            let mut first = None;
+            let first_input_queue_seq = input_tree.nullifier_tree().queue_next_index;
             for input in tree_inputs {
-                let queue_index = input_tree
+                input_tree
                     .nullifier_tree()
                     .insert_nullifier_into_queue(&input.nullifier_hash)
                     .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
-                first.get_or_insert(queue_index);
             }
-            let first_input_queue_seq = first.ok_or(shape)?;
             let forester_fee = input_tree
                 .credit_insertion_fee(tree_inputs.len() as u64)
                 .map_err(tree_error)?;

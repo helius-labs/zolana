@@ -321,7 +321,8 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
 
     /// Values of the open ZKP batch waiting in `pending_values`. The first
     /// value of a ZKP batch is the chain head and every later group of three
-    /// is absorbed at once, so the count follows from `num_inserted`.
+    /// is absorbed at once, so the count follows from `num_inserted` and is
+    /// always 0, 1, or 2.
     pub fn num_pending(&self) -> usize {
         match self.num_inserted {
             0 => 0,
@@ -360,25 +361,18 @@ impl<const ZKP_BATCHES: usize> Batch<ZKP_BATCHES> {
         } else if num_pending == 2 || zkp_batch_is_full {
             // 3. Absorb the pending group plus this value, zero-padded to
             //    three when the zkp batch completes early.
-            let pending = self
-                .pending_values
-                .get(..num_pending)
-                .ok_or(NullifierTreeError::PendingValuesFull)?;
+            let [first, second] = &self.pending_values;
             let zero = [0u8; 32];
-            let mut inputs: [&[u8]; 4] = [hash_chain, &zero, &zero, &zero];
-            for (slot, group_value) in inputs
-                .iter_mut()
-                .skip(1)
-                .zip(pending.iter().chain(core::iter::once(value)))
-            {
-                *slot = group_value;
-            }
+            let inputs: [&[u8]; 4] = match num_pending {
+                0 => [hash_chain, value, &zero, &zero],
+                1 => [hash_chain, first, value, &zero],
+                _ => [hash_chain, first, second, value],
+            };
             *hash_chain = Poseidon::hashv(&inputs)?;
         } else {
-            *self
-                .pending_values
-                .get_mut(num_pending)
-                .ok_or(NullifierTreeError::PendingValuesFull)? = *value;
+            let [first, second] = &mut self.pending_values;
+            let slot = if num_pending == 0 { first } else { second };
+            *slot = *value;
         }
         self.num_inserted = num_inserted;
 

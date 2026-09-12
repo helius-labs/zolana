@@ -208,15 +208,13 @@ fn apply_input_tree(
             .map_err(tree_error)?,
     };
 
-    let mut first = None;
+    let first_input_queue_seq = tree.nullifier_tree().queue_next_index;
     for nullifier in &ix.nullifiers {
-        let queue_index = tree
-            .nullifier_tree()
+        tree.nullifier_tree()
             .insert_nullifier_into_queue(nullifier)
             .map_err(caused_by(ShieldedPoolError::NullifierTreeUpdateFailed))?;
-        first.get_or_insert(queue_index);
     }
-    first.ok_or(ShieldedPoolError::InvalidTransactShape.into())
+    Ok(first_input_queue_seq)
 }
 
 fn apply_output_tree(

@@ -23,13 +23,9 @@ impl NullifierPda {
     /// followed by little-endian `tree_id`, the same bytes as the borsh
     /// encoding. `data` must be exactly [`NULLIFIER_PDA_SIZE`] bytes.
     pub fn write_to(&self, data: &mut [u8]) -> Option<()> {
-        if data.len() != NULLIFIER_PDA_SIZE {
-            return None;
-        }
-        let (queue_index, rest) = data.split_first_chunk_mut::<8>()?;
-        let tree_id = rest.first_chunk_mut::<2>()?;
-        *queue_index = self.queue_index.to_le_bytes();
-        *tree_id = self.tree_id.to_le_bytes();
+        let data: &mut [u8; NULLIFIER_PDA_SIZE] = data.try_into().ok()?;
+        data[..8].copy_from_slice(&self.queue_index.to_le_bytes());
+        data[8..].copy_from_slice(&self.tree_id.to_le_bytes());
         Some(())
     }
 }

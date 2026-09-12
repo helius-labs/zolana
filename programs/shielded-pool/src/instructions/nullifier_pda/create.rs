@@ -35,12 +35,8 @@ impl NullifierPdaRent {
             .checked_sub(missing)
             .filter(|remaining| *remaining >= self.tree_minimum)
             .ok_or(ShieldedPoolError::InsufficientNullifierPdaRent)?;
-        let nullifier_pda_balance = nullifier_pda
-            .lamports()
-            .checked_add(missing)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
         tree.set_lamports(tree_remaining);
-        nullifier_pda.set_lamports(nullifier_pda_balance);
+        nullifier_pda.set_lamports(self.nullifier_pda_minimum);
         Ok(())
     }
 }
@@ -59,6 +55,10 @@ pub(crate) struct InputTreeResult {
 /// forester fee from the payer in the same pass. The tree funds each PDA's
 /// rent; the payer pays the fee.
 ///
+/// Callers must supply one PDA per nullifier, in matching order: transact
+/// splits an exact-length group and both merge parsers collect one PDA per
+/// input. The zip below relies on those equal counts.
+///
 /// Collect the fee before any rent top-up: its Transfer CPI includes the tree,
 /// and a CPI boundary syncs only its own accounts into the transaction context.
 /// A pending tree debit without the matching nullifier PDA credits would trip
@@ -69,12 +69,9 @@ pub(crate) fn create_nullifier_pdas<'n>(
     payer: &AccountView,
     tree: &mut AccountView,
     nullifier_pdas: &mut [&mut AccountView],
-    nullifiers: impl ExactSizeIterator<Item = &'n [u8; 32]>,
+    nullifiers: impl Iterator<Item = &'n [u8; 32]>,
     input_tree: &InputTreeResult,
 ) -> ProgramResult {
-    if nullifier_pdas.len() != nullifiers.len() {
-        return Err(ShieldedPoolError::InvalidNullifierPda.into());
-    }
     let rent_sysvar = Rent::get()?;
     let rent = NullifierPdaRent {
         nullifier_pda_minimum: rent_sysvar.try_minimum_balance(NULLIFIER_PDA_SIZE)?,
