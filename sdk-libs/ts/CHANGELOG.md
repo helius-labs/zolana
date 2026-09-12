@@ -10,13 +10,13 @@ id, the namespace owner and the window.
 
 Breaking
 
-- `RING_POLICY_VERSION` is 5 and `ringPolicyHash` folds `windowSlots` and
-  the velocity rows after the inline assets → every policy hash of an earlier
-  release differs, re-pin tables with the matching program release.
+- `RING_POLICY_VERSION` is 6 and `ringPolicyHash` commits the inline and
+  velocity counts and folds `windowSlots` and the velocity rows → every policy
+  hash of an earlier release differs.
 - `RingPolicyConfig` adds `namespaceOwnerHash`, `windowSlots`,
   `velocityCount` and `velocity`, and `decodeRingPolicyConfig` accepts only
-  the 1604-byte account → configs of an earlier program release no longer
-  decode.
+  the 1604-byte account → an existing policy ring cannot upgrade in place,
+  deploy a fresh ring rather than re-pinning an old one.
 - `RuleTable` and `EncodedRuleTable` carry `windowSlots` and `velocity`,
   `buildRuleTable` takes them as options, caps each transfer when rows carry no
   window, and refuses a window without rows, a zero mint, a repeated mint or a
@@ -27,7 +27,7 @@ Breaking
   without a window.
 - `proveCustomRingTransfer` charges each transfer's outflow on a velocity ring,
   a windowed ring spends the sender's record into its successor, and returns
-  `approvalRequired` on `ProvenRingTransfer`.
+  `approvalRequired` and the windowed `recordHead` on `ProvenRingTransfer`.
 - `CustomRingTransferParams.session` needs `openSealedMessage`, and the client
   needs `getSlot`, to recover a past window's counters.
 
@@ -43,9 +43,12 @@ Added
 - `auditRingTransaction` reports a velocity ring's `spendRecords`, each with
   the counters recovered from its message when the window is live.
 - `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
-  build the tag 26 registration over a proven claim.
+  build the tag 26 registration over a proven claim, and pin the member's
+  record head so no later transfer can spend a forged record.
 - `ringTransactInstruction` and `ringDelegateTransactInstruction` take
-  `approvalRequired`.
+  `approvalRequired`, and a windowed transfer takes the sender's `recordHead`
+  the program advances to the successor record.
+- `ringSpendRecordHeadAddress` derives a member's record head.
 - `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
   `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
   `velocityWitnessOff`.
