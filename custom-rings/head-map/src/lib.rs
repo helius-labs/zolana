@@ -343,4 +343,24 @@ mod tests {
             Err(custom_ring_interface::HeadMapError::OutOfRange)
         );
     }
+
+    #[test]
+    fn transfer_witnesses_reach_the_reference_root() {
+        let mut map = HeadMap::new().expect("map");
+        map.register(member(5), member(50)).expect("register");
+        let witness = map
+            .transfer(&member(5), &member(50), member(51))
+            .expect("transfer");
+        let verified = custom_ring_interface::HeadMapTransfer {
+            root: &witness.old_root,
+            member: &witness.member,
+            next: &witness.next,
+            spent: &witness.spent,
+            successor: &witness.successor,
+            index: witness.index,
+            proof: &witness.proof,
+        }
+        .verify();
+        assert_eq!(verified, Ok(witness.new_root));
+    }
 }

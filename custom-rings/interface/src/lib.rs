@@ -13,7 +13,8 @@ pub mod state;
 
 pub use base_public_input::{pack32_to_2fe, pack33_to_2fe, CustomRingBasePublicInput, FieldPair};
 pub use head_map::{
-    head_map_leaf, CompressedRegisterPublicInput, HeadMapError, HeadMapInsert, HEAD_MAP_HEIGHT,
+    head_map_leaf, CompressedRegisterPublicInput, HeadMapError, HeadMapInsert, HeadMapTransfer,
+    HEAD_MAP_HEIGHT,
 };
 pub use instruction::{
     tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,

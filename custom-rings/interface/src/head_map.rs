@@ -112,3 +112,31 @@ impl HeadMapInsert<'_> {
         root_from_proof(leaf, index, proof).map_err(|_| HeadMapError::Hashing)
     }
 }
+
+/// Advances a member's leaf from `spent` to `successor`, the successor pointer fixed.
+pub struct HeadMapTransfer<'a> {
+    pub root: &'a [u8; 32],
+    pub member: &'a [u8; 32],
+    pub next: &'a [u8; 32],
+    pub spent: &'a [u8; 32],
+    pub successor: &'a [u8; 32],
+    pub index: u64,
+    pub proof: &'a [[u8; 32]],
+}
+
+impl HeadMapTransfer<'_> {
+    /// The advanced root, or the first check the witness fails.
+    pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
+        if self.proof.len() != HEAD_MAP_HEIGHT {
+            return Err(HeadMapError::ProofLength);
+        }
+        let spent = head_map_leaf(self.member, self.next, self.spent).map_err(|_| HeadMapError::Hashing)?;
+        if &root_from_proof(spent, self.index, self.proof).map_err(|_| HeadMapError::Hashing)? != self.root
+        {
+            return Err(HeadMapError::RootMismatch);
+        }
+        let successor =
+            head_map_leaf(self.member, self.next, self.successor).map_err(|_| HeadMapError::Hashing)?;
+        root_from_proof(successor, self.index, self.proof).map_err(|_| HeadMapError::Hashing)
+    }
+}
