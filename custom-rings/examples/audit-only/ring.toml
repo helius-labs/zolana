@@ -16,7 +16,7 @@ ring_rpc = "http://127.0.0.1:8785"
 
 [devnet]
 rpc = "https://api.devnet.solana.com"
-indexer = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com"
-prover = "https://d30sgubc9yxiri.cloudfront.net"
-ring_rpc = "https://d1ojzfopdqqs5r.cloudfront.net"
+indexer = "https://d2xah7tnhdhcom.cloudfront.net"
+prover = "https://d21ni15goiip6l.cloudfront.net"
+ring_rpc = "https://d24brah9h1i4q9.cloudfront.net"
 ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
