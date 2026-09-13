@@ -1475,7 +1475,9 @@ but does not enforce transaction or call-chain separation.
 struct RingConfig {
     discriminator: u8,
     /// Permitted to call `update_ring_config` and `update_ring_config_owner`.
-    /// Set to `Address::default()` to burn the authority.
+    /// Set to `Address::default()` at `create_ring_config` to burn the authority.
+    /// It cannot be burned afterwards: `update_ring_config_owner` requires the
+    /// incoming authority to co-sign, and nothing signs for the default address.
     authority: Address,
     /// The ring program; read as the UTXO `ring_program_id`.
     program_id: Address,

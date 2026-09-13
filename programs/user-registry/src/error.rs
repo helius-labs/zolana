@@ -21,6 +21,8 @@ pub enum UserRegistryError {
     MissingP256Proof,
     #[error("invalid P256 proof-of-possession instruction")]
     InvalidP256Proof,
+    #[error("nullifier pubkey does not rotate; rotation requires a new record")]
+    NullifierPubkeyRotation,
 }
 
 impl UserRegistryError {
@@ -35,6 +37,7 @@ impl UserRegistryError {
             Self::InvalidInstructionsSysvar => "InvalidInstructionsSysvar",
             Self::MissingP256Proof => "MissingP256Proof",
             Self::InvalidP256Proof => "InvalidP256Proof",
+            Self::NullifierPubkeyRotation => "NullifierPubkeyRotation",
         }
     }
 }
