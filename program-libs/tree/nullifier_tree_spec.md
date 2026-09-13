@@ -1,8 +1,9 @@
-# Batched Merkle Tree
+# Nullifier Tree
 
-This crate maintains a height-40 indexed Merkle tree parametrized by its
-input queue of `N` batches (`N` = 2 in the current layout). This document specifies nullifier queue insertion, batch append, and
-nullifier-PDA cleanup. Initialization is out of scope.
+A height-40 indexed Merkle tree with an integrated input queue of `N` batches
+(`N` = 2 in the current layout). This document specifies nullifier queue
+insertion, batch append, and nullifier-PDA cleanup. Initialization is out of
+scope.
 
 ## State
 
