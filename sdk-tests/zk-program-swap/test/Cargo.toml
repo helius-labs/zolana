@@ -11,7 +11,6 @@ swap-program = { path = "../program" }
 swap-prover = { path = "../prover" }
 swap-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
-solana-address-lookup-table-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }

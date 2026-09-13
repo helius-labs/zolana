@@ -1,8 +1,8 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, HeadMapRoot, PolicyConfig, SourceSlot, SpendRecordHead, SpendWindow,
-    WithdrawalThreshold, CO_SIGNER, DELEGATE, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT,
-    MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_RECORD_HEAD, SPEND_WINDOW,
+    CoSigner, Delegate, HeadMapRoot, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold,
+    CO_SIGNER, DELEGATE, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, MAX_CO_SIGNER_THRESHOLDS,
+    N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -264,51 +264,6 @@ impl Account for SpendWindow {
     }
 }
 
-impl Account for SpendRecordHead {
-    const DISCRIMINATOR: u8 = SPEND_RECORD_HEAD;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendRecordHead;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendRecordHead;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidSpendRecordHead;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-}
-
-pub(crate) struct SpendRecordHeadInitParams {
-    pub nullifier: [u8; 32],
-    pub bump: u8,
-}
-
-impl SpendRecordHeadInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        init_account(
-            account,
-            SpendRecordHead {
-                discriminator: SPEND_RECORD_HEAD,
-                nullifier: self.nullifier,
-                bump: self.bump,
-            },
-        )
-    }
-}
-
-/// Caller verifies the head account, only its size is rechecked here.
-pub(crate) fn advance_spend_record_head(
-    account: &mut AccountView,
-    nullifier: [u8; 32],
-) -> ProgramResult {
-    let mut data = account
-        .try_borrow_mut()
-        .map_err(|_| CustomRingError::InvalidSpendRecordHead)?;
-    if data.len() != SpendRecordHead::SIZE {
-        return Err(CustomRingError::InvalidSpendRecordHead.into());
-    }
-    from_bytes_mut::<SpendRecordHead>(&mut data).nullifier = nullifier;
-    Ok(())
-}
-
 impl Account for HeadMapRoot {
     const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
@@ -322,6 +277,32 @@ impl Account for HeadMapRoot {
 
 pub(crate) struct HeadMapRootInitParams {
     pub bump: u8,
+}
+
+/// The root update and SPP CPI commit atomically.
+pub(crate) fn advance_head_map_root(
+    account: &mut AccountView,
+    expected_root: &[u8; 32],
+    new_root: [u8; 32],
+    register: bool,
+) -> ProgramResult {
+    let mut data = account.try_borrow_mut()?;
+    if data.len() != HeadMapRoot::SIZE {
+        return Err(CustomRingError::InvalidHeadMapRoot.into());
+    }
+    let state = from_bytes_mut::<HeadMapRoot>(&mut data);
+    if &state.root != expected_root {
+        return Err(CustomRingError::StaleHeadMapRoot.into());
+    }
+    if register {
+        let cursor = state.next_index();
+        if cursor == 0 || cursor >= (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT) {
+            return Err(CustomRingError::InvalidHeadMapCursor.into());
+        }
+        state.next_index = (cursor + 1).to_le_bytes();
+    }
+    state.root = new_root;
+    Ok(())
 }
 
 impl HeadMapRootInitParams {
@@ -378,7 +359,6 @@ mod sealed {
     impl Sealed for super::CoSigner {}
     impl Sealed for super::Delegate {}
     impl Sealed for super::SpendWindow {}
-    impl Sealed for super::SpendRecordHead {}
     impl Sealed for super::HeadMapRoot {}
 }
 

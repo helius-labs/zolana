@@ -377,7 +377,8 @@ impl StagedDelegateTransfer {
             result.private_tx_hash.try_into()?,
             &self.prepared.external_data,
             self.prepared.private_tx_blinding()?,
-        )?;
+        )?
+        .for_delegate();
         Ok((
             request,
             WitnessedDelegateTransfer {
@@ -421,6 +422,7 @@ impl WitnessedDelegateTransfer {
             state_root_index,
             nullifier_root_index,
             approval_required: _,
+            head_transition: _,
         } = ring.binding();
         let width = self.prepared.shape.n_inputs() as u8;
         Ok(ProvenDelegateTransfer {
@@ -429,8 +431,8 @@ impl WitnessedDelegateTransfer {
             data: RingInstructionData {
                 external_data: &self.prepared.external_data,
                 nullifiers: &self.result.nullifiers,
-                nullifier_tree_root_index: self.result.nullifier_tree_root_index,
-                utxo_tree_root_index: self.result.utxo_tree_root_index,
+                input_tree_indexes: &self.result.input_tree_indexes,
+                tree_contexts: &self.result.tree_contexts,
                 private_tx_hash: self.result.private_tx_hash,
                 proof: spp_proof,
                 circuit: CircuitId::RingAuthority(width, width, N_PUBLIC_SLOTS as u8),

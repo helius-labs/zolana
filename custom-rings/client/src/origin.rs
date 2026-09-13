@@ -184,7 +184,10 @@ mod rpc {
     pub const ORIGIN_TRANSACTION_CONFIG: RpcTransactionConfig = RpcTransactionConfig {
         encoding: Some(UiTransactionEncoding::Json),
         commitment: Some(CommitmentConfig::confirmed()),
-        max_supported_transaction_version: Some(0),
+        // A v1 transaction read back at a maximum supported version of 0 comes
+        // back as an error rather than as the transaction, so every ring
+        // origin lookup would fail the moment the client started sending v1.
+        max_supported_transaction_version: Some(1),
     };
 
     #[must_use]

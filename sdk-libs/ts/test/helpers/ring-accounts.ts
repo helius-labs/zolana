@@ -52,6 +52,7 @@ export function ringPolicyConfigData(
     entriesTreeId?: number;
     bump: number;
     namespaceBump?: number;
+    namespaceOwnerHash?: Bytes32;
     policyHash?: Bytes32;
     generation?: number;
   }>,
@@ -64,7 +65,7 @@ export function ringPolicyConfigData(
     .u16(input.entriesTreeId ?? 0, "entriesTreeId")
     .u8(input.namespaceBump ?? 0, "namespaceBump")
     .u8(input.bump, "bump")
-    .bytes(new Uint8Array(32));
+    .bytes(input.namespaceOwnerHash ?? new Uint8Array(32));
   for (const slot of input.sources) {
     writer.u8(slot.listId, "listId").bytes(addressBytes(slot.namespace));
   }

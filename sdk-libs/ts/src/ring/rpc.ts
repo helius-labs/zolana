@@ -714,10 +714,9 @@ function u32(value: unknown, path: string): number {
   return Number(decoded);
 }
 
-/** A protocol u64, rejected when negative. */
 function u64(value: unknown, path: string): bigint {
   const decoded = integer(value, path);
-  if (decoded < 0n) throw invalid(path);
+  if (decoded < 0n || decoded > 0xffff_ffff_ffff_ffffn) throw invalid(path);
   return decoded;
 }
 

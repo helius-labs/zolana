@@ -181,6 +181,7 @@ export function policyPublicInputHash(
       /** `slot / windowSlots`, zero without velocity. */
       windowIndex: bigint;
       approvalRequired: boolean;
+      headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
     }>,
 ): Bytes32 {
   return hashChain([
@@ -193,6 +194,12 @@ export function policyPublicInputHash(
     checkedBytes(input.namespaceOwnerHash, 32, "namespace owner hash"),
     u64Field(input.windowIndex),
     u64Field(input.approvalRequired ? 1n : 0n),
+    ...(input.headTransition === undefined
+      ? []
+      : [
+          checkedBytes(input.headTransition.oldRoot, 32, "head old root"),
+          checkedBytes(input.headTransition.newRoot, 32, "head new root"),
+        ]),
   ]);
 }
 

@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendRecordHead, SpendWindow};
+use custom_ring_interface::{CoSigner, Delegate, HeadMapRoot, PolicyConfig, SpendWindow};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -127,24 +127,24 @@ pub fn load_spend_window<'a>(
     Ok(Some(window))
 }
 
-pub fn load_spend_record_head<'a>(
+pub(crate) fn load_head_map_root<'a>(
     program_id: &Address,
     account: &'a AccountView,
-    member: &[u8; 32],
-) -> Result<Option<Ref<'a, SpendRecordHead>>, ProgramError> {
-    let check = PdaCheck {
+) -> Result<Ref<'a, HeadMapRoot>, ProgramError> {
+    let root = load_account::<HeadMapRoot>(program_id, account)?;
+    PdaCheck {
         program_id,
         address: account.address(),
-        seeds: &[SpendRecordHead::SEED, member],
-        mismatch: CustomRingError::InvalidSpendRecordHead,
-    };
-    if account.data_len() == 0 {
-        check.verify()?;
-        return Ok(None);
+        seeds: &[HeadMapRoot::SEED],
+        mismatch: CustomRingError::InvalidHeadMapRoot,
     }
-    let head = load_account::<SpendRecordHead>(program_id, account)?;
-    check.verify_stored_bump(head.bump)?;
-    Ok(Some(head))
+    .verify_stored_bump(root.bump)?;
+    if root.next_index() == 0
+        || root.next_index() > (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT)
+    {
+        return Err(CustomRingError::InvalidHeadMapCursor.into());
+    }
+    Ok(root)
 }
 
 #[inline(always)]

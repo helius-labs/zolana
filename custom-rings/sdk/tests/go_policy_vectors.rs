@@ -28,20 +28,20 @@ const ASSET_MEMBERS: &[[u8; 32]] = &[[
 
 const RECORDS_OWNER_HASH: &str = "2cb09cab7a637278cc7157bb6780f81e5abdcc5e001eddad5279891f03f05196";
 const CURATOR_OWNER_HASH: &str = "13463a1c543bbe328fea6b0990a4014a613371d7390be03f7bc35cb4540753bb";
-const POLICY_HASH: &str = "26a48b0231016dbbda9679b6bdbf5f0c83e9b57e3a80740a9d3f202a53020069";
-const EMPTY_POLICY_HASH: &str = "2490087f66254407013a74d1326cffe8fbac9150f8d79fecff96832a5961bf58";
+const POLICY_HASH: &str = "1dc104a68f88e4dd4b996279428075bf0aa451d1e88acf81a0998f1be4e13728";
+const EMPTY_POLICY_HASH: &str = "294f70a1b451b9ecffaaffbb8d37180860e9b38274423ceb1804fc7d249aebb2";
 const ONE_RULE_POLICY_HASH: &str =
-    "2f38f7031ce173b5ab9fd780b33ce9e7b7afb77d6600e61595c4d2d0304cfdfd";
+    "1d8a93a84553310f84dfd405acf418ba45cc5795ace61fe26df9b7cd166840e5";
 const TWO_RULE_POLICY_HASH: &str =
-    "19ac73c8d71f7b4801f39d4f8aaac7726355adeaaf67782d3209281801e60070";
+    "28dcf787fd34c34ffc39f692fedd8c295a86af310d29b95c7c4a06fb1f649a39";
 const MIXED_RULE_POLICY_HASH: &str =
-    "2c5dd56fe34bb7cba29dd66786ff0f2f111e97d6159fdf438a55f87313f52c09";
+    "14fd09dc751b7d98170f21ea2a7ee560188293bdd2bb769e3b50463446d6e830";
 const PER_ASSET_POLICY_HASH: &str =
-    "111b968e4313a7a6a3cfc0edf117bfde3fa2019f322c4cb00569aae57c4bc96c";
+    "2615043990115a61321550171e2c11c858f27bee4f52e38d358fd84e576784da";
 const VELOCITY_POLICY_HASH: &str =
-    "1262836f44e627c676adb7ccd127c3a6a9f5ce27cba845d3d2a312fe010f2f09";
+    "002e5e9bec81cd30d19b59b3b34aa3539958bf48eabb622bb717c83e45e2749d";
 const TRANSFER_CAP_POLICY_HASH: &str =
-    "23f6ecd26d9b5cd18c6b5ed303b9de7dfd70aa2412409c1f2403d3d096f23f8c";
+    "2a2d6562f3e1ae1921dbc630cd2c723923c7967bf2e38a42174854bbcd390de8";
 /// The Go velocity fixture, version four inside window three spent into version five.
 const SPEND_ADDRESS: &str = "0a01f0d4758639415a4c9c37e42d1878ea52f3f7e3821aed313835aec0850586";
 const SPEND_COMMITMENT: &str = "2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76";
@@ -443,7 +443,7 @@ fn the_policy_transact_carries_the_policy_config() {
         input_tree: solana_address::Address::new_from_array([2u8; 32]),
         output_tree: solana_address::Address::new_from_array([2u8; 32]),
         entries_tree: Some(solana_address::Address::new_from_array([4u8; 32])),
-        record_head: None,
+        head_map_root: None,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
         proof: custom_ring_sdk::CustomRingProof {
@@ -457,6 +457,7 @@ fn the_policy_transact_carries_the_policy_config() {
         state_root_index: 0,
         nullifier_root_index: 0,
         approval_required: false,
+        head_transition: None,
     }
     .instruction()
     .expect("build the policy transact");
@@ -467,7 +468,9 @@ fn the_policy_transact_carries_the_policy_config() {
 }
 
 fn transact_payload() -> zolana_interface::instruction::instruction_data::transact::TransactIxData {
-    use zolana_interface::instruction::instruction_data::transact::{CircuitId, TransactProof};
+    use zolana_interface::instruction::instruction_data::transact::{
+        CircuitId, TransactProof, TreeContext,
+    };
     zolana_interface::instruction::instruction_data::transact::TransactIxData {
         expiry_unix_ts: u64::MAX,
         private_tx_hash: [0u8; 32],
@@ -481,5 +484,9 @@ fn transact_payload() -> zolana_interface::instruction::instruction_data::transa
         ring_data_hash: None,
         outputs: Vec::new(),
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }

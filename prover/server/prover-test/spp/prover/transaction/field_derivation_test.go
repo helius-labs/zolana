@@ -34,12 +34,12 @@ type externalDataHashVector struct {
 }
 
 type interfaceTransferVector struct {
-	IsSpl       bool   `json:"is_spl"`
-	IsDeposit   bool   `json:"is_deposit"`
-	Asset       string `json:"asset"`
-	Amount      uint64 `json:"amount"`
-	UserAccount string `json:"user_account"`
-	PoolAccount string `json:"pool_account"`
+	IsSpl            bool   `json:"is_spl"`
+	IsDeposit        bool   `json:"is_deposit"`
+	Asset            string `json:"asset"`
+	Amount           uint64 `json:"amount"`
+	SplInterfaceBump uint8  `json:"spl_interface_bump"`
+	UserAccount      string `json:"user_account"`
 }
 
 type solanaPkFieldVector struct {
@@ -76,16 +76,20 @@ func TestFieldDerivationsKnownAnswerVector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve external outputs: %v", err)
 	}
+	interfaceTransfers, err := resolveInterfaceTransfers(vectorInterfaceTransferRequests(external.InterfaceTransfers))
+	if err != nil {
+		t.Fatalf("resolve external interface transfers: %v", err)
+	}
 	gotExternal := externalDataFieldHash(externalDataPreimage{
 		InstructionDiscriminator: external.InstructionDiscriminator,
 		ExpiryUnixTs:             external.ExpiryUnixTs,
-		InterfaceTransfers:       vectorResolvedInterfaceTransfers(t, external.InterfaceTransfers),
+		TxViewingPk:              mustHex33(t, external.TxViewingPk),
+		Salt:                     mustHex16(t, external.Salt),
+		InterfaceTransfers:       interfaceTransfers,
 		DataHashPresent:          false,
 		DataHash:                 mustFieldBytes(t, external.DataHash),
 		RingDataHashPresent:      false,
 		RingDataHash:             mustFieldBytes(t, external.RingDataHash),
-		TxViewingPk:              mustHex33(t, external.TxViewingPk),
-		Salt:                     mustHex16(t, external.Salt),
 		Outputs:                  outputs,
 	})
 	expectField(t, "external_data_hash", gotExternal, external.Hash)
@@ -143,31 +147,13 @@ func vectorInterfaceTransferRequests(transfers []interfaceTransferVector) []Inte
 	out := make([]InterfaceTransferRequest, 0, len(transfers))
 	for _, transfer := range transfers {
 		out = append(out, InterfaceTransferRequest{
-			IsSpl:       transfer.IsSpl,
-			IsDeposit:   transfer.IsDeposit,
-			Asset:       transfer.Asset,
-			Amount:      transfer.Amount,
-			UserAccount: transfer.UserAccount,
-			PoolAccount: transfer.PoolAccount,
+			IsSpl:            transfer.IsSpl,
+			IsDeposit:        transfer.IsDeposit,
+			Asset:            transfer.Asset,
+			Amount:           transfer.Amount,
+			SplInterfaceBump: transfer.SplInterfaceBump,
+			UserAccount:      transfer.UserAccount,
 		})
-	}
-	return out
-}
-
-func vectorResolvedInterfaceTransfers(t *testing.T, transfers []interfaceTransferVector) []resolvedInterfaceTransfer {
-	t.Helper()
-	out := make([]resolvedInterfaceTransfer, 0, len(transfers))
-	for _, transfer := range transfers {
-		resolved := resolvedInterfaceTransfer{
-			isSpl:       transfer.IsSpl,
-			isDeposit:   transfer.IsDeposit,
-			amount:      transfer.Amount,
-			userAccount: mustHex32(t, transfer.UserAccount),
-		}
-		if transfer.IsSpl {
-			resolved.poolAccount = mustHex32(t, transfer.PoolAccount)
-		}
-		out = append(out, resolved)
 	}
 	return out
 }

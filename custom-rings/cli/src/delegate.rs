@@ -1,17 +1,17 @@
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 use custom_ring_sdk::{
-    DelegateOutput, DelegateTransfer, DelegateTransferInput, SetDelegate, TransferProofEnvironment,
-    V0WithLookupTable, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    DelegateOutput, DelegateTransfer, DelegateTransferInput, SetDelegate, TransactSend,
+    TransferProofEnvironment, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc, SppProofInputUtxo};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SppProofInputUtxo};
+#[cfg(test)]
 use zolana_interface::pda;
 use zolana_keypair::{ShieldedAddress, ShieldedKeypair};
-use zolana_transaction::{AssetRegistry, Utxo, Wallet, SOL_MINT};
+use zolana_transaction::{Utxo, Wallet, SOL_MINT};
 use zolana_wallet::sync_wallet;
 
 use crate::{
@@ -32,10 +32,10 @@ pub enum DelegateError {
     NotSet,
     #[error("the delegate keypair {0} is not the ring's delegate {1}")]
     WrongDelegate(Address, Address),
-    #[error("the source holds {held} lamports in the ring, the move needs {needed}")]
+    #[error("the source holds {held} base units in the selected tree, the move needs {needed}")]
     InsufficientNotes { needed: u64, held: u64 },
-    #[error("the delegate move supports SOL only, not {0}")]
-    UnsupportedMint(Address),
+    #[error("selected note amounts overflow u64")]
+    AmountOverflow,
 }
 
 impl<E: Into<TransactError>> From<E> for DelegateError {
@@ -55,20 +55,16 @@ pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateEr
             ctx.fund_authority(&authority, MIN_AUTHORITY_BALANCE)?;
             ctx.rpc
                 .create_and_send_transaction(
-                    &[
-                        ComputeBudgetInstruction::set_compute_unit_limit(
-                            SET_DELEGATE_COMPUTE_UNIT_LIMIT,
-                        ),
-                        SetDelegate {
-                            ring: ctx.ring,
-                            payer: authority.pubkey(),
-                            authority: authority.pubkey(),
-                            delegate,
-                        }
-                        .instruction(),
-                    ],
+                    &[SetDelegate {
+                        ring: ctx.ring,
+                        payer: authority.pubkey(),
+                        authority: authority.pubkey(),
+                        delegate,
+                    }
+                    .instruction()],
                     authority.pubkey(),
                     &[&authority],
+                    ComputeBudgetConfig::new(SET_DELEGATE_COMPUTE_UNIT_LIMIT),
                 )
                 .map_err(client)?;
             ui::heading(Icon::Auditor, &format!("delegate {delegate} set"));
@@ -121,10 +117,6 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         delegate_keypair,
         cosigner_path,
     } = plan;
-    if mint != SOL_MINT {
-        return Err(DelegateError::UnsupportedMint(mint));
-    }
-
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
     let stored = ctx
         .ring
@@ -137,20 +129,36 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         ));
     }
     let cosigner = cosigner_keypair(ctx, cosigner_path.as_deref())?;
+    crate::transact::CoSignerCheck {
+        provided: cosigner.as_ref().map(|signer| signer.pubkey()),
+        scope: custom_ring_interface::COSIGN_TRANSFERS,
+        payment: None,
+    }
+    .check(ctx)?;
 
     // The source key proves the notes, it never signs the transaction.
     let source_file = file::read_keypair(&ctx.project_path(&source))?;
     let source = ShieldedKeypair::from_keypair(&source_file)?;
 
     let indexer = ctx.indexer();
-    let assets = AssetRegistry::default();
+    let assets = crate::assets::resolve(&ctx.rpc, mint)
+        .map_err(TransactError::from)?
+        .registry;
     let mut wallet = Wallet::new(source.shielded_address()?, assets.clone())?;
     sync_wallet(&mut wallet, &source, &indexer).map_err(client)?;
 
-    let tree = pda::tree(0);
+    let tree = select_tree(&wallet, ctx.ring.program_id(), mint, amount).ok_or(
+        DelegateError::InsufficientNotes {
+            needed: amount,
+            held: 0,
+        },
+    )?;
     let tree_id = custom_ring_sdk::tree_id(&ctx.rpc, tree)?;
     let notes = select_source_notes(&wallet, ctx.ring.program_id(), mint, tree_id, amount)?;
-    let selected: u64 = notes.iter().map(|(utxo, _, _)| utxo.amount).sum();
+    let selected = notes
+        .iter()
+        .try_fold(0u64, |total, (utxo, _, _)| total.checked_add(utxo.amount))
+        .ok_or(DelegateError::AmountOverflow)?;
 
     let authority = ctx.authority_with_balance(SENDER_FEE_BUDGET + PAYER_FEE_BUDGET)?;
     ctx.ring_rpc().check_serves(ctx.ring.program_id())?;
@@ -200,20 +208,35 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
     })?;
     let mut signers: Vec<&dyn Signer> = vec![&delegate];
     signers.extend(cosigner.iter().map(|keypair| keypair as &dyn Signer));
-    let moved = V0WithLookupTable {
+    let moved = TransactSend {
         payer: &authority,
         signers: &signers,
         instruction: proven.instruction()?,
     }
     .send(&ctx.rpc)?;
     line("to", to);
-    line("amount", format_args!("{amount} lamports"));
+    line("amount", format_args!("{amount} base units"));
+    line("mint", mint);
     line("move", moved);
     Ok(())
 }
 
 /// A selected note with the committed hashes that rebuild its input commitment.
 type SelectedNote = (Utxo, Option<[u8; 32]>, Option<[u8; 32]>);
+
+fn select_tree(wallet: &Wallet, ring: Address, mint: Address, amount: u64) -> Option<Address> {
+    let mut balances = BTreeMap::<Address, u128>::new();
+    for held in wallet.utxos.iter().filter(|held| {
+        !held.spent && held.utxo.ring_program_id == Some(ring) && held.utxo.asset == mint
+    }) {
+        *balances.entry(held.output_context.tree).or_default() += u128::from(held.utxo.amount);
+    }
+    balances
+        .into_iter()
+        .filter(|(_, held)| *held >= u128::from(amount))
+        .max_by_key(|(tree, held)| (*held, *tree))
+        .map(|(tree, _)| tree)
+}
 
 /// The source's own unspent notes of the mint in the tree, largest first, up to the amount.
 fn select_source_notes(
@@ -256,7 +279,7 @@ fn select_source_notes(
 #[cfg(test)]
 mod tests {
     use custom_ring_sdk::CustomRing;
-    use zolana_transaction::{Data, OutputContext, Utxo, WalletUtxo};
+    use zolana_transaction::{AssetRegistry, Data, OutputContext, Utxo, WalletUtxo};
 
     use super::*;
 
@@ -284,7 +307,7 @@ mod tests {
             },
             output_context: OutputContext {
                 hash: [amount as u8; 32],
-                tree: pda::tree(0),
+                tree: pda::tree(tree_id),
                 leaf_index: amount,
             },
             nullifier: [amount as u8; 32],
@@ -318,6 +341,31 @@ mod tests {
             select_source_notes(&wallet, ring().program_id(), SOL_MINT, 0, 8).expect("selected");
         let sum: u64 = selected.iter().map(|(utxo, _, _)| utxo.amount).sum();
         assert!(sum >= 8);
+    }
+
+    #[test]
+    fn selects_the_funded_tree_for_the_requested_mint() {
+        let owner = ShieldedKeypair::new_ed25519().unwrap();
+        let mint = Address::new_from_array([17; 32]);
+        let wallet = wallet_with(
+            &owner,
+            vec![
+                note(&owner, Some(ring().program_id()), mint, 1, 3, false),
+                note(&owner, Some(ring().program_id()), mint, 2, 8, false),
+                note(&owner, Some(ring().program_id()), SOL_MINT, 0, 99, false),
+            ],
+        );
+        assert_eq!(
+            select_tree(&wallet, ring().program_id(), mint, 5),
+            Some(pda::tree(2))
+        );
+        assert_eq!(select_tree(&wallet, ring().program_id(), mint, 9), None);
+        assert_eq!(
+            select_source_notes(&wallet, ring().program_id(), mint, 2, 5).unwrap()[0]
+                .0
+                .asset,
+            mint
+        );
     }
 
     #[test]

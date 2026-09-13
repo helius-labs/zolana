@@ -62,7 +62,7 @@ const ENTRIES_TREE = addressOf(filled(0x30));
 const RING = addressOf(filled(0x10));
 const ZERO_PROOF: TransactProof = {
   a: new Uint8Array(32) as Bytes32,
-  b: new Uint8Array(64) as TransactProof["b"],
+  b: new Uint8Array(128) as TransactProof["b"],
   c: new Uint8Array(32) as Bytes32,
 };
 
@@ -136,13 +136,13 @@ describe("entry transition inputs", () => {
     );
     expect(nullifier).toEqual(address);
     expect(hexOf(inputs.externalDataHash)).toBe(
-      "00ef014f5c68fff05cd62415182ac9e7db2456eebca778b39a14cdac540d0173",
+      "001329a899d89d646ce5958e2ec09d0fec95f547a2ef76922e7e34fd873cd822",
     );
     expect(hexOf(inputs.privateTxHash)).toBe(
-      "1224a99757d2c68fcacc59845bc8adf7689a879b0d5fccd451deea5ea5779a7b",
+      "01ed252d628b406911ff2feeb37056b886b4e36d10d86c0d5ebe3040a7977706",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "0c36fee57941a1f35389036e8b7037d66d6cd0ef6466b633c30ccf84b4652a51",
+      "2c3184d43a53ca02340d4435ecf2f8c7e7ca607ac3790931762fa635172ae591",
     );
     const [input] = inputs.inputs;
     expect(input?.circuit.domain).toBe(2n);
@@ -152,7 +152,7 @@ describe("entry transition inputs", () => {
     expect(inputs.signerPublicKeyHashes).toHaveLength(2);
     expect(inputs.publishedOutputOwnerPublicKeyHashes).toEqual([inputs.signerPublicKeyHashes[1]]);
     expect(inputs.outputs[0]?.circuit.blinding).toBe(bytesToBigInt(entry.blinding));
-    expect(inputs.allowDummyInputs).toBe(1n);
+    expect(inputs.inputFlags).toBe(1n);
     expect(inputs.ringProgramId).toBe(0n);
   });
 
@@ -171,10 +171,10 @@ describe("entry transition inputs", () => {
     });
     expect(nullifier).toEqual(spentHashes.nullifier);
     expect(hexOf(inputs.privateTxHash)).toBe(
-      "16f3de48d03c896f8e726afe1f9a9f26f10237542b9a6ecdfb94929e2e860719",
+      "242c97c0d53b2930898d7d982275a3703faeb90cd9d1f41a40b6189cd472b169",
     );
     expect(hexOf(inputs.publicInputHash)).toBe(
-      "130fe7107f0bfcf8411d769abcd08a238dbb104049980f8833153a204908eb37",
+      "0855b71585b6818a0ba70d23830ee245f71b2cc63b337512cf3e92f8e2e357eb",
     );
     expect(inputs.inputs[0]?.circuit.domain).toBe(3n);
     expect(inputs.inputs[0]?.statePathIndex).toBe(3n);
@@ -307,9 +307,9 @@ describe("entry instructions", () => {
       [await ringPolicyConfigAddress(RING), AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [ENTRIES_TREE, AccountRole.WRITABLE],
-      [ENTRIES_TREE, AccountRole.WRITABLE],
       [SHIELDED_POOL_PROGRAM_ID, AccountRole.READONLY],
       [SYSTEM_PROGRAM, AccountRole.READONLY],
+      [ENTRIES_TREE, AccountRole.WRITABLE],
       [await nullifierPdaAddress(ENTRIES_TREE, filled(9)), AccountRole.WRITABLE],
       [await ringPolicyNamespaceAddress(RING), AccountRole.READONLY],
     ]);
@@ -325,7 +325,7 @@ describe("entry instructions", () => {
       0x03,
       0x02,
       0x01,
-      ...new Uint8Array(128),
+      ...new Uint8Array(192),
     ]);
   });
 
@@ -349,7 +349,7 @@ describe("entry instructions", () => {
       2,
     ]);
     expect(instruction.data).toHaveLength(
-      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 128,
+      1 + 1 + 32 + 1 + 32 + 8 + 32 + 1 + 32 + 32 + 32 + 4 + 192,
     );
     expect(RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT).toBe(1_400_000);
   });

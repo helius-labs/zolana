@@ -30,7 +30,7 @@ type SignableTransaction = Parameters<
 function compileTransferTransaction(feePayer: Address): SignableTransaction {
   const transaction = compileTransaction(
     pipe(
-      createTransactionMessage({ version: 0 }),
+      createTransactionMessage({ version: 1 }),
       (message) => setTransactionMessageFeePayer(feePayer, message),
       (message) =>
         setTransactionMessageLifetimeUsingBlockhash(

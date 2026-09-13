@@ -1,4 +1,4 @@
-import { ZolanaApi } from "../api/index.js";
+import { ZolanaApi, ApiError } from "../api/index.js";
 import { base64String, hash, hashBytes, limit } from "../indexer/scalars.js";
 import type {
   EncryptedUtxoMatch as WireEncryptedUtxoMatch,
@@ -22,6 +22,11 @@ import { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
 import { ClientError, isClientError } from "./error.js";
+import type {
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+} from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
   DEFAULT_INDEXER_POLL_CONFIG,
@@ -45,6 +50,64 @@ import {
 
 export class ZolanaIndexer {
   readonly #api: ZolanaApi;
+
+  async getRingHeadRegisterProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof> {
+    const method = "getRingHeadRegisterProof";
+    try {
+      const wire = headRequest(request);
+      const response = await this.#api.getRingHeadRegisterProof(wire, context);
+      checkHeadResponse(wire, response);
+      return Object.freeze({
+        context: response.context,
+        root: hashBytes(response.root),
+        member: hashBytes(response.member),
+        nextIndex: response.nextIndex,
+        lowMember: hashBytes(response.lowMember),
+        lowNext: hashBytes(response.lowNext),
+        lowNullifier: hashBytes(response.lowNullifier),
+        lowIndex: response.lowIndex,
+        lowProof: Object.freeze(response.lowProof.map(hashBytes)),
+        newProof: Object.freeze(response.newProof.map(hashBytes)),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingHeadTransferProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof> {
+    const method = "getRingHeadTransferProof";
+    try {
+      const wire = headRequest(request);
+      const response = await this.#api.getRingHeadTransferProof(wire, context);
+      checkHeadResponse(wire, response);
+      return Object.freeze({
+        context: response.context,
+        root: hashBytes(response.root),
+        member: hashBytes(response.member),
+        nextIndex: response.nextIndex,
+        next: hashBytes(response.next),
+        nullifier: hashBytes(response.nullifier),
+        index: response.index,
+        proof: Object.freeze(response.proof.map(hashBytes)),
+        record: Object.freeze({
+          transaction: convertShieldedTransaction(
+            response.record.transaction,
+            method,
+            "record.transaction",
+          ),
+          outputIndex: response.record.outputIndex,
+        }),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
 
   constructor(api: ZolanaApi) {
     if (!(api instanceof ZolanaApi)) {
@@ -197,6 +260,30 @@ export class ZolanaIndexer {
       } catch (cause) {
         throw wrapIndexer(cause, method);
       }
+    });
+  }
+}
+
+function headRequest(request: RingHeadProofRequest) {
+  return Object.freeze({
+    ringProgramId: request.ringProgramId,
+    member: hash(request.member),
+    expectedRoot: hash(request.expectedRoot),
+    expectedNextIndex: request.expectedNextIndex,
+  });
+}
+
+function checkHeadResponse(
+  request: ReturnType<typeof headRequest>,
+  response: Readonly<{ root: string; member: string; nextIndex: bigint }>,
+): void {
+  if (
+    response.root !== request.expectedRoot ||
+    response.member !== request.member ||
+    response.nextIndex !== request.expectedNextIndex
+  ) {
+    throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
+      details: { method: "ringHeadProof", path: "$.result" },
     });
   }
 }
@@ -473,6 +560,22 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
 
 function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
+  if (
+    (method === "getRingHeadRegisterProof" || method === "getRingHeadTransferProof") &&
+    cause instanceof ApiError &&
+    cause.code === "API_JSON_RPC"
+  ) {
+    switch (cause.details?.["rpcCode"]) {
+      case -32070:
+        return new ClientError("CLIENT_HEAD_MAP_OUT_OF_SYNC", { details: { method } });
+      case -32071:
+        return new ClientError("CLIENT_HEAD_ROOT_CHANGED", { details: { method } });
+      case -32072:
+        return new ClientError("CLIENT_HEAD_MEMBER_UNREGISTERED", { details: { method } });
+      case -32073:
+        return new ClientError("CLIENT_HEAD_MEMBER_ALREADY_REGISTERED", { details: { method } });
+    }
+  }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });
   if (code === "API_TIMEOUT") {

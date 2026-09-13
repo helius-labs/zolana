@@ -1,6 +1,7 @@
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice, primitives::right_align, Hasher, HasherError,
-    Poseidon,
+    hash_chain::create_hash_chain_from_slice,
+    primitives::{is_canonical_bn254_scalar_be, right_align},
+    Hasher, HasherError, Poseidon,
 };
 
 /// Matches the circuit height and the on-chain tree.
@@ -85,6 +86,27 @@ impl HeadMapInsert<'_> {
         if self.low_proof.len() != HEAD_MAP_HEIGHT || self.new_proof.len() != HEAD_MAP_HEIGHT {
             return Err(HeadMapError::ProofLength);
         }
+        if self.low_index >= (1u64 << HEAD_MAP_HEIGHT)
+            || self.append_index == 0
+            || self.append_index >= (1u64 << HEAD_MAP_HEIGHT)
+        {
+            return Err(HeadMapError::OutOfRange);
+        }
+        if [
+            self.root,
+            self.member,
+            self.genesis,
+            self.low_member,
+            self.low_next,
+            self.low_nullifier,
+        ]
+        .into_iter()
+        .chain(self.low_proof)
+        .chain(self.new_proof)
+        .any(|field| !is_canonical_bn254_scalar_be(field))
+        {
+            return Err(HeadMapError::OutOfRange);
+        }
         // Strict order proves the member absent between the low element and its successor.
         if !(self.low_member < self.member && self.member < self.low_next) {
             return Err(HeadMapError::OutOfRange);
@@ -104,11 +126,21 @@ impl HeadMapInsert<'_> {
         self.reduce(member_leaf, self.append_index, self.new_proof)
     }
 
-    fn leaf(&self, member: &[u8; 32], next: &[u8; 32], nullifier: &[u8; 32]) -> Result<[u8; 32], HeadMapError> {
+    fn leaf(
+        &self,
+        member: &[u8; 32],
+        next: &[u8; 32],
+        nullifier: &[u8; 32],
+    ) -> Result<[u8; 32], HeadMapError> {
         head_map_leaf(member, next, nullifier).map_err(|_| HeadMapError::Hashing)
     }
 
-    fn reduce(&self, leaf: [u8; 32], index: u64, proof: &[[u8; 32]]) -> Result<[u8; 32], HeadMapError> {
+    fn reduce(
+        &self,
+        leaf: [u8; 32],
+        index: u64,
+        proof: &[[u8; 32]],
+    ) -> Result<[u8; 32], HeadMapError> {
         root_from_proof(leaf, index, proof).map_err(|_| HeadMapError::Hashing)
     }
 }
@@ -130,13 +162,33 @@ impl HeadMapTransfer<'_> {
         if self.proof.len() != HEAD_MAP_HEIGHT {
             return Err(HeadMapError::ProofLength);
         }
-        let spent = head_map_leaf(self.member, self.next, self.spent).map_err(|_| HeadMapError::Hashing)?;
-        if &root_from_proof(spent, self.index, self.proof).map_err(|_| HeadMapError::Hashing)? != self.root
+        if self.index == 0 || self.index >= (1u64 << HEAD_MAP_HEIGHT) {
+            return Err(HeadMapError::OutOfRange);
+        }
+        if self.member == &[0u8; 32]
+            || self.member >= self.next
+            || [
+                self.root,
+                self.member,
+                self.next,
+                self.spent,
+                self.successor,
+            ]
+            .into_iter()
+            .chain(self.proof)
+            .any(|field| !is_canonical_bn254_scalar_be(field))
+        {
+            return Err(HeadMapError::OutOfRange);
+        }
+        let spent =
+            head_map_leaf(self.member, self.next, self.spent).map_err(|_| HeadMapError::Hashing)?;
+        if &root_from_proof(spent, self.index, self.proof).map_err(|_| HeadMapError::Hashing)?
+            != self.root
         {
             return Err(HeadMapError::RootMismatch);
         }
-        let successor =
-            head_map_leaf(self.member, self.next, self.successor).map_err(|_| HeadMapError::Hashing)?;
+        let successor = head_map_leaf(self.member, self.next, self.successor)
+            .map_err(|_| HeadMapError::Hashing)?;
         root_from_proof(successor, self.index, self.proof).map_err(|_| HeadMapError::Hashing)
     }
 }

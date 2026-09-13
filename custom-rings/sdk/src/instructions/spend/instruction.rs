@@ -1,18 +1,20 @@
 use custom_ring_interface::{tag, RegisterSpendIxData};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
-use zolana_client::{ClientError, ProverClient, Rpc};
+use zolana_client::{AsyncProverClient, AsyncRpc, ClientError, ProverClient, Rpc};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
-use zolana_ring_policy::{spend_seed, ListNamespace, Member, SpendCounters, SpendRecord};
+use zolana_ring_policy::{
+    entry_nullifier, spend_seed, ListNamespace, Member, SpendCounters, SpendRecord,
+};
 
 use crate::{
     instructions::entry::{EntryError, EntryProof, EntryProofError, InputSlot, NamespaceWrite},
-    instructions::spend::ReadSpendRecord,
     policy_config_table, CustomRing,
 };
 
 /// Claims the payer's record at version zero, once per member.
 #[must_use]
+#[derive(Clone, Copy)]
 pub struct RegisterSpend {
     pub ring: CustomRing,
     pub payer: Address,
@@ -25,6 +27,12 @@ pub struct SpendProofEnvironment<'a, I: Rpc, R: Rpc> {
     pub prover: &'a ProverClient,
 }
 
+pub struct AsyncSpendProofEnvironment<'a, I: AsyncRpc, R: AsyncRpc> {
+    pub indexer: &'a I,
+    pub rpc: &'a R,
+    pub prover: &'a AsyncProverClient,
+}
+
 impl RegisterSpend {
     /// A window boundary crossed between proving and execution fails the proof.
     pub fn prove<I: Rpc, R: Rpc>(
@@ -35,64 +43,174 @@ impl RegisterSpend {
             .ring
             .read_policy_config(environment.rpc)?
             .ok_or(EntryError::MissingPolicyConfig)?;
-        let window_slots = policy_config_table(&policy_config)?.window_slots();
-        if window_slots == 0 {
-            return Err(EntryError::VelocityDisabled);
-        }
-        let namespace = self.ring.namespace_pda();
-        let owner = ListNamespace::new(namespace.as_array()).map_err(|_| EntryError::Hashing)?;
-        let member = Member::owner_tag(self.payer.as_array()).map_err(|_| EntryError::Hashing)?;
-        let entries_tree_id = policy_config.entries_tree_id();
-        let registered = ReadSpendRecord {
-            entries_tree: policy_config.entries_tree,
-            entries_tree_id,
-            namespace,
-            member,
-        }
-        .read(environment.indexer)?;
-        if registered.is_some() {
-            return Err(EntryError::SpendRecordExists);
-        }
-        let slot = environment
-            .rpc
-            .get_slot()
-            .map_err(|error| EntryProofError::Client(Box::new(error)))?;
-        let address = owner
-            .spend_address(&member, entries_tree_id)
-            .map_err(|_| EntryError::Hashing)?;
-        let seed = spend_seed(&member).map_err(|_| EntryError::Hashing)?;
-        let draft = SpendRecord {
-            member,
-            version: 0,
-            window: slot / window_slots,
-            counters_commitment: SpendCounters::zero(&[])
-                .commitment()
-                .map_err(|_| EntryError::Hashing)?,
-            blinding: [0u8; 32],
-        };
-        let output_data_hash = draft.data_hash(&address).map_err(|_| EntryError::Hashing)?;
-        let (blinding, proof) = NamespaceWrite {
-            owner: &owner,
-            namespace,
-            entries_tree: policy_config.entries_tree,
-            entries_tree_id,
-            payer: self.payer,
-            slot: InputSlot::claim(&owner, seed, address, entries_tree_id)?,
-            output_data_hash,
-        }
-        .prove(
+        let draft = RegistrationDraft::new(self, policy_config, environment.rpc.get_slot()?)?;
+        let head = self
+            .ring
+            .read_head_map_root(environment.rpc)?
+            .ok_or(EntryProofError::MissingHeadMap)?;
+        let query = crate::head_map::request(self.ring, draft.record.member.as_bytes(), &head);
+        let head_witness = environment
+            .indexer
+            .get_ring_head_register_proof(query.clone())?;
+        let (blinding, proof) = draft.write()?.prove(
             environment.indexer,
             environment.rpc,
             environment.prover,
-            |blinding| SpendRecord { blinding, ..draft }.to_output_data().to_vec(),
+            |blinding| draft.record(blinding).to_output_data().to_vec(),
         )?;
-        Ok(ProvenSpendRegistration {
-            ring: self.ring,
-            payer: self.payer,
-            entries_tree: policy_config.entries_tree,
-            record: SpendRecord { blinding, ..draft },
+        let genesis = draft.genesis(blinding)?;
+        let (request, head_transition) =
+            crate::head_map::RegisterProofRequest::build(&query, head_witness, &genesis)?;
+        let head_proof = plain_proof(environment.prover.prove(&request)?)?;
+        Ok(draft.finish(
+            blinding,
             proof,
+            head_transition,
+            head.next_index(),
+            head_proof,
+        ))
+    }
+
+    pub async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        environment: AsyncSpendProofEnvironment<'_, I, R>,
+    ) -> Result<ProvenSpendRegistration, EntryError> {
+        let policy = self
+            .ring
+            .read_policy_config_async(environment.rpc)
+            .await?
+            .ok_or(EntryError::MissingPolicyConfig)?;
+        let draft = RegistrationDraft::new(self, policy, environment.rpc.get_slot().await?)?;
+        let head = self
+            .ring
+            .read_head_map_root_async(environment.rpc)
+            .await?
+            .ok_or(EntryProofError::MissingHeadMap)?;
+        let query = crate::head_map::request(self.ring, draft.record.member.as_bytes(), &head);
+        let head_witness = environment
+            .indexer
+            .get_ring_head_register_proof(query.clone())
+            .await?;
+        let (blinding, proof) = draft
+            .write()?
+            .prove_async(
+                environment.indexer,
+                environment.rpc,
+                environment.prover,
+                |blinding| draft.record(blinding).to_output_data().to_vec(),
+            )
+            .await?;
+        let genesis = draft.genesis(blinding)?;
+        let (request, head_transition) =
+            crate::head_map::RegisterProofRequest::build(&query, head_witness, &genesis)?;
+        let head_proof = plain_proof(environment.prover.prove(&request).await?)?;
+        Ok(draft.finish(
+            blinding,
+            proof,
+            head_transition,
+            head.next_index(),
+            head_proof,
+        ))
+    }
+}
+
+struct RegistrationDraft {
+    registration: RegisterSpend,
+    policy: custom_ring_interface::PolicyConfig,
+    owner: ListNamespace,
+    address: [u8; 32],
+    record: SpendRecord,
+}
+
+impl RegistrationDraft {
+    fn new(
+        registration: RegisterSpend,
+        policy: custom_ring_interface::PolicyConfig,
+        slot: u64,
+    ) -> Result<Self, EntryError> {
+        let window_slots = policy_config_table(&policy)?.window_slots();
+        if window_slots == 0 {
+            return Err(EntryError::VelocityDisabled);
+        }
+        let owner = ListNamespace::new(registration.ring.namespace_pda().as_array())
+            .map_err(|_| EntryError::Hashing)?;
+        let member =
+            Member::owner_tag(registration.payer.as_array()).map_err(|_| EntryError::Hashing)?;
+        let address = owner
+            .spend_address(&member, policy.entries_tree_id())
+            .map_err(|_| EntryError::Hashing)?;
+        let record = SpendRecord {
+            member,
+            version: 0,
+            window: slot / window_slots,
+            blinding: [0; 32],
+            counters_commitment: SpendCounters::zero(&[])
+                .commitment()
+                .map_err(|_| EntryError::Hashing)?,
+        };
+        Ok(Self {
+            registration,
+            policy,
+            owner,
+            address,
+            record,
         })
+    }
+
+    fn record(&self, blinding: [u8; 32]) -> SpendRecord {
+        SpendRecord {
+            blinding,
+            ..self.record
+        }
+    }
+
+    fn write(&self) -> Result<NamespaceWrite<'_>, EntryError> {
+        let seed = spend_seed(&self.record.member).map_err(|_| EntryError::Hashing)?;
+        Ok(NamespaceWrite {
+            owner: &self.owner,
+            namespace: self.registration.ring.namespace_pda(),
+            entries_tree: self.policy.entries_tree,
+            entries_tree_id: self.policy.entries_tree_id(),
+            payer: self.registration.payer,
+            slot: InputSlot::claim(
+                &self.owner,
+                seed,
+                self.address,
+                self.policy.entries_tree_id(),
+            )?,
+            output_data_hash: self
+                .record
+                .data_hash(&self.address)
+                .map_err(|_| EntryError::Hashing)?,
+        })
+    }
+
+    fn genesis(&self, blinding: [u8; 32]) -> Result<[u8; 32], EntryError> {
+        let hash = self
+            .record(blinding)
+            .utxo_hash(&self.owner, &self.address, self.policy.entries_tree_id())
+            .map_err(|_| EntryError::Hashing)?;
+        entry_nullifier(&hash, &blinding).map_err(|_| EntryError::Hashing)
+    }
+
+    fn finish(
+        self,
+        blinding: [u8; 32],
+        proof: EntryProof,
+        head_transition: custom_ring_interface::HeadMapTransition,
+        head_next_index: u64,
+        head_proof: custom_ring_interface::PlainGroth16Proof,
+    ) -> ProvenSpendRegistration {
+        ProvenSpendRegistration {
+            ring: self.registration.ring,
+            payer: self.registration.payer,
+            entries_tree: self.policy.entries_tree,
+            record: self.record(blinding),
+            proof,
+            head_transition,
+            head_next_index,
+            head_proof,
+        }
     }
 }
 
@@ -104,6 +222,9 @@ pub struct ProvenSpendRegistration {
     entries_tree: Address,
     record: SpendRecord,
     proof: EntryProof,
+    head_transition: custom_ring_interface::HeadMapTransition,
+    head_next_index: u64,
+    head_proof: custom_ring_interface::PlainGroth16Proof,
 }
 
 impl ProvenSpendRegistration {
@@ -118,6 +239,9 @@ impl ProvenSpendRegistration {
             entries_tree,
             record,
             proof,
+            head_transition,
+            head_next_index,
+            head_proof,
         } = self;
         let mut data = vec![tag::REGISTER_SPEND];
         data.extend_from_slice(&wincode::serialize(&RegisterSpendIxData {
@@ -126,26 +250,42 @@ impl ProvenSpendRegistration {
             nullifier_tree_root_index: proof.nullifier_tree_root_index,
             utxo_tree_root_index: proof.utxo_tree_root_index,
             proof: proof.proof,
+            head_old_root: head_transition.old_root,
+            head_new_root: head_transition.new_root,
+            head_next_index,
+            head_proof,
         })?);
         Ok(Instruction {
             program_id: ring.program_id(),
-            // The entry mutation layout, everything after the two config
-            // accounts is forwarded to SPP position for position.
             accounts: vec![
                 AccountMeta::new_readonly(ring.config_pda(), false),
                 AccountMeta::new_readonly(ring.policy_config_pda(), false),
                 AccountMeta::new(payer, true),
                 AccountMeta::new(entries_tree, false),
-                AccountMeta::new(entries_tree, false),
                 AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
                 AccountMeta::new_readonly(Address::default(), false),
+                AccountMeta::new(entries_tree, false),
                 AccountMeta::new(pda::nullifier_pda(&entries_tree, &proof.nullifier).0, false),
                 AccountMeta::new_readonly(ring.namespace_pda(), false),
-                AccountMeta::new(ring.spend_record_head_pda(record.member.as_bytes()), false),
+                AccountMeta::new(ring.head_map_root_pda(), false),
             ],
             data,
         })
     }
+}
+
+fn plain_proof(
+    proof: zolana_client::Proof,
+) -> Result<custom_ring_interface::PlainGroth16Proof, EntryError> {
+    use solana_bn254::compression::prelude::{alt_bn128_g1_compress_be, alt_bn128_g2_compress_be};
+    if proof.commitment.is_some() {
+        return Err(EntryProofError::InvalidProof.into());
+    }
+    Ok(custom_ring_interface::PlainGroth16Proof {
+        proof_a: alt_bn128_g1_compress_be(&proof.a).map_err(|_| EntryProofError::InvalidProof)?,
+        proof_b: alt_bn128_g2_compress_be(&proof.b).map_err(|_| EntryProofError::InvalidProof)?,
+        proof_c: alt_bn128_g1_compress_be(&proof.c).map_err(|_| EntryProofError::InvalidProof)?,
+    })
 }
 
 impl From<ClientError> for EntryError {

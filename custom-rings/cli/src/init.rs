@@ -476,6 +476,23 @@ impl Init<'_> {
             config
         };
         verify_sources(self.ring, policy, &config).map_err(policy_drift)?;
+        if policy.rules.window_slots() != 0 {
+            self.step(
+                rpc,
+                "create_head_map_root",
+                &[],
+                custom_ring_sdk::CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+            )
+            .ensure_present(
+                Observed::of(&self.ring.read_head_map_root(rpc)?),
+                &[custom_ring_sdk::CreateHeadMapRoot {
+                    ring: self.ring,
+                    payer: self.config_authority.pubkey(),
+                    authority: self.config_authority.pubkey(),
+                }
+                .instruction()],
+            )?;
+        }
         Ok(outcome)
     }
 

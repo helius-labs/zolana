@@ -131,7 +131,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 		return nil, err
 	}
 	shape := txcircuit.Shape{NInputs: int(p.NInputs), NOutputs: int(p.NOutputs)}
-	wantSigners := int(p.NInputs) + 1
+	wantSigners := shape.SignerWidth()
 	if p.Variant == RingAuthorityVariant {
 		wantSigners = 1
 	}
@@ -179,7 +179,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				ExternalDataHash:    p.ExternalDataHash,
 				PublicAssets:        core.publicAssets,
 				PublicAmounts:       core.publicAmounts,
-				AllowDummyInputs:    p.AllowDummyInputs,
+				InputFlags:          p.InputFlags,
 				SignerPkHashes:      signerPkHashes,
 				OutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:     p.PublicInputHash,
@@ -206,7 +206,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAmounts:    core.publicAmounts,
 				RingProgramID:    p.RingProgramID,
 				SignerPkHashes:   signerPkHashes,
-				AllowDummyInputs: p.AllowDummyInputs,
+				InputFlags:       p.InputFlags,
 				PublicInputHash:  p.PublicInputHash,
 			},
 			Private: customring.CustomRingAuthorityPrivate{
@@ -235,7 +235,7 @@ func (p *TransferParameters) CreateWitness() (frontend.Circuit, error) {
 				PublicAssets:                 core.publicAssets,
 				PublicAmounts:                core.publicAmounts,
 				RingProgramID:                p.RingProgramID,
-				AllowDummyInputs:             p.AllowDummyInputs,
+				InputFlags:                   p.InputFlags,
 				SignerPkHashes:               signerPkHashes,
 				PublishedOutputOwnerPkHashes: publishedOutputOwnerPkHashes,
 				PublicInputHash:              p.PublicInputHash,

@@ -48,8 +48,9 @@ export async function openSpendCounters(
   }>,
 ): Promise<SpendCounters> {
   let counters: SpendCounters;
+  let plaintext: Uint8Array | undefined;
   try {
-    const plaintext = await session.openSealedMessage({
+    plaintext = await session.openSealedMessage({
       firstNullifier: input.firstNullifier,
       salt: input.salt,
       slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
@@ -58,6 +59,8 @@ export async function openSpendCounters(
     counters = decodeSpendCounters(plaintext);
   } catch (cause) {
     throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", { cause });
+  } finally {
+    plaintext?.fill(0);
   }
   const commitment = spendCountersCommitment(counters);
   if (!commitment.every((byte, index) => byte === input.commitment[index])) {

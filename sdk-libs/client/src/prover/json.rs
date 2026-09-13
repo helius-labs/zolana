@@ -118,8 +118,8 @@ pub(crate) struct TransferInputsJson {
     pub ring_program_id: String,
     #[serde(rename = "signerPkHashes")]
     pub signer_pk_hashes: Vec<String>,
-    #[serde(rename = "allowDummyInputs")]
-    pub allow_dummy_inputs: String,
+    #[serde(rename = "inputFlags")]
+    pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
     #[serde(rename = "publicInputHash")]
@@ -170,8 +170,8 @@ pub(crate) struct TransferP256InputsJson {
     pub ring_program_id: String,
     #[serde(rename = "signerPkHashes")]
     pub signer_pk_hashes: Vec<String>,
-    #[serde(rename = "allowDummyInputs")]
-    pub allow_dummy_inputs: String,
+    #[serde(rename = "inputFlags")]
+    pub input_flags: String,
     #[serde(rename = "publishedOutputOwnerPkHashes")]
     pub published_output_owner_pk_hashes: Vec<String>,
     #[serde(rename = "publicInputHash")]
@@ -482,7 +482,7 @@ fn transfer_inputs_json(inputs: &TransferInputs, circuit_type: &str) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
-        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        input_flags: big_uint_to_string(&inputs.input_flags),
         published_output_owner_pk_hashes: inputs
             .published_output_owner_pk_hashes
             .iter()
@@ -547,7 +547,7 @@ pub(crate) fn to_json_p256_ring(inputs: &TransferP256Inputs) -> String {
             .iter()
             .map(big_uint_to_string)
             .collect(),
-        allow_dummy_inputs: big_uint_to_string(&inputs.allow_dummy_inputs),
+        input_flags: big_uint_to_string(&inputs.input_flags),
         published_output_owner_pk_hashes: inputs
             .published_output_owner_pk_hashes
             .iter()
@@ -662,7 +662,7 @@ mod merge_tests {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::from(9u8),
             signer_pk_hashes: vec![BigUint::from(10u8), BigUint::from(12u8)],
-            allow_dummy_inputs: BigUint::from(1u8),
+            input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: vec![BigUint::from(14u8)],
             public_input_hash: BigUint::from(11u8),
         };
@@ -791,7 +791,7 @@ mod merge_tests {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::from(0x55u8),
             signer_pk_hashes: vec![BigUint::from(8u8)],
-            allow_dummy_inputs: BigUint::from(1u8),
+            input_flags: BigUint::from(1u8),
             published_output_owner_pk_hashes: Vec::new(),
             public_input_hash: BigUint::from(9u8),
         };
@@ -813,7 +813,7 @@ mod merge_tests {
             "publicAmounts",
             "ringProgramId",
             "signerPkHashes",
-            "allowDummyInputs",
+            "inputFlags",
             "publishedOutputOwnerPkHashes",
             "publicInputHash",
         ] {

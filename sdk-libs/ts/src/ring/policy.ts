@@ -2,7 +2,7 @@ import type { Address, Signature } from "@solana/kit";
 
 import { ClientError } from "../client/error.js";
 import { ownerHash } from "../keypair/hash.js";
-import type { IndexerReader } from "../client/ports.js";
+import type { IndexerReader, RingHeadTransferProof } from "../client/ports.js";
 import {
   RING_ANSWER_SLOTS,
   RING_INLINE_ASSET_SLOTS,
@@ -17,7 +17,7 @@ import { Reader, Writer, addressBytes } from "../interface/internal.js";
 import { ADDRESS_DOMAIN, UTXO_DOMAIN } from "../interface/program.js";
 import { treeIdField } from "../interface/tree-slot.js";
 import type { TreeId } from "../transaction/utxo.js";
-import type { Bytes32, RequestContext } from "../interface/types.js";
+import type { Bytes32, MessageData, RequestContext } from "../interface/types.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import type {
   IndexedShieldedTransaction,
@@ -30,7 +30,9 @@ import {
   decodeAddress,
   poseidon,
   rightAlign,
+  sha256Bytes,
 } from "../transaction/internal.js";
+import { EncryptedScheme, readOutputData } from "../transaction/serialization/codecs.js";
 import { bytesKey, equalBytes } from "../wallet/internal.js";
 
 import type { RingPolicyConfig, RingPolicySource } from "./codecs.js";
@@ -78,7 +80,11 @@ function listBits(ids: readonly ListId[]): number {
 export type RuleSubject = "outputOwner" | "sender" | "exitDestination" | "asset";
 
 export type RuleSource =
-  | Readonly<{ kind: "lists"; present: readonly ListId[]; absent: readonly ListId[] }>
+  | Readonly<{
+      kind: "lists";
+      present: readonly ListId[];
+      absent: readonly ListId[];
+    }>
   | Readonly<{ kind: "inlineAssets" }>;
 
 export type RuleGuard =
@@ -123,8 +129,14 @@ export function ruleAlternatives(rule: Rule): readonly RuleAlternative[] {
   if (rule.source.kind !== "lists") return Object.freeze([]);
   const { present, absent } = rule.source;
   return Object.freeze([
-    ...listSet(listBits(present)).map((listId) => ({ listId, mode: "present" as const })),
-    ...listSet(listBits(absent)).map((listId) => ({ listId, mode: "absent" as const })),
+    ...listSet(listBits(present)).map((listId) => ({
+      listId,
+      mode: "present" as const,
+    })),
+    ...listSet(listBits(absent)).map((listId) => ({
+      listId,
+      mode: "absent" as const,
+    })),
   ]);
 }
 
@@ -183,7 +195,11 @@ export function decodeRule(row: Bytes32): Rule {
     if (mode === 2) throw ruleTableInvalid("InlineAbsent");
     source = { kind: "inlineAssets" };
   } else if (mode === 1) {
-    source = { kind: "lists", present: listSet(mask), absent: listSet(alternative) };
+    source = {
+      kind: "lists",
+      present: listSet(mask),
+      absent: listSet(alternative),
+    };
   } else {
     if (alternative !== 0) throw ruleTableInvalid("NonCanonicalAlternative");
     source = { kind: "lists", present: [], absent: listSet(mask) };
@@ -428,7 +444,10 @@ export function policySourceOwners(
       Object.freeze(
         slot.listId === 0
           ? { listId: 0, ownerHash: new Uint8Array(32) as Bytes32 }
-          : { listId: slot.listId, ownerHash: ringNamespaceOwnerHash(slot.namespace) },
+          : {
+              listId: slot.listId,
+              ownerHash: ringNamespaceOwnerHash(slot.namespace),
+            },
       ),
     ),
   );
@@ -449,11 +468,13 @@ function checkedSourceOwners(
 }
 
 function sourceInvalid(reason: string, details: Readonly<Record<string, unknown>>): RingError {
-  return new RingError("RING_POLICY_SOURCE_INVALID", { details: { reason, ...details } });
+  return new RingError("RING_POLICY_SOURCE_INVALID", {
+    details: { reason, ...details },
+  });
 }
 
 /** Rust `POLICY_VERSION`, enters the policy hash. */
-export const RING_POLICY_VERSION = 6;
+export const RING_POLICY_VERSION = 7;
 
 /** Mirrors Rust `EncodedRuleTable::hash`, a referenced list without a source fails closed. */
 export function ringPolicyHash(
@@ -492,7 +513,10 @@ export function verifiedRuleTable(
   const hash = ringPolicyHash(table, sources);
   if (!equalBytes(hash, config.policyHash)) {
     throw new RingError("RING_POLICY_HASH_MISMATCH", {
-      details: { entriesTree: config.entriesTree, generation: config.generation },
+      details: {
+        entriesTree: config.entriesTree,
+        generation: config.generation,
+      },
     });
   }
   return table;
@@ -585,7 +609,14 @@ export function decodeListEntry(outputData: Uint8Array): ListEntry {
   const contentHash = reader.bytes(32, "contentHash") as Bytes32;
   const blinding = reader.bytes(32, "blinding") as Bytes32;
   reader.done();
-  return Object.freeze({ listId, member, state, version, contentHash, blinding });
+  return Object.freeze({
+    listId,
+    member,
+    state,
+    version,
+    contentHash,
+    blinding,
+  });
 }
 
 function entryInvalid(reason: string): RingError {
@@ -675,7 +706,11 @@ export function decodeSpendCounters(bytes: Uint8Array): SpendCounters {
     spent.push(reader.u64("spent"));
   }
   reader.done();
-  return Object.freeze({ salt, assets: Object.freeze(assets), spent: Object.freeze(spent) });
+  return Object.freeze({
+    salt,
+    assets: Object.freeze(assets),
+    spent: Object.freeze(spent),
+  });
 }
 
 /** Mirrors Rust `SpendRecord::to_output_data`, the plaintext output-data envelope included. */
@@ -702,7 +737,49 @@ export function decodeSpendRecord(outputData: Uint8Array): SpendRecord {
   const countersCommitment = reader.bytes(32, "countersCommitment") as Bytes32;
   const blinding = reader.bytes(32, "blinding") as Bytes32;
   reader.done();
-  return Object.freeze({ member, version, window, countersCommitment, blinding });
+  return Object.freeze({
+    member,
+    version,
+    window,
+    countersCommitment,
+    blinding,
+  });
+}
+
+/** Record openings and encrypted counters require distinct message tags. */
+export function spendRecordMessageTag(namespace: Bytes32): Bytes32 {
+  if (namespace.length !== 32) throw spendRecordInvalid("namespace");
+  const domain = new TextEncoder().encode("zolana:spend-record:v1");
+  const bytes = new Uint8Array(domain.length + namespace.length);
+  bytes.set(domain);
+  bytes.set(namespace, domain.length);
+  return sha256Bytes(bytes);
+}
+
+/** @internal */
+export function spendRecordFromSlot(
+  slot: OutputSlot,
+  messages: readonly MessageData[],
+): SpendRecord | undefined {
+  const tag = spendRecordMessageTag(slot.viewTag);
+  const matching = messages.filter((message) => equalBytes(message.viewTag, tag));
+  if (matching.length > 1) throw spendRecordInvalid("duplicateMessage");
+  const message = matching[0];
+  if (message !== undefined) {
+    const frame = readOutputData(slot.payload);
+    if (frame.encoding !== "encrypted" || frame.scheme !== EncryptedScheme.confidential) {
+      throw spendRecordInvalid("carrier");
+    }
+    const record = decodeSpendRecord(message.data);
+    if (record.version === 0n) throw spendRecordInvalid("successorVersion");
+    return record;
+  }
+  try {
+    const record = decodeSpendRecord(slot.payload);
+    return record.version === 0n ? record : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function spendRecordInvalid(reason: string): RingError {
@@ -894,7 +971,13 @@ export async function readRingEntry(
       indexer: input.indexer,
       entriesTree: input.entriesTree,
       entriesTreeId: input.entriesTreeId,
-      lookups: [{ namespace: input.namespace, listId: input.listId, member: input.member }],
+      lookups: [
+        {
+          namespace: input.namespace,
+          listId: input.listId,
+          member: input.member,
+        },
+      ],
     },
     context,
   );
@@ -933,7 +1016,10 @@ export async function readRingEntries(
         if (match.outputSlot.outputContext.tree !== input.entriesTree) continue;
         const entry = tryDecodeListEntry(match.outputSlot.payload);
         if (entry === undefined) continue;
-        pairs.set(pairKey(entry), { listId: entry.listId, member: entry.member });
+        pairs.set(pairKey(entry), {
+          listId: entry.listId,
+          member: entry.member,
+        });
       }
     },
   );
@@ -942,7 +1028,10 @@ export async function readRingEntries(
       indexer: input.indexer,
       entriesTree: input.entriesTree,
       entriesTreeId: input.entriesTreeId,
-      lookups: [...pairs.values()].map((pair) => ({ ...pair, namespace: input.namespace })),
+      lookups: [...pairs.values()].map((pair) => ({
+        ...pair,
+        namespace: input.namespace,
+      })),
     },
     context,
   );
@@ -995,7 +1084,14 @@ export async function readRingEntryLineages(
       RingListNamespace.of(lookup.namespace, input.entriesTreeId);
     namespaces.set(lookup.namespace, namespace);
     const address = namespace.entryAddress(lookup);
-    return { namespace, pair: lookup, address, live: undefined, nullifier: address, ended: false };
+    return {
+      namespace,
+      pair: lookup,
+      address,
+      live: undefined,
+      nullifier: address,
+      ended: false,
+    };
   });
   for (;;) {
     const open = heads.filter((head) => !head.ended);
@@ -1036,7 +1132,11 @@ export async function readRingEntryLineages(
         });
       }
       head.nullifier = successor.nullifier;
-      head.live = { ...successor, txSignature: spender.txSignature, slot: spender.slot };
+      head.live = {
+        ...successor,
+        txSignature: spender.txSignature,
+        slot: spender.slot,
+      };
     }
   }
   return heads.map((head) => head.live);
@@ -1065,6 +1165,41 @@ export interface ReadRingSpendRecordInput {
   readonly member: Member;
 }
 
+export function currentRingSpendRecord(
+  input: Readonly<{
+    proof: RingHeadTransferProof;
+    entriesTree: Address;
+    entriesTreeId: TreeId;
+    namespace: Address;
+    member: Member;
+  }>,
+): LiveSpendRecord {
+  const transaction = input.proof.record.transaction;
+  const slot = transaction.outputSlots[input.proof.record.outputIndex];
+  if (slot === undefined || slot.outputContext.tree !== input.entriesTree)
+    throw spendRecordInvalid("headOutput");
+  const live = decodeSpendSuccessor(
+    RingListNamespace.of(input.namespace, input.entriesTreeId),
+    input.member,
+    slot,
+    transaction.messages,
+  );
+  if (live === undefined || !equalBytes(live.nullifier, input.proof.nullifier))
+    throw spendRecordInvalid("headNullifier");
+  const firstNullifier = transaction.nullifiers[0];
+  if (firstNullifier === undefined) throw spendRecordInvalid("originNullifier");
+  return Object.freeze({
+    ...live,
+    txSignature: transaction.txSignature,
+    slot: transaction.slot,
+    origin: Object.freeze({
+      firstNullifier,
+      salt: transaction.salt,
+      messages: transaction.messages,
+    }),
+  });
+}
+
 /** Mirrors Rust `ReadSpendRecord::read`, `undefined` until the member registers. */
 export async function readRingSpendRecord(
   input: ReadRingSpendRecordInput,
@@ -1080,7 +1215,10 @@ export async function readRingSpendRecord(
       "getShieldedTransactionsByNullifiers",
       (cursor) =>
         input.indexer.getShieldedTransactionsByNullifiers(
-          { nullifiers: [nullifier], ...(cursor === undefined ? {} : { cursor }) },
+          {
+            nullifiers: [nullifier],
+            ...(cursor === undefined ? {} : { cursor }),
+          },
           undefined,
           context,
         ),
@@ -1092,7 +1230,7 @@ export async function readRingSpendRecord(
     if (spender === undefined) return live;
     const successor = spender.outputSlots
       .filter((slot) => slot.outputContext.tree === input.entriesTree)
-      .map((slot) => decodeSpendSuccessor(namespace, input.member, slot))
+      .map((slot) => decodeSpendSuccessor(namespace, input.member, slot, spender.messages))
       .find((candidate) => candidate !== undefined);
     if (successor === undefined) {
       throw new RingError("RING_SPEND_RECORD_LINEAGE_BROKEN", {
@@ -1122,13 +1260,11 @@ function decodeSpendSuccessor(
   namespace: RingListNamespace,
   member: Member,
   slot: OutputSlot,
+  messages: readonly MessageData[],
 ): Pick<LiveSpendRecord, "record" | "utxoHash" | "nullifier"> | undefined {
-  let record: SpendRecord;
-  try {
-    record = decodeSpendRecord(slot.payload);
-  } catch {
-    return undefined;
-  }
+  if (!equalBytes(slot.viewTag, addressBytes(namespace.address, "namespace"))) return undefined;
+  const record = spendRecordFromSlot(slot, messages);
+  if (record === undefined) return undefined;
   if (!equalBytes(record.member, member)) return undefined;
   const hashes = namespace.spendRecordHashes(record);
   if (!equalBytes(hashes.utxoHash, slot.outputContext.hash)) return undefined;

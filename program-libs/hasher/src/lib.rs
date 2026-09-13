@@ -51,5 +51,5 @@ pub trait Hasher {
     const ID: u8;
     fn hash(val: &[u8]) -> Result<Hash, HasherError>;
     fn hashv(vals: &[&[u8]]) -> Result<Hash, HasherError>;
-    fn zero_bytes() -> ZeroBytes;
+    fn zero_bytes() -> &'static ZeroBytes;
 }

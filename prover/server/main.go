@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"time"
+	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/logging"
 	"zolana/prover/prover/common"
 	customring "zolana/prover/prover/custom_ring"
@@ -92,12 +93,14 @@ func runCli() {
 				},
 				Action: func(context *cli.Context) error {
 					circuit := common.CircuitType(context.String("circuit"))
-					nInputs := uint32(context.Uint("n-inputs"))
+					nInputs, err := transferSetupInputCount(context.Uint("n-inputs"))
+					if err != nil {
+						return err
+					}
 					nOutputs := uint32(context.Uint("n-outputs"))
 					path := context.String("output")
 
 					var ps *common.TransferProofSystem
-					var err error
 					switch circuit {
 					case common.TransferConfidentialCircuitType,
 						common.TransferRingCircuitType,
@@ -233,6 +236,53 @@ func runCli() {
 						}
 					}
 					return writeKey(context.String("vk-out"), ps.VerifyingKey.WriteRawTo)
+				},
+			},
+			{
+				Name: "setup-custom-ring-delegate-policy",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring-delegate-policy reads"},
+					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
+				},
+				Action: func(context *cli.Context) error {
+					if err := checkRingKeyName(context.String("output"), common.CustomRingDelegatePolicyKeyFile); err != nil {
+						return err
+					}
+					ps, err := customring.SetupDelegatePolicy()
+					if err != nil {
+						return err
+					}
+					if path := context.String("pk-out"); path != "" {
+						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+							return err
+						}
+					}
+					if path := context.String("vk-out"); path != "" {
+						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
+							return err
+						}
+					}
+					return writeRingProofSystem(ps, context.String("output"))
+				},
+			},
+			{
+				Name:  "convert-custom-ring-delegate-policy",
+				Usage: "Wrap an existing custom-ring-delegate-policy gnark pk/vk pair into a proving system file without a new setup",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
+					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
+					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+				},
+				Action: func(context *cli.Context) error {
+					ps, err := customring.ConvertDelegatePolicy{
+						ProvingKeyPath:   context.String("pk"),
+						VerifyingKeyPath: context.String("vk"),
+					}.Run()
+					if err != nil {
+						return err
+					}
+					return writeRingProofSystem(ps, context.String("output"))
 				},
 			},
 			{
@@ -1161,6 +1211,16 @@ func writeKey(path string, write func(io.Writer) (int64, error)) error {
 	return file.Close()
 }
 
+// Validate before narrowing the CLI value or allocating a circuit's signer
+// vector: oversized counts leave no transaction address budget for that vector.
+func transferSetupInputCount(value uint) (uint32, error) {
+	const maxInputs = txcircuit.MaxTransactionAddresses - txcircuit.FixedTransactAddresses
+	if value < 1 || value > maxInputs {
+		return 0, fmt.Errorf("setup-transfer: n-inputs must be between 1 and %d, got %d", maxInputs, value)
+	}
+	return uint32(value), nil
+}
+
 func checkRingKeyName(path string, want string) error {
 	if filepath.Base(path) != want {
 		return fmt.Errorf("output file must be named %s", want)
@@ -1173,6 +1233,8 @@ func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
 	switch ps.CircuitType {
 	case common.CustomRingBaseCircuitType:
 		want = common.CustomRingBaseKeyFile
+	case common.CustomRingDelegatePolicyCircuitType:
+		want = common.CustomRingDelegatePolicyKeyFile
 	case common.CompressedPolicyCircuitType:
 		want = common.CompressedPolicyKeyFile
 	case common.CompressedRegisterCircuitType:

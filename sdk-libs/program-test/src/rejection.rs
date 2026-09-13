@@ -36,7 +36,9 @@ impl Rejection {
     }
 
     /// Pin the failing instruction's index (defaults to 0) for transactions
-    /// that carry wrapper or budget instructions before the one under test.
+    /// that carry other instructions before the one under test, such as the
+    /// allocation steps of a tree creation. A compute budget never shifts this
+    /// index: v1 carries it in the message header, not in an instruction.
     pub fn at(mut self, instruction_index: u8) -> Self {
         self.instruction_index = instruction_index;
         self

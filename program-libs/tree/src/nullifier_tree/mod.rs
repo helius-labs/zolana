@@ -14,7 +14,7 @@
 //! | [`merkle_tree_update`] | Apply queued batches to the tree |
 //! | [`access`] | Read accessors, layout validation, and account size |
 //! | [`batch`] | `Batch` state machine, hash chains, and cached tree updates |
-//! | [`proof`] | `CompressedProof`, the batch-update proof encoding |
+//! | [`proof`] | `NullifierTreeProof`, the batch-update proof encoding |
 //! | `verify` | Groth16 verification and verifying keys (feature `verify`) |
 //! | [`error`] | `NullifierTreeError`, the module's single error type |
 //!

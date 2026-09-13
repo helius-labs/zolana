@@ -7,8 +7,8 @@ import (
 	"github.com/reilabs/gnark-lean-extractor/v3/abstractor"
 )
 
-// privateTxHashGadget folds the three per-slot chains with the external data
-// hash and the private blinding. AddressNullifiers holds one entry per input
+// privateTxHashGadget folds the three per-slot chains, each a HashChain4,
+// with the external data hash and the private blinding. AddressNullifiers holds one entry per input
 // slot: the nullifier (compressed address) of every address slot, 0 elsewhere.
 type privateTxHashGadget struct {
 	InputUtxoHashes   []frontend.Variable
@@ -19,9 +19,9 @@ type privateTxHashGadget struct {
 }
 
 func (gadget privateTxHashGadget) DefineGadget(api frontend.API) interface{} {
-	inputChain := gadgetlib.HashChain(api, gadget.InputUtxoHashes)
-	outputChain := gadgetlib.HashChain(api, gadget.OutputUtxoHashes)
-	addressChain := gadgetlib.HashChain(api, gadget.AddressNullifiers)
+	inputChain := gadgetlib.HashChain4(api, gadget.InputUtxoHashes)
+	outputChain := gadgetlib.HashChain4(api, gadget.OutputUtxoHashes)
+	addressChain := gadgetlib.HashChain4(api, gadget.AddressNullifiers)
 	return gadgetlib.PoseidonHash(api, []frontend.Variable{
 		inputChain,
 		outputChain,

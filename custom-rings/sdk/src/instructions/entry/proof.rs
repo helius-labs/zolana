@@ -8,14 +8,15 @@ use solana_address::Address;
 use thiserror::Error;
 use zolana_client::{
     prover::{field::be, ProofCompressed},
-    ClientError, MerkleProof, NonInclusionProof, ProverClient, PublicInputs, PublicTransfers, Rpc,
-    TransferInput, TransferInputs, TransferOutput, TreeSlotFields, STATE_TREE_HEIGHT,
+    AsyncProverClient, AsyncRpc, ClientError, MerkleProof, NonInclusionProof, ProverClient,
+    PublicInputs, PublicTransfers, Rpc, TransferInput, TransferInputs, TransferOutput,
+    TreeSlotFields, STATE_TREE_HEIGHT,
 };
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
     instruction::instruction_data::transact::{OwnerTag, TransactOutput, TransactProof},
     state::discriminator::TREE_ACCOUNT_DISCRIMINATOR,
-    tree_slot::{tree_id_field, TreeSlot},
+    tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES, SHIELDED_POOL_PROGRAM_ID, SOL_ASSET_FIELD, UTXO_DOMAIN,
 };
 use zolana_ring_policy::{
@@ -43,6 +44,10 @@ pub enum EntryProofError {
     InvalidTree { address: Address },
     #[error("indexer returned no proof for the entry")]
     MissingProof,
+    #[error("the head-map response does not match the requested root, member or record")]
+    InvalidHeadProof,
+    #[error("the ring has no compressed head map")]
+    MissingHeadMap,
     #[error("the spend of the {list_id:?} entry published no version {version}")]
     BrokenLineage {
         list_id: ListId,
@@ -176,6 +181,53 @@ impl NamespaceWrite<'_> {
         prover: &ProverClient,
         content: impl FnOnce([u8; 32]) -> Vec<u8>,
     ) -> Result<([u8; 32], EntryProof), EntryProofError> {
+        let non_inclusion = non_inclusion_proof(indexer, self.entries_tree, self.slot.nullifier)?;
+        let live = match &self.slot.state {
+            Some(state) => StateRoot {
+                value: state.root,
+                index: state.root_index,
+            },
+            None => read_state_root(rpc, self.entries_tree)?,
+        };
+        let witness = self.assemble(non_inclusion, live, content)?;
+        let proof = prover.prove_transfer(&witness.inputs)?;
+        witness.finish(proof)
+    }
+
+    pub(crate) async fn prove_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        indexer: &I,
+        rpc: &R,
+        prover: &AsyncProverClient,
+        content: impl FnOnce([u8; 32]) -> Vec<u8>,
+    ) -> Result<([u8; 32], EntryProof), EntryProofError> {
+        let non_inclusion = indexer
+            .get_non_inclusion_proofs(self.entries_tree, vec![self.slot.nullifier], None)
+            .await?
+            .proofs
+            .into_iter()
+            .next()
+            .ok_or(EntryProofError::MissingProof)?;
+        let live = match &self.slot.state {
+            Some(state) => StateRoot {
+                value: state.root,
+                index: state.root_index,
+            },
+            None => {
+                decode_state_root(rpc.get_account(self.entries_tree).await?, self.entries_tree)?
+            }
+        };
+        let witness = self.assemble(non_inclusion, live, content)?;
+        let proof = prover.prove_transfer(&witness.inputs).await?;
+        witness.finish(proof)
+    }
+
+    fn assemble(
+        self,
+        non_inclusion: NonInclusionProof,
+        live: StateRoot,
+        content: impl FnOnce([u8; 32]) -> Vec<u8>,
+    ) -> Result<NamespaceWitness, EntryProofError> {
         let tree_id = self.entries_tree_id;
         let slot = self.slot;
         // SPP derives every output blinding from the first nullifier and a private seed.
@@ -189,7 +241,6 @@ impl NamespaceWrite<'_> {
         let private_tx_blinding = derive_private_tx_blinding(&slot.nullifier, &blinding_seed)
             .map_err(|_| EntryProofError::Hashing)?;
 
-        let non_inclusion = non_inclusion_proof(indexer, self.entries_tree, slot.nullifier)?;
         let owner_pk_hash = solana_owner_identity(self.namespace.as_array())
             .map_err(|_| EntryProofError::Hashing)?;
         let payer_hash =
@@ -232,15 +283,12 @@ impl NamespaceWrite<'_> {
                 state.path.iter().map(be).collect(),
                 BigUint::from(state.leaf_index),
             ),
-            None => {
-                let live = read_state_root(rpc, self.entries_tree)?;
-                (
-                    live.value,
-                    live.index,
-                    vec![BigUint::ZERO; STATE_TREE_HEIGHT],
-                    BigUint::ZERO,
-                )
-            }
+            None => (
+                live.value,
+                live.index,
+                vec![BigUint::ZERO; STATE_TREE_HEIGHT],
+                BigUint::ZERO,
+            ),
         };
         let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
         tree_slots[0] = TreeSlot::new(tree_id, utxo_root, non_inclusion.root);
@@ -248,7 +296,8 @@ impl NamespaceWrite<'_> {
         let signer_hashes = [payer_hash, owner_pk_hash];
         let output_owner_hashes = [owner_pk_hash];
         let public_transfers = PublicTransfers::default();
-        let allow_dummy_inputs = right_align(&1u64.to_be_bytes());
+        // One real input in tree slot 0, dummy inputs allowed.
+        let input_flags = pack_input_flags(true, [0u8]).map_err(|_| EntryProofError::Hashing)?;
         let public_hash = PublicInputs {
             nullifiers: &[slot.nullifier],
             output_hashes: &[output_hash],
@@ -258,7 +307,7 @@ impl NamespaceWrite<'_> {
             external_data_hash: &external_hash,
             public_transfers: &public_transfers,
             ring_program_id: &[0u8; 32],
-            allow_dummy_inputs: &allow_dummy_inputs,
+            input_flags: &input_flags,
             signer_pk_hashes: &signer_hashes,
             output_owner_pk_hashes: Some(&output_owner_hashes),
         }
@@ -308,21 +357,48 @@ impl NamespaceWrite<'_> {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: signer_hashes.iter().map(be).collect(),
-            allow_dummy_inputs: BigUint::from(1u8),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };
-        let proof = prover.prove_transfer(&inputs)?;
-        Ok((
+        Ok(NamespaceWitness {
+            inputs,
             blinding,
+            nullifier_tree_root_index: non_inclusion.root_index,
+            utxo_tree_root_index: utxo_root_index,
+            nullifier: slot.nullifier,
+            private_tx_blinding,
+        })
+    }
+}
+
+struct NamespaceWitness {
+    inputs: TransferInputs,
+    blinding: [u8; 32],
+    nullifier_tree_root_index: u16,
+    utxo_tree_root_index: u16,
+    nullifier: [u8; 32],
+    private_tx_blinding: [u8; 32],
+}
+
+impl NamespaceWitness {
+    fn finish(
+        self,
+        proof: zolana_client::Proof,
+    ) -> Result<([u8; 32], EntryProof), EntryProofError> {
+        if proof.commitment.is_some() {
+            return Err(EntryProofError::InvalidProof);
+        }
+        Ok((
+            self.blinding,
             EntryProof {
                 proof: ProofCompressed::try_from(proof)
                     .map_err(|_| EntryProofError::InvalidProof)?
                     .to_transact_proof(),
-                nullifier_tree_root_index: non_inclusion.root_index,
-                utxo_tree_root_index: utxo_root_index,
-                nullifier: slot.nullifier,
-                private_tx_blinding,
+                nullifier_tree_root_index: self.nullifier_tree_root_index,
+                utxo_tree_root_index: self.utxo_tree_root_index,
+                nullifier: self.nullifier,
+                private_tx_blinding: self.private_tx_blinding,
             },
         ))
     }
@@ -434,9 +510,14 @@ fn non_inclusion_proof<I: Rpc>(
 }
 
 fn read_state_root<R: Rpc>(rpc: &R, tree: Address) -> Result<StateRoot, EntryProofError> {
-    let mut account = rpc
-        .get_account(tree)?
-        .ok_or(EntryProofError::MissingTree { address: tree })?;
+    decode_state_root(rpc.get_account(tree)?, tree)
+}
+
+fn decode_state_root(
+    account: Option<solana_account::Account>,
+    tree: Address,
+) -> Result<StateRoot, EntryProofError> {
+    let mut account = account.ok_or(EntryProofError::MissingTree { address: tree })?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID
         || account.data.first() != Some(&TREE_ACCOUNT_DISCRIMINATOR)
     {

@@ -6,10 +6,9 @@ use custom_ring_sdk::{
 };
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
 use zolana_transaction::SOL_MINT;
 
 use crate::{config::CoSignerSpec, line, ui, ui::Icon, Context, ContextError, CosignerCommand};
@@ -116,14 +115,10 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
             }
             .instruction()?;
             ctx.rpc.create_and_send_transaction(
-                &[
-                    ComputeBudgetInstruction::set_compute_unit_limit(
-                        SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
-                    ),
-                    instruction,
-                ],
+                &[instruction],
                 authority.pubkey(),
                 &[&authority],
+                ComputeBudgetConfig::new(SET_CO_SIGNER_COMPUTE_UNIT_LIMIT),
             )?;
             ui::heading(Icon::Auditor, &format!("co-signer {} set", spec.key.0));
         }
@@ -133,19 +128,15 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
                 return Err(CosignerError::NotSet);
             }
             ctx.rpc.create_and_send_transaction(
-                &[
-                    ComputeBudgetInstruction::set_compute_unit_limit(
-                        SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
-                    ),
-                    ClearCoSigner {
-                        ring: ctx.ring,
-                        authority: authority.pubkey(),
-                        rent_recipient: authority.pubkey(),
-                    }
-                    .instruction(),
-                ],
+                &[ClearCoSigner {
+                    ring: ctx.ring,
+                    authority: authority.pubkey(),
+                    rent_recipient: authority.pubkey(),
+                }
+                .instruction()],
                 authority.pubkey(),
                 &[&authority],
+                ComputeBudgetConfig::new(SET_CO_SIGNER_COMPUTE_UNIT_LIMIT),
             )?;
             line("co-signer", "cleared");
         }

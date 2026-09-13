@@ -32,8 +32,8 @@ use std::{
 use anyhow::{bail, Context, Result};
 use solana_keypair::Keypair;
 use solana_signer::Signer;
-// `Rpc` is in scope for send_transaction, which is a trait method rather than
-// an inherent one on SolanaRpc.
+// `Rpc` is in scope for send_transaction_with_config, which is a
+// trait method rather than an inherent one on SolanaRpc.
 use zolana_client::{Rpc, RpcSendTransactionConfig, SolanaRpc, ZolanaClient};
 use zolana_keypair::ShieldedKeypair;
 use zolana_transaction::{Address, AssetRegistry, KeypairWalletAuthority, Wallet};

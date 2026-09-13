@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_transaction::Address;
 use zolana_user_registry_interface::{instruction::set_merging_enabled, user_record_pda};
 use zolana_wallet::user_registry::{register_if_absent, StrictRegistration};
@@ -66,11 +66,12 @@ pub(crate) fn run_set_merging(opts: SetMergingOptions) -> Result<()> {
     };
 
     let (user_record, _bump) = user_record_pda(&owner);
-    let ix = set_merging_enabled(user_record, owner, enabled);
+    let instructions = [set_merging_enabled(user_record, owner, enabled)];
     let signature = rpc.create_and_send_transaction(
-        &[ix],
+        &instructions,
         Address::new_from_array(owner.to_bytes()),
         &[&material.funding],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
 
     println!("ok set_merging owner={owner} enabled={enabled} signature={signature}");

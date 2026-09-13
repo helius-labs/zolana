@@ -27,6 +27,7 @@ mod settlement;
 #[cfg(feature = "solana-rpc")]
 pub mod solana_rpc;
 pub mod timing;
+pub mod transaction_size;
 
 #[cfg(feature = "indexer-api")]
 pub use client::{SignedPrivateTransaction, ZolanaClient, DEFAULT_TRANSACT_CU_LIMIT};
@@ -34,7 +35,7 @@ pub use error::ClientError;
 #[cfg(feature = "indexer-api")]
 pub use indexer::{AsyncZolanaIndexer, ZolanaIndexer};
 pub use prover::{
-    assign_spend_output_blindings, canonical_shape,
+    assign_spend_output_blindings, canonical_shape, input_utxos,
     merge::MergeWitness,
     resolve_shape, spawn_prover, spawn_prover_with_artifacts,
     transact::{
@@ -51,25 +52,30 @@ pub use prover::{
     TransferProofResult, TransferProver, TransferSpendInput, TreeSlotFields, SPP_SUPPORTED_SHAPES,
 };
 pub use retry::{IndexerPollConfig, IndexerRpcConfig};
+pub use rpc::{compile_message, sign_transaction, ComputeBudgetConfig};
 pub use rpc::{
     AsyncRpc, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsResponse, GetNonInclusionProofsResponse,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
     IndexedShieldedTransaction, MerkleContext, MerkleProof, NonInclusionProof, OutputContext,
     OutputSlot, ProveResult, Rpc, ShieldedTransaction, ShieldedTransactionStream,
-    NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
+    MAX_LOADED_ACCOUNTS_DATA_SIZE, NULLIFIER_TREE_HEIGHT, STATE_TREE_HEIGHT,
 };
 pub use settlement::SettlementAccountValidation;
 #[cfg(feature = "solana-rpc")]
 pub use solana_rpc::{
     AsyncSolanaRpc, ConfirmedInstructionGroups, ProgramAccountsFilter, SolanaRpc,
 };
+pub use transaction_size::{transaction_size, TransactionSize};
 // `SolanaRpc::send_transaction_with_config` is public but names this type,
 // so callers outside the crate need it to call the method at all.
 pub use solana_rpc_client_api::config::RpcSendTransactionConfig;
 pub use zolana_transaction::{
     instructions::{
-        merge::{Merge, PreparedMerge, MERGE_INPUTS},
+        merge::{
+            merge_padded_input_count, Merge, PreparedMerge, MAX_MERGE_INPUTS,
+            MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+        },
         merge_ring::{MergeRing, PreparedMergeRing},
         ring_authority::PreparedRingAuthority,
         transact::{ConfidentialTransfer, SettlementTarget, SppProofInputs},

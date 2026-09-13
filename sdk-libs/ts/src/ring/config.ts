@@ -10,6 +10,7 @@ import {
   ringConfigPda,
   ringDelegateAddress,
   ringDelegatePda,
+  ringHeadMapRootPda,
   ringPolicyConfigAddress,
   ringPolicyConfigPda,
   ringSpendWindowAddress,
@@ -32,6 +33,8 @@ import {
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
   decodeRingSpendWindow,
+  decodeRingHeadMapRoot,
+  type RingHeadMapRoot,
 } from "./codecs.js";
 import { RingError } from "./error.js";
 
@@ -39,13 +42,49 @@ const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
-const SET_CO_SIGNER_TAG = 20;
+const SET_CO_SIGNER_TAG = 28;
 const CLEAR_CO_SIGNER_TAG = 21;
 const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
+const CREATE_HEAD_MAP_ROOT_TAG = 27;
 
 export { ringConfigAddress, ringPolicyConfigAddress };
+
+/** Only the canonical on-chain root is authoritative. */
+export async function fetchRingHeadMapRoot(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingHeadMapRoot> {
+  const [address, bump] = await ringHeadMapRootPda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined) throw new RingError("RING_HEAD_MAP_MISSING");
+  if (account.owner !== ringProgramId) throw new RingError("RING_HEAD_MAP_INVALID");
+  const root = decodeRingHeadMapRoot(account.data);
+  if (root.bump !== bump) throw new RingError("RING_HEAD_MAP_INVALID");
+  return root;
+}
+
+export async function createRingHeadMapRootInstruction(
+  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
+): Promise<Instruction> {
+  const [config, [root]] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringHeadMapRootPda(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(root, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data: Uint8Array.of(CREATE_HEAD_MAP_ROOT_TAG),
+  };
+}
 
 /** Mirrors Rust `CustomRing::namespace_pda`, the shielded owner of every policy entry. */
 export async function ringPolicyNamespaceAddress(ringProgramId: Address): Promise<Address> {

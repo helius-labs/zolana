@@ -1,4 +1,3 @@
-import { COMPUTE_BUDGET_PROGRAM_ADDRESS } from "@solana-program/compute-budget";
 import { AccountRole, type Address, type Instruction } from "@solana/kit";
 
 import {
@@ -10,27 +9,21 @@ import {
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import { encodeTransactInstructionData } from "../interface/codecs/index.js";
-import {
-  SHIELDED_POOL_CPI_AUTHORITY,
-  SHIELDED_POOL_PROGRAM_ID,
-  SPL_TOKEN_2022_PROGRAM_ID,
-  SPL_TOKEN_PROGRAM_ID,
-} from "../interface/program.js";
+import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import {
   nullifierPdaAddress,
   protocolConfigAddress,
   ringAuthAddress,
   ringCoSignerAddress,
   ringDelegateAddress,
-  ringSpendRecordHeadAddress,
+  ringHeadMapRootAddress,
 } from "../interface/pda/index.js";
-import { solanaOwnerIdentity } from "../hasher/index.js";
 import type { Bytes32, TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
-import { Writer, addressBytes } from "../interface/internal.js";
+import { Writer } from "../interface/internal.js";
 
 import { checkedCustomRingProof } from "./codecs.js";
 import {
@@ -173,6 +166,7 @@ type RingTransactCommon = Readonly<{
   cosigner?: SignerAccount;
   /** The dual control bit the velocity statement proves, the co-signer then signs. */
   approvalRequired?: boolean;
+  headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
 }>;
 
 function nonSignerRole(role: AccountRole): AccountRole {
@@ -188,8 +182,6 @@ export async function ringTransactInstruction(
       ownerSigners?: readonly SignerAccount[];
       /** Settlement accounts for a public withdrawal in `data.interfaceTransfers`. */
       withdrawal?: TransactWithdrawal;
-      /** The sender's record head, present only on a windowed velocity transfer. */
-      recordHead?: Address;
     }>,
 ): Promise<Instruction> {
   const hasPolicy = input.hasPolicy ?? true;
@@ -206,6 +198,7 @@ export async function ringTransactInstruction(
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
+    treeContexts: input.data.treeContexts,
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
@@ -227,9 +220,14 @@ export async function ringTransactInstruction(
       { address: config, role: AccountRole.READONLY },
       ...ringCoSignerMetas(cosignerPda, input.cosigner),
       ...(hasPolicy ? await policyAccountMetas(input.ringProgramId, input.entriesTree) : []),
-      ...(input.recordHead === undefined
+      ...(input.headTransition === undefined
         ? []
-        : [{ address: input.recordHead, role: AccountRole.WRITABLE }]),
+        : [
+            {
+              address: await ringHeadMapRootAddress(input.ringProgramId),
+              role: AccountRole.WRITABLE,
+            },
+          ]),
       ...windows,
       ...pool,
     ],
@@ -245,15 +243,21 @@ function transactData(
     stateRootIndex: number;
     nullifierRootIndex: number;
     approvalRequired?: boolean;
+    headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
     data: TransactInstructionData;
   }>,
 ): Uint8Array {
   const proof = checkedCustomRingProof(input.proof);
-  const rootIndexes = new Writer()
+  const prefix = new Writer()
     .u16(input.stateRootIndex, "stateRootIndex")
     .u16(input.nullifierRootIndex, "nullifierRootIndex")
     .u8(input.approvalRequired === true ? 1 : 0, "approvalRequired")
-    .finish();
+    .u8(input.headTransition === undefined ? 0 : 1, "headTransition");
+  if (input.headTransition !== undefined)
+    prefix
+      .bytes(input.headTransition.oldRoot, 32, "headOldRoot")
+      .bytes(input.headTransition.newRoot, 32, "headNewRoot");
+  const rootIndexes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
   const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
   data[0] = tag;
@@ -267,6 +271,8 @@ function transactData(
 export async function ringDelegateTransactInstruction(
   input: RingTransactCommon & Readonly<{ delegate: SignerAccount }>,
 ): Promise<Instruction> {
+  if (input.headTransition !== undefined || input.approvalRequired === true)
+    throw new RingError("RING_DELEGATE_INVALID");
   if (input.data.interfaceTransfers.length > 0) {
     throw new RingError("RING_DELEGATE_PUBLIC_LEG", {
       details: { legs: input.data.interfaceTransfers.length },
@@ -285,6 +291,7 @@ export async function ringDelegateTransactInstruction(
     outputTree: input.outputTree,
     ringAuth,
     inputs: input.data.inputs,
+    treeContexts: input.data.treeContexts,
   });
   return {
     programAddress: input.ringProgramId,
@@ -479,6 +486,10 @@ export async function registerRingSpendInstruction(
     /** The SPP output blinding the registration proof derived. */
     blinding: Bytes32;
     proof: RingEntryProof;
+    headOldRoot: Bytes32;
+    headNewRoot: Bytes32;
+    headNextIndex: bigint;
+    headProof: Uint8Array;
   }>,
 ): Promise<Instruction> {
   const data = new Writer()
@@ -488,15 +499,17 @@ export async function registerRingSpendInstruction(
     .u16(input.proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(input.proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(input.proof.proof.a, 32, "proof.a")
-    .bytes(input.proof.proof.b, 64, "proof.b")
-    .bytes(input.proof.proof.c, 32, "proof.c");
+    .bytes(input.proof.proof.b, 128, "proof.b")
+    .bytes(input.proof.proof.c, 32, "proof.c")
+    .bytes(input.headOldRoot, 32, "headOldRoot")
+    .bytes(input.headNewRoot, 32, "headNewRoot")
+    .u64(input.headNextIndex, "headNextIndex")
+    .bytes(input.headProof, 128, "headProof");
   const instruction = await entryInstruction(input, data.finish());
-  const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const member = solanaOwnerIdentity(addressBytes(payerAddress, "payer"));
-  const recordHead = await ringSpendRecordHeadAddress(input.ringProgramId, member);
+  const headMapRoot = await ringHeadMapRootAddress(input.ringProgramId);
   return {
     ...instruction,
-    accounts: [...(instruction.accounts ?? []), meta(recordHead, false, true)],
+    accounts: [...(instruction.accounts ?? []), meta(headMapRoot, false, true)],
   };
 }
 
@@ -509,7 +522,7 @@ function writeEntryTail(writer: Writer, entry: ListEntry, proof: RingEntryProof)
     .u16(proof.nullifierTreeRootIndex, "nullifierTreeRootIndex")
     .u16(proof.utxoTreeRootIndex, "utxoTreeRootIndex")
     .bytes(proof.proof.a, 32, "proof.a")
-    .bytes(proof.proof.b, 64, "proof.b")
+    .bytes(proof.proof.b, 128, "proof.b")
     .bytes(proof.proof.c, 32, "proof.c");
 }
 
@@ -535,9 +548,9 @@ async function entryInstruction(
       meta(policyConfig, false, false),
       meta(input.payer, true, true),
       meta(input.entriesTree, false, true),
-      meta(input.entriesTree, false, true),
       meta(SHIELDED_POOL_PROGRAM_ID, false, false),
       meta(SYSTEM_PROGRAM, false, false),
+      meta(input.entriesTree, false, true),
       meta(nullifierPda, false, true),
       meta(namespace, false, false),
     ],
@@ -595,50 +608,4 @@ async function policyTableBody(
     data: writer.finish(),
     curatorPolicyConfigs: await Promise.all(curators.map(ringPolicyConfigAddress)),
   });
-}
-
-/** Mirrors Rust `lookup_table_addresses`. */
-export async function ringLookupTableAddresses(
-  input: Readonly<{ ringProgramId: Address; trees: RingTransactTrees }>,
-): Promise<readonly Address[]> {
-  const [config, ringAuth, cosignerPda, delegatePda] = await Promise.all([
-    ringConfigAddress(input.ringProgramId),
-    ringAuthAddress(input.ringProgramId),
-    ringCoSignerAddress(input.ringProgramId),
-    ringDelegateAddress(input.ringProgramId),
-  ]);
-  const policy = input.trees.hasPolicy
-    ? await policyAccountMetas(input.ringProgramId, input.trees.entriesTree)
-    : [];
-  // Nullifier PDAs are fresh per transaction, so none belongs in the table.
-  const pool = await ringTransactAccounts({
-    payer: SHIELDED_POOL_PROGRAM_ID,
-    inputTree: input.trees.tree,
-    outputTree: input.trees.outputTree,
-    ringAuth,
-    inputs: [],
-  });
-  const addresses = [
-    config,
-    cosignerPda,
-    delegatePda,
-    ...[...policy, ...pool]
-      .filter(
-        (meta) =>
-          meta.role !== AccountRole.WRITABLE_SIGNER && meta.role !== AccountRole.READONLY_SIGNER,
-      )
-      .map((meta) => meta.address),
-    input.ringProgramId,
-    COMPUTE_BUDGET_PROGRAM_ADDRESS,
-  ];
-  return Object.freeze([...new Set(addresses)]);
-}
-
-/** In every new table, never required at fetch, an old table stays valid. */
-export function ringSettlementStatics(): readonly Address[] {
-  return Object.freeze([
-    SHIELDED_POOL_CPI_AUTHORITY,
-    SPL_TOKEN_PROGRAM_ID,
-    SPL_TOKEN_2022_PROGRAM_ID,
-  ]);
 }

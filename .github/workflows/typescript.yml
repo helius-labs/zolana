@@ -77,7 +77,7 @@ jobs:
     needs: check
     timeout-minutes: 120
     env:
-      AGAVE_VERSION: v4.0.2
+      AGAVE_VERSION: v4.2.2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -105,6 +105,16 @@ jobs:
         with:
           path: prover/server/proving-keys
           key: proving-keys-${{ hashFiles('prover/server/prover/provingkeys/proving-keys.lock') }}
+      # The e2e suite starts a localnet, whose backend is surfpool.
+      - name: Cache surfpool
+        id: surfpool-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: target/tools/surfpool
+          key: surfpool-${{ runner.os }}-${{ hashFiles('justfile') }}
+      - name: Install surfpool
+        if: steps.surfpool-cache.outputs.cache-hit != 'true'
+        run: just install-surfpool
       - run: npm ci
       - run: just build-photon
       - run: just test-ts-e2e

@@ -231,7 +231,8 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
     let blinding_seed = [42u8; 32];
     assign_spend_output_blindings(&inputs, &mut outputs, &blinding_seed)
         .expect("derive output blindings");
-    let mut signer_pk_hashes = vec![[0u8; 32]; n_in + 1];
+    let shape = Shape::new(n_in, n_out);
+    let mut signer_pk_hashes = vec![[0u8; 32]; shape.signer_width()];
     signer_pk_hashes[1] = solana_owner_identity(&owner_tag).expect("owner signer hash");
 
     let prover = TransferProver {
@@ -243,7 +244,7 @@ fn prove_and_verify_eddsa_shape(n_in: usize, n_out: usize) {
         public_transfers: PublicTransfers::default(),
         signer_pk_hashes,
         allow_dummy_inputs: true,
-        shape: Some(Shape::new(n_in, n_out)),
+        shape: Some(shape),
     };
     let result = prover
         .build()

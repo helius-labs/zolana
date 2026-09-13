@@ -81,6 +81,7 @@ pub struct TransferWitness {
 }
 
 /// The off-chain reference tree, its root is the only on-chain state.
+#[derive(Clone)]
 pub struct HeadMap {
     tree: MerkleTree<Poseidon>,
     elements: Vec<Element>,
@@ -118,6 +119,17 @@ impl HeadMap {
 
     /// Splices the covering low element and appends the member's genesis.
     pub fn register(
+        &mut self,
+        member: [u8; 32],
+        genesis: [u8; 32],
+    ) -> Result<RegisterWitness, HeadMapError> {
+        let mut staged = self.clone();
+        let witness = staged.register_inner(member, genesis)?;
+        *self = staged;
+        Ok(witness)
+    }
+
+    fn register_inner(
         &mut self,
         member: [u8; 32],
         genesis: [u8; 32],
@@ -366,6 +378,23 @@ mod tests {
     }
 
     #[test]
+    fn failed_registration_does_not_splice_the_predecessor() {
+        let mut map = HeadMap::new().expect("map");
+        map.register(member(5), member(50)).expect("register");
+        let before = map.root();
+        assert_eq!(
+            map.register(member(3), [0xff; 32]),
+            Err(HeadMapError::Hashing)
+        );
+        assert_eq!(map.root(), before);
+        assert_eq!(map.head(&member(5)), Some(member(50)));
+        assert_eq!(map.head(&member(3)), None);
+        let witness = map.register(member(3), member(30)).expect("retry");
+        assert_eq!(witness.old_root, before);
+        assert_eq!(insert_of(&witness).verify(), Ok(map.root()));
+    }
+
+    #[test]
     fn a_stale_root_or_wrong_proof_length_is_refused_on_chain() {
         use custom_ring_interface::HeadMapError;
         let mut map = HeadMap::new().expect("map");
@@ -384,7 +413,10 @@ mod tests {
 
         let mut occupied = register.clone();
         occupied.new_proof[0] = [7; 32];
-        assert_eq!(insert_of(&occupied).verify(), Err(HeadMapError::SlotOccupied));
+        assert_eq!(
+            insert_of(&occupied).verify(),
+            Err(HeadMapError::SlotOccupied)
+        );
 
         let mut stale_transfer = transfer.clone();
         stale_transfer.old_root = [9; 32];

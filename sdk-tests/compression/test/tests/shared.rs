@@ -2,12 +2,11 @@ use std::{path::Path, process::Command};
 
 use anyhow::{anyhow, bail, Context, Result};
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc, ZolanaIndexer};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc, ZolanaIndexer};
 use zolana_interface::{pda, SHIELDED_POOL_PROGRAM_ID};
 use zolana_test_utils::{
     localnet::{isolated_temp_path, LocalnetValidator, WorkspaceArtifacts},
@@ -116,20 +115,26 @@ pub fn send(
     send_from(env, instruction, &env.authority, cu_price)
 }
 
+/// Submit as a transaction **v1** message, whose 4096-byte limit holds a
+/// proof-carrying compression instruction. The compute ceilings live in the
+/// message header instead of in a compute-budget instruction. A `cu_price` also
+/// makes an otherwise identical message distinct, which is what the replay
+/// negatives rely on.
 pub fn send_from(
     env: &Environment,
     instruction: Instruction,
     payer: &dyn Signer,
     cu_price: Option<u64>,
 ) -> Result<Signature> {
-    let mut instructions = vec![ComputeBudgetInstruction::set_compute_unit_limit(
-        TRANSACT_CU_LIMIT,
-    )];
-    if let Some(price) = cu_price {
-        instructions.push(ComputeBudgetInstruction::set_compute_unit_price(price));
-    }
-    instructions.push(instruction);
-    Ok(env
-        .rpc
-        .create_and_send_transaction(&instructions, payer.pubkey(), &[payer])?)
+    let budget = ComputeBudgetConfig::new(TRANSACT_CU_LIMIT);
+    let budget = match cu_price {
+        Some(price) => budget.with_compute_unit_price(price),
+        None => budget,
+    };
+    Ok(env.rpc.create_and_send_transaction(
+        std::slice::from_ref(&instruction),
+        payer.pubkey(),
+        &[payer],
+        budget,
+    )?)
 }

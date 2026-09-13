@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{CreateProtocolConfig, CreateTree, SetTreeFees},
     state::{default_tree_fees, nullifier_tree_params, TreeFeeSchedule},
@@ -44,7 +44,7 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
                 .as_ref()
                 .map(Keypair::pubkey)
                 .unwrap_or(authority);
-            let ix = CreateProtocolConfig {
+            let instructions = [CreateProtocolConfig {
                 fee_payer: authority,
                 initialization_authority,
                 protocol_authority: authority_address,
@@ -56,14 +56,19 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
                 ring_activation_is_permissionless: false,
                 spl_interface_creation_is_permissionless: false,
             }
-            .instruction();
+            .instruction()];
             let mut signers: Vec<&dyn Signer> = vec![&material.funding];
             if let Some(initialization_keypair) = &initialization_keypair {
                 if initialization_keypair.pubkey() != authority {
                     signers.push(initialization_keypair);
                 }
             }
-            let signature = rpc.create_and_send_transaction(&[ix], authority_address, &signers)?;
+            let signature = rpc.create_and_send_transaction(
+                &instructions,
+                authority_address,
+                &signers,
+                ComputeBudgetConfig::for_instruction_count(instructions.len()),
+            )?;
             println!("ok create_protocol_config signature={signature}");
             fetch_protocol_config(&rpc)?
                 .ok_or_else(|| anyhow!("protocol config missing after creation"))?
@@ -79,10 +84,12 @@ pub(crate) fn run_create_tree(opts: CreateTreeOptions) -> Result<()> {
             .ok_or_else(|| anyhow!("default tree fees do not fit the zkp batch size"))?,
     };
     let tree = create.tree();
+    let instructions = create.instructions();
     let signature = rpc.create_and_send_transaction(
-        &create.instructions(),
+        &instructions,
         authority_address,
         &[&material.funding],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok create_tree signature={signature}");
 
@@ -105,16 +112,17 @@ pub(crate) fn run_set_tree_fees(opts: SetTreeFeesOptions) -> Result<()> {
         close_reimbursement: opts.close_reimbursement,
     };
 
-    let ix = SetTreeFees {
+    let instructions = [SetTreeFees {
         authority,
         tree,
         fees,
     }
-    .instruction();
+    .instruction()];
     let signature = rpc.create_and_send_transaction(
-        &[ix],
+        &instructions,
         Address::new_from_array(authority.to_bytes()),
         &[&material.funding],
+        ComputeBudgetConfig::for_instruction_count(instructions.len()),
     )?;
     println!("ok set_tree_fees signature={signature}");
     println!(

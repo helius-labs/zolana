@@ -37,6 +37,8 @@ func headMapTransfer(
 	oldRoot, member, next, spent, successor, index frontend.Variable,
 	proof []frontend.Variable,
 ) frontend.Variable {
+	api.AssertIsDifferent(index, 0)
+	gadget.AssertStrictlyOrderedFullField(api, 0, member, next)
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     oldRoot,
 		OldLeaf:     headMapLeaf(api, member, next, spent),
@@ -57,6 +59,7 @@ func headMapRegister(
 	member, genesis, newIndex frontend.Variable,
 	newProof []frontend.Variable,
 ) frontend.Variable {
+	api.AssertIsDifferent(newIndex, 0)
 	gadget.AssertStrictlyOrderedFullField(api, lowMember, member, lowNext)
 	root := abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     oldRoot,

@@ -1,7 +1,5 @@
 use anyhow::Result;
-use compression_example_program::state::{
-    blinding_seed, field_u64, output_blinding, private_tx_blinding,
-};
+use compression_example_program::state::{blinding_seed, output_blinding, private_tx_blinding};
 use num_bigint::BigUint;
 use solana_address::Address;
 use zolana_client::{
@@ -10,7 +8,7 @@ use zolana_client::{
 };
 use zolana_hasher::primitives::{right_align, solana_owner_identity};
 use zolana_interface::{
-    tree_slot::{tree_id_field, TreeSlot},
+    tree_slot::{pack_input_flags, tree_id_field, TreeSlot},
     ADDRESS_DOMAIN, INPUT_TREES,
 };
 use zolana_keypair::{hash::owner_hash, PublicKey};
@@ -126,7 +124,8 @@ impl CreateProofInputParams {
         let signer_hashes = [payer_hash, owner_pk_hash];
         let output_owner_hashes = [owner_pk_hash];
         let public_transfers = PublicTransfers::default();
-        let allow_dummy_inputs = field_u64(1);
+        // One real input in tree slot 0, dummy inputs allowed.
+        let input_flags = pack_input_flags(true, [0u8])?;
         // Only slot 0 is populated: this example spends from one tree.
         let mut tree_slots = [TreeSlot::ZERO; INPUT_TREES];
         if let Some(slot) = tree_slots.first_mut() {
@@ -141,7 +140,7 @@ impl CreateProofInputParams {
             external_data_hash: &external_hash,
             public_transfers: &public_transfers,
             ring_program_id: &zero,
-            allow_dummy_inputs: &allow_dummy_inputs,
+            input_flags: &input_flags,
             signer_pk_hashes: &signer_hashes,
             output_owner_pk_hashes: Some(&output_owner_hashes),
         }
@@ -158,7 +157,7 @@ impl CreateProofInputParams {
             public_amounts: core::array::from_fn(|_| BigUint::ZERO),
             ring_program_id: BigUint::ZERO,
             signer_pk_hashes: signer_hashes.iter().map(be).collect(),
-            allow_dummy_inputs: BigUint::from(1u8),
+            input_flags: be(&input_flags),
             published_output_owner_pk_hashes: output_owner_hashes.iter().map(be).collect(),
             public_input_hash: be(&public_hash),
         };

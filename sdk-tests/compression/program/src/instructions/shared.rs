@@ -8,15 +8,15 @@ use pinocchio::{
 };
 use solana_address::address;
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::{hash_chain::create_hash_chain_from_slice, Hasher, Poseidon};
+use zolana_hasher::{hash_chain::create_hash_chain_4_from_slice, Hasher, Poseidon};
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 use zolana_interface::instruction::tag::TRANSACT;
 use zolana_interface::state::tree::read_tree_id;
 
 use crate::error::CompressionError;
 
-pub const DEFAULT_TREE: Address = address!("7XD1LF7FMhd8Na9yG86wfMjGhAHsjipc2LCHRtciEjtE");
-pub const SPP_PROGRAM: Address = address!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+pub const DEFAULT_TREE: Address = address!("33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN");
+pub const SPP_PROGRAM: Address = address!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 
 #[cfg(any(target_os = "solana", target_arch = "bpf"))]
 pub fn derive_pda(authority: &Address) -> (Address, u8) {
@@ -50,7 +50,6 @@ impl<'a> TransitionAccounts<'a> {
         if !address_eq(payer.address(), authority.address()) {
             return Err(CompressionError::InvalidAuthority.into());
         }
-        let input_tree = iter.next_account("input_tree")?;
         let output_tree = iter.next_account("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
         if !address_eq(spp_program.address(), &SPP_PROGRAM) {
@@ -60,6 +59,7 @@ impl<'a> TransitionAccounts<'a> {
         if system_program.address() != &Address::default() {
             return Err(CompressionError::InvalidAccounts.into());
         }
+        let input_tree = iter.next_account("input_tree")?;
         let nullifier_pda = iter.next_mut("nullifier_pda")?;
         let owner_pda = iter.next_account("owner_pda")?;
         if !address_eq(owner_pda.address(), &pda) {
@@ -105,11 +105,11 @@ pub fn private_tx_hash(
     external_data_hash: &[u8; 32],
     private_tx_blinding: &[u8; 32],
 ) -> Result<[u8; 32], ProgramError> {
-    let input_chain =
-        create_hash_chain_from_slice(&[input_hash]).map_err(|_| CompressionError::HashingFailed)?;
-    let output_chain = create_hash_chain_from_slice(&[output_hash])
+    let input_chain = create_hash_chain_4_from_slice(&[input_hash])
         .map_err(|_| CompressionError::HashingFailed)?;
-    let address_chain = create_hash_chain_from_slice(&[address_nullifier])
+    let output_chain = create_hash_chain_4_from_slice(&[output_hash])
+        .map_err(|_| CompressionError::HashingFailed)?;
+    let address_chain = create_hash_chain_4_from_slice(&[address_nullifier])
         .map_err(|_| CompressionError::HashingFailed)?;
     Poseidon::hashv(&[
         &input_chain,

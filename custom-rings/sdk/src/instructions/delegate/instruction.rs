@@ -87,7 +87,7 @@ impl CustomRingDelegateTransact {
         }
         let rail = RingAuthorityTransact {
             payer,
-            input_tree,
+            input_trees: vec![input_tree],
             output_tree,
             ring_program_id: deployment.program_id(),
             interface_transfer_accounts: Vec::new(),
@@ -116,6 +116,7 @@ impl CustomRingDelegateTransact {
             state_root_index,
             nullifier_root_index,
             approval_required: 0,
+            head_transition: None,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

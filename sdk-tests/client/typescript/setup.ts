@@ -14,6 +14,7 @@ import {
   lamports,
   pipe,
   sendTransactionWithoutConfirmingFactory,
+  setTransactionMessageConfig,
   setTransactionMessageFeePayerSigner,
   setTransactionMessageLifetimeUsingBlockhash,
   signTransactionMessageWithSigners,
@@ -124,6 +125,15 @@ function recipientKeypair(): ShieldedKeypair {
   }
 }
 
+/**
+ * A version 1 transaction budgets zero compute units and zero bytes of account
+ * data for anything it does not name, so both are always set. The priority fee
+ * is a flat amount rather than a price per unit, so a budget with headroom
+ * costs no more than a tight one.
+ */
+const TRANSACT_COMPUTE_UNIT_LIMIT = 450_000;
+const LOADED_ACCOUNTS_DATA_SIZE_LIMIT = 64 * 1024 * 1024;
+
 export interface ConfirmedTransaction {
   readonly signature: Signature;
   /** Slot the transaction landed in; drives the indexer freshness gates. */
@@ -152,9 +162,17 @@ export function sendAndConfirmFactory(
     const { value: lifetime } = await client.solanaRpc.getLatestBlockhash().send();
     const signed = await signTransactionMessageWithSigners(
       pipe(
-        createTransactionMessage({ version: 0 }),
+        createTransactionMessage({ version: 1 }),
         (message) => setTransactionMessageFeePayerSigner(feePayer, message),
         (message) => setTransactionMessageLifetimeUsingBlockhash(lifetime, message),
+        (message) =>
+          setTransactionMessageConfig(
+            {
+              computeUnitLimit: TRANSACT_COMPUTE_UNIT_LIMIT,
+              loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+            },
+            message,
+          ),
         (message) => appendTransactionMessageInstructions(instructions, message),
       ),
     );

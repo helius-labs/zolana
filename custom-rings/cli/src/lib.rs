@@ -1,5 +1,6 @@
 //! Every command but `new` reads `ring.toml`, the answers `new` recorded.
 
+pub mod assets;
 pub mod authority;
 pub mod catalogue;
 pub mod config;
@@ -29,6 +30,7 @@ pub mod transact;
 pub mod ui;
 pub mod window;
 pub mod wizard;
+mod workspace;
 
 use std::path::{Path, PathBuf};
 
@@ -90,6 +92,7 @@ pub enum Command {
     /// Record devnet in ring.toml and probe the deployed services.
     Devnet,
     /// Record localnet in ring.toml and start the validator, Photon, the prover and the ring rpc.
+    #[command(alias = "dev")]
     Localnet(LocalnetArgs),
     /// Deploy the released program under the authority, or upgrade it in place.
     Deploy(DeployArgs),
@@ -379,9 +382,15 @@ pub struct TransactArgs {
 pub struct TransferArgs {
     /// The recipient's base58 shielded address, `signing_pk || nullifier_pk || viewing_pk`.
     pub to: ShieldedAddress,
-    /// Lamports the recipient receives, deposited by the authority.
+    /// Recipient amount in base units, funded by the authority.
     #[arg(long, default_value_t = DEFAULT_TRANSACT_AMOUNT)]
     pub amount: u64,
+    /// Registered mint, SOL by default.
+    #[arg(long)]
+    pub mint: Option<Address>,
+    /// Payer's SPL funding account, its ATA by default.
+    #[arg(long)]
+    pub token_account: Option<Address>,
     /// The co-signer keypair when the ring's co-signer scope covers the transfer.
     #[arg(long)]
     pub cosigner_keypair: Option<PathBuf>,
@@ -722,6 +731,16 @@ mod tests {
     }
 
     #[test]
+    fn dev_uses_the_localnet_command() {
+        assert!(matches!(
+            Cli::try_parse_from(["zolana-ring", "dev", "--no-start"])
+                .unwrap()
+                .command,
+            Command::Localnet(LocalnetArgs { no_start: true })
+        ));
+    }
+
+    #[test]
     fn merge_takes_an_optional_mint_and_a_bounded_count() {
         let mint = Address::new_from_array([7; 32]);
         let Command::Merge(args) = Cli::try_parse_from([
@@ -740,6 +759,35 @@ mod tests {
         assert_eq!(args.mint, Some(mint));
         assert_eq!(args.count, 4);
         assert!(Cli::try_parse_from(["zolana-ring", "merge", "--count", "9"]).is_err());
+    }
+
+    #[test]
+    fn transfer_accepts_registered_mint_and_funding_account() {
+        let mint = Address::new_from_array([7; 32]);
+        let token = Address::new_from_array([8; 32]);
+        let to = zolana_keypair::ShieldedKeypair::new_ed25519()
+            .unwrap()
+            .shielded_address()
+            .unwrap();
+        let Command::Transfer(args) = Cli::try_parse_from([
+            "zolana-ring",
+            "transfer",
+            &to.to_string(),
+            "--amount",
+            "123",
+            "--mint",
+            &mint.to_string(),
+            "--token-account",
+            &token.to_string(),
+        ])
+        .unwrap()
+        .command
+        else {
+            panic!("transfer");
+        };
+        assert_eq!(args.mint, Some(mint));
+        assert_eq!(args.token_account, Some(token));
+        assert_eq!(args.amount, 123);
     }
 
     #[test]

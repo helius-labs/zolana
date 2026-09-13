@@ -46,6 +46,8 @@ pub enum SpendError {
     NoPolicy,
     #[error("the ring has no velocity window, nothing to register")]
     NotVelocity,
+    #[error("the ring has no head map, its authority must run `zolana-ring init` first")]
+    MissingHeadMap,
 }
 
 impl From<PolicyMatchError> for SpendError {
@@ -126,6 +128,9 @@ pub(crate) struct Registration<'a> {
 
 impl Registration<'_> {
     pub(crate) fn ensure(self) -> Result<RegistrationOutcome, SpendError> {
+        if self.ring.read_head_map_root(self.rpc)?.is_none() {
+            return Err(SpendError::MissingHeadMap);
+        }
         let member = self.sender.pubkey();
         if let Some(live) = read_record(self.ring, self.rpc, self.indexer, &member)? {
             return Ok(RegistrationOutcome::Present {
@@ -180,11 +185,32 @@ fn read_record(
     if policy_config_table(&config)?.window_slots() == 0 {
         return Err(SpendError::NotVelocity);
     }
-    Ok(ReadSpendRecord {
-        entries_tree: config.entries_tree,
-        entries_tree_id: config.entries_tree_id(),
-        namespace: ring.namespace_pda(),
-        member: Member::owner_tag(member.as_array())?,
-    }
-    .read(indexer)?)
+    let member = Member::owner_tag(member.as_array())?;
+    wait_for(
+        "current compressed spend record".to_owned(),
+        || match (ReadSpendRecord {
+            entries_tree: config.entries_tree,
+            entries_tree_id: config.entries_tree_id(),
+            namespace: ring.namespace_pda(),
+            member,
+        })
+        .read_current(ring, indexer, rpc)
+        {
+            Ok(record) => Ok(Probe::Ready(record)),
+            Err(error) if is_head_map_retryable(&error) => Ok(Probe::Retry(error)),
+            Err(error) => Err(error),
+        },
+    )
+    .map_err(|error| match error {
+        WaitError::Failed(error) => error.into(),
+        WaitError::Timeout { label, .. } => {
+            SpendError::Indexer(WaitError::Timeout { label, last: None })
+        }
+    })
+}
+
+fn is_head_map_retryable(error: &EntryProofError) -> bool {
+    matches!(error, EntryProofError::Client(error) if matches!(
+        error.as_ref(), ClientError::RingHeadMapOutOfSync | ClientError::RingHeadRootChanged
+    ))
 }

@@ -2,7 +2,7 @@ use arrayvec::ArrayVec;
 use pinocchio::{address::address_eq, error::ProgramError, AccountView, Address};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MERGE_INPUT_COUNT,
+    error::ShieldedPoolError, instruction::instruction_data::merge_transact::MAX_MERGE_INPUTS,
 };
 
 use crate::instructions::ring_config::loader::load_active_ring_config;
@@ -19,14 +19,17 @@ pub struct MergeRingAccounts<'a> {
     pub input_tree: &'a mut AccountView,
     pub output_tree: &'a mut AccountView,
     pub payer: &'a AccountView,
-    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MERGE_INPUT_COUNT>,
+    pub nullifier_pdas: ArrayVec<&'a mut AccountView, MAX_MERGE_INPUTS>,
     /// The calling ring's `program_id`, read from the signed `ring_config`. Bound
     /// into the proof as the UTXO `ring_program_id`.
     pub ring_program_id: Address,
 }
 
 impl<'a> MergeRingAccounts<'a> {
-    pub fn validate_and_parse(accounts: &'a mut [AccountView]) -> Result<Self, ProgramError> {
+    pub fn validate_and_parse(
+        accounts: &'a mut [AccountView],
+        input_count: usize,
+    ) -> Result<Self, ProgramError> {
         let mut iter = AccountIterator::new(accounts);
         let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
@@ -42,7 +45,7 @@ impl<'a> MergeRingAccounts<'a> {
             return Err(ProgramError::IncorrectProgramId);
         }
         let mut nullifier_pdas = ArrayVec::new();
-        for _ in 0..MERGE_INPUT_COUNT {
+        for _ in 0..input_count {
             nullifier_pdas
                 .try_push(iter.next_mut("nullifier_pda")?)
                 .map_err(|_| ShieldedPoolError::InvalidMergeShape)?;

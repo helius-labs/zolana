@@ -19,14 +19,17 @@ export const NULLIFIER_TREE_HEIGHT = 40;
 export const NULLIFIER_TREE_ROOT_HISTORY_CAPACITY = Number(
   NULLIFIER_TREE_INPUT_QUEUE_BATCH_SIZE / NULLIFIER_TREE_INPUT_QUEUE_ZKP_BATCH_SIZE,
 );
-export const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS = 5_000n;
-export const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS = 170n;
+/// What one batch append and one nullifier-PDA close reimburse by default:
+/// nothing. The protocol sponsors nullifier-tree maintenance.
+export const DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS = 0n;
+export const DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS = 0n;
 
 const U64_MAX = (1n << 64n) - 1n;
 
-/// Fee schedule whose per-nullifier fee exactly covers the default append and
-/// close reimbursements per ZKP batch, rounded up. Mirrors Rust
-/// `default_tree_fees`: a zero batch size yields the all-zero schedule.
+/// The sponsored schedule every tree is created with: a transaction pays nothing
+/// per nullifier, so the fee balance stays empty and a forester claims nothing
+/// back from the tree. Mirrors Rust `default_tree_fees`, per-nullifier fee
+/// included: it covers the default reimbursements per ZKP batch, rounded up.
 export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
   const batchSize = unsignedBigint(zkpBatchSize, U64_MAX, "zkpBatchSize");
   if (batchSize === 0n) {
@@ -47,7 +50,7 @@ export function defaultTreeFees(zkpBatchSize: bigint): TreeFeeSchedule {
 }
 
 export const PROTOCOL_CONFIG_SIZE = 166;
-export const TREE_ACCOUNT_SIZE = 39_952;
+export const TREE_ACCOUNT_SIZE = 40_080;
 /// The program allocates a tree PDA in chunks of this many bytes; creation
 /// repeats the create-tree instruction once per chunk within one transaction.
 export const TREE_ALLOCATION_STEP = 10 * 1024;

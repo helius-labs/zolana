@@ -2,7 +2,9 @@
 
 use solana_address::Address;
 use zolana_client::{AsyncRpc, OutputSlot, Rpc, ShieldedTransaction};
-use zolana_interface::{event::OutputDataEncoding, instruction::MessageData};
+use zolana_interface::instruction::{
+    instruction_data::transact::confidential_encrypted_output_body, MessageData,
+};
 use zolana_keypair::{constants::SALT_LEN, P256Pubkey};
 use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
@@ -35,7 +37,26 @@ pub struct ReadSpendRecord {
 }
 
 impl ReadSpendRecord {
-    /// `None` until the member registers.
+    /// Authenticated against the exact current head root.
+    pub fn read_current<I: Rpc, R: Rpc>(
+        self,
+        ring: crate::CustomRing,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+        current_result(crate::head_map::read(ring, self, indexer, rpc))
+    }
+
+    pub async fn read_current_async<I: AsyncRpc, R: AsyncRpc>(
+        self,
+        ring: crate::CustomRing,
+        indexer: &I,
+        rpc: &R,
+    ) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+        current_result(crate::head_map::read_async(ring, self, indexer, rpc).await)
+    }
+
+    /// Unauthenticated history, unsuitable for transfer preparation.
     pub fn read<I: Rpc>(self, indexer: &I) -> Result<Option<LiveSpendRecord>, EntryProofError> {
         let lookup = self.lookup()?;
         let lineages = Lineages {
@@ -71,6 +92,23 @@ impl ReadSpendRecord {
     }
 }
 
+fn current_result(
+    result: Result<(LiveSpendRecord, crate::head_map::HeadWitness), EntryProofError>,
+) -> Result<Option<LiveSpendRecord>, EntryProofError> {
+    match result {
+        Ok((live, _)) => Ok(Some(live)),
+        Err(EntryProofError::Client(error))
+            if matches!(
+                *error,
+                zolana_client::ClientError::RingHeadMemberUnregistered
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SpendLookup {
     pub owner: ListNamespace,
@@ -93,10 +131,24 @@ impl LineageLookup for SpendLookup {
         spender: &ShieldedTransaction,
         slot: &OutputSlot,
     ) -> Option<LiveSpendRecord> {
-        let OutputDataEncoding::Plaintext(content) = slot.output_data()? else {
+        if ListNamespace::new(&slot.view_tag).ok()? != self.owner {
             return None;
+        }
+        let record = if let Some(record) = SpendRecord::from_output_data(&slot.payload) {
+            (record.version == 0).then_some(record)?
+        } else {
+            confidential_encrypted_output_body(&slot.payload)?;
+            let tag = zolana_ring_policy::spend_record_message_tag(&slot.view_tag).ok()?;
+            let mut messages = spender
+                .messages
+                .iter()
+                .filter(|message| message.view_tag == tag);
+            let message = messages.next()?;
+            if messages.next().is_some() {
+                return None;
+            }
+            SpendRecord::from_output_data(&message.data)?
         };
-        let record = SpendRecord::from_record_bytes(&content)?;
         if record.member != self.member {
             return None;
         }
@@ -164,10 +216,47 @@ mod tests {
     }
 
     fn spender(spent: [u8; 32], record: &SpendRecord, utxo_hash: [u8; 32]) -> ShieldedTransaction {
+        let mut payload = record.to_output_data().to_vec();
+        let mut messages = Vec::new();
+        let tx_key = zolana_keypair::ViewingKey::new();
+        if record.version != 0 {
+            let output = zolana_transaction::instructions::transact::SppProofOutputUtxo {
+                asset: zolana_transaction::SOL_MINT,
+                blinding: record.blinding,
+                owner_address: Some(zolana_keypair::ShieldedAddress::for_pda(
+                    &namespace(),
+                    zolana_keypair::NullifierKey::from_secret([0; 31])
+                        .pubkey()
+                        .unwrap(),
+                    tx_key.pubkey(),
+                )),
+                owner_tag: Some(namespace().to_bytes()),
+                ..Default::default()
+            };
+            payload = zolana_transaction::instructions::transact::encode_confidential_slots(
+                &[output],
+                &Default::default(),
+                &tx_key,
+                [9; SALT_LEN],
+            )
+            .unwrap()
+            .remove(0)
+            .unwrap()
+            .data;
+            messages.push(MessageData {
+                view_tag: zolana_ring_policy::spend_record_message_tag(namespace().as_array())
+                    .unwrap(),
+                data: record.to_output_data().to_vec(),
+            });
+        }
+        messages.push(MessageData {
+            view_tag: namespace().to_bytes(),
+            data: vec![1, 2, 3],
+        });
         ShieldedTransaction {
             slot: 0,
             tx_signature: solana_signature::Signature::default(),
-            tx_viewing_pk: None,
+            tx_viewing_pk: Some(tx_key.pubkey()),
             salt: Some([9u8; SALT_LEN]),
             output_slots: vec![OutputSlot {
                 view_tag: namespace().to_bytes(),
@@ -176,12 +265,9 @@ mod tests {
                     tree: tree(),
                     leaf_index: record.version,
                 },
-                payload: record.to_output_data().to_vec(),
+                payload,
             }],
-            messages: vec![MessageData {
-                view_tag: namespace().to_bytes(),
-                data: vec![1, 2, 3],
-            }],
+            messages,
             nullifiers: vec![spent],
             proofless: false,
         }
@@ -209,11 +295,49 @@ mod tests {
         assert_eq!(live.nullifier, second_nullifier);
         assert_eq!(live.origin.first_nullifier, first_nullifier);
         assert_eq!(live.origin.salt, Some([9u8; SALT_LEN]));
-        assert_eq!(live.origin.messages.len(), 1);
+        assert_eq!(live.origin.messages.len(), 2);
         let _ = Context {
             block_time: 0,
             slot: 0,
         };
+    }
+
+    #[test]
+    fn a_successor_requires_one_bound_public_record_message() {
+        let (record, hash, _) = version(1);
+        let address = owner().spend_address(&member(), 0).unwrap();
+        let transaction = spender(address, &record, hash);
+        let lookup = SpendLookup {
+            owner: owner(),
+            member: member(),
+            tree_id: 0,
+        };
+        assert_eq!(
+            lookup
+                .decode(&address, &transaction, &transaction.output_slots[0])
+                .unwrap()
+                .record,
+            record
+        );
+        let mutations: [fn(&mut ShieldedTransaction); 6] = [
+            |tx| {
+                tx.messages.remove(0);
+            },
+            |tx| tx.messages.push(tx.messages[0].clone()),
+            |tx| tx.messages[0].view_tag[0] ^= 1,
+            |tx| tx.messages[0].data[5] ^= 1,
+            |tx| {
+                tx.messages[0].data.pop();
+            },
+            |tx| tx.output_slots[0].payload = tx.messages[0].data.clone(),
+        ];
+        for mutate in mutations {
+            let mut changed = transaction.clone();
+            mutate(&mut changed);
+            assert!(lookup
+                .decode(&address, &changed, &changed.output_slots[0])
+                .is_none());
+        }
     }
 
     #[test]

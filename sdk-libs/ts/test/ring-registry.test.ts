@@ -83,7 +83,7 @@ describe("listRegisteredRings", () => {
           data: [base64Decoder.decode(entry.data) as Base64EncodedBytes, "base64"],
           executable: false,
           lamports: 0n,
-          owner: address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG"),
+          owner: address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6"),
           rentEpoch: 0n,
           space: BigInt(entry.data.length),
         },
@@ -104,7 +104,7 @@ describe("listRegisteredRings", () => {
     expect(await listRegisteredRings(rpc)).toEqual([]);
 
     const [programId, config] = getProgramAccounts.mock.calls[0] ?? [];
-    expect(programId).toBe("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+    expect(programId).toBe("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
     // Filtered at the RPC: the pool also holds trees and asset registries, and
     // an unfiltered scan would download all of them to find a handful of rings.
     expect(config).toMatchObject({

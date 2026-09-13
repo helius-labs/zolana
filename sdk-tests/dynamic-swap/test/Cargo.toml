@@ -12,7 +12,6 @@ dynamic-swap-program = { path = "../program" }
 dynamic-swap-prover = { path = "../prover" }
 dynamic-swap-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
-solana-address-lookup-table-interface = { workspace = true }
 solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }

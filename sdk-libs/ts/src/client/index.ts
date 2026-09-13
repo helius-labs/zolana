@@ -18,6 +18,13 @@ export type {
   TransactionAssembler,
   TransactionConfirmer,
   TreeContext,
+  RingHeadReader,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingHeadProofContext,
+  RingSubmissionStatus,
+  RingSubmissionTransport,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
@@ -52,6 +59,8 @@ export type {
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
   CustomRingSourceOwner,
   CustomRingSpendRecordWitness,
   CustomRingVelocityRow,

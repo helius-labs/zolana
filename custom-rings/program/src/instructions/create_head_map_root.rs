@@ -38,7 +38,10 @@ pub fn process_create_head_map_root_ix(
     }
     .verify()?;
     let bump_seed = [bump];
-    let seeds = [Seed::from(HeadMapRoot::SEED), Seed::from(bump_seed.as_ref())];
+    let seeds = [
+        Seed::from(HeadMapRoot::SEED),
+        Seed::from(bump_seed.as_ref()),
+    ];
     pinocchio_system::create_account_with_minimum_balance_signed(
         root_account,
         HeadMapRoot::SIZE,

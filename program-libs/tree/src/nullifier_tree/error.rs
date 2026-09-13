@@ -37,8 +37,6 @@ pub enum NullifierTreeError {
     InvalidAccountSize,
     #[error("DecompressG1Failed")]
     DecompressG1Failed,
-    #[error("DecompressG2Failed")]
-    DecompressG2Failed,
     #[error("CreateGroth16VerifierFailed")]
     CreateGroth16VerifierFailed,
     #[error("ProofVerificationFailed")]

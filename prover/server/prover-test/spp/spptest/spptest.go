@@ -72,6 +72,12 @@ func MustHashChain(t testing.TB, inputs []*big.Int) *big.Int {
 	return MustHash(t, value, err)
 }
 
+func MustHashChain4(t testing.TB, inputs []*big.Int) *big.Int {
+	t.Helper()
+	value, err := protocol.HashChain4(inputs)
+	return MustHash(t, value, err)
+}
+
 func MustPrivateTxHash(t testing.TB, inputs, outputs, addresses []*big.Int, externalDataHash, blinding *big.Int) *big.Int {
 	t.Helper()
 	value, err := protocol.PrivateTxHash(inputs, outputs, addresses, externalDataHash, blinding)

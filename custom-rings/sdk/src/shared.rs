@@ -2,9 +2,9 @@
 
 use bytemuck::Pod;
 use custom_ring_interface::{
-    CoSigner, Delegate, PolicyConfig, ReadAccessRecord, RingProgramConfig, SpendRecordHead,
-    SpendWindow, CO_SIGNER, DELEGATE, POLICY_CONFIG, READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
-    SPEND_WINDOW,
+    CoSigner, Delegate, HeadMapRoot, PolicyConfig, ReadAccessRecord, RingProgramConfig,
+    SpendWindow, CO_SIGNER, DELEGATE, HEAD_MAP_ROOT, POLICY_CONFIG, READ_ACCESS_RECORD,
+    RING_PROGRAM_CONFIG, SPEND_WINDOW,
 };
 use solana_account::Account;
 use solana_address::Address;
@@ -134,9 +134,42 @@ impl CustomRing {
         Address::find_program_address(&[Delegate::SEED], &self.program_id)
     }
 
-    /// The member's spend record head, its nullifier chains every windowed transfer.
-    pub fn spend_record_head_pda(self, member: &[u8; 32]) -> Address {
-        Address::find_program_address(&[SpendRecordHead::SEED, member], &self.program_id).0
+    pub fn head_map_root_pda(self) -> Address {
+        Address::find_program_address(&[HeadMapRoot::SEED], &self.program_id).0
+    }
+
+    pub fn read_head_map_root<R: Rpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
+        self.decode_head_map_root(rpc.get_account(self.head_map_root_pda())?)
+    }
+
+    pub async fn read_head_map_root_async<R: AsyncRpc>(
+        self,
+        rpc: &R,
+    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
+        self.decode_head_map_root(rpc.get_account(self.head_map_root_pda()).await?)
+    }
+
+    fn decode_head_map_root(
+        self,
+        account: Option<Account>,
+    ) -> Result<Option<HeadMapRoot>, AccountReadError> {
+        let address = self.head_map_root_pda();
+        let Some(root) =
+            AccountRead::decode_optional::<HeadMapRoot>(self.program_id, address, account)?
+        else {
+            return Ok(None);
+        };
+        let bump = Address::find_program_address(&[HeadMapRoot::SEED], &self.program_id).1;
+        if root.bump != bump
+            || root.next_index() == 0
+            || root.next_index() > (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT)
+        {
+            return Err(AccountReadError::InvalidAccount { address });
+        }
+        Ok(Some(root))
     }
 
     /// SOL under the zero address.
@@ -512,6 +545,14 @@ impl ReadableAccount for Delegate {
 
 impl ReadableAccount for SpendWindow {
     const DISCRIMINATOR: u8 = SPEND_WINDOW;
+
+    fn discriminator(self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl ReadableAccount for HeadMapRoot {
+    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
 
     fn discriminator(self) -> u8 {
         self.discriminator

@@ -35,8 +35,6 @@ import {
   createRingConfigInstruction,
   initSppRingConfigInstruction,
   ringDelegateTransactInstruction,
-  ringLookupTableAddresses,
-  ringSettlementStatics,
   ringTransactInstruction,
 } from "../src/ring/instructions.js";
 import { decodeRingPolicyConfig, decodeRingProgramConfig } from "../src/ring/codecs.js";
@@ -186,10 +184,10 @@ const OUTPUT_TREE = address("2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z");
 const ENTRIES_TREE = addressOf(60);
 const RING_AUTH = address("AtyqWdns8uYfWdpLhWJRN9DxRdpwB6Zaa33k66TAkwFx");
 const RING_CONFIG = address("CXJhGzAcN4NYaapjRqiTzmnRBTmtUL52Zg4ooG2PtMfP");
-const SPP = address("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+const SPP = address("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 const SYSTEM = address("11111111111111111111111111111111");
 const JSON_HEADERS = { headers: { "content-type": "application/json" } };
-const SOL_INTERFACE = address("GGk4JbLExpASWVCAtAVdxZ65BCQsj8WN5TsL6v8Dd1c8");
+const SOL_INTERFACE = address("2iAazE9tAWcUJhNhfscRzX17Gb32Km9jJYZLGy1AnkVP");
 
 function ringPolicyConfig() {
   return getProgramDerivedAddress({
@@ -248,7 +246,7 @@ describe("ring deposit", () => {
     ]);
     expect(instruction.data?.[0]).toBe(InstructionTag.ringDeposit);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "0e010001001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f2020202020202020202020202020202020202020202020202020202020202020c0cf6a0000000000002121212121212121212121212121212121212121212121212121212121212121030303030303030303030303030303030303030303030303030303030303030303222222222222222222222222222222220300232425",
+      "12010001001f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f2020202020202020202020202020202020202020202020202020202020202020c0cf6a0000000000002121212121212121212121212121212121212121212121212121212121212121030303030303030303030303030303030303030303030303030303030303030303222222222222222222222222222222220300232425",
     );
   });
 
@@ -321,6 +319,7 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       withdrawal: TransactWithdrawal.spl({
         mint,
         splTokenInterface,
@@ -345,23 +344,13 @@ describe("ring transact settlement", () => {
       outputTree: OUTPUT_TREE,
       ringAuth: RING_AUTH,
       inputs: [],
+      treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
       ownerSigners: [owner],
     });
     expect(pool.map((meta) => [meta.address, meta.role])).toContainEqual([
       owner,
       AccountRole.READONLY_SIGNER,
     ]);
-  });
-
-  it("adds the settlement statics to a new table without requiring them at fetch", async () => {
-    const required = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
-    });
-    for (const address of ringSettlementStatics()) {
-      expect(required).not.toContain(address);
-    }
-    expect(ringSettlementStatics()).toContain(SHIELDED_POOL_CPI_AUTHORITY);
   });
 });
 
@@ -617,7 +606,7 @@ describe("ring config", () => {
       [SYSTEM, AccountRole.READONLY],
     ]);
     expect(Buffer.from(set.data ?? []).toString("hex")).toBe(
-      "14" +
+      "1c" +
         Buffer.from(addressBytes(signer, "signer")).toString("hex") +
         "0401" +
         "00".repeat(32) +
@@ -1180,26 +1169,6 @@ describe("ring rpc response validation", () => {
 });
 
 describe("ring transact", () => {
-  it("includes distinct input, output and entries trees in the lookup-table contract", async () => {
-    const addresses = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: OUTPUT_TREE, entriesTree: ENTRIES_TREE, hasPolicy: true },
-    });
-    expect(addresses).toContain(TREE);
-    expect(addresses).toContain(OUTPUT_TREE);
-    expect(addresses).toContain(ENTRIES_TREE);
-    expect(addresses).toContain(await ringPolicyConfig());
-  });
-
-  it("leaves the policy accounts out of an audit-only ring's lookup-table contract", async () => {
-    const addresses = await ringLookupTableAddresses({
-      ringProgramId: RING,
-      trees: { tree: TREE, outputTree: TREE, hasPolicy: false },
-    });
-    expect(addresses).not.toContain(ENTRIES_TREE);
-    expect(addresses).not.toContain(await ringPolicyConfig());
-  });
-
   const customRingProof = () =>
     Uint8Array.from([
       ...filled(51, 32),
@@ -1217,10 +1186,11 @@ describe("ring transact", () => {
     salt: filled(42, 16) as Bytes16,
     proof: {
       a: filled(43, 32) as Bytes32,
-      b: filled(44, 64) as never,
+      b: filled(44, 128) as never,
       c: filled(45, 32) as Bytes32,
     },
     inputs: [],
+    treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
     interfaceTransfers: [],
     outputs: [],
     messages: [],
@@ -1380,10 +1350,11 @@ describe("ring transact", () => {
         salt: filled(42, 16) as Bytes16,
         proof: {
           a: filled(43, 32) as Bytes32,
-          b: filled(44, 64) as never,
+          b: filled(44, 128) as never,
           c: filled(45, 32) as Bytes32,
         },
         inputs: [],
+        treeContexts: [{ utxoTreeRootIndex: 0, nullifierTreeRootIndex: 0 }],
         interfaceTransfers: [],
         outputs: [],
         messages: [],
@@ -1424,14 +1395,14 @@ describe("ring transact", () => {
       [policyConfig, AccountRole.READONLY],
       [ENTRIES_TREE, AccountRole.READONLY],
       [PAYER, AccountRole.WRITABLE_SIGNER],
-      [TREE, AccountRole.WRITABLE],
       [OUTPUT_TREE, AccountRole.WRITABLE],
       [SPP, AccountRole.READONLY],
       [SYSTEM, AccountRole.READONLY],
       [RING_AUTH, AccountRole.READONLY],
+      [TREE, AccountRole.WRITABLE],
     ]);
     expect(Buffer.from(instruction.data ?? []).toString("hex")).toBe(
-      "033333333333333333333333333333333333333333333333333333333333333333343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343535353535353535353535353535353535353535353535353535353535353535363636363636363636363636363636363636363636363636363636363636363637373737373737373737373737373737373737373737373737373737373737370000000000ffffffffffffffff292929292929292929292929292929292929292929292929292929292929292901000203030303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000000000000",
+      "03333333333333333333333333333333333333333333333333333333333333333334343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434343434353535353535353535353535353535353535353535353535353535353535353536363636363636363636363636363636363636363636363636363636363636363737373737373737373737373737373737373737373737373737373737373737000000000000ffffffffffffffff0303030303030303030303030303030303030303030303030303030303030303032a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a0000000000292929292929292929292929292929292929292929292929292929292929292901000203032b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d000100000000",
     );
   });
 

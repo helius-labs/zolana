@@ -29,7 +29,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 solana-address = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-loader-v3-interface = { workspace = true, features = ["serde"] }
@@ -37,6 +36,7 @@ solana-signature = { workspace = true, features = ["verify"] }
 solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction-error = { workspace = true }
+spl-token-2022-interface = { workspace = true }
 thiserror = { workspace = true }
 toml = { workspace = true }
 toml_edit = { workspace = true }

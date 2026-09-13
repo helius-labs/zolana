@@ -37,7 +37,7 @@ fn repeated_sol_deposit_data_creates_distinct_leaves() {
     assert_ne!(root0, root1);
     assert_ne!(root1, root2);
     assert_eq!(pool.rpc.indexer().utxos().len(), 2);
-    assert_eq!(pool.rpc.indexer().root(), root2);
+    assert_eq!(pool.rpc.indexer().root(&tree), root2);
 }
 
 #[test]

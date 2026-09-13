@@ -11,6 +11,7 @@ describe("Solana Kit transaction construction", () => {
   it("builds an unsigned transaction without taking a signer", () => {
     const transaction = compileUnsignedTransaction({
       feePayer: PAYER,
+      computeUnitLimit: 200_000,
       instructions: [{ programAddress: PROGRAM }],
       lifetime: {
         blockhash: "11111111111111111111111111111111" as Blockhash,

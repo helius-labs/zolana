@@ -27,9 +27,8 @@ use zolana_hasher::{primitives::solana_owner_identity, Poseidon};
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
-        TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
+        instruction_data::transact::InterfaceTransfer, Transact, TransactInterfaceTransferAccounts,
+        TransactSolTransferAccounts, TransactSplDepositAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
 };
@@ -42,12 +41,12 @@ use zolana_transaction::{
 
 use zolana_test_utils::transact::{
     build_spl_withdrawal, build_transfer_prover_inputs, change_and_dummy_outputs,
-    derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, eddsa_input_utxo,
-    external_data_hash, external_data_hash_spl, fe, inline_outputs, new_transact_ix_data,
-    nullifier_tree, output_owner_pk_hashes, prove_and_verify_transfer, public_sol_field,
-    real_output, set_output_owner_tags, single_tree_slots, sol_public_slots, spend_input,
-    spl_public_slots, test_private_tx_blinding, transfer_output, SpendInputArgs,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    derive_test_transfer_output_blindings, dummy_input, dummy_transfer_output, external_data_hash,
+    fe, inline_outputs, input_utxo, new_transact_ix_data, nullifier_tree, output_owner_pk_hashes,
+    prove_and_verify_transfer, public_sol_field, real_output, set_output_owner_tags,
+    single_tree_slots, sol_leg, sol_public_slots, spend_input, spl_leg, spl_public_slots,
+    test_private_tx_blinding, transfer_output, SpendInputArgs, TransferProverInputsArgs,
+    TEST_BLINDING_SEED,
 };
 
 const AMOUNT: u64 = 1_000_000_000;
@@ -88,7 +87,7 @@ fn shield_then_withdraw_spl_with_a_real_proof() {
     };
     let substituted = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(
@@ -248,10 +247,8 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
 
     let view_tags = [payer_bytes; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SolWithdrawal { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -271,10 +268,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
         &owner_pk_hashes,
         &[change_nullifier_pk, zero, zero],
     );
-    let resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
-        amount: AMOUNT,
-        recipient: recipient.to_bytes(),
-    }];
+    let resolved_transfers = [sol_leg(&recipient)];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
 
@@ -306,7 +300,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -336,7 +330,7 @@ fn shield_before_authority_rotation_then_withdraw_sol() {
     // Transfer CPI) and the program (emit_event self-CPI).
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -453,10 +447,8 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
     // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut transact_ix_data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifiers[0], 0),
-            eddsa_input_utxo(nullifiers[1], 0),
-        ],
+        vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
+        0,
         vec![InterfaceTransfer::SolDeposit { amount: AMOUNT }],
         inline_outputs(&output_hashes, &view_tags),
     );
@@ -492,10 +484,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
         output_owner_pk_hashes(&transact_ix_data.outputs).expect("output owner pk hashes");
     set_output_owner_tags(&mut outputs, &owner_pk_hashes, &[nullifier_pk, zero, zero]);
 
-    let resolved_transfers = [ResolvedInterfaceTransfer::SolDeposit {
-        amount: AMOUNT,
-        recipient: depositor.pubkey().to_bytes(),
-    }];
+    let resolved_transfers = [sol_leg(&depositor.pubkey())];
     let external_data_hash =
         external_data_hash(&transact_ix_data, &resolved_transfers).expect("external data hash");
     let private_tx_blinding =
@@ -524,7 +513,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -558,7 +547,7 @@ fn transact_sol_deposit_settles_exact_lamport_deltas() {
 
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(
@@ -658,10 +647,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     // see `set_output_owner_tags`).
     let view_tags = [owner_view_tag; 3];
     let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifiers[0], 0),
-            eddsa_input_utxo(nullifiers[1], 0),
-        ],
+        vec![input_utxo(nullifiers[0]), input_utxo(nullifiers[1])],
+        0,
         vec![InterfaceTransfer::SplDeposit {
             amount: SPL_AMOUNT,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
@@ -692,8 +679,8 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
         &output_owner_hashes,
         &[nullifier_pk, zero, zero],
     );
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
+    let external_hash =
+        external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifiers[0]).expect("private tx blinding");
     let private_tx = PrivateTxHash::new(
@@ -721,7 +708,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_hash, zero, zero],
         output_owner_pk_hashes: Some(&output_owner_hashes),
     }
@@ -745,7 +732,7 @@ fn transact_spl_deposit_settles_exact_token_deltas() {
     data.private_tx_hash = private_tx;
     let ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplDeposit(
@@ -991,9 +978,10 @@ fn phase_transfer_to_recipient(
     let transfer_view_tags = [change_view_tag, recipient_view_tag, payer_bytes];
     let mut transfer_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(payer_nullifier, shield_utxo_root_index),
-            eddsa_input_utxo(transfer_dummy_nullifier, shield_utxo_root_index),
+            input_utxo(payer_nullifier),
+            input_utxo(transfer_dummy_nullifier),
         ],
+        shield_utxo_root_index,
         Vec::new(),
         inline_outputs(&transfer_output_hashes, &transfer_view_tags),
     );
@@ -1032,7 +1020,7 @@ fn phase_transfer_to_recipient(
             amounts: transfer_public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[payer_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&transfer_owner_pk_hashes),
     }
@@ -1061,7 +1049,7 @@ fn phase_transfer_to_recipient(
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -1205,9 +1193,10 @@ fn phase_withdraw_recipient_utxo(
     let withdraw_view_tags = [recipient_bytes; 3];
     let mut withdraw_ix_data = new_transact_ix_data(
         vec![
-            eddsa_input_utxo(recipient_nullifier, transfer_utxo_root_index),
-            eddsa_input_utxo(withdraw_dummy_nullifier, transfer_utxo_root_index),
+            input_utxo(recipient_nullifier),
+            input_utxo(withdraw_dummy_nullifier),
         ],
+        transfer_utxo_root_index,
         vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
@@ -1220,10 +1209,7 @@ fn phase_withdraw_recipient_utxo(
         &withdraw_owner_pk_hashes,
         &[withdraw_change_nullifier_pk, zero, zero],
     );
-    let withdraw_resolved_transfers = [ResolvedInterfaceTransfer::SolWithdrawal {
-        amount: TRANSFER_AMOUNT,
-        recipient: public_recipient.to_bytes(),
-    }];
+    let withdraw_resolved_transfers = [sol_leg(&public_recipient)];
     let withdraw_external_hash =
         external_data_hash(&withdraw_ix_data, &withdraw_resolved_transfers)
             .expect("withdraw external data hash");
@@ -1256,7 +1242,7 @@ fn phase_withdraw_recipient_utxo(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &[recipient_pubkey_hash, zero, zero],
         output_owner_pk_hashes: Some(&withdraw_owner_pk_hashes),
     }
@@ -1285,7 +1271,7 @@ fn phase_withdraw_recipient_utxo(
 
     let withdraw_ix = Transact {
         payer: recipient_owner.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

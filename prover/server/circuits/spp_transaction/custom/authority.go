@@ -27,7 +27,7 @@ type CustomRingAuthorityPublic struct {
 	PublicAmounts    [shared.NPublicSlots]frontend.Variable
 	RingProgramID    frontend.Variable
 	SignerPkHashes   []frontend.Variable
-	AllowDummyInputs frontend.Variable
+	InputFlags       frontend.Variable
 
 	PublicInputHash frontend.Variable `gnark:",public"`
 }
@@ -81,7 +81,7 @@ func (c *CustomRingAuthorityCircuit) transaction(api frontend.API) shared.Transa
 		PublicAmounts:     c.Public.PublicAmounts,
 		RingProgramID:     c.Public.RingProgramID,
 		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 	}
 }

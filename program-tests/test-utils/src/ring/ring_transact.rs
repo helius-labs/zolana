@@ -9,13 +9,15 @@ use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
+    input_utxos, ConfidentialTransfer, ProofCompressed, ProverClient, RingTransferP256Prover,
     RingTransferProver, Shape, SppProofInputUtxo, SppProofInputs, TransferSpendInput,
 };
 use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
-        instruction_data::transact::{CircuitId, InputUtxo, TransactIxData, TransactProof},
+        instruction_data::transact::{
+            CircuitId, InputUtxo, TransactIxData, TransactProof, TreeContext,
+        },
         tag::RING_TRANSACT,
         RingTransact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
         TransactSplWithdrawalAccounts,
@@ -31,8 +33,7 @@ use zolana_transaction::{
 use super::{decode_output_blinding, RingHarness, SpendSlot};
 use crate::{
     localnet::{
-        send_transaction, send_transaction_fitting, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION,
-        SPL_CHANGE_POSITION, ZERO,
+        send_transaction, RECIPIENT_POSITION_BASE, SOL_CHANGE_POSITION, SPL_CHANGE_POSITION, ZERO,
     },
     spl::create_token_account,
     test_validator_asserts::{
@@ -126,13 +127,9 @@ impl RingWithdrawal {
                 user_sol_account: Address::new_from_array(recipient.to_bytes()),
             },
             Self::Spl {
-                mint,
-                recipient_token,
+                recipient_token, ..
             } => SettlementTarget::Spl {
                 user_spl_token: Address::new_from_array(recipient_token.to_bytes()),
-                spl_token_interface: Address::new_from_array(
-                    zolana_interface::pda::spl_interface(mint).to_bytes(),
-                ),
             },
         }
     }
@@ -495,7 +492,7 @@ impl RingHarness {
         let tree_before = fetch_account(&self.rpc, &self.tree)?;
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             owner_signers,
@@ -505,7 +502,12 @@ impl RingHarness {
         .instruction();
         let compute_budget = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
         let instructions = [compute_budget, transfer_ix.clone()];
-        let signature = send_transaction_fitting(&mut self.rpc, &instructions, &fee_payer, &[])?;
+        let signature = send_transaction(
+            &mut self.rpc,
+            &instructions,
+            &fee_payer.pubkey(),
+            &[&fee_payer],
+        )?;
 
         // A change-only transfer/withdrawal has no recipient slot, so locate the
         // indexed transaction by the sender's view tag instead.
@@ -536,7 +538,7 @@ impl RingHarness {
         let spend_inputs = self.ring_spend_inputs(&proof_inputs.input_utxos)?;
         let tx_shape = proof_inputs.check_shape()?;
         let shape = Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs());
-        let signer_pk_hashes = proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?;
+        let signer_pk_hashes = proof_inputs.signer_pk_hashes(shape.signer_width())?;
 
         match rail {
             RingRail::Eddsa => {
@@ -560,12 +562,9 @@ impl RingHarness {
                     // zeroed one is rejected at the encoding check.
                     assemble_ix_data(
                         proof_inputs,
-                        &result.nullifiers,
+                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                         result.private_tx_hash,
-                        (
-                            result.utxo_tree_root_index,
-                            result.nullifier_tree_root_index,
-                        ),
+                        result.tree_contexts.clone(),
                         RingRail::P256,
                         proof,
                         Some(Bsb22Commitment {
@@ -577,12 +576,9 @@ impl RingHarness {
                 } else {
                     assemble_ix_data(
                         proof_inputs,
-                        &result.nullifiers,
+                        input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                         result.private_tx_hash,
-                        (
-                            result.utxo_tree_root_index,
-                            result.nullifier_tree_root_index,
-                        ),
+                        result.tree_contexts.clone(),
                         RingRail::Eddsa,
                         proof,
                         None,
@@ -625,12 +621,9 @@ impl RingHarness {
                 };
                 assemble_ix_data(
                     proof_inputs,
-                    &result.nullifiers,
+                    input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
                     result.private_tx_hash,
-                    (
-                        result.utxo_tree_root_index,
-                        result.nullifier_tree_root_index,
-                    ),
+                    result.tree_contexts.clone(),
                     wire_rail,
                     proof,
                     Some(commitment),
@@ -856,7 +849,9 @@ impl RingHarness {
             outputs: proof_inputs.output_utxos.clone(),
             external_data: proof_inputs.external_data.clone(),
             public_transfers: proof_inputs.public_transfers()?,
-            signer_pk_hashes: proof_inputs.signer_pk_hashes(tx_shape.n_inputs() + 1)?,
+            signer_pk_hashes: proof_inputs.signer_pk_hashes(
+                Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs()).signer_width(),
+            )?,
             allow_dummy_inputs: true,
             ring_program_id: Some(ring),
             shape: Some(Shape::new(tx_shape.n_inputs(), tx_shape.n_outputs())),
@@ -864,12 +859,9 @@ impl RingHarness {
         let result = prover.build()?;
         let data = assemble_ix_data(
             &proof_inputs,
-            &result.nullifiers,
+            input_utxos(&result.nullifiers, &result.input_tree_indexes)?,
             result.private_tx_hash,
-            (
-                result.utxo_tree_root_index,
-                result.nullifier_tree_root_index,
-            ),
+            result.tree_contexts.clone(),
             RingRail::Eddsa,
             TransactProof::zeroed(),
             None,
@@ -878,7 +870,7 @@ impl RingHarness {
 
         let transfer_ix = RingTransact {
             payer: fee_payer.pubkey(),
-            input_tree: self.tree,
+            input_trees: vec![self.tree],
             output_tree: self.tree,
             ring_program_id: self.ring_program_id,
             owner_signers: Vec::new(),
@@ -899,7 +891,7 @@ impl RingHarness {
             )),
             Err(error) => {
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(&error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
@@ -972,7 +964,7 @@ impl RingHarness {
                 let client_error = error
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
-                Rejection::pool(expected).at(1).assert_client(client_error);
+                Rejection::pool(expected).at(0).assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
             }
@@ -1128,7 +1120,7 @@ impl RingHarness {
                     .downcast_ref::<zolana_client::ClientError>()
                     .unwrap_or_else(|| panic!("expected typed client error, got {error:?}"));
                 Rejection::pool(ShieldedPoolError::TransactProofVerificationFailed)
-                    .at(1)
+                    .at(0)
                     .assert_client(client_error);
                 assert_account_unchanged(&self.rpc, &self.tree, &tree_before)?;
                 Ok(())
@@ -1146,33 +1138,21 @@ impl RingHarness {
 #[allow(clippy::too_many_arguments)]
 fn assemble_ix_data(
     proof_inputs: &SppProofInputs,
-    nullifiers: &[[u8; 32]],
+    inputs: Vec<InputUtxo>,
     private_tx_hash: [u8; 32],
-    root_indices: (u16, u16),
+    tree_contexts: Vec<TreeContext>,
     rail: RingRail,
     proof: TransactProof,
     commitment: Option<Bsb22Commitment>,
     default_owner_tag: Option<[u8; 32]>,
 ) -> Result<TransactIxData> {
     let n_inputs = proof_inputs.check_shape()?.n_inputs();
-    if nullifiers.len() != n_inputs {
+    if inputs.len() != n_inputs {
         return Err(anyhow!(
             "witness input count {} does not match shape {n_inputs}",
-            nullifiers.len()
+            inputs.len()
         ));
     }
-
-    // SPP resolves both roots from the single `input_tree`, so every slot
-    // references the same pair.
-    let (utxo_tree_root_index, nullifier_tree_root_index) = root_indices;
-    let inputs: Vec<InputUtxo> = nullifiers
-        .iter()
-        .map(|nullifier_hash| InputUtxo {
-            nullifier_hash: *nullifier_hash,
-            nullifier_tree_root_index,
-            utxo_tree_root_index,
-        })
-        .collect();
 
     let external = &proof_inputs.external_data;
     let n_outputs = external.outputs.len() as u8;
@@ -1196,6 +1176,7 @@ fn assemble_ix_data(
         private_tx_hash,
         circuit,
         inputs,
+        tree_contexts,
         interface_transfers: external
             .interface_transfers
             .iter()

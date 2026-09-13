@@ -807,20 +807,20 @@ describe("policy hash", () => {
       [ListId.approval, records],
     ]);
     expect(ringPolicyHash(table, sources)).toEqual(
-      hex("26a48b0231016dbbda9679b6bdbf5f0c83e9b57e3a80740a9d3f202a53020069"),
+      hex("1dc104a68f88e4dd4b996279428075bf0aa451d1e88acf81a0998f1be4e13728"),
     );
   });
 
   it("matches the Go fixture for the empty, one-rule, two-rule and mixed tables", () => {
     expect(ringPolicyHash(buildRuleTable({ rules: [] }), owners([]))).toEqual(
-      hex("2490087f66254407013a74d1326cffe8fbac9150f8d79fecff96832a5961bf58"),
+      hex("294f70a1b451b9ecffaaffbb8d37180860e9b38274423ceb1804fc7d249aebb2"),
     );
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [require("outputOwner", ListId.allow)] }),
         owners([[ListId.allow, records]]),
       ),
-    ).toEqual(hex("2f38f7031ce173b5ab9fd780b33ce9e7b7afb77d6600e61595c4d2d0304cfdfd"));
+    ).toEqual(hex("1d8a93a84553310f84dfd405acf418ba45cc5795ace61fe26df9b7cd166840e5"));
     expect(
       ringPolicyHash(
         buildRuleTable({
@@ -831,7 +831,7 @@ describe("policy hash", () => {
           [ListId.frozen, curator],
         ]),
       ),
-    ).toEqual(hex("19ac73c8d71f7b4801f39d4f8aaac7726355adeaaf67782d3209281801e60070"));
+    ).toEqual(hex("28dcf787fd34c34ffc39f692fedd8c295a86af310d29b95c7c4a06fb1f649a39"));
     expect(
       ringPolicyHash(
         buildRuleTable({ rules: [rule("outputOwner", [ListId.approval], [ListId.block])] }),
@@ -840,7 +840,7 @@ describe("policy hash", () => {
           [ListId.approval, records],
         ]),
       ),
-    ).toEqual(hex("2c5dd56fe34bb7cba29dd66786ff0f2f111e97d6159fdf438a55f87313f52c09"));
+    ).toEqual(hex("14fd09dc751b7d98170f21ea2a7ee560188293bdd2bb769e3b50463446d6e830"));
   });
 
   it("matches the Go fixture for a per-asset limit", () => {
@@ -852,7 +852,7 @@ describe("policy hash", () => {
       velocity: [],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("111b968e4313a7a6a3cfc0edf117bfde3fa2019f322c4cb00569aae57c4bc96c"),
+      hex("2615043990115a61321550171e2c11c858f27bee4f52e38d358fd84e576784da"),
     );
   });
 
@@ -863,7 +863,7 @@ describe("policy hash", () => {
       velocity: [{ asset: memberOfAsset(ASSET_MINT), cap: 5000n, cosignAbove: 600n }],
     });
     expect(ringPolicyHash(table, owners([[ListId.allow, records]]))).toEqual(
-      hex("1262836f44e627c676adb7ccd127c3a6a9f5ce27cba845d3d2a312fe010f2f09"),
+      hex("002e5e9bec81cd30d19b59b3b34aa3539958bf48eabb622bb717c83e45e2749d"),
     );
     expect(() => buildRuleTable({ rules: [], windowSlots: 1n })).toThrow(
       expect.objectContaining({ details: { reason: "WindowWithoutVelocity" } }),

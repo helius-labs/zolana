@@ -104,7 +104,7 @@ fn shield_encrypted_transfer_recovered_by_decryption() -> TestResult {
 
     let transfer_ix = Transact {
         payer: payer.pubkey(),
-        input_tree: tree_pubkey,
+        input_trees: vec![tree_pubkey],
         output_tree: tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

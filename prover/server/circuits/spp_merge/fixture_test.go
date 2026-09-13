@@ -383,7 +383,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	outputTreeID := big.NewInt(fixtureOutputTreeID)
 	treeSlots := fixtureTreeSlots(treeIDs, slotRoots, slotNullifierRoots)
 	publicInputPreimage := []*big.Int{
-		hashChain(t, pubNullifiers),
+		hashChain4(t, pubNullifiers),
 		outHash,
 		spptest.MustTreeSlotsHashChain(t, treeSlots),
 		outputTreeID,
@@ -406,7 +406,7 @@ func buildMergeFixture(t *testing.T, options mergeFixtureOptions) *mergeWitnessF
 	default:
 		t.Fatalf("unsupported merge fixture rail: %d", options.rail)
 	}
-	publicInputHash := hashChain(t, publicInputPreimage)
+	publicInputHash := hashChain4(t, publicInputPreimage)
 
 	inputs := mergeshared.NewInputs(defaultFixtureInputs)
 	public := mergeshared.NewCommonPublicInputs(defaultFixtureInputs)
@@ -502,9 +502,9 @@ func (f *mergeWitnessFixture) ringCircuit() *merge.RingCircuit {
 	return assignment
 }
 
-func hashChain(t *testing.T, in []*big.Int) *big.Int {
+func hashChain4(t *testing.T, in []*big.Int) *big.Int {
 	t.Helper()
-	h, err := protocol.HashChain(in)
+	h, err := protocol.HashChain4(in)
 	if err != nil {
 		t.Fatal(err)
 	}

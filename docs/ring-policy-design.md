@@ -167,7 +167,7 @@ policy_hash = chain(POLICY_TABLE_DOMAIN, POLICY_VERSION,
                     window_slots, (asset, cap, cosign_above) ...)
 ```
 
-`POLICY_VERSION` is 6 and moves with any change of the preimage.
+`POLICY_VERSION` is 7 and moves with any change of the preimage.
 
 `chain` is the left fold `acc = Poseidon(acc, next)`. All eight slots enter
 unconditionally, empty slots as zeros. Hashing only referenced slots would
@@ -244,6 +244,11 @@ entries_tree_id, ring_id, namespace_owner_hash,
 window_index, approval_required
 ```
 
+Windowed member transfers append `head_old_root, head_new_root`, making
+eighteen elements. The program reads the old root from the ring's shared
+head-map account and commits the new root atomically with the SPP transfer.
+That path selects `CompressedPolicyCircuit`, never the ordinary policy key.
+
 The program recomputes this chain from accounts it trusts and runs one
 Groth16 verification. Policy enforcement costs no second proof, and a
 wallet cannot satisfy the audit statement while skipping the policy
@@ -252,8 +257,9 @@ the range checker the audit block instantiates, a shape the on-chain
 verifier requires.
 
 A ring chooses its tier at `create_config`. A ring with a `[policy]` table is
-a policy ring and proves the sixteen-element statement above, an empty table
-included. A ring without one is audit-only and proves the eight-element prefix
+a policy ring, including an empty table. Its committed window setting selects
+the sixteen- or eighteen-element member statement. A ring without a policy is
+audit-only and proves the eight-element prefix
 against a lighter circuit and verifying key.
 The tier is the config `has_policy` flag, pinned at `create_config` and
 immutable, so a policy ring cannot present the audit statement to skip its rules.
@@ -368,7 +374,8 @@ root would make every transfer race the forester's rotations instead.
 6. It proves the ring statement and the SPP transfer, one request each,
    carrying audit and policy.
 7. It sends transact. The instruction carries the proof and two root
-   indices, no member, no list, no answer.
+   indices, no list answers. Windowed transfers also carry a shared-root
+   transition and publish the successor spend record described below.
 
 ## Co-signing, delegation and velocity
 
@@ -401,9 +408,14 @@ circuit.
 authority sets once and no instruction replaces. The policy statement binds
 the same `private_tx_hash` preimage that rail builds, input chain, output
 chain, address chain, external data hash and the derived blinding
-(`authority_rail_test.go`). A delegate move on a policy ring therefore
-proves the full policy statement with the member's identity as the screened
-sender, the delegate's key never enters the openings. The rail requires
+(`authority_rail_test.go`). A delegate move on a policy ring proves audit,
+list rules and ordinary amount guards through
+`CustomRingDelegatePolicyCircuit`. The inputs' owners are the screened
+senders, not the delegate. The key exempts delegation from
+velocity caps, counters and velocity-derived approval. The ordinary
+transfer-scoped co-signer still applies. A delegate does not register a
+spend record or advance the head map. Its outputs stay in the entries tree
+on a windowed ring. The rail requires
 every UTXO to carry the ring id, and entries hash with the zero ring id, so
 a delegate cannot consume or create an entry.
 
@@ -438,6 +450,56 @@ to twice the cap. Windows are indexed by slot and reset the counters, a
 sliding window would need spend history. A row with no window keeps no
 record, the circuit caps each transfer's `outflow_m` on its own and binds
 `window_index` to zero.
+
+### Compressed history, not one PDA per member
+
+The SPP state tree holds the spend record. A separate indexed head map
+authenticates which record is current. Its leaves are
+`Poseidon(member, next_member, record_nullifier)`, with a forty-level path.
+One ring-owned `HeadMapRoot` PDA at `[b"headmap"]` stores the root, append
+cursor and discriminator/bump in 42 bytes for the whole ring. No member head
+PDA is created. Photon stores the leaves, Merkle nodes and record origins.
+
+Registration proves the member absent between two ordered members, inserts
+its genesis nullifier and updates the predecessor link. The program binds
+that proof to the zero-counter record it creates through SPP. Both updates
+land or neither does. Registration uses a dedicated key.
+
+A transfer proves membership of the predecessor record's nullifier at the
+exact on-chain head root, then replaces only that leaf's nullifier with the
+successor's. The policy constraints prove the counter transition. SPP
+proves the record and money inputs are spendable. The program compares the
+old root, verifies the ring proof, updates the root and calls SPP. A
+failed CPI rolls back everything. The head map accepts only its current
+root. Two transfers built on the same root cannot both commit.
+
+Photon replays confirmed ring invocations into a durable projection and
+checks its root against the account. Requests name the expected root and
+cursor. Behind, forked or mismatched state returns a typed error, never a
+lineage-walk fallback. A client independently checks the returned Merkle
+path and re-hashes the published record before asking the prover.
+
+Registration publishes its record opening as plaintext output data. The
+transfer's successor is a standard SPP confidential output exposing
+the namespace owner tag SPP requires for a default-ring output. A separate
+message tagged `SHA256("zolana:spend-record:v1" || namespace)` carries the
+117-byte record opening. The ring program requires exactly one such message
+and checks that it reconstructs the last output commitment. Readers use
+that opening, not the encrypted zero-amount carrier, to decode the record.
+
+The counter envelope is encrypted to the transaction viewing key. The
+sender derives the key and the auditor recovers it. The record's member,
+window, version, blinding and salted counters commitment remain public.
+The pseudonymous spend history remains visible. Transaction data and Photon
+state grow with activity. The on-chain head account stays constant-size.
+Its writable root serializes
+windowed member transfers within a ring.
+
+Rust `RingTransferSubmission` and TS `RingTransactionSubmission` preserve
+the selected inputs and payment intent across at most three attempts.
+Only a definite stale-head failure or a failed proof across a window
+boundary permits rebuilding. An unknown broadcast outcome retains the
+original signature for status checks. It never sends a replacement.
 
 ## Rejected designs
 
@@ -488,11 +550,17 @@ makes reuse inexpressible.
 - One entries tree per ring. The circuit binds one root pair, the entries
   tree's. Entries and curator entries share that one tree instance, pinned
   at `create_policy` and unrecoverable without a fresh deployment. The
-  ring's spendable UTXOs are not confined to it and may live in any
-  registered tree.
+  ring's spendable UTXOs may live in any registered tree unless windowed
+  velocity is enabled. Windowed rings confine money and records to their
+  entries tree, including deposit and merge destinations.
 - The shape is fixed at five inputs, four outputs, ten answers, sixteen
   rules, eight sources, eight inline asset-limit pairs, eight velocity rows. The answers array is the
-  per-transfer screening budget, larger transfers must split.
+  per-transfer screening budget. A windowed transfer reserves one input
+  and one output for its spend record, leaving four money inputs and three
+  outputs. Merges consolidate notes without spending that record.
+- Windowed velocity requires one sender identity. It counts payments,
+  withdrawals and exits, but not change inside the ring. It is per identity,
+  not per person. A trusted delegate is deliberately exempt.
 - The builder rejects any table carrying `ExitDestination`.
 - A rule-less ring still resolves and windows roots. Its clients fetch
   fresh indices.

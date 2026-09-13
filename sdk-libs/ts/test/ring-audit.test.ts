@@ -16,8 +16,14 @@ import {
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
 import { auditRingTransaction } from "../src/ring/audit.js";
-import { encodeSpendRecord, memberOfIdentity } from "../src/ring/policy.js";
-import { AssetRegistry } from "../src/transaction/asset.js";
+import { encodeSpendRecord, memberOfIdentity, spendRecordMessageTag } from "../src/ring/policy.js";
+import { AssetRegistry, SOL_ASSET_ID } from "../src/transaction/asset.js";
+import { Data } from "../src/transaction/data.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encryptConfidential,
+} from "../src/transaction/serialization/codecs.js";
 import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 
 function hex(value: string): Uint8Array {
@@ -174,14 +180,39 @@ describe("ring audit spend records", () => {
             tree: address("11111111111111111111111111111111"),
             leafIndex: 0n,
           },
-          payload: encodeSpendRecord(record),
+          payload: encodeOutputData(
+            EncryptedScheme.confidential,
+            encryptConfidential(
+              tx,
+              tx.publicKey(),
+              {
+                assetId: SOL_ASSET_ID,
+                amount: 0n,
+                blinding: record.blinding,
+                data: new Data(),
+              },
+              new Uint8Array(16) as Bytes16,
+              0,
+            ),
+            "encrypted",
+          ),
         },
       ],
-      messages: [message],
+      messages: [
+        {
+          viewTag: spendRecordMessageTag(new Uint8Array(32).fill(0x77) as Bytes32),
+          data: encodeSpendRecord(record),
+        },
+        message,
+      ],
       nullifiers: [],
       proofless: false,
     };
-    const audited = auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
+    const audited = auditRingTransaction({
+      auditor,
+      transaction,
+      assets: new AssetRegistry(),
+    });
     expect(audited.spendRecords).toHaveLength(1);
     expect(audited.spendRecords[0]?.record.member).toEqual(member);
     expect(audited.undecryptableSlots).toHaveLength(0);

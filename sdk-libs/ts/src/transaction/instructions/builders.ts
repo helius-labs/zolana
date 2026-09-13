@@ -1,4 +1,4 @@
-import type { Address, Bytes16, Bytes32 } from "../../interface/types.js";
+import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
 import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
@@ -8,7 +8,7 @@ import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js
 import { Data } from "../data.js";
 import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
 import { TransactionError } from "../error.js";
-import { checked, equal } from "../internal.js";
+import { checked, decodeAddress, equal } from "../internal.js";
 import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
 import { encodeSplitBundle, encryptSplit } from "../serialization/codecs.js";
 import {
@@ -24,7 +24,7 @@ import { type AssetRegistry } from "../asset.js";
 import {
   SppProofInputs,
   createExternalData,
-  inputTreeId,
+  singleInputTreeId,
   type InputUtxoContext,
 } from "./transact.js";
 
@@ -75,7 +75,7 @@ export class PreparedMerge {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
-    this.inputTreeId = inputTreeId(input.inputs);
+    this.inputTreeId = singleInputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
     this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
@@ -189,7 +189,7 @@ export class Merge {
         }
       });
       // Dummies are hashed under the input tree like every real input.
-      const treeId = inputTreeId(inputs);
+      const treeId = singleInputTreeId(inputs);
       const padded = [...inputs];
       while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, treeId));
       this.#prepared = new PreparedMerge({
@@ -497,9 +497,15 @@ export class PreparedSplit {
     }>,
   ): SppProofInputs {
     const tag = this.ownerViewTag();
+    // A split is self-owned throughout, so when the owner is the fee payer the
+    // tag is already account index 0 and costs 2 bytes instead of 33. At eight
+    // slots that is what keeps the transaction inside one legacy packet.
+    const ownerTag: OwnerTag = equal(tag, decodeAddress(this.payer))
+      ? { kind: "account", index: 0 }
+      : { kind: "inline", value: tag };
     const outputs = this.outputs.map((output, index) => ({
       utxoHash: output.hash(this.outputTreeId),
-      ownerTag: { kind: "inline" as const, value: tag },
+      ownerTag,
       ...(index === 0 ? { data: new Uint8Array(input.payload.data) } : {}),
     }));
     return new SppProofInputs({

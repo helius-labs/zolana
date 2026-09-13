@@ -81,7 +81,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
     let direct_root_after = rpc_state_root(&rpc, &tree)?;
     assert_ne!(direct_root_after, direct_root_before);
     let direct_view = single_deposit_view(&direct_tx.events)?;
-    assert_eq!(direct_root_after, indexer.root());
+    assert_eq!(direct_root_after, indexer.root(&tree));
     assert_wallet_discovers(
         &mut direct_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &direct_keypair),
@@ -178,7 +178,7 @@ fn deposit_sol_on_localnet_prints_signatures() -> TestResult {
             ))
         }
     };
-    assert_eq!(ring_root_after, indexer.root());
+    assert_eq!(ring_root_after, indexer.root(&tree));
     assert_wallet_discovers(
         &mut ring_recipient,
         &KeypairWalletAuthority::new(Pubkey::default(), &ring_keypair),

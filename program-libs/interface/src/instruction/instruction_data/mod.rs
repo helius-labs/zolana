@@ -12,7 +12,7 @@ pub mod set_tree_fees;
 pub mod transact;
 
 #[cfg(feature = "tree")]
-pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, CompressedProof};
+pub use batch_update_nullifier_tree::{BatchUpdateNullifierTreeData, NullifierTreeProof};
 #[cfg(feature = "tree")]
 pub use create_tree::CreateTreeData;
 pub use deposit::{
@@ -24,14 +24,15 @@ pub use deposit::{
 pub use merge_ring::{MergeRingIxData, MergeRingIxDataRef};
 pub use merge_transact::{
     MergeExternalDataHash, MergeProof, MergeProofRef, MergeTransactIxData, MergeTransactIxDataRef,
-    MERGE_INPUT_COUNT,
+    MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
 };
 pub use protocol_config::{CreateProtocolConfigData, PauseTreeData, UpdateProtocolConfigData};
 pub use ring_config::{CreateRingConfigData, SetRingActivationData, UpdateRingConfigData};
 #[cfg(feature = "tree")]
 pub use set_tree_fees::SetTreeFeesData;
 pub use transact::{
-    fetch_tag, validate_interface_transfers, CircuitId, InputUtxo, InterfaceTransfer, MessageData,
-    OutputDataRef, OutputUtxo, OwnerTag, ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData,
-    TransactIxDataRef, TransactOutput, TransactOutputRef, TransactProof,
+    fetch_tag, validate_input_tree_contexts, validate_interface_transfers, CircuitId,
+    ExternalDataPreimage, InputUtxo, InterfaceTransfer, MessageData, OutputDataRef, OutputUtxo,
+    OwnerTag, ResolvedOutput, TransactIxData, TransactIxDataRef, TransactOutput, TransactOutputRef,
+    TransactProof, TreeContext,
 };

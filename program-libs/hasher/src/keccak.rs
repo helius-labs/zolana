@@ -42,7 +42,7 @@ impl Hasher for Keccak {
         }
     }
 
-    fn zero_bytes() -> ZeroBytes {
-        ZERO_BYTES
+    fn zero_bytes() -> &'static ZeroBytes {
+        &ZERO_BYTES
     }
 }

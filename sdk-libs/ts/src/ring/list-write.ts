@@ -35,7 +35,7 @@ export interface RingListWriteTransactionParams {
   readonly member: Member;
   readonly state: EntryState;
   readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  readonly priorityFeeLamports?: bigint;
 }
 
 /** Mirrors Rust `EntryOutcome`, a write the entry already carries makes no transaction. */
@@ -124,9 +124,9 @@ export async function buildRingListWriteTransaction(
         lifetime,
         instructions: [instruction],
         computeUnitLimit: params.computeUnitLimit ?? RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
-        ...(params.computeUnitPriceMicroLamports === undefined
+        ...(params.priorityFeeLamports === undefined
           ? {}
-          : { computeUnitPriceMicroLamports: params.computeUnitPriceMicroLamports }),
+          : { priorityFeeLamports: params.priorityFeeLamports }),
       }),
       entry,
       change: live === undefined ? "claimed" : "moved",

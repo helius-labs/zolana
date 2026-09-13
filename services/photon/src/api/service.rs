@@ -155,6 +155,20 @@ impl PhotonApi {
         get_nullifier_queue_elements(self.db_conn.as_ref(), request).await
     }
 
+    pub async fn get_ring_head_register_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, PhotonApiError> {
+        crate::head_map::api::register(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    pub async fn get_ring_head_transfer_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, PhotonApiError> {
+        crate::head_map::api::transfer(&self.db_conn, &self.rpc_client, request).await
+    }
+
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
         vec![
             method_api_spec::<GetEncryptedUtxosByTags>(),
@@ -164,6 +178,8 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
+            method_api_spec::<zolana_indexer_api::method::GetRingHeadRegisterProof>(),
+            method_api_spec::<zolana_indexer_api::method::GetRingHeadTransferProof>(),
         ]
     }
 }

@@ -10,6 +10,37 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
+export interface RingHeadProofRequest {
+  readonly ringProgramId: Address;
+  readonly member: Hash;
+  readonly expectedRoot: Hash;
+  readonly expectedNextIndex: bigint;
+}
+
+export interface RingHeadProofContext {
+  readonly context: IndexerContext;
+  readonly root: Hash;
+  readonly nextIndex: bigint;
+  readonly member: Hash;
+}
+
+export interface RingHeadRegisterProof extends RingHeadProofContext {
+  readonly lowMember: Hash;
+  readonly lowNext: Hash;
+  readonly lowNullifier: Hash;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Hash[];
+  readonly newProof: readonly Hash[];
+}
+
+export interface RingHeadTransferProof extends RingHeadProofContext {
+  readonly next: Hash;
+  readonly nullifier: Hash;
+  readonly index: bigint;
+  readonly proof: readonly Hash[];
+  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+}
+
 export interface GetRingsByTagsRequest {
   readonly tags: readonly Hash[];
   readonly cursor?: Base64String;

@@ -26,6 +26,7 @@ use crate::{
 };
 
 pub(crate) struct VelocityFacts {
+    pub head: crate::head_map::HeadWitness,
     pub namespace: Address,
     pub owner: ListNamespace,
     pub entries_tree_id: u16,
@@ -50,6 +51,7 @@ impl VelocityContext<'_> {
     pub(crate) fn facts(
         self,
         live: LiveSpendRecord,
+        head: crate::head_map::HeadWitness,
         slot: u64,
     ) -> Result<VelocityFacts, TransferError> {
         let window_index = slot / self.window_slots;
@@ -60,6 +62,7 @@ impl VelocityContext<'_> {
             self.sender,
         )?;
         Ok(VelocityFacts {
+            head,
             namespace: self.namespace,
             owner: self.owner,
             entries_tree_id: self.entries_tree_id,
@@ -79,7 +82,10 @@ impl VelocityFacts {
         namespace: &[u8; 32],
         sender: &(dyn ViewingKeyTrait + Send + Sync),
     ) -> Result<Option<SpendCounters>, TransferError> {
-        if live.record.window != window_index {
+        if live.record.window > window_index {
+            return Err(TransferError::SpendRecordFromFutureWindow);
+        }
+        if live.record.window < window_index {
             return Ok(None);
         }
         let counters = if live.record.version == 0 {
@@ -116,7 +122,7 @@ pub(crate) struct Outflows<'a> {
 impl Outflows<'_> {
     /// Inputs of the mint less the sender's change inside the ring, as the circuit sums them.
     fn outflow(&self, asset: &[u8; 32]) -> Result<u64, TransferError> {
-        let mut inflow: u64 = 0;
+        let mut inflow: u128 = 0;
         for input in self.inputs.iter().filter(|input| !input.is_dummy()) {
             if Member::asset(&input.utxo.asset)
                 .map_err(|_| TransferError::PolicyHashing)?
@@ -124,11 +130,11 @@ impl Outflows<'_> {
                 == asset
             {
                 inflow = inflow
-                    .checked_add(input.utxo.amount)
+                    .checked_add(u128::from(input.utxo.amount))
                     .ok_or(TransferError::VelocityOverflow)?;
             }
         }
-        let mut change: u64 = 0;
+        let mut change: u128 = 0;
         for output in self.outputs {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
@@ -146,12 +152,13 @@ impl Outflows<'_> {
                 && output.ring_program_id == Some(self.ring)
             {
                 change = change
-                    .checked_add(output.amount)
+                    .checked_add(u128::from(output.amount))
                     .ok_or(TransferError::VelocityOverflow)?;
             }
         }
         inflow
             .checked_sub(change)
+            .and_then(|outflow| u64::try_from(outflow).ok())
             .ok_or(TransferError::VelocityOverflow)
     }
 }
@@ -216,10 +223,10 @@ fn canonical_salt() -> [u8; 32] {
 }
 
 pub(crate) struct VelocityPlan {
+    pub head_transition: custom_ring_interface::HeadMapTransition,
     pub input: SppProofInputUtxo,
     pub output: SppProofOutputUtxo,
-    /// The plaintext record slot `finalize` publishes at the output's position.
-    pub record_slot: MessageData,
+    pub record_message: MessageData,
     pub counters_message: MessageData,
     pub witness: VelocityWitness,
     pub shape: Shape,
@@ -282,6 +289,20 @@ impl VelocityPlanInput<'_> {
         let next_data_hash = successor
             .data_hash(&address)
             .map_err(|_| TransferError::PolicyHashing)?;
+        let successor_hash = successor
+            .utxo_hash(&facts.owner, &address, facts.entries_tree_id)
+            .map_err(|_| TransferError::PolicyHashing)?;
+        let successor_nullifier =
+            zolana_ring_policy::entry_nullifier(&successor_hash, &successor.blinding)
+                .map_err(|_| TransferError::PolicyHashing)?;
+        let head_transition = facts
+            .head
+            .transition(
+                spent.member.as_bytes(),
+                &facts.live.nullifier,
+                &successor_nullifier,
+            )
+            .map_err(crate::witness::list_entry)?;
         let namespace_owner = PublicKey::from_pda(&facts.namespace);
         let zero_nullifier = NullifierKey::from_secret([0u8; 31]);
         let input = SppProofInputUtxo {
@@ -308,7 +329,7 @@ impl VelocityPlanInput<'_> {
             owner_address: Some(ShieldedAddress::for_pda(
                 &facts.namespace,
                 zero_nullifier.pubkey()?,
-                ViewingKey::new().pubkey(),
+                self.tx_viewing_key.pubkey(),
             )),
             owner_tag: Some(facts.namespace.to_bytes()),
             data: Data::default(),
@@ -340,10 +361,12 @@ impl VelocityPlanInput<'_> {
             },
         };
         Ok(VelocityPlan {
+            head_transition,
             input,
             output,
-            record_slot: MessageData {
-                view_tag: facts.namespace.to_bytes(),
+            record_message: MessageData {
+                view_tag: zolana_ring_policy::spend_record_message_tag(facts.namespace.as_array())
+                    .map_err(|_| TransferError::PolicyHashing)?,
                 data: successor.to_output_data().to_vec(),
             },
             counters_message: counters_message(facts.namespace.to_bytes(), counters_body),
@@ -370,6 +393,40 @@ pub(crate) fn record_shape(money: Shape) -> Result<Shape, TransferError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_older_record_can_skip_counter_recovery() {
+        let sender = zolana_keypair::ShieldedKeypair::new_ed25519().unwrap();
+        let live = LiveSpendRecord {
+            record: SpendRecord {
+                member: Member::owner_tag(&[1; 32]).unwrap(),
+                version: 2,
+                window: 8,
+                blinding: [0; 32],
+                counters_commitment: [0; 32],
+            },
+            utxo_hash: [0; 32],
+            nullifier: [0; 32],
+            origin: crate::RecordOrigin {
+                first_nullifier: [0; 32],
+                tx_viewing_pk: None,
+                salt: None,
+                messages: Vec::new(),
+            },
+        };
+        assert!(matches!(
+            VelocityFacts::recover_counters(&live, 7, &[0; 32], &sender),
+            Err(TransferError::SpendRecordFromFutureWindow)
+        ));
+        assert!(matches!(
+            VelocityFacts::recover_counters(&live, 8, &[0; 32], &sender),
+            Err(TransferError::SpendCountersUnknown)
+        ));
+        assert_eq!(
+            VelocityFacts::recover_counters(&live, 9, &[0; 32], &sender).unwrap(),
+            None
+        );
+    }
 
     fn mint() -> Address {
         Address::new_from_array([9u8; 32])

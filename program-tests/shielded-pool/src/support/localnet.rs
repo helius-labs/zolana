@@ -4,18 +4,14 @@ use anyhow::{anyhow, Result};
 use solana_address::Address;
 use solana_instruction::Instruction;
 use solana_keypair::{read_keypair_file, Keypair};
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use zolana_client::{PublicInputs, PublicTransfers, Rpc, SolanaRpc, TransferInput, TransferOutput};
 use zolana_event_parser::{indexed_events_from_instruction_groups, instruction_may_emit_events};
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{
-            InterfaceTransfer, ResolvedInterfaceTransfer, TransactIxData,
-        },
+        instruction_data::transact::{InterfaceTransfer, TransactIxData},
         CreateProtocolConfig,
     },
     state::{default_tree_fees, nullifier_tree_params},
@@ -23,14 +19,15 @@ use zolana_interface::{
     INPUT_TREES,
 };
 use zolana_program_test::{
-    create_tree_instructions, index_events, parsed_instruction_from_compiled, IndexedEvent,
-    IndexedTransaction, TestIndexer,
+    create_tree_instructions, index_events, IndexedEvent, IndexedTransaction, ParsedInstruction,
+    TestIndexer,
 };
+pub use zolana_test_utils::localnet::send_transaction;
 use zolana_test_utils::transact::{
-    build_transfer_prover_inputs, derive_test_transfer_output_blindings, eddsa_input_utxo,
-    external_data_hash, fe, inline_outputs, new_transact_ix_data, output_owner_pk_hashes,
+    build_transfer_prover_inputs, derive_test_transfer_output_blindings, external_data_hash,
+    inline_outputs, input_utxo, new_transact_ix_data, output_owner_pk_hashes,
     prove_and_verify_transfer, set_output_owner_tags, sol_public_slots, test_private_tx_blinding,
-    TransferProverInputsArgs, TEST_BLINDING_SEED,
+    transact_input_flags, LegAccounts, TransferProverInputsArgs, TEST_BLINDING_SEED,
 };
 use zolana_transaction::instructions::transact::PrivateTxHash;
 use zolana_tree::TreeAccount;
@@ -217,29 +214,14 @@ pub fn send_indexed(
     payer: &Pubkey,
     signers: &[&Keypair],
 ) -> Result<IndexedTransaction> {
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    let message = Message::new(instructions, Some(payer));
-    let produces_events = produces_shielded_events(program_id, &message);
-    let transaction = Transaction::new(signers, message, blockhash);
-    let signature = rpc.send_transaction(&transaction)?;
+    let produces_events = produces_shielded_events(program_id, instructions);
+    let signature = send_transaction(rpc, instructions, payer, signers)?;
     let events = if produces_events {
         fetch_indexed_events(rpc, indexer, program_id, &signature)?
     } else {
         Vec::new()
     };
     Ok(IndexedTransaction { signature, events })
-}
-
-pub fn send_transaction(
-    rpc: &mut SolanaRpc,
-    instructions: &[Instruction],
-    payer: &Pubkey,
-    signers: &[&Keypair],
-) -> Result<Signature> {
-    let (blockhash, _) = rpc.get_latest_blockhash()?;
-    let message = Message::new(instructions, Some(payer));
-    let transaction = Transaction::new(signers, message, blockhash);
-    Ok(rpc.send_transaction(&transaction)?)
 }
 
 fn fetch_indexed_events(
@@ -250,15 +232,29 @@ fn fetch_indexed_events(
 ) -> Result<Vec<IndexedEvent>> {
     let confirmed = rpc.fetch_confirmed_instruction_groups(signature)?;
     let events = indexed_events_from_instruction_groups(program_id, &confirmed.groups);
-    index_events(indexer, &events, *signature)?;
+    index_events(indexer, &events, *signature, |tree| rpc.get_account(tree))?;
     Ok(events)
 }
 
-/// Whether a message contains a shielded-pool instruction that can emit events.
-pub fn produces_shielded_events(program_id: Pubkey, message: &Message) -> bool {
-    message.instructions.iter().any(|instruction| {
-        parsed_instruction_from_compiled(&message.account_keys, instruction, 1)
-            .is_ok_and(|instruction| instruction_may_emit_events(program_id, &instruction))
+/// Whether a transaction carries a shielded-pool instruction that can emit events.
+///
+/// Every instruction handed to a sender is top-level, so the stack height the
+/// parser needs is always 1.
+pub fn produces_shielded_events(program_id: Pubkey, instructions: &[Instruction]) -> bool {
+    instructions.iter().any(|instruction| {
+        instruction_may_emit_events(
+            program_id,
+            &ParsedInstruction::new(
+                instruction.program_id,
+                instruction
+                    .accounts
+                    .iter()
+                    .map(|account| account.pubkey)
+                    .collect(),
+                instruction.data.clone(),
+                1,
+            ),
+        )
     })
 }
 
@@ -302,8 +298,9 @@ pub struct SolTransferWitnessArgs {
     pub output_nullifier_pks: [[u8; 32]; 3],
     /// Declared interface transfers (empty for a pure shielded transfer).
     pub interface_transfers: Vec<InterfaceTransfer>,
-    /// Resolved interface transfers bound into the external-data hash.
-    pub resolved_transfers: Vec<ResolvedInterfaceTransfer>,
+    /// Settlement account pairs bound into the external-data hash, one per
+    /// interface transfer.
+    pub resolved_transfers: Vec<LegAccounts>,
     /// Private-tx-hash input leaves (zero-padded to the circuit shape). The
     /// output leaves are derived: a real output contributes its hash, a dummy
     /// contributes zero.
@@ -367,8 +364,9 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     let mut ix_data = new_transact_ix_data(
         nullifiers
             .iter()
-            .map(|nullifier| eddsa_input_utxo(*nullifier, args.root_index))
+            .map(|nullifier| input_utxo(*nullifier))
             .collect(),
+        args.root_index,
         args.interface_transfers,
         inline_outputs(&output_hashes, &args.view_tags),
     );
@@ -390,6 +388,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
     .hash()?;
     let (public_slot_assets, public_slot_amounts) = sol_public_slots(args.public_sol_amount);
     let signer_hashes = [args.payer_pubkey_hash, [0u8; 32], [0u8; 32]];
+    let input_flags = transact_input_flags(&args.spend_inputs);
     let public_input = PublicInputs {
         nullifiers: &nullifiers,
         output_hashes: &output_hashes,
@@ -402,7 +401,7 @@ pub fn build_sol_transfer_witness(mut args: SolTransferWitnessArgs) -> Result<So
             amounts: public_slot_amounts,
         },
         ring_program_id: &[0u8; 32],
-        allow_dummy_inputs: &fe(1),
+        input_flags: &input_flags,
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&owner_pk_hashes),
     }
@@ -441,77 +440,56 @@ mod tests {
         let shielded_pool = Pubkey::new_unique();
         let other_program = Pubkey::new_unique();
 
-        let unrelated = Message::new(
-            &[Instruction {
-                program_id: other_program,
-                accounts: Vec::new(),
-                data: vec![tag::DEPOSIT],
-            }],
-            None,
-        );
+        let unrelated = [Instruction {
+            program_id: other_program,
+            accounts: Vec::new(),
+            data: vec![tag::DEPOSIT],
+        }];
         assert!(!produces_shielded_events(shielded_pool, &unrelated));
 
-        let direct = Message::new(
-            &[Instruction {
-                program_id: shielded_pool,
-                accounts: Vec::new(),
-                data: vec![tag::DEPOSIT],
-            }],
-            None,
-        );
+        let direct = [Instruction {
+            program_id: shielded_pool,
+            accounts: Vec::new(),
+            data: vec![tag::DEPOSIT],
+        }];
         assert!(produces_shielded_events(shielded_pool, &direct));
 
-        let ring_wrapper = Message::new(
-            &[Instruction {
-                program_id: other_program,
-                accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::RING_DEPOSIT],
-            }],
-            None,
-        );
+        let ring_wrapper = [Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::RING_DEPOSIT],
+        }];
         assert!(produces_shielded_events(shielded_pool, &ring_wrapper));
 
-        let direct_transact = Message::new(
-            &[Instruction {
-                program_id: shielded_pool,
-                accounts: Vec::new(),
-                data: vec![tag::TRANSACT],
-            }],
-            None,
-        );
+        let direct_transact = [Instruction {
+            program_id: shielded_pool,
+            accounts: Vec::new(),
+            data: vec![tag::TRANSACT],
+        }];
         assert!(produces_shielded_events(shielded_pool, &direct_transact));
 
-        let ring_transact_wrapper = Message::new(
-            &[Instruction {
-                program_id: other_program,
-                accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::RING_TRANSACT],
-            }],
-            None,
-        );
+        let ring_transact_wrapper = [Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::RING_TRANSACT],
+        }];
         assert!(produces_shielded_events(
             shielded_pool,
             &ring_transact_wrapper
         ));
 
-        let ring_merge_wrapper = Message::new(
-            &[Instruction {
-                program_id: other_program,
-                accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::RING_MERGE_TRANSACT],
-            }],
-            None,
-        );
+        let ring_merge_wrapper = [Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::RING_MERGE_TRANSACT],
+        }];
         assert!(produces_shielded_events(shielded_pool, &ring_merge_wrapper));
 
-        let false_positive = Message::new(
-            &[Instruction {
-                program_id: other_program,
-                accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
-                data: vec![tag::TRANSACT],
-            }],
-            None,
-        );
+        let false_positive = [Instruction {
+            program_id: other_program,
+            accounts: vec![AccountMeta::new_readonly(shielded_pool, false)],
+            data: vec![tag::TRANSACT],
+        }];
         assert!(!produces_shielded_events(shielded_pool, &false_positive));
     }
 }

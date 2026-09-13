@@ -354,7 +354,7 @@ fn phase_shielded_transfer(
 
     let transfer_ix = Transact {
         payer: env.payer.pubkey(),
-        input_tree: env.tree_pubkey,
+        input_trees: vec![env.tree_pubkey],
         output_tree: env.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),
@@ -543,10 +543,7 @@ fn phase_unshield(
         interface_transfers: vec![InterfaceTransfer::SolWithdrawal {
             amount: TRANSFER_AMOUNT,
         }],
-        resolved_transfers: vec![ResolvedInterfaceTransfer::SolWithdrawal {
-            amount: TRANSFER_AMOUNT,
-            recipient: public_recipient.to_bytes(),
-        }],
+        resolved_transfers: vec![sol_leg(&public_recipient)],
         private_tx_inputs: [recipient_hash, zero],
         public_sol_amount: public_sol_field(Some(-(TRANSFER_AMOUNT as i64))),
         payer_pubkey_hash: solana_owner_identity(&recipient_bytes)?,
@@ -555,7 +552,7 @@ fn phase_unshield(
 
     let withdraw_ix = Transact {
         payer: env.recipient_owner.pubkey(),
-        input_tree: env.tree_pubkey,
+        input_trees: vec![env.tree_pubkey],
         output_tree: env.tree_pubkey,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::Sol(

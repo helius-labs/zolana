@@ -124,7 +124,7 @@ impl Hasher for Poseidon {
         }
     }
 
-    fn zero_bytes() -> ZeroBytes {
-        ZERO_BYTES
+    fn zero_bytes() -> &'static ZeroBytes {
+        &ZERO_BYTES
     }
 }

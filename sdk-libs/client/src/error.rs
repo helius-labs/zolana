@@ -1,12 +1,20 @@
 use solana_pubkey::Pubkey;
 use thiserror::Error;
 use zolana_hasher::HasherError;
-use zolana_interface::instruction::DepositBuildError;
+use zolana_interface::{error::ShieldedPoolError, instruction::DepositBuildError};
 use zolana_keypair::KeypairError;
 use zolana_transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum ClientError {
+    #[error("the ring head-map indexer is catching up or recovering")]
+    RingHeadMapOutOfSync,
+    #[error("the ring head-map root has changed")]
+    RingHeadRootChanged,
+    #[error("the member has no compressed spend record")]
+    RingHeadMemberUnregistered,
+    #[error("the member already has a compressed spend record")]
+    RingHeadMemberAlreadyRegistered,
     #[error("deposit builder error: {0}")]
     DepositBuild(#[from] DepositBuildError),
 
@@ -18,6 +26,9 @@ pub enum ClientError {
 
     #[error("hasher error: {0}")]
     Hasher(#[from] HasherError),
+
+    #[error("shielded pool error: {0}")]
+    ShieldedPool(#[from] ShieldedPoolError),
 
     /// A service URL that would carry shielded material in plaintext.
     ///
@@ -60,6 +71,9 @@ pub enum ClientError {
 
     #[error("native Solana transaction signing failed: {0}")]
     SolanaTransactionSigning(String),
+
+    #[error("compiling the v1 transaction message failed: {0}")]
+    TransactionCompile(String),
 
     #[error(
         "tree is required: wallet holds unspent asset {asset:?} across {tree_count} pool trees"
@@ -287,8 +301,14 @@ pub enum ClientError {
     #[error("input non-inclusion proofs disagree on the nullifier tree root or root index")]
     NullifierRootMismatch,
 
-    #[error("inputs span {got} trees, the program resolves roots from one input tree")]
-    MultipleInputTreesUnsupported { got: usize },
+    #[error("inputs span {got} trees, a proof resolves roots from at most {max}")]
+    TooManyInputTrees { got: usize, max: usize },
+
+    #[error("two input trees share the raw pool tree id {tree_id}")]
+    DuplicateInputTreeId { tree_id: u16 },
+
+    #[error("an input is hashed under pool tree id {tree_id}, which no input tree of this proof resolves roots for")]
+    InputTreeUnresolved { tree_id: u16 },
 
     #[error(
         "a proof cannot spend both a default-ring and a ring-bound P256 UTXO: the ring spend would name the shared owner"

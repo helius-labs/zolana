@@ -61,6 +61,7 @@
     "lint": "oxlint --deny-warnings src test api/test transaction/test wallet/test scripts",
     "test": "vitest run --exclude \"test/e2e/**\"",
     "test:e2e": "vitest run --no-file-parallelism test/e2e",
+    "test:ring-controls:live": "node scripts/run-ring-controls-live.mjs",
     "check": "npm run format:check && npm run lint && npm run changelog:check && npm run typecheck && npm run test && npm run build && npm run check:dist",
     "loadtest": "npm run build && node bench/loadtest.ts",
     "check:dist": "tsc -p tsconfig.dist.json"
@@ -70,8 +71,6 @@
     "@noble/ciphers": "^2.2.0",
     "@noble/curves": "^2.2.0",
     "@noble/hashes": "^2.2.0",
-    "@solana-program/address-lookup-table": "^0.14.1",
-    "@solana-program/compute-budget": "^0.18.1",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
     "bn.js": "^5.2.5"

@@ -13,23 +13,24 @@ import (
 type externalDataPreimage struct {
 	InstructionDiscriminator uint8
 	ExpiryUnixTs             uint64
+	TxViewingPk              [33]byte
+	Salt                     [16]byte
 	InterfaceTransfers       []resolvedInterfaceTransfer
 	DataHashPresent          bool
 	DataHash                 [32]byte
 	RingDataHashPresent      bool
 	RingDataHash             [32]byte
-	TxViewingPk              [33]byte
-	Salt                     [16]byte
 	Outputs                  []resolvedOutput
 	Messages                 []resolvedMessage
 }
 
 type resolvedInterfaceTransfer struct {
-	isSpl       bool
-	isDeposit   bool
-	amount      uint64
-	userAccount [32]byte
-	poolAccount [32]byte
+	isSpl            bool
+	isDeposit        bool
+	amount           uint64
+	splInterfaceBump uint8
+	asset            [32]byte
+	userAccount      [32]byte
 }
 
 type resolvedOutput struct {
@@ -42,6 +43,31 @@ type resolvedOutput struct {
 type resolvedMessage struct {
 	viewTag [32]byte
 	data    []byte
+}
+
+const (
+	solDepositVariant    byte = 0
+	solWithdrawalVariant byte = 1
+	splDepositVariant    byte = 2
+	splWithdrawalVariant byte = 3
+
+	inlineOwnerTagVariant byte = 0
+
+	optionAbsent  byte = 0
+	optionPresent byte = 1
+)
+
+func (transfer resolvedInterfaceTransfer) variant() byte {
+	switch {
+	case transfer.isSpl && transfer.isDeposit:
+		return splDepositVariant
+	case transfer.isSpl:
+		return splWithdrawalVariant
+	case transfer.isDeposit:
+		return solDepositVariant
+	default:
+		return solWithdrawalVariant
+	}
 }
 
 type externalValues struct {
@@ -129,19 +155,15 @@ func buildExternalData(tx ProofTransactionRequest, outputHashes []*big.Int) (ext
 		hash: externalDataFieldHash(externalDataPreimage{
 			InstructionDiscriminator: tx.InstructionDiscriminator,
 			ExpiryUnixTs:             tx.ExpiryUnixTs,
+			TxViewingPk:              txViewingPk,
+			Salt:                     salt,
 			InterfaceTransfers:       interfaceTransfers,
-			// This harness only accepts bare default-ring transfers, so both
-			// transaction-level optional hashes are canonically None. The
-			// parsed zero values above are their circuit field values, not
-			// present Option values.
-			DataHashPresent:     false,
-			DataHash:            dataHashBytes,
-			RingDataHashPresent: false,
-			RingDataHash:        ringDataHashBytes,
-			TxViewingPk:         txViewingPk,
-			Salt:                salt,
-			Outputs:             outputs,
-			Messages:            nil,
+			DataHashPresent:          false,
+			DataHash:                 dataHashBytes,
+			RingDataHashPresent:      false,
+			RingDataHash:             ringDataHashBytes,
+			Outputs:                  outputs,
+			Messages:                 nil,
 		}),
 		publicSlots: slots,
 		// The custom-ring circuits assert the public ring id is
@@ -180,10 +202,6 @@ func resolveOutputs(outputHashes []*big.Int, ownerTag [32]byte, encryptedUtxos [
 			ownerTag: ownerTag,
 		}
 		if position == 0 {
-			// The current request format carries one sender ciphertext bundle.
-			// It is attached to the first output exactly like Some(data) in the
-			// Rust TransactOutput; every following output carries None. hasData
-			// is separate because Some(empty) must not collide with None.
 			output.hasData = true
 			output.data = encryptedUtxos
 		}
@@ -199,93 +217,87 @@ func resolveInterfaceTransfers(transfers []InterfaceTransferRequest) ([]resolved
 		if err != nil {
 			return nil, fmt.Errorf("interface_transfers[%d].user_account: %w", position, err)
 		}
-		interfaceTransfer := resolvedInterfaceTransfer{
-			isSpl:       transfer.IsSpl,
-			isDeposit:   transfer.IsDeposit,
-			amount:      transfer.Amount,
-			userAccount: userAccount,
+		asset, err := interfaceTransferAssetAddress(transfer, position)
+		if err != nil {
+			return nil, err
 		}
-		if transfer.IsSpl {
-			poolAccount, err := parse.Hex32(transfer.PoolAccount)
-			if err != nil {
-				return nil, fmt.Errorf("interface_transfers[%d].pool_account: %w", position, err)
-			}
-			interfaceTransfer.poolAccount = poolAccount
-		} else if transfer.PoolAccount != "" {
-			return nil, fmt.Errorf("interface_transfers[%d].pool_account must be empty for SOL", position)
+		if !transfer.IsSpl && transfer.SplInterfaceBump != 0 {
+			return nil, fmt.Errorf("interface_transfers[%d].spl_interface_bump must be zero for SOL", position)
 		}
-		resolved = append(resolved, interfaceTransfer)
+		resolved = append(resolved, resolvedInterfaceTransfer{
+			isSpl:            transfer.IsSpl,
+			isDeposit:        transfer.IsDeposit,
+			amount:           transfer.Amount,
+			splInterfaceBump: transfer.SplInterfaceBump,
+			asset:            asset,
+			userAccount:      userAccount,
+		})
 	}
 	return resolved, nil
 }
 
-func externalDataFieldHash(data externalDataPreimage) *big.Int {
-	var expiry [8]byte
-	binary.BigEndian.PutUint64(expiry[:], data.ExpiryUnixTs)
-	legSection := []byte{byte(len(data.InterfaceTransfers))}
-	for _, leg := range data.InterfaceTransfers {
-		tag := byte(0)
-		if leg.isSpl {
-			tag = 1
+func interfaceTransferAssetAddress(transfer InterfaceTransferRequest, position int) ([32]byte, error) {
+	if !transfer.IsSpl {
+		if transfer.Asset != "" {
+			return [32]byte{}, fmt.Errorf("interface_transfers[%d].asset must be empty for SOL", position)
 		}
-		legSection = append(legSection, tag)
-		direction := byte(0)
-		if leg.isDeposit {
-			direction = 1
-		}
-		legSection = append(legSection, direction)
-		var amount [8]byte
-		binary.BigEndian.PutUint64(amount[:], leg.amount)
-		legSection = append(legSection, amount[:]...)
-		legSection = append(legSection, leg.userAccount[:]...)
-		if leg.isSpl {
-			legSection = append(legSection, leg.poolAccount[:]...)
-		}
+		return protocol.SolInterface, nil
 	}
-	var outputSection []byte
-	outputSection = binary.BigEndian.AppendUint16(outputSection, uint16(len(data.Outputs)))
-	for _, output := range data.Outputs {
-		outputSection = append(outputSection, output.utxoHash[:]...)
-		outputSection = append(outputSection, output.ownerTag[:]...)
-		if !output.hasData {
-			outputSection = append(outputSection, 0)
-			continue
-		}
-		outputSection = append(outputSection, 1)
-		outputSection = binary.BigEndian.AppendUint16(outputSection, uint16(len(output.data)))
-		outputSection = append(outputSection, output.data...)
+	mint, err := parse.Hex32(transfer.Asset)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("interface_transfers[%d].asset: %w", position, err)
 	}
-	var messageSection []byte
-	messageSection = binary.BigEndian.AppendUint16(messageSection, uint16(len(data.Messages)))
-	for _, message := range data.Messages {
-		messageSection = append(messageSection, message.viewTag[:]...)
-		messageSection = binary.BigEndian.AppendUint16(messageSection, uint16(len(message.data)))
-		messageSection = append(messageSection, message.data...)
-	}
-	// Field order must match the canonical Rust ExternalDataHash byte-for-byte.
-	// expiry_unix_ts is bound ONLY here, not in private_tx_hash: SPP can't
-	// recompute private_tx_hash (it covers private input hashes), so this hash is
-	// what lets SPP confirm the expiry it clock-checks is the one the owner
-	// signed. The optional-hash presence bytes and encryption context are also
-	// part of the canonical preimage.
-	return protocol.Sha256BEField(
-		[]byte{data.InstructionDiscriminator},
-		expiry[:],
-		legSection,
-		[]byte{byteFromBool(data.DataHashPresent)},
-		data.DataHash[:],
-		[]byte{byteFromBool(data.RingDataHashPresent)},
-		data.RingDataHash[:],
-		data.TxViewingPk[:],
-		data.Salt[:],
-		outputSection,
-		messageSection,
-	)
+	return mint, nil
 }
 
-func byteFromBool(value bool) byte {
-	if value {
-		return 1
+func externalDataPrefixBytes(data externalDataPreimage) []byte {
+	prefix := binary.LittleEndian.AppendUint64(nil, data.ExpiryUnixTs)
+	prefix = append(prefix, data.TxViewingPk[:]...)
+	prefix = append(prefix, data.Salt[:]...)
+	prefix = append(prefix, byte(len(data.InterfaceTransfers)))
+	for _, leg := range data.InterfaceTransfers {
+		prefix = append(prefix, leg.variant())
+		prefix = binary.LittleEndian.AppendUint64(prefix, leg.amount)
+		if leg.isSpl {
+			prefix = append(prefix, leg.splInterfaceBump)
+		}
 	}
-	return 0
+	prefix = appendOptionalHash(prefix, data.DataHashPresent, data.DataHash)
+	prefix = appendOptionalHash(prefix, data.RingDataHashPresent, data.RingDataHash)
+	prefix = append(prefix, byte(len(data.Outputs)))
+	for _, output := range data.Outputs {
+		prefix = append(prefix, output.utxoHash[:]...)
+		prefix = append(prefix, inlineOwnerTagVariant)
+		prefix = append(prefix, output.ownerTag[:]...)
+		if !output.hasData {
+			prefix = append(prefix, optionAbsent)
+			continue
+		}
+		prefix = append(prefix, optionPresent)
+		prefix = binary.LittleEndian.AppendUint16(prefix, uint16(len(output.data)))
+		prefix = append(prefix, output.data...)
+	}
+	prefix = append(prefix, byte(len(data.Messages)))
+	for _, message := range data.Messages {
+		prefix = append(prefix, message.viewTag[:]...)
+		prefix = binary.LittleEndian.AppendUint16(prefix, uint16(len(message.data)))
+		prefix = append(prefix, message.data...)
+	}
+	return prefix
+}
+
+func appendOptionalHash(prefix []byte, present bool, hash [32]byte) []byte {
+	if !present {
+		return append(prefix, optionAbsent)
+	}
+	prefix = append(prefix, optionPresent)
+	return append(prefix, hash[:]...)
+}
+
+func externalDataFieldHash(data externalDataPreimage) *big.Int {
+	preimage := [][]byte{{data.InstructionDiscriminator}, externalDataPrefixBytes(data)}
+	for _, leg := range data.InterfaceTransfers {
+		preimage = append(preimage, leg.asset[:], leg.userAccount[:])
+	}
+	return protocol.Sha256BEField(preimage...)
 }

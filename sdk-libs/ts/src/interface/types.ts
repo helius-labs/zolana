@@ -94,8 +94,18 @@ export interface RingAssetDeposit extends Omit<RingDepositEntry, "assetIndex"> {
 
 export interface InputUtxo {
   readonly nullifierHash: Bytes32;
-  readonly nullifierTreeRootIndex: number;
+  /**
+   * Which of `TransactInstructionData.treeContexts` this input was proved
+   * against. It must not decrease from one input to the next, so every tree
+   * owns one contiguous run of inputs.
+   */
+  readonly treeIndex: number;
+}
+
+/** The root history positions one input tree's proofs opened against. */
+export interface TreeContext {
   readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }
 
 export type OwnerTag =
@@ -119,15 +129,9 @@ export interface OutputUtxo {
   readonly data: Uint8Array;
 }
 
-export interface ResolvedOutput {
-  readonly utxoHash: Bytes32;
-  readonly ownerTag: Bytes32;
-  readonly data?: Uint8Array;
-}
-
 export interface TransactProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
 }
 
@@ -157,35 +161,24 @@ export type InterfaceTransfer =
   | Readonly<{ kind: "splDeposit"; amount: bigint; splInterfaceBump: number }>
   | Readonly<{ kind: "splWithdrawal"; amount: bigint; splInterfaceBump: number }>;
 
-export type ResolvedInterfaceTransfer =
-  | Readonly<{ kind: "solDeposit"; amount: bigint; recipient: Address }>
-  | Readonly<{ kind: "solWithdrawal"; amount: bigint; recipient: Address }>
-  | Readonly<{
-      kind: "splDeposit";
-      amount: bigint;
-      tokenAccount: Address;
-      splInterfacePda: Address;
-    }>
-  | Readonly<{
-      kind: "splWithdrawal";
-      amount: bigint;
-      tokenAccount: Address;
-      splInterfacePda: Address;
-    }>;
-
-export interface TransactInstructionData {
+export interface TransactExternalData {
   readonly expiryUnixTs: bigint;
-  readonly privateTxHash: Bytes32;
-  readonly circuit: CircuitId;
   readonly txViewingPk: Bytes33;
   readonly salt: Bytes16;
-  readonly proof: TransactProof;
-  readonly inputs: readonly InputUtxo[];
   readonly interfaceTransfers: readonly InterfaceTransfer[];
   readonly dataHash?: Bytes32;
   readonly ringDataHash?: Bytes32;
   readonly outputs: readonly TransactOutput[];
   readonly messages: readonly MessageData[];
+}
+
+export interface TransactInstructionData extends TransactExternalData {
+  readonly privateTxHash: Bytes32;
+  readonly circuit: CircuitId;
+  readonly proof: TransactProof;
+  readonly inputs: readonly InputUtxo[];
+  /** One per input tree, in the order the inputs first reference them. */
+  readonly treeContexts: readonly TreeContext[];
 }
 
 export type TransactWithdrawal =
@@ -276,13 +269,13 @@ export interface MergeTransactInstructionData {
   readonly expiryUnixTs: bigint;
   readonly proof: Readonly<{
     a: Bytes32;
-    b: Bytes64;
+    b: Bytes128;
     c: Bytes32;
   }>;
   readonly outputUtxoHash: Bytes32;
   readonly eddsaOwner: boolean;
   readonly privateTxHash: Bytes32;
   readonly nullifiers: readonly Bytes32[];
-  readonly utxoTreeRootIndexes: readonly number[];
-  readonly nullifierTreeRootIndexes: readonly number[];
+  readonly utxoTreeRootIndex: number;
+  readonly nullifierTreeRootIndex: number;
 }

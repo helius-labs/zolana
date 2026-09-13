@@ -11,9 +11,19 @@ pub(crate) use validate::{
     ValidatedSplSettlement,
 };
 
-use pinocchio::{error::ProgramError, ProgramResult};
+use pinocchio::{error::ProgramError, AccountView, ProgramResult};
 
-impl Settlement<'_> {
+impl<'a> Settlement<'a> {
+    pub(crate) fn committed_accounts(&self) -> [&'a AccountView; 2] {
+        match self {
+            Self::SolDeposit(accounts) | Self::SolWithdrawal(accounts) => {
+                [accounts.sol_interface_account, accounts.recipient_account]
+            }
+            Self::SplDeposit(accounts) => [accounts.mint_account, accounts.user_token_account],
+            Self::SplWithdrawal(accounts) => [accounts.mint_account, accounts.user_token_account],
+        }
+    }
+
     pub(crate) fn settle(&self, amount: u64) -> ProgramResult {
         match self {
             Self::SolDeposit(accounts) => settle_sol(accounts, amount, true),

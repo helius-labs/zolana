@@ -51,9 +51,9 @@ func TestCircuitRejectsBadNullifierNonInclusionPath(t *testing.T) {
 // moveInputToSlot moves input idx into tree slot `slot`: its UTXO is rehashed
 // under that slot's tree id and becomes the sole leaf of a fresh state tree
 // published as that slot's root. The nullifier follows the new hash and stays
-// absent from a separate nullifier tree in that slot; outputs and both hashes are
-// refreshed. Call it with idx > 0 so the first nullifier keeps seeding the
-// output blindings.
+// absent from a separate nullifier tree in that slot; the published InputFlags,
+// outputs and both hashes are refreshed. Call it with idx > 0 so the first
+// nullifier keeps seeding the output blindings.
 func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 	t.Helper()
 	if idx < 0 || idx >= len(assignment.Inputs) {
@@ -62,6 +62,7 @@ func moveInputToSlot(t testing.TB, assignment *testAssignment, idx, slot int) {
 
 	in := &assignment.Inputs[idx]
 	in.TreeSlot = spptest.Fe(int64(slot))
+	setAllowDummyInputs(t, assignment, assignment.allowDummyInputs())
 	inputHash := testUtxoHash(t, circuitFieldsToUtxo(in.Utxo), assignment.TreeSlots[slot].ID)
 
 	const freshStateLeafIndex = 99
@@ -314,7 +315,7 @@ func TestDummyInputRejectedWhenPolicyDisabled(t *testing.T) {
 	shape := protocol.Shape{NInputs: 1, NOutputs: 2}
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment := buildDummyInputShield(t, 125)
-	assignment.AllowDummyInputs = spptest.Fe(0)
+	setAllowDummyInputs(t, assignment, false)
 	refreshPublicInputHash(t, assignment)
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))
 }

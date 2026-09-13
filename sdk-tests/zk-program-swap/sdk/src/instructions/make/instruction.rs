@@ -65,9 +65,9 @@ impl Make {
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(tree, false),
         ];
         accounts.extend(nullifier_pdas);
         accounts.push(AccountMeta::new_readonly(order_authority_pda(), false));

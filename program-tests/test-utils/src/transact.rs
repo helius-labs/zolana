@@ -22,23 +22,24 @@ use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, InterfaceTransfer, OwnerTag,
-            ResolvedInterfaceTransfer, ResolvedOutput, TransactIxData, TransactOutput,
-            TransactProof,
+            CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, ResolvedOutput, TransactIxData,
+            TransactOutput, TransactProof, TreeContext,
         },
         tag, Transact, TransactInterfaceTransferAccounts, TransactSplWithdrawalAccounts,
     },
     pda,
+    shape::Shape,
     state::read_tree_id,
-    tree_slot::TreeSlot,
+    tree_slot::{pack_input_flags, TreeSlot},
     verifying_keys::transfer_confidential_2_3,
-    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD,
+    INPUT_TREES, N_PUBLIC_SLOTS, SOL_ASSET_FIELD, SOL_INTERFACE,
 };
 use zolana_keypair::{
     hash::owner_hash, NullifierKey, P256Pubkey, PublicKey, ShieldedAddress, ViewingKey,
 };
 use zolana_merkle_tree::indexed::{IndexedMerkleTree, NonInclusionProof};
 use zolana_merkle_tree::MerkleTree;
+use zolana_program::TransactExternalData;
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{
     instructions::transact::spp_proof_inputs::{signed_to_field, BN254_MODULUS_DEC},
@@ -145,9 +146,8 @@ pub fn inline_output(utxo_hash: [u8; 32], view_tag: [u8; 32]) -> TransactOutput 
 }
 
 /// Resolve every output's owner tag against the transaction context (`Inline`
-/// tags resolve to themselves), producing the `ResolvedOutput` slice
-/// [`ExternalDataHash`] hashes. Mirrors the program's per-output resolution so
-/// the client and program agree on the hash preimage.
+/// tags resolve to themselves). Mirrors the program's per-output resolution so
+/// the client and program agree on the `external_data_hash` preimage.
 pub fn resolve_outputs(ix: &TransactIxData) -> Result<Vec<ResolvedOutput<'_>>> {
     ix.outputs
         .iter()
@@ -185,12 +185,36 @@ pub fn set_output_owner_tags(
     }
 }
 
-pub fn eddsa_input_utxo(nullifier_hash: [u8; 32], utxo_tree_root_index: u16) -> InputUtxo {
+pub fn input_utxo(nullifier_hash: [u8; 32]) -> InputUtxo {
+    input_utxo_in_tree(nullifier_hash, 0)
+}
+
+/// One input spent from the `tree_index`-th declared input tree.
+pub fn input_utxo_in_tree(nullifier_hash: [u8; 32], tree_index: u8) -> InputUtxo {
     InputUtxo {
         nullifier_hash,
-        nullifier_tree_root_index: 0,
-        utxo_tree_root_index,
+        tree_index,
     }
+}
+
+/// The declared input trees of a single-tree spend: one context at the given
+/// UTXO-tree root index and nullifier-tree root index zero.
+pub fn single_tree_context(utxo_tree_root_index: u16) -> Vec<TreeContext> {
+    tree_contexts(&[(utxo_tree_root_index, 0)])
+}
+
+/// One declared input tree per `(utxo_tree_root_index, nullifier_tree_root_index)`
+/// pair, in account order.
+pub fn tree_contexts(root_indexes: &[(u16, u16)]) -> Vec<TreeContext> {
+    root_indexes
+        .iter()
+        .map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
+                utxo_tree_root_index: *utxo_tree_root_index,
+                nullifier_tree_root_index: *nullifier_tree_root_index,
+            },
+        )
+        .collect()
 }
 
 /// The proof's public tree slots. SPP proves against exactly one input tree, so
@@ -210,6 +234,7 @@ pub fn single_tree_slots(
 
 pub fn new_transact_ix_data(
     inputs: Vec<InputUtxo>,
+    utxo_tree_root_index: u16,
     interface_transfers: Vec<InterfaceTransfer>,
     outputs: Vec<TransactOutput>,
 ) -> TransactIxData {
@@ -224,6 +249,7 @@ pub fn new_transact_ix_data(
         private_tx_hash: [0u8; 32],
         circuit,
         inputs,
+        tree_contexts: single_tree_context(utxo_tree_root_index),
         interface_transfers,
         data_hash: None,
         ring_data_hash: None,
@@ -234,55 +260,39 @@ pub fn new_transact_ix_data(
     }
 }
 
-/// The single hand-maintained `ExternalDataHash` assembly; both settlement
-/// rails feed it with their own bound accounts (mirroring the program's
-/// `settlement_accounts`).
-pub fn external_data_hash(
-    transact_ix_data: &TransactIxData,
-    interface_transfers: &[ResolvedInterfaceTransfer],
-) -> Result<[u8; 32]> {
-    let outputs = resolve_outputs(transact_ix_data)?;
-    Ok(ExternalDataHash {
-        spp_instruction_discriminator: tag::TRANSACT,
-        expiry_unix_ts: transact_ix_data.expiry_unix_ts,
-        interface_transfers,
-        data_hash: None,
-        ring_data_hash: None,
-        tx_viewing_pk: &transact_ix_data.tx_viewing_pk,
-        salt: &transact_ix_data.salt,
-        outputs: &outputs,
-        messages: &transact_ix_data.messages,
-    }
-    .hash()?)
+/// The two settlement addresses one interface transfer appends to the
+/// `external_data_hash` preimage: the asset account, then the user account.
+pub type LegAccounts = [[u8; 32]; 2];
+
+pub fn sol_leg(recipient: &Pubkey) -> LegAccounts {
+    [SOL_INTERFACE, recipient.to_bytes()]
 }
 
-/// `external_data_hash` for an SPL settlement: binds the user's SPL token
-/// account and the pool's SPL interface vault as a resolved SPL interface
-/// transfer, exactly as the program's `settlement_accounts` does for the SPL
-/// rail.
-pub fn external_data_hash_spl(
+pub fn spl_leg(mint: &Pubkey, user_token_account: &Pubkey) -> LegAccounts {
+    [mint.to_bytes(), user_token_account.to_bytes()]
+}
+
+/// The single hand-maintained `external_data_hash` assembly for the confidential
+/// `transact` instruction; `legs` pairs 1:1 with `interface_transfers`.
+pub fn external_data_hash(
     transact_ix_data: &TransactIxData,
-    user_spl_token_account: &[u8; 32],
-    spl_token_interface: &[u8; 32],
+    legs: &[LegAccounts],
 ) -> Result<[u8; 32]> {
-    let transfer = transact_ix_data
-        .interface_transfers
-        .first()
-        .context("external_data_hash_spl requires one SPL interface transfer")?;
-    let resolved = if transfer.is_deposit() {
-        ResolvedInterfaceTransfer::SplDeposit {
-            amount: transfer.amount(),
-            user_token_account: *user_spl_token_account,
-            spl_interface: *spl_token_interface,
-        }
-    } else {
-        ResolvedInterfaceTransfer::SplWithdrawal {
-            amount: transfer.amount(),
-            user_token_account: *user_spl_token_account,
-            spl_interface: *spl_token_interface,
-        }
-    };
-    external_data_hash(transact_ix_data, &[resolved])
+    external_data_hash_for_discriminator(transact_ix_data, tag::TRANSACT, legs)
+}
+
+pub fn external_data_hash_for_discriminator(
+    transact_ix_data: &TransactIxData,
+    discriminator: u8,
+    legs: &[LegAccounts],
+) -> Result<[u8; 32]> {
+    let resolved_owner_tags: Vec<[u8; 32]> = resolve_outputs(transact_ix_data)?
+        .iter()
+        .map(|output| output.owner_tag)
+        .collect();
+    TransactExternalData::from(transact_ix_data)
+        .hash(discriminator, legs, &resolved_owner_tags)
+        .map_err(|e| anyhow!("external data hash: {e}"))
 }
 
 /// A dummy output (`owner_hash = 0`) over a chosen `blinding`, assembled exactly as
@@ -422,10 +432,29 @@ pub fn derive_test_transfer_output_blindings(
         .collect()
 }
 
+/// Derives the packed `input_flags` from the witness the circuit will check, so
+/// a fixture that moves an input to another tree slot cannot forget to republish
+/// it. Every fixture allows dummy inputs.
+pub fn transact_input_flags(inputs: &[TransferInput]) -> [u8; 32] {
+    let tree_indexes = inputs.iter().map(|input| {
+        let digits = input.tree_slot.to_bytes_be();
+        match digits.as_slice() {
+            [] => 0u8,
+            [index] => *index,
+            _ => panic!("test input tree slot exceeds one byte"),
+        }
+    });
+    pack_input_flags(true, tree_indexes).expect("pack the test input flags")
+}
+
 pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferInputs {
     let zero = [0u8; 32];
+    let input_flags = transact_input_flags(&args.inputs);
     let mut signer_pk_hashes: Vec<BigUint> = args.signer_pk_hashes.iter().map(be).collect();
-    signer_pk_hashes.resize(args.inputs.len() + 1, be(&zero));
+    signer_pk_hashes.resize(
+        Shape::new(args.inputs.len(), args.outputs.len()).signer_width(),
+        be(&zero),
+    );
     // The default confidential rail publishes every output slot's owner tag.
     let published_output_owner_pk_hashes = args
         .outputs
@@ -444,7 +473,7 @@ pub fn build_transfer_prover_inputs(args: TransferProverInputsArgs) -> TransferI
         public_amounts: args.public_slot_amounts.map(|amount| be(&amount)),
         ring_program_id: be(&zero),
         signer_pk_hashes,
-        allow_dummy_inputs: be(&fe(1)),
+        input_flags: be(&input_flags),
         published_output_owner_pk_hashes,
         public_input_hash: be(&args.public_input_hash),
     }
@@ -810,10 +839,8 @@ pub fn build_spl_withdrawal(
     let output_hashes = derive_test_transfer_output_blindings(&nullifier, &mut outputs)
         .expect("derive output blindings");
     let mut data = new_transact_ix_data(
-        vec![
-            eddsa_input_utxo(nullifier, utxo_root_index),
-            eddsa_input_utxo(dummy_nullifier, utxo_root_index),
-        ],
+        vec![input_utxo(nullifier), input_utxo(dummy_nullifier)],
+        utxo_root_index,
         vec![InterfaceTransfer::SplWithdrawal {
             amount,
             spl_interface_bump: pda::spl_interface_with_bump(&mint).1,
@@ -826,8 +853,8 @@ pub fn build_spl_withdrawal(
         &output_owner_hashes,
         &[change_nullifier_pk, zero, zero],
     );
-    let external_hash = external_data_hash_spl(&data, &user_token.to_bytes(), &vault.to_bytes())
-        .expect("external data hash");
+    let external_hash =
+        external_data_hash(&data, &[spl_leg(&mint, &user_token)]).expect("external data hash");
     let private_tx_blinding =
         test_private_tx_blinding(&nullifier).expect("private transaction blinding");
     let change_output_hash = *output_hashes.first().expect("change output hash");
@@ -857,7 +884,7 @@ pub fn build_spl_withdrawal(
             amounts: public_slot_amounts,
         },
         ring_program_id: &zero,
-        allow_dummy_inputs: &fe(1),
+        input_flags: &fe(1),
         signer_pk_hashes: &signer_hashes,
         output_owner_pk_hashes: Some(&output_owner_hashes),
     }
@@ -882,7 +909,7 @@ pub fn build_spl_withdrawal(
 
     let instruction = Transact {
         payer: payer.pubkey(),
-        input_tree: *tree,
+        input_trees: vec![*tree],
         output_tree: *tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: vec![TransactInterfaceTransferAccounts::SplWithdrawal(

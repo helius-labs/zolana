@@ -98,6 +98,10 @@ func (p *CompressedRegisterParameters) UnmarshalJSON(data []byte) error {
 		}
 		*s.dst = value
 	}
+	if p.NewIndex.Sign() == 0 || p.NewIndex.BitLen() > policy.HeadMapHeight ||
+		p.LowIndex.Cmp(p.NewIndex) >= 0 || p.LowMember.Cmp(p.Member) >= 0 || p.Member.Cmp(p.LowNext) >= 0 {
+		return fmt.Errorf("compressed registration has an invalid insertion index or member range")
+	}
 	for i := range p.LowProof {
 		low, err := fieldFromHex(raw.LowProof[i], "lowProof")
 		if err != nil {

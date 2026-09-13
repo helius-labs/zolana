@@ -123,8 +123,9 @@ export function ringTransferClient(
     getMerkleProofs: notImplemented("getMerkleProofs"),
     getNonInclusionProofs: notImplemented("getNonInclusionProofs"),
     getSlot: notImplemented("getSlot"),
-    solanaRpc: solanaRpcReads({}),
-    commitment: "confirmed",
+    getRingHeadRegisterProof: notImplemented("getRingHeadRegisterProof"),
+    getRingHeadTransferProof: notImplemented("getRingHeadTransferProof"),
+    proveCustomRingCompressedPolicy: notImplemented("proveCustomRingCompressedPolicy"),
     ...overrides,
   };
 }

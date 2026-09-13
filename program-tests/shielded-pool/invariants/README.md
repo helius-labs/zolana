@@ -134,7 +134,7 @@ Tree fee-schedule sync (2026-09-02): the tree header gained a runtime
 `TreeFeeSchedule` and `fee_balance`, `set_tree_fees` (tag 19) and
 `protocol_config.fee_authority` were added, `batch_update_nullifier_tree` and
 `close_nullifier_pdas` pay `min(owed, fee_balance)` to a non-program
-`reimbursement_recipient` (7055), `claim_tree_lamports` (tag 20) lets the fee
+`reimbursement_recipient` (7050), `claim_tree_lamports` (tag 20) lets the fee
 authority sweep surplus lamports, and the constant 20-lamport insertion fee is
 gone. New entries: INV-SET-FEES-01..09, INV-CLAIM-01..07, INV-CLOSE-PDA-01..10,
 INV-TRANSACT-46..50, INV-CREATE-TREE-10, INV-UPDATE-PC-08 (33, all covered);
@@ -234,7 +234,7 @@ Status of the audit findings against the current (post-PR164) tree:
   `parses_batch_update_from_emitted_event`,
   `records_event_root_not_instruction_root` (INV-BATCH-NULL-07).
 - F-05 `tx_viewing_pk`/`salt` unbound (relayer burns recipient outputs): FIXED by
-  PR164 (bound in `ExternalDataHash` -- INV-XC-16).
+  PR164 (bound in the `external_data_hash` preimage, now `ExternalDataPreimage` -- INV-XC-16).
 - F-06 merge viewing-key canonicality: MOOT (the vulnerable flow is gone.
   PR164 merge outputs are ciphertext-free: `prover/server/circuits/spp_merge`
   contains no encryption or KDF over a recipient key, and the merge output is

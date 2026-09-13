@@ -18,6 +18,7 @@ proofs = []
 
 [dependencies]
 zolana-interface = { workspace = true, features = ["solana"] }
+zolana-indexer-api = { workspace = true }
 zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-hasher = { workspace = true, features = ["std"] }
@@ -40,8 +41,6 @@ async-trait = { workspace = true }
 bs58 = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 solana-account = { workspace = true }
-solana-clock = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
@@ -64,6 +63,7 @@ zolana-hasher = { workspace = true, features = ["std"] }
 zolana-merkle-tree = { workspace = true }
 rand = { workspace = true }
 serial_test = { workspace = true }
+wincode = { workspace = true }
 
 [[test]]
 name = "transaction_proving"

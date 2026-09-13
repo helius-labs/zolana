@@ -106,6 +106,10 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         Some(program_id) => hash_bytes(program_id)?,
         None => zero,
     };
+    // Poseidon(0, 0), the `ring_hash` of every default-rail entry under no ring
+    // program, is the height-1 zero node; the table lookup replaces a syscall
+    // per entry.
+    let zero_ring_hash = Poseidon::zero_bytes()[1];
     let mut output_tree = [0u8; 32];
     output_tree.copy_from_slice(parsed.tree.address().as_ref());
     // Loaded before hashing: every entry is hashed under the id of the tree it
@@ -148,22 +152,21 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
             ))?
         };
 
-        let (data_hash, ring_data_hash, owner_utxo_hash) = match processing_entry {
+        let (data_hash, ring_hash, owner_utxo_hash) = match processing_entry {
             ProcessingEntry::Default(entry) => {
                 let data_hash = entry.utxo_data.map_or(&zero, |utxo| utxo.data_hash);
                 let owner_utxo_hash =
                     Poseidon::hashv(&[entry.owner.as_slice(), blinding.as_slice()]).map_err(
                         caused_by(ShieldedPoolError::TransactProofVerificationFailed),
                     )?;
-                (data_hash, &zero, owner_utxo_hash)
+                (data_hash, zero_ring_hash, owner_utxo_hash)
             }
             ProcessingEntry::Ring(entry) => (
                 entry.data_hash.unwrap_or(&zero),
-                entry.ring_data_hash,
+                hash_with_program_id(entry.ring_data_hash, &ring_program_id_field)?,
                 *entry.owner_utxo_hash,
             ),
         };
-        let ring_hash = hash_with_program_id(ring_data_hash, &ring_program_id_field)?;
         let utxo_hash = Poseidon::hashv(&[
             UTXO_DOMAIN_FIELD.as_slice(),
             tree_id.as_slice(),

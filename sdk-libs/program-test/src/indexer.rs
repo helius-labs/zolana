@@ -1,7 +1,9 @@
 //! Test indexer for shielded-pool events.
 //!
-//! Replays emitted events into an in-memory reference tree and records the
+//! Replays emitted events into per-tree in-memory reference trees and records the
 //! wallet-facing outputs that tests query.
+
+use std::collections::BTreeMap;
 
 use thiserror::Error;
 use zolana_event::{encode_encrypted_ring_deposit_output, GeneralEvent};
@@ -37,6 +39,7 @@ pub enum IndexerError {
 /// One indexed shielded output.
 #[derive(Clone, Debug)]
 pub struct IndexedUtxo {
+    pub output_tree: Address,
     pub view_tag: [u8; 32],
     pub leaf_index: u64,
     pub utxo_hash: [u8; 32],
@@ -74,7 +77,7 @@ impl IndexedUtxo {
 }
 
 pub struct TestIndexer {
-    tree: MerkleTree<Poseidon>,
+    trees: BTreeMap<Address, MerkleTree<Poseidon>>,
     utxos: Vec<IndexedUtxo>,
     nullifiers: Vec<[u8; 32]>,
     transactions: Vec<ShieldedTransaction>,
@@ -89,7 +92,7 @@ impl Default for TestIndexer {
 impl TestIndexer {
     pub fn new() -> Self {
         Self {
-            tree: MerkleTree::new(STATE_HEIGHT, 0),
+            trees: BTreeMap::new(),
             utxos: Vec::new(),
             nullifiers: Vec::new(),
             transactions: Vec::new(),
@@ -99,8 +102,9 @@ impl TestIndexer {
     pub fn record_deposit(
         &mut self,
         event: &crate::DepositOutput,
+        tree_id: u16,
     ) -> Result<&IndexedUtxo, IndexerError> {
-        let recomputed = proofless_utxo_hash(event)?;
+        let recomputed = proofless_utxo_hash(event, tree_id)?;
         if recomputed != event.utxo_hash {
             return Err(IndexerError::UtxoHashMismatch {
                 expected: recomputed,
@@ -110,6 +114,7 @@ impl TestIndexer {
 
         let record_index = self.utxos.len();
         self.append_output_slot(
+            Address::new_from_array(event.output_tree),
             event.leaf_index,
             event.view_tag,
             event.utxo_hash,
@@ -130,6 +135,7 @@ impl TestIndexer {
     ) -> Result<&IndexedUtxo, IndexerError> {
         let record_index = self.utxos.len();
         self.append_output_slot(
+            Address::new_from_array(event.output_tree),
             event.leaf_index,
             event.view_tag,
             event.utxo_hash,
@@ -139,9 +145,13 @@ impl TestIndexer {
     }
 
     /// Replay a `transact` or `merge` [`GeneralEvent`]: append every output leaf,
-    /// record spent nullifiers, and keep the reference tree aligned with the event.
+    /// record spent nullifiers, and keep each reference tree aligned with its events.
     pub fn record_state_change(&mut self, event: &GeneralEvent) -> Result<(), IndexerError> {
-        let expected_first_leaf = self.utxos.len() as u64;
+        let output_tree = Address::new_from_array(event.output_tree);
+        let expected_first_leaf = self
+            .trees
+            .get(&output_tree)
+            .map_or(0, |tree| tree.rightmost_index as u64);
         if event.first_output_leaf_index != expected_first_leaf {
             return Err(IndexerError::LeafIndexMismatch {
                 expected: expected_first_leaf,
@@ -169,7 +179,13 @@ impl TestIndexer {
             } else {
                 IndexedPayload::Encrypted(output.data.clone())
             };
-            self.append_output_slot(leaf_index, output.view_tag, output.utxo_hash, payload)?;
+            self.append_output_slot(
+                output_tree,
+                leaf_index,
+                output.view_tag,
+                output.utxo_hash,
+                payload,
+            )?;
         }
 
         for input in &event.inputs {
@@ -190,8 +206,12 @@ impl TestIndexer {
             ));
     }
 
-    pub fn root(&self) -> [u8; 32] {
-        self.tree.root()
+    /// The reference root for `tree`, or the empty root before its first output.
+    pub fn root(&self, tree: &Address) -> [u8; 32] {
+        self.trees.get(tree).map_or_else(
+            || MerkleTree::<Poseidon>::new(STATE_HEIGHT, 0).root(),
+            MerkleTree::root,
+        )
     }
 
     pub fn nullifiers(&self) -> &[[u8; 32]] {
@@ -274,22 +294,27 @@ impl TestIndexer {
 
     fn append_output_slot(
         &mut self,
+        output_tree: Address,
         leaf_index: u64,
         view_tag: [u8; 32],
         utxo_hash: [u8; 32],
         payload: IndexedPayload,
     ) -> Result<(), IndexerError> {
-        let expected_leaf = self.utxos.len() as u64;
+        let tree = self
+            .trees
+            .entry(output_tree)
+            .or_insert_with(|| MerkleTree::new(STATE_HEIGHT, 0));
+        let expected_leaf = tree.rightmost_index as u64;
         if leaf_index != expected_leaf {
             return Err(IndexerError::LeafIndexMismatch {
                 expected: expected_leaf,
                 actual: leaf_index,
             });
         }
-        self.tree
-            .append(&utxo_hash)
+        tree.append(&utxo_hash)
             .map_err(|e| IndexerError::MerkleTree(format!("{e:?}")))?;
         self.utxos.push(IndexedUtxo {
+            output_tree,
             view_tag,
             leaf_index,
             utxo_hash,
@@ -346,17 +371,17 @@ fn optional_tx_viewing_pk(bytes: &[u8; 33]) -> Option<P256Pubkey> {
 
 /// Recompute the UTXO commitment through the shared transaction helper. A
 /// deposit is hashed under the id of the tree it is appended to.
-// TODO(tree-id): resolve the tree id from the tree account.
-const DEPOSIT_TREE_ID: u16 = 0;
-
-fn proofless_utxo_hash(event: &crate::DepositOutput) -> Result<[u8; 32], TransactionError> {
+fn proofless_utxo_hash(
+    event: &crate::DepositOutput,
+    tree_id: u16,
+) -> Result<[u8; 32], TransactionError> {
     let output = &event.output;
     ProofInputUtxo::new(
         output.owner,
         &Address::new_from_array(output.asset),
         output.amount,
         &output.blinding,
-        DEPOSIT_TREE_ID,
+        tree_id,
     )?
     .with_data_hash(output.data_hash.unwrap_or([0u8; 32]))
     .with_ring(

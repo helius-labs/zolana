@@ -88,11 +88,6 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		shared.AssertWhen(api, api.Mul(policy.rows, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
 	}
 
-	// 2. No slot outside the record opens to the namespace.
-	for _, slot := range append(txContext.inputs[:], txContext.outputs[:]...) {
-		shared.AssertWhen(api, api.Mul(slot.active, api.Sub(1, slot.record)), nonZero(api, api.Sub(slot.owner, c.NamespaceOwnerHash)))
-	}
-
 	// 3. Open the record at the sender's address, a record from a future
 	// window is refused.
 	rangeChecker.Check(c.Record.Version, amountBits)
@@ -154,6 +149,13 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 	nextDataHash := recordDataHash(api, address, sender, api.Add(c.Record.Version, 1), c.WindowIndex, nextCommitment)
 	for i, slot := range c.Outputs {
 		slot.assertRecord(api, txContext.outputs[i], c.NamespaceOwnerHash, c.EntriesTreeID, nextDataHash)
+	}
+}
+
+// Only the member record pair may use the namespace owner.
+func (c *CustomRingPolicyCircuit) constrainNamespace(api frontend.API, txContext transactionContext) {
+	for _, slot := range append(txContext.inputs[:], txContext.outputs[:]...) {
+		shared.AssertWhen(api, api.Mul(slot.active, api.Sub(1, slot.record)), nonZero(api, api.Sub(slot.owner, c.NamespaceOwnerHash)))
 	}
 }
 

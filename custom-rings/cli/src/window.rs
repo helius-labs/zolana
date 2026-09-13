@@ -5,10 +5,9 @@ use custom_ring_sdk::{
     SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, Rpc};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc};
 use zolana_transaction::SOL_MINT;
 
 use crate::{line, ui, ui::Icon, Context, ContextError, WindowCommand};
@@ -71,14 +70,10 @@ pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError>
             }
             .instruction()?;
             ctx.rpc.create_and_send_transaction(
-                &[
-                    ComputeBudgetInstruction::set_compute_unit_limit(
-                        SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
-                    ),
-                    instruction,
-                ],
+                &[instruction],
                 authority.pubkey(),
                 &[&authority],
+                ComputeBudgetConfig::new(SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT),
             )?;
             ui::heading(
                 Icon::Auditor,
@@ -92,20 +87,16 @@ pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError>
                 return Err(WindowError::NotSet);
             }
             ctx.rpc.create_and_send_transaction(
-                &[
-                    ComputeBudgetInstruction::set_compute_unit_limit(
-                        SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
-                    ),
-                    ClearSpendWindow {
-                        ring: ctx.ring,
-                        authority: authority.pubkey(),
-                        mint: mint.0,
-                        rent_recipient: authority.pubkey(),
-                    }
-                    .instruction(),
-                ],
+                &[ClearSpendWindow {
+                    ring: ctx.ring,
+                    authority: authority.pubkey(),
+                    mint: mint.0,
+                    rent_recipient: authority.pubkey(),
+                }
+                .instruction()],
                 authority.pubkey(),
                 &[&authority],
+                ComputeBudgetConfig::new(SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT),
             )?;
             line("spend window", "cleared");
             mint

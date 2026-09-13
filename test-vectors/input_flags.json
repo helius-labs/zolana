@@ -1,0 +1,210 @@
+{
+  "description": "input_flags packing for the SPP transact public input: bit 0 is the dummy-input policy, input i's three-bit tree index occupies bits 1 + 3*i through 3 + 3*i, total width 1 + 3*n_inputs bits. Values are 32-byte big-endian field elements.",
+  "input_trees": 5,
+  "vectors": [
+    {
+      "name": "one_input_policy_off",
+      "allow_dummy_inputs": false,
+      "tree_indexes": [
+        0
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000000",
+      "input_flags_decimal": "0"
+    },
+    {
+      "name": "one_input_policy_on",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000001",
+      "input_flags_decimal": "1"
+    },
+    {
+      "name": "two_inputs_same_tree",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        0
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000001",
+      "input_flags_decimal": "1"
+    },
+    {
+      "name": "two_inputs_second_tree",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        1
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000011",
+      "input_flags_decimal": "17"
+    },
+    {
+      "name": "two_inputs_second_tree_policy_off",
+      "allow_dummy_inputs": false,
+      "tree_indexes": [
+        0,
+        1
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000010",
+      "input_flags_decimal": "16"
+    },
+    {
+      "name": "three_inputs_grouped",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        1,
+        1
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000091",
+      "input_flags_decimal": "145"
+    },
+    {
+      "name": "five_inputs_every_slot",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000008d11",
+      "input_flags_decimal": "36113"
+    },
+    {
+      "name": "thirty_six_inputs_one_tree",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "input_flags": "0000000000000000000000000000000000000000000000000000000000000001",
+      "input_flags_decimal": "1"
+    },
+    {
+      "name": "thirty_six_inputs_split",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "input_flags": "0000000000000000000000000000000000000492492492492480000000000001",
+      "input_flags_decimal": "92719586759550488219645003169793"
+    },
+    {
+      "name": "thirty_six_inputs_last_slot",
+      "allow_dummy_inputs": true,
+      "tree_indexes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4
+      ],
+      "input_flags": "0000000000000000000000000000000000001000000000000000000000000001",
+      "input_flags_decimal": "324518553658426726783156020576257"
+    }
+  ]
+}

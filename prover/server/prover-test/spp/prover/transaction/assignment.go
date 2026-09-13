@@ -9,6 +9,7 @@ import (
 	txcircuit "zolana/prover/circuits/spp_transaction/shared"
 	"zolana/prover/prover-test/spp/parse"
 	"zolana/prover/prover-test/spp/protocol"
+	"zolana/prover/prover/common"
 
 	"github.com/consensys/gnark/frontend"
 )
@@ -47,11 +48,14 @@ type stateWitnesses struct {
 
 // proofTrees is the tree context of one transaction: the raw ids the utxo
 // hashes are bound to and the public tree slots inputs are spent from. This
-// builder spends from a single tree, so only slot 0 is populated.
+// builder spends from a single tree, so only inputTreeSlot is populated.
 type proofTrees struct {
-	inputTreeID  *big.Int
-	outputTreeID *big.Int
-	slots        []protocol.TreeSlot
+	inputTreeID *big.Int
+	// inputTreeSlot is the slot inputTreeID is published in, and therefore the
+	// slot every input selects.
+	inputTreeSlot *big.Int
+	outputTreeID  *big.Int
+	slots         []protocol.TreeSlot
 }
 
 // proofAssignment bundles everything buildProofAssignment produces: the circuit
@@ -87,7 +91,7 @@ func buildProofAssignment(
 	if err != nil {
 		return proofAssignment{}, err
 	}
-	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees.inputTreeID)
+	inputs, err := buildInputWitnesses(shape, tx.Inputs, state, nullifierTree, trees)
 	if err != nil {
 		return proofAssignment{}, err
 	}
@@ -145,7 +149,10 @@ func buildProofAssignment(
 	if inputs.requiresP256OwnerWitness {
 		return proofAssignment{}, fmt.Errorf("spp: P256-owned inputs are no longer provable")
 	}
-	publicInputs := buildPublicInputs(payerHash, inputs, outputs, external, privateTxHash, trees)
+	publicInputs, err := buildPublicInputs(shape, payerHash, inputs, outputs, external, privateTxHash, trees)
+	if err != nil {
+		return proofAssignment{}, err
+	}
 	publicInputHash, err := protocol.PublicInputHash(publicInputs)
 	if err != nil {
 		return proofAssignment{}, err
@@ -207,7 +214,7 @@ func customRingWitness(
 			PublicAssets:                 publicAssets,
 			PublicAmounts:                publicAmounts,
 			RingProgramID:                publicInputs.RingProgramID,
-			AllowDummyInputs:             publicInputs.AllowDummyInputs,
+			InputFlags:                   publicInputs.InputFlags,
 			SignerPkHashes:               fieldVariables(publicInputs.SignerPkHashes),
 			PublishedOutputOwnerPkHashes: fieldVariables(publicInputs.OutputOwnerPkHashes),
 			PublicInputHash:              publicInputHash,
@@ -318,20 +325,22 @@ func buildProofTrees(
 		return proofTrees{}, err
 	}
 	return proofTrees{
-		inputTreeID:  inputTreeID,
-		outputTreeID: new(big.Int).SetUint64(uint64(tx.OutputTreeID)),
-		slots:        slots,
+		inputTreeID:   inputTreeID,
+		inputTreeSlot: big.NewInt(0),
+		outputTreeID:  new(big.Int).SetUint64(uint64(tx.OutputTreeID)),
+		slots:         slots,
 	}, nil
 }
 
 func buildPublicInputs(
+	shape protocol.Shape,
 	payerHash *big.Int,
 	inputs inputWitnesses,
 	outputs outputWitnesses,
 	external externalValues,
 	privateTxHash *big.Int,
 	trees proofTrees,
-) protocol.PublicInputs {
+) (protocol.PublicInputs, error) {
 	// Padding must reuse an owner identity already bound to real transaction
 	// content.
 	var participantTag *big.Int
@@ -354,6 +363,14 @@ func buildPublicInputs(
 			outputs.outputOwnerPkHashes[i] = new(big.Int).Set(participantTag)
 		}
 	}
+	signers, err := signerPkHashes(payerHash, inputs.inputOwnerPkHashes, shape.SignerWidth())
+	if err != nil {
+		return protocol.PublicInputs{}, err
+	}
+	inputFlags, err := common.PackInputFlags(true, inputs.treeSlots)
+	if err != nil {
+		return protocol.PublicInputs{}, err
+	}
 	return protocol.PublicInputs{
 		Nullifiers:          inputs.nullifiers,
 		OutputUtxoHashes:    outputs.hashes,
@@ -364,15 +381,15 @@ func buildPublicInputs(
 		PublicAssets:        external.publicSlots.assets,
 		PublicAmounts:       external.publicSlots.amounts,
 		RingProgramID:       external.ringProgramID,
-		AllowDummyInputs:    big.NewInt(1),
-		SignerPkHashes:      signerPkHashes(payerHash, inputs.inputOwnerPkHashes),
+		InputFlags:          inputFlags,
+		SignerPkHashes:      signers,
 		BindOutputOwnerTags: true,
 		OutputOwnerPkHashes: outputs.outputOwnerPkHashes,
-	}
+	}, nil
 }
 
-func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.Int {
-	out := make([]*big.Int, len(inputOwnerPkHashes)+1)
+func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int, width int) ([]*big.Int, error) {
+	out := make([]*big.Int, width)
 	out[0] = new(big.Int).Set(payerHash)
 	seen := []*big.Int{payerHash}
 	next := 1
@@ -390,6 +407,9 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.In
 		if duplicate {
 			continue
 		}
+		if next == width {
+			return nil, fmt.Errorf("spp: more than %d unique owner signers", width-1)
+		}
 		seen = append(seen, owner)
 		out[next] = new(big.Int).Set(owner)
 		next++
@@ -397,5 +417,5 @@ func signerPkHashes(payerHash *big.Int, inputOwnerPkHashes []*big.Int) []*big.In
 	for i := next; i < len(out); i++ {
 		out[i] = big.NewInt(0)
 	}
-	return out
+	return out, nil
 }

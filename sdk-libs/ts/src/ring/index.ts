@@ -12,6 +12,46 @@ export {
 } from "../keypair/audit.js";
 export type { AuditorEncryption, AuditorMessage } from "../keypair/audit.js";
 export { ringAuthAddress } from "../interface/pda/index.js";
+export { ringHeadMapRootAddress, ringHeadMapRootPda } from "../interface/pda/index.js";
+export { fetchRingHeadMapRoot, createRingHeadMapRootInstruction } from "./config.js";
+export { decodeRingHeadMapRoot } from "./codecs.js";
+export type { RingHeadMapRoot } from "./codecs.js";
+export {
+  HEAD_MAP_HEIGHT,
+  HEAD_MAP_CAPACITY,
+  HEAD_MAP_FIELD_MAX,
+  HEAD_MAP_EMPTY_ROOT,
+  headMapLeaf,
+  headMapZeroBytes,
+  headMapRootFromProof,
+  verifyHeadMapInsert,
+  verifyHeadMapTransfer,
+} from "./head-map.js";
+export type { HeadMapInsertWitness, HeadMapTransferWitness } from "./head-map.js";
+export {
+  buildRingSpendRegistrationTransaction,
+  prepareRingSpendRegistration,
+  createRingSpendRegistrationSubmission,
+  readRingVelocityState,
+} from "./register-spend.js";
+export type {
+  RingSpendRegistrationClient,
+  RingSpendRegistrationParams,
+  RingSpendRegistrationPreparation,
+} from "./register-spend.js";
+export type { VelocityFacts } from "./velocity.js";
+export { buildRingDelegateTransferTransaction, createRingDelegateSubmission } from "./delegate.js";
+export {
+  createRingTransferSubmission,
+  createRingExitSubmission,
+  createRingWithdrawalSubmission,
+} from "./transfer.js";
+export { RingTransactionSubmission, createKitRingSubmissionTransport } from "./submission.js";
+export type { RingSubmissionAttempt, RingSubmissionResult } from "./submission.js";
+export type { RingDelegateTransferClient, RingDelegateTransferParams } from "./delegate.js";
+export { proveCustomRingDelegateTransfer } from "./transfer.js";
+export type { CustomRingDelegateTransferParams, RingDelegateProofClient } from "./transfer.js";
+export { currentRingSpendRecord } from "./policy.js";
 export { ringDepositInstruction, ringTransactAccounts } from "../interface/instructions/index.js";
 export {
   decodeRingDepositOutput,
@@ -51,7 +91,6 @@ export {
 export {
   ringCoSignerAddress,
   ringDelegateAddress,
-  ringSpendRecordHeadAddress,
   ringSpendWindowAddress,
 } from "../interface/pda/index.js";
 export type { RingConfigs } from "./config.js";
@@ -88,6 +127,7 @@ export {
   decodeSpendRecord,
   encodeSpendCounters,
   encodeSpendRecord,
+  spendRecordMessageTag,
   readRingSpendRecord,
   spendCountersCommitment,
   spendCountersSpent,
@@ -160,7 +200,6 @@ export {
   createRingEntryInstruction,
   createRingPolicyInstruction,
   initSppRingConfigInstruction,
-  ringLookupTableAddresses,
   ringDelegateTransactInstruction,
   ringTransactInstruction,
   setRingPolicyRulesInstruction,
@@ -176,12 +215,6 @@ export type {
 } from "./instructions.js";
 export { listRegisteredRings } from "./registry.js";
 export type { RegisteredRing } from "./registry.js";
-export { buildRingLookupTableTransaction, fetchRingLookupTable } from "./lookup-table.js";
-export type {
-  RingLookupTable,
-  RingLookupTableClient,
-  RingLookupTableReader,
-} from "./lookup-table.js";
 export { createPasskey, passkeyReader } from "./passkey.js";
 export type { Passkey } from "./passkey.js";
 export {

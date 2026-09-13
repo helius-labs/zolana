@@ -84,6 +84,10 @@ struct Args {
     #[arg(long, action = clap::ArgAction::SetTrue)]
     disable_api: bool,
 
+    /// First head-map slot, the network start by default.
+    #[arg(long)]
+    head_map_start_slot: Option<u64>,
+
     /// Metrics endpoint in the format `host:port`
     /// If provided, metrics will be sent to the specified statsd server.
     #[arg(long, default_value = None)]
@@ -346,6 +350,20 @@ async fn main() -> Result<()> {
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
+    let head_map_handle = if args.disable_indexing {
+        None
+    } else {
+        let start = match args.head_map_start_slot {
+            Some(slot) => slot.saturating_sub(1),
+            None => get_network_start_slot(&rpc_client).await,
+        };
+        Some(photon_indexer::head_map::spawn(
+            db_conn.clone(),
+            rpc_client.clone(),
+            start,
+        ))
+    };
+
     let (indexer_handle, monitor_handle) = match args.disable_indexing {
         true => {
             info!("Indexing is disabled");
@@ -436,6 +454,10 @@ async fn main() -> Result<()> {
 
     match tokio::signal::ctrl_c().await {
         Ok(()) => {
+            if let Some(handle) = head_map_handle {
+                handle.abort();
+                let _ = handle.await;
+            }
             if let Some(indexer_handle) = indexer_handle {
                 info!("Shutting down indexer...");
                 indexer_handle.abort();

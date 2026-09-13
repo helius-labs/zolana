@@ -30,14 +30,14 @@ import {
   decryptConfidentialAsSender,
   readOutputData,
 } from "../transaction/serialization/codecs.js";
-import type { AssetRegistry } from "../transaction/asset.js";
+import { SOL_MINT, type AssetRegistry } from "../transaction/asset.js";
 
 import { fetchSplAssetRegistrations } from "../wallet/sync.js";
 
 import { RingError } from "./error.js";
 import {
   decodeSpendCounters,
-  decodeSpendRecord,
+  spendRecordFromSlot,
   spendCountersCommitment,
   type SpendCounters,
   type SpendRecord,
@@ -57,7 +57,7 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
-/** Mirrors Rust `AuditedSpendRecord`, `counters` open only inside the record's window. */
+/** Counters must reproduce the published commitment. */
 export interface AuditedRingSpendRecord {
   readonly slotIndex: number;
   readonly record: SpendRecord;
@@ -94,18 +94,26 @@ export function auditorMessage(
   );
   const index = tagged[0];
   if (index === undefined) {
-    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "missing" } });
+    throw new RingError("RING_AUDIT_MESSAGE", {
+      details: { reason: "missing" },
+    });
   }
   if (tagged.length > 1) {
-    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "duplicate" } });
+    throw new RingError("RING_AUDIT_MESSAGE", {
+      details: { reason: "duplicate" },
+    });
   }
   const count = transaction.messages.length;
   if (index + 1 !== count) {
-    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "not last", index, count } });
+    throw new RingError("RING_AUDIT_MESSAGE", {
+      details: { reason: "not last", index, count },
+    });
   }
   const message = transaction.messages[index];
   if (message === undefined) {
-    throw new RingError("RING_AUDIT_MESSAGE", { details: { reason: "missing" } });
+    throw new RingError("RING_AUDIT_MESSAGE", {
+      details: { reason: "missing" },
+    });
   }
   return parseAuditorMessage(message.data);
 }
@@ -140,7 +148,9 @@ export function auditRingTransaction(
   const txViewingPublicKey = transaction.txViewingPublicKey;
   const salt = transaction.salt;
   if (txViewingPublicKey === undefined || salt === undefined) {
-    throw new RingError("RING_AUDIT_UNSEALED", { details: { signature: transaction.txSignature } });
+    throw new RingError("RING_AUDIT_UNSEALED", {
+      details: { signature: transaction.txSignature },
+    });
   }
   const txKey = recoverTransactionViewingKey(input.auditor, message);
   try {
@@ -153,21 +163,34 @@ export function auditRingTransaction(
     const spendRecords: AuditedRingSpendRecord[] = [];
     const undecryptableSlots: number[] = [];
     transaction.outputSlots.forEach((slot, slotIndex) => {
+      const record = spendRecordFromSlot(slot, transaction.messages);
       const output = auditOutput(txKey, slot, salt, slotIndex, input.assets);
+      if (record !== undefined) {
+        if (
+          record.version !== 0n &&
+          (slotIndex !== transaction.outputSlots.length - 1 ||
+            output === undefined ||
+            output.asset !== SOL_MINT ||
+            output.amount !== 0n ||
+            output.ringProgramId !== undefined ||
+            !equal(output.blinding, record.blinding) ||
+            !output.recipientViewingPublicKey.equals(txViewingPublicKey))
+        )
+          throw new RingError("RING_SPEND_RECORD_INVALID", {
+            details: { reason: "carrier" },
+          });
+        spendRecords.push({
+          slotIndex,
+          record,
+          ...openRecordCounters(txKey, transaction.messages, slot.viewTag, salt, record),
+        });
+        return;
+      }
       if (output !== undefined) {
         outputs.push(output);
         return;
       }
-      const record = auditSpendRecord(slot);
-      if (record === undefined) {
-        undecryptableSlots.push(slotIndex);
-        return;
-      }
-      spendRecords.push({
-        slotIndex,
-        record,
-        ...openRecordCounters(txKey, transaction.messages, slot.viewTag, salt, record),
-      });
+      undecryptableSlots.push(slotIndex);
     });
     return Object.freeze({
       signature: transaction.txSignature,
@@ -230,7 +253,11 @@ export async function auditRing(
       }
       try {
         transactions.push(
-          auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),
+          auditRingTransaction({
+            auditor: input.auditor,
+            transaction,
+            assets: input.assets,
+          }),
         );
       } catch (error) {
         if (assetsRefreshed || !isUnknownAsset(error)) throw error;
@@ -239,14 +266,20 @@ export async function auditRing(
           input.assets.register(assetId, mint);
         }
         transactions.push(
-          auditRingTransaction({ auditor: input.auditor, transaction, assets: input.assets }),
+          auditRingTransaction({
+            auditor: input.auditor,
+            transaction,
+            assets: input.assets,
+          }),
         );
       }
     }
     const next = response.nextCursor;
     if (next === undefined) return Object.freeze({ transactions: Object.freeze(transactions) });
     if (cursor !== undefined && equal(cursor, next)) {
-      throw new RingError("RING_RPC", { details: { reason: "ring scan cursor did not advance" } });
+      throw new RingError("RING_RPC", {
+        details: { reason: "ring scan cursor did not advance" },
+      });
     }
     cursor = next;
   }
@@ -258,15 +291,6 @@ export async function auditRing(
 
 function isUnknownAsset(error: unknown): boolean {
   return error instanceof TransactionError && error.code === "TRANSACTION_UNKNOWN_ASSET";
-}
-
-/** `undefined` for a slot this audit cannot open, Rust `spend_record`. */
-function auditSpendRecord(slot: OutputSlot): SpendRecord | undefined {
-  try {
-    return decodeSpendRecord(slot.payload);
-  } catch {
-    return undefined;
-  }
 }
 
 /** Kept only when the counters reproduce the record's commitment. */

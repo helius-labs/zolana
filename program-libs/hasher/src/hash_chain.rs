@@ -56,6 +56,47 @@ fn create_hash_chain<'a>(
     Ok(hash_chain)
 }
 
+/// Folds a slice of [u8; 32] elements three at a time with the 4-input
+/// Poseidon hash.
+///
+/// `hash_chain_4([])` is zero and `hash_chain_4([e])` is `e`, as for the
+/// binary chain. Otherwise the chain starts at `e[0]` and every group of up to
+/// three following elements is absorbed with one call,
+/// `h = Poseidon(h, g[0], g[1] or 0, g[2] or 0)`; a partial trailing group is
+/// zero-padded so the 4-input permutation is used for every step.
+///
+/// # Security
+///
+/// The fold carries no length tag and no domain separation. It is injective
+/// only over inputs of one fixed length: the callers are the public-input
+/// chains whose length is fixed by the compiled circuit (the shape fixes the
+/// input, output and public element counts) and verified against that
+/// circuit's verifying key. Do not use it where a variable-length input could
+/// be zero-padded to look like a fixed-length one, since `[a, b]` and
+/// `[a, b, 0, 0]` hash to the same value.
+pub fn create_hash_chain_4_from_slice(inputs: &[[u8; 32]]) -> Result<[u8; 32], HasherError> {
+    create_hash_chain_4(inputs.iter())
+}
+
+static HASH_CHAIN_4_PADDING: [u8; 32] = [0u8; 32];
+
+/// Iterator variant of [`create_hash_chain_4_from_slice`]; see its security
+/// note.
+pub fn create_hash_chain_4<'a>(
+    mut inputs: impl Iterator<Item = &'a [u8; 32]>,
+) -> Result<[u8; 32], HasherError> {
+    let Some(first) = inputs.next() else {
+        return Ok([0u8; 32]);
+    };
+    let mut hash_chain = *first;
+    while let Some(g0) = inputs.next() {
+        let g1 = inputs.next().unwrap_or(&HASH_CHAIN_4_PADDING);
+        let g2 = inputs.next().unwrap_or(&HASH_CHAIN_4_PADDING);
+        hash_chain = Poseidon::hashv(&[&hash_chain, g0, g1, g2])?;
+    }
+    Ok(hash_chain)
+}
+
 /// Creates a two inputs hash chain from two slices of [u8;32] arrays.
 /// The two slices must have the same length.
 /// Hashes are hashed in pairs, with the first hash from

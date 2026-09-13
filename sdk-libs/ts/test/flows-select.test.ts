@@ -12,6 +12,8 @@ import {
   type SpendPolicy,
   type SpendSelectionErrors,
 } from "../src/flows/select.js";
+import { MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
+import { selectRingInputs } from "../src/ring/transfer.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const OTHER_TREE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
@@ -36,7 +38,7 @@ function policy(overrides: Partial<SpendPolicy> = {}): SpendPolicy {
     eligible: isPlainUtxo,
     ordering: "largestFirst",
     maxInputs: MAX_SPEND_INPUTS,
-    tree: { kind: "inferSingle" },
+    tree: { kind: "infer", maxTrees: MAX_INPUT_TREES },
     errors,
     ...overrides,
   };
@@ -65,6 +67,19 @@ function walletWith(utxos: readonly (readonly [bigint, Address?])[]): Wallet {
 }
 
 describe("UTXO selection", () => {
+  it("allows wide eligible ring balances without changing the default rail's u64 check", () => {
+    const half = (1n << 63n) + 1n;
+    const amount = (1n << 64n) - 1n;
+    const wallet = walletWith([[half], [half]]);
+    const before = wallet.utxos();
+    const selected = selectRingInputs(wallet, OTHER_TREE, MINT, amount, "default", TREE);
+    expect(selected).toHaveLength(2);
+    expect(selected.reduce((sum, entry) => sum + entry.utxo.amount, 0n) - amount).toBe(3n);
+    expect(() =>
+      selectUtxos({ wallet, asset: MINT, target: { kind: "cover", amount }, policy: policy() }),
+    ).toThrow("overflow");
+    expect(wallet.utxos()).toEqual(before);
+  });
   it("covers with the fewest UTXOs under largest-first ordering", () => {
     const wallet = walletWith([[5n], [5n], [5n], [5n], [5n], [5n], [100n]]);
     const selection = selectUtxos({
@@ -108,7 +123,7 @@ describe("UTXO selection", () => {
     ).toThrow("insufficient 31 30");
   });
 
-  it("filters to a fixed tree and infers a single one otherwise", () => {
+  it("filters to a fixed tree", () => {
     const wallet = walletWith([[50n, OTHER_TREE], [20n]]);
     const selection = selectUtxos({
       wallet,
@@ -117,13 +132,43 @@ describe("UTXO selection", () => {
       policy: policy({ tree: { kind: "fixed", tree: TREE } }),
     });
     expect(selection.entries.map((entry) => entry.utxo.amount)).toEqual([20n]);
-    expect(selection.tree).toBe(TREE);
+    expect(selection.trees).toEqual([TREE]);
+  });
+
+  it("takes only the tree it spends from when eligible funds straddle trees", () => {
+    const wallet = walletWith([[50n, OTHER_TREE], [20n]]);
+    const selection = selectUtxos({
+      wallet,
+      asset: MINT,
+      target: { kind: "cover", amount: 20n },
+      policy: policy(),
+    });
+    expect(selection.trees).toEqual([OTHER_TREE]);
+  });
+
+  it("groups a spend across trees and refuses more trees than the policy admits", () => {
+    const wallet = walletWith([[50n, OTHER_TREE], [20n], [5n, OTHER_TREE]]);
+    const selection = selectUtxos({
+      wallet,
+      asset: MINT,
+      target: { kind: "cover", amount: 75n },
+      policy: policy(),
+    });
+    // Largest-first picks 50, 20 and 5; each tree then owns a contiguous run.
+    expect(selection.trees).toEqual([OTHER_TREE, TREE]);
+    expect(selection.entries.map((entry) => [entry.utxo.amount, entry.outputContext.tree])).toEqual(
+      [
+        [50n, OTHER_TREE],
+        [5n, OTHER_TREE],
+        [20n, TREE],
+      ],
+    );
     expect(() =>
       selectUtxos({
         wallet,
         asset: MINT,
-        target: { kind: "cover", amount: 20n },
-        policy: policy(),
+        target: { kind: "cover", amount: 75n },
+        policy: policy({ tree: { kind: "infer", maxTrees: 1 } }),
       }),
     ).toThrow("trees 2");
   });

@@ -24,7 +24,7 @@ pub mod tag {
     pub const SET_PAUSED: u8 = 11;
     pub const SET_POLICY_RULES: u8 = 12;
     /// Ring-local tags above every SPP wire tag the dispatcher aliases.
-    pub const SET_CO_SIGNER: u8 = 20;
+    pub const SET_CO_SIGNER: u8 = 28;
     pub const CLEAR_CO_SIGNER: u8 = 21;
     pub const SET_SPEND_WINDOW: u8 = 22;
     pub const CLEAR_SPEND_WINDOW: u8 = 23;
@@ -100,6 +100,19 @@ pub struct CustomRingProof {
     pub commitment_pok: [u8; 32],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct PlainGroth16Proof {
+    pub proof_a: [u8; 32],
+    pub proof_b: [u8; 64],
+    pub proof_c: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct HeadMapTransition {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+}
+
 /// Wire format of tag 3, the ring's own proof followed by the SPP content this
 /// ring forwards verbatim.
 ///
@@ -112,6 +125,8 @@ pub struct CustomRingTransactIxData {
     pub nullifier_root_index: u16,
     /// The dual control bit the policy statement binds, zero without velocity.
     pub approval_required: u8,
+    /// Required only on the windowed member rail.
+    pub head_transition: Option<HeadMapTransition>,
     pub transact: TransactIxData,
 }
 
@@ -164,6 +179,10 @@ pub struct RegisterSpendIxData {
     pub nullifier_tree_root_index: u16,
     pub utxo_tree_root_index: u16,
     pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
+    pub head_old_root: [u8; 32],
+    pub head_new_root: [u8; 32],
+    pub head_next_index: u64,
+    pub head_proof: PlainGroth16Proof,
 }
 
 /// One hash over the stored rows plus one curator verification.

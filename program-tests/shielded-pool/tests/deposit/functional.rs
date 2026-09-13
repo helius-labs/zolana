@@ -56,7 +56,7 @@ fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
     let root_before = pool.rpc.state_root(&tree).expect("state root");
     let indexed_outputs_before = pool.rpc.indexer().utxos().len();
     assert_eq!(
-        pool.rpc.indexer().root(),
+        pool.rpc.indexer().root(&tree),
         root_before,
         "empty reference indexer and on-chain tree must start at the same root"
     );
@@ -361,7 +361,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
     let mut pool = Pool::initialized();
     let tree = pool.tree;
     assert_eq!(
-        pool.rpc.indexer().root(),
+        pool.rpc.indexer().root(&tree),
         pool.rpc.state_root(&tree).expect("state root"),
         "empty trees must agree"
     );
@@ -409,7 +409,7 @@ fn bootstrap_deposits_keep_indexer_wallet_and_tree_in_sync() {
         view_tags.push(data.view_tag);
 
         assert_eq!(
-            pool.rpc.indexer().root(),
+            pool.rpc.indexer().root(&tree),
             pool.rpc.state_root(&tree).expect("state root"),
             "indexed tree must track the on-chain root after deposit {i}"
         );
@@ -783,7 +783,7 @@ fn ring_spl_deposit_settles_and_indexes_the_exact_output() {
 fn assert_batch_root_matches_reference(rpc: &ZolanaProgramTest, tree: &Pubkey) {
     let onchain = rpc.state_root(tree).expect("state root");
     assert_eq!(
-        rpc.indexer().root(),
+        rpc.indexer().root(tree),
         onchain,
         "batch append root must match the leaf-by-leaf reference tree"
     );

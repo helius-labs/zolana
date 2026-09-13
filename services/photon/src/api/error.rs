@@ -24,11 +24,31 @@ pub enum PhotonApiError {
     /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
     StaleRoot(String),
+    #[error("head map is out of sync ({0})")]
+    HeadMapOutOfSync(String),
+    #[error("head root changed")]
+    HeadRootChanged,
+    #[error("member has no registered spend record")]
+    HeadMemberUnregistered,
+    #[error("member already has a spend record")]
+    HeadMemberAlreadyRegistered,
 }
 
 impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
+            PhotonApiError::HeadMapOutOfSync(_) => {
+                ErrorObjectOwned::owned(-32070, val.to_string(), None::<()>)
+            }
+            PhotonApiError::HeadRootChanged => {
+                ErrorObjectOwned::owned(-32071, val.to_string(), None::<()>)
+            }
+            PhotonApiError::HeadMemberUnregistered => {
+                ErrorObjectOwned::owned(-32072, val.to_string(), None::<()>)
+            }
+            PhotonApiError::HeadMemberAlreadyRegistered => {
+                ErrorObjectOwned::owned(-32073, val.to_string(), None::<()>)
+            }
             PhotonApiError::ValidationError(_) => {
                 metric! {
                     statsd_count!("validation_api_error", 1);

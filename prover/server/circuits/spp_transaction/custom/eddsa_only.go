@@ -35,10 +35,12 @@ type CustomRingEddsaOnlyPublic struct {
 	PublicAmounts [shared.NPublicSlots]frontend.Variable
 	// Program ID of the ring program.
 	RingProgramID frontend.Variable
-	// Whether dummy input UTXOs are allowed.
-	// Dummy input UTXOs are not allowed once the nullifier tree capacity
-	// is less than remaining state tree capacity to ensure that every new UTXO can be nullified.
-	AllowDummyInputs frontend.Variable
+	// Packed input flags: bit 0 says whether dummy input UTXOs are allowed, and
+	// input i's tree index occupies the shared.TreeIndexBits bits starting at
+	// 1+shared.TreeIndexBits*i. Dummy input UTXOs are not allowed once the
+	// nullifier tree capacity is less than remaining state tree capacity, to
+	// ensure that every new UTXO can be nullified.
+	InputFlags frontend.Variable
 	// Hashed EdDSA signer pubkeys, with the fee payer first.
 	SignerPkHashes []frontend.Variable
 	// Default-ring real outputs publish owner pubkey hashes; custom-ring real outputs
@@ -72,7 +74,7 @@ func NewCustomRingEddsaOnlyCircuit(shape shared.Shape) (*CustomRingEddsaOnlyCirc
 			Nullifiers:                   make([]frontend.Variable, shape.NInputs),
 			OutputHashes:                 make([]frontend.Variable, shape.NOutputs),
 			TreeSlots:                    shared.NewTreeSlots(),
-			SignerPkHashes:               make([]frontend.Variable, shape.NInputs+1),
+			SignerPkHashes:               make([]frontend.Variable, shape.SignerWidth()),
 			PublishedOutputOwnerPkHashes: make([]frontend.Variable, shape.NOutputs),
 		},
 		Private: CustomRingEddsaOnlyPrivate{
@@ -101,10 +103,10 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 		PublicAmounts:     c.Public.PublicAmounts,
 		RingProgramID:     c.Public.RingProgramID,
 		SignerPkHashChain: gadget.RightHashChain(api, c.Public.SignerPkHashes),
-		AllowDummyInputs:  c.Public.AllowDummyInputs,
+		InputFlags:        c.Public.InputFlags,
 		PublicInputHash:   c.Public.PublicInputHash,
 		PreimageTail: []frontend.Variable{
-			gadget.HashChain(api, c.Public.PublishedOutputOwnerPkHashes),
+			gadget.HashChain4(api, c.Public.PublishedOutputOwnerPkHashes),
 		},
 	}
 }
@@ -112,7 +114,7 @@ func (c *CustomRingEddsaOnlyCircuit) transaction(api frontend.API) shared.Transa
 func (c *CustomRingEddsaOnlyCircuit) Define(api frontend.API) error {
 	tx := c.transaction(api)
 	if err := tx.ValidateLayout(
-		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.NInputs + 1},
+		shared.LengthCheck{Name: "signer pk hash", Got: len(c.Public.SignerPkHashes), Want: c.Shape.SignerWidth()},
 		shared.LengthCheck{Name: "input owner pk hash", Got: len(c.Private.InputOwnerPkHashes), Want: c.Shape.NInputs},
 		shared.LengthCheck{Name: "output owner pk hash", Got: len(c.Private.OutputOwnerPkHashes), Want: c.Shape.NOutputs},
 		shared.LengthCheck{Name: "output nullifier pk", Got: len(c.Private.OutputNullifierPks), Want: c.Shape.NOutputs},

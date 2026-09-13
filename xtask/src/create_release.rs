@@ -14,8 +14,8 @@ use solana_pubkey::Pubkey;
 use zolana_interface::pda;
 use zolana_program_test::ZolanaProgramTest;
 
-const DEFAULT_SURFPOOL_TAG: &str = "v1.1.1-light";
-const DEFAULT_SURFPOOL_VERSION: &str = "1.1.1";
+const DEFAULT_SURFPOOL_TAG: &str = "v1.6.0-light";
+const DEFAULT_SURFPOOL_VERSION: &str = "1.6.0";
 
 // Cross-compile photon for linux-x64 inside a matching-toolchain container
 // (see rust-toolchain.toml). linux/amd64 builds the x86_64-linux binary natively
@@ -173,7 +173,7 @@ impl RingKeySource {
     }
 }
 
-const RING_KEY_SOURCES: [RingKeySource; 2] = [
+const RING_KEY_SOURCES: [RingKeySource; 5] = [
     RingKeySource {
         section: "proving_key",
         prover_file: "custom_ring_policy.key",
@@ -183,6 +183,21 @@ const RING_KEY_SOURCES: [RingKeySource; 2] = [
         section: "audit_key",
         prover_file: "custom_ring_base.key",
         asset_stem: "custom-ring-base-key",
+    },
+    RingKeySource {
+        section: "compressed_policy_key",
+        prover_file: "custom_ring_compressed_policy.key",
+        asset_stem: "custom-ring-compressed-policy-key",
+    },
+    RingKeySource {
+        section: "compressed_register_key",
+        prover_file: "custom_ring_compressed_register.key",
+        asset_stem: "custom-ring-compressed-register-key",
+    },
+    RingKeySource {
+        section: "delegate_policy_key",
+        prover_file: "custom_ring_delegate_policy.key",
+        asset_stem: "custom-ring-delegate-policy-key",
     },
 ];
 
@@ -672,7 +687,15 @@ fn staged_asset_paths(staging: &Path, lock: &Value) -> Vec<PathBuf> {
     if let Some(programs) = lock.get("programs").and_then(Value::as_array) {
         names.extend(programs.iter().filter_map(asset_name));
     }
-    for key in ["ring_program", "proving_key", "audit_key", "accounts"] {
+    for key in [
+        "ring_program",
+        "proving_key",
+        "audit_key",
+        "compressed_policy_key",
+        "compressed_register_key",
+        "delegate_policy_key",
+        "accounts",
+    ] {
         if let Some(name) = lock.get(key).and_then(asset_name) {
             names.push(name);
         }
@@ -1120,18 +1143,21 @@ mod tests {
         }
     }
 
-    /// The ring cli reads `release_tag`, `ring_program`, `proving_key`, `audit_key`
-    /// and `binaries`.
     #[test]
     fn custom_rings_lock_shape_matches_the_ring_cli_parser() {
-        let lock = json!({
+        let mut lock = json!({
             "release_tag": "v1",
             "ring_program": {"asset": "custom-ring-program-v1.so", "size": 1, "sha256": "x"},
             "proving_key": {"asset": RING_KEY_SOURCES[0].asset("v1"), "size": 1, "sha256": "x"},
             "audit_key": {"asset": RING_KEY_SOURCES[1].asset("v1"), "size": 1, "sha256": "x"},
             "binaries": [{"role": "ring_rpc", "os": "linux", "arch": "x64", "asset": "ring-rpc-linux-x64-v1", "size": 1, "sha256": "x"}],
         });
-        for section in ["ring_program", "proving_key", "audit_key"] {
+        for source in &RING_KEY_SOURCES {
+            lock[source.section] = json!({"asset": source.asset("v1"), "size": 1, "sha256": "x"});
+        }
+        for section in std::iter::once("ring_program")
+            .chain(RING_KEY_SOURCES.iter().map(|source| source.section))
+        {
             for key in ["asset", "size", "sha256"] {
                 assert!(lock[section].get(key).is_some(), "{section} missing {key}");
             }
@@ -1142,6 +1168,9 @@ mod tests {
                 PathBuf::from("/stage/custom-ring-program-v1.so"),
                 PathBuf::from("/stage/custom-ring-policy-key-v1.key"),
                 PathBuf::from("/stage/custom-ring-base-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-compressed-policy-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-compressed-register-key-v1.key"),
+                PathBuf::from("/stage/custom-ring-delegate-policy-key-v1.key"),
                 PathBuf::from("/stage/ring-rpc-linux-x64-v1"),
             ]
         );
@@ -1176,6 +1205,56 @@ mod tests {
                 "prover",
                 "photon"
             ]
+        );
+    }
+
+    /// The surfpool pin lives in three places: the justfile recipe that
+    /// downloads the binary, the release lockfile the CLI reads at runtime, and
+    /// the fallback here for when that lockfile is missing. They have already
+    /// drifted once -- the fallback sat two releases behind the other two, so a
+    /// developer without a lockfile would have silently run an older backend
+    /// than CI. Nothing but this test makes them move together.
+    #[test]
+    fn the_three_surfpool_pins_agree() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+
+        let lock: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("cli/release-artifacts.lock"))
+                .expect("read cli/release-artifacts.lock"),
+        )
+        .expect("parse cli/release-artifacts.lock");
+        let lock_tag = lock["surfpool_tag"].as_str().expect("surfpool_tag");
+        let lock_version = lock["surfpool_version"].as_str().expect("surfpool_version");
+
+        let justfile = std::fs::read_to_string(root.join("justfile")).expect("read justfile");
+        let just_pin = |name: &str| {
+            justfile
+                .lines()
+                .find_map(|line| {
+                    let rest = line.strip_prefix(name)?;
+                    let (_, quoted) = rest.rsplit_once(", \"")?;
+                    quoted.split('"').next().map(str::to_owned)
+                })
+                .unwrap_or_else(|| panic!("{name} is not pinned in the justfile"))
+        };
+
+        assert_eq!(
+            [
+                just_pin("surfpool-release-tag :="),
+                lock_tag.to_owned(),
+                DEFAULT_SURFPOOL_TAG.to_owned(),
+            ],
+            [lock_tag, lock_tag, lock_tag].map(str::to_owned),
+            "the justfile, the release lockfile and the fallback must name one surfpool tag"
+        );
+        assert_eq!(
+            [
+                just_pin("surfpool-version :="),
+                lock_version.to_owned(),
+                DEFAULT_SURFPOOL_VERSION.to_owned(),
+            ],
+            [lock_version, lock_version, lock_version].map(str::to_owned),
+            "the justfile, the release lockfile and the fallback must name one surfpool version"
         );
     }
 }

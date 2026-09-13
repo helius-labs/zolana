@@ -3,18 +3,17 @@ use forester::close_nullifier_pdas::{plan_batches, ForesterSmartAccount};
 use num_bigint::BigUint;
 use solana_address::Address;
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use zolana_client::{
     BatchAddressAppendInputs, ProofCompressed, ProverClient, Rpc, SolanaRpc, NULLIFIER_TREE_HEIGHT,
 };
-use zolana_hasher::hash_chain::create_hash_chain_from_array;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_merkle_tree::indexed::IndexedMerkleTree;
 use zolana_smart_account_client::execute_sync_ix;
+use zolana_test_utils::localnet::send_transaction;
 use zolana_transaction::instructions::transact::spp_proof_inputs::BN254_MODULUS_DEC;
 use zolana_tree::TreeAccount;
 
@@ -65,17 +64,21 @@ impl NullifierTestForester {
             &[batch_update],
         );
         let fee_payer = authority.signer.pubkey();
-        let (blockhash, _) = rpc.get_latest_blockhash()?;
         // Request the full budget so the caller's asserted CU ceiling sits
         // below the enforced limit: a batch-update regression then fails the
-        // ceiling assert instead of aborting at the 200k default budget.
+        // ceiling assert instead of aborting at the 200k default budget. The
+        // sender lifts this request into the v1 message header, which is where
+        // a v1 transaction states its ceilings.
         let compute_budget =
             solana_compute_budget_interface::ComputeBudgetInstruction::set_compute_unit_limit(
                 1_400_000,
             );
-        let message = Message::new(&[compute_budget, execute], Some(&fee_payer));
-        let tx = Transaction::new(&[authority.signer], message, blockhash);
-        let signature = rpc.send_transaction(&tx)?;
+        let signature = send_transaction(
+            rpc,
+            &[compute_budget, execute],
+            &fee_payer,
+            &[authority.signer],
+        )?;
         self.mark_batch_inserted(queued_nullifiers, batch_len)?;
         Ok(signature)
     }
@@ -91,10 +94,12 @@ impl NullifierTestForester {
         plan_batches(tree, authority.smart_account(), nullifiers)?
             .into_iter()
             .map(|batch| {
-                let (blockhash, _) = rpc.get_latest_blockhash()?;
-                let message = Message::new(&[batch.instruction()], Some(&member));
-                let tx = Transaction::new(&[authority.signer], message, blockhash);
-                Ok(rpc.send_transaction(&tx)?)
+                Ok(send_transaction(
+                    rpc,
+                    &[batch.instruction()],
+                    &member,
+                    &[authority.signer],
+                )?)
             })
             .collect()
     }
@@ -128,7 +133,7 @@ impl NullifierTestForester {
             new_root,
             old_root: plan.current_root,
             zkp_batch_index: plan.zkp_batch_index,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: compressed.a,
                 b: compressed.b,
                 c: compressed.c,
@@ -143,9 +148,9 @@ impl NullifierTestForester {
                 new_root: batch_update.new_root,
                 old_root: batch_update.old_root,
                 zkp_batch_index: batch_update.zkp_batch_index,
-                compressed_proof_a: batch_update.compressed_proof.a,
-                compressed_proof_b: batch_update.compressed_proof.b,
-                compressed_proof_c: batch_update.compressed_proof.c,
+                proof_a: batch_update.proof.a,
+                proof_b: batch_update.proof.b,
+                proof_c: batch_update.proof.c,
             }
             .instruction(),
             batch_values.len(),
@@ -214,7 +219,7 @@ impl NullifierTestForester {
         let new_root = reference.root();
         let mut start_index_bytes = [0u8; 32];
         start_index_bytes[24..].copy_from_slice(&plan.start_index.to_be_bytes());
-        let public_input_hash = create_hash_chain_from_array([
+        let public_input_hash = create_hash_chain_4_from_slice(&[
             plan.current_root,
             new_root,
             plan.leaves_hash_chain,

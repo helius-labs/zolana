@@ -49,14 +49,14 @@ impl Settle {
             AccountMeta::new_readonly(pair, false),
             AccountMeta::new(escrow, false),
             AccountMeta::new(rent_recipient, false),
-            // Forwarded SPP `transact` CPI tail: payer, input tree, output tree,
-            // SPP, System Program, one nullifier PDA per input, then escrow
+            // Forwarded SPP `transact` CPI tail: payer, output tree, SPP,
+            // System Program, input tree, one nullifier PDA per input, then escrow
             // authority.
             AccountMeta::new_readonly(caller, true),
             AccountMeta::new(tree, false),
-            AccountMeta::new(tree, false),
             AccountMeta::new_readonly(Pubkey::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Pubkey::default(), false),
+            AccountMeta::new(tree, false),
         ];
         accounts.extend(nullifier_pdas);
         accounts.push(AccountMeta::new_readonly(

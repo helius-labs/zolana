@@ -1,7 +1,8 @@
 //! High-level merge build: [`Merge`] names which UTXOs to consolidate and the
-//! derived single output; [`PreparedMerge`] pads to [`MERGE_INPUTS`] and yields
-//! the input commitments to fetch Merkle proofs for. Merge proves ownership
-//! in-circuit from the nullifier secret, so there is no signing step.
+//! derived single output; [`PreparedMerge`] pads to the smallest supported shape
+//! that fits and yields the input commitments to fetch Merkle proofs for. Merge
+//! proves ownership in-circuit from the nullifier secret, so there is no signing
+//! step.
 
 use solana_address::Address;
 use zolana_hasher::{primitives::right_align, Hasher, Poseidon};
@@ -14,9 +15,17 @@ use crate::{
     SppProofOutputUtxo,
 };
 
-/// Fixed input arity of the merge circuit (`merge_8_1`). Real inputs sit at the
-/// front; padding fills the rest with dummies.
-pub const MERGE_INPUTS: usize = 8;
+pub use zolana_interface::instruction::instruction_data::merge_transact::{
+    MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT, MERGE_SUPPORTED_INPUT_COUNTS,
+};
+
+pub fn merge_padded_input_count(real_inputs: usize) -> Option<usize> {
+    MERGE_SUPPORTED_INPUT_COUNTS
+        .iter()
+        .copied()
+        .filter(|supported| *supported >= real_inputs)
+        .min()
+}
 
 /// Domain separators (32-bit ASCII tags) for the deterministic merge-output
 /// recovery scheme, mirroring `circuits/spp_merge/shared/derivation.go`.
@@ -76,6 +85,7 @@ pub fn merge_dummy_nullifier(
 /// (P256 or Solana) and asset.
 pub struct Merge {
     inputs: Vec<SppProofInputUtxo>,
+    padded_input_count: usize,
     output: SppProofOutputUtxo,
     expiry_unix_ts: u64,
     signing_pubkey: PublicKey,
@@ -91,7 +101,7 @@ impl Merge {
     ) -> Result<Self, TransactionError> {
         // The default merge only consolidates plain utxos: no input may be bound
         // to a ring or carry program/ring data.
-        let (asset, total) = validate_merge_inputs(keypair, &inputs, |index, spend| {
+        let validated = validate_merge_inputs(keypair, &inputs, |index, spend| {
             if spend.utxo.ring_program_id.is_some() {
                 return Err(TransactionError::MergeInputRingMismatch { index });
             }
@@ -109,11 +119,16 @@ impl Merge {
             .first()
             .ok_or(TransactionError::NoInputs)?
             .nullifier()?;
-        let mut output = SppProofOutputUtxo::new(asset, total, keypair.shielded_address()?)?;
+        let mut output = SppProofOutputUtxo::new(
+            validated.asset,
+            validated.total,
+            keypair.shielded_address()?,
+        )?;
         output.blinding = merge_output_blinding(&keypair.nullifier_key(), &first_nullifier)?;
 
         Ok(Self {
             inputs,
+            padded_input_count: validated.padded_input_count,
             output,
             // Never expires by default; `merge_transact` rejects `current_ts >
             // expiry`, so set this explicitly for a relayer deadline.
@@ -137,17 +152,18 @@ impl Merge {
         self
     }
 
-    /// Pad to [`MERGE_INPUTS`] with dummy inputs (real inputs first), producing the
-    /// proofless [`PreparedMerge`].
+    /// Pad to the smallest supported shape that fits with dummy inputs (real
+    /// inputs first), producing the proofless [`PreparedMerge`].
     pub fn prepare(self) -> PreparedMerge {
         let Merge {
             mut inputs,
+            padded_input_count,
             output,
             expiry_unix_ts,
             signing_pubkey,
             output_tree_id,
         } = self;
-        pad_with_dummies(&mut inputs);
+        pad_with_dummies(&mut inputs, padded_input_count);
         PreparedMerge {
             inputs,
             output,
@@ -158,25 +174,24 @@ impl Merge {
     }
 }
 
-/// The validation both merge rails share: 1..=[`MERGE_INPUTS`] inputs bound to
-/// one owner identity -- the proof binds every input to a single rail, exact
+/// The validation both merge rails share: 1..=[`MAX_MERGE_INPUTS`] inputs bound
+/// to one owner identity -- the proof binds every input to a single rail, exact
 /// owner, and nullifier key from `keypair` -- and one asset. `check` adds the
-/// rail's ring-binding and data policy per input. Returns the shared asset and
-/// the overflow-checked merged amount.
+/// rail's ring-binding and data policy per input. Returns the shared asset, the
+/// overflow-checked merged amount, and the shape the inputs pad to.
 pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
     keypair: &K,
     inputs: &[SppProofInputUtxo],
     check: impl Fn(usize, &SppProofInputUtxo) -> Result<(), TransactionError>,
-) -> Result<(Address, u64), TransactionError> {
+) -> Result<MergeInputs, TransactionError> {
     if inputs.is_empty() {
         return Err(TransactionError::NoInputs);
     }
-    if inputs.len() > MERGE_INPUTS {
-        return Err(TransactionError::TooManyInputs {
+    let padded_input_count =
+        merge_padded_input_count(inputs.len()).ok_or(TransactionError::TooManyInputs {
             got: inputs.len(),
-            max: MERGE_INPUTS,
-        });
-    }
+            max: MAX_MERGE_INPUTS,
+        })?;
 
     let asset = inputs.first().ok_or(TransactionError::NoInputs)?.utxo.asset;
     let owner = keypair.signing_pubkey();
@@ -201,12 +216,21 @@ pub(crate) fn validate_merge_inputs<K: ShieldedKeypairTrait>(
             .checked_add(spend.utxo.amount)
             .ok_or(TransactionError::SelectedBalanceOverflow)?;
     }
-    Ok((asset, total))
+    Ok(MergeInputs {
+        asset,
+        total,
+        padded_input_count,
+    })
 }
 
-/// Pad to [`MERGE_INPUTS`] with dummy inputs, real inputs first.
-pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>) {
-    while inputs.len() < MERGE_INPUTS {
+pub(crate) struct MergeInputs {
+    pub asset: Address,
+    pub total: u64,
+    pub padded_input_count: usize,
+}
+
+pub(crate) fn pad_with_dummies(inputs: &mut Vec<SppProofInputUtxo>, padded_input_count: usize) {
+    while inputs.len() < padded_input_count {
         inputs.push(SppProofInputUtxo::new_dummy());
     }
 }
@@ -253,7 +277,7 @@ pub(crate) fn real_input_contexts(
         .collect()
 }
 
-/// A merge padded to [`MERGE_INPUTS`] (real inputs first, dummies at the tail),
+/// A merge padded to a supported shape (real inputs first, dummies at the tail),
 /// still proofless. [`Self::input_utxo_hashes`] yields what to fetch Merkle proofs
 /// for.
 pub struct PreparedMerge {
@@ -333,8 +357,54 @@ mod tests {
 
         let prepared = Merge::new(&keypair, inputs).expect("merge plan").prepare();
 
-        assert_eq!(prepared.inputs.len(), MERGE_INPUTS);
+        assert_eq!(prepared.inputs.len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(prepared.output.amount, 30);
+    }
+
+    #[test]
+    fn pads_to_the_smallest_supported_shape_that_fits() {
+        assert_eq!(merge_padded_input_count(0), Some(8));
+        assert_eq!(merge_padded_input_count(1), Some(8));
+        assert_eq!(merge_padded_input_count(8), Some(8));
+        assert_eq!(merge_padded_input_count(9), Some(36));
+        assert_eq!(merge_padded_input_count(36), Some(36));
+        assert_eq!(merge_padded_input_count(37), None);
+
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let inputs: Vec<SppProofInputUtxo> = (0..9)
+            .map(|amount| plain_input(&keypair, Address::default(), amount))
+            .collect();
+        let prepared = Merge::new(&keypair, inputs).expect("merge plan").prepare();
+        assert_eq!(prepared.inputs.len(), MAX_MERGE_INPUTS);
+        assert_eq!(prepared.output.amount, 36);
+        assert_eq!(
+            prepared
+                .inputs
+                .iter()
+                .filter(|input| !input.is_dummy())
+                .count(),
+            9
+        );
+    }
+
+    #[test]
+    fn rejects_more_inputs_than_the_widest_shape() {
+        let keypair = ShieldedKeypair::new_p256().expect("keypair");
+        let inputs: Vec<SppProofInputUtxo> = (0..=MAX_MERGE_INPUTS as u64)
+            .map(|amount| plain_input(&keypair, Address::default(), amount))
+            .collect();
+
+        let Err(error) = Merge::new(&keypair, inputs) else {
+            panic!("too many inputs must be rejected");
+        };
+
+        assert_eq!(
+            error,
+            TransactionError::TooManyInputs {
+                got: MAX_MERGE_INPUTS + 1,
+                max: MAX_MERGE_INPUTS,
+            }
+        );
     }
 
     #[test]

@@ -15,7 +15,12 @@ import type { ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
 import { equalBytes } from "../wallet/internal.js";
 import type { SpendSession } from "../transaction/wallet/authority.js";
-import type { SlotReader } from "../client/ports.js";
+import type {
+  SlotReader,
+  ChainReader,
+  RingHeadReader,
+  RingHeadTransferProof,
+} from "../client/ports.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
 import type { CustomRingVelocityRow, CustomRingVelocityWitness } from "../client/prover/types.js";
 import { RingError } from "./error.js";
@@ -28,8 +33,7 @@ import {
   spendCountersSpent,
   zeroSpendCounters,
   encodeSpendRecord,
-  readRingSpendRecord,
-  type EntryIndexer,
+  spendRecordMessageTag,
   type LiveSpendRecord,
   type Member,
   type SpendCounters,
@@ -37,6 +41,7 @@ import {
   type VelocityRow,
 } from "./policy.js";
 import { findSpendCountersMessage, openSpendCounters, sealedSpendCounters } from "./counters.js";
+import { readCurrentSpendRecord } from "./head-reader.js";
 
 const ZERO_NULLIFIER_SECRET = new Uint8Array(31) as Bytes31;
 const RING_INPUT_SLOTS = 5;
@@ -60,7 +65,9 @@ export function recordShape(money: Shape): Shape {
       candidate.outputs >= money.outputs + 1,
   );
   if (shape === undefined) {
-    throw new RingError("RING_BUILD_TRANSFER", { details: { reason: "recordShape" } });
+    throw new RingError("RING_BUILD_TRANSFER", {
+      details: { reason: "recordShape" },
+    });
   }
   return shape;
 }
@@ -104,10 +111,14 @@ export interface VelocityFacts {
   readonly live: LiveSpendRecord;
   /** `undefined` for an expired record, the circuit opens only its commitment. */
   readonly counters: SpendCounters | undefined;
+  readonly head?: RingHeadTransferProof;
 }
 
 export interface ReadVelocityFactsInput {
-  readonly client: EntryIndexer & SlotReader;
+  readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
+    SlotReader &
+    Pick<ChainReader, "getAccount">;
+  readonly ringProgramId: Address;
   readonly session: Pick<SpendSession, "openSealedMessage">;
   readonly namespace: Address;
   readonly entriesTree: Address;
@@ -123,17 +134,8 @@ export async function readVelocityFacts(
   context?: RequestContext,
 ): Promise<VelocityFacts> {
   const owner = RingListNamespace.of(input.namespace, input.entriesTreeId);
-  const live = await readRingSpendRecord(
-    {
-      indexer: input.client,
-      entriesTree: input.entriesTree,
-      entriesTreeId: input.entriesTreeId,
-      namespace: input.namespace,
-      member: input.sender,
-    },
-    context,
-  );
-  if (live === undefined) throw new RingError("RING_SPEND_RECORD_MISSING", { details: {} });
+  if (input.windowSlots <= 0n) throw new RingError("RING_VELOCITY_DISABLED");
+  const { head, live } = await readCurrentSpendRecord(input, context);
   const slot = await input.client.getSlot(context);
   const windowIndex = slot / input.windowSlots;
   const counters = await recoverCounters(input, live, windowIndex);
@@ -146,6 +148,7 @@ export async function readVelocityFacts(
     windowIndex,
     live,
     counters,
+    head,
   });
 }
 
@@ -154,7 +157,8 @@ async function recoverCounters(
   live: LiveSpendRecord,
   windowIndex: bigint,
 ): Promise<SpendCounters | undefined> {
-  if (live.record.window !== windowIndex) return undefined;
+  if (live.record.window > windowIndex) throw new RingError("RING_SPEND_RECORD_INVALID");
+  if (live.record.window < windowIndex) return undefined;
   if (live.record.version === 0n) return zeroSpendCounters();
   const message = findSpendCountersMessage(live.origin.messages, addressBytes(input.namespace));
   if (message === undefined || live.origin.salt === undefined) {
@@ -169,11 +173,16 @@ async function recoverCounters(
 }
 
 export interface VelocityPlan {
+  readonly nextNullifier: Bytes32;
   readonly shape: Shape;
   readonly recordInput: ProofInputUtxo;
   readonly recordOutput: ProofOutputUtxo;
-  readonly recordSlot: MessageData;
-  readonly countersSeal: Readonly<{ viewTag: Bytes32; plaintext: Uint8Array; slotIndex: number }>;
+  readonly recordMessage: MessageData;
+  readonly countersSeal: Readonly<{
+    viewTag: Bytes32;
+    plaintext: Uint8Array;
+    slotIndex: number;
+  }>;
   readonly witness: CustomRingVelocityWitness;
   readonly approvalRequired: boolean;
 }
@@ -306,9 +315,13 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
 
   return Object.freeze({
     shape,
+    nextNullifier: nextHashes.nullifier,
     recordInput,
     recordOutput,
-    recordSlot: { viewTag: addressBytes(facts.namespace), data: encodeSpendRecord(successor) },
+    recordMessage: {
+      viewTag: spendRecordMessageTag(addressBytes(facts.namespace)),
+      data: encodeSpendRecord(successor),
+    },
     countersSeal: sealedSpendCounters(nextCounters, addressBytes(facts.namespace)),
     witness,
     approvalRequired,

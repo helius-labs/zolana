@@ -2,9 +2,15 @@
 //! custom ring program, shared by the program, the SDK, and the services.
 
 pub mod base_public_input;
-pub mod head_map;
 #[cfg(feature = "verifying-keys")]
 pub mod base_verifying_key;
+#[cfg(feature = "verifying-keys")]
+pub mod compressed_policy_verifying_key;
+#[cfg(feature = "verifying-keys")]
+pub mod compressed_register_verifying_key;
+#[cfg(feature = "verifying-keys")]
+pub mod delegate_policy_verifying_key;
+pub mod head_map;
 pub mod instruction;
 pub mod policy_public_input;
 #[cfg(feature = "verifying-keys")]
@@ -18,22 +24,23 @@ pub use head_map::{
 };
 pub use instruction::{
     tag, CreateConfigIxData, CreateEntryIxData, CustomRingProof, CustomRingTransactIxData,
-    PolicyTableIxData, ReaderIxData, RegisterSpendIxData, SetCoSignerIxData, SetPausedIxData,
-    SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec, UpdateEntryIxData, VelocityRowIxData,
-    WithdrawalThresholdIxData, CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_POLICY_COMPUTE_UNIT_LIMIT,
-    ENTRY_MUTATION_COMPUTE_UNIT_LIMIT, INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT,
-    READ_ACCESS_COMPUTE_UNIT_LIMIT, REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
-    SET_AUTHORITY_COMPUTE_UNIT_LIMIT, SET_CO_SIGNER_COMPUTE_UNIT_LIMIT,
-    SET_DELEGATE_COMPUTE_UNIT_LIMIT, SET_PAUSED_COMPUTE_UNIT_LIMIT,
-    SET_POLICY_RULES_COMPUTE_UNIT_LIMIT, SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT,
-    SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
+    HeadMapTransition, PlainGroth16Proof, PolicyTableIxData, ReaderIxData, RegisterSpendIxData,
+    SetCoSignerIxData, SetPausedIxData, SetPolicySourceIxData, SetSpendWindowIxData, SourceSpec,
+    UpdateEntryIxData, VelocityRowIxData, WithdrawalThresholdIxData,
+    CREATE_CONFIG_COMPUTE_UNIT_LIMIT, CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT,
+    CREATE_POLICY_COMPUTE_UNIT_LIMIT, ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,
+    INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT, READ_ACCESS_COMPUTE_UNIT_LIMIT,
+    REGISTER_SPEND_COMPUTE_UNIT_LIMIT, SET_AUTHORITY_COMPUTE_UNIT_LIMIT,
+    SET_CO_SIGNER_COMPUTE_UNIT_LIMIT, SET_DELEGATE_COMPUTE_UNIT_LIMIT,
+    SET_PAUSED_COMPUTE_UNIT_LIMIT, SET_POLICY_RULES_COMPUTE_UNIT_LIMIT,
+    SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT, SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT,
 };
-pub use policy_public_input::CustomRingPolicyPublicInput;
+pub use policy_public_input::{CompressedPolicyPublicInput, CustomRingPolicyPublicInput};
 pub use state::{
     CoSigner, Delegate, HeadMapRoot, PolicyConfig, ReadAccessRecord, RingProgramConfig, SourceSlot,
-    SpendRecordHead, SpendWindow, WithdrawalThreshold, CONFIG_PDA_SEED, COSIGN_DEPOSITS,
-    COSIGN_SCOPE_MASK, COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, CO_SIGNER, CO_SIGNER_PDA_SEED,
-    DELEGATE, DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, HEAD_MAP_ROOT_PDA_SEED,
+    SpendWindow, WithdrawalThreshold, CONFIG_PDA_SEED, COSIGN_DEPOSITS, COSIGN_SCOPE_MASK,
+    COSIGN_TRANSFERS, COSIGN_WITHDRAWALS, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE,
+    DELEGATE_PDA_SEED, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, HEAD_MAP_ROOT_PDA_SEED,
     MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG, POLICY_CONFIG_PDA_SEED,
     READ_ACCESS_RECORD, READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD,
     SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,

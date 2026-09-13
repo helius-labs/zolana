@@ -60,7 +60,7 @@
 //! | `verify` | `nullifier_tree::verify` and `NullifierTreeLayout::update_tree_from_queue` | `groth16-solana` |
 //!
 //! [`TreeAccount::from_bytes`], [`TreeAccount::init`], both subtree layouts
-//! and [`nullifier_tree::proof::CompressedProof`] are always available, so
+//! and [`nullifier_tree::proof::NullifierTreeProof`] are always available, so
 //! indexers and foresters build a batch update without a verifier.
 //!
 //! ## Testing

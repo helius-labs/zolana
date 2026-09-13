@@ -9,6 +9,9 @@ import {
   encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
+  encodeRingHeadProofRequest,
+  decodeRingHeadRegisterProof,
+  decodeRingHeadTransferProof,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
@@ -30,6 +33,9 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
 } from "../types.js";
 
 export interface MethodDescriptor<Request, Response> {
@@ -37,6 +43,23 @@ export interface MethodDescriptor<Request, Response> {
   encodeRequest(value: Request): Readonly<Record<string, unknown>>;
   decodeResponse(value: unknown): Response;
 }
+
+export const getRingHeadRegisterProofMethod: MethodDescriptor<
+  RingHeadProofRequest,
+  RingHeadRegisterProof
+> = {
+  name: "getRingHeadRegisterProof",
+  encodeRequest: encodeRingHeadProofRequest,
+  decodeResponse: decodeRingHeadRegisterProof,
+};
+export const getRingHeadTransferProofMethod: MethodDescriptor<
+  RingHeadProofRequest,
+  RingHeadTransferProof
+> = {
+  name: "getRingHeadTransferProof",
+  encodeRequest: encodeRingHeadProofRequest,
+  decodeResponse: decodeRingHeadTransferProof,
+};
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<
   GetRingsByTagsRequest,

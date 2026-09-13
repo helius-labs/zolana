@@ -40,7 +40,7 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
     let clock = Clock::get()?;
     check_not_expired(merge.expiry_unix_ts, &clock)?;
 
-    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts)?;
+    let merge_accounts = MergeRingAccounts::validate_and_parse(accounts, merge.nullifiers.len())?;
 
     let external_data_hash = MergeExternalDataHash {
         spp_instruction_discriminator: RING_MERGE_TRANSACT,
@@ -54,10 +54,10 @@ pub fn process_merge_ring_ix(accounts: &mut [AccountView], data: &[u8]) -> Progr
 
     // The ring merge proof binds `ring_program_id` from the signing `ring_config`
     // and the output `ring_data_hash` the ring program selected, and is verified
-    // against the `merge_ring_8_1` key. A policy ring has no `user_record`
-    // registry, so the `Ring` binding omits owner identity entirely (see
-    // `MergeProof::public_input_hash`); the binding also selects the
-    // `merge_ring_8_1` verifying key.
+    // against the `merge_ring_<n_inputs>_1` key. A policy ring has no
+    // `user_record` registry, so the `Ring` binding omits owner identity entirely
+    // (see `MergeProof::public_input_hash`); the binding and the declared input
+    // count select the verifying key.
     let ring_program_id = hash_bytes(merge_accounts.ring_program_id.as_array())?;
     let owner_binding = MergeOwnerBinding::Ring {
         ring_program_id,

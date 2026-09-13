@@ -23,7 +23,7 @@ var publicInputNames = [...]string{
 	"public_amount_2",
 	"ring_program_id",
 	"signer_pk_hashes",
-	"allow_dummy_inputs",
+	"input_flags",
 	"output_owner_pk_hashes",
 }
 
@@ -55,7 +55,9 @@ type PublicInputs struct {
 	PublicAmounts              [NPublicSlots]*big.Int
 	RingProgramID              *big.Int
 	SignerPkHashes             []*big.Int
-	AllowDummyInputs           *big.Int
+	// InputFlags packs the dummy-input policy in bit 0 and every input's tree
+	// index in its own TreeIndexBits field; common.PackInputFlags builds it.
+	InputFlags *big.Int
 
 	// BindOutputOwnerTags appends the output-owner chain for owner-signed rails.
 	// Custom-ring values are masked to zero for anonymous outputs.
@@ -74,11 +76,11 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	if inputs.OutputTreeID == nil {
 		return nil, fmt.Errorf("spp: public input hash: output tree id is required")
 	}
-	nullifierChain, err := HashChain(inputs.Nullifiers)
+	nullifierChain, err := HashChain4(inputs.Nullifiers)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash nullifier chain: %w", err)
 	}
-	outputChain, err := HashChain(inputs.OutputUtxoHashes)
+	outputChain, err := HashChain4(inputs.OutputUtxoHashes)
 	if err != nil {
 		return nil, fmt.Errorf("spp: public input hash output chain: %w", err)
 	}
@@ -107,14 +109,14 @@ func PublicInputHash(inputs PublicInputs) (*big.Int, error) {
 	fields = append(fields,
 		inputs.RingProgramID,
 		solanaOwnerChain,
-		inputs.AllowDummyInputs,
+		inputs.InputFlags,
 	)
 	if inputs.BindOutputOwnerTags {
-		outputOwnerChain, err := HashChain(inputs.OutputOwnerPkHashes)
+		outputOwnerChain, err := HashChain4(inputs.OutputOwnerPkHashes)
 		if err != nil {
 			return nil, fmt.Errorf("spp: public input hash output owner chain: %w", err)
 		}
 		fields = append(fields, outputOwnerChain)
 	}
-	return HashChain(fields)
+	return HashChain4(fields)
 }

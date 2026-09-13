@@ -3,12 +3,12 @@ use core::{fmt::Debug, panic::Location};
 use bytemuck::{from_bytes, from_bytes_mut, Pod};
 use pinocchio::{
     account::{Ref, RefMut},
+    address::address_eq,
     cpi::{Seed, Signer},
     error::ProgramError,
     sysvars::{clock::Clock, rent::Rent, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use pinocchio_system::instructions::Transfer;
 use zolana_hasher::primitives::is_canonical_bn254_scalar_be;
 use zolana_interface::error::ShieldedPoolError;
 use zolana_tree::{nullifier_tree::error::NullifierTreeError, TreeError};
@@ -157,29 +157,6 @@ pub(crate) fn load_config_mut<T: Pod>(
     Ok(RefMut::map(data, |data| from_bytes_mut::<T>(data)))
 }
 
-/// Collect one tree's forester fee with one System Program CPI. The amount was
-/// computed and credited to the tree's fee balance inside the tree data borrow.
-///
-/// Every current insertion instruction has one tree. If an instruction gains
-/// multiple trees, aggregate their amounts into the first tree and redistribute
-/// from that program-owned tree, following Light's multi-transfer pattern.
-#[inline(never)]
-pub fn collect_forester_fee(payer: &AccountView, tree: &AccountView, amount: u64) -> ProgramResult {
-    if !tree.is_writable() || !tree.owned_by(&crate::ID) {
-        return Err(ShieldedPoolError::InvalidTreeAccounts.into());
-    }
-    if amount == 0 {
-        return Ok(());
-    }
-
-    Transfer {
-        from: payer,
-        to: tree,
-        lamports: amount,
-    }
-    .invoke()
-}
-
 pub fn check_reimbursement_recipient(recipient: &AccountView) -> ProgramResult {
     if recipient.owned_by(&crate::ID) {
         return Err(ShieldedPoolError::InvalidReimbursementRecipient.into());
@@ -286,27 +263,17 @@ impl<const N: usize> CreatePdaAccount<'_, N> {
 
 /// Derive the canonical PDA from `seeds` and `program_id`, then verify it
 /// matches `account_key`. Returns the canonical bump on success.
-#[cfg(any(target_os = "solana", target_arch = "bpf"))]
-pub fn verify_pda(
+/// `derive_program_address` is the `find_program_address` bump search over the
+/// sha256 and curve-validate syscalls, so canonicity is unchanged.
+pub fn verify_pda<const N: usize>(
     account_key: &Address,
-    seeds: &[&[u8]],
+    seeds: &[&[u8]; N],
     program_id: &Address,
 ) -> Result<u8, ProgramError> {
-    use pinocchio::address::address_eq;
-    use zolana_interface::error::ShieldedPoolError;
-
-    let (derived, bump) = Address::find_program_address(seeds, program_id);
+    let (derived, bump) =
+        Address::derive_program_address(seeds, program_id).ok_or(ShieldedPoolError::InvalidPda)?;
     if !address_eq(account_key, &derived) {
         return Err(ShieldedPoolError::InvalidPda.into());
     }
     Ok(bump)
-}
-
-#[cfg(not(any(target_os = "solana", target_arch = "bpf")))]
-pub fn verify_pda(
-    _account_key: &Address,
-    _seeds: &[&[u8]],
-    _program_id: &Address,
-) -> Result<u8, ProgramError> {
-    unimplemented!("verify_pda requires Solana runtime syscalls")
 }

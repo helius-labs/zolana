@@ -16,7 +16,7 @@ import {
   type PreparedTransfer,
   type SppProofInputs,
 } from "../src/transaction/index.js";
-import { hashChain } from "../src/transaction/internal.js";
+import { hashChain4 } from "../src/transaction/internal.js";
 
 // A fee sponsor that owns nothing in the transfer. The tag rule must never let
 // a padding slot attribute the transaction to it.
@@ -244,9 +244,9 @@ describe("dummy output owner tags", () => {
       const externalDataHash = signed.externalData.hash();
       // The five Poseidon elements the circuit hashes, folded by hand.
       const byHand = poseidon([
-        hashChain(inputHashes),
-        hashChain(outputHashes),
-        hashChain(inputHashes.map(() => zero)),
+        hashChain4(inputHashes),
+        hashChain4(outputHashes),
+        hashChain4(inputHashes.map(() => zero)),
         externalDataHash,
         blinding,
       ]);

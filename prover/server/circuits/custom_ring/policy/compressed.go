@@ -24,6 +24,7 @@ type CompressedPolicyCircuit struct {
 }
 
 func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
+	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
 	chain, txContext := c.Policy.constrainPolicy(api)
 
 	// Input 0 is the member, the velocity sender slot.

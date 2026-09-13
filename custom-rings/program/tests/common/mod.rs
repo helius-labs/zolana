@@ -5,14 +5,12 @@ use bytemuck::Zeroable;
 use custom_ring_interface::{
     tag, CoSigner, CreateConfigIxData, CreateEntryIxData, Delegate, PolicyConfig,
     PolicyTableIxData, ReadAccessRecord, ReaderKeyBytes, RegisterSpendIxData, RingProgramConfig,
-    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec,
-    SpendRecordHead, SpendWindow, UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold,
-    WithdrawalThresholdIxData, CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE,
-    DELEGATE_PDA_SEED, HEAD_MAP_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS,
-    POLICY_CONFIG,
+    SetCoSignerIxData, SetPausedIxData, SetSpendWindowIxData, SourceSlot, SourceSpec, SpendWindow,
+    UpdateEntryIxData, VelocityRowIxData, WithdrawalThreshold, WithdrawalThresholdIxData,
+    CONFIG_PDA_SEED, CO_SIGNER, CO_SIGNER_PDA_SEED, DELEGATE, DELEGATE_PDA_SEED,
+    HEAD_MAP_ROOT_PDA_SEED, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
     POLICY_CONFIG_PDA_SEED, READER_KEY_ED25519, READER_KEY_P256, READ_ACCESS_RECORD,
-    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_RECORD_HEAD,
-    SPEND_RECORD_HEAD_PDA_SEED, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
+    READ_ACCESS_RECORD_PDA_SEED, RING_PROGRAM_CONFIG, SPEND_WINDOW, SPEND_WINDOW_PDA_SEED,
 };
 use mollusk_svm::{
     result::{InstructionResult, ProgramResult},
@@ -595,6 +593,30 @@ pub fn head_map_root_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[HEAD_MAP_ROOT_PDA_SEED], &program_id())
 }
 
+pub fn head_map_root_account(root: [u8; 32], next_index: u64) -> Account {
+    let state = custom_ring_interface::HeadMapRoot {
+        discriminator: custom_ring_interface::HEAD_MAP_ROOT,
+        root,
+        next_index: next_index.to_le_bytes(),
+        bump: head_map_root_pda().1,
+    };
+    Account {
+        lamports: 1_000_000_000,
+        data: bytemuck::bytes_of(&state).to_vec(),
+        owner: program_id(),
+        executable: false,
+        rent_epoch: 0,
+    }
+}
+
+pub fn head_map_root_slot(account: Account) -> Slot {
+    Slot {
+        label: "head_map_root",
+        meta: AccountMeta::new(head_map_root_pda().0, false),
+        account,
+    }
+}
+
 /// `[payer(w,s), authority(s), config, head_map_root(w), system_program]`.
 pub fn create_head_map_root_fixture(existing: Option<Account>) -> Fixture {
     Fixture::new(
@@ -919,31 +941,6 @@ pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
     }
 }
 
-/// The record head PDA for the member `owner_tag(tag)` derives.
-pub fn spend_record_head_pda(tag: [u8; 32]) -> (Pubkey, u8) {
-    let member = Member::owner_tag(&tag).expect("member");
-    Pubkey::find_program_address(
-        &[SPEND_RECORD_HEAD_PDA_SEED, member.as_bytes()],
-        &program_id(),
-    )
-}
-
-/// An initialized head pinning `nullifier` as the member's current record.
-pub fn spend_record_head_account(nullifier: [u8; 32], bump: u8) -> Account {
-    let head = SpendRecordHead {
-        discriminator: SPEND_RECORD_HEAD,
-        nullifier,
-        bump,
-    };
-    Account {
-        lamports: 1_000_000_000,
-        data: bytemuck::bytes_of(&head).to_vec(),
-        owner: program_id(),
-        executable: false,
-        rent_epoch: 0,
-    }
-}
-
 /// A system-owned empty account at the head PDA, register creates over it.
 pub fn uninitialized_head_account() -> Account {
     Account {
@@ -952,16 +949,6 @@ pub fn uninitialized_head_account() -> Account {
         owner: Pubkey::new_from_array([0u8; 32]),
         executable: false,
         rent_epoch: 0,
-    }
-}
-
-/// The record head slot a windowed velocity transfer reads at position six.
-pub fn spend_record_head_slot(tag: [u8; 32], account: Account) -> Slot {
-    let (address, _) = spend_record_head_pda(tag);
-    Slot {
-        label: "record_head",
-        meta: AccountMeta::new(address, false),
-        account,
     }
 }
 
@@ -1268,7 +1255,7 @@ pub fn set_policy_source_fixture(policy_config: Account, list_id: u8, source: u8
 }
 
 /// The account layout `MutationAccounts` expects, `[config, policy_config,
-/// payer(w,s), input_tree(w), output_tree(w), spp_program, system_program,
+/// payer(w,s), output_tree(w), spp_program, system_program, input_tree(w),
 /// nullifier_pda(w), entries]`. SPP is not loaded, only the ring's pre-CPI
 /// validation is assertable.
 fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
@@ -1289,17 +1276,17 @@ fn entry_mutation_slots(policy_config: Account, payer: Pubkey) -> Vec<Slot> {
             account: account(1_000_000_000),
         },
         Slot {
-            label: "input_tree",
-            meta: AccountMeta::new(entries_tree(), false),
-            account: entries_tree_account(),
-        },
-        Slot {
             label: "output_tree",
             meta: AccountMeta::new(entries_tree(), false),
             account: entries_tree_account(),
         },
         spp_program_slot(),
         system_program_slot(),
+        Slot {
+            label: "input_tree",
+            meta: AccountMeta::new(entries_tree(), false),
+            account: entries_tree_account(),
+        },
         Slot {
             label: "nullifier_pda",
             meta: AccountMeta::new(Pubkey::new_from_array([99; 32]), false),
@@ -1397,14 +1384,22 @@ pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture 
             nullifier_tree_root_index: 0,
             utxo_tree_root_index: 0,
             proof: TransactProof::zeroed(),
+            head_old_root: custom_ring_interface::HEAD_MAP_EMPTY_ROOT,
+            head_new_root: [1; 32],
+            head_next_index: 1,
+            head_proof: custom_ring_interface::PlainGroth16Proof {
+                proof_a: [0; 32],
+                proof_b: [0; 64],
+                proof_c: [0; 32],
+            },
         })
         .expect("register_spend data"),
     );
     let mut slots = entry_mutation_slots(policy_config, payer);
-    slots.push(spend_record_head_slot(
-        payer.to_bytes(),
-        uninitialized_head_account(),
-    ));
+    slots.push(head_map_root_slot(head_map_root_account(
+        custom_ring_interface::HEAD_MAP_EMPTY_ROOT,
+        1,
+    )));
     Fixture::new(data, slots)
 }
 
@@ -1782,11 +1777,6 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             // A stub distinct from entries_tree, unread because the CPI is
             // unreached.
             Slot {
-                label: "input_tree",
-                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
-                account: account(1_000_000_000),
-            },
-            Slot {
                 label: "output_tree",
                 meta: AccountMeta::new(Pubkey::new_from_array([42; 32]), false),
                 account: account(1_000_000_000),
@@ -1796,6 +1786,11 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             Slot {
                 label: "ring_config",
                 meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "input_tree",
+                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
                 account: account(1_000_000_000),
             },
         ],
@@ -1845,11 +1840,6 @@ pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
                 account: account(1_000_000_000),
             },
             Slot {
-                label: "input_tree",
-                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
-                account: account(1_000_000_000),
-            },
-            Slot {
                 label: "output_tree",
                 meta: AccountMeta::new(Pubkey::new_from_array([42; 32]), false),
                 account: account(1_000_000_000),
@@ -1859,6 +1849,11 @@ pub fn audit_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
             Slot {
                 label: "ring_config",
                 meta: AccountMeta::new_readonly(ring_auth_pda().0, false),
+                account: account(1_000_000_000),
+            },
+            Slot {
+                label: "input_tree",
+                meta: AccountMeta::new(Pubkey::new_from_array([40; 32]), false),
                 account: account(1_000_000_000),
             },
         ],

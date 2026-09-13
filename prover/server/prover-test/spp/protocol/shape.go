@@ -6,7 +6,20 @@ const (
 	StateTreeHeight     = 32
 	NullifierTreeHeight = 40
 	CompressedProofSize = 192
+	// MaxTransactionAddresses is the address limit of a v1 Solana transaction.
+	MaxTransactionAddresses = 64
+	// FixedTransactAddresses is the number of transact accounts that are neither
+	// a nullifier PDA nor an owner signer: payer, tree, program, system program.
+	FixedTransactAddresses = 4
 )
+
+// OwnerSignerSlots is the number of owner signers a transaction with nInputs
+// inputs can carry: at most one per input, bounded by the addresses a v1
+// transaction has left after the fixed transact accounts and one nullifier PDA
+// per input. Mirrors shared.OwnerSignerSlots in the circuit.
+func OwnerSignerSlots(nInputs int) int {
+	return min(nInputs, MaxTransactionAddresses-FixedTransactAddresses-nInputs)
+}
 
 // Shape identifies one fixed-size SPP transaction circuit.
 type Shape struct {
@@ -105,6 +118,12 @@ func (s Shape) IsSupported() bool {
 		}
 	}
 	return false
+}
+
+// SignerWidth is the public signer vector length on the signature-requiring
+// rails: the payer plus OwnerSignerSlots. The ring authority rail uses 1.
+func (s Shape) SignerWidth() int {
+	return OwnerSignerSlots(s.NInputs) + 1
 }
 
 func (s Shape) String() string {

@@ -31,6 +31,9 @@ pub struct RingRelease {
     pub proving_key: Option<Asset>,
     /// Absent from a lock older than the audit key.
     pub audit_key: Option<Asset>,
+    pub compressed_policy_key: Option<Asset>,
+    pub compressed_register_key: Option<Asset>,
+    pub delegate_policy_key: Option<Asset>,
     pub binaries: Vec<Binary>,
 }
 
@@ -53,6 +56,8 @@ pub struct Binary {
 
 #[derive(Debug, Error)]
 pub enum ReleaseError {
+    #[error("release {tag} ships no {circuit} key, use a complete custom-rings release")]
+    MissingCircuitKey { tag: String, circuit: &'static str },
     #[error("the embedded release lock does not parse")]
     Lock(#[from] serde_json::Error),
     #[error("release {tag} ships no ring program, pass --program-so")]
@@ -109,6 +114,12 @@ struct ReleaseLock {
     #[serde(default)]
     audit_key: Option<Asset>,
     #[serde(default)]
+    compressed_policy_key: Option<Asset>,
+    #[serde(default)]
+    compressed_register_key: Option<Asset>,
+    #[serde(default)]
+    delegate_policy_key: Option<Asset>,
+    #[serde(default)]
     binaries: Vec<Binary>,
 }
 
@@ -119,12 +130,54 @@ impl From<ReleaseLock> for RingRelease {
             program: lock.ring_program,
             proving_key: lock.proving_key,
             audit_key: lock.audit_key,
+            compressed_policy_key: lock.compressed_policy_key,
+            compressed_register_key: lock.compressed_register_key,
+            delegate_policy_key: lock.delegate_policy_key,
             binaries: lock.binaries,
         }
     }
 }
 
 impl RingRelease {
+    pub fn control_keys(&self) -> Result<[(&Asset, &'static str); 3], ReleaseError> {
+        fn required<'a>(
+            key: Option<&'a Asset>,
+            tag: &str,
+            circuit: &'static str,
+        ) -> Result<&'a Asset, ReleaseError> {
+            key.ok_or_else(|| ReleaseError::MissingCircuitKey {
+                tag: tag.to_owned(),
+                circuit,
+            })
+        }
+        Ok([
+            (
+                required(
+                    self.compressed_policy_key.as_ref(),
+                    &self.tag,
+                    "compressed policy",
+                )?,
+                "custom_ring_compressed_policy.key",
+            ),
+            (
+                required(
+                    self.compressed_register_key.as_ref(),
+                    &self.tag,
+                    "compressed registration",
+                )?,
+                "custom_ring_compressed_register.key",
+            ),
+            (
+                required(
+                    self.delegate_policy_key.as_ref(),
+                    &self.tag,
+                    "delegate policy",
+                )?,
+                "custom_ring_delegate_policy.key",
+            ),
+        ])
+    }
+
     pub fn from_lock() -> Result<Self, ReleaseError> {
         Self::parse(LOCK_JSON)
     }

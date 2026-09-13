@@ -3,8 +3,13 @@ set dotenv-load
 
 export RUST_BACKTRACE := env_var_or_default("RUST_BACKTRACE", "0")
 sbf-tools-version := env_var_or_default("SBF_TOOLS_VERSION", "v1.54")
-surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.5.0-light")
-surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.5.0")
+surfpool-release-tag := env_var_or_default("SURFPOOL_RELEASE_TAG", "v1.6.0-light")
+surfpool-version := env_var_or_default("SURFPOOL_VERSION", "1.6.0")
+
+# Stop whichever localnet backend is running. surfpool is the default and
+# solana-test-validator remains reachable behind `--no-use-surfpool`, so a
+# teardown that names only one leaves the other holding the RPC port.
+stop-localnet-backends := "pkill -f surfpool 2>/dev/null || true; pkill -f solana-test-validator 2>/dev/null || true"
 # Per-clone port isolation: set ZOLANA_PORT_OFFSET in a local (gitignored) .env
 # (auto-loaded above) to shift every service port by a fixed amount so concurrent
 # checkouts never contend. Each individual port/URL var can still be overridden
@@ -158,7 +163,7 @@ ring-localnet: ensure-custom-ring-live-keys build-programs build-cli ensure-phot
     cargo run -q -p xtask -- generate-account-snapshots \
       --deploy-dir target/deploy --accounts-dir "$accounts_dir"
     # SIMD-0500 is off, the ring deploys as SBPF v0 like on devnet.
-    "$bin" dev start --no-use-surfpool \
+    "$bin" dev start \
       --rpc-port {{localnet-rpc-port}} --photon-port {{localnet-photon-port}} \
       --prover-port {{localnet-prover-port}} \
       --account-dir "$accounts_dir" --limit-ledger-size 5000000 \
@@ -179,7 +184,7 @@ ring-localnet-stop:
     lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
     lsof -ti "tcp:{{localnet-ring-rpc-port}}" 2>/dev/null | xargs kill 2>/dev/null || true
-    pkill -f solana-test-validator 2>/dev/null || true
+    {{stop-localnet-backends}}
 
 # Photon and the prover against an external cluster, Photon indexes from the current slot.
 ring-devnet-services rpc_url: ensure-custom-ring-live-keys build-prover-server ensure-photon
@@ -269,7 +274,7 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
     release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
-    for name in custom_ring_policy.key custom_ring_base.key; do
+    for name in custom_ring_policy.key custom_ring_base.key custom_ring_compressed_policy.key custom_ring_compressed_register.key custom_ring_delegate_policy.key; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
     for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
@@ -282,7 +287,7 @@ check-custom-ring-keys: build-prover-server
     set -euo pipefail
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
-    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs; do
+    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs custom_ring_compressed_policy.key:compressed_policy_verifying_key.rs custom_ring_compressed_register.key:compressed_register_verifying_key.rs custom_ring_delegate_policy.key:delegate_policy_verifying_key.rs; do
         key="${pair%%:*}"
         module="${pair##*:}"
         if [[ ! -f "prover/server/proving-keys/$key" ]]; then
@@ -407,7 +412,7 @@ _test-ts-live test-script: build-programs build-prover-server build-cli ensure-p
 
     # The ring program is loaded upgradeable, only its upgrade authority may
     # create the ring config.
-    "$bin" dev start --no-use-surfpool \
+    "$bin" dev start \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} --account-dir "$accounts_dir" \
       --sbf-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
@@ -657,14 +662,14 @@ bench-shielded-pool: build-programs
 # published keys are the only set matching the committed Rust verifying keys;
 # regenerating locally (regen-swap-keys) requires publishing a new release and
 # updating swap-keys.CHECKSUM plus the committed verifying keys together.
-swap-keys-tag := "swap-keys-v8"
+swap-keys-tag := "swap-keys-v9"
 
 # Same contract as swap-keys-tag, for the dynamic-swap example's two circuits
 # (escrow_open/escrow_settle). The release assets are
 # the only key set matching the committed Rust verifying keys; rotating locally
 # (regen-dynamic-swap-keys) requires publishing a new release and updating
 # dynamic-swap-keys.CHECKSUM plus the committed verifying keys together.
-dynamic-swap-keys-tag := "dynamic-swap-keys-v9"
+dynamic-swap-keys-tag := "dynamic-swap-keys-v10"
 
 ensure-swap-keys:
     #!/usr/bin/env bash
@@ -792,7 +797,7 @@ bench-rfq:
 # committed Rust verifying keys; regenerating locally (regen-escrow-keys)
 # requires publishing a new release and updating timelock-escrow-keys.CHECKSUM
 # plus the committed verifying keys together.
-escrow-keys-tag := "escrow-keys-v5"
+escrow-keys-tag := "escrow-keys-v6"
 
 ensure-escrow-keys:
     #!/usr/bin/env bash
@@ -883,7 +888,7 @@ test-localnet-deposit: build-programs build-cli
     spp_authority="$PWD/target/localnet-spp-upgrade-authority.json"
     solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
     spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
-    cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+    cargo run -p zolana-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo test -p shielded-pool-tests --features localnet --test localnet_deposit -- --nocapture
 
 # Local-validator end-to-end SOL cycle.
@@ -893,7 +898,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     eval "$(cargo run -q -p xtask -- program-ids)"
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     # `localnet_e2e` and `localnet_deposit` each create the singleton
@@ -905,7 +910,7 @@ test-localnet-e2e: build-programs build-prover-server build-cli
     solana-keygen new --no-bip39-passphrase --silent --force --outfile "$spp_authority"
     spp_authority_pubkey="$(solana-keygen pubkey "$spp_authority")"
     dev_start() {
-      cargo run -p zolana-cli -- dev start --local --skip-prover --no-use-surfpool --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
+      cargo run -p zolana-cli -- dev start --local --skip-prover --rpc-port {{localnet-rpc-port}} --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so "$spp_authority_pubkey" --sbf-program "$USER_REGISTRY_PROGRAM_ID" target/deploy/zolana_user_registry.so --sbf-program "$RING_TEST_PROGRAM_ID" target/deploy/ring_test_program.so
     }
     dev_start
     env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_SPP_UPGRADE_AUTHORITY_KEYPAIR="$spp_authority" cargo nextest run -p shielded-pool-tests --features localnet --test localnet_e2e --no-capture
@@ -922,7 +927,7 @@ test-localnet-e2e-photon: build-programs build-prover-server build-cli ensure-ph
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -957,7 +962,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-prover-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     rm -rf "$workdir"; mkdir -p "$workdir"
@@ -973,7 +978,7 @@ test-cli-smoke: build-programs build-prover-server build-cli ensure-photon
 
     # 1. Spawn services (dev start daemonizes the validator/prover/photon and
     #    returns once each is ready).
-    "$bin" dev start --no-use-surfpool \
+    "$bin" dev start \
       --rpc-port {{localnet-rpc-port}} --prover-port {{localnet-prover-port}} \
       --photon-port {{localnet-photon-port}} \
       --upgradeable-program "$SHIELDED_POOL_PROGRAM_ID" target/deploy/shielded_pool_program.so \
@@ -1007,7 +1012,7 @@ test-nullifier-batch-proof-cu: build-programs build-prover-server build-cli ensu
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1028,7 +1033,7 @@ test-spp-validator: build-programs build-prover-server build-cli ensure-photon
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1046,7 +1051,7 @@ test-spp-validator-proof-cu: build-programs build-prover-server build-cli ensure
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1064,7 +1069,7 @@ test-spp-validator-decode: build-programs build-prover-server build-cli ensure-p
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1084,7 +1089,7 @@ test-spp-validator-merge: build-programs build-prover-server build-cli ensure-ph
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1103,7 +1108,7 @@ test-spp-validator-randomized: build-programs build-prover-server build-cli ensu
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1121,7 +1126,7 @@ test-spp-validator-lifecycle-decode: build-programs build-prover-server build-cl
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1140,7 +1145,7 @@ test-spp-validator-lifecycle: build-programs build-prover-server build-cli ensur
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1165,7 +1170,7 @@ test-ring-validator: build-programs build-prover-server build-cli ensure-photon 
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1186,7 +1191,7 @@ test-ring-validator-proof-cu: build-programs build-prover-server build-cli ensur
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1208,7 +1213,7 @@ dump-ring-fixture: build-programs build-prover-server build-cli ensure-photon en
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1236,7 +1241,7 @@ test-swap-validator: ensure-swap-keys build-programs build-prover-server build-c
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SWAP_PROGRAM_ID
@@ -1262,24 +1267,10 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    cargo build -q -p custom-ring-cli
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test ring --no-capture
+    bash tools/test-ring-controls.sh ring
     tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
-    if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
-      cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
-    fi
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
@@ -1301,20 +1292,9 @@ _custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli e
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
-    }
-    trap cleanup EXIT
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    cargo build -q -p custom-ring-cli
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
+    bash tools/test-ring-controls.sh {{test}}
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
@@ -1327,7 +1307,7 @@ test-escrow-validator: ensure-escrow-keys build-programs build-prover-server bui
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
@@ -1353,7 +1333,7 @@ test-compression-validator: build-programs build-prover-server build-cli ensure-
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
@@ -1375,7 +1355,7 @@ test-client-example: build-programs build-prover-server build-cli ensure-photon 
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1403,7 +1383,7 @@ test-dynamic-swap *args: ensure-dynamic-swap-keys build-programs build-prover-se
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export ZOLANA_PHOTON_BIN="{{photon-bin}}"
@@ -1424,7 +1404,7 @@ test-rfq-validator: build-programs build-prover-server build-cli ensure-photon e
     cleanup() {
       lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
       lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      pkill -f solana-test-validator 2>/dev/null || true
+      {{stop-localnet-backends}}
     }
     trap cleanup EXIT
     export SHIELDED_POOL_PROGRAM_ID
@@ -1565,15 +1545,18 @@ build-spp-keys:
     python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
-# (proving-keys/<version-hash>) comes from the committed lockfile. Needs the aws
-# CLI with bucket write access. Full rotation (regen keys + vkeys + lock + upload)
-# is prover/server/scripts/rotate_proving_keys.sh.
+# (proving-keys/<version-hash>) comes from the committed lockfile. The two
+# custom-ring keys are skipped: the lockfile marks them `source: release`, so they
+# are pinned there but served from their own GitHub release, never from the object
+# store. Needs the aws CLI with bucket write access. Full rotation (regen keys +
+# vkeys + lock + upload) is prover/server/scripts/rotate_proving_keys.sh.
 publish-spp-keys:
     #!/usr/bin/env bash
     set -euo pipefail
     bucket="${ZOLANA_PROVING_KEYS_BUCKET:-zolana-proving-keys}"
     prefix="$(python3 -c "import json; print(json.load(open('prover/server/prover/provingkeys/proving-keys.lock'))['prefix'])")"
-    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key'
+    aws s3 sync "{{spp-keys-dir}}/" "s3://$bucket/$prefix/" --exclude '*' --include '*.key' \
+        --exclude 'custom_ring_policy.key' --exclude 'custom_ring_base.key'
 
 build-photon:
     cargo build --locked -p photon-indexer --bin photon --target-dir target

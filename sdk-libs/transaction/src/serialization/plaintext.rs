@@ -1,12 +1,12 @@
 use solana_address::Address;
 use wincode::{containers, len::FixIntLen, SchemaRead, SchemaWrite};
+use zolana_interface::MAX_OUTPUTS;
 use zolana_keypair::{viewing_key::ViewTag, PublicKey};
 
 use super::{DecodeCx, OwnerCx, UtxoSerialization};
 use crate::{
     data::Data,
     error::TransactionError,
-    instructions::transact::SPP_SUPPORTED_SHAPES,
     utxo::{derive_transact_output_blinding, resolve_ring_program_id, Utxo},
     AssetRegistry, EncryptedScheme, PublicKeySchema, SOL_MINT, TRANSFER_PLAINTEXT,
 };
@@ -20,19 +20,7 @@ const RECIPIENT_SLOT_BASE: u32 = 2;
 
 /// The widest supported shape's output count. No transact output sits beyond
 /// this slot, so it bounds both the derivation and the reverse lookup below.
-const MAX_OUTPUT_SLOTS: u32 = {
-    let mut max = 0;
-    let mut i = 0;
-    while i < SPP_SUPPORTED_SHAPES.len() {
-        // A const context: an out-of-range index fails the build, not the run.
-        let n_outputs = SPP_SUPPORTED_SHAPES[i].n_outputs();
-        if n_outputs > max {
-            max = n_outputs;
-        }
-        i += 1;
-    }
-    max as u32
-};
+const MAX_OUTPUT_SLOTS: u32 = MAX_OUTPUTS as u32;
 
 #[derive(SchemaWrite, SchemaRead, Clone, Debug, PartialEq, Eq)]
 pub struct TransferPlaintextSplChange {

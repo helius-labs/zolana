@@ -27,9 +27,54 @@ impl Default for NullifierTreeInitParams {
     }
 }
 
-pub fn match_circuit_size(size: u64) -> bool {
-    matches!(size, 10 | 250)
+/// ZKP batch sizes a tree can be created with: the shapes that have a
+/// committed verifying key (`batch_address_append_40_{10,250}`).
+pub const SUPPORTED_ZKP_BATCH_SIZES: [u64; 2] = [10, 250];
+
+/// Whether `hash_chain_4` folds `zkp_batch_size` values into full groups of
+/// three. The first value seeds the chain and every later group of three is
+/// absorbed with one Poseidon call, so the last group is full exactly when
+/// `zkp_batch_size - 1` is a multiple of three.
+///
+/// A size that fails this still hashes correctly: the fold zero-pads the short
+/// trailing group and `add_to_hash_chain` mirrors the padding. But the padded
+/// fold is the one place where the chain is not injective across lengths
+/// (`[a, b]` and `[a, b, 0, 0]` collide), so a tree that can be created on
+/// chain must not need it.
+pub const fn hash_chain_groups_are_full(zkp_batch_size: u64) -> bool {
+    zkp_batch_size % 3 == 1
 }
+
+pub const fn match_circuit_size(size: u64) -> bool {
+    let mut index = 0;
+    // Const-evaluated indexing: an out-of-range index is a compile error here,
+    // not a runtime panic.
+    while index < SUPPORTED_ZKP_BATCH_SIZES.len() {
+        if SUPPORTED_ZKP_BATCH_SIZES[index] == size {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+/// Every nullifier queued on chain is folded into its ZKP batch's hash chain,
+/// and a tree can only be created with a supported size, so no reachable chain
+/// may need padding. Adding a size that pads fails the build instead.
+const _: () = {
+    let mut index = 0;
+    while index < SUPPORTED_ZKP_BATCH_SIZES.len() {
+        assert!(
+            hash_chain_groups_are_full(SUPPORTED_ZKP_BATCH_SIZES[index]),
+            "a supported zkp batch size must fill every hash chain group"
+        );
+        index += 1;
+    }
+    assert!(
+        match_circuit_size(DEFAULT_NULLIFIER_ZKP_BATCH_SIZE),
+        "the default zkp batch size must be one a tree can be created with"
+    );
+};
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
     /// Initializes a zeroed layout in place, seeded with the BN254 `p-1`

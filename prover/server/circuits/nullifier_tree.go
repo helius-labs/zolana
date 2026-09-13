@@ -148,7 +148,7 @@ func (circuit *BatchAddressTreeAppendCircuit) Define(api frontend.API) error {
 
 	api.AssertIsEqual(circuit.NewRoot, currentRoot)
 
-	leavesHashChain := gadget.HashChain(api, circuit.NewElementValues)
+	leavesHashChain := gadget.HashChain4(api, circuit.NewElementValues)
 	api.AssertIsEqual(circuit.HashchainHash, leavesHashChain)
 
 	publicInputsHashChain := circuit.computePublicInputHash(api)
@@ -165,7 +165,7 @@ func (circuit *BatchAddressTreeAppendCircuit) computePublicInputHash(api fronten
 		circuit.StartIndex,
 	}
 
-	return gadget.HashChain(api, hashChainInputs)
+	return gadget.HashChain4(api, hashChainInputs)
 }
 
 // getZeroValue returns the zero value for a given tree level

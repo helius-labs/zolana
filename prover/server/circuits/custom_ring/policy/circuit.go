@@ -89,6 +89,11 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 // constrainPolicy returns the public-input chain unhashed for the compressed
 // variant to extend before the final hash.
 func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.Variable, transactionContext) {
+	return c.constrainPolicyRail(api, false)
+}
+
+// The rail is fixed in the compiled circuit, never selected by a witness.
+func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate bool) ([]frontend.Variable, transactionContext) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
@@ -103,7 +108,12 @@ func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.
 	policyHash, ruleEnabled, inlineEnabled, velocity := c.checkPolicy(api, rangeChecker)
 
 	// 3. Bind policy subjects and amounts to the SPP transaction.
-	txContext := c.constrainTransactionContext(api, rangeChecker, velocity.on)
+	recordOn := velocity.on
+	if delegate {
+		recordOn = frontend.Variable(0)
+	}
+	txContext := c.constrainTransactionContext(api, rangeChecker, recordOn)
+	c.constrainNamespace(api, txContext)
 
 	// 4. Authenticate the shared list facts.
 	listFacts := c.checkListFacts(api, rangeChecker)
@@ -112,7 +122,12 @@ func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.
 	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
 
 	// 6. Spend the sender's record into its successor within the caps.
-	c.constrainVelocity(api, rangeChecker, velocity, txContext)
+	if delegate {
+		api.AssertIsEqual(c.WindowIndex, 0)
+		api.AssertIsEqual(c.ApprovalRequired, 0)
+	} else {
+		c.constrainVelocity(api, rangeChecker, velocity, txContext)
+	}
 
 	// 7. Bind the policy, the supplied entry roots and the window after the
 	// audit inputs.

@@ -5,20 +5,24 @@ use solana_account::Account;
 use solana_commitment_config::CommitmentConfig;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use zolana_api::{BlockingZolanaApi, NullifierQueueElement, SerializablePubkey, PAGE_LIMIT};
+use zolana_client::{
+    compile_message, sign_transaction, transaction_size, ComputeBudgetConfig, TransactionSize,
+};
 use zolana_interface::{instruction::CloseNullifierPdas, pda, NULLIFIER_PDA_SIZE};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 use zolana_tree::TreeAccount;
 
 use crate::config::ForesterConfig;
 
-pub const LEGACY_TRANSACTION_SIZE_LIMIT: usize = 1232;
+/// A close batch is one instruction and one signature, so its budget is the
+/// implicit per-instruction default a legacy transaction used to receive.
+const CLOSE_COMPUTE_BUDGET: ComputeBudgetConfig = ComputeBudgetConfig::for_instruction_count(1);
+
 pub const MULTIPLE_ACCOUNTS_CHUNK: usize = 100;
 
 pub struct CloseNullifierPdasOptions {
@@ -73,26 +77,34 @@ impl CloseNullifierPdasBatch {
         )
     }
 
-    pub fn message(&self) -> Message {
-        Message::new(&[self.instruction()], Some(&self.forester.member))
-    }
-
-    pub fn serialized_size(&self) -> Result<usize> {
-        let transaction = Transaction::new_unsigned(self.message());
-        let bytes = wincode::serialize(&transaction)
-            .map_err(|err| anyhow!("serialize close-nullifier-pdas transaction: {err}"))?;
-        Ok(bytes.len())
+    /// Wire bytes and account count with the same header budget used to submit.
+    pub fn size(&self) -> Result<TransactionSize> {
+        transaction_size(
+            &self.forester.member,
+            &[self.instruction()],
+            CLOSE_COMPUTE_BUDGET,
+        )
+        .map_err(|err| anyhow!("measure close-nullifier-pdas transaction: {err}"))
     }
 
     pub fn fits(&self) -> Result<bool> {
-        Ok(self.serialized_size()? <= LEGACY_TRANSACTION_SIZE_LIMIT)
+        Ok(self.size()?.fits())
     }
 
     fn submit(&self, rpc: &RpcClient, member: &Keypair) -> Result<Signature> {
         let blockhash = rpc
             .get_latest_blockhash()
             .map_err(|err| anyhow!("fetch latest blockhash: {err}"))?;
-        let transaction = Transaction::new(&[member], self.message(), blockhash);
+        let message = compile_message(
+            &self.forester.member,
+            &[self.instruction()],
+            blockhash,
+            CLOSE_COMPUTE_BUDGET,
+        )
+        .map_err(|err| anyhow!("compile close-nullifier-pdas message: {err}"))?;
+        let signers: Vec<&dyn Signer> = vec![member];
+        let transaction = sign_transaction(message, &signers)
+            .map_err(|err| anyhow!("sign close-nullifier-pdas transaction: {err}"))?;
         rpc.send_and_confirm_transaction(&transaction)
             .map_err(|err| anyhow!("close {} nullifier PDAs: {err}", self.nullifiers.len()))
     }
@@ -142,7 +154,7 @@ fn nullifier_pda_capacity(tree: Pubkey, forester: ForesterSmartAccount) -> Resul
         }
         return Ok(capacity);
     }
-    bail!("legacy transaction size limit did not bound nullifier PDA account count")
+    bail!("transaction limits did not bound nullifier PDA account count")
 }
 
 pub fn retain_open_accounts(

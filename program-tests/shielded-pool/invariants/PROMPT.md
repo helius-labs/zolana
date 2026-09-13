@@ -49,14 +49,14 @@ Analyze the following code (validation is spread between the program and the int
 3. **State Invariants** -- allowed values of state struct fields (`ProtocolConfig`, `Tree`, `RingConfig`, `SplAssetCounter`, `SplAssetRegistry`); monotonicity (tree indices, counters only grow); `init` requires `data[0] == 0` (re-initialization is impossible); account size matches `SIZE` exactly.
 4. **Authorization & Access Control** -- who may invoke each instruction (protocol authority, ring owner, forester, depositor); changing an owner/authority requires the current one's signature; signer checks live in the processor, not nested deeper.
 5. **ZK / Proof & Tree Invariants** (a mandatory separate category for this program):
-   - proof verification: eddsa rail (standard Groth16, no commitment) vs P256 rail (BSB22, `vk_commitment_g2: Some`); rail mismatch -> `MismatchedTransactProofRail`
+   - proof verification: eddsa rail (standard Groth16, no commitment) vs P256 rail (BSB22, `vk_commitment_g2: Some`); the selector family must match the dispatched instruction, and the proof must verify against the selected key
    - shape validity (`nInputs x nOutputs`) -> `InvalidTransactShape`, `InvalidMergeShape`
    - public input hash construction: every public input enters the hash exactly once; tampering with any input invalidates the proof
    - root freshness: a stale nullifier root -> `StaleNullifierRoot`
    - double-spend: every nullifier can be inserted at most once; a repeated spend -> Err
    - `TreePaused` blocks operations on the tree; `ExpiredTransaction` after expiry
    - state tree append: the index increases by exactly the number of output notes
-6. **Value & Arithmetic Safety** -- checked math on all amounts/indices; overflow/underflow; `BothPublicAmountsSet`; min/max amounts; balance conservation: sum of inputs = sum of outputs + public amounts + fees (state the exact formula from the code).
+6. **Value & Arithmetic Safety** -- checked math on all amounts/indices; overflow/underflow; interface-transfer aggregation; min/max amounts; balance conservation: sum of inputs = sum of outputs + public amounts + fees (state the exact formula from the code).
 7. **Cross-Instruction / Lifecycle** -- ordering: create -> use -> close; `EmitEvent` is a no-op when invoked directly (invariant: it modifies no account); trees are created before transactions; merge is disabled via `MergeDisabled`; `RingAuthorityTransactDisabled`.
 8. **Error Conditions** -- for EVERY `ShieldedPoolError` variant (7000, 7001, ... -- enumerate all of them from error.rs) at least one invariant of the form "condition C results in exactly error E". Separately: error codes are stable (pinned in `error_codes_are_stable`).
 9. **CPI & External Calls** -- the target program of every CPI, signer seeds in `invoke_signed`, SPL transfers (mint/decimals/authority of interface accounts).

@@ -70,6 +70,7 @@ export async function sendInstruction(
   const transaction = compileUnsignedTransaction({
     feePayer: signer.address,
     lifetime,
+    computeUnitLimit: 200_000,
     instructions: [instruction],
   });
   await signSendAndConfirm(client, transaction, [signer]);

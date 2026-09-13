@@ -18,6 +18,9 @@ import type {
   RingsOutputContext,
   RingsOutputSlot,
   SignatureIndexedShieldedTransaction,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
 } from "./types.js";
 import {
   checkedAddress,
@@ -29,6 +32,98 @@ import {
 } from "./scalars.js";
 
 type WireObject = Record<string, unknown>;
+
+const HEAD_CAPACITY = 1n << 40n;
+
+export function encodeRingHeadProofRequest(
+  value: RingHeadProofRequest,
+): Readonly<Record<string, unknown>> {
+  return {
+    ringProgramId: checkedAddress(value.ringProgramId, "ringProgramId"),
+    member: checkedHash(value.member, "member"),
+    expectedRoot: checkedHash(value.expectedRoot, "expectedRoot"),
+    expectedNextIndex: toWireInteger(
+      value.expectedNextIndex,
+      "expectedNextIndex",
+      1n,
+      HEAD_CAPACITY,
+    ),
+  };
+}
+
+function headPath(value: unknown, path: string) {
+  const proof = array(value, path, checkedHash);
+  if (proof.length !== 40)
+    return schemaFailure("INDEXER_SCHEMA_INVALID_TYPE", path, "40 siblings", value);
+  return proof;
+}
+
+function headContext(record: WireObject) {
+  return {
+    context: context(record["context"], "context"),
+    root: checkedHash(record["root"], "root"),
+    member: checkedHash(record["member"], "member"),
+    nextIndex: wireInteger(record["nextIndex"], "nextIndex", 1n, HEAD_CAPACITY),
+  };
+}
+
+export function decodeRingHeadRegisterProof(value: unknown): RingHeadRegisterProof {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "member",
+    "nextIndex",
+    "lowMember",
+    "lowNext",
+    "lowNullifier",
+    "lowIndex",
+    "lowProof",
+    "newProof",
+  ]);
+  const common = headContext(row);
+  return {
+    ...common,
+    lowMember: checkedHash(row["lowMember"], "lowMember"),
+    lowNext: checkedHash(row["lowNext"], "lowNext"),
+    lowNullifier: checkedHash(row["lowNullifier"], "lowNullifier"),
+    lowIndex: wireInteger(row["lowIndex"], "lowIndex", 0n, common.nextIndex - 1n),
+    lowProof: headPath(row["lowProof"], "lowProof"),
+    newProof: headPath(row["newProof"], "newProof"),
+  };
+}
+
+export function decodeRingHeadTransferProof(value: unknown): RingHeadTransferProof {
+  const row = object(value, "$", [
+    "context",
+    "root",
+    "member",
+    "nextIndex",
+    "next",
+    "nullifier",
+    "index",
+    "proof",
+    "record",
+  ]);
+  const common = headContext(row);
+  const record = object(row["record"], "record", ["transaction", "outputIndex"]);
+  const transaction = indexedTransaction(record["transaction"], "record.transaction");
+  const outputIndex = u16(record["outputIndex"], "record.outputIndex");
+  if (outputIndex >= transaction.outputSlots.length)
+    return schemaFailure(
+      "INDEXER_SCHEMA_INVALID_INTEGER",
+      "record.outputIndex",
+      "an existing output",
+      outputIndex,
+    );
+  return {
+    ...common,
+    next: checkedHash(row["next"], "next"),
+    nullifier: checkedHash(row["nullifier"], "nullifier"),
+    index: wireInteger(row["index"], "index", 1n, common.nextIndex - 1n),
+    proof: headPath(row["proof"], "proof"),
+    record: { transaction, outputIndex },
+  };
+}
 
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;

@@ -81,6 +81,9 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 	if p.HeadIndex, err = fieldFromHex(raw.HeadIndex, "headIndex"); err != nil {
 		return err
 	}
+	if p.Base.WindowSlots == 0 || p.HeadIndex.Sign() == 0 || p.HeadIndex.BitLen() > policy.HeadMapHeight {
+		return fmt.Errorf("compressed policy requires a window and nonzero 40 bit head index")
+	}
 	for i, hex := range raw.HeadProof {
 		if p.HeadProof[i], err = fieldFromHex(hex, "headProof"); err != nil {
 			return err

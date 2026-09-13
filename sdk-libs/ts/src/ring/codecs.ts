@@ -12,6 +12,24 @@ import { P256PublicKey } from "../keypair/public-key.js";
 import { bytesToBigInt } from "../transaction/internal.js";
 
 import { RingError } from "./error.js";
+import { checkedHeadMapField, HEAD_MAP_CAPACITY } from "./head-map.js";
+
+export interface RingHeadMapRoot {
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+  readonly bump: number;
+}
+
+export function decodeRingHeadMapRoot(data: Uint8Array): RingHeadMapRoot {
+  if (data.length !== 42 || data[0] !== 8) throw new RingError("RING_HEAD_MAP_INVALID");
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const root = checkedHeadMapField(reader.bytes(32, "root") as Bytes32);
+  const nextIndex = reader.u64("nextIndex");
+  const bump = reader.u8("bump");
+  if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) throw new RingError("RING_HEAD_MAP_INVALID");
+  return Object.freeze({ root, nextIndex, bump });
+}
 
 export interface RingProgramConfig {
   readonly authority: Address;

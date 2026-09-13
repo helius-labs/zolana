@@ -33,8 +33,8 @@ use zolana_event::OutputDataEncoding;
 use zolana_hasher::primitives::solana_owner_identity;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::{InterfaceTransfer, ResolvedInterfaceTransfer},
-        Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+        instruction_data::transact::InterfaceTransfer, Deposit, Transact,
+        TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
     },
     pda,
     state::{
@@ -69,7 +69,8 @@ use zolana_tree::TreeAccount;
 
 use zolana_test_utils::transact::{
     change_and_dummy_outputs, dummy_input_with_proof, dummy_nullifier, dummy_transfer_output, fe,
-    pack_transact_proof, public_sol_field, real_output, single_tree_slots, transfer_output,
+    pack_transact_proof, public_sol_field, real_output, single_tree_slots, sol_leg,
+    transfer_output,
 };
 
 const RPC_URL_ENV: &str = "ZOLANA_LOCALNET_URL";

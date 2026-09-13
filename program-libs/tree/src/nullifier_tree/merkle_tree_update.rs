@@ -1,13 +1,11 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use zolana_event::NullifierTreeUpdateEvent;
 #[cfg(feature = "verify")]
-use zolana_hasher::{
-    hash_chain::create_hash_chain_from_array, primitives::is_canonical_bn254_scalar_be,
-};
+use zolana_hasher::{primitives::is_canonical_bn254_scalar_be, Hasher, Poseidon};
 
 use crate::nullifier_tree::{
     batch::BatchState, error::NullifierTreeError, layout::NullifierTreeLayout,
-    proof::CompressedProof,
+    proof::NullifierTreeProof,
 };
 #[cfg(feature = "verify")]
 use crate::nullifier_tree::{batch::CachedTreeUpdate, verify::verify_batch_update};
@@ -18,7 +16,7 @@ pub struct InstructionDataBatchNullifyInputs {
     pub new_root: [u8; 32],
     pub old_root: [u8; 32],
     pub zkp_batch_index: u16,
-    pub compressed_proof: CompressedProof,
+    pub proof: NullifierTreeProof,
 }
 
 impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
@@ -107,17 +105,13 @@ impl<const ZKP_BATCHES: usize> NullifierTreeLayout<ZKP_BATCHES> {
         // 3. Rebuild the public input hash and verify the proof.
         let mut next_index_bytes = [0u8; 32];
         next_index_bytes[24..].copy_from_slice(zkp_batch_start_index.to_be_bytes().as_slice());
-        let public_input_hash = create_hash_chain_from_array([
-            instruction_data.old_root,
-            instruction_data.new_root,
-            leaves_hash_chain,
-            next_index_bytes,
+        let public_input_hash = Poseidon::hashv(&[
+            &instruction_data.old_root,
+            &instruction_data.new_root,
+            &leaves_hash_chain,
+            &next_index_bytes,
         ])?;
-        verify_batch_update(
-            zkp_batch_size,
-            public_input_hash,
-            &instruction_data.compressed_proof,
-        )?;
+        verify_batch_update(zkp_batch_size, public_input_hash, &instruction_data.proof)?;
 
         // 4. Store the cached update at its zkp batch index. old_root is the
         //    prover's public input; apply checks it against the account tree

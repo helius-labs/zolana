@@ -2,7 +2,7 @@ use crate::common::init_tree_account_data;
 use zolana_hasher::primitives::BN254_SCALAR_MODULUS_BE;
 use zolana_tree::nullifier_tree::{
     access::get_merkle_tree_account_size, batch::CachedTreeUpdate, error::NullifierTreeError,
-    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::CompressedProof,
+    merkle_tree_update::InstructionDataBatchNullifyInputs, proof::NullifierTreeProof,
 };
 
 /// Re-submitting a proof for a zkp batch that has already been applied
@@ -33,7 +33,7 @@ fn test_replay_after_apply_is_noop() {
                 new_root: [3u8; 32],
                 old_root: [2u8; 32],
                 zkp_batch_index: 0,
-                compressed_proof: CompressedProof::default(),
+                proof: NullifierTreeProof::default(),
             },
         )
         .unwrap();
@@ -74,7 +74,7 @@ fn test_replay_while_cached_verifies_and_keeps_update_on_failure() {
             new_root: [3u8; 32],
             old_root: [2u8; 32],
             zkp_batch_index: 0,
-            compressed_proof: CompressedProof::default(),
+            proof: NullifierTreeProof::default(),
         },
     );
 
@@ -104,7 +104,7 @@ fn test_update_rejects_non_canonical_roots_before_verification() {
                 new_root,
                 old_root,
                 zkp_batch_index: 0,
-                compressed_proof: CompressedProof::default(),
+                proof: NullifierTreeProof::default(),
             },
         );
         assert_eq!(

@@ -7,20 +7,19 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, V0WithLookupTable,
+    CreateConfig, CreateHeadMapRoot, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
     TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
-use solana_compute_budget_interface::ComputeBudgetInstruction;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
 use solana_signature::Signature;
 use solana_signer::Signer;
 use zolana_client::{
-    prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError, ProverClient, Rpc,
-    SolanaRpc, ZolanaClient, ZolanaIndexer,
+    prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
+    ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
 use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
@@ -94,6 +93,7 @@ impl TestEnv {
             &[sync],
             self.payer.pubkey(),
             &[&self.payer, &self.ring_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(1),
         )?;
         Ok(())
     }
@@ -120,6 +120,7 @@ impl TestEnv {
             &syncs,
             self.payer.pubkey(),
             &[&self.payer, &self.tree_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(syncs.len()),
         )?;
         Ok(creation.tree)
     }
@@ -282,6 +283,18 @@ impl<'a> ConfiguredRing<'a> {
                 }
                 .instruction()?],
             )?;
+            if rules.window_slots() != 0 {
+                send(
+                    rpc,
+                    self.payer,
+                    &[CreateHeadMapRoot {
+                        ring: self.ring,
+                        payer: authority,
+                        authority,
+                    }
+                    .instruction()],
+                )?;
+            }
         }
         Ok(PinnedRing {
             payer: self.payer,
@@ -374,7 +387,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     .collect();
     validator.start_with_upgradeable_programs(&deployments);
 
-    spawn_workspace_prover();
+    if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
+        zolana_client::spawn_prover_with_artifacts(&validator.cli_bin, keys)
+            .context("start the isolated ring prover")?;
+    } else {
+        spawn_workspace_prover();
+    }
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
@@ -405,7 +423,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
             ring: ring_creation_authority.pubkey(),
         },
     ) {
-        rpc.create_and_send_transaction(&[ix], payer_address, &[&payer])?;
+        rpc.create_and_send_transaction(
+            &[ix],
+            payer_address,
+            &[&payer],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
     }
 
     rpc.airdrop(&accounts.protocol_vault, PROTOCOL_VAULT_AIRDROP)?;
@@ -435,7 +458,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         &[authority.pubkey()],
         &[create_config_ix],
     );
-    rpc.create_and_send_transaction(&[create_config_sync], payer_address, &[&payer, &authority])?;
+    rpc.create_and_send_transaction(
+        &[create_config_sync],
+        payer_address,
+        &[&payer, &authority],
+        ComputeBudgetConfig::for_instruction_count(1),
+    )?;
 
     let tree_creation = create_tree_instructions(
         &rpc,
@@ -455,6 +483,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         &create_tree_syncs,
         payer_address,
         &[&payer, &tree_creation_authority],
+        ComputeBudgetConfig::for_instruction_count(create_tree_syncs.len()),
     )?;
 
     let tree = tree_creation.tree;
@@ -530,30 +559,29 @@ fn new_actor(rpc: &mut SolanaRpc, assets: &AssetRegistry) -> Result<TestWallet> 
     Ok(TestWallet { wallet, keypair })
 }
 
-/// Send instructions as a legacy transaction paid and signed by `payer`.
+/// Send instructions as a transaction **v1** message paid and signed by
+/// `payer`. The compute ceilings ride in the message header, so nothing is
+/// prepended and the caller's first instruction stays at index 0.
 pub fn send(rpc: &SolanaRpc, payer: &dyn Signer, ixs: &[Instruction]) -> Result<Signature> {
-    let instructions = std::iter::once(ComputeBudgetInstruction::set_compute_unit_limit(
-        TRANSACT_COMPUTE_UNIT_LIMIT,
-    ))
-    .chain(ixs.iter().cloned())
-    .collect::<Vec<_>>();
-    let signature = rpc.create_and_send_transaction(&instructions, payer.pubkey(), &[payer])?;
-    Ok(signature)
+    Ok(rpc.create_and_send_transaction(
+        ixs,
+        payer.pubkey(),
+        &[payer],
+        ComputeBudgetConfig::new(TRANSACT_COMPUTE_UNIT_LIMIT),
+    )?)
 }
 
-/// Submit a single (large) instruction as a v0 transaction behind a throwaway
-/// address lookup table. Prepends a 1.4M CU budget; `payer` signs and pays.
-/// The same submission path for a transaction that must be REJECTED: returns the
-/// runtime's typed failure so a test can assert the exact program error code and
-/// the failing instruction index (`Rejection::custom(..).at(1)`, index 1 because
-/// of the prepended compute budget). [`send_v0_with_lookup_table`] stringifies
-/// the error, which cannot be asserted on.
-pub fn send_v0_expecting_rejection(
+/// The [`TransactSend`] submission path for a transaction that must be REJECTED:
+/// returns the runtime's typed failure so a test can assert the exact program
+/// error code and the failing instruction index (`Rejection::custom(..).at(0)`,
+/// index 0 because a v1 message carries no compute-budget instruction).
+/// [`TransactSend::send`] stringifies the error, which cannot be asserted on.
+pub fn send_expecting_rejection(
     rpc: &SolanaRpc,
     payer: &dyn Signer,
     ix: Instruction,
 ) -> Result<ClientError> {
-    let tx = V0WithLookupTable {
+    let tx = TransactSend {
         payer,
         signers: &[],
         instruction: ix,
@@ -564,13 +592,14 @@ pub fn send_v0_expecting_rejection(
             "transaction {signature} was expected to be rejected but landed"
         )),
         Err(source) => Ok(ClientError::SolanaRpcTransaction {
-            operation: "send v0",
+            operation: "send v1",
             source,
         }),
     }
 }
 
-/// Over [`send`], the failing instruction sits at index 1 behind its compute budget.
+/// Over [`send`], the failing instruction sits at index 0: a v1 message carries
+/// its compute ceilings in the header, not in a prepended instruction.
 #[must_use]
 pub struct ExpectRejection<'a> {
     pub payer: &'a dyn Signer,

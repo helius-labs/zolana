@@ -1,4 +1,9 @@
 /** Named exports the changelog promises, resolved through the package exports map. */
+export {
+  MAX_INPUT_TREES,
+  ShieldedPoolError,
+  decodeShieldedPoolError,
+} from "@heliuslabs/zolana/interface";
 export type {
   AuthorizedPrivateTransaction,
   ChainReader,
@@ -10,6 +15,13 @@ export type {
   ProvedMerge,
   TransactionAssembler,
   TreeContext,
+  RingHeadReader,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingSubmissionTransport,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
 } from "@heliuslabs/zolana/client";
 export type {
   DepositClient,
@@ -21,12 +33,34 @@ export type {
   WalletStateStore,
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
+export type { RingAuditReader, RingRpcOptions, RingTransferClient } from "@heliuslabs/zolana/ring";
+export {
+  buildRingDelegateTransferTransaction,
+  createRingDelegateSubmission,
+  prepareRingSpendRegistration,
+  createRingSpendRegistrationSubmission,
+  buildRingSpendRegistrationTransaction,
+  createRingTransferSubmission,
+  createRingWithdrawalSubmission,
+  createRingExitSubmission,
+  createKitRingSubmissionTransport,
+  readRingVelocityState,
+  createRingHeadMapRootInstruction,
+  fetchRingHeadMapRoot,
+  ringHeadMapRootAddress,
+  decodeRingHeadMapRoot,
+  spendRecordMessageTag,
+} from "@heliuslabs/zolana/ring";
 export type {
-  RingAuditReader,
-  RingLookupTableClient,
-  RingLookupTableReader,
-  RingRpcOptions,
-  RingTransferClient,
+  RingDelegateTransferClient,
+  RingDelegateTransferParams,
+  RingSpendRegistrationClient,
+  RingSpendRegistrationParams,
+  RingSpendRegistrationPreparation,
+  RingTransactionSubmission,
+  RingSubmissionResult,
+  RingHeadMapRoot,
+  VelocityFacts,
 } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
@@ -34,8 +68,6 @@ export type {
   SerializedSyncCursors,
 } from "@heliuslabs/zolana/transaction";
 export type {
-  RingLookupTableClient as RootRingLookupTableClient,
-  RingLookupTableReader as RootRingLookupTableReader,
   RingRpcOptions as RootRingRpcOptions,
   SerializedCursor as RootSerializedCursor,
   SerializedNoteReservation as RootSerializedNoteReservation,

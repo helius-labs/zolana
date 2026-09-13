@@ -67,6 +67,8 @@ fn error_codes_are_stable() {
         (SpendRecordAlreadyRegistered as u32, 8163),
         (VelocityWindowImmutable as u32, 8164),
         (InvalidHeadMapRoot as u32, 8165),
+        (StaleHeadMapRoot as u32, 8166),
+        (InvalidHeadMapCursor as u32, 8167),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -140,6 +142,8 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | SpendRecordHeadMismatch
         | SpendRecordAlreadyRegistered
         | VelocityWindowImmutable
-        | InvalidHeadMapRoot => {}
+        | InvalidHeadMapRoot
+        | StaleHeadMapRoot
+        | InvalidHeadMapCursor => {}
     }
 }

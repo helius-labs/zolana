@@ -6,17 +6,18 @@
 //! plain key: `execute_sync_ix` has the smart-account program CPI into the
 //! shielded pool with the vault PDA as the signer, and the outer transaction is
 //! signed by a smart-account member. Proof generation lives in `prover/client`;
-//! this module handles submission once a compressed proof and root are ready.
+//! this module handles submission once a proof and root are ready.
 
 use solana_commitment_config::CommitmentConfig;
+use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_keypair::Keypair;
-use solana_message::Message;
 use solana_pubkey::Pubkey;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_signature::Signature;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
+use solana_transaction::versioned::VersionedTransaction;
+use zolana_client::{compile_message, sign_transaction, ComputeBudgetConfig};
 use zolana_interface::instruction::{BatchUpdateNullifierTree, BatchUpdateNullifierTreeData};
 use zolana_smart_account_client::{execute_sync_ix, smart_account_pda};
 
@@ -58,9 +59,9 @@ pub fn build_forester_execute_ix(
         new_root: batch_update.new_root,
         old_root: batch_update.old_root,
         zkp_batch_index: batch_update.zkp_batch_index,
-        compressed_proof_a: batch_update.compressed_proof.a,
-        compressed_proof_b: batch_update.compressed_proof.b,
-        compressed_proof_c: batch_update.compressed_proof.c,
+        proof_a: batch_update.proof.a,
+        proof_b: batch_update.proof.b,
+        proof_c: batch_update.proof.c,
     }
     .instruction();
     execute_sync_ix(settings, account_index, &[*member], &[inner])
@@ -69,24 +70,36 @@ pub fn build_forester_execute_ix(
 pub fn batch_update_nullifier_tree_once(
     params: ForestParams<'_>,
 ) -> Result<Signature, ForestError> {
-    let member = params.member.pubkey();
-    let execute = build_forester_execute_ix(
-        &params.settings,
-        params.account_index,
-        &member,
-        params.pool_tree,
-        &params.batch_update,
-    );
-
     let rpc =
         RpcClient::new_with_commitment(params.rpc_url.to_string(), CommitmentConfig::confirmed());
     let blockhash = rpc
         .get_latest_blockhash()
         .map_err(|e| ForestError::Rpc(e.to_string()))?;
-    let msg = Message::new(&[execute], Some(&member));
-    let tx = Transaction::new(&[params.member], msg, blockhash);
+    let tx = params.build_transaction(blockhash)?;
     rpc.send_and_confirm_transaction(&tx)
         .map_err(|e| ForestError::TxFailed(e.to_string()))
+}
+
+impl ForestParams<'_> {
+    fn build_transaction(&self, blockhash: Hash) -> Result<VersionedTransaction, ForestError> {
+        let member = self.member.pubkey();
+        let execute = build_forester_execute_ix(
+            &self.settings,
+            self.account_index,
+            &member,
+            self.pool_tree,
+            &self.batch_update,
+        );
+        let message = compile_message(
+            &member,
+            &[execute],
+            blockhash,
+            ComputeBudgetConfig::for_instruction_count(1),
+        )
+        .map_err(|error| ForestError::TxFailed(error.to_string()))?;
+        sign_transaction(message, &[self.member])
+            .map_err(|error| ForestError::TxFailed(error.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -105,9 +118,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
-                b: [3u8; 64],
+                b: [3u8; 128],
                 c: [4u8; 32],
             },
         }
@@ -127,9 +140,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof_a: [2u8; 32],
-            compressed_proof_b: [3u8; 64],
-            compressed_proof_c: [4u8; 32],
+            proof_a: [2u8; 32],
+            proof_b: [3u8; 128],
+            proof_c: [4u8; 32],
         }
         .instruction();
 
@@ -138,9 +151,9 @@ mod tests {
             new_root: [1u8; 32],
             old_root: [5u8; 32],
             zkp_batch_index: 0,
-            compressed_proof: zolana_interface::instruction::CompressedProof {
+            proof: zolana_interface::instruction::NullifierTreeProof {
                 a: [2u8; 32],
-                b: [3u8; 64],
+                b: [3u8; 128],
                 c: [4u8; 32],
             },
         };
@@ -176,5 +189,39 @@ mod tests {
             .accounts
             .iter()
             .any(|meta| meta.pubkey == member && meta.is_signer));
+    }
+
+    #[test]
+    fn batch_update_builds_a_signed_transaction_with_header_budgets() {
+        let member = Keypair::new();
+        let params = ForestParams {
+            rpc_url: "http://unused.invalid",
+            member: &member,
+            settings: Pubkey::new_unique(),
+            account_index: 0,
+            pool_tree: Pubkey::new_unique(),
+            batch_update: sample_batch_update(),
+        };
+        let blockhash = Hash::new_from_array([7; 32]);
+        let transaction = params
+            .build_transaction(blockhash)
+            .expect("build transaction");
+        let solana_message::VersionedMessage::V1(message) = &transaction.message else {
+            panic!("forester must send transaction version 1");
+        };
+        assert_eq!(
+            message.config,
+            solana_message::v1::TransactionConfig::empty()
+                .with_compute_unit_limit(200_000)
+                .with_loaded_accounts_data_size_limit(zolana_client::MAX_LOADED_ACCOUNTS_DATA_SIZE),
+        );
+        assert_eq!(message.lifetime_specifier, blockhash);
+        assert_eq!(message.instructions.len(), 1);
+        assert_eq!(message.account_keys.first(), Some(&member.pubkey()));
+        transaction.sanitize().expect("valid transaction");
+        assert_eq!(
+            transaction.signatures,
+            vec![member.sign_message(&transaction.message.serialize())],
+        );
     }
 }

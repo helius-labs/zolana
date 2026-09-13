@@ -103,6 +103,8 @@ export interface SpendSession {
       outputs: readonly ProofOutputUtxo[];
       assets: AssetRegistry;
       auditorPublicKey: P256PublicKey;
+      /** The final output must be encrypted to the transaction viewing key. */
+      recordOutputIndex?: number;
       sealedMessages?: readonly Readonly<{
         viewTag: Bytes32;
         plaintext: Uint8Array;
@@ -292,7 +294,11 @@ export class KeypairWalletAuthority implements WalletAuthority {
     input: Readonly<
       { solanaPublicKey: Address } & (
         | { keypair: ShieldedKeypair }
-        | { address: ShieldedAddress; viewingKey: ViewingKey; nullifierKey: NullifierKey }
+        | {
+            address: ShieldedAddress;
+            viewingKey: ViewingKey;
+            nullifierKey: NullifierKey;
+          }
       )
     >,
   ) {

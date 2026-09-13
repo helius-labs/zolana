@@ -14,6 +14,8 @@ pub mod testing {
     pub use crate::instructions::shared::{
         check_reimbursement_recipient, pay_reimbursement_with_rent_minimum, tree_error,
     };
+    pub use crate::instructions::transact::account::TransactAccounts;
+    pub use crate::instructions::transact::processor::hash_external_data;
     pub use crate::instructions::transact::verify::{
         amount_field, fixed_signer_hash_chain, OwnerHashCache, TransactProof, TransactProofInputs,
         MAX_SIGNERS, SIGNER_ZERO_SUFFIX_CHAINS,
@@ -50,7 +52,7 @@ use crate::instructions::{
 mod entrypoint {
     pinocchio::entrypoint!(crate::process_instruction);
 }
-pinocchio::address::declare_id!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+pinocchio::address::declare_id!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 
 #[profile]
 pub fn process_instruction(

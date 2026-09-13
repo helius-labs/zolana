@@ -28,3 +28,16 @@ fn run_owner_rail(eddsa: bool) {
         .prove_and_verify_merge_ring();
     }
 }
+
+#[test]
+#[serial_test::serial]
+fn merge_ring_proofs_cover_the_wide_shape() {
+    for eddsa in [false, true] {
+        for real_inputs in [9, 36] {
+            MergeRingHarness {
+                plan: MergeRingPlan { real_inputs, eddsa },
+            }
+            .prove_and_verify_merge_ring();
+        }
+    }
+}

@@ -49,3 +49,20 @@ pub(crate) fn verify_groth16(
     verifier.verify().map_err(|_| PROOF_ERR)?;
     Ok(())
 }
+
+#[inline(never)]
+pub(crate) fn verify_plain_groth16(
+    proof: &custom_ring_interface::PlainGroth16Proof,
+    public_input_hash: [u8; 32],
+    verifying_key: &Groth16Verifyingkey,
+) -> ProgramResult {
+    let proof_a = decompress_g1(&proof.proof_a).map_err(|_| PROOF_ERR)?;
+    let proof_b = decompress_g2(&proof.proof_b).map_err(|_| PROOF_ERR)?;
+    let proof_c = decompress_g1(&proof.proof_c).map_err(|_| PROOF_ERR)?;
+    let public_inputs = [public_input_hash];
+    let mut verifier =
+        Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, verifying_key)
+            .map_err(|_| PROOF_ERR)?;
+    verifier.verify().map_err(|_| PROOF_ERR)?;
+    Ok(())
+}

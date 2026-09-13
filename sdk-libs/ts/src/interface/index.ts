@@ -21,7 +21,7 @@ export type {
   ShieldedPoolErrorName,
 } from "./errors.js";
 export { externalDataHash } from "./external-data-hash.js";
-export type { ExternalDataHashInput } from "./external-data-hash.js";
+export type { ExternalDataHashInput, SettlementAccounts } from "./external-data-hash.js";
 export {
   depositInstruction,
   nullifierPdaAccounts,
@@ -86,6 +86,7 @@ export {
 export {
   DEFAULT_TREE_ID,
   INPUT_TREES,
+  MAX_INPUT_TREES,
   ZERO_TREE_SLOT,
   inputTreeSlots,
   treeIdField,

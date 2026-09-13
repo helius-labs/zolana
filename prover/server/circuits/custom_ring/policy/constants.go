@@ -22,7 +22,7 @@ const (
 )
 
 // PolicyVersion is committed in policy_hash.
-const PolicyVersion = 6
+const PolicyVersion = 7
 
 // Subjects select the transaction value checked against a rule.
 const (

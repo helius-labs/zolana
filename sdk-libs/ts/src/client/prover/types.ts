@@ -70,7 +70,8 @@ export interface TransferInputs {
   readonly publicAmounts: readonly Field[];
   readonly ringProgramId: Field;
   readonly signerPublicKeyHashes: readonly Field[];
-  readonly allowDummyInputs: Field;
+  /** Bit 0 is the dummy-input policy, then three bits of tree slot per input. */
+  readonly inputFlags: Field;
   readonly publishedOutputOwnerPublicKeyHashes: readonly Field[];
   readonly publicInputHash: Field;
 }
@@ -93,7 +94,7 @@ export interface MergeInputs {
 }
 
 export type ProverInputs = Readonly<{
-  circuit: "transfer" | "transferRing";
+  circuit: "transfer" | "transferRing" | "transferRingAuthority";
   payload: TransferInputs;
 }>;
 
@@ -289,6 +290,30 @@ export interface CustomRingBaseProofRequest {
   readonly auditorPublicKey: Uint8Array;
 }
 
+export interface CustomRingCompressedPolicyProofRequest {
+  readonly policy: CustomRingPolicyProofRequest;
+  readonly headOldRoot: Bytes32;
+  readonly headNewRoot: Bytes32;
+  readonly headNext: Bytes32;
+  readonly headIndex: bigint;
+  readonly headProof: readonly Bytes32[];
+}
+
+export interface CustomRingRegisterProofRequest {
+  readonly publicInputHash: Bytes32;
+  readonly headOldRoot: Bytes32;
+  readonly headNewRoot: Bytes32;
+  readonly member: Bytes32;
+  readonly genesis: Bytes32;
+  readonly newIndex: bigint;
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowNullifier: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
 export interface Proof {
   readonly a: Bytes64;
   readonly b: Bytes128;
@@ -299,13 +324,14 @@ export interface Proof {
 
 export interface CompressedProof {
   readonly a: Bytes32;
-  readonly b: Bytes64;
+  readonly b: Bytes128;
   readonly c: Bytes32;
   readonly commitment?: Bytes32;
   readonly commitmentPok?: Bytes32;
   toTransactProof(): TransactProof;
   /** `a(32) || b(64) || c(32) || commitment(32) || commitmentPok(32)`, Rust `CustomRingProof`. */
   toCustomRingProof(): Uint8Array;
+  toPlainCompressedProof(): Uint8Array;
 }
 
 export type { SpendProof };

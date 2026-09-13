@@ -1,13 +1,9 @@
 import {
-  getSetComputeUnitLimitInstruction,
-  getSetComputeUnitPriceInstruction,
-} from "@solana-program/compute-budget";
-import {
   appendTransactionMessageInstructions,
   compileTransaction,
-  compressTransactionMessageUsingAddressLookupTables,
   createTransactionMessage,
   pipe,
+  setTransactionMessageConfig,
   setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
 } from "@solana/kit";
@@ -17,60 +13,57 @@ import type { LatestBlockhash } from "../client/kit.js";
 import type { Shape } from "../interface/shape.js";
 import { checkedTransactionSize } from "../interface/transaction-size.js";
 import type { Address, Instruction, Transaction } from "../interface/types.js";
-import { checkedAddress, checkedComputeUnitPrice, checkedU32 } from "./internal.js";
+import { checkedAddress, checkedComputeUnitLimit, checkedPriorityFee } from "./internal.js";
+
+/**
+ * Every account the pool, the registry and a settlement touch fits well under
+ * this. A version 1 transaction budgets zero bytes of account data when the
+ * field is left out, so it is always sent.
+ */
+export const LOADED_ACCOUNTS_DATA_SIZE_LIMIT = 64 * 1024 * 1024;
 
 /** @internal */
 export interface TransactionCompilerOptions {
   readonly feePayer: Address;
   readonly lifetime: LatestBlockhash;
-  /** The payload, appended after the budget and setup instructions. */
+  /** The payload, appended after the setup instructions. */
   readonly instructions: readonly Instruction[];
-  readonly computeUnitLimit?: number;
-  readonly computeUnitPriceMicroLamports?: bigint;
+  /** Carried in the version 1 header. Unset budgets zero units, so it is required. */
+  readonly computeUnitLimit: number;
+  /** The whole transaction's fee, not a price per compute unit. */
+  readonly priorityFeeLamports?: bigint;
   readonly setupInstructions?: readonly Instruction[];
-  readonly lookupTables?: Readonly<Record<Address, readonly Address[]>>;
-  /** Names the proof shape when the compiled bytes exceed the packet. */
+  /** Names the proof shape when the compiled bytes exceed the limit. */
   readonly sizeShape?: Shape;
 }
 
-/** @internal One compile path, refused past the packet limit. */
+/** @internal One compile path, refused past the version 1 size limit. */
 export function compileUnsignedTransaction(options: TransactionCompilerOptions): Transaction {
   checkedAddress(options.feePayer, "feePayer");
-  if (options.computeUnitLimit !== undefined) {
-    checkedU32(options.computeUnitLimit, "computeUnitLimit");
-  }
-  checkedComputeUnitPrice(options.computeUnitPriceMicroLamports);
+  checkedComputeUnitLimit(options.computeUnitLimit);
+  checkedPriorityFee(options.priorityFeeLamports);
   const instructions: readonly Instruction[] = [
-    ...(options.computeUnitLimit === undefined
-      ? []
-      : [getSetComputeUnitLimitInstruction({ units: options.computeUnitLimit })]),
-    ...(options.computeUnitPriceMicroLamports === undefined
-      ? []
-      : [
-          getSetComputeUnitPriceInstruction({
-            microLamports: options.computeUnitPriceMicroLamports,
-          }),
-        ]),
     ...(options.setupInstructions ?? []),
     ...options.instructions,
   ];
-  const lookupTables = options.lookupTables;
   let compiled: Transaction;
   try {
     const message = pipe(
-      createTransactionMessage({ version: 0 }),
+      createTransactionMessage({ version: 1 }),
       (tx) => setTransactionMessageFeePayer(options.feePayer, tx),
       (tx) => setTransactionMessageLifetimeUsingBlockhash(options.lifetime, tx),
-      (tx) => appendTransactionMessageInstructions(instructions, tx),
       (tx) =>
-        lookupTables === undefined
-          ? tx
-          : compressTransactionMessageUsingAddressLookupTables(
-              tx,
-              lookupTables as Parameters<
-                typeof compressTransactionMessageUsingAddressLookupTables
-              >[1],
-            ),
+        setTransactionMessageConfig(
+          {
+            computeUnitLimit: options.computeUnitLimit,
+            loadedAccountsDataSizeLimit: LOADED_ACCOUNTS_DATA_SIZE_LIMIT,
+            ...(options.priorityFeeLamports === undefined
+              ? {}
+              : { priorityFeeLamports: options.priorityFeeLamports }),
+          },
+          tx,
+        ),
+      (tx) => appendTransactionMessageInstructions(instructions, tx),
     );
     compiled = compileTransaction(message);
   } catch (cause) {

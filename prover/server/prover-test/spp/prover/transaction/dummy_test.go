@@ -185,7 +185,6 @@ func TestProveMixedDirectionInterfaceTransfers(t *testing.T) {
 			Asset:       testMintA,
 			Amount:      7,
 			UserAccount: stringsOfByte(0x41),
-			PoolAccount: stringsOfByte(0x61),
 		},
 		{
 			IsDeposit:   true,
@@ -218,14 +217,12 @@ func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 			Asset:       testMintA,
 			Amount:      5,
 			UserAccount: stringsOfByte(0x41),
-			PoolAccount: stringsOfByte(0x61),
 		},
 		{
 			IsSpl:       true,
 			Asset:       testMintA,
 			Amount:      2,
 			UserAccount: stringsOfByte(0x42),
-			PoolAccount: stringsOfByte(0x62),
 		},
 		{
 			IsSpl:       true,
@@ -233,28 +230,24 @@ func TestProveSixSameAssetInterfaceTransfers(t *testing.T) {
 			Asset:       testMintA,
 			Amount:      4,
 			UserAccount: stringsOfByte(0x43),
-			PoolAccount: stringsOfByte(0x63),
 		},
 		{
 			IsSpl:       true,
 			Asset:       testMintA,
 			Amount:      3,
 			UserAccount: stringsOfByte(0x44),
-			PoolAccount: stringsOfByte(0x64),
 		},
 		{
 			IsSpl:       true,
 			Asset:       testMintA,
 			Amount:      1,
 			UserAccount: stringsOfByte(0x45),
-			PoolAccount: stringsOfByte(0x65),
 		},
 		{
 			IsSpl:       true,
 			Asset:       testMintA,
 			Amount:      1,
 			UserAccount: stringsOfByte(0x46),
-			PoolAccount: stringsOfByte(0x66),
 		},
 	}
 
@@ -285,7 +278,6 @@ func TestProveThreeDistinctPublicAssets(t *testing.T) {
 			Asset:       testMintA,
 			Amount:      7,
 			UserAccount: stringsOfByte(0x41),
-			PoolAccount: stringsOfByte(0x61),
 		},
 		{
 			IsSpl:       true,
@@ -293,7 +285,6 @@ func TestProveThreeDistinctPublicAssets(t *testing.T) {
 			Asset:       testMintB,
 			Amount:      2,
 			UserAccount: stringsOfByte(0x42),
-			PoolAccount: stringsOfByte(0x62),
 		},
 	}
 

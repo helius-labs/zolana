@@ -1,7 +1,7 @@
 mod shared;
 
 use anyhow::{anyhow, Result};
-use shared::{send_cosigned_v0_with_lookup_table, setup, TestEnv, BUY_USDC, SELL_SOL};
+use shared::{send_cosigned, setup, TestEnv, BUY_USDC, SELL_SOL};
 use solana_signer::Signer;
 use zolana_client::Rpc;
 use zolana_interface::instruction::Transact;
@@ -85,7 +85,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
         .map_err(|e| anyhow!("prove transact: {e:?}"))?;
     let ix = Transact {
         payer: maker_solana.pubkey(),
-        input_tree: tree,
+        input_trees: vec![tree],
         output_tree: tree,
         owner_signers: vec![taker_solana.pubkey()],
         interface_transfer_accounts: Vec::new(),
@@ -93,8 +93,7 @@ fn cosigned_rfq_settlement() -> Result<()> {
     }
     .instruction();
 
-    let signature =
-        send_cosigned_v0_with_lookup_table(client.rpc(), &maker_solana, &taker_solana, ix)?;
+    let signature = send_cosigned(client.rpc(), &maker_solana, &taker_solana, ix)?;
     client
         .confirm_private_transaction_sync(signature)
         .map_err(|e| anyhow!("confirm settlement indexed: {e:?}"))?;

@@ -6,7 +6,10 @@ use mollusk_svm::result::{InstructionResult, ProgramResult};
 use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
-use crate::common::{create_head_map_root_fixture, head_map_root_pda, program_id, setup_mollusk};
+use crate::common::{
+    account, create_head_map_root_fixture, head_map_root_account, head_map_root_pda, program_id,
+    setup_mollusk,
+};
 
 fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
@@ -58,4 +61,22 @@ fn create_head_map_root_with_a_wrong_system_program_is_rejected_exactly() {
     let mut fixture = create_head_map_root_fixture(None);
     fixture.substitute("system_program", Pubkey::new_from_array([68; 32]));
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSystemProgram));
+}
+
+#[test]
+fn prefunding_the_empty_root_pda_does_not_prevent_initialization() {
+    let (mollusk, _) = setup_mollusk();
+    let fixture = create_head_map_root_fixture(Some(account(1_000_000)));
+    let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
+    assert_eq!(result.program_result, ProgramResult::Success);
+    assert_eq!(stored(&result).root, HEAD_MAP_EMPTY_ROOT);
+    assert_eq!(stored(&result).next_index(), 1);
+}
+
+#[test]
+fn authority_cannot_reinitialize_an_advanced_root() {
+    let (mollusk, _) = setup_mollusk();
+    let advanced = head_map_root_account([0x11; 32], 19);
+    let fixture = create_head_map_root_fixture(Some(advanced));
+    fixture.expect_err(&mollusk, ProgramError::Custom(0));
 }

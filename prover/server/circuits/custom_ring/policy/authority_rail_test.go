@@ -27,7 +27,7 @@ func TestPolicyStatementBindsTheAuthorityRailPreimage(t *testing.T) {
 	firstNullifier := spptest.MustNullifier(t, hostUtxoHash(t, spent), spent.Blinding.(*big.Int), big.NewInt(7))
 	blinding, err := protocol.PrivateTxBlinding(firstNullifier, big.NewInt(4242))
 	s.privateTxBlinding = spptest.MustHash(t, blinding, err)
-	s.addressChain = spptest.MustHashChain(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
+	s.addressChain = spptest.MustHashChain4(t, []*big.Int{big.NewInt(0), big.NewInt(0)})
 	s.updateHashes(t)
 
 	inputHashes := []*big.Int{hostUtxoHash(t, s.inputs[0]), big.NewInt(0)}

@@ -16,20 +16,21 @@ use pinocchio::{
 };
 use zolana_account_checks::AccountIterator;
 use zolana_interface::{
-    event::MessageData,
     instruction::{
         instruction_data::transact::{
-            CircuitId, ExternalDataHash, InputUtxo, OwnerTag, ResolvedOutput, TransactIxData,
+            confidential_encrypted_output_body, CircuitId, OwnerTag, TransactIxData,
             TransactOutput, TransactProof,
         },
         tag::TRANSACT,
+        MessageData,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_program::{TransactExternalData, TransactInputs};
 use zolana_ring_policy::{
-    entry_nullifier, mutation_private_tx_hash, EncodedRuleTable, ListEntry, ListId, ListNamespace,
-    ListSet, Member, PolicyHashError, SourceMap, SpendRecord, VelocityRow, Writer,
-    NAMESPACE_PDA_SEED, SPEND_RECORD_LEN, SPEND_RECORD_OUTPUT_DATA_LEN,
+    entry_nullifier, mutation_private_tx_hash, spend_record_message_tag, EncodedRuleTable,
+    ListEntry, ListId, ListNamespace, ListSet, Member, PolicyHashError, SourceMap, SpendRecord,
+    VelocityRow, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -271,10 +272,10 @@ impl<'a> MutationAccounts<'a> {
         let config = iter.next_account("config")?;
         let policy_config = iter.next_account("policy_config")?;
         let payer = iter.next_signer_mut("payer")?;
-        let input_tree = iter.next_mut("input_tree")?;
         let output_tree = iter.next_mut("output_tree")?;
         let spp_program = iter.next_account("spp_program")?;
         let system_program = iter.next_account("system_program")?;
+        let input_tree = iter.next_mut("input_tree")?;
         let _nullifier_pda = iter.next_mut("nullifier_pda")?;
         let entries = iter.next_account("entries")?;
         if !iter.iterator_is_empty() {
@@ -353,7 +354,7 @@ impl<'a> MutationAccounts<'a> {
 
 pub(crate) struct EntryTransition {
     pub entry: ListEntry,
-    pub input: InputUtxo,
+    pub inputs: TransactInputs,
     pub input_hash: [u8; 32],
     /// The address a claim inserts, zero for a spend.
     pub address_nullifier: [u8; 32],
@@ -379,7 +380,7 @@ impl EntryTransition {
         NamespaceWrite {
             output_hash,
             content: &content,
-            input: self.input,
+            inputs: self.inputs,
             input_hash: self.input_hash,
             address_nullifier: self.address_nullifier,
             private_tx_blinding: self.private_tx_blinding,
@@ -392,7 +393,7 @@ impl EntryTransition {
 pub(crate) struct NamespaceWrite<'a> {
     pub output_hash: [u8; 32],
     pub content: &'a [u8],
-    pub input: InputUtxo,
+    pub inputs: TransactInputs,
     pub input_hash: [u8; 32],
     /// The address a claim inserts, zero for a spend.
     pub address_nullifier: [u8; 32],
@@ -406,25 +407,14 @@ impl NamespaceWrite<'_> {
         namespace_address: &Address,
     ) -> Result<TransactIxData, ProgramError> {
         let owner_bytes = namespace_address.to_bytes();
-        let resolved_output = [ResolvedOutput {
-            utxo_hash: &self.output_hash,
-            owner_tag: owner_bytes,
-            data: Some(self.content),
-        }];
-        let messages: &[MessageData] = &[];
-        let external_data_hash = ExternalDataHash {
-            spp_instruction_discriminator: TRANSACT,
-            expiry_unix_ts: u64::MAX,
-            interface_transfers: &[],
-            data_hash: None,
-            ring_data_hash: None,
-            tx_viewing_pk: &[0u8; 33],
-            salt: &[0u8; 16],
-            outputs: &resolved_output,
-            messages,
-        }
-        .hash()
-        .map_err(|_| CustomRingError::HashingFailed)?;
+        let external = TransactExternalData::single_output(TransactOutput {
+            utxo_hash: self.output_hash,
+            owner_tag: OwnerTag::Inline(owner_bytes),
+            data: Some(self.content.to_vec()),
+        });
+        let external_data_hash = external
+            .hash(TRANSACT, &[], &[owner_bytes])
+            .map_err(|_| CustomRingError::HashingFailed)?;
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
             self.output_hash,
@@ -434,52 +424,42 @@ impl NamespaceWrite<'_> {
         )
         .map_err(|_| CustomRingError::HashingFailed)?;
 
-        Ok(TransactIxData {
-            expiry_unix_ts: u64::MAX,
+        Ok(external.into_ix_data(
             private_tx_hash,
-            circuit: CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
-            tx_viewing_pk: [0u8; 33],
-            salt: [0u8; 16],
-            proof: self.proof,
-            inputs: vec![self.input],
-            interface_transfers: Vec::new(),
-            data_hash: None,
-            ring_data_hash: None,
-            outputs: vec![TransactOutput {
-                utxo_hash: self.output_hash,
-                owner_tag: OwnerTag::Inline(owner_bytes),
-                data: Some(self.content.to_vec()),
-            }],
-            messages: Vec::new(),
-        })
+            CircuitId::ConfidentialEddsa(1, 1, N_PUBLIC_SLOTS as u8),
+            self.proof,
+            self.inputs,
+        ))
     }
-}
-
-/// The successor record and its leaf, checked against the output the proof binds.
-pub(crate) struct VerifiedSpendRecord {
-    pub record: SpendRecord,
-    pub leaf: [u8; 32],
 }
 
 pub(crate) fn verify_spend_record_output(
     output: &TransactOutput,
+    messages: &[MessageData],
     owner: &ListNamespace,
     namespace_address: &Address,
     tree_id: u16,
-) -> Result<VerifiedSpendRecord, ProgramError> {
+) -> Result<(), ProgramError> {
     if output.owner_tag != OwnerTag::Inline(namespace_address.to_bytes()) {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
-    let data = output
+    if output
         .data
         .as_deref()
-        .filter(|data| data.len() == SPEND_RECORD_OUTPUT_DATA_LEN)
-        .ok_or(CustomRingError::InvalidSpendRecord)?;
-    if data[0] != 0 || data[1..5] != (SPEND_RECORD_LEN as u32).to_le_bytes() {
+        .and_then(confidential_encrypted_output_body)
+        .is_none()
+    {
+        return Err(CustomRingError::InvalidSpendRecord.into());
+    }
+    let tag = spend_record_message_tag(namespace_address.as_array())
+        .map_err(|_| CustomRingError::HashingFailed)?;
+    let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
+    let message = tagged.next().ok_or(CustomRingError::InvalidSpendRecord)?;
+    if tagged.next().is_some() {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
     let record =
-        SpendRecord::from_record_bytes(&data[5..]).ok_or(CustomRingError::InvalidSpendRecord)?;
+        SpendRecord::from_output_data(&message.data).ok_or(CustomRingError::InvalidSpendRecord)?;
     let address = owner
         .spend_address(&record.member, tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;
@@ -489,7 +469,7 @@ pub(crate) fn verify_spend_record_output(
     if leaf != output.utxo_hash {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
-    Ok(VerifiedSpendRecord { record, leaf })
+    Ok(())
 }
 
 pub(crate) fn entry_spend_input(

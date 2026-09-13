@@ -10,7 +10,6 @@ anyhow = { workspace = true }
 compression-example-program = { path = "../program" }
 compression-example-sdk = { path = "../sdk" }
 solana-address = { workspace = true }
-solana-compute-budget-interface = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
 solana-signature = { workspace = true }

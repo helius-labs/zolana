@@ -1,7 +1,8 @@
 //! One spend record per member identity, spent into its successor by the member's own transfer.
 
 use zolana_hasher::{
-    hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, Hasher, HasherError, Poseidon,
+    hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, Hasher, HasherError,
+    Poseidon, Sha256,
 };
 
 use crate::{
@@ -17,6 +18,11 @@ pub const SPEND_RECORD_LEN: usize = 112;
 pub const SPEND_COUNTERS_LEN: usize = 32 + MAX_VELOCITY_ASSETS * 40;
 /// The plaintext envelope byte and the length prefix in front of the record.
 pub const SPEND_RECORD_OUTPUT_DATA_LEN: usize = 5 + SPEND_RECORD_LEN;
+
+/// Public records and encrypted counters have distinct message domains.
+pub fn spend_record_message_tag(namespace: &[u8; 32]) -> Result<[u8; 32], HasherError> {
+    Sha256::hashv(&[b"zolana:spend-record:v1", namespace])
+}
 
 /// The ring id field a UTXO inside the ring carries, `hash_bytes` of the program address.
 pub fn ring_id_field(program_id: &[u8; 32]) -> Result<[u8; 32], HasherError> {
@@ -87,6 +93,16 @@ impl SpendRecord {
         content[53..85].copy_from_slice(&self.counters_commitment);
         content[85..117].copy_from_slice(&self.blinding);
         content
+    }
+
+    pub fn from_output_data(data: &[u8]) -> Option<Self> {
+        if data.len() != SPEND_RECORD_OUTPUT_DATA_LEN
+            || data[0] != 0
+            || data[1..5] != (SPEND_RECORD_LEN as u32).to_le_bytes()
+        {
+            return None;
+        }
+        Self::from_record_bytes(&data[5..])
     }
 }
 
@@ -164,6 +180,19 @@ mod tests {
     }
 
     #[test]
+    fn record_message_tag_is_domain_separated_raw_sha256() {
+        assert_eq!(
+            hex::encode(spend_record_message_tag(&[7; 32]).unwrap()),
+            "87337f4d5068808c2f105da6e07232361fa4683cfe4a17920d01f2542ba46bb2"
+        );
+        assert_ne!(spend_record_message_tag(&[7; 32]).unwrap(), [7; 32]);
+        assert_ne!(
+            spend_record_message_tag(&[7; 32]).unwrap(),
+            spend_record_message_tag(&[8; 32]).unwrap()
+        );
+    }
+
+    #[test]
     fn a_spend_address_never_collides_with_an_entry_address() {
         let owner = ListNamespace::new(&[11u8; 32]).unwrap();
         let spend = owner.spend_address(&member(1), 3).unwrap();
@@ -184,6 +213,14 @@ mod tests {
             blinding: [6u8; 32],
         };
         let data = record.to_output_data();
+        assert_eq!(SpendRecord::from_output_data(&data), Some(record));
+        assert_eq!(SpendRecord::from_output_data(&data[..data.len() - 1]), None);
+        let mut wrong_scheme = data;
+        wrong_scheme[0] = 1;
+        assert_eq!(SpendRecord::from_output_data(&wrong_scheme), None);
+        let mut wrong_length = data;
+        wrong_length[1] ^= 1;
+        assert_eq!(SpendRecord::from_output_data(&wrong_length), None);
         assert_eq!(data[0], 0);
         assert_eq!(&data[1..5], &(SPEND_RECORD_LEN as u32).to_le_bytes());
         assert_eq!(SpendRecord::from_record_bytes(&data[5..]), Some(record));

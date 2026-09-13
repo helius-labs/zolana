@@ -10,7 +10,9 @@ repository.workspace = true
 name = "zolana_program"
 
 [dependencies]
+wincode = { workspace = true }
 zolana-hasher = { workspace = true }
+zolana-interface = { workspace = true }
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

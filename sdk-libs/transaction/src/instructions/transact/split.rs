@@ -1,15 +1,14 @@
 use solana_address::Address;
 use zolana_event::MessageData;
-use zolana_interface::{
-    instruction::instruction_data::transact::{OwnerTag, TransactOutput},
-    shape::Shape,
-};
+use zolana_interface::{instruction::instruction_data::transact::TransactOutput, shape::Shape};
 use zolana_keypair::{
     constants::SALT_LEN, random_salt, shielded::ShieldedAddress, viewing_key::random_blinding,
     Curve, P256Pubkey, ViewingKeyTrait,
 };
 
-use super::{spp_proof_inputs::SppProofInputs, ExternalData, SppProofOutputUtxo};
+use super::{
+    spp_proof_inputs::SppProofInputs, transfer::sender_owner_tag, ExternalData, SppProofOutputUtxo,
+};
 use crate::{
     data::Data,
     error::TransactionError,
@@ -256,7 +255,11 @@ impl PreparedSplit {
         if owner.signing_pubkey.curve()? == Curve::P256 {
             return Err(TransactionError::P256TransactUnsupported);
         }
-        let owner_view_tag = owner.signing_pubkey.confidential_view_tag()?;
+        // Every output of a split is owned by the signer, so the tag collapses
+        // to the payer's account index whenever it names the payer. At 31 bytes
+        // saved per output that is what keeps an eight-slot split inside one
+        // legacy packet.
+        let (owner_tag, owner_view_tag) = sender_owner_tag(&owner.signing_pubkey, &payer, false)?;
 
         let mut transact_outputs = Vec::with_capacity(outputs.len());
         let mut resolved_owner_tags = Vec::with_capacity(outputs.len());
@@ -265,7 +268,7 @@ impl PreparedSplit {
             let data = (position == 0).then(|| bundle.data.clone());
             transact_outputs.push(TransactOutput {
                 utxo_hash,
-                owner_tag: OwnerTag::Inline(owner_view_tag),
+                owner_tag,
                 data,
             });
             resolved_owner_tags.push(owner_view_tag);
@@ -300,6 +303,7 @@ mod tests {
     use crate::{
         serialization::DecodeCx, utxo::Utxo, EncryptedScheme, OwnerCx, SOL_MINT, VIEW_TAG_LEN,
     };
+    use zolana_interface::instruction::instruction_data::transact::OwnerTag;
 
     fn split_input(keypair: &ShieldedKeypair, amount: u64) -> SppProofInputUtxo {
         let utxo = Utxo {
@@ -376,6 +380,33 @@ mod tests {
                 per_output: 100,
             }
         );
+    }
+
+    #[test]
+    fn split_names_its_own_outputs_by_account_index_when_the_owner_pays() {
+        let keypair = ed25519_keypair();
+        let owner = keypair.shielded_address().expect("shielded address");
+        let payer = Address::new_from_array(
+            keypair
+                .signing_pubkey()
+                .confidential_view_tag()
+                .expect("view tag"),
+        );
+        let signed =
+            ConfidentialSplit::new(owner, split_input(&keypair, 300), SOL_MINT, 3, 100, payer)
+                .expect("valid split")
+                .sign(&keypair, &AssetRegistry::default())
+                .expect("sign split");
+
+        for output in &signed.external_data.outputs {
+            assert_eq!(output.owner_tag, OwnerTag::Account(0));
+        }
+        // An owner who is not the payer keeps the inline tag, which is what
+        // every other test in this module exercises.
+        let relayed = assemble(&keypair, 300, 3);
+        for output in &relayed.external_data.outputs {
+            assert!(matches!(output.owner_tag, OwnerTag::Inline(_)));
+        }
     }
 
     #[test]

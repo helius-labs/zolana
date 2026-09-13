@@ -19,7 +19,7 @@ use zolana_transaction::{
 use crate::{instructions::cosigner::cosigner_metas, AccountReadError, CustomRing};
 
 pub use zolana_client::{MergeRingProver, MergeRingWitness};
-pub use zolana_transaction::instructions::merge::MERGE_INPUTS;
+pub use zolana_transaction::instructions::merge::{MAX_MERGE_INPUTS, MERGE_DEFAULT_INPUT_COUNT};
 
 /// A merge plan whose inputs and output are bound to one custom ring.
 #[must_use]
@@ -309,7 +309,7 @@ mod tests {
             .expect("merge")
             .prepare();
 
-        assert_eq!(prepared.inputs().len(), MERGE_INPUTS);
+        assert_eq!(prepared.inputs().len(), MERGE_DEFAULT_INPUT_COUNT);
         assert_eq!(prepared.output().amount, 8);
         assert_eq!(prepared.output().ring_program_id, Some(ring.program_id()));
         assert_eq!(prepared.output().asset, SOL_MINT);
@@ -324,9 +324,9 @@ mod tests {
                 expiry_unix_ts: u64::MAX,
                 proof: MergeProof::zeroed(),
                 output_utxo_hash: [0; 32],
-                nullifiers: vec![[0; 32]; MERGE_INPUTS],
-                utxo_tree_root_index: vec![0; MERGE_INPUTS],
-                nullifier_tree_root_index: vec![0; MERGE_INPUTS],
+                nullifiers: vec![[0; 32]; MERGE_DEFAULT_INPUT_COUNT],
+                utxo_tree_root_index: 0,
+                nullifier_tree_root_index: 0,
                 private_tx_hash: [0; 32],
                 eddsa_owner: false,
             },

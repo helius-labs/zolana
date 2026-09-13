@@ -24,50 +24,50 @@ Regenerate with `just bench-tree`.
 
 ## 1. Address tree batch update x120
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `apply_cached_tree_updates`  |     19,978 |     19,978 |
-| `bench_batch_address_update` |    116,025 |     96,047 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `apply_cached_tree_updates`         |     16,131 |     16,131 |
+| `bench_batch_update_nullifier_tree` |     97,361 |     81,230 |
 
 ## 2. Deserialize
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_deserialize`          |        100 |        100 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_deserialize`                 |         86 |         86 |
 
 ## 3. Nullifier insert x1
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |        391 |        391 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_nullifier_insert`            |         99 |         99 |
 
 ## 4. Nullifier insert x10
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_nullifier_insert`     |     11,398 |     11,398 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_nullifier_insert`            |      5,790 |      5,790 |
 
 ## 5. Tree init
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_init`                 |        304 |        304 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_init`                        |        184 |        184 |
 
 ## 6. Utxo append x1
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_append`               |     27,849 |     27,849 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_append`                      |     27,900 |     27,900 |
 
 ## 7. Utxo append x10
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_append`               |    278,241 |    278,241 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_append`                      |    278,697 |    278,697 |
 
 ## 8. Utxo append Batch x10
 
-| Function                     |   Total CU |     Net CU |
-| ---------------------------- | ---------- | ---------- |
-| `bench_append_batch`         |     34,405 |     34,405 |
+| Function                            |   Total CU |     Net CU |
+| ----------------------------------- | ---------- | ---------- |
+| `bench_append_batch`                |     34,454 |     34,454 |
 

@@ -8,11 +8,10 @@ import { decodeTreeHeadRoots } from "../../src/interface/index.js";
 import {
   ListId,
   buildRingDepositTransaction,
-  buildRingLookupTableTransaction,
   buildRingTransferTransaction,
   fetchRingPolicyConfig,
 } from "../../src/ring/index.js";
-import { currentSlot, signSendAndConfirm } from "./live-helpers.js";
+import { signSendAndConfirm } from "./live-helpers.js";
 import {
   airdrop,
   enrolInAllow,
@@ -51,16 +50,6 @@ describe("ring policy", () => {
       });
       await signSendAndConfirm(client, deposit, [sender.signer]);
     }
-    const table = await buildRingLookupTableTransaction({
-      client,
-      ringProgramId,
-      feePayer: sender.signer.address,
-    });
-    await signSendAndConfirm(client, table.transaction, [sender.signer]);
-    const writtenAt = await currentSlot(client);
-    while ((await currentSlot(client)) <= writtenAt) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
     const transfer = async () => {
       await sync(client, sender);
       return buildRingTransferTransaction({
@@ -71,7 +60,6 @@ describe("ring policy", () => {
         feePayer: sender.signer.address,
         recipient: recipient.keypair.shieldedAddress(),
         amount,
-        lookupTable: table.address,
       });
     };
     const refused = async () =>

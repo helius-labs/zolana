@@ -37,13 +37,16 @@ impl Update {
         let [input] = spp_proof.inputs.as_slice() else {
             return Err(anyhow!("SPP transact must spend exactly one input"));
         };
+        let [tree_context] = spp_proof.tree_contexts.as_slice() else {
+            return Err(anyhow!("SPP transact must declare exactly one input tree"));
+        };
         let serialized_ix = wincode::serialize(&UpdateIxData {
             old_value,
             version,
             old_blinding,
             new_value,
-            nullifier_tree_root_index: input.nullifier_tree_root_index,
-            utxo_tree_root_index: input.utxo_tree_root_index,
+            nullifier_tree_root_index: tree_context.nullifier_tree_root_index,
+            utxo_tree_root_index: tree_context.utxo_tree_root_index,
             proof: spp_proof.proof,
         })
         .map_err(err)?;
@@ -51,10 +54,10 @@ impl Update {
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new(payer, true),
-            AccountMeta::new(input_tree, false),
             AccountMeta::new(output_tree, false),
             AccountMeta::new_readonly(Address::new_from_array(SHIELDED_POOL_PROGRAM_ID), false),
             AccountMeta::new_readonly(Address::default(), false),
+            AccountMeta::new(input_tree, false),
         ];
         accounts.extend(nullifier_pda_accounts(&input_tree, [&input.nullifier_hash]));
         accounts.push(AccountMeta::new_readonly(account_pda(&payer), false));

@@ -119,7 +119,7 @@ fn spl_interface_creation_rejects_a_mint_not_owned_by_the_token_program() {
         .expect("asset counter");
     // A funded system-owned account standing in for the mint: the mint
     // validation fires before the counter or the PDAs are touched, so the
-    // ownership check is the branch that fails (7042, not 7041/7043).
+    // ownership check is the branch that fails (7038, not 7037/7039).
     let fake_mint = Pubkey::new_unique();
     pool.rpc
         .airdrop(&fake_mint, 1_000_000)

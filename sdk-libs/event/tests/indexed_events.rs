@@ -20,8 +20,7 @@ fn one_in_one_out() -> TransactIxData {
     transact_ix(
         vec![InputUtxo {
             nullifier_hash: [0xA0; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         }],
         vec![TransactOutput {
             utxo_hash: [0xB0; 32],

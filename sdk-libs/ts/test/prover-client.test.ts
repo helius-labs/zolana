@@ -9,7 +9,11 @@ import {
   createOutput,
   treeSlotFields,
 } from "../src/client/prover/assembly.js";
-import { ProverClient } from "../src/client/prover/client.js";
+import {
+  ProverClient,
+  customRingCompressedPolicyProofRequest,
+  customRingRegisterProofRequest,
+} from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
 import { disabledRuleAnswer, velocityWitnessOff } from "../src/client/prover/types.js";
@@ -54,7 +58,7 @@ const INPUTS: ProverInputs = {
     publicAmounts: [asField(0n), asField(0n), asField(0n)],
     ringProgramId: asField(0n),
     signerPublicKeyHashes: [asField(0n)],
-    allowDummyInputs: asField(1n),
+    inputFlags: asField(1n),
     publishedOutputOwnerPublicKeyHashes: [],
     publicInputHash: asField(0n),
   },
@@ -132,6 +136,94 @@ function auditRequest(auditorPublicKey: Uint8Array): CustomRingBaseProofRequest 
     auditorPublicKey,
   };
 }
+
+describe("compressed ring prover contracts", () => {
+  it("nests the member policy and rejects a forty-bit index alias", () => {
+    const request = {
+      policy: ringRequest(p256.getPublicKey(bytes(4), false)),
+      headOldRoot: bytes(1),
+      headNewRoot: bytes(2),
+      headNext: bytes(3),
+      headIndex: 1n,
+      headProof: Array.from({ length: 40 }, () => bytes(0)),
+    };
+    expect(customRingCompressedPolicyProofRequest(request)).toMatchObject({
+      circuitType: "custom-ring-compressed-policy",
+      policy: { circuitType: "custom-ring-policy" },
+      headIndex: `0x${"0".repeat(63)}1`,
+      headOldRoot: fieldHex(1),
+      headNewRoot: fieldHex(2),
+    });
+    expect(() =>
+      customRingCompressedPolicyProofRequest({ ...request, headIndex: 1n << 40n }),
+    ).toThrow("CLIENT_INVALID_INTEGER");
+    expect(() => customRingCompressedPolicyProofRequest({ ...request, headProof: [] })).toThrow();
+  });
+
+  it("serializes the separate registration statement and both forty-level paths", () => {
+    const request = {
+      publicInputHash: bytes(0),
+      headOldRoot: bytes(1),
+      headNewRoot: bytes(2),
+      member: bytes(3),
+      genesis: bytes(4),
+      newIndex: 1n,
+      lowMember: bytes(0),
+      lowNext: bytes(5),
+      lowNullifier: bytes(0),
+      lowIndex: 0n,
+      lowProof: Array.from({ length: 40 }, () => bytes(0)),
+      newProof: Array.from({ length: 40 }, () => bytes(0)),
+    };
+    expect(customRingRegisterProofRequest(request)).toMatchObject({
+      circuitType: "custom-ring-compressed-register",
+      newIndex: `0x${"0".repeat(63)}1`,
+      lowIndex: `0x${"0".repeat(64)}`,
+      member: fieldHex(3),
+      genesis: fieldHex(4),
+    });
+    expect(() => customRingRegisterProofRequest({ ...request, lowIndex: -1n })).toThrow(
+      "CLIENT_INVALID_INTEGER",
+    );
+  });
+
+  it("keeps delegate policy rows but sends no velocity charge", async () => {
+    const bodies: unknown[] = [];
+    const prover = new ProverClient({
+      url: "https://prover.example",
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return Response.json(STANDARD_PROOF);
+      },
+    });
+    const request = ringRequest(p256.getPublicKey(bytes(4), false));
+    const velocity = {
+      ...request.velocity,
+      windowSlots: 100n,
+      rows: [{ asset: bytes(1), cap: 1n, cosignAbove: 1n }],
+    };
+    await prover.proveCustomRingDelegatePolicy({ ...request, velocity });
+    expect(bodies).toMatchObject([
+      {
+        circuitType: "custom-ring-delegate-policy",
+        policy: {
+          circuitType: "custom-ring-policy",
+          velocityCount: 1,
+          windowSlots: 100,
+          windowIndex: 0,
+          approvalRequired: false,
+        },
+      },
+    ]);
+    await expect(
+      prover.proveCustomRingDelegatePolicy({
+        ...request,
+        velocity: { ...velocity, approvalRequired: true },
+      }),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_INPUTS" });
+    expect(bodies).toHaveLength(1);
+  });
+});
 
 /** Key order from Rust `CustomRingBaseProofRequestJson` in `request_ring.rs`. */
 const EXPECTED_AUDIT_BODY = {
@@ -576,7 +668,7 @@ describe("prover request routing", () => {
         "publicAmounts",
         "ringProgramId",
         "signerPkHashes",
-        "allowDummyInputs",
+        "inputFlags",
         "publishedOutputOwnerPkHashes",
         "publicInputHash",
       ].sort(),

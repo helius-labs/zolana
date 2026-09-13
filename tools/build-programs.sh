@@ -31,8 +31,9 @@ build --manifest-path custom-rings/program/Cargo.toml -- --locked --features bpf
 
 # The SBF backend prints an over-frame function as a non-fatal Error and exits 0.
 # A frame over 4096 bytes is undefined behaviour on a gap-enabled runtime, fail.
-if grep -q "overflows the maximum allowed frame space" "$log"; then
+frame_error='overflows the maximum allowed frame space|overwrites values in the frame'
+if grep -Eq "$frame_error" "$log"; then
     echo "error: SBF stack frame overflow" >&2
-    grep "overflows the maximum allowed frame space" "$log" >&2
+    grep -E "$frame_error" "$log" >&2
     exit 1
 fi

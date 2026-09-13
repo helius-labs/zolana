@@ -137,31 +137,9 @@ impl Delegate {
 const _: () = assert!(Delegate::SIZE == 34);
 const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
 
+/// Reserved and never reused.
 pub const SPEND_RECORD_HEAD_PDA_SEED: &[u8] = b"record";
-/// First byte of an initialized spend record head account.
 pub const SPEND_RECORD_HEAD: u8 = 7;
-
-/// The nullifier of a member's current spend record, the authorized creation
-/// boundary a windowed velocity transfer advances.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
-#[repr(C)]
-pub struct SpendRecordHead {
-    pub discriminator: u8,
-    pub nullifier: [u8; 32],
-    pub bump: u8,
-}
-
-impl SpendRecordHead {
-    pub const SEED: &'static [u8] = SPEND_RECORD_HEAD_PDA_SEED;
-    pub const SIZE: usize = core::mem::size_of::<Self>();
-
-    pub const fn nullifier(&self) -> &[u8; 32] {
-        &self.nullifier
-    }
-}
-
-const _: () = assert!(SpendRecordHead::SIZE == 34);
-const _: () = assert!(core::mem::align_of::<SpendRecordHead>() == 1);
 
 pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
 /// First byte of an initialized head map root account.

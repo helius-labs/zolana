@@ -1,24 +1,23 @@
-use custom_ring_interface::{RegisterSpendIxData, SpendRecordHead};
+use custom_ring_interface::{CompressedRegisterPublicInput, RegisterSpendIxData, HEAD_MAP_HEIGHT};
 use pinocchio::{
-    cpi::{Seed, Signer},
+    error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
-use zolana_interface::instruction::instruction_data::transact::InputUtxo;
+use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TreeContext};
+use zolana_program::TransactInputs;
 use zolana_ring_policy::{entry_nullifier, Member, SpendCounters, SpendRecord};
 
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::load_spend_record_head,
+        loader::load_head_map_root,
         policy_shared::{cpi_spp_namespace_signed, MutationAccounts, NamespaceWrite},
-        shared::PdaCheck,
+        verifier::verify_plain_groth16,
     },
-    state::SpendRecordHeadInitParams,
+    state::advance_head_map_root,
 };
 
-/// The record content is derived from the payer and the clock, its nullifier
-/// pins a fresh head.
 #[inline(never)]
 pub fn process_register_spend_ix(
     program_id: &Address,
@@ -27,20 +26,29 @@ pub fn process_register_spend_ix(
 ) -> ProgramResult {
     let ix: RegisterSpendIxData =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-
-    // The head trails the SPP list, it is never forwarded.
     let (head_account, mutation) = accounts
         .split_last_mut()
-        .ok_or(pinocchio::error::ProgramError::NotEnoughAccountKeys)?;
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    if !head_account.is_writable() {
+        return Err(ProgramError::InvalidAccountData);
+    }
     let parsed = MutationAccounts::validate_and_parse(program_id, mutation)?;
     if parsed.window_slots == 0 {
         return Err(CustomRingError::VelocityDisabled.into());
     }
+    {
+        let head = load_head_map_root(program_id, head_account)?;
+        if head.root != ix.head_old_root {
+            return Err(CustomRingError::StaleHeadMapRoot.into());
+        }
+        if head.next_index() != ix.head_next_index
+            || ix.head_next_index >= (1u64 << HEAD_MAP_HEIGHT)
+        {
+            return Err(CustomRingError::InvalidHeadMapCursor.into());
+        }
+    }
     let member = Member::owner_tag(parsed.payer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
-    if load_spend_record_head(program_id, head_account, member.as_bytes())?.is_some() {
-        return Err(CustomRingError::SpendRecordAlreadyRegistered.into());
-    }
     let address = parsed
         .owner
         .spend_address(&member, parsed.entries_tree_id)
@@ -57,43 +65,37 @@ pub fn process_register_spend_ix(
     let output_hash = record
         .utxo_hash(&parsed.owner, &address, parsed.entries_tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;
-    let head_nullifier =
+    let genesis =
         entry_nullifier(&output_hash, &ix.blinding).map_err(|_| CustomRingError::HashingFailed)?;
-    let bump = PdaCheck {
-        program_id,
-        address: head_account.address(),
-        seeds: &[SpendRecordHead::SEED, member.as_bytes()],
-        mismatch: CustomRingError::InvalidSpendRecordHead,
+    let public_input = CompressedRegisterPublicInput {
+        head_old_root: &ix.head_old_root,
+        head_new_root: &ix.head_new_root,
+        member: member.as_bytes(),
+        genesis: &genesis,
+        new_index: ix.head_next_index,
     }
-    .verify()?;
-    let bump_seed = [bump];
-    let seeds = [
-        Seed::from(SpendRecordHead::SEED),
-        Seed::from(member.as_bytes().as_ref()),
-        Seed::from(bump_seed.as_ref()),
-    ];
-    pinocchio_system::create_account_with_minimum_balance_signed(
-        head_account,
-        SpendRecordHead::SIZE,
-        program_id,
-        parsed.payer,
-        None,
-        &[Signer::from(seeds.as_ref())],
+    .hash()
+    .map_err(|_| CustomRingError::HashingFailed)?;
+    verify_plain_groth16(
+        &ix.head_proof,
+        public_input,
+        &custom_ring_interface::compressed_register_verifying_key::VERIFYINGKEY,
     )?;
-    SpendRecordHeadInitParams {
-        nullifier: head_nullifier,
-        bump,
-    }
-    .init(head_account)?;
+    advance_head_map_root(head_account, &ix.head_old_root, ix.head_new_root, true)?;
 
     let content = record.to_output_data();
     let transact = NamespaceWrite {
         output_hash,
         content: &content,
-        input: InputUtxo {
-            nullifier_hash: address,
-            nullifier_tree_root_index: ix.nullifier_tree_root_index,
-            utxo_tree_root_index: ix.utxo_tree_root_index,
+        inputs: TransactInputs {
+            inputs: vec![InputUtxo {
+                nullifier_hash: address,
+                tree_index: 0,
+            }],
+            tree_contexts: vec![TreeContext {
+                nullifier_tree_root_index: ix.nullifier_tree_root_index,
+                utxo_tree_root_index: ix.utxo_tree_root_index,
+            }],
         },
         input_hash: [0u8; 32],
         address_nullifier: address,
@@ -101,7 +103,6 @@ pub fn process_register_spend_ix(
         proof: ix.proof,
     }
     .into_transact(&parsed.namespace_address)?;
-
     cpi_spp_namespace_signed(
         &parsed.namespace_address,
         parsed.namespace_bump,

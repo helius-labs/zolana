@@ -277,6 +277,6 @@ signature can reach candidate ring code.
   - Kind: reachability
   - Statement: while `activated` is 0, every operational ring instruction returns `RingNotActivated`: `ring_deposit`, `ring_transact`, `ring_merge_transact`, and `ring_authority_transact`. The activation check precedes the pause check, so a config that is both inactive and paused reports `RingNotActivated`. Deactivating a live ring therefore strands its UTXOs, which move only through ring instructions.
   - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs` (`fn load_active_ring_config`)
-  - Error: `ShieldedPoolError::RingNotActivated = 7064`
+  - Error: `ShieldedPoolError::RingNotActivated = 7059`
   - Severity: Critical (governance containment power, and the freeze it implies)
   - Suggested test: negative across all four rails, plus inactive+paused precedence; harness: program-tests integration (`cargo test-sbf`)

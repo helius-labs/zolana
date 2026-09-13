@@ -19,7 +19,6 @@ import {
   RingRpc,
   buildRingDepositTransaction,
   buildRingExitTransaction,
-  buildRingLookupTableTransaction,
   buildRingTransferTransaction,
   buildRingWithdrawalTransaction,
   fetchReaderGrant,
@@ -30,12 +29,7 @@ import {
   readerKeyBytes,
   type RingReadSigner,
 } from "../../src/ring/index.js";
-import {
-  currentSlot,
-  signSendAndConfirm,
-  signerFromWalletFile,
-  tokenBalance,
-} from "./live-helpers.js";
+import { signSendAndConfirm, signerFromWalletFile, tokenBalance } from "./live-helpers.js";
 import {
   airdrop,
   enrolInAllow,
@@ -130,18 +124,6 @@ describe("ring flow", () => {
       sender.wallet.utxos().filter((entry) => entry.utxo.ringProgramId === ringProgramId),
     ).toHaveLength(2);
 
-    const table = await buildRingLookupTableTransaction({
-      client,
-      ringProgramId,
-      feePayer: sender.signer.address,
-    });
-    await signSendAndConfirm(client, table.transaction, [sender.signer]);
-    // A lookup table serves transactions only from the slot after its writes.
-    const writtenAt = await currentSlot(client);
-    while ((await currentSlot(client)) <= writtenAt) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-
     const transfer = await buildRingTransferTransaction({
       client,
       ringProgramId,
@@ -150,7 +132,6 @@ describe("ring flow", () => {
       feePayer: sender.signer.address,
       recipient: recipient.keypair.shieldedAddress(),
       amount,
-      lookupTable: table.address,
     });
     const signature = await signSendAndConfirm(client, transfer, [sender.signer]);
 
@@ -197,7 +178,6 @@ describe("ring flow", () => {
       feePayer: recipient.signer.address,
       recipient: sender.keypair.shieldedAddress(),
       amount: amount / 2n,
-      lookupTable: table.address,
     });
     const hopSignature = await signSendAndConfirm(client, hop, [recipient.signer]);
     let hopAudited;
@@ -333,17 +313,6 @@ describe("ring flow", () => {
       [deposited, undefined],
     ]);
 
-    const table = await buildRingLookupTableTransaction({
-      client,
-      ringProgramId,
-      feePayer: sender.signer.address,
-    });
-    await signSendAndConfirm(client, table.transaction, [sender.signer]);
-    const writtenAt = await currentSlot(client);
-    while ((await currentSlot(client)) <= writtenAt) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
-
     // Entry. The default UTXO funds a ring transfer.
     const entryTransaction = await buildRingTransferTransaction({
       client,
@@ -355,7 +324,6 @@ describe("ring flow", () => {
       asset: mint,
       amount: entry,
       inputs: "default",
-      lookupTable: table.address,
     });
     const entrySignature = await signSendAndConfirm(client, entryTransaction, [sender.signer]);
     const entryAudited = await waitForAudited(
@@ -377,40 +345,29 @@ describe("ring flow", () => {
       [entry, ringProgramId],
     ]);
 
-    // A relayed transact proves, carries the owner as an extra signer, and
-    // dies at the packet limit, the extra signature and static owner key
-    // exceed the room the two proofs and framed outputs leave.
+    // Exit. Part of the ring UTXO returns to the sender's default ring, paid
+    // for by a relayer. The owner signs beside it, and the extra signature and
+    // static owner key that overflowed the legacy packet fit a version 1
+    // transaction beside the two proofs and the framed outputs.
     const relayer = await generateKeyPairSigner();
-    await expect(
-      buildRingExitTransaction({
-        client,
-        ringProgramId,
-        wallet: recipient.wallet,
-        authority: recipient.authority,
-        feePayer: relayer.address,
-        recipient: sender.keypair.shieldedAddress(),
-        asset: mint,
-        amount: exit,
-        lookupTable: table.address,
-      }),
-    ).rejects.toMatchObject({
-      code: "RING_BUILD_TRANSFER",
-      causeCode: "INTERFACE_TRANSACTION_TOO_LARGE",
-    });
-
-    // Exit. Part of the ring UTXO returns to the sender's default ring.
+    await airdrop(client, relayer.address);
     const exitTransaction = await buildRingExitTransaction({
       client,
       ringProgramId,
       wallet: recipient.wallet,
       authority: recipient.authority,
-      feePayer: recipient.signer.address,
+      feePayer: relayer.address,
       recipient: sender.keypair.shieldedAddress(),
       asset: mint,
       amount: exit,
-      lookupTable: table.address,
     });
-    const exitSignature = await signSendAndConfirm(client, exitTransaction, [recipient.signer]);
+    const exitSigners = Object.keys(exitTransaction.signatures);
+    expect(exitSigners).toHaveLength(2);
+    expect(exitSigners[0]).toBe(relayer.address);
+    const exitSignature = await signSendAndConfirm(client, exitTransaction, [
+      relayer,
+      recipient.signer,
+    ]);
     const exitAudited = await waitForAudited(
       ringRpc,
       ringProgramId,
@@ -447,7 +404,6 @@ describe("ring flow", () => {
       asset: mint,
       amount: withdrawn,
       splTokenProgram: SPL_TOKEN_2022_PROGRAM_ID,
-      lookupTable: table.address,
     });
     const withdrawalSignature = await signSendAndConfirm(client, withdrawalTransaction, [
       recipient.signer,

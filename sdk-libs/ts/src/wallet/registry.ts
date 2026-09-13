@@ -7,6 +7,7 @@ import {
 } from "@solana/kit";
 
 import { compileUnsignedTransaction } from "../flows/compile.js";
+import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { BlockhashProvider, ChainReader } from "../client/ports.js";
 import type { RpcAccount } from "../client/rpc.js";
 import { USER_REGISTRY_PROGRAM_ID } from "../interface/program.js";
@@ -408,6 +409,7 @@ export async function buildRegistrationTransaction(
     return compileUnsignedTransaction({
       feePayer: input.owner,
       lifetime,
+      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [instruction],
     });
   } catch (cause) {
@@ -431,6 +433,7 @@ export async function buildSetMergingEnabledTransaction(
     return compileUnsignedTransaction({
       feePayer: input.owner,
       lifetime,
+      computeUnitLimit: DEFAULT_COMPUTE_UNIT_LIMIT,
       instructions: [
         {
           programAddress: USER_REGISTRY_PROGRAM_ID,

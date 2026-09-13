@@ -69,7 +69,7 @@ fn a_deposit_leg_is_rejected_exactly_without_a_window() {
 }
 
 #[test]
-fn the_delegate_rail_is_closed_exactly_without_a_window() {
+fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
     let (mollusk, _) = setup_mollusk();
     let mut content = transact_data();
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
@@ -80,7 +80,7 @@ fn the_delegate_rail_is_closed_exactly_without_a_window() {
         data,
     );
     fixture.set_account("policy_config", transfer_cap_policy_config_account());
-    fixture.expect_err(&mollusk, custom(CustomRingError::DelegateOnVelocityRing));
+    fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
 /// The approval bit demands the co-signer without a window as with one.

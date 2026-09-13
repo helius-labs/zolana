@@ -26,8 +26,8 @@ pub use rule_table::{
     POLICY_VERSION,
 };
 pub use spend::{
-    ring_id_field, spend_seed, SpendCounters, SpendRecord, SPEND_COUNTERS_LEN, SPEND_RECORD_LEN,
-    SPEND_RECORD_OUTPUT_DATA_LEN,
+    ring_id_field, spend_record_message_tag, spend_seed, SpendCounters, SpendRecord,
+    SPEND_COUNTERS_LEN, SPEND_RECORD_LEN, SPEND_RECORD_OUTPUT_DATA_LEN,
 };
 
 /// At most 31 bytes keeps the packed value below the field modulus.

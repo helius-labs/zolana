@@ -3,8 +3,8 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8164 range is reserved for the ring program and is collision-free
-/// against SPP (7000..7047) and the other programs (zk-program-swap
+/// The 8100..8167 range is reserved for the ring program and is collision-free
+/// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
 /// are never renumbered.
@@ -141,6 +141,10 @@ pub enum CustomRingError {
     VelocityWindowImmutable = 8164,
     #[error("head map root account is invalid")]
     InvalidHeadMapRoot = 8165,
+    #[error("head map root changed")]
+    StaleHeadMapRoot = 8166,
+    #[error("head map append cursor is invalid or exhausted")]
+    InvalidHeadMapCursor = 8167,
 }
 
 impl From<CustomRingError> for ProgramError {

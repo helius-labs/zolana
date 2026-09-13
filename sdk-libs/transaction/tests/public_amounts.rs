@@ -14,7 +14,6 @@ fn spl_transfer(mint: Address, is_deposit: bool, amount: u64, seed: u8) -> Settl
         is_deposit,
         amount,
         user_spl_token: Address::new_from_array([seed; 32]),
-        spl_token_interface: Address::new_from_array([seed.wrapping_add(1); 32]),
     }
 }
 

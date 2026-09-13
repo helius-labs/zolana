@@ -1,4 +1,4 @@
-//! High-level builder for the 8-in/1-out policy-ring merge proof
+//! High-level builder for the n-in/1-out policy-ring merge proof
 //! (`merge_ring`). It shares the whole merge flow with the default merge
 //! ([`crate::prover::merge::MergeProver::common`]) and differs in two deltas: the merged
 //! output and every input are bound to a shared `ring_program_id`, which is
@@ -8,7 +8,7 @@
 //! identity against).
 
 use solana_address::Address;
-use zolana_hasher::hash_chain::create_hash_chain_from_slice;
+use zolana_hasher::hash_chain::create_hash_chain_4_from_slice;
 use zolana_keypair::{NullifierKey, PublicKey};
 use zolana_transaction::{
     instructions::merge_ring::PreparedMergeRing, utxo::program_id_proof_input_hash,
@@ -28,7 +28,7 @@ use crate::{
     rpc::NonInclusionProof,
 };
 
-/// Policy-ring merge consolidates up to 8 inputs sharing one owner, asset,
+/// Policy-ring merge consolidates up to `MAX_MERGE_INPUTS` inputs sharing one owner, asset,
 /// nullifier secret, and `ring_program_id` into one output. Identical to
 /// [`crate::prover::merge::MergeProver`] except for the shared `ring_program_id`
 /// and the output `ring_data_hash` folded into the public-input hash.
@@ -88,7 +88,7 @@ impl MergeRingProver {
         let ring_program_id_proof_input_hash = program_id_proof_input_hash(&Some(ring_program_id))?;
         let mut elements = merge.head.to_vec();
         elements.extend([output_ring_data_hash, ring_program_id_proof_input_hash]);
-        let public_input = create_hash_chain_from_slice(&elements)?;
+        let public_input = create_hash_chain_4_from_slice(&elements)?;
 
         Ok(merge.finish(
             public_input,

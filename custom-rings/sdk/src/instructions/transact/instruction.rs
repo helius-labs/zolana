@@ -39,7 +39,7 @@ pub struct CustomRingTransact {
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
     /// The sender's record head, `Some` only on a windowed velocity transfer.
-    pub record_head: Option<Address>,
+    pub head_map_root: Option<Address>,
     /// The ring's co-signer, a signer of the transaction when set.
     pub cosigner: Option<Address>,
     /// The eddsa owners of the spent UTXOs; SPP requires each as a signer.
@@ -59,6 +59,7 @@ pub struct CustomRingTransact {
     pub nullifier_root_index: u16,
     /// The dual control bit the velocity statement proves, the co-signer then signs.
     pub approval_required: bool,
+    pub head_transition: Option<custom_ring_interface::HeadMapTransition>,
 }
 
 impl CustomRingTransact {
@@ -69,7 +70,7 @@ impl CustomRingTransact {
             input_tree,
             output_tree,
             entries_tree,
-            record_head,
+            head_map_root,
             cosigner,
             owner_signers,
             interface_transfer_accounts,
@@ -78,6 +79,7 @@ impl CustomRingTransact {
             state_root_index,
             nullifier_root_index,
             approval_required,
+            head_transition,
         } = self;
 
         let windows: Vec<AccountMeta> = window_metas(
@@ -87,7 +89,7 @@ impl CustomRingTransact {
         .collect();
         let ring = RingTransact {
             payer,
-            input_tree,
+            input_trees: vec![input_tree],
             output_tree,
             ring_program_id: deployment.program_id(),
             owner_signers,
@@ -119,8 +121,8 @@ impl CustomRingTransact {
             // An existing ring may alias entries_tree with the writable SPP input
             // tree.
             accounts.push(AccountMeta::new_readonly(entries_tree, false));
-            if let Some(record_head) = record_head {
-                accounts.push(AccountMeta::new(record_head, false));
+            if let Some(head_map_root) = head_map_root {
+                accounts.push(AccountMeta::new(head_map_root, false));
             }
         }
         accounts.extend(windows);
@@ -131,6 +133,7 @@ impl CustomRingTransact {
             state_root_index,
             nullifier_root_index,
             approval_required: u8::from(approval_required),
+            head_transition,
             transact,
         })?;
         let mut data = Vec::with_capacity(1 + body.len());

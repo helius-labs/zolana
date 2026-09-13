@@ -194,7 +194,8 @@ hash into the public input chain.
 The **upgrade authority** deploys the binary, pins the table at
 `create_policy`, replaces it with `set_policy_rules` and sets the delegate
 once. The **delegate** moves notes between members over the authority rail
-and never withdraws, a velocity ring closes the rail. The **config
+and never withdraws. Its dedicated policy key keeps ordinary rules but
+exempts velocity. Scoped co-signing still applies. The **config
 authority** writes the authority-written lists, re-points sources, grants
 readers, sets or clears the co-signer and the spend windows, and pauses the
 ring. The **co-signer**
@@ -260,7 +261,7 @@ A windowed velocity ring keeps a spend record per member, a per-transfer cap
 ring keeps none. A spend record is the second record kind under the namespace PDA, a
 zero-amount SOL data note in the entries tree keyed by the member's identity
 through `SPEND_ADDRESS_DOMAIN`, so no list instruction reaches it. Its
-plaintext is `member || version || window || counters_commitment ||
+public opening is `member || version || window || counters_commitment ||
 blinding`, `SpendRecord::data_hash` binds it to its derived address and the
 program checks every published record against the leaf it names. The
 counters, `SpendCounters { salt, assets, spent }`, stay behind
@@ -288,13 +289,22 @@ the configured co-signer, `ApprovalWithoutCoSigner` when the ring has none.
 A record from a future window is refused, an expired one is consumed from
 its published commitment alone.
 
-The successor's counters ride the transfer in a message under the
+Registration publishes the opening as plaintext output data. A transfer
+uses SPP's standard confidential output format for the record, publishing
+the opening in one message tagged
+`SHA256("zolana:spend-record:v1" || namespace)`. The program reconstructs the
+last output's commitment from that message. Missing or duplicate messages
+are refused. The encrypted carrier is not an ordinary wallet note.
+
+The successor's counters follow in a message under the
 transaction viewing key, tagged with the namespace, before the auditor
 message. The sender derives that key from the transfer's first nullifier and
 recovers the counters for its next transfer, the auditor recovers it from
 the audit ciphertext and reports the record with its counters, or without
-them when no message opens to the commitment. `ReadSpendRecord` walks the
-lineage like an entry, `RegisterSpend` proves the claim, and
+them when no message opens to the commitment. `ReadSpendRecord::read_current`
+authenticates the record against the shared head root. A history walk is
+not a substitute. `RegisterSpend` proves both the SPP claim and insertion
+into the indexed head map. No per-member head PDA is allocated. Then
 `CustomRingTransfer::prove` reads the record, the slot and the counters
 before it stages the slots, refusing `SpendRecordMissing`,
 `SpendCountersUnknown` and `VelocityCapExceeded` before any prover round.
@@ -337,7 +347,9 @@ proofs over the cleared entry.
 The public input chains the eight audit elements with `policy_hash`,
 `state_root`, `nullifier_root`, `entries_tree_id`, `ring_id`,
 `namespace_owner_hash`, `window_index` and `approval_required`, sixteen in
-all (`custom-rings/interface/src/policy_public_input.rs`). The program
+all (`custom-rings/interface/src/policy_public_input.rs`). Windowed member
+transfers append the old and new shared head roots, eighteen elements,
+and use the compressed policy key. The program
 resolves both roots from the history indices in the instruction data and
 verifies one proof.
 
@@ -346,8 +358,8 @@ dispatches on. A policy ring proves the folded audit-and-policy statement above.
 An audit-only ring proves the eight-element audit statement alone against a
 lighter circuit and verifying key, with no policy accounts. Within the policy
 circuit an empty table proves a zero-length table with every answer slot
-disabled, and proof size, account list, and verification cost do not vary with
-the table, a transfer reveals none of the checks it passed.
+disabled. The account list and key distinguish windowed velocity from
+ordinary policy. Individual list answers stay private.
 
 ## Adding a list
 
@@ -520,12 +532,18 @@ the cli loads and re-renders.
 - The program reads a config account of another size as uninitialized, the
   SDK refuses it.
 - A velocity ring, per transfer or windowed, takes no deposit leg on a
-  transfer and closes the delegate rail. A windowed ring additionally keeps
+  member transfer. Delegation is exempt from velocity caps and counters,
+  not from ordinary rules or transfer-scoped co-signing. A windowed ring keeps
   every note of a transfer in its entries tree and needs a registered record
   before a member's first transfer, a per-transfer cap ring keeps neither and
   each transfer stands alone against its cap. Windows are fixed, a boundary
   admits up to twice the cap. A member spends only its own notes in one
   transfer. The record publishes the member's identity and lineage.
+- Windowed members share one 42-byte head-map account, not one PDA each.
+  Photon supplies proofs for its exact root. A concurrent update makes a
+  proof stale and requires rebuilding. One input and one output carry the
+  record, leaving four money inputs and three outputs. See
+  [compressed history](ring-policy-design.md#compressed-history-not-one-pda-per-member).
 
 ## The cycle
 

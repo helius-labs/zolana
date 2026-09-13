@@ -97,3 +97,66 @@ fn every_option_present_but_empty() -> ProoflessOutput {
         ..minimal()
     }
 }
+
+/// The single-buffer encoder writes the tag, the `u32` body length, the scheme
+/// byte and the body in place; it must produce exactly the bytes borsh gives
+/// for the equivalent `OutputDataEncoding` value.
+#[test]
+fn single_buffer_encoding_matches_the_borsh_enum_layout() {
+    for output in [
+        minimal(),
+        every_option_present(),
+        every_option_present_but_empty(),
+    ] {
+        let mut blob = vec![0u8];
+        borsh::BorshSerialize::serialize(&output, &mut blob).unwrap();
+        let expected = borsh::to_vec(&OutputDataEncoding::Plaintext(blob)).unwrap();
+        assert_eq!(encode_output_data(output), expected);
+    }
+
+    let encrypted = zolana_event::EncryptedRingDepositOutput {
+        owner_utxo_hash: [1u8; 32],
+        asset: [2u8; 32],
+        amount: 7,
+        data_hash: Some([3u8; 32]),
+        ring_program_id: [4u8; 32],
+        ring_data_hash: [5u8; 32],
+        encrypted: zolana_event::EncryptedRingDepositData {
+            tx_viewing_pk: [6u8; 33],
+            salt: [7u8; 16],
+            ciphertext: vec![8u8; 40],
+        },
+    };
+    let mut blob = vec![zolana_event::ENCRYPTED_RING_DEPOSIT_SCHEME];
+    borsh::BorshSerialize::serialize(&encrypted, &mut blob).unwrap();
+    let expected = borsh::to_vec(&OutputDataEncoding::Encrypted(blob)).unwrap();
+    assert_eq!(
+        zolana_event::encode_encrypted_ring_deposit_output(encrypted),
+        expected
+    );
+}
+
+#[test]
+fn fixed_lengths_match_the_encoders() {
+    assert_eq!(
+        encode_output_data(every_option_present_but_empty()).len(),
+        zolana_event::PLAINTEXT_OUTPUT_FIXED_LEN
+    );
+    let encrypted = zolana_event::EncryptedRingDepositOutput {
+        owner_utxo_hash: [1u8; 32],
+        asset: [2u8; 32],
+        amount: 7,
+        data_hash: Some([3u8; 32]),
+        ring_program_id: [4u8; 32],
+        ring_data_hash: [5u8; 32],
+        encrypted: zolana_event::EncryptedRingDepositData {
+            tx_viewing_pk: [6u8; 33],
+            salt: [7u8; 16],
+            ciphertext: Vec::new(),
+        },
+    };
+    assert_eq!(
+        zolana_event::encode_encrypted_ring_deposit_output(encrypted).len(),
+        zolana_event::ENCRYPTED_RING_DEPOSIT_OUTPUT_FIXED_LEN
+    );
+}

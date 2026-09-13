@@ -5,7 +5,7 @@ use zolana_interface::{
     error::ShieldedPoolError,
     instruction::{
         instruction_data::transact::CircuitId, tag, InputUtxo, OwnerTag, TransactIxData,
-        TransactOutput, TransactProof,
+        TransactOutput, TransactProof, TreeContext,
     },
     N_PUBLIC_SLOTS,
 };
@@ -65,7 +65,7 @@ fn emit_event_is_an_explicit_account_free_noop() {
 /// proof) on the given circuit selector. The transact-family processors map a
 /// parse failure to the same bare `InvalidInstructionData` as the dispatcher,
 /// so distinguishing dispatch from rejection for those tags needs a payload
-/// that parses; the selector family must match the dispatched tag (7039).
+/// that parses; the selector family must match the dispatched tag (7035).
 fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
     TransactIxData {
         proof: TransactProof::zeroed(),
@@ -76,8 +76,7 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
         salt: [0u8; 16],
         inputs: vec![InputUtxo {
             nullifier_hash: [1u8; 32],
-            nullifier_tree_root_index: 0,
-            utxo_tree_root_index: 0,
+            tree_index: 0,
         }],
         interface_transfers: Vec::new(),
         data_hash: None,
@@ -88,6 +87,10 @@ fn transfer_payload(circuit: CircuitId) -> Vec<u8> {
             data: None,
         }],
         messages: Vec::new(),
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
     .serialize()
     .expect("transact payload serialization is infallible")
@@ -103,12 +106,16 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::UPDATE_PROTOCOL_CONFIG,
         tag::CREATE_TREE,
         tag::PAUSE_TREE,
-        tag::BATCH_UPDATE_NULLIFIER_TREE,
+        tag::SET_TREE_FEES,
+        tag::CLAIM_TREE_LAMPORTS,
         tag::CREATE_ASSET_COUNTER,
         tag::CREATE_SPL_INTERFACE,
         tag::CREATE_RING_CONFIG,
         tag::UPDATE_RING_CONFIG,
         tag::UPDATE_RING_CONFIG_OWNER,
+        tag::SET_RING_ACTIVATION,
+        tag::BATCH_UPDATE_NULLIFIER_TREE,
+        tag::CLOSE_NULLIFIER_PDAS,
         tag::EMIT_EVENT,
         tag::DEPOSIT,
         tag::TRANSACT,
@@ -117,10 +124,6 @@ fn every_first_byte_dispatches_or_is_rejected_exactly() {
         tag::RING_TRANSACT,
         tag::RING_MERGE_TRANSACT,
         tag::RING_AUTHORITY_TRANSACT,
-        tag::CLOSE_NULLIFIER_PDAS,
-        tag::SET_TREE_FEES,
-        tag::CLAIM_TREE_LAMPORTS,
-        tag::SET_RING_ACTIVATION,
     ];
     assert_eq!(KNOWN_TAGS, core::array::from_fn(|tag| tag as u8));
     let transact_payload =

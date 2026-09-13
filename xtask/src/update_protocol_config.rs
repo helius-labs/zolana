@@ -4,7 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use solana_address::Address;
 use solana_pubkey::Pubkey;
 use solana_signer::Signer;
-use zolana_client::{Rpc, SolanaRpc};
+use zolana_client::{ComputeBudgetConfig, Rpc, SolanaRpc};
 use zolana_interface::{
     instruction::{UpdateProtocolConfig, UpdateProtocolConfigData},
     pda,
@@ -293,6 +293,7 @@ pub fn run(options: Options) -> Result<()> {
             &instructions,
             to_address(&payer.pubkey()),
             &transaction_signers,
+            ComputeBudgetConfig::for_instruction_count(instructions.len()),
         )
         .map_err(|e| anyhow!("update_protocol_config failed: {e}"))?;
     println!("update_protocol_config sig={signature}");

@@ -166,6 +166,7 @@ describe("custom ring transfer seals each slot once", () => {
     extra: Readonly<{
       sealedMessages?: readonly ReturnType<typeof message>[];
       counterMessage?: ReturnType<typeof message>;
+      recordOutputIndex?: number;
     }>,
   ) =>
     keypairAuthority().withSpendSession((session) =>
@@ -202,5 +203,21 @@ describe("custom ring transfer seals each slot once", () => {
   it("seals the protocol counter on its own slot", async () => {
     const encrypted = await encrypt({ counterMessage: message(RING_SPEND_COUNTERS_SLOT_INDEX) });
     expect(encrypted.sealedMessages).toHaveLength(1);
+  });
+
+  it("refuses an invalid protocol output position and wipes the transaction key", async () => {
+    const minted = trackMintedTxViewingKeys();
+    await expect(encrypt({ recordOutputIndex: 1 })).rejects.toMatchObject({
+      code: "TRANSACTION_INVALID_OUTPUT_POSITION",
+    });
+    expectWiped(minted);
+  });
+
+  it("does not turn an ordinary payment into a protocol carrier", async () => {
+    const minted = trackMintedTxViewingKeys();
+    await expect(encrypt({ recordOutputIndex: 0 })).rejects.toMatchObject({
+      code: "TRANSACTION_OUTPUT_DATA_MISMATCH",
+    });
+    expectWiped(minted);
   });
 });

@@ -16,6 +16,7 @@ use swap_program::{
 use zolana_interface::{
     instruction::instruction_data::transact::{
         CircuitId, MessageData, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+        TreeContext,
     },
     N_PUBLIC_SLOTS, SHIELDED_POOL_PROGRAM_ID,
 };
@@ -92,6 +93,10 @@ pub fn transact(messages: Vec<MessageData>) -> TransactIxData {
             },
         ],
         messages,
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 

@@ -10,7 +10,7 @@ use zolana_interface::{
     event::RING_CONFIDENTIAL_ENCRYPTED_SCHEME_TAG,
     instruction::{
         instruction_data::transact::{
-            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof,
+            CircuitId, OwnerTag, TransactIxData, TransactOutput, TransactProof, TreeContext,
         },
         MessageData,
     },
@@ -69,6 +69,10 @@ pub(crate) fn transact_data() -> TransactIxData {
                 data
             },
         }],
+        tree_contexts: vec![TreeContext {
+            utxo_tree_root_index: 0,
+            nullifier_tree_root_index: 0,
+        }],
     }
 }
 
@@ -95,6 +99,7 @@ pub(crate) fn body(
             state_root_index,
             nullifier_root_index,
             approval_required,
+            head_transition: None,
             transact,
         })
         .expect("serialize policy transact body"),

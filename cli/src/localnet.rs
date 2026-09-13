@@ -1,13 +1,14 @@
 use std::{path::Path, thread, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     args::TestValidatorOptions,
     config::{READINESS_STABLE_CHECKS, READINESS_TIMEOUT},
     http::{wait_for_http_get_with_child, wait_for_rpc_with_child},
     process::{
-        find_binary, path_string, remove_launchd_validators, spawn_service, stop_name, stop_port,
+        find_binary, path_string, process_scope, remove_launchd_validators,
+        require_scoped_port_available, spawn_service, stop_name, stop_port,
     },
     prover::start_prover_service,
     release::Release,
@@ -23,6 +24,12 @@ pub(crate) fn run_test_validator(mut opts: TestValidatorOptions) -> Result<()> {
 
     println!("Starting local validator");
     stop_test_validator(opts.rpc_port);
+    require_scoped_port_available(opts.rpc_port)?;
+    if opts.use_surfpool_backend() && process_scope()?.is_some() {
+        for (_, port, _) in scoped_surfpool_ports(&opts)? {
+            require_scoped_port_available(port)?;
+        }
+    }
     thread::sleep(Duration::from_secs(1));
 
     // Default rail: fetch version-pinned programs, initialized account snapshots,
@@ -112,9 +119,6 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
     if opts.faucet_port.is_some() {
         bail!("--faucet-port is only supported with --no-use-surfpool");
     }
-    if opts.ledger.is_some() {
-        bail!("--ledger is only supported with --no-use-surfpool");
-    }
 
     let mut args = vec![
         "start".to_string(),
@@ -127,10 +131,78 @@ pub(crate) fn surfpool_args(opts: &TestValidatorOptions) -> Result<Vec<String>> 
         "--host".to_string(),
         opts.gossip_host.clone(),
     ];
+    if process_scope()?.is_some() {
+        for (flag, port, explicit) in scoped_surfpool_ports(opts)? {
+            if !explicit {
+                args.extend([flag.to_string(), port.to_string()]);
+            }
+        }
+    }
+
+    // `--ledger` and `--limit-ledger-size` are dropped rather than refused.
+    // surfpool keeps its state in memory, so a caller asking for a ledger
+    // directory is asking for per-run isolation, which it already has; refusing
+    // would make every caller special-case the backend for nothing.
 
     add_additional_program_args(&mut args, opts);
     add_account_dir_args(&mut args, opts);
+
+    if let Some(geyser_config) = &opts.geyser_config {
+        args.push("--geyser-plugin-config".to_string());
+        args.push(geyser_config.clone());
+    }
+    args.extend(surfpool_validator_args(opts)?);
     Ok(args)
+}
+
+fn scoped_surfpool_ports(opts: &TestValidatorOptions) -> Result<[(&'static str, u16, bool); 2]> {
+    let passthrough = opts.validator_args();
+    let port = |flag: &'static str, offset: u16| -> Result<(&'static str, u16, bool)> {
+        let supplied = passthrough.iter().enumerate().find_map(|(index, arg)| {
+            if arg == flag {
+                passthrough.get(index + 1).map(String::as_str)
+            } else {
+                arg.strip_prefix(&format!("{flag}="))
+            }
+        });
+        let value = match supplied {
+            Some(value) => value.parse().with_context(|| format!("invalid {flag}"))?,
+            None => opts
+                .rpc_port
+                .checked_add(offset)
+                .context("RPC port leaves no room for scoped auxiliary ports")?,
+        };
+        Ok((flag, value, supplied.is_some()))
+    };
+    let ports = [port("--ws-port", 1)?, port("--studio-port", 2)?];
+    if ports[0].1 == opts.rpc_port || ports[1].1 == opts.rpc_port || ports[0].1 == ports[1].1 {
+        bail!("scoped RPC, WebSocket and Studio ports must be distinct");
+    }
+    Ok(ports)
+}
+
+/// Translate passthrough validator arguments to surfpool's spelling.
+///
+/// solana-test-validator's `--deactivate-feature` means "never activate this";
+/// surfpool's `--disable-feature` means "deactivate it from the mainnet
+/// baseline it starts from". Both leave the gate off, which is what every
+/// caller here wants, so the flag is renamed rather than reimplemented.
+fn surfpool_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
+    let mut translated = Vec::new();
+    let mut passthrough = opts.validator_args().into_iter();
+    while let Some(arg) = passthrough.next() {
+        match arg.as_str() {
+            "--deactivate-feature" => {
+                let feature = passthrough
+                    .next()
+                    .ok_or_else(|| anyhow!("--deactivate-feature needs a feature address"))?;
+                translated.push("--disable-feature".to_string());
+                translated.push(feature);
+            }
+            other => translated.push(other.to_string()),
+        }
+    }
+    Ok(translated)
 }
 
 pub(crate) fn solana_validator_args(opts: &TestValidatorOptions) -> Result<Vec<String>> {
@@ -205,6 +277,7 @@ fn stop_test_validator(rpc_port: u16) {
 fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> Result<()> {
     stop_name("photon");
     stop_port(opts.photon_port);
+    require_scoped_port_available(opts.photon_port)?;
 
     let photon = match binary {
         Some(path) => path.to_path_buf(),
@@ -223,6 +296,12 @@ fn start_photon_service(opts: &TestValidatorOptions, binary: Option<&Path>) -> R
         "--start-slot".to_string(),
         opts.photon_start_slot.clone(),
     ];
+    if process_scope()?.is_some() {
+        args.extend([
+            "--max-concurrent-block-fetches".to_string(),
+            "8".to_string(),
+        ]);
+    }
     if let Some(db_url) = &opts.photon_db_url {
         args.push("--db-url".to_string());
         args.push(db_url.clone());
@@ -278,6 +357,31 @@ mod tests {
     }
 
     #[test]
+    fn scoped_auxiliary_ports_follow_rpc_or_explicit_overrides() {
+        let defaults = parse_validator(&["--rpc-port", "18899"]);
+        assert_eq!(
+            scoped_surfpool_ports(&defaults).unwrap(),
+            [("--ws-port", 18900, false), ("--studio-port", 18901, false),]
+        );
+        let explicit = parse_validator(&[
+            "--rpc-port",
+            "18899",
+            "--",
+            "--ws-port",
+            "18902",
+            "--studio-port=18903",
+        ]);
+        assert_eq!(
+            scoped_surfpool_ports(&explicit).unwrap(),
+            [("--ws-port", 18902, true), ("--studio-port", 18903, true),]
+        );
+        let duplicate = parse_validator(&["--rpc-port", "18899", "--", "--ws-port", "18899"]);
+        assert!(scoped_surfpool_ports(&duplicate).is_err());
+        let overflow = parse_validator(&["--rpc-port", "65535"]);
+        assert!(scoped_surfpool_ports(&overflow).is_err());
+    }
+
+    #[test]
     fn builds_solana_validator_args_for_program_tests() {
         let opts = parse_validator(&[
             "--no-use-surfpool",
@@ -316,6 +420,93 @@ mod tests {
         assert_eq!(actual, expected);
     }
 
+    /// surfpool keeps its state in memory, so `--ledger` and the ledger-size
+    /// cap have nothing to bind to. Dropping them rather than refusing them is
+    /// what lets a caller name a ledger for per-clone isolation and still run
+    /// on either backend.
+    #[test]
+    fn builds_surfpool_args_and_drops_the_ledger_flags() {
+        let opts = parse_validator(&[
+            "--rpc-port",
+            "8899",
+            "--ledger",
+            "target/localnet/ledger",
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+        ]);
+
+        let actual = surfpool_args(&opts).expect("build surfpool args");
+        let expected = strings(&[
+            "start",
+            "--offline",
+            "--no-tui",
+            "--no-deploy",
+            "--no-studio",
+            "--port",
+            "8899",
+            "--host",
+            "127.0.0.1",
+            "--bpf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+        ]);
+
+        assert_eq!(actual, expected);
+    }
+
+    /// The two backends spell the same intent differently: solana's
+    /// `--deactivate-feature` never activates the gate, surfpool's
+    /// `--disable-feature` clears it from the mainnet baseline. Both leave it
+    /// off, so the flag is renamed in passing rather than handled by callers.
+    #[test]
+    fn translates_deactivate_feature_to_surfpool_spelling() {
+        const SBPF_V0_GATE: &str = "B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g";
+        let opts = parse_validator(&[
+            "--rpc-port",
+            "8899",
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+            "--",
+            "--deactivate-feature",
+            SBPF_V0_GATE,
+        ]);
+
+        let actual = surfpool_args(&opts).expect("build surfpool args");
+        assert_eq!(
+            actual.iter().rev().take(2).collect::<Vec<_>>(),
+            vec![&SBPF_V0_GATE.to_string(), &"--disable-feature".to_string()],
+            "the passthrough gate must reach surfpool under its own flag name"
+        );
+        assert!(
+            !actual.iter().any(|arg| arg == "--deactivate-feature"),
+            "solana's spelling must not survive the translation: {actual:?}"
+        );
+    }
+
+    /// A passthrough flag surfpool shares with solana goes through untouched;
+    /// only the renamed one is rewritten.
+    #[test]
+    fn passes_other_validator_args_through_unchanged() {
+        let opts = parse_validator(&[
+            "--rpc-port",
+            "8899",
+            "--sbf-program",
+            "Pool111111111111111111111111111111111111111",
+            "target/deploy/pool.so",
+            "--",
+            "--some-shared-flag",
+            "value",
+        ]);
+
+        let actual = surfpool_args(&opts).expect("build surfpool args");
+        assert_eq!(
+            actual.iter().rev().take(2).collect::<Vec<_>>(),
+            vec![&"value".to_string(), &"--some-shared-flag".to_string()]
+        );
+    }
+
     #[test]
     fn parses_photon_options() {
         let opts = parse_validator(&["--photon-port", "8785"]);
@@ -343,12 +534,11 @@ mod tests {
             .any(|args| args == ["--account-dir", "accounts/b"]));
     }
 
+    /// `--faucet-port` still has no surfpool equivalent, and unlike the ledger
+    /// flags a caller asking for one wants a service that will not exist, so it
+    /// is refused rather than dropped.
     #[test]
-    fn rejects_solana_validator_only_flags_with_surfpool() {
-        let opts = parse_validator(&["--ledger", "target/localnet/ledger"]);
-        let error = surfpool_args(&opts).expect_err("surfpool should reject --ledger");
-        assert!(error.to_string().contains("--ledger"));
-
+    fn rejects_the_faucet_port_with_surfpool() {
         let opts = parse_validator(&["--faucet-port", "9900"]);
         let error = surfpool_args(&opts).expect_err("surfpool should reject --faucet-port");
         assert!(error.to_string().contains("--faucet-port"));

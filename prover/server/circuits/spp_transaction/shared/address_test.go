@@ -162,7 +162,7 @@ func TestAddressSlotRejectedWhenPolicyDisabled(t *testing.T) {
 	circuit := MustNewCustomRingEddsaOnlyCircuit(Shape(shape))
 	assignment, _, _ := buildRingAddressAssignment(t)
 
-	assignment.AllowDummyInputs = spptest.Fe(0)
+	setAllowDummyInputs(t, assignment, false)
 	finalizeAddressAssignment(t, assignment, true, false)
 
 	assert.SolvingFailed(circuit, asCustomRingEddsaOnly(assignment), test.WithCurves(ecc.BN254))

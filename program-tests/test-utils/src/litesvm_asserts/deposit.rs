@@ -24,7 +24,7 @@ impl SolDepositSnapshot {
     pub fn capture(program_test: &ZolanaProgramTest, tree: &Pubkey, depositor: &Pubkey) -> Self {
         Self {
             root: program_test.state_root(tree).expect("state root"),
-            indexer_root: program_test.indexer().root(),
+            indexer_root: program_test.indexer().root(tree),
             indexed_outputs: program_test.indexer().utxos().len(),
             depositor_lamports: account_lamports(program_test, depositor),
             vault_lamports: account_lamports(program_test, &pda::sol_interface()),
@@ -292,7 +292,7 @@ pub fn litesvm_assert_deposit<A: SyncWalletAuthority + ?Sized>(
     let root_after = program_test.state_root(tree).expect("state root");
     assert_ne!(root_after, root_before, "leaf must be appended");
     assert_eq!(
-        program_test.indexer().root(),
+        program_test.indexer().root(tree),
         root_after,
         "indexer root must track the on-chain root"
     );

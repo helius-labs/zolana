@@ -4,7 +4,7 @@ use solana_pubkey::Pubkey;
 use crate::{
     instruction::{
         builders::transact::{
-            append_interface_transfer_accounts, nullifier_pda_accounts,
+            append_interface_transfer_accounts, transact_nullifier_pda_accounts,
             TransactInterfaceTransferAccounts,
         },
         tag, TransactIxData,
@@ -15,14 +15,16 @@ use crate::{
 /// Builder for the `ring_authority_transact` instruction: a ring-authority state
 /// transition (freeze, thaw, permanent-delegate transfer) over ring-owned UTXOs.
 /// The account layout matches `ring_transact` (the loader reuses
-/// `RingTransactAccounts`): `payer`, `input_tree`, `output_tree`, the
-/// SPP and System Program accounts, the `RingConfig` (the ring's
+/// `RingTransactAccounts`): `payer`, `output_tree`, the SPP and System Program
+/// accounts, the `RingConfig` (the ring's
 /// `ring_auth` PDA, which must have `ring_authority_transact_is_enabled` set),
-/// one writable nullifier PDA per input (in `inputs` order), then optional
+/// one input tree per declared tree context, one writable nullifier PDA per
+/// input (in `inputs` order), then optional
 /// settlement accounts.
 pub struct RingAuthorityTransact {
     pub payer: Pubkey,
-    pub input_tree: Pubkey,
+    /// One tree per `data.tree_contexts` entry, in the same order.
+    pub input_trees: Vec<Pubkey>,
     pub output_tree: Pubkey,
     /// Calling ring program; its `RingConfig` (canonical `ring_auth` PDA) signs.
     pub ring_program_id: Pubkey,
@@ -56,15 +58,19 @@ impl RingAuthorityTransact {
 
         let mut accounts = vec![
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.input_tree, false),
             AccountMeta::new(self.output_tree, false),
             AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
             AccountMeta::new_readonly(Pubkey::default(), false),
             AccountMeta::new_readonly(ring_config, auth_signer),
         ];
-        accounts.extend(nullifier_pda_accounts(
-            &self.input_tree,
-            self.data.inputs.iter().map(|input| &input.nullifier_hash),
+        accounts.extend(
+            self.input_trees
+                .iter()
+                .map(|input_tree| AccountMeta::new(*input_tree, false)),
+        );
+        accounts.extend(transact_nullifier_pda_accounts(
+            &self.input_trees,
+            self.data.inputs.iter(),
         ));
         append_interface_transfer_accounts(
             &mut accounts,

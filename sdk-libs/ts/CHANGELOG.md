@@ -10,7 +10,7 @@ id, the namespace owner and the window.
 
 Breaking
 
-- `RING_POLICY_VERSION` is 6 and `ringPolicyHash` commits the inline and
+- `RING_POLICY_VERSION` is 7 and `ringPolicyHash` commits the inline and
   velocity counts and folds `windowSlots` and the velocity rows → every policy
   hash of an earlier release differs.
 - `RingPolicyConfig` adds `namespaceOwnerHash`, `windowSlots`,
@@ -27,38 +27,60 @@ Breaking
   without a window.
 - `proveCustomRingTransfer` charges each transfer's outflow on a velocity ring,
   a windowed ring spends the sender's record into its successor, and returns
-  `approvalRequired` and the windowed `recordHead` on `ProvenRingTransfer`.
+  `approvalRequired` and the shared-map `headTransition` on `ProvenRingTransfer`
+  → initialize one `ringHeadMapRootAddress` per fresh ring and register each sender.
 - `CustomRingTransferParams.session` needs `openSealedMessage`, and the client
-  needs `getSlot`, to recover a past window's counters.
+  needs `getSlot` and `getRingHeadTransferProof` → use the current Photon and prover
+  with compressed policy proofs, not a per-member account fallback.
+- `ringSpendRecordHeadAddress` is removed → initialize the shared
+  `ringHeadMapRootAddress` on a fresh ring instead of creating per-member head accounts.
 
 Added
 
+- `npm run test:ring-controls:live` creates fresh local wallets, registered SPL and
+  Token-2022 mints, and a policy ring before exercising the controls lifecycle.
 - `SpendRecord`, `SpendCounters`, `encodeSpendRecord`, `decodeSpendRecord`,
   `encodeSpendCounters`, `decodeSpendCounters`, `spendCountersCommitment`,
   `spendCountersSpent`, `zeroSpendCounters`, `spendSeed`,
   `RingListNamespace.spendAddress`, `RingListNamespace.spendRecordHashes`
   and `RingListNamespace.leafHash` mirror the Rust spend record.
+- `spendRecordMessageTag` separates the public successor opening from encrypted
+  counters. Windowed transfers carry the record in a Confidential output
+  and publish its opening before the counter and auditor messages. Registration
+  remains plaintext. Custom wallet authorities encrypt the `recordOutputIndex` output
+  to the transaction viewing key without changing its UTXO commitment.
+  A full sponsored withdrawal uses that record's ciphertext to frame its empty money slots.
 - `readRingSpendRecord` walks a member's record lineage through the indexer
   and returns the live version with the transaction that published it.
 - `auditRingTransaction` reports a velocity ring's `spendRecords`, each with
-  the counters recovered from its message when the window is live.
+  the counters recovered from its authenticated message, including past windows.
 - `DecryptedRingTransaction.spendRecords` carries the same records over the ring
   RPC, so `RingRpc.getDecryptedTransactions` returns them with each transaction.
 - `registerRingSpendInstruction` and `RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT`
-  build the tag 26 registration over a proven claim, and pin the member's
-  record head so no later transfer can spend a forged record.
+  build registration from an SPP claim and a separate compressed-map insertion proof,
+  while `prepareRingSpendRegistration` returns the existing record or a prepared registration.
+  Registration reads `getSlot` to bind the current window, including on a confirmed-failure retry.
 - `ringTransactInstruction` and `ringDelegateTransactInstruction` take
-  `approvalRequired`, and a windowed transfer takes the sender's `recordHead`
-  the program advances to the successor record.
-- `ringSpendRecordHeadAddress` derives a member's record head.
+  `approvalRequired`, and a windowed member transfer takes `headTransition` so the record
+  and shared root advance in the same transaction.
+- `createRingHeadMapRootInstruction`, `fetchRingHeadMapRoot` and `readRingVelocityState`
+  initialize and read current compressed state, recovering live counters from the sender's
+  ciphertext or resetting an expired window without the lost counters.
 - `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
   `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
   `velocityWitnessOff`.
 - Ring error codes `RING_SPEND_RECORD_INVALID`,
   `RING_SPEND_RECORD_LINEAGE_BROKEN`, `RING_SPEND_RECORD_MISSING`,
   `RING_SPEND_COUNTERS_UNKNOWN`, `RING_VELOCITY_CAP_EXCEEDED`,
-  `RING_VELOCITY_OVERFLOW`, `RING_COSIGNER_REQUIRED` and
-  `RING_DELEGATE_ON_VELOCITY_RING`.
+  `RING_VELOCITY_OVERFLOW`, `RING_COSIGNER_REQUIRED`, `RING_HEAD_MAP_INVALID`,
+  `RING_HEAD_MAP_STALE` and `RING_HEAD_MAP_MISSING`.
+- `buildRingDelegateTransferTransaction` moves registered SOL, SPL and supported Token2022
+  notes, returns change to the source, and keeps audit, list rules and scoped co-signing
+  while leaving velocity records, caps and velocity-derived approval untouched.
+- `createRingTransferSubmission`, `createRingWithdrawalSubmission`, `createRingExitSubmission`,
+  `createRingDelegateSubmission` and `createRingSpendRegistrationSubmission` share a three-attempt
+  submission owner that preserves intent and reservations, re-signs only after a known failed
+  stale-root/window transaction, and holds an unknown broadcast until its signature resolves.
 - `ShieldedPublicKey.fromPda`, `ShieldedAddress.forPda` and the `"pda"` owner
   type carry a program-derived owner into a proof input.
 - `SpendSession.openSealedMessage` opens a message sealed under a past
@@ -82,10 +104,51 @@ it are now two separate steps with two different signers. Wallet replay keeps me
 sync. The proof system changed underneath: owner identities carry a signing
 algorithm tag, every UTXO commits to the tree it lives in, and one private
 blinding seed per proof derives every output blinding and the private
-transaction hash blinding.
+transaction hash blinding. Every builder now returns a version 1 transaction,
+which holds 4,096 bytes instead of 1,232, carries its compute budget and
+priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
+  `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
+  from it, while `InstructionTag` renumbers every tag → point at a deployment of
+  the matching program and re-read any address or tag byte you cached.
+- `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
+  7000–7065 matching the program, remove retired names, and include tree-context
+  errors → replace hardcoded codes with the exported constants and use this SDK
+  with the matching program version.
+- `MAX_INPUT_TREES` limits each transact to two input trees → split inputs from
+  three or more trees across separate transactions.
+- `ringTransactAccounts` requires `treeContexts`, and both it and
+  `transactInstruction` reject multiple contexts or nonzero input tree indexes
+  with `INTERFACE_INVALID_SHAPE` → pass the instruction's contexts and keep
+  these single-tree builders' inputs on `inputTree`.
+- `transactInstruction` and `ringTransactAccounts` place input trees after
+  `payer`, `output_tree`, SPP, System Program, and the optional ring config,
+  immediately before nullifier PDAs → update manual account lists and CPI
+  callers to the same order.
+- Every builder returns a version 1 transaction and `TRANSACTION_SIZE_LIMIT` is
+  4096 (was 1232) → send through an RPC and a validator that accept version 1,
+  which Agave does from 4.2, and read transactions back with
+  `maxSupportedTransactionVersion: 1`.
+- `priorityFeeLamports` replaces `computeUnitPriceMicroLamports` on
+  `ZolanaClientConfig`, `deployRingProgram`, and every ring builder, and it buys
+  priority for the whole transaction → pass the total lamports to pay instead of
+  a price per compute unit.
+- `buildRingLookupTableTransaction`, `fetchRingLookupTable`,
+  `ringLookupTableAddresses`, `RingLookupTable`, `RingLookupTableClient`,
+  `RingLookupTableReader` and the `RING_BUILD_LOOKUP_TABLE`,
+  `RING_LOOKUP_TABLE_INCOMPLETE`, `RING_LOOKUP_TABLE_NOT_FOUND` and
+  `RING_LOOKUP_TABLE_NOT_READY` codes are removed, and `buildRingEntryTransaction`,
+  `buildRingTransferTransaction`, `buildRingExitTransaction` and
+  `buildRingWithdrawalTransaction` no longer take `lookupTable` → a version 1
+  transaction reads no lookup table, so drop the table and the parameter.
+- A transaction budgets zero compute units for what it does not name, so every
+  builder names one and `ZolanaClientConfig.computeUnitLimit` defaults to
+  450,000 (was 300,000) and is refused above 1,400,000 → lower it when you send
+  only small shapes, because the requested units, not the consumed ones, price
+  the priority fee.
 - `ShieldedPublicKey.ownerProofInputHash()` hashes a signing algorithm tag
   ahead of the key, so every owner hash, compressed address, UTXO hash, and
   nullifier differs from earlier releases → state and addresses produced before
@@ -110,9 +173,10 @@ Breaking
 - `ConfidentialTransfer`, `ConfidentialSplit`, and `Merge` gain
   `withOutputTreeId`, `Merge` takes the output tree id as a third constructor
   argument, `PreparedTransfer`, `PreparedSplit`, and `PreparedMerge` expose
-  `inputTreeId` and `outputTreeId`, and `PreparedTransfer` and `PreparedSplit`
-  expose the seed material the prover needs → an input set spanning two trees
-  is refused with `TRANSACTION_INPUT_TREE_MISMATCH`.
+  `inputTreeIds` or `inputTreeId` beside `outputTreeId`, and `PreparedTransfer`
+  and `PreparedSplit` expose the seed material the prover needs → a merge or
+  split input set spanning two trees is refused with
+  `TRANSACTION_INPUT_TREE_MISMATCH`.
 - A padding output's published owner tag names a non-payer input owner or a
   real output's owner and is always inline, and a self-paid transfer with no
   change and no recipient keeps a real zero-amount SOL change output → expect
@@ -123,9 +187,35 @@ Breaking
   given, must derive from it; `ZolanaClient.treeId` is exposed, proving rejects
   proof inputs built for another tree with `CLIENT_TREE_ID_MISMATCH`, a merge
   is refused with the same code when its output tree is not its input tree,
-  every input of an instruction carries one root position pair
-  (`AssembledTransfer.rootIndexes`), and the prover request carries `treeSlots`,
-  `outputTreeId`, and `blindingSeed` → run a prover from this release.
+  `AssembledTransfer.rootIndexes` reports the first input tree's root positions,
+  and the prover request carries `treeSlots`, `outputTreeId`, and `blindingSeed`
+  → run a prover from this release.
+- `TransactInstructionData` carries one `TreeContext` per input tree in place of
+  `utxoTreeRootIndex` and `nullifierTreeRootIndex`, every `InputUtxo` names its
+  context with `treeIndex`, `SppProofInputs.inputTreeIds()` and
+  `PreparedTransfer.inputTreeIds` list the up to two trees one spend may draw
+  from, `inputTreeSlots` takes those trees as an array, and the transfer prover
+  request replaces `allowDummyInputs` with `inputFlags`, the dummy-input policy
+  in bit 0 and input `i`'s three-bit tree index at bits `1 + 3i` → order inputs
+  so each tree owns one contiguous run, pass `treeContexts` in that order and
+  `[slot]` to `inputTreeSlots`, and run a program and prover from this release;
+  merge keeps its single input tree and its root position pair.
+- `TREE_ACCOUNT_SIZE` is 40,080, so a tree account created by an earlier
+  release is not read as a tree → create the pool tree with this release.
+- `externalDataHash` takes the transact fields as the instruction encodes
+  them (`ExternalDataHashInput` extends the new `TransactExternalData`), with
+  `outputs` carrying their `OwnerTag`, one `resolvedOwnerTags` entry per
+  output, and one `settlementAccounts` pair `{ asset, user }` per interface
+  transfer (the new `SettlementAccounts` type), the `ResolvedInterfaceTransfer`
+  and `ResolvedOutput` types are
+  gone, and `transactInstruction` lays its data out as `expiryUnixTs`,
+  `txViewingPk`, `salt`, `interfaceTransfers`, `dataHash`, `ringDataHash`,
+  `outputs`, `messages`, then `privateTxHash`, `circuit`, `proof`, `inputs`,
+  and an `spl` `SettlementTransfer` no longer carries `splTokenInterface`
+  → pass `SOL_INTERFACE` and the user's SOL account for a SOL leg, the mint
+  and the token account for an SPL leg, drop `splTokenInterface` from SPL
+  legs, read transact payloads in the new order, and run a program and prover
+  from this release.
 
 - `ringTransactInstruction` and `ringDepositInstruction` place the ring's
   co-signer accounts, `cosigner_pda` and `cosigner`, after the config and
@@ -138,8 +228,9 @@ Breaking
   deposit to its entries tree → pass the ring's policy state, or let
   `buildRingDepositTransaction` read it from the config.
 - `@solana/kit` now requires ^8.3.0 → upgrade the peer dependency from 7.x.
-- `extendProgramInstruction` uses the checked extension on Agave 4.0.2 → pass
-  the upgrade `authority` alongside `payer`.
+- `extendProgramInstruction` uses the extension supported by Agave 4.2 → pass
+  `payer` and remove the `authority` argument; upgrading still requires the
+  upgrade authority.
 - Policy rule tables now carry one `inlineLimit` per inline asset and policy
   prover requests carry the padded `inlineLimits` fields → recreate policy
   config accounts and include the limits in custom prover integrations.
@@ -157,15 +248,6 @@ Breaking
   account for a policy ring → pass the value given to
   `createRingConfigInstruction`, a policy ring registers only after its policy
   config exists.
-- `buildRingLookupTableTransaction` reads the tier and a policy ring's entries
-  tree from the chain, accepts `outputTree`, and needs `getAccount` on
-  `RingLookupTableClient`, `fetchRingLookupTable` and
-  `ringLookupTableAddresses` take the trees as `RingTransactTrees`, and the
-  fetch refuses a table extended in the current slot with
-  `RING_LOOKUP_TABLE_NOT_READY` → rebuild a policy ring's table, one built by
-  an earlier version is refused with `RING_LOOKUP_TABLE_INCOMPLETE`, pass a
-  `ProvenRingTransfer` as the `trees` of the fetch, and wait one slot after
-  the extension before the first transfer.
 - `Prover.proveRingTransact` resolves to `ProvenRingTransact`, the instruction
   data beside the `RingTransactRoots` the ring statement binds, and `Prover`
   gains `proveCustomRingBase` and `proveTransferInputs` over caller-assembled
@@ -201,7 +283,7 @@ Breaking
 - State-tree root history retains one final root per updated slot in a dense
   500-entry cyclic buffer. Its cursor, length, and capacity are native `u16`s,
   and it stores the latest update slot as a `u64`, making pre-release
-  30,344-byte tree accounts incompatible → deploy fresh 39,952-byte trees
+  30,344-byte tree accounts incompatible → deploy fresh 40,080-byte trees
   and reindex Photon as one coordinated upgrade.
 - `DEFAULT_TREE_ADDRESS` is removed and a tree derives from its id → call
   `getTreeAddress(0)` for the default tree, which is not the address the
@@ -244,8 +326,36 @@ Breaking
   deposited UTXO from the indexer after the deposit lands, since the blinding,
   and therefore the hash, depend on the leaf index assigned when the transaction
   executes.
+- `TransactProof.b`, `CompressedProof.b`, and the merge instruction `proof.b`
+  are the 128-byte uncompressed G2 point (was the 64-byte compressed encoding),
+  so `encodeTransactInstructionData` and `encodeMergeTransactInstructionData`
+  write 64 more bytes and a hand-built 64-byte `b` is refused → pass the
+  `compressProof` result through unchanged, it now keeps the point the prover
+  returned; `toCustomRingProof()` still compresses `b`.
+- `TransferInputs.publicInputHash`, the public-input hash of a merge proof, and
+  the `publicInputHash` of `ringEntryTransitionInputs` fold their nullifier
+  list, output hash list, output owner list, and the public-input list itself
+  three elements per Poseidon call (was one), and the signer slots of a shape
+  are the payer plus one per input up to the transaction address budget
+  (unchanged for every shape this package builds) → run a program and prover
+  from this release, a proof or public-input hash produced by an earlier
+  release no longer verifies.
+- `InputUtxo` is only the `nullifierHash`, and `TransactInstructionData` and
+  `MergeTransactInstructionData` carry one `utxoTreeRootIndex` and
+  `nullifierTreeRootIndex` pair after the inputs (was one pair per input, and
+  `utxoTreeRootIndexes` / `nullifierTreeRootIndexes` arrays on the merge data),
+  so `encodeTransactInstructionData` writes 4 fewer bytes per input and
+  `encodeMergeTransactInstructionData` 30 fewer → set the pair once on the
+  instruction data; the `MergeAssembly` exposes the same two scalars.
+- `privateTxHash`, `SppProofInputs.privateTxHash()`, and the private
+  transaction hash of a merge proof fold their input list, output list, and
+  address nullifier list three elements per Poseidon call (was one) → prove
+  with this release's prover, a private transaction hash or ring proof request
+  produced by an earlier release no longer matches its proof.
 
 Added
+
+- `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
   a policy ring, the rule table over the list entries the rules name, and
@@ -370,7 +480,7 @@ Added
 - `getSetRingActivationInstructionAsync` admits a ring, contains one it no
   longer trusts, and owns its authority-transact rail. The pool's ring authority
   signs it directly, so no governance signature reaches the ring program.
-- `ShieldedPoolError` adds codes 7029 to 7064: deposit and SPL interface
+- `ShieldedPoolError` names errors for deposit and SPL interface
   validation, the nullifier account lifecycle (`NullifierAlreadyQueued`,
   `InsufficientNullifierPdaRent`, `NullifierPdaNotClosable`,
   `InvalidNullifierPda`), tree ids and fees (`InvalidTreeId`, `TreeIdOverflow`,
@@ -429,11 +539,24 @@ Changed
 - `buildRingEntryTransaction`, `buildRingTransferTransaction`, and
   `buildRingExitTransaction` use UTXO terminology in approval summaries, while
   version 3 `SerializedWalletState` reservation field names remain unchanged.
-- `RingLookupTableReader` is `KitRpcAccess` alone, `fetchRingLookupTable` no
-  longer reads `client.tree`.
+- A built transaction carries its compute unit limit, a 64 MiB loaded accounts
+  data size limit and its priority fee in the message header, so it holds no
+  compute budget instruction and its instruction list is the setup and payload
+  instructions alone.
+- A relayed ring exit, which pays its fee from one account and carries the UTXO
+  owner as a second signer, fits the transaction it did not fit before.
+- `RingTransferClient` no longer requires `solanaRpc` and `commitment`, the ring
+  transfer builders read what they need through the ports they already took.
+- `DEFAULT_APPEND_REIMBURSEMENT_LAMPORTS` and
+  `DEFAULT_CLOSE_REIMBURSEMENT_LAMPORTS` are 0, so `defaultTreeFees` returns an
+  all-zero schedule at every batch size and a transact pays no per-nullifier fee
+  into the tree it spends from.
 
 Fixed
 
+- `deployRingProgram` splits uploads into writes the loader accepts and packs
+  them into v1 transactions; `writeBufferInstruction` rejects payloads above
+  1,216 bytes with `RING_PROGRAM_WRITE_TOO_LARGE`.
 - `decodeRingPolicyConfig` returns the stored per-asset limits without reversing their bytes.
 - `decryptTransactions` no longer omits a merge when its inputs arrive in the
   same sync because merge dependencies resolve before wallet commit.
@@ -455,8 +578,8 @@ Fixed
 
 Dependencies
 
-- `@solana-program/address-lookup-table` ^0.14.1 (was ^0.13.0).
-- `@solana-program/compute-budget` ^0.18.1 (was ^0.17.0).
+- `@solana-program/address-lookup-table` removed (was ^0.13.0).
+- `@solana-program/compute-budget` removed (was ^0.17.0).
 - `@solana-program/token` ^0.16.1 (was ^0.15.0).
 - `@solana-program/system` ^0.14.1 (new).
 

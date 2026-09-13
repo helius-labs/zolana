@@ -41,8 +41,8 @@ impl Hasher for Sha256 {
         }
     }
 
-    fn zero_bytes() -> ZeroBytes {
-        ZERO_BYTES
+    fn zero_bytes() -> &'static ZeroBytes {
+        &ZERO_BYTES
     }
 }
 
@@ -66,7 +66,7 @@ impl Hasher for Sha256BE {
         Ok(result)
     }
 
-    fn zero_bytes() -> ZeroBytes {
-        ZERO_BYTES
+    fn zero_bytes() -> &'static ZeroBytes {
+        &ZERO_BYTES
     }
 }

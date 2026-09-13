@@ -13,8 +13,8 @@ use zolana_interface::{
     },
     verifying_keys::{
         transfer_ring_1_1, transfer_ring_1_2, transfer_ring_1_8, transfer_ring_2_2,
-        transfer_ring_2_3, transfer_ring_3_3, transfer_ring_4_3, transfer_ring_4_4,
-        transfer_ring_5_3, transfer_ring_5_4,
+        transfer_ring_2_3, transfer_ring_36_2, transfer_ring_3_3, transfer_ring_4_3,
+        transfer_ring_4_4, transfer_ring_5_3, transfer_ring_5_4,
     },
 };
 use zolana_keypair::{random_blinding, NullifierKey, PublicKey, ShieldedKeypair, SigningKey};
@@ -62,8 +62,9 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
         .expect("derive output blindings");
     // The authorized signer vector must contain every real input's owner
     // pk-field (payer-first on-chain; any placement satisfies Contains).
+    let shape = Shape::new(n_in, n_out);
     let mut signer_pk_hashes = vec![owner_pk_hash(&signer)];
-    signer_pk_hashes.resize(n_in + 1, [0u8; 32]);
+    signer_pk_hashes.resize(shape.signer_width(), [0u8; 32]);
     RingTransferProver {
         inputs,
         outputs,
@@ -74,7 +75,7 @@ fn eddsa_prover(n_in: usize, n_out: usize) -> RingTransferProver {
         signer_pk_hashes,
         allow_dummy_inputs: true,
         ring_program_id: Some(ring_program()),
-        shape: Some(Shape::new(n_in, n_out)),
+        shape: Some(shape),
     }
 }
 
@@ -311,6 +312,7 @@ fn eddsa_ring_vk(n_in: usize, n_out: usize) -> &'static Groth16Verifyingkey<'sta
         (5, 3) => &transfer_ring_5_3::VERIFYINGKEY,
         (5, 4) => &transfer_ring_5_4::VERIFYINGKEY,
         (1, 8) => &transfer_ring_1_8::VERIFYINGKEY,
+        (36, 2) => &transfer_ring_36_2::VERIFYINGKEY,
         _ => panic!("unsupported ring-transfer shape {n_in}x{n_out}"),
     }
 }

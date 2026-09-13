@@ -42,7 +42,9 @@ impl<'a> MergeRingIxDataRef<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instruction::instruction_data::merge_transact::{MergeProof, MERGE_INPUT_COUNT};
+    use crate::instruction::instruction_data::merge_transact::{
+        MergeProof, MERGE_DEFAULT_INPUT_COUNT,
+    };
 
     fn data() -> MergeRingIxData {
         MergeRingIxData {
@@ -51,13 +53,15 @@ mod tests {
                 expiry_unix_ts: 42,
                 proof: MergeProof {
                     a: [1u8; 32],
-                    b: [2u8; 64],
+                    b: [2u8; 128],
                     c: [3u8; 32],
                 },
                 output_utxo_hash: [1u8; 32],
-                nullifiers: (0..MERGE_INPUT_COUNT as u8).map(|i| [i; 32]).collect(),
-                utxo_tree_root_index: (0..MERGE_INPUT_COUNT as u16).collect(),
-                nullifier_tree_root_index: (10..10 + MERGE_INPUT_COUNT as u16).collect(),
+                nullifiers: (0..MERGE_DEFAULT_INPUT_COUNT as u8)
+                    .map(|i| [i; 32])
+                    .collect(),
+                utxo_tree_root_index: 4,
+                nullifier_tree_root_index: 10,
                 private_tx_hash: [3u8; 32],
                 eddsa_owner: false,
             },

@@ -154,7 +154,7 @@ fn land_malformed_tagged_output(env: &mut Environment, pda: Address) -> Result<S
     )?;
     let poison_ix = Transact {
         payer: attacker.pubkey(),
-        input_tree: env.tree,
+        input_trees: vec![env.tree],
         output_tree: env.tree,
         owner_signers: Vec::new(),
         interface_transfer_accounts: Vec::new(),

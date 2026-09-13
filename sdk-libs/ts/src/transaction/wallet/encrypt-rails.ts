@@ -5,6 +5,7 @@ import { randomSalt } from "../../keypair/bytes.js";
 import { P256PublicKey } from "../../keypair/public-key.js";
 import { P256_PUBLIC_KEY_LENGTH } from "../../keypair/constants.js";
 import type { ViewingKey } from "../../keypair/viewing-key.js";
+import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import { encodeConfidentialSlots } from "../instructions/transact.js";
 import {
@@ -19,8 +20,8 @@ import {
   type SplitBundlePlaintext,
 } from "../serialization/codecs.js";
 import type { NullifierKey } from "../../keypair/nullifier-key.js";
-import type { ProofOutputUtxo } from "../utxo.js";
-import type { AssetRegistry } from "../asset.js";
+import { createProofOutput, type ProofOutputUtxo } from "../utxo.js";
+import { SOL_MINT, type AssetRegistry } from "../asset.js";
 import type {
   AnonymousRecipientSlot,
   EncryptedCustomRingTransfer,
@@ -98,6 +99,7 @@ export function encryptCustomRingTransferWith(
     outputs: readonly ProofOutputUtxo[];
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
+    recordOutputIndex?: number;
     sealedMessages?: readonly Readonly<{
       viewTag: Bytes32;
       plaintext: Uint8Array;
@@ -120,6 +122,7 @@ export function encryptCustomRingTransferWith(
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
     ephemeralSecret = encryption.ephemeralSecret;
     const recipient = tx.publicKey();
+    const outputs = recordCarrierOutputs(input.outputs, input.recordOutputIndex, recipient);
     const outbound = [
       ...(input.sealedMessages ?? []),
       ...(input.counterMessage === undefined ? [] : [input.counterMessage]),
@@ -135,7 +138,7 @@ export function encryptCustomRingTransferWith(
     const encrypted = {
       txViewingPublicKey: tx.publicKey(),
       salt,
-      payload: encodeConfidentialSlots(input.outputs, input.assets, tx, salt),
+      payload: encodeConfidentialSlots(outputs, input.assets, tx, salt),
       auditorMessage: auditorMessageData(encryption.message, input.auditorPublicKey),
       sealedMessages,
       audit: Object.freeze({ txViewingSecret, ephemeralSecret }),
@@ -149,6 +152,49 @@ export function encryptCustomRingTransferWith(
     txViewingSecret?.fill(0);
     ephemeralSecret?.fill(0);
   }
+}
+
+/** The recipient viewing key does not affect the UTXO commitment. */
+function recordCarrierOutputs(
+  outputs: readonly ProofOutputUtxo[],
+  index: number | undefined,
+  recipient: P256PublicKey,
+): readonly ProofOutputUtxo[] {
+  if (index === undefined) return outputs;
+  const output = outputs[index];
+  const owner = output?.ownerAddress;
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index !== outputs.length - 1 ||
+    output === undefined ||
+    owner === undefined
+  ) {
+    throw new TransactionError("TRANSACTION_INVALID_OUTPUT_POSITION", {
+      index,
+    });
+  }
+  if (
+    owner.signingPublicKey.signatureType() !== "pda" ||
+    output.asset !== SOL_MINT ||
+    output.amount !== 0n ||
+    output.ringProgramId !== undefined ||
+    output.dataHash === undefined ||
+    output.data.records().length !== 0
+  )
+    throw new TransactionError("TRANSACTION_OUTPUT_DATA_MISMATCH");
+  return outputs.map((candidate, position) =>
+    position !== index
+      ? candidate
+      : createProofOutput({
+          ...output,
+          ownerAddress: ShieldedAddress.fromPublicKeys(
+            owner.signingPublicKey,
+            owner.nullifierPublicKey,
+            recipient,
+          ),
+        }),
+  );
 }
 
 /** One keystream per slot under a fixed key and salt, a repeat is a two-time pad. */

@@ -17,10 +17,13 @@ use zolana_interface::instruction::instruction_data::{
         UtxoData,
     },
     merge_ring::{MergeRingIxData, MergeRingIxDataRef},
-    merge_transact::{MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_INPUT_COUNT},
+    merge_transact::{
+        MergeProof, MergeTransactIxData, MergeTransactIxDataRef, MERGE_DEFAULT_INPUT_COUNT,
+        MERGE_SUPPORTED_INPUT_COUNTS,
+    },
     transact::{
         CircuitId, InputUtxo, InterfaceTransfer, OwnerTag, TransactIxData, TransactIxDataRef,
-        TransactOutput, TransactProof,
+        TransactOutput, TransactProof, TreeContext,
     },
 };
 
@@ -45,7 +48,7 @@ mod strategies {
     }
 
     pub fn transact_proof() -> impl Strategy<Value = TransactProof> {
-        (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>())
+        (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>())
             .prop_map(|(a, b, c)| TransactProof { a, b, c })
     }
 
@@ -69,11 +72,17 @@ mod strategies {
     }
 
     pub fn input_utxo() -> impl Strategy<Value = InputUtxo> {
-        (any::<[u8; 32]>(), any::<u16>(), any::<u16>()).prop_map(
-            |(nullifier_hash, nullifier_tree_root_index, utxo_tree_root_index)| InputUtxo {
-                nullifier_hash,
-                nullifier_tree_root_index,
+        (any::<[u8; 32]>(), any::<u8>()).prop_map(|(nullifier_hash, tree_index)| InputUtxo {
+            nullifier_hash,
+            tree_index,
+        })
+    }
+
+    pub fn tree_context() -> impl Strategy<Value = TreeContext> {
+        (any::<u16>(), any::<u16>()).prop_map(
+            |(utxo_tree_root_index, nullifier_tree_root_index)| TreeContext {
                 utxo_tree_root_index,
+                nullifier_tree_root_index,
             },
         )
     }
@@ -118,11 +127,13 @@ mod strategies {
                 prop::collection::vec(transact_output(), 0..=8),
                 prop::collection::vec(message_data(), 0..=3),
             ),
+            prop::collection::vec(tree_context(), 0..=5),
         )
             .prop_map(
                 |(
                     (expiry_unix_ts, private_tx_hash, circuit, tx_viewing_pk, salt, proof),
                     (inputs, interface_transfers, data_hash, ring_data_hash, outputs, messages),
+                    tree_contexts,
                 )| TransactIxData {
                     expiry_unix_ts,
                     private_tx_hash,
@@ -136,6 +147,7 @@ mod strategies {
                     ring_data_hash,
                     outputs,
                     messages,
+                    tree_contexts,
                 },
             )
     }
@@ -143,11 +155,11 @@ mod strategies {
     pub fn merge_ix_data() -> impl Strategy<Value = MergeTransactIxData> {
         (
             any::<u64>(),
-            (any::<[u8; 32]>(), any::<[u8; 64]>(), any::<[u8; 32]>()),
+            (any::<[u8; 32]>(), any::<[u8; 128]>(), any::<[u8; 32]>()),
             any::<[u8; 32]>(),
-            prop::collection::vec(any::<[u8; 32]>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
-            prop::collection::vec(any::<u16>(), MERGE_INPUT_COUNT),
+            prop::collection::vec(any::<[u8; 32]>(), MERGE_DEFAULT_INPUT_COUNT),
+            any::<u16>(),
+            any::<u16>(),
             any::<[u8; 32]>(),
             any::<bool>(),
         )
@@ -189,6 +201,7 @@ fn assert_ref_matches_owned(
     prop_assert_eq!(view.salt, &owned.salt);
     prop_assert_eq!(view.proof, owned.proof);
     prop_assert_eq!(&view.inputs, &owned.inputs);
+    prop_assert_eq!(&view.tree_contexts, &owned.tree_contexts);
     prop_assert_eq!(&view.interface_transfers, &owned.interface_transfers);
     prop_assert_eq!(view.data_hash, owned.data_hash);
     prop_assert_eq!(view.ring_data_hash, owned.ring_data_hash);
@@ -237,6 +250,38 @@ proptest! {
         }
     }
 
+    /// The external-data prefix aliases exactly the instruction's head, even
+    /// when the instruction starts partway through a larger buffer.
+    #[test]
+    fn transact_external_data_prefix_is_the_instruction_head(
+        owned in strategies::transact_ix_data(),
+        leading in prop::collection::vec(any::<u8>(), 0..64),
+    ) {
+        let bytes = owned.serialize().expect("serialize transact ix");
+        let inputs_len: usize = owned
+            .inputs
+            .iter()
+            .map(|input| wincode::serialize(input).expect("serialize input").len())
+            .sum();
+        let tail_len = owned.private_tx_hash.len()
+            + wincode::serialize(&owned.circuit).expect("serialize circuit").len()
+            + wincode::serialize(&owned.proof).expect("serialize proof").len()
+            + 1
+            + inputs_len
+            + 1
+            + 4 * owned.tree_contexts.len();
+        let prefix = bytes.get(..bytes.len() - tail_len).expect("prefix in bytes");
+        let start = leading.len();
+        let mut buffer = leading;
+        buffer.extend_from_slice(&bytes);
+        let data = buffer.get(start..).expect("instruction in buffer");
+        let (view, parsed_prefix) = TransactIxDataRef::parse_with_external_data_prefix(data)
+            .expect("parse valid encoding");
+        prop_assert_eq!(parsed_prefix, prefix);
+        prop_assert!(core::ptr::eq(parsed_prefix.as_ptr(), data.as_ptr()));
+        assert_ref_matches_owned(&view, &owned)?;
+    }
+
     /// Truncating or extending a valid `transact` encoding never panics, and
     /// the exact-length owned decoder rejects both length changes.
     #[test]
@@ -254,14 +299,14 @@ proptest! {
             let cut_at = cut.index(bytes.len());
             let truncated = bytes.get(..cut_at).unwrap_or_default();
             prop_assert!(TransactIxData::deserialize(truncated).is_err());
-            let _ = TransactIxDataRef::from_bytes(truncated);
+            prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(truncated).is_err());
         }
 
         // A trailing byte violates the exact-length contract of `deserialize`.
         let mut extended = bytes.clone();
         extended.push(trailing);
         prop_assert!(TransactIxData::deserialize(&extended).is_err());
-        let _ = TransactIxDataRef::from_bytes(&extended);
+        prop_assert!(TransactIxDataRef::parse_with_external_data_prefix(&extended).is_err());
 
         // A flipped byte may decode to a different message or fail; it must
         // never panic.
@@ -280,31 +325,27 @@ proptest! {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// The merge view decoder accepts exactly the 8-in/1-out shape; every
-    /// other nullifier or root-index element count is rejected.
+    /// The merge view decoder accepts exactly the supported input counts and
+    /// reads back the one root-index pair whatever its value.
     #[test]
-    fn merge_shape_guard_accepts_exactly_the_documented_shape(
+    fn merge_shape_guard_accepts_exactly_the_supported_shapes(
         owned in strategies::merge_ix_data(),
-        nullifier_count in 0usize..=12,
-        root_count in 0usize..=12,
+        nullifier_count in 0usize..=40,
     ) {
         let bytes = owned.serialize().expect("serialize merge ix");
-        prop_assert!(MergeTransactIxDataRef::from_bytes(&bytes).is_ok());
+        let view = MergeTransactIxDataRef::from_bytes(&bytes);
+        prop_assert!(view.is_ok());
+        if let Ok(view) = view {
+            prop_assert_eq!(view.utxo_tree_root_index, owned.utxo_tree_root_index);
+            prop_assert_eq!(view.nullifier_tree_root_index, owned.nullifier_tree_root_index);
+        }
 
-        let mut wrong_nullifiers = owned.clone();
-        wrong_nullifiers.nullifiers = vec![[7u8; 32]; nullifier_count];
-        let bytes = wrong_nullifiers.serialize().expect("serialize merge ix");
+        let mut resized = owned.clone();
+        resized.nullifiers = vec![[7u8; 32]; nullifier_count];
+        let bytes = resized.serialize().expect("serialize merge ix");
         prop_assert_eq!(
             MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            nullifier_count == MERGE_INPUT_COUNT
-        );
-
-        let mut wrong_roots = owned.clone();
-        wrong_roots.nullifier_tree_root_index = vec![3u16; root_count];
-        let bytes = wrong_roots.serialize().expect("serialize merge ix");
-        prop_assert_eq!(
-            MergeTransactIxDataRef::from_bytes(&bytes).is_ok(),
-            root_count == MERGE_INPUT_COUNT
+            MERGE_SUPPORTED_INPUT_COUNTS.contains(&nullifier_count)
         );
     }
 

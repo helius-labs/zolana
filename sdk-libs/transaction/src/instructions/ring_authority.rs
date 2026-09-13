@@ -139,7 +139,7 @@ impl RingAuthorityMove {
 }
 
 /// A prepared, unsigned ring-authority transact. `external_data`'s
-/// `instruction_discriminator` must be `RING_AUTHORITY_TRANSACT` (tag 17) so its
+/// `instruction_discriminator` must be `RING_AUTHORITY_TRANSACT` (tag 21) so its
 /// `external_data_hash` matches what the program recomputes on-chain.
 pub struct PreparedRingAuthority {
     pub inputs: Vec<SppProofInputUtxo>,

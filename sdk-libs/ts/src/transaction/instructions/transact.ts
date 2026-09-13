@@ -1,7 +1,10 @@
 import { address } from "@solana/kit";
 
-import { externalDataHash as interfaceExternalDataHash } from "../../interface/external-data-hash.js";
-import { InstructionTag } from "../../interface/program.js";
+import {
+  externalDataHash as interfaceExternalDataHash,
+  type SettlementAccounts,
+} from "../../interface/external-data-hash.js";
+import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
@@ -12,6 +15,7 @@ import {
   type Address,
   type Bytes16,
   type Bytes32,
+  type InterfaceTransfer,
   type OwnerTag,
   type Signature,
   type TransactOutput,
@@ -31,7 +35,7 @@ import {
   copy,
   decodeAddress,
   equal,
-  hashChain,
+  hashChain4,
   hashBytes,
   poseidon,
   sha256Bytes,
@@ -49,7 +53,7 @@ import {
   type ProofOutputUtxo,
   type TreeId,
 } from "../utxo.js";
-import { DEFAULT_TREE_ID } from "../../interface/tree-slot.js";
+import { DEFAULT_TREE_ID, MAX_INPUT_TREES } from "../../interface/tree-slot.js";
 import { SOL_ASSET_ID, type AssetRegistry } from "../asset.js";
 
 export type { Shape };
@@ -193,7 +197,6 @@ export type SettlementTransfer =
       isDeposit: boolean;
       amount: bigint;
       tokenAccount: Address;
-      splTokenInterface: Address;
       splInterfaceBump: number;
     }>;
 
@@ -292,31 +295,37 @@ function externalDataHash(data: ExternalDataFields): Bytes32 {
   return interfaceExternalDataHash({
     instructionDiscriminator: data.instructionDiscriminator,
     expiryUnixTs: data.expiryUnixTs,
-    interfaceTransfers: data.interfaceTransfers.map((transfer) =>
-      transfer.kind === "sol"
-        ? {
-            kind: transfer.isDeposit ? ("solDeposit" as const) : ("solWithdrawal" as const),
-            amount: transfer.amount,
-            recipient: transfer.userSolAccount,
-          }
-        : {
-            kind: transfer.isDeposit ? ("splDeposit" as const) : ("splWithdrawal" as const),
-            amount: transfer.amount,
-            tokenAccount: transfer.tokenAccount,
-            splInterfacePda: transfer.splTokenInterface,
-          },
-    ),
-    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
-    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
     txViewingPk: data.txViewingPublicKey.toBytes(),
     salt: data.salt,
-    outputs: data.outputs.map((output, index) => ({
-      utxoHash: output.utxoHash,
-      ownerTag: data.resolvedOwnerTags[index] as Bytes32,
-      ...(output.data === undefined ? {} : { data: output.data }),
-    })),
+    interfaceTransfers: data.interfaceTransfers.map(settlementInterfaceTransfer),
+    ...(data.dataHash === undefined ? {} : { dataHash: data.dataHash }),
+    ...(data.ringDataHash === undefined ? {} : { ringDataHash: data.ringDataHash }),
+    outputs: data.outputs,
     messages: data.messages,
+    settlementAccounts: data.interfaceTransfers.map(settlementAccounts),
+    resolvedOwnerTags: data.resolvedOwnerTags,
   });
+}
+
+function settlementInterfaceTransfer(transfer: SettlementTransfer): InterfaceTransfer {
+  if (transfer.kind === "sol") {
+    return transfer.isDeposit
+      ? { kind: "solDeposit", amount: transfer.amount }
+      : { kind: "solWithdrawal", amount: transfer.amount };
+  }
+  return transfer.isDeposit
+    ? { kind: "splDeposit", amount: transfer.amount, splInterfaceBump: transfer.splInterfaceBump }
+    : {
+        kind: "splWithdrawal",
+        amount: transfer.amount,
+        splInterfaceBump: transfer.splInterfaceBump,
+      };
+}
+
+function settlementAccounts(transfer: SettlementTransfer): SettlementAccounts {
+  return transfer.kind === "sol"
+    ? { asset: SOL_INTERFACE, user: transfer.userSolAccount }
+    : { asset: transfer.mint, user: transfer.tokenAccount };
 }
 
 type ExternalDataFields = Omit<
@@ -444,9 +453,9 @@ export interface PrivateTxHashInput {
 }
 
 /**
- * `Poseidon(chain(inputs), chain(outputs), chain(address nullifiers),
- * external_data_hash, blinding)`, the value a transact proof publishes and the
- * owners sign over. The circuit reads one address nullifier per input slot, so
+ * `Poseidon(hashChain4(inputs), hashChain4(outputs), hashChain4(address
+ * nullifiers), external_data_hash, blinding)`, the value a transact proof
+ * publishes and the owners sign over. The circuit reads one address nullifier per input slot, so
  * a set of a different length would silently shift the address chain rather
  * than fail.
  */
@@ -462,9 +471,9 @@ export function privateTxHash(input: PrivateTxHashInput): Bytes32 {
   }
   const addressNullifiers = input.addressNullifiers ?? input.inputHashes.map(() => copy(ZERO_32));
   return poseidon([
-    hashChain(input.inputHashes),
-    hashChain(input.outputHashes),
-    hashChain(addressNullifiers),
+    hashChain4(input.inputHashes),
+    hashChain4(input.outputHashes),
+    hashChain4(addressNullifiers),
     input.externalDataHash,
     checked<Bytes32>(input.blinding, 32, "private tx blinding"),
   ]);
@@ -514,23 +523,51 @@ export function createEncryptedTransaction(
 }
 
 /**
- * The tree every input of one proof is spent from. Mirrors Rust
- * `input_tree_id`: the circuit publishes one input tree slot, so inputs from
- * two trees cannot share a proof.
+ * The trees one proof spends from, in the order the inputs first name them.
+ * Mirrors Rust `input_tree_ids`: a transact permits `MAX_INPUT_TREES` trees,
+ * and each tree owns one contiguous run of inputs, so an input's tree index
+ * never decreases and every run's nullifiers stay consecutive under their own
+ * tree.
  */
-export function inputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
-  const first = inputs[0];
-  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+export function inputTreeIds(inputs: readonly ProofInputUtxo[]): readonly TreeId[] {
+  const trees: TreeId[] = [];
   inputs.forEach((input, index) => {
-    if (input.treeId !== first.treeId) {
-      throw new TransactionError("TRANSACTION_INPUT_TREE_MISMATCH", {
+    const open = trees.at(-1);
+    if (open === input.treeId) return;
+    if (trees.includes(input.treeId)) {
+      throw new TransactionError("TRANSACTION_INPUTS_NOT_GROUPED_BY_TREE", {
         index,
         treeId: input.treeId,
-        expected: first.treeId,
       });
     }
+    if (trees.length === MAX_INPUT_TREES) {
+      throw new TransactionError("TRANSACTION_TOO_MANY_INPUT_TREES", {
+        index,
+        got: trees.length + 1,
+        max: MAX_INPUT_TREES,
+      });
+    }
+    trees.push(input.treeId);
   });
-  return first.treeId;
+  if (trees.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  return Object.freeze(trees);
+}
+
+/**
+ * The one tree a rail that publishes a single input tree spends from: merge,
+ * and the custom-ring openings, which hash every slot under one tree id.
+ */
+export function singleInputTreeId(inputs: readonly ProofInputUtxo[]): TreeId {
+  const trees = inputTreeIds(inputs);
+  const first = trees[0];
+  if (first === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  if (trees.length !== 1) {
+    throw new TransactionError("TRANSACTION_INPUT_TREE_MISMATCH", {
+      treeCount: trees.length,
+      expected: first,
+    });
+  }
+  return first;
 }
 
 export class SppProofInputs {
@@ -564,7 +601,7 @@ export class SppProofInputs {
     ) {
       throw new TransactionError("TRANSACTION_P256_TRANSACT_UNSUPPORTED");
     }
-    inputTreeId(this.inputUtxos);
+    inputTreeIds(this.inputUtxos);
     this.outputs = Object.freeze([...input.outputs]);
     this.externalData = input.externalData;
     this.blindingSeed = checked<Bytes32>(input.blindingSeed, 32, "blinding seed");
@@ -576,9 +613,9 @@ export class SppProofInputs {
     return exactShape(this.inputUtxos.length, this.outputs.length);
   }
 
-  /** The tree every input is spent from. */
-  inputTreeId(): TreeId {
-    return inputTreeId(this.inputUtxos);
+  /** The trees the inputs are spent from, in the order they name them. */
+  inputTreeIds(): readonly TreeId[] {
+    return inputTreeIds(this.inputUtxos);
   }
 
   /**
@@ -676,14 +713,16 @@ export const WithdrawalTarget = Object.freeze({
 export type ChangeLayout = "padded" | "compact";
 
 export interface PreparedTransfer {
+  /** Authority transfers never name private input owners in padding tags. */
+  readonly ownerMode?: "opaque";
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
   readonly firstNullifier: Bytes32;
   /** The private root seed; only the prover request may carry it. */
   readonly blindingSeed: Bytes32;
-  /** The tree every input is spent from. */
-  readonly inputTreeId: TreeId;
+  /** The trees the inputs are spent from, one contiguous run of inputs each. */
+  readonly inputTreeIds: readonly TreeId[];
   /** The tree the outputs are appended to. */
   readonly outputTreeId: TreeId;
   readonly shape: Shape;
@@ -729,7 +768,7 @@ export class ConfidentialTransfer {
   readonly #payer: Address;
   readonly #recipients: Recipient[] = [];
   readonly #blindingSeed = randomBlinding();
-  readonly #inputTreeId: TreeId;
+  readonly #inputTreeIds: readonly TreeId[];
   #outputTreeId: TreeId = DEFAULT_TREE_ID;
   #withdrawal?: Readonly<{ asset: Address; amount: bigint; target: WithdrawalTarget }>;
   #shape?: Shape;
@@ -752,7 +791,7 @@ export class ConfidentialTransfer {
         throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
       }
     });
-    this.#inputTreeId = inputTreeId(inputs);
+    this.#inputTreeIds = inputTreeIds(inputs);
     this.#owner = owner;
     this.#inputs = [...inputs];
     this.#payer = feePayer;
@@ -950,7 +989,6 @@ export class ConfidentialTransfer {
                 isDeposit: false,
                 amount: this.#withdrawal.amount,
                 tokenAccount: target.recipientTokenAccount,
-                splTokenInterface: target.splTokenInterface,
                 splInterfaceBump: target.splInterfaceBump,
               },
             ];
@@ -960,7 +998,7 @@ export class ConfidentialTransfer {
       outputs: Object.freeze(outputs),
       firstNullifier,
       blindingSeed: copy(this.#blindingSeed),
-      inputTreeId: this.#inputTreeId,
+      inputTreeIds: this.#inputTreeIds,
       outputTreeId: this.#outputTreeId,
       shape,
       payer: this.#payer,
@@ -998,6 +1036,101 @@ type PreparedTransferFields = Omit<
   "finalize" | "outputBlindingSeed" | "withAppendedSlot"
 >;
 
+export function prepareRingAuthorityTransfer(
+  input: Readonly<{
+    owner: ShieldedAddress;
+    inputs: readonly ProofInputUtxo[];
+    outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
+    payer: Address;
+    ringProgramId: Address;
+    outputTreeId: TreeId;
+  }>,
+): PreparedTransfer {
+  if (
+    input.inputs.length < 1 ||
+    input.inputs.length > 4 ||
+    input.outputs.length < 1 ||
+    input.outputs.length > 4
+  )
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: input.outputs.length,
+    });
+  const totals = new Map<Address, bigint>();
+  for (const spend of input.inputs) {
+    if (
+      spend.isDummy() ||
+      spend.utxo.ringProgramId !== input.ringProgramId ||
+      !equal(
+        spend.utxo.owner.ownerProofInputHash(),
+        input.owner.signingPublicKey.ownerProofInputHash(),
+      )
+    )
+      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority input" });
+    totals.set(spend.utxo.asset, (totals.get(spend.utxo.asset) ?? 0n) + spend.utxo.amount);
+  }
+  for (const output of input.outputs) {
+    checkU64(output.amount, "authority amount");
+    if (output.amount === 0n)
+      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority amount" });
+    totals.set(output.asset, (totals.get(output.asset) ?? 0n) - output.amount);
+  }
+  const layouts: ProofOutputInit[] = [];
+  for (const [asset, amount] of totals) {
+    if (amount < 0n) throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", { asset });
+    checkU64(amount, "authority change");
+    if (amount > 0n)
+      layouts.push({
+        ownerAddress: input.owner,
+        asset,
+        amount,
+        ringProgramId: input.ringProgramId,
+      });
+  }
+  const senderOutputCount = layouts.length;
+  layouts.push(
+    ...input.outputs.map((output) => ({
+      ownerAddress: output.recipient,
+      asset: output.asset,
+      amount: output.amount,
+      ringProgramId: input.ringProgramId,
+    })),
+  );
+  const width = Math.max(input.inputs.length, layouts.length);
+  if (width > 4)
+    throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
+      inputs: input.inputs.length,
+      outputs: layouts.length,
+    });
+  const first = input.inputs[0];
+  if (first === undefined || input.inputs.some((spend) => spend.treeId !== first.treeId))
+    throw new TransactionError("TRANSACTION_NO_INPUTS");
+  const firstNullifier = first.nullifier();
+  const seed = randomBlinding();
+  const outputSeed = outputBlindingSeed(firstNullifier, seed);
+  const outputs = layouts.map((layout, index) =>
+    createProofOutput({
+      ...layout,
+      blinding: transactOutputBlinding(firstNullifier, outputSeed, index),
+    }),
+  );
+  return preparedTransfer({
+    owner: input.owner,
+    ownerMode: "opaque",
+    inputs: Object.freeze([...input.inputs]),
+    outputs: Object.freeze(outputs),
+    firstNullifier,
+    blindingSeed: seed,
+    inputTreeIds: [first.treeId],
+    outputTreeId: checkedTreeId(input.outputTreeId),
+    shape: { inputs: width, outputs: width },
+    payer: input.payer,
+    interfaceTransfers: [],
+    senderOutputCount,
+    changeLayout: "compact",
+  });
+}
+
 function preparedTransfer(fields: PreparedTransferFields): PreparedTransfer {
   return Object.freeze({
     ...fields,
@@ -1026,7 +1159,7 @@ function appendRecordSlot(
   const ownerTag = fields.owner.confidentialViewTag();
   const inputs = [...fields.inputs];
   while (inputs.length + 1 < extension.shape.inputs) {
-    inputs.push(ProofInputUtxo.dummy(undefined, fields.inputTreeId));
+    inputs.push(ProofInputUtxo.dummy(undefined, fields.inputTreeIds[0]));
   }
   const outputs = [...fields.outputs];
   while (outputs.length + 1 < extension.shape.outputs) {
@@ -1117,7 +1250,11 @@ function finalizeTransfer(
     ? { kind: "account", index: 0 }
     : { kind: "inline", value: senderResolved };
 
-  const padTag = dummyOwnerTag(prepared.inputs, prepared.outputs, prepared.payer);
+  const padTag = dummyOwnerTag(
+    prepared.ownerMode === "opaque" ? [] : prepared.inputs,
+    prepared.outputs,
+    prepared.payer,
+  );
   const outputSeed = outputBlindingSeed(prepared.firstNullifier, prepared.blindingSeed);
   const padCount = Math.max(prepared.shape.outputs - prepared.outputs.length, 0);
   // `prepare` tags its zero-value change slots with the sender, but the pad tag
@@ -1142,16 +1279,22 @@ function finalizeTransfer(
       }),
     ),
   ];
-  // Every dummy is hashed under the input tree's id, both here for the
+  // A dummy is hashed under the tree of the run it sits in, both here for the
   // nullifier the client requests a non-inclusion witness for and in the
-  // prover, which rehashes the slot under the single input tree.
-  const inputUtxos = prepared.inputs.map((input) =>
-    input.isDummy() && input.treeId !== prepared.inputTreeId
-      ? input.withTreeId(prepared.inputTreeId)
-      : input,
-  );
+  // prover, which rehashes the slot under that run's tree. Padding closes the
+  // last run, so the tree indexes never decrease.
+  const lastTreeId = prepared.inputTreeIds.at(-1);
+  if (lastTreeId === undefined) throw new TransactionError("TRANSACTION_NO_INPUTS");
+  let runTreeId = lastTreeId;
+  const inputUtxos = prepared.inputs.map((input) => {
+    if (!input.isDummy()) {
+      runTreeId = input.treeId;
+      return input;
+    }
+    return input.treeId === runTreeId ? input : input.withTreeId(runTreeId);
+  });
   while (inputUtxos.length < prepared.shape.inputs) {
-    inputUtxos.push(ProofInputUtxo.dummy(undefined, prepared.inputTreeId));
+    inputUtxos.push(ProofInputUtxo.dummy(undefined, lastTreeId));
   }
 
   // Length-matched random ciphertext for every position without a real encoding:
