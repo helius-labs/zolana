@@ -41,8 +41,10 @@ The account header also holds the fee schedule and the fee balance:
 
 The schedule is runtime state: `create_tree` writes it and `set_tree_fees`
 overwrites it; neither checks the values. `set_tree_fees` also accepts a
-`PAUSED` tree, so the schedule can be retuned while the write paths are frozen. `TreeFeeSchedule::at_cost` derives
-the smallest `fee_per_nullifier` satisfying
+`PAUSED` tree, so the schedule can be retuned while the write paths are frozen.
+It is a per-tree parameter, and the default charges nothing (see
+[Fee schedule](#fee-schedule)).
+`TreeFeeSchedule::at_cost` derives the smallest `fee_per_nullifier` satisfying
 
 ```text
 fees.fee_per_nullifier * Z >= fees.append_reimbursement + Z * fees.close_reimbursement
@@ -132,7 +134,7 @@ PDA = canonical_pda(
 ```
 
 ```rust
-// Borsh-serialized length: 10 bytes.
+// Fixed 10-byte little-endian layout.
 struct NullifierPda {
     queue_index: u64,
     tree_id: u16,
@@ -194,16 +196,13 @@ The instruction also receives the writable PDA.
    instruction charges once for all of its inputs, before it funds the PDAs,
    so the PDA rent check in step 9 sees the tree floored at
    `rent_minimum + fee_balance`.
-8. Derive the canonical PDA and bump. Require the supplied address to
-   match. An initialized PDA fails with
+8. Require the PDA account writable. Derive the canonical PDA and bump, and
+   require the supplied address to match. An initialized PDA fails with
    `ShieldedPoolError::NullifierAlreadyQueued` (7043).
-9. Accept an unused PDA that is System-owned, empty, and optionally
-   prefunded. A PDA with zero lamports is created through a System
-   `CreateAccount` signed with the PDA seeds, funded with zero lamports by the
-   payer; a prefunded PDA is allocated and assigned instead. Either way the
-   account has ten bytes and is owned by the program. Store `{ q, tree_id }`
-   with the tree header's `tree_id`, then transfer only its missing
-   rent-exempt balance from the tree.
+9. Accept an unused PDA that is System-owned and empty, prefunded or not.
+   Assign it to the program signed with the PDA seeds, then resize it to ten
+   bytes. Store `{ q, tree_id }` with the tree header's `tree_id`, then
+   transfer only the missing rent-exempt balance from the tree.
 
 PDA creation, fee collection, and queue mutation are atomic. Failure changes
 none of them.
@@ -278,6 +277,9 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 
 **Checks and state changes**
 
+Require a writable tree account owned by the program with the tree
+discriminator, in state `INITIALIZED`.
+
 1. Require `i` to fit the cache and `i < num_full_zkp_batches`.
 2. If `i < a`, the update is already applied and the call is a no-op.
 3. Derive `start_index` and `public_input`, verify the proof, then cache
@@ -296,8 +298,9 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
    num_inserted_zkp_batches += 1
    ```
 
-7. Clear the applied cache slot. Continue from step 4 so one call may apply
-   several previously cached proofs.
+7. Clear the applied cache slot and its hash chain; eviction in step 5 clears
+   only the slot, since a replacement proof is verified against the chain.
+   Continue from step 4 so one call may apply several previously cached proofs.
 8. When all `K` ZKP batches are applied, set the queue batch to `Inserted` and
    advance `p` modulo `N`.
 9. On that final applied update, let `current_index` be the `p` used for the
@@ -324,9 +327,10 @@ The Groth16 proof establishes the height-40 indexed append from `old_root` to
 
 **Property — queue draining.** One applied update reduces
 `unapplied_values` by exactly `Z`. After all `K` updates, the batch has
-`unapplied_values == 0`, is `Inserted`, and is no longer pending. Its
-hash-chain bytes remain until overwritten on reuse. Its PDAs remain until
-separate cleanup transactions close them.
+`unapplied_values == 0`, is `Inserted`, and is no longer pending. Each applied
+update zeroed its hash chain and cache slot, so the batch reaches
+`Inserted` with both arrays zeroed and reuse resets only the counters. Its PDAs
+remain until separate cleanup transactions close them.
 
 **Property — reclaim liveness.** When the current batch's final ZKP update is
 applied, `w` reaches `current.start_index`, so every PDA from the
@@ -406,6 +410,9 @@ them.
 
 **Checks and state changes**
 
+Require a writable tree account owned by the program with the tree
+discriminator, in state `INITIALIZED`.
+
 1. Require `authority` to sign and to equal
    `protocol_config.forester_authority`
    (`ShieldedPoolError::UnauthorizedCaller`, 7003).
@@ -417,14 +424,16 @@ them.
 
 For every PDA account:
 
-4. Require program ownership, an exact ten-byte Borsh payload, and
-   `PDA.queue_index >= 1` (`ShieldedPoolError::InvalidNullifierPda`, 7046).
+4. Require a writable, program-owned account of exactly ten bytes, read as
+   little-endian `queue_index` then `tree_id`, with `PDA.queue_index >= 1`
+   (`ShieldedPoolError::InvalidNullifierPda`, 7046).
    Queue sequences start at 1, so an all-zero record is an account the
    program never wrote, such as a system-allocated account assigned to the
    program.
 5. Require `PDA.tree_id` to equal the tree header's `tree_id`
    (`ShieldedPoolError::NullifierPdaTreeMismatch`, 7048).
-6. Require `PDA.queue_index < w`.
+6. Require `PDA.queue_index < w`
+   (`ShieldedPoolError::NullifierPdaNotClosable`, 7045).
 7. Transfer every PDA lamport to the tree and close the PDA.
 
 After closing `n` PDAs:
@@ -453,44 +462,29 @@ working capital.
 
 ## Cost
 
-Let `A` be the number of append proofs that fit in one transaction, `C` the
-number of PDA accounts that fit in one cleanup transaction, and `L` the
-number of live PDAs.
+One append proof is sent per transaction. Cleanup packs `C` PDAs per
+transaction, where `C` is measured: the forester builds the real transaction
+and takes the last count that fits. The cleanup instruction contains one tag
+byte and no nullifiers, so each entry costs one address, and the v1 64-address
+limit is reached before the 4,096-byte one; at the canonical shape `C = 57`.
 
-For one full queue batch:
+For one full queue batch, with `L` the number of live PDAs:
 
 ```text
 K = B / Z
-A = min(A_size, A_compute)
-append_transactions  = ceil(K / A)
-cleanup_transactions = ceil(B / C)
-maintenance_transactions = ceil(K / A) + ceil(B / C)
-
-compute_units = K * CU_append + ceil(B / C) * CU_cleanup(C)
+maintenance_transactions = K + ceil(B / C)
 network_fee = maintenance_transactions * base_fee
 locked_nullifier_pda_rent = L * Rent::minimum_balance(10)
 ```
 
-With `B = 25_000` and `Z = 250`, a full batch contains 100 append proofs. A
-4,096-byte transaction fits approximately 19 append instructions by size;
-`A_compute` may be lower and must be benchmarked. Each cleanup entry adds a
-32-byte nullifier and one writable PDA. For compressed account references
-and a 128-account limit:
+With `B = 25_000` and `Z = 250`, a full batch is 100 append transactions and
+`ceil(25_000 / 57) = 439` cleanup transactions. At a 5,000-lamport signature
+fee those 539 transactions cost 0.002695 SOL in base fees. The counts are for
+the successful path: proof replacements, retries, and duplicate cleanup
+attempts are additional.
 
-```text
-PDAs_per_cleanup_transaction ~= 115
-cleanup_transactions = ceil(25_000 / 115) = 218
-
-if A = 14: append_transactions = 8, maintenance_transactions = 226
-if A = 19: append_transactions = 6, maintenance_transactions = 224
-```
-
-`A`, `C`, `CU_append`, and `CU_cleanup(C)` must be measured from the final
-instruction and serialized transaction layouts. The counts are for the
-successful path: proof replacements, retries, and duplicate cleanup attempts
-are additional. At a 5,000-lamport signature fee and one signature per
-transaction, 224 to 226 maintenance transactions cost 0.00112 to 0.00113 SOL in
-base fees.
+Only the append has a measured compute bound, which tests hold below 500,000
+units at the test batch size.
 
 At the current default rent rate, one ten-byte PDA requires 960,480
 lamports. One full batch locks 24.012 SOL, all returned to the tree when its
@@ -514,26 +508,11 @@ insertion. Closed PDAs return their rent to the tree; delayed cleanup can
 lock capital beyond this amount and eventually stop insertion. With
 `B = 25_000` this is 72.036 SOL; with `B = 630_000` it is 1,815.3072 SOL.
 
-### Cost per nullifier
-
-At a 5,000-lamport transaction fee, `C ~= 115`, and `A` between 14 and 19:
-
-```text
-fee_per_nullifier = maintenance_transactions * 5_000 / B
-
-if B = 25_000:  44.80 to 45.20 lamports
-if B = 120_000: 44.58 to 44.96 lamports
-```
-
-Rounding up, successful maintenance costs **46 lamports per nullifier**. At
-100 USD/SOL, this is 0.0000046 USD per nullifier. This excludes priority fees,
-retries, failed transactions, and the opportunity cost of locked PDA rent.
-
 ### Fee schedule
 
-The arithmetic above is the motivating estimate. What actually applies is the
-schedule stored in the tree header (see [State](#state)): every insertion
-charges `fees.fee_per_nullifier` into `fee_balance`, every applied ZKP batch
+The arithmetic above motivates the rates. The schedule stored in the tree
+header (see [State](#state)) is what applies: every insertion charges
+`fees.fee_per_nullifier` into `fee_balance`, every applied ZKP batch
 pays `fees.append_reimbursement`, and every closed PDA pays
 `fees.close_reimbursement`, each payout capped by the fee balance. A schedule
 satisfying the solvency inequality
@@ -550,19 +529,24 @@ it. A schedule change applies to insertions and payouts from that point on:
 raising the payouts ahead of the collected balance only reduces payouts to
 `min(owed, fee_balance)`, it never blocks an append or a close.
 
-The default schedule prices one 5,000-lamport append transaction per ZKP batch
-and 170 lamports per PDA close, and sets the insertion fee to exactly cover
-them:
+The default schedule is sponsored: all three rates are zero, so no insertion
+fee is collected and neither reimbursement pays out. The forester bears its own
+transaction fees.
+
+An operator switches to the at-cost schedule, which charges one transaction
+base fee per append and one more spread over the `C` closes that fee covers:
 
 ```text
 append_reimbursement = 5_000
-close_reimbursement  = 170
-fee_per_nullifier    = ceil((5_000 + Z * 170) / Z)
+close_reimbursement  = ceil(5_000 / C) = 88
+fee_per_nullifier    = ceil((5_000 + Z * 88) / Z)
 
-Z = 250: 190 lamports per nullifier
-Z = 10:  670 lamports per nullifier
+Z = 250: 108 lamports per nullifier
+Z = 10:  588 lamports per nullifier
 ```
 
-With these values nothing accumulates in the fee balance beyond rounding. The
-fee authority retunes the schedule with `set_tree_fees` when Solana's limits or
+`C` is re-measured when the schedule is computed, so it tracks the transaction
+the forester sends. With these values nothing accumulates in the fee balance
+beyond rounding. The fee
+authority retunes the schedule with `set_tree_fees` when Solana's limits or
 priority fees move.
