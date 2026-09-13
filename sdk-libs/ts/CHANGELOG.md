@@ -21,6 +21,10 @@ priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
+  `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
+  from it, while `InstructionTag` renumbers every tag → point at a deployment of
+  the matching program and re-read any address or tag byte you cached.
 - `ShieldedPoolError` and `decodeShieldedPoolError` use consecutive codes
   7000–7065 matching the program, remove retired names, and include tree-context
   errors → replace hardcoded codes with the exported constants and use this SDK

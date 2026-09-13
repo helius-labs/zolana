@@ -76,7 +76,7 @@ pub struct DepositEntry {
     pub memo: Option<Vec<u8>>,
 }
 
-/// Batched public deposit without a proof (spec: `deposit`, tag 11).
+/// Batched public deposit without a proof (spec: `deposit`, tag 15).
 ///
 /// Each entry appends one output UTXO. Entries deposit into at most
 /// [`MAX_DEPOSIT_ASSETS`] distinct assets; per-asset amounts are summed so each

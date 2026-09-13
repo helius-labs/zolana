@@ -5,6 +5,7 @@ import type {
   RequestContext,
 } from "../../interface/types.js";
 import { mergeExternalDataHash } from "../../interface/codecs/index.js";
+import { InstructionTag } from "../../interface/program.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   inputTreeSlots,
@@ -37,8 +38,6 @@ import {
   validateSpendProof,
 } from "./assembly.js";
 import type { Field, MergeInputs, TransferInput } from "./types.js";
-
-const MERGE_INSTRUCTION_TAG = 13;
 
 export interface MergeMaterialInput {
   readonly signingPublicKey: ShieldedPublicKey;
@@ -237,7 +236,7 @@ function assembleMergeUnchecked(
   if (prepared.output.isDummy()) throw new ClientError("CLIENT_INVALID_MERGE_OUTPUT");
   const outputHash = checkedBytes(prepared.outputHash(), 32, "merge output hash");
   const externalDataHash = mergeExternalDataHash({
-    instructionTag: MERGE_INSTRUCTION_TAG,
+    instructionTag: InstructionTag.mergeTransact,
     expiryUnixTs: prepared.expiryUnixTs,
     outputUtxoHash: outputHash,
   });

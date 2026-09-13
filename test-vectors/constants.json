@@ -2,8 +2,8 @@
   "mergeInputs": 8,
   "stateTreeHeight": 32,
   "nullifierTreeHeight": 40,
-  "transactTag": 12,
-  "mergeTransactTag": 13,
+  "transactTag": 16,
+  "mergeTransactTag": 17,
   "viewTagLength": 32,
   "inputTrees": 5,
   "maxInputTrees": 2

@@ -69,7 +69,7 @@ pub const SOL_ASSET_FIELD: [u8; 32] = [
 
 /// Development program id for the shielded-pool program.
 pub const SHIELDED_POOL_PROGRAM_ID: [u8; 32] =
-    pubkey_array!("sppXZU59VoYodv9Accs4hHNTjYiuYmDFyFVjUjPxFsG");
+    pubkey_array!("sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6");
 
 /// [`SHIELDED_POOL_PROGRAM_ID`] as a `Pubkey`, used by instruction builders.
 pub const PROGRAM_ID_PUBKEY: solana_pubkey::Pubkey =
@@ -111,8 +111,8 @@ pub const SPL_INTERFACE_PDA_SEED: &[u8] = b"spl_asset_vault";
 /// Kept as a constant so the SBF program validates settlement accounts with a
 /// direct equality check.
 pub const SHIELDED_POOL_CPI_AUTHORITY: [u8; 32] = [
-    109, 182, 246, 114, 43, 36, 173, 152, 203, 138, 114, 231, 209, 50, 184, 236, 107, 139, 188, 29,
-    115, 163, 218, 113, 6, 134, 33, 44, 204, 50, 186, 87,
+    69, 71, 220, 185, 216, 143, 158, 144, 194, 192, 35, 58, 192, 36, 234, 87, 129, 254, 240, 115,
+    136, 34, 89, 207, 13, 241, 99, 80, 189, 28, 84, 235,
 ];
 
 /// [`SHIELDED_POOL_CPI_AUTHORITY`] as a `Pubkey`.
@@ -120,15 +120,15 @@ pub const SHIELDED_POOL_CPI_AUTHORITY_PUBKEY: solana_pubkey::Pubkey =
     solana_pubkey::Pubkey::new_from_array(SHIELDED_POOL_CPI_AUTHORITY);
 
 /// Bump for `SHIELDED_POOL_CPI_AUTHORITY`.
-pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 254;
+pub const SHIELDED_POOL_CPI_AUTHORITY_BUMP: u8 = 255;
 
 /// Canonical native-SOL custody PDA:
 /// `find_program_address(&[b"sol_interface", &[0]], SHIELDED_POOL_PROGRAM_ID)`.
 /// Hardcoded so builders and the SBF program avoid the runtime derivation; the
 /// `pda::sol_interface_const_matches_derivation` test pins it.
 pub const SOL_INTERFACE: [u8; 32] = [
-    226, 231, 179, 96, 7, 216, 134, 74, 16, 116, 193, 73, 186, 110, 210, 48, 2, 97, 154, 130, 121,
-    53, 28, 232, 140, 221, 183, 236, 109, 212, 72, 117,
+    25, 103, 86, 200, 133, 185, 152, 90, 206, 95, 120, 116, 156, 29, 95, 209, 115, 140, 160, 250,
+    226, 120, 50, 30, 39, 35, 88, 131, 164, 254, 252, 146,
 ];
 
 /// Canonical bump for [`SOL_INTERFACE`].

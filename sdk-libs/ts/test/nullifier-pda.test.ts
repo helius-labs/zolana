@@ -117,13 +117,13 @@ describe("nullifier PDA accounts", () => {
 
   it("matches the fixed Rust PDA vector", async () => {
     expect(await nullifierPda(TREE, filled(7, 32))).toEqual([
-      address("FketprhoGrMJG7tu9XaXEXhm4vCqzEubwMPFm874xtMm"),
-      252,
+      address("HT4BbdfZvtEf5pDQHp5E3x4AV8qnTKFL4Bd13yhsK67w"),
+      255,
     ]);
   });
 
   it("exposes the close-nullifier-pdas instruction tag", () => {
-    expect(InstructionTag.closeNullifierPdas).toBe(18);
+    expect(InstructionTag.closeNullifierPdas).toBe(13);
   });
 
   it("rejects a nullifier that is not 32 bytes", async () => {

@@ -53,7 +53,7 @@ pub struct RingAuthorityProver {
     /// Raw id of the tree every output is appended to.
     pub output_tree_id: u16,
     /// Transaction-level public data; its `instruction_discriminator` must be
-    /// `RING_AUTHORITY_TRANSACT` (tag 17) so `external_data_hash` matches on-chain.
+    /// `RING_AUTHORITY_TRANSACT` (tag 21) so `external_data_hash` matches on-chain.
     pub external_data: ExternalData,
     pub public_transfers: PublicTransfers,
     pub payer: Address,

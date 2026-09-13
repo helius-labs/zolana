@@ -484,7 +484,7 @@ fn deposit_targets_the_ring_program_with_spps_own_tag() {
     assert_eq!(instruction.program_id, ring().program_id());
     let (ix_tag, body) = split_tag(&instruction);
     assert_eq!(ix_tag, zolana_interface::instruction::tag::RING_DEPOSIT);
-    assert_eq!(ix_tag, 14);
+    assert_eq!(ix_tag, 18);
 
     assert_eq!(
         instruction.accounts,
@@ -817,8 +817,8 @@ fn ring_instruction_tags_are_stable() {
     assert_eq!(tag::SET_AUTHORITY, 6);
     assert_eq!(tag::SET_PAUSED, 11);
     assert_eq!(tag::SET_POLICY_RULES, 12);
-    assert_eq!(tag::DEPOSIT, 14);
-    assert_eq!(tag::MERGE, 16);
+    assert_eq!(tag::DEPOSIT, 18);
+    assert_eq!(tag::MERGE, 20);
 }
 
 const CURATOR_A: CustomRing = CustomRing::new(Address::new_from_array([20; 32]));
