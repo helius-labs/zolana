@@ -21,6 +21,7 @@ const RING_KEYS: [&str; 5] = [
     "custom_ring_delegate_policy.key",
 ];
 
+/// Resolves checked local artifacts within a dedicated service process scope.
 pub(crate) struct Workspace {
     pub root: PathBuf,
     pub scope: PathBuf,
@@ -52,11 +53,13 @@ pub enum WorkspaceError {
     ExistingAccounts(PathBuf),
 }
 
+/// Pins the proving keys accepted by the local workspace binary.
 #[derive(Deserialize)]
 struct KeyManifest {
     keys: BTreeMap<String, KeyDigest>,
 }
 
+/// Authenticates a cached proving key before a local prover starts.
 #[derive(Deserialize)]
 struct KeyDigest {
     size: u64,
@@ -65,6 +68,7 @@ struct KeyDigest {
 
 impl Workspace {
     pub fn from_env() -> Result<Option<Self>, WorkspaceError> {
+        // 1. Require an explicit workspace and independent process scope together.
         let root = env::var_os("ZOLANA_RING_WORKSPACE");
         let scope = env::var_os("ZOLANA_PROCESS_SCOPE_DIR");
         if root.is_none() && scope.is_none() {
@@ -93,6 +97,7 @@ impl Workspace {
             surfpool,
             keys_dir,
         };
+        // 2. Validate local binaries and pinned ring keys without downloading replacements.
         for file in [
             "Cargo.toml",
             "target/debug/zolana",

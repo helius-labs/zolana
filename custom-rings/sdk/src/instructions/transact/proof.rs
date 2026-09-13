@@ -264,7 +264,7 @@ pub fn to_instruction_proof(proof: Proof) -> Result<CustomRingProof, CustomRingP
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CustomRingOpening, SourceOwnerEntry, VelocityWitness};
+    use super::super::{CustomRingOpening, SourceOwnerEntry, VelocityProofInput};
     use super::*;
     use crate::witness::{CustomRingWitness, TransactRoots};
     use custom_ring_interface::CustomRingPolicyPublicInput;
@@ -303,7 +303,7 @@ mod tests {
             inline_assets: [[0u8; 32]; MAX_INLINE_ASSETS],
             inline_limits: [0; MAX_INLINE_ASSETS],
             inline_count: 0,
-            velocity: VelocityWitness::off([10u8; 32], [11u8; 32]),
+            velocity: VelocityProofInput::off([10u8; 32], [11u8; 32]),
             answers: Vec::new(),
         }
     }

@@ -27,7 +27,7 @@ fn set_authority_writes_the_new_authority() {
         .find(|(key, _)| key == &config_pda().0)
         .map(|(_, account)| account.clone())
         .expect("config in result");
-    // Nothing after create_config writes the tier or the auditor.
+    // Authority rotation preserves the tier and auditor.
     assert_eq!(
         bytemuck::from_bytes::<RingProgramConfig>(&written.data),
         &RingProgramConfig {

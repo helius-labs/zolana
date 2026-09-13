@@ -1,4 +1,4 @@
-//! The record slots a velocity transfer adds and the witness the circuit charges them with.
+//! Per-mint outflow accounting and the compressed record transition committed by the policy proof.
 
 use rand::{rngs::OsRng, RngCore};
 use solana_address::Address;
@@ -21,10 +21,11 @@ use zolana_ring_client::{
 
 use crate::{
     instructions::spend::LiveSpendRecord,
-    instructions::transact::{SpendRecordWitness, VelocityWitness},
+    instructions::transact::{SpendRecordProofInput, VelocityProofInput},
     TransferError,
 };
 
+/// Holds the authenticated current record and recovered counters for one fixed window.
 pub(crate) struct VelocityFacts {
     pub head: crate::head_map::HeadWitness,
     pub namespace: Address,
@@ -38,6 +39,7 @@ pub(crate) struct VelocityFacts {
     pub counters: Option<SpendCounters>,
 }
 
+/// Combines committed limits with the sender's ability to recover private counters.
 pub(crate) struct VelocityContext<'a> {
     pub namespace: Address,
     pub owner: ListNamespace,
@@ -82,12 +84,14 @@ impl VelocityFacts {
         namespace: &[u8; 32],
         sender: &(dyn ViewingKeyTrait + Send + Sync),
     ) -> Result<Option<SpendCounters>, TransferError> {
+        // 1. Expired records reset without opening counters, future records cannot reset.
         if live.record.window > window_index {
             return Err(TransferError::SpendRecordFromFutureWindow);
         }
         if live.record.window < window_index {
             return Ok(None);
         }
+        // 2. Recover live counters and check their commitment against the authenticated record.
         let counters = if live.record.version == 0 {
             SpendCounters::zero(&[])
         } else {
@@ -112,6 +116,7 @@ impl VelocityFacts {
     }
 }
 
+/// Measures each mint leaving the sender's ring balance after same-owner change.
 pub(crate) struct Outflows<'a> {
     pub sender: Member,
     pub ring: Address,
@@ -163,7 +168,7 @@ impl Outflows<'_> {
     }
 }
 
-/// The rows charged for one transfer, shared by both velocity modes.
+/// Holds updated per-mint totals and the approval decision for one transfer.
 #[derive(Debug)]
 pub(crate) struct RowCharges {
     pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
@@ -172,7 +177,7 @@ pub(crate) struct RowCharges {
     pub approval_required: bool,
 }
 
-/// Charges each row's outflow, `previous` supplied only inside a live window.
+/// Applies committed caps to outflow and any counters carried from the current window.
 pub(crate) struct ChargeRows<'a> {
     pub rows: &'a [VelocityRow],
     pub outflows: &'a Outflows<'a>,
@@ -222,16 +227,18 @@ fn canonical_salt() -> [u8; 32] {
     salt
 }
 
+/// Adds the successor record, its public opening and encrypted counters to one transfer.
 pub(crate) struct VelocityPlan {
     pub head_transition: custom_ring_interface::HeadMapTransition,
     pub input: SppProofInputUtxo,
     pub output: SppProofOutputUtxo,
     pub record_message: MessageData,
     pub counters_message: MessageData,
-    pub witness: VelocityWitness,
+    pub proof_input: VelocityProofInput,
     pub shape: Shape,
 }
 
+/// Binds the authenticated predecessor and payment intent to SPP's output blinding context.
 pub(crate) struct VelocityPlanInput<'a> {
     pub facts: &'a VelocityFacts,
     pub outflows: Outflows<'a>,
@@ -245,6 +252,7 @@ pub(crate) struct VelocityPlanInput<'a> {
 
 impl VelocityPlanInput<'_> {
     pub(crate) fn plan(self) -> Result<VelocityPlan, TransferError> {
+        // 1. Charge outflow against live counters or a fresh window before creating the successor.
         let facts = self.facts;
         let shape = record_shape(self.money_shape)?;
         let same_window = facts.live.record.window == facts.window_index;
@@ -264,6 +272,7 @@ impl VelocityPlanInput<'_> {
         let commitment = next
             .commitment()
             .map_err(|_| TransferError::PolicyHashing)?;
+        // 2. Bind the successor to the same member address and the final SPP output slot.
         let spent = &facts.live.record;
         let successor = SpendRecord {
             member: spent.member,
@@ -295,6 +304,7 @@ impl VelocityPlanInput<'_> {
         let successor_nullifier =
             zolana_ring_policy::entry_nullifier(&successor_hash, &successor.blinding)
                 .map_err(|_| TransferError::PolicyHashing)?;
+        // 3. Replace the current-record nullifier under the exact shared head root.
         let head_transition = facts
             .head
             .transition(
@@ -334,6 +344,7 @@ impl VelocityPlanInput<'_> {
             owner_tag: Some(facts.namespace.to_bytes()),
             data: Data::default(),
         };
+        // 4. Publish the record opening separately from counters encrypted to the transaction key.
         let counters_body = encrypt_counters(
             self.tx_viewing_key,
             &self.tx_viewing_key.pubkey(),
@@ -341,7 +352,7 @@ impl VelocityPlanInput<'_> {
             &next,
         )?;
         let opened = facts.counters.unwrap_or_else(|| SpendCounters::zero(&[]));
-        let witness = VelocityWitness {
+        let proof_input = VelocityProofInput {
             window_slots: facts.window_slots,
             rows: charges.rows,
             row_count: charges.row_count,
@@ -350,7 +361,7 @@ impl VelocityPlanInput<'_> {
             namespace_owner_hash: facts.owner.owner_hash,
             window_index: facts.window_index,
             approval_required: charges.approval_required,
-            record: SpendRecordWitness {
+            record: SpendRecordProofInput {
                 version: spent.version,
                 window: spent.window,
                 commitment: spent.counters_commitment,
@@ -370,7 +381,7 @@ impl VelocityPlanInput<'_> {
                 data: successor.to_output_data().to_vec(),
             },
             counters_message: counters_message(facts.namespace.to_bytes(), counters_body),
-            witness,
+            proof_input,
             shape,
         })
     }
@@ -549,12 +560,12 @@ mod tests {
     }
 
     #[test]
-    fn a_per_transfer_witness_carries_the_rows_and_no_record() {
+    fn per_transfer_proof_input_carries_the_rows_without_a_record() {
         let charges = charge(100, 1000, 0, None).expect("charges");
-        let witness = VelocityWitness::per_transfer(&charges, [1u8; 32], [2u8; 32]);
-        assert_eq!(witness.window_slots, 0);
-        assert_eq!(witness.window_index, 0);
-        assert_eq!(witness.row_count, 1);
-        assert_eq!(witness.record, SpendRecordWitness::default());
+        let proof_input = VelocityProofInput::per_transfer(&charges, [1u8; 32], [2u8; 32]);
+        assert_eq!(proof_input.window_slots, 0);
+        assert_eq!(proof_input.window_index, 0);
+        assert_eq!(proof_input.row_count, 1);
+        assert_eq!(proof_input.record, SpendRecordProofInput::default());
     }
 }

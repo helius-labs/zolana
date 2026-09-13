@@ -30,7 +30,7 @@ use crate::{
 /// The rail proves square shapes only.
 const MAX_AUTHORITY_SLOTS: usize = 4;
 
-/// A delegate's move before proving, every output a recipient slot.
+/// Prepares existing ring notes for movement by the delegate.
 pub struct RingAuthorityMove {
     pub ring_program_id: Address,
     /// Real spends first, the delegate holds each nullifier key.
@@ -42,7 +42,6 @@ pub struct RingAuthorityMove {
 }
 
 impl RingAuthorityMove {
-    /// Pads to the smallest square shape inside the ring and encrypts every output to its owner.
     pub fn prepare(
         self,
         tx: &ViewingKey,
@@ -57,6 +56,7 @@ impl RingAuthorityMove {
             input_tree_id,
             output_tree_id,
         } = self;
+        // 1. Bind real notes to a supported authority shape.
         if inputs.first().is_none_or(SppProofInputUtxo::is_dummy) {
             return Err(TransactionError::NoInputs);
         }
@@ -72,8 +72,7 @@ impl RingAuthorityMove {
         }
         let shape = Shape::new(width, width);
         let padded_outputs = width - outputs.len();
-        // Input owners stay private on this rail, a pad names a recipient the
-        // transaction publishes anyway.
+        // 2. Pad without publishing private input owners.
         let dummy_tag = outputs
             .iter()
             .find_map(|output| output.owner_address.as_ref())
@@ -93,6 +92,7 @@ impl RingAuthorityMove {
         while inputs.len() < width {
             inputs.push(SppProofInputUtxo::new_dummy().in_tree(input_tree_id));
         }
+        // 3. Bind encrypted outputs to the derived blindings.
         let blinding_seed = prepare_output_blindings(&inputs, &mut outputs)?;
         let slots = encode_confidential_slots(&outputs, assets, tx, salt)?;
         let dummy_len = if padded_outputs > 0 {
@@ -116,6 +116,7 @@ impl RingAuthorityMove {
             });
             resolved_owner_tags.push(tag);
         }
+        // 4. Commit the authority rail to the public transaction context.
         let mut external_data = ExternalData::new(
             *tx.pubkey().as_bytes(),
             salt,

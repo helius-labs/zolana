@@ -70,7 +70,7 @@ pub use crate::{
             to_instruction_proof, CustomRingBaseProofRequest, CustomRingPolicyProofRequest,
             CustomRingPrivateTxHash, CustomRingProofError, CustomRingProofInputError,
             CustomRingProofParams, CustomRingTransact, EncryptedAudit, PendingCustomRingProof,
-            SpendRecordWitness, VelocityWitness,
+            SpendRecordProofInput, VelocityProofInput,
         },
     },
     shared::{

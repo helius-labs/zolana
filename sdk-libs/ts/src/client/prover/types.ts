@@ -201,15 +201,15 @@ export interface CustomRingSourceOwner {
   readonly ownerHash: Bytes32;
 }
 
-/** Mirrors Rust `VelocityRow`, a zero cap or threshold leaves that bound off. */
+/** Sets per-mint outflow and co-signing thresholds. */
 export interface CustomRingVelocityRow {
   readonly asset: Bytes32;
   readonly cap: bigint;
   readonly cosignAbove: bigint;
 }
 
-/** Mirrors Rust `SpendRecordWitness`, the counters matter only inside the current window. */
-export interface CustomRingSpendRecordWitness {
+/** Opens prior spend counters for a successor record proof. */
+export interface CustomRingSpendRecordProofInput {
   readonly version: bigint;
   readonly window: bigint;
   readonly commitment: Bytes32;
@@ -219,22 +219,22 @@ export interface CustomRingSpendRecordWitness {
   readonly nextSalt: Bytes32;
 }
 
-/** Mirrors Rust `VelocityWitness`, zero rows on a ring without a window. */
-export interface CustomRingVelocityWitness {
+/** Binds per-mint charges and approval to the ring policy proof. */
+export interface CustomRingVelocityProofInput {
   readonly windowSlots: bigint;
   readonly rows: readonly CustomRingVelocityRow[];
   readonly ringId: Bytes32;
   readonly namespaceOwnerHash: Bytes32;
   readonly windowIndex: bigint;
   readonly approvalRequired: boolean;
-  readonly record: CustomRingSpendRecordWitness;
+  readonly record: CustomRingSpendRecordProofInput;
 }
 
-/** Mirrors Rust `VelocityWitness::off`, a ring without a window still binds its id and namespace. */
-export function velocityWitnessOff(
+/** Disables amount controls while retaining the ring identity. */
+export function velocityProofInputOff(
   ringId: Bytes32,
   namespaceOwnerHash: Bytes32,
-): CustomRingVelocityWitness {
+): CustomRingVelocityProofInput {
   const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
   return Object.freeze({
     windowSlots: 0n,
@@ -278,7 +278,7 @@ export interface CustomRingPolicyProofRequest {
   readonly stateRoot: Bytes32;
   readonly nullifierRoot: Bytes32;
   readonly entriesTreeId: number;
-  readonly velocity: CustomRingVelocityWitness;
+  readonly velocity: CustomRingVelocityProofInput;
   readonly answers: readonly CustomRingRuleAnswer[];
 }
 
@@ -290,6 +290,7 @@ export interface CustomRingBaseProofRequest {
   readonly auditorPublicKey: Uint8Array;
 }
 
+/** Extends the policy statement with a spend-head update. */
 export interface CustomRingCompressedPolicyProofRequest {
   readonly policy: CustomRingPolicyProofRequest;
   readonly headOldRoot: Bytes32;
@@ -299,6 +300,7 @@ export interface CustomRingCompressedPolicyProofRequest {
   readonly headProof: readonly Bytes32[];
 }
 
+/** Proves member absence and insertion of its first spend head. */
 export interface CustomRingRegisterProofRequest {
   readonly publicInputHash: Bytes32;
   readonly headOldRoot: Bytes32;

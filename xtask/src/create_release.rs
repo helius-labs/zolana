@@ -297,8 +297,7 @@ fn localnet_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Resul
     }))
 }
 
-/// The ring program, the prover's two ring keys and the ring rpc, the ring cli
-/// embeds the lock and is uploaded next to them.
+/// Pins ring deployment artifacts to the matching program and proving keys.
 fn custom_rings_lock(options: &Options, staging: &Path, host: (&str, &str)) -> Result<Value> {
     let path = options.deploy_dir.join(RING_PROGRAM_SOURCE.file);
     require_file(&path, "run `just build-programs` first")?;

@@ -30,6 +30,7 @@ func SetupDelegatePolicy() (*common.RingProofSystem, error) {
 		ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
 }
 
+// ConvertDelegatePolicy combines existing keys with the compiled delegate exemption circuit.
 type ConvertDelegatePolicy struct{ ProvingKeyPath, VerifyingKeyPath string }
 
 func (c ConvertDelegatePolicy) Run() (*common.RingProofSystem, error) {
@@ -48,7 +49,10 @@ func (c ConvertDelegatePolicy) Run() (*common.RingProofSystem, error) {
 		ProvingKey: pk, VerifyingKey: vk, ConstraintSystem: ccs}, nil
 }
 
+// DelegatePolicyParameters supplies the full policy statement for the delegate proof rail.
 type DelegatePolicyParameters struct{ Policy PolicyParameters }
+
+// delegatePolicyJSON encodes a policy request under the delegate circuit discriminator.
 type delegatePolicyJSON struct {
 	CircuitType string          `json:"circuitType"`
 	Policy      json.RawMessage `json:"policy"`
@@ -62,6 +66,7 @@ func (p *DelegatePolicyParameters) MarshalJSON() ([]byte, error) {
 	return json.Marshal(delegatePolicyJSON{string(common.CustomRingDelegatePolicyCircuitType), raw})
 }
 func (p *DelegatePolicyParameters) UnmarshalJSON(data []byte) error {
+	// 1. Decode the full policy under the delegate rail discriminator.
 	var raw delegatePolicyJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -72,6 +77,7 @@ func (p *DelegatePolicyParameters) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(raw.Policy, &p.Policy); err != nil {
 		return err
 	}
+	// 2. Pin the exempt accounting outputs to zero.
 	if p.Policy.WindowIndex != 0 || p.Policy.ApprovalRequired {
 		return fmt.Errorf("delegate policy window and approval must be zero")
 	}

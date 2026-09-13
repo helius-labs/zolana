@@ -1,9 +1,3 @@
-// The member -> current-record-nullifier map, an indexed Merkle tree whose leaf
-// carries the successor pointer and the member's current nullifier. Registration
-// proves the member absent and inserts its genesis, a transfer replaces the
-// member's nullifier with its successor. Only the root is on chain, advanced in
-// lockstep with the SPP transfer against the exact current root.
-
 package policy
 
 import (
@@ -16,8 +10,7 @@ import (
 	merkletree "zolana/prover/merkle-tree"
 )
 
-// HeadMapHeight is the indexed-tree height, the member key space folds into the
-// sorted linked list the same way the nullifier tree folds addresses.
+// Member ordering is independent of the physical append position.
 const HeadMapHeight = 40
 
 // headMapEmptyLeaf is the value at an unoccupied position, the insert target.
@@ -30,15 +23,16 @@ func headMapLeaf(api frontend.API, member, next, nullifier frontend.Variable) fr
 	return gadget.PoseidonHash(api, []frontend.Variable{member, next, nullifier})
 }
 
-// headMapTransfer proves the member's leaf holds spent under oldRoot and returns
-// the root after writing successor, the member and its successor pointer fixed.
-func headMapTransfer(
+// Membership authenticates the consumed nullifier while preserving member ordering.
+func constrainHeadTransition(
 	api frontend.API,
 	oldRoot, member, next, spent, successor, index frontend.Variable,
 	proof []frontend.Variable,
 ) frontend.Variable {
+	// 1. Exclude the sentinel and require canonical member ordering.
 	api.AssertIsDifferent(index, 0)
 	gadget.AssertStrictlyOrderedFullField(api, 0, member, next)
+	// 2. Replace only the authenticated record nullifier at the same position.
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     oldRoot,
 		OldLeaf:     headMapLeaf(api, member, next, spent),
@@ -49,9 +43,8 @@ func headMapTransfer(
 	})
 }
 
-// headMapRegister proves the member absent between the low leaf and its
-// successor, splices the low leaf to it, and writes the genesis at an empty leaf.
-func headMapRegister(
+// Registration preserves the ordered member chain across both root updates.
+func constrainHeadRegistration(
 	api frontend.API,
 	oldRoot frontend.Variable,
 	lowMember, lowNext, lowNullifier, lowIndex frontend.Variable,
@@ -59,8 +52,10 @@ func headMapRegister(
 	member, genesis, newIndex frontend.Variable,
 	newProof []frontend.Variable,
 ) frontend.Variable {
+	// 1. Prove absence between the authenticated predecessor and its successor.
 	api.AssertIsDifferent(newIndex, 0)
 	gadget.AssertStrictlyOrderedFullField(api, lowMember, member, lowNext)
+	// 2. Point the predecessor at the new member without changing its head.
 	root := abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     oldRoot,
 		OldLeaf:     headMapLeaf(api, lowMember, lowNext, lowNullifier),
@@ -69,6 +64,7 @@ func headMapRegister(
 		MerkleProof: lowProof,
 		Height:      HeadMapHeight,
 	})
+	// 3. Prove the append slot empty under the intermediate root.
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     root,
 		OldLeaf:     headMapEmptyLeaf(),

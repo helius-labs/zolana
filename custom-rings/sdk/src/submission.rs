@@ -38,6 +38,7 @@ pub enum SubmissionError {
     Read(#[from] ClientError),
 }
 
+/// Supplies proof services and signers without changing the reserved transfer intent.
 pub struct SubmissionEnvironment<'a, I: Rpc> {
     pub indexer: &'a I,
     pub rpc: &'a SolanaRpc,
@@ -46,12 +47,13 @@ pub struct SubmissionEnvironment<'a, I: Rpc> {
     pub signers: &'a [&'a dyn Signer],
 }
 
+/// Retains signed bytes and their proved window until the broadcast outcome is known.
 struct Attempt {
     transaction: VersionedTransaction,
     window: Option<(u64, u64)>,
 }
 
-/// Reserve input notes until a terminal result.
+/// Submits one fixed transfer intent while retaining unknown broadcasts for status checks.
 #[must_use]
 pub struct RingTransferSubmission<'a> {
     transfer: CustomRingTransfer<'a>,
@@ -78,7 +80,7 @@ impl<'a> RingTransferSubmission<'a> {
         self.attempts
     }
 
-    /// Unknown outcomes retain the original signature.
+    /// Reserve input notes until a terminal result.
     pub fn send<I: Rpc>(
         &mut self,
         env: SubmissionEnvironment<'_, I>,
@@ -95,6 +97,7 @@ impl<'a> RingTransferSubmission<'a> {
         }
         loop {
             let mut failure = None;
+            // 1. Prove the reserved intent only when no signed attempt remains unresolved.
             if self.pending.is_none() {
                 let proven = self.transfer.clone().prove(TransferProofEnvironment {
                     indexer,
@@ -119,6 +122,7 @@ impl<'a> RingTransferSubmission<'a> {
                     // A transport error says nothing about whether the node accepted the bytes.
                 }
             }
+            // 2. An unknown broadcast keeps its signature and cannot authorize a replacement.
             let attempt = self.pending.as_ref().expect("pending attempt");
             let signature = attempt.transaction.signatures[0];
             if failure.is_none() {
@@ -153,6 +157,7 @@ impl<'a> RingTransferSubmission<'a> {
                     Some(error) => failure = Some(error),
                 }
             }
+            // 3. Only a definite stale root or expired-window proof failure permits rebuilding.
             let error = failure.expect("failed status");
             let window_changed = match attempt.window {
                 Some((slots, index)) if ring_error(&error) == Some(POLICY_PROOF_FAILED) => {

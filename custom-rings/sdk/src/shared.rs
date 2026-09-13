@@ -34,7 +34,7 @@ pub struct CustomRingConfig {
     pub has_policy: bool,
 }
 
-/// The ring's second signature, `scope` is a subset of the `COSIGN_*` bits.
+/// Describes when a ring requires an additional transaction signature.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomRingCoSigner {
     pub signer: Address,
@@ -49,7 +49,7 @@ pub struct CustomRingDelegate {
     pub delegate: Address,
 }
 
-/// A mint's public-leg caps over fixed windows, zero caps do not bind.
+/// Reports one mint's public settlement limits and current window usage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CustomRingSpendWindow {
     pub mint: Address,

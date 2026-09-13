@@ -178,7 +178,7 @@ export function policyPublicInputHash(
       /** `hashBytes` of the ring program id, a change output stays in it. */
       ringId: Bytes32;
       namespaceOwnerHash: Bytes32;
-      /** `slot / windowSlots`, zero without velocity. */
+      /** Zero for per-transfer caps and delegate moves. */
       windowIndex: bigint;
       approvalRequired: boolean;
       headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;

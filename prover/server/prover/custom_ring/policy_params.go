@@ -65,14 +65,14 @@ type SourceOwner struct {
 	OwnerHash *big.Int
 }
 
-// VelocityRow is one spend window row, zero leaves a bound off.
+// VelocityRow supplies a mint's cap and signing threshold for policy proving.
 type VelocityRow struct {
 	Asset       *big.Int
 	Cap         *big.Int
 	CosignAbove *big.Int
 }
 
-// SpendRecord opens the sender's latest record.
+// SpendRecord supplies private counter openings without authenticating the record's current head.
 type SpendRecord struct {
 	Version    uint64
 	Window     uint64
@@ -139,12 +139,14 @@ type sourceOwnerJSON struct {
 	OwnerHash string `json:"ownerHash"`
 }
 
+// velocityRowJSON encodes a committed mint limit for the prover API.
 type velocityRowJSON struct {
 	Asset       string `json:"asset"`
 	Cap         string `json:"cap"`
 	CosignAbove string `json:"cosignAbove"`
 }
 
+// spendRecordJSON encodes predecessor counter openings and the successor commitment salt.
 type spendRecordJSON struct {
 	Version    uint64   `json:"version"`
 	Window     uint64   `json:"window"`

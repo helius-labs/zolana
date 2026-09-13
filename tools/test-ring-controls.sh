@@ -12,6 +12,7 @@ case "$suite" in
 esac
 : "${SURFPOOL_BIN:?Set SURFPOOL_BIN to the release-pinned Surfpool binary}"
 
+# 1. Isolate service ownership and scratch data for the suite.
 export ZOLANA_PROCESS_SCOPE_DIR
 ZOLANA_PROCESS_SCOPE_DIR="$(mktemp -d -t zolana-ring-tests.XXXXXX)"
 export ZOLANA_RING_SURFPOOL_FIXTURE=1
@@ -29,6 +30,7 @@ for artifact in custom_ring_program shielded_pool_program zolana_user_registry s
 done
 export ZOLANA_CONFIG_DIR="$ZOLANA_PROCESS_SCOPE_DIR/config"
 export ZOLANA_PROVER_KEYS_DIR="$ZOLANA_PROCESS_SCOPE_DIR/keys"
+# 2. Reserve separate endpoints for the runtime and auxiliary services.
 export ZOLANA_LOCALNET_RPC_PORT="${RING_TEST_RPC_PORT:-40899}"
 export ZOLANA_LOCALNET_PHOTON_PORT="${RING_TEST_PHOTON_PORT:-40784}"
 prover_port="${RING_TEST_PROVER_PORT:-43001}"
@@ -52,6 +54,7 @@ for port in "$ZOLANA_LOCALNET_RPC_PORT" "$((ZOLANA_LOCALNET_RPC_PORT + 1))" \
   fi
 done
 
+# 3. Pin the task key cache to the workspace manifest.
 mkdir -p "$ZOLANA_PROVER_KEYS_DIR"
 for key in custom_ring_base custom_ring_policy custom_ring_compressed_policy custom_ring_compressed_register custom_ring_delegate_policy; do
   file="prover/server/proving-keys/$key.key"
@@ -61,6 +64,7 @@ for key in custom_ring_base custom_ring_policy custom_ring_compressed_policy cus
   cp "$file" "$ZOLANA_PROVER_KEYS_DIR/$key.key"
 done
 
+# 4. Restrict suite cleanup to recorded process identities.
 cleanup() {
   "$ZOLANA_CLI_BIN" dev start --local --stop \
     --rpc-port "$ZOLANA_LOCALNET_RPC_PORT" --photon-port "$ZOLANA_LOCALNET_PHOTON_PORT" \

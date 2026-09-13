@@ -1,4 +1,4 @@
-//! The compressed head-map root account.
+//! Pins canonical root initialization and forbids resetting an advanced map.
 
 use custom_ring_interface::{HeadMapRoot, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT};
 use custom_ring_program::CustomRingError;

@@ -69,6 +69,7 @@ impl TransactionAudit<'_> {
                 assets: self.assets,
             }
             .run()?;
+            // 1. Classify the record carrier separately from recipient money outputs.
             let record = spend_record(
                 slot,
                 &self.transaction.messages,
@@ -86,6 +87,7 @@ impl TransactionAudit<'_> {
                 {
                     return Err(AuditError::InvalidSpendRecordMessage);
                 }
+                // 2. Report recovered counters only when they match the public record commitment.
                 spend_records.push(AuditedSpendRecord {
                     slot_index,
                     counters: opened_counters(

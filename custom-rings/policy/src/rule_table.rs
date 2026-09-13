@@ -511,7 +511,7 @@ impl Rule {
     }
 }
 
-/// One velocity mint, a zero `cap` or `cosign_above` leaves that bound off.
+/// Sets a mint's outflow cap and threshold for additional signing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VelocityRow {
     pub asset: [u8; 32],
@@ -1019,6 +1019,7 @@ impl EncodedRuleTable {
         {
             return Err(RuleTableError::NonZeroPadding);
         }
+        // 1. Reject alternate encodings outside the committed velocity prefix.
         let velocity = self.velocity_rows()?;
         let velocity_padding = self.velocity_assets[velocity.len()..]
             .iter()
@@ -1030,6 +1031,7 @@ impl EncodedRuleTable {
         if velocity_padding {
             return Err(RuleTableError::NonZeroPadding);
         }
+        // 2. Rebuild the checked table from the canonical wire representation.
         let decoded_limits: Vec<u64> = limits.iter().copied().map(u64::from_be_bytes).collect();
         let mut builder = RuleTable::builder()
             .inline_assets(members)
@@ -1081,6 +1083,7 @@ impl EncodedRuleTable {
             elements.push(slot.owner_hash);
         }
         elements.push(field_u8(self.rule_count));
+        // Section counts bind the boundaries of their variable length contents.
         elements.push(field_u8(self.inline_count));
         elements.push(field_u8(self.velocity_count));
         elements.extend_from_slice(rows);
@@ -1088,6 +1091,7 @@ impl EncodedRuleTable {
             elements.push(*member);
             elements.push(field_u64(u64::from_be_bytes(*limit)));
         }
+        // Accounting rows follow the ordinary rule commitment in mint order.
         elements.push(field_u64(self.window_slots()));
         for row in &velocity {
             elements.push(row.asset);

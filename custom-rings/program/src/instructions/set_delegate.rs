@@ -38,6 +38,7 @@ pub fn process_set_delegate_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    // 1. Reserve delegate appointment to the upgrade authority.
     UpgradeAuthorityCheck {
         program_id,
         authority,
@@ -45,6 +46,7 @@ pub fn process_set_delegate_ix(
         program_data,
     }
     .verify()?;
+    // 2. Permit only the first appointment at the canonical delegate address.
     if load_delegate(program_id, delegate_account)?.is_some() {
         return Err(CustomRingError::DelegateAlreadySet.into());
     }

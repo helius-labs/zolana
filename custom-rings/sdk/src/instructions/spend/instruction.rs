@@ -12,7 +12,7 @@ use crate::{
     policy_config_table, CustomRing,
 };
 
-/// Claims the payer's record at version zero, once per member.
+/// Registers the payer's zero-counter record in SPP and the ring's current-record map.
 #[must_use]
 #[derive(Clone, Copy)]
 pub struct RegisterSpend {
@@ -20,13 +20,14 @@ pub struct RegisterSpend {
     pub payer: Address,
 }
 
-/// The connections one registration proof needs.
+/// Supplies chain state and provers for record creation and head-map insertion.
 pub struct SpendProofEnvironment<'a, I: Rpc, R: Rpc> {
     pub indexer: &'a I,
     pub rpc: &'a R,
     pub prover: &'a ProverClient,
 }
 
+/// Supplies asynchronous chain reads and provers for both registration statements.
 pub struct AsyncSpendProofEnvironment<'a, I: AsyncRpc, R: AsyncRpc> {
     pub indexer: &'a I,
     pub rpc: &'a R,
@@ -39,6 +40,7 @@ impl RegisterSpend {
         self,
         environment: SpendProofEnvironment<'_, I, R>,
     ) -> Result<ProvenSpendRegistration, EntryError> {
+        // 1. Bind registration to the configured namespace, current window and current head root.
         let policy_config = self
             .ring
             .read_policy_config(environment.rpc)?
@@ -52,12 +54,14 @@ impl RegisterSpend {
         let head_witness = environment
             .indexer
             .get_ring_head_register_proof(query.clone())?;
+        // 2. Prove the SPP address claim and creation of its zero-counter record.
         let (blinding, proof) = draft.write()?.prove(
             environment.indexer,
             environment.rpc,
             environment.prover,
             |blinding| draft.record(blinding).to_output_data().to_vec(),
         )?;
+        // 3. Insert that record's nullifier into the shared map under the separate ring proof.
         let genesis = draft.genesis(blinding)?;
         let (request, head_transition) =
             crate::head_map::RegisterProofRequest::build(&query, head_witness, &genesis)?;
@@ -75,6 +79,7 @@ impl RegisterSpend {
         self,
         environment: AsyncSpendProofEnvironment<'_, I, R>,
     ) -> Result<ProvenSpendRegistration, EntryError> {
+        // 1. Bind registration to the configured namespace, current window and current head root.
         let policy = self
             .ring
             .read_policy_config_async(environment.rpc)
@@ -91,6 +96,7 @@ impl RegisterSpend {
             .indexer
             .get_ring_head_register_proof(query.clone())
             .await?;
+        // 2. Prove the SPP address claim and creation of its zero-counter record.
         let (blinding, proof) = draft
             .write()?
             .prove_async(
@@ -100,6 +106,7 @@ impl RegisterSpend {
                 |blinding| draft.record(blinding).to_output_data().to_vec(),
             )
             .await?;
+        // 3. Insert that record's nullifier into the shared map under the separate ring proof.
         let genesis = draft.genesis(blinding)?;
         let (request, head_transition) =
             crate::head_map::RegisterProofRequest::build(&query, head_witness, &genesis)?;
@@ -114,6 +121,7 @@ impl RegisterSpend {
     }
 }
 
+/// Fixes the initial record identity and counters before SPP derives its output blinding.
 struct RegistrationDraft {
     registration: RegisterSpend,
     policy: custom_ring_interface::PolicyConfig,
@@ -214,7 +222,7 @@ impl RegistrationDraft {
     }
 }
 
-/// A proven registration, ready to become one instruction.
+/// Combines SPP record creation and current-record insertion for atomic execution.
 #[must_use]
 pub struct ProvenSpendRegistration {
     ring: CustomRing,

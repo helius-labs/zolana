@@ -130,11 +130,12 @@ pub(crate) struct TableBinding<'a> {
 }
 
 impl TableBinding<'_> {
-    /// Boxed so the table stays off the caller's SBF frame, the writer borrows it
-    /// from the heap.
+    /// The bound table must remain off the caller's SBF stack frame.
     #[inline(never)]
     pub fn bind(self) -> Result<Box<BoundTable>, ProgramError> {
+        // 1. Validate one canonical rule encoding before resolving list authorities.
         let rules = decode_policy_table(self.table)?;
+        // 2. Resolve exactly the referenced lists to authenticated namespace owners.
         let sources = self.resolve_sources(rules.referenced())?;
         Ok(Box::new(BoundTable { rules, sources }))
     }
@@ -390,6 +391,7 @@ impl EntryTransition {
     }
 }
 
+/// Binds a namespace-owned record mutation to the ordinary SPP transaction statement.
 pub(crate) struct NamespaceWrite<'a> {
     pub output_hash: [u8; 32],
     pub content: &'a [u8],
@@ -406,6 +408,7 @@ impl NamespaceWrite<'_> {
         self,
         namespace_address: &Address,
     ) -> Result<TransactIxData, ProgramError> {
+        // 1. Bind published record bytes and the namespace signer through SPP external data.
         let owner_bytes = namespace_address.to_bytes();
         let external = TransactExternalData::single_output(TransactOutput {
             utxo_hash: self.output_hash,
@@ -415,6 +418,7 @@ impl NamespaceWrite<'_> {
         let external_data_hash = external
             .hash(TRANSACT, &[], &[owner_bytes])
             .map_err(|_| CustomRingError::HashingFailed)?;
+        // 2. Commit the claim or spend and its successor under SPP's transaction hash.
         let private_tx_hash = mutation_private_tx_hash(
             self.input_hash,
             self.output_hash,
@@ -440,6 +444,7 @@ pub(crate) fn verify_spend_record_output(
     namespace_address: &Address,
     tree_id: u16,
 ) -> Result<(), ProgramError> {
+    // 1. Require the record carrier's namespace owner and default confidential encoding.
     if output.owner_tag != OwnerTag::Inline(namespace_address.to_bytes()) {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
@@ -451,6 +456,7 @@ pub(crate) fn verify_spend_record_output(
     {
         return Err(CustomRingError::InvalidSpendRecord.into());
     }
+    // 2. Select one public record envelope by its namespace-specific message tag.
     let tag = spend_record_message_tag(namespace_address.as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
     let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
@@ -460,6 +466,7 @@ pub(crate) fn verify_spend_record_output(
     }
     let record =
         SpendRecord::from_output_data(&message.data).ok_or(CustomRingError::InvalidSpendRecord)?;
+    // 3. Bind that envelope to the exact output commitment settled by SPP.
     let address = owner
         .spend_address(&record.member, tree_id)
         .map_err(|_| CustomRingError::HashingFailed)?;

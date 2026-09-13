@@ -18,7 +18,7 @@ use crate::{
     rpc::{RpcClient, RpcError},
 };
 use parser::Transition;
-use storage::{BlockJournal, Cursor, Map, Member, Undo};
+use storage::{BlockJournal, HeadMapState, HeadMapUndo, MemberHead, ProjectionCursor};
 
 pub fn spawn(
     db: Arc<DatabaseConnection>,
@@ -52,10 +52,11 @@ fn skipped(error: &RpcError) -> bool {
 }
 
 async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) -> Result<()> {
+    // 1. Roll back orphaned blocks before serving another head proof.
     let mut cursor = match storage::cursor(db).await? {
         Some(value) => value,
         None => {
-            let value = Cursor {
+            let value = ProjectionCursor {
                 start_slot,
                 scanned_slot: start_slot,
                 tip: None,
@@ -81,6 +82,7 @@ async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) 
         storage::rollback(&tx, &mut cursor).await?;
         tx.commit().await?;
     }
+    // 2. Replay deferred initializations once SPP recognizes the ring.
     for candidate in storage::pending(db).await? {
         if !registered_ring(rpc, &Pubkey::new_from_array(candidate.program)).await? {
             continue;
@@ -115,6 +117,7 @@ async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) 
         .tip
         .as_ref()
         .map_or(cursor.start_slot, |tip| tip.slot);
+    // 3. Apply confirmed blocks and their undo journals atomically.
     let target = rpc.get_slot().await?;
     if cursor.scanned_slot < target {
         cursor.ready = false;
@@ -145,6 +148,7 @@ async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) 
     if cursor.scanned_slot < target {
         return Ok(());
     }
+    // 4. Serve proofs only after every projected root matches the chain.
     for map in storage::maps(db).await? {
         api::check_chain(rpc, &map).await?;
     }
@@ -160,6 +164,7 @@ fn linked(
     child.parent_slot == parent.slot && child.parent_blockhash == parent.blockhash
 }
 
+/// Separates existing blocks from the full slot interval already scanned.
 struct BlockBatch {
     slots: Vec<u64>,
     scanned_slot: u64,
@@ -216,7 +221,7 @@ async fn apply_block(
     tx: &DatabaseTransaction,
     rpc: &RpcClient,
     block: &BlockInfo,
-    cursor: &mut Cursor,
+    cursor: &mut ProjectionCursor,
 ) -> Result<()> {
     let mut undo = Vec::new();
     for transaction in &block.transactions {
@@ -226,7 +231,7 @@ async fn apply_block(
                 if !registered_ring(rpc, &instruction.program_id).await? {
                     storage::save_pending(
                         tx,
-                        &storage::Pending {
+                        &storage::PendingRing {
                             program,
                             slot: block.metadata.slot,
                             blockhash: block.metadata.blockhash.clone(),
@@ -246,13 +251,13 @@ async fn apply_block(
                     bail!("invalid head-map initialization account");
                 }
                 storage::delete_pending(tx, &program).await?;
-                let map = Map {
+                let map = HeadMapState {
                     program,
                     address,
                     root: custom_ring_interface::HEAD_MAP_EMPTY_ROOT,
                     next_index: 1,
                 };
-                let sentinel = Member {
+                let sentinel = MemberHead {
                     member: [0; 32],
                     index: 0,
                     next: zolana_ring_head_map::FIELD_MAX,
@@ -271,7 +276,7 @@ async fn apply_block(
                 }
                 storage::save_map(tx, &map).await?;
                 storage::save_member(tx, &program, &sentinel).await?;
-                undo.push(Undo {
+                undo.push(HeadMapUndo {
                     program,
                     before: None,
                     members: vec![],
@@ -333,12 +338,13 @@ async fn policy_config(
 
 async fn apply_transition(
     tx: &DatabaseTransaction,
-    before: &Map,
+    before: &HeadMapState,
     transition: Transition,
     revision: u64,
-) -> Result<Undo> {
+) -> Result<HeadMapUndo> {
+    // 1. Capture predecessor state before replacing any member leaf.
     let mut map = before.clone();
-    let mut undo = Undo {
+    let mut undo = HeadMapUndo {
         program: map.program,
         before: Some(before.clone()),
         members: vec![],
@@ -366,7 +372,7 @@ async fn apply_transition(
             }
             undo.members = vec![(low.member, Some(low.clone())), (member, None)];
             undo.leaves = vec![(low.index, low.hash()?), (next_index, [0; 32])];
-            let added = Member {
+            let added = MemberHead {
                 member,
                 index: next_index,
                 next: low.next,
@@ -401,6 +407,7 @@ async fn apply_transition(
             (old_root, new_root, vec![current])
         }
     };
+    // 2. Require the event's root transition to match the reconstructed leaves.
     if old_root != before.root {
         bail!("head-map transition old root mismatch");
     }
@@ -412,6 +419,7 @@ async fn apply_transition(
     if computed != new_root {
         bail!("head-map transition new root mismatch");
     }
+    // 3. Persist the member origins and root in the block's transaction.
     for member in updates {
         storage::save_member(tx, &map.program, &member).await?;
     }

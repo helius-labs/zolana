@@ -4,7 +4,7 @@ use solana_instruction::{AccountMeta, Instruction};
 
 use crate::CustomRing;
 
-/// Replacing an existing window restarts its counters.
+/// Sets a mint's public deposit and withdrawal caps and restarts its window counters.
 #[must_use]
 pub struct SetSpendWindow {
     pub ring: CustomRing,
@@ -51,6 +51,7 @@ impl SetSpendWindow {
     }
 }
 
+/// Removes a mint's public settlement caps and returns its window account rent.
 #[must_use]
 pub struct ClearSpendWindow {
     pub ring: CustomRing,

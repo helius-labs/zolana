@@ -1031,6 +1031,7 @@ export class ConfidentialTransfer {
   }
 }
 
+/** Collects the canonical transfer fields before constructing a prepared transfer. */
 type PreparedTransferFields = Omit<
   PreparedTransfer,
   "finalize" | "outputBlindingSeed" | "withAppendedSlot"
@@ -1046,6 +1047,7 @@ export function prepareRingAuthorityTransfer(
     outputTreeId: TreeId;
   }>,
 ): PreparedTransfer {
+  // 1. Bind existing source notes and account for each mint independently.
   if (
     input.inputs.length < 1 ||
     input.inputs.length > 4 ||
@@ -1075,6 +1077,7 @@ export function prepareRingAuthorityTransfer(
       throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority amount" });
     totals.set(output.asset, (totals.get(output.asset) ?? 0n) - output.amount);
   }
+  // 2. Return source change before the approved recipient outputs.
   const layouts: ProofOutputInit[] = [];
   for (const [asset, amount] of totals) {
     if (amount < 0n) throw new TransactionError("TRANSACTION_INSUFFICIENT_BALANCE", { asset });
@@ -1105,6 +1108,7 @@ export function prepareRingAuthorityTransfer(
   const first = input.inputs[0];
   if (first === undefined || input.inputs.some((spend) => spend.treeId !== first.treeId))
     throw new TransactionError("TRANSACTION_NO_INPUTS");
+  // 3. Bind every output blinding to the same authority-rail transaction.
   const firstNullifier = first.nullifier();
   const seed = randomBlinding();
   const outputSeed = outputBlindingSeed(firstNullifier, seed);

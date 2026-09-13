@@ -45,6 +45,7 @@ pub fn process_create_policy_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    // 1. Admit policy initialization only for the immutable policy tier.
     if load_config(program_id, config)?.has_policy == 0 {
         return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
@@ -68,6 +69,7 @@ pub fn process_create_policy_ix(
         return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
     }
 
+    // 2. Bind the rule table to its authenticated local and curator namespaces.
     let (own_namespace, namespace_bump) = namespace_pda(program_id)?;
     let namespace_owner_hash = ListNamespace::new(own_namespace.as_array())
         .map_err(|_| CustomRingError::HashingFailed)?
@@ -82,6 +84,7 @@ pub fn process_create_policy_ix(
     let policy_hash = compute_policy_hash(&bound.rules, &bound.sources)?;
     let generation_slot = Clock::get()?.slot;
 
+    // 3. Pin the policy hash and tree identity in a fresh config account.
     let bump_seed = [bump];
     let seeds = [
         Seed::from(PolicyConfig::SEED),

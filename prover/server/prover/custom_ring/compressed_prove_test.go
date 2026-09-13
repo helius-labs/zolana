@@ -145,6 +145,7 @@ func verifyProofAssignment(ps *common.RingProofSystem, proof *common.Proof, assi
 
 func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) (*CompressedRegisterParameters, *CompressedPolicyParameters) {
 	t.Helper()
+	// 1. Prepare the member transaction and predecessor counter commitment.
 	p := rulesFreeParams(t)
 	zero := big.NewInt(0)
 	member := p.Inputs[0].OwnerPkHash
@@ -158,6 +159,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	if configure != nil {
 		configure(p)
 	}
+	// 2. Bind both record slots to their domain separated address.
 	nextCommitment := proofCounters(t, p.Record.NextSalt, p.Velocity[0].Asset, p.Inputs[0].Amount)
 	seed := spptest.MustPoseidon(t, 3, []*big.Int{new(big.Int).SetBytes([]byte("zolana:ring-policy:spend:v1")), member})
 	addressLeaf := spptest.MustUtxoHash(t, protocol.Utxo{
@@ -187,6 +189,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	leaf := func(owner, next, nullifier *big.Int) big.Int {
 		return *spptest.MustPoseidon(t, 4, []*big.Int{owner, next, nullifier})
 	}
+	// 3. Derive registration and successor roots from the same record nullifiers.
 	tree := merkletree.NewTree(policy.HeadMapHeight)
 	tree.Update(0, leaf(zero, maximum, zero))
 	emptyRoot, lowProof := tree.Root.Value(), tree.GenerateProof(0)
@@ -196,6 +199,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	registeredRoot, transferProof := tree.Root.Value(), tree.GenerateProof(1)
 	tree.Update(1, leaf(member, maximum, successor))
 	transferredRoot := tree.Root.Value()
+	// 4. Bind each proof request to its corresponding root transition.
 	register := &CompressedRegisterParameters{
 		HeadOldRoot: &emptyRoot, HeadNewRoot: &registeredRoot, Member: member, Genesis: genesis,
 		NewIndex: big.NewInt(1), LowMember: zero, LowNext: maximum, LowNullifier: zero, LowIndex: zero,
@@ -224,6 +228,7 @@ func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {
 
 func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int) {
 	t.Helper()
+	// 1. Bind all selected openings to the SPP private transaction hash.
 	inputs, outputs := []*big.Int{}, []*big.Int{}
 	for i := 0; i < int(p.NIn); i++ {
 		inputs = append(inputs, openingHash(t, p.Inputs[i]))
@@ -235,6 +240,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 		spptest.MustHashChain4(t, inputs), spptest.MustHashChain4(t, outputs),
 		p.AddressChain, p.ExternalDataHash, p.PrivateTxBlinding,
 	})
+	// 2. Commit accounting rows even when ordinary list rules are empty.
 	preimage := []*big.Int{new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1")), big.NewInt(policy.PolicyVersion)}
 	for range p.Sources {
 		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
@@ -245,6 +251,7 @@ func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int)
 		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
 	}
 	policyHash := spptest.MustHashChain(t, preimage)
+	// 3. Extend the audit statement with policy and optional head transition context.
 	elements := []*big.Int{p.PrivateTxHash}
 	for _, value := range auditChainElements {
 		n, ok := new(big.Int).SetString(value[2:], 16)

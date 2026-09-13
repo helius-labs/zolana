@@ -29,13 +29,14 @@ use crate::{
     TransferProofEnvironment,
 };
 
-/// A note the delegate re-owns inside the ring.
+/// Describes one recipient's share of an internal delegate move.
 pub struct DelegateOutput {
     pub recipient: ShieldedAddress,
     pub asset: Address,
     pub amount: u64,
 }
 
+/// Fixes the custody notes and recipients that the permanent delegate will move.
 pub struct DelegateTransferInput {
     pub ring: CustomRing,
     /// Signs the transaction beside the payer.
@@ -46,7 +47,7 @@ pub struct DelegateTransferInput {
     pub outputs: Vec<DelegateOutput>,
 }
 
-/// A move over the authority rail, value stays inside the ring.
+/// Prepares an internal authority transfer with audit and ordinary policy enforcement.
 #[must_use = "prove or discard the move explicitly"]
 pub struct DelegateTransfer<'a> {
     ring: CustomRing,
@@ -60,6 +61,7 @@ pub struct DelegateTransfer<'a> {
     cosigner: Option<Address>,
 }
 
+/// Combines the SPP authority proof and ring proof for an internal delegate move.
 #[must_use = "build or submit the proven move"]
 pub struct ProvenDelegateTransfer {
     pub tx_viewing_key: ViewingKey,
@@ -117,6 +119,7 @@ impl<'a> DelegateTransfer<'a> {
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenDelegateTransfer, TransferError> {
+        // 1. Resolve the configured delegate and the trees that bind the custody notes.
         let config = self
             .ring
             .read_config(environment.rpc)?
@@ -134,11 +137,12 @@ impl<'a> DelegateTransfer<'a> {
         let output_state = read_tree_state(environment.rpc, output_tree)?;
         let staged = self.stage(
             config.auditor_pubkey,
-            Trees {
+            DelegateTrees {
                 input: (input_tree, input_state.tree_id),
                 output: (output_tree, output_state.tree_id),
             },
         )?;
+        // 2. Authenticate the spends and resolve ordinary policy facts without velocity counters.
         let spend_inputs = RingSpendInputs {
             indexer: environment.indexer,
             tree: input_tree,
@@ -152,6 +156,7 @@ impl<'a> DelegateTransfer<'a> {
         } else {
             Tier::Base
         };
+        // 3. Bind the authority and ring proofs to the same audited transaction context.
         let (request, witnessed) =
             staged.witness(spend_inputs, input_state.allow_dummy_inputs, tier)?;
         let spp_proof =
@@ -185,7 +190,7 @@ impl<'a> DelegateTransfer<'a> {
         let output_state = read_tree_state_async(environment.rpc, output_tree).await?;
         let staged = self.stage(
             config.auditor_pubkey,
-            Trees {
+            DelegateTrees {
                 input: (input_tree, input_state.tree_id),
                 output: (output_tree, output_state.tree_id),
             },
@@ -222,7 +227,7 @@ impl<'a> DelegateTransfer<'a> {
     fn stage(
         self,
         auditor_pk: zolana_keypair::P256Pubkey,
-        trees: Trees,
+        trees: DelegateTrees,
     ) -> Result<StagedDelegateTransfer, TransferError> {
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
         let program_id = self.ring.program_id();
@@ -293,7 +298,8 @@ impl<'a> DelegateTransfer<'a> {
     }
 }
 
-struct Trees {
+/// Binds the delegate move's input and output tree addresses to their SPP ids.
+struct DelegateTrees {
     input: (Address, u16),
     output: (Address, u16),
 }
@@ -329,6 +335,7 @@ fn check_balance(
     Ok(())
 }
 
+/// Holds the balanced authority transfer after auditor encryption fixes its external data.
 struct StagedDelegateTransfer {
     tx_viewing_key: ViewingKey,
     pending_proof: PendingCustomRingProof,
@@ -395,6 +402,7 @@ impl StagedDelegateTransfer {
     }
 }
 
+/// Retains the authority proof inputs while the matching SPP and ring proofs are produced.
 struct WitnessedDelegateTransfer {
     tx_viewing_key: ViewingKey,
     prepared: PreparedRingAuthority,

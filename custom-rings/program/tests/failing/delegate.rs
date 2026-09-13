@@ -1,4 +1,4 @@
-//! The permanent delegate and the authority rail it unlocks.
+//! Pins permanent delegate authorization and transfer confinement.
 
 use custom_ring_interface::{tag, Delegate, AUDITOR_MESSAGE_LEN, COSIGN_TRANSFERS, DELEGATE};
 use custom_ring_program::CustomRingError;
@@ -88,7 +88,7 @@ fn set_delegate_with_malformed_data_is_rejected_exactly() {
         .expect_err(&mollusk, custom(CustomRingError::InvalidDelegate));
 }
 
-/// Wire-valid authority rail content under the delegate tag.
+/// Authority context reaches program checks before the deliberately invalid proof.
 fn delegate_move(legs: Vec<InterfaceTransfer>) -> Fixture {
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
@@ -108,7 +108,6 @@ fn a_delegate_move_reaches_the_proof() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// The policy accounts follow the delegate slots.
 #[test]
 fn a_policy_ring_delegate_move_reaches_the_policy_proof() {
     let (mollusk, _) = setup_mollusk();

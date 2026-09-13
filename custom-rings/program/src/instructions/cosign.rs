@@ -6,12 +6,13 @@ use crate::{
     instructions::{loader::load_cosigner, public_legs::PublicLegs},
 };
 
-pub(crate) struct Demand<'a> {
+/// Classifies an operation for scoped approval using its public settlement amounts.
+pub(crate) struct CoSignerRequirement<'a> {
     pub classes: u8,
     pub legs: PublicLegs<'a>,
 }
 
-impl<'a> Demand<'a> {
+impl<'a> CoSignerRequirement<'a> {
     pub const TRANSFER: Self = Self {
         classes: COSIGN_TRANSFERS,
         legs: PublicLegs::NONE,
@@ -42,11 +43,13 @@ pub(crate) fn require_cosigner(
     program_id: &Address,
     cosigner_account: &AccountView,
     signer: &AccountView,
-    demand: &Demand,
+    demand: &CoSignerRequirement,
 ) -> Result<(), ProgramError> {
+    // 1. Resolve the canonical optional control account.
     let Some(cosigner) = load_cosigner(program_id, cosigner_account)? else {
         return Ok(());
     };
+    // 2. Combine operation scope with aggregate withdrawal thresholds per mint.
     let mut in_scope = cosigner.scope & demand.classes & (COSIGN_TRANSFERS | COSIGN_DEPOSITS) != 0;
     if !in_scope && cosigner.scope & demand.classes & COSIGN_WITHDRAWALS != 0 {
         for withdrawal in demand.legs.withdrawals() {
@@ -60,6 +63,7 @@ pub(crate) fn require_cosigner(
     if !in_scope {
         return Ok(());
     }
+    // 3. Require the configured signer only when an approval condition applies.
     check_signature(signer, &cosigner.signer)
 }
 

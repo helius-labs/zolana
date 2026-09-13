@@ -59,6 +59,7 @@ pub struct PreparedCustomRingMerge {
     inner: PreparedMergeRing,
 }
 
+/// Supplies chain configuration and SPP membership proofs for an owner-preserving merge.
 pub struct CustomRingMergeProofEnvironment<'a, I, R> {
     pub indexer: &'a I,
     pub prover: &'a ProverClient,

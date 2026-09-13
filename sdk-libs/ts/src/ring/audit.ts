@@ -57,7 +57,7 @@ export interface AuditedRingOutput {
   readonly ringProgramId?: Address;
 }
 
-/** Counters must reproduce the published commitment. */
+/** Returns a public spend record with counters opened by the auditor. */
 export interface AuditedRingSpendRecord {
   readonly slotIndex: number;
   readonly record: SpendRecord;
@@ -152,6 +152,7 @@ export function auditRingTransaction(
       details: { signature: transaction.txSignature },
     });
   }
+  // 1. Recover the transaction key from the proven auditor message.
   const txKey = recoverTransactionViewingKey(input.auditor, message);
   try {
     if (!txKey.publicKey().equals(txViewingPublicKey)) {
@@ -165,6 +166,7 @@ export function auditRingTransaction(
     transaction.outputSlots.forEach((slot, slotIndex) => {
       const record = spendRecordFromSlot(slot, transaction.messages);
       const output = auditOutput(txKey, slot, salt, slotIndex, input.assets);
+      // 2. Verify record carriers and their counter commitments separately from payments.
       if (record !== undefined) {
         if (
           record.version !== 0n &&
@@ -186,6 +188,7 @@ export function auditRingTransaction(
         });
         return;
       }
+      // 3. Report ordinary outputs without claiming their ciphertext proves the UTXO opening.
       if (output !== undefined) {
         outputs.push(output);
         return;

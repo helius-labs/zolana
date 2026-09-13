@@ -14,6 +14,7 @@ import { bytesToBigInt } from "../transaction/internal.js";
 import { RingError } from "./error.js";
 import { checkedHeadMapField, HEAD_MAP_CAPACITY } from "./head-map.js";
 
+/** Represents the current shared root anchoring all member spend records. */
 export interface RingHeadMapRoot {
   readonly root: Bytes32;
   readonly nextIndex: bigint;
@@ -61,7 +62,7 @@ export interface RingPolicyConfig {
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
-  /** Zero disables velocity, else the fixed window length in slots. */
+  /** Zero applies each cap per transfer instead of accumulating a window. */
   readonly windowSlots: bigint;
   readonly velocityCount: number;
   readonly velocity: readonly CustomRingVelocityRow[];
@@ -69,7 +70,7 @@ export interface RingPolicyConfig {
   readonly generationSlot: bigint;
 }
 
-/** Mirrors Rust `CoSigner`, `scope` is a subset of the `RING_COSIGN_*` bits. */
+/** Defines the extra signature required by scoped ring operations. */
 export interface RingCoSigner {
   readonly signer: Address;
   readonly scope: number;
@@ -136,7 +137,7 @@ export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
   return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
-/** Mirrors Rust `Delegate`, the key that moves notes between members on the authority rail. */
+/** Identifies the permanent signer allowed to move ring notes. */
 export interface RingDelegate {
   readonly delegate: Address;
   readonly bump: number;
@@ -163,7 +164,7 @@ export function decodeRingDelegate(data: Uint8Array): RingDelegate {
   return Object.freeze({ delegate: encodeBase58(key), bump });
 }
 
-/** Mirrors Rust `SpendWindow`, a mint's public-leg caps over fixed windows, zero caps do not bind. */
+/** Tracks a mint's public deposits and withdrawals against fixed-window caps. */
 export interface RingSpendWindow {
   readonly mint: Address;
   readonly windowSlots: bigint;

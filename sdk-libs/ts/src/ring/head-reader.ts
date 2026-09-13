@@ -18,6 +18,7 @@ export async function readCurrentSpendRecord(
   }>,
   context?: RequestContext,
 ) {
+  // 1. Pin the request to the canonical on-chain head root.
   const root = await fetchRingHeadMapRoot(input.client, input.ringProgramId, context);
   const head = await input.client.getRingHeadTransferProof(
     {
@@ -35,6 +36,7 @@ export async function readCurrentSpendRecord(
     head.index >= root.nextIndex
   )
     throw new RingError("RING_HEAD_MAP_STALE");
+  // 2. Verify current-head inclusion before opening the indexed record.
   verifyHeadMapTransfer({
     root: root.root,
     member: input.sender,

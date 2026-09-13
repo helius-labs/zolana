@@ -229,6 +229,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
             amount: args.amount,
         });
     }
+    // 1. Resolve public funding and approval requirements before sending either deposit.
     let mint = args.mint.unwrap_or(SOL_MINT);
     let assets = crate::assets::resolve(&ctx.rpc, mint)?;
     let payer = ctx.config.config_authority().map_err(ContextError::from)?;
@@ -252,6 +253,7 @@ pub fn run_transfer(ctx: &mut Context, args: TransferArgs) -> Result<(), Transac
     .check(ctx)?;
     let tree = transfer_tree(ctx.ring, &ctx.rpc)?;
     let sender = sender_keypair(ctx)?;
+    // 2. Fund a persistent sender and move the deposited amount to the requested recipient.
     let session = Session::open(ctx, if mint == SOL_MINT { args.amount } else { 0 })?;
     // The recipient takes the whole amount, so the two deposits split it.
     let half = args.amount / 2;
@@ -536,6 +538,7 @@ impl Deposited<'_> {
             &[this.payer],
             ComputeBudgetConfig::for_instruction_count(1),
         )?;
+        // 1. Windowed transfers need a registered record before proof preparation.
         if policy_rules(this.ring, rpc)?.is_some_and(|rules| rules.window_slots() != 0) {
             let outcome = Registration {
                 ring: this.ring,
@@ -559,6 +562,7 @@ impl Deposited<'_> {
                 .with_ring_program_id(this.ring.program_id())
                 .with_output_tree_id(tree_id);
         transfer.send(&this.recipient, this.asset.mint(), this.amount)?;
+        // 2. Bind the payment and any record successor to the same private transaction context.
         let prepared = transfer.prepare()?;
         let mut transfer = CustomRingTransfer::new(CustomRingTransferInput {
             ring: this.ring,
@@ -574,6 +578,7 @@ impl Deposited<'_> {
         if proven.approval_required && this.cosigner.is_none() {
             return Err(TransactError::ApprovalNeedsCoSigner);
         }
+        // 3. Submit with every required signer after the policy proof fixes the approval bit.
         let signers: Vec<&dyn Signer> = this.cosigner.into_iter().collect();
         let transact = TransactSend {
             payer: &sender,
@@ -611,12 +616,14 @@ fn transfer_tree(ring: CustomRing, rpc: &SolanaRpc) -> Result<Address, TransactE
     })
 }
 
+/// Checks CLI operation scope and known payment thresholds before public funding.
 pub(crate) struct CoSignerCheck {
     pub provided: Option<Address>,
     pub scope: u8,
     pub payment: Option<PolicyPayment>,
 }
 
+/// Supplies the known mint outflow for a CLI payment's approval preflight.
 pub(crate) struct PolicyPayment {
     pub mint: Address,
     pub amount: u64,

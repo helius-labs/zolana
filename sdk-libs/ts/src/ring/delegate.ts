@@ -30,8 +30,10 @@ import {
 } from "./transfer.js";
 import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
 
+/** Provides chain state and proofs needed to build a delegate move. */
 export type RingDelegateTransferClient = RingDelegateProofClient & BlockhashProvider & KitRpcAccess;
 
+/** Defines an approved delegate move from existing source notes. */
 export interface RingDelegateTransferParams {
   readonly client: RingDelegateTransferClient;
   readonly ringProgramId: Address;
@@ -53,7 +55,8 @@ const signerAddress = (signer: SignerAccount): Address =>
   typeof signer === "string" ? signer : signer.address;
 const mismatch = (field: string) => new RingError("RING_INTENT_MISMATCH", { details: { field } });
 
-interface DelegateBuildState {
+/** Retains selected source notes and intent across a delegate submission. */
+interface DelegateSubmissionBuildState {
   entries?: readonly WalletUtxo[];
   reservation?: UtxoReservation;
   intent?: Uint8Array;
@@ -64,7 +67,7 @@ export async function createRingDelegateSubmission(
   input: RingDelegateTransferParams,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
-  const state: DelegateBuildState = {};
+  const state: DelegateSubmissionBuildState = {};
   const normalized = {
     ...input,
     outputs: Object.freeze(input.outputs.map((output) => Object.freeze({ ...output }))),
@@ -94,7 +97,7 @@ export async function buildRingDelegateTransferTransaction(
 async function buildDelegateTransaction(
   input: RingDelegateTransferParams,
   context?: RequestContext,
-  state?: DelegateBuildState,
+  state?: DelegateSubmissionBuildState,
 ): Promise<Transaction> {
   const outputs = Object.freeze(input.outputs.map((output) => Object.freeze({ ...output })));
   const delegate = input.delegate;
@@ -103,6 +106,7 @@ async function buildDelegateTransaction(
     let reservation: UtxoReservation | undefined;
     const spends: ProofInputUtxo[] = [];
     try {
+      // 1. Bind the source approval and configured delegate to one intent.
       const owner = await input.source.shieldedAddress();
       if (!equalBytes(owner.toBytes(), input.wallet.identity.toBytes())) throw mismatch("source");
       const intent: TransactionIntent = Object.freeze({
@@ -130,6 +134,7 @@ async function buildDelegateTransaction(
         (cosigner === undefined || signerAddress(cosigner) !== coSigner.signer)
       )
         throw new RingError("RING_COSIGNER_REQUIRED");
+      // 2. Reserve existing notes and return each mint's change to the source.
       const assets = input.wallet.registry.clone();
       for (const { assetId, mint } of await fetchSplAssetRegistrations(input.client, context))
         assets.register(assetId, mint);
@@ -221,6 +226,7 @@ async function buildDelegateTransaction(
       });
       checkIntentApproval(approval, intent, mismatch);
       checkPreparedTransfer(prepared, intent, mismatch);
+      // 3. Prove audit and list rules without charging velocity counters.
       const proven = await proveCustomRingDelegateTransfer(
         {
           client: input.client,
@@ -240,6 +246,7 @@ async function buildDelegateTransaction(
         (cosigner === undefined ? undefined : signerAddress(cosigner)) !== intent.cosigner
       )
         throw mismatch("signers");
+      // 4. Require the delegate and any scoped co-signer on the unsigned transaction.
       const instruction = await ringDelegateTransactInstruction({
         ringProgramId: input.ringProgramId,
         payer: input.feePayer,

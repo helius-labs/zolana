@@ -69,8 +69,7 @@ pub const COSIGN_DEPOSITS: u8 = 2;
 pub const COSIGN_WITHDRAWALS: u8 = 4;
 pub const COSIGN_SCOPE_MASK: u8 = COSIGN_TRANSFERS | COSIGN_DEPOSITS | COSIGN_WITHDRAWALS;
 
-/// Withdrawals of `mint` in one transaction summed above `amount` need the
-/// co-signer, a withdrawn mint without a row always does.
+/// Sets a mint's aggregate withdrawal allowance without the additional signature.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct WithdrawalThreshold {
@@ -79,7 +78,7 @@ pub struct WithdrawalThreshold {
     pub amount: [u8; 8],
 }
 
-/// The ring's optional second signature, absent account means no requirement.
+/// Stores the additional signer required by scoped operations or proof-bound approval.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct CoSigner {
@@ -120,7 +119,7 @@ pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
 /// First byte of an initialized delegate account.
 pub const DELEGATE: u8 = 6;
 
-/// The key that moves notes between members on the authority rail, set once.
+/// Permanently appoints the signer allowed to reassign existing notes within the ring.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Delegate {
@@ -145,8 +144,7 @@ pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
 /// First byte of an initialized head map root account.
 pub const HEAD_MAP_ROOT: u8 = 8;
 
-/// A ring's compressed spend-record head map, the tree lives off chain and only
-/// the root and the append cursor advance on chain.
+/// Commits every member's current spend record through one shared root and append cursor.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct HeadMapRoot {
@@ -183,8 +181,7 @@ pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;
 
-/// Caps per fixed window of slots, a zero cap leaves its direction uncapped,
-/// integers little endian.
+/// Tracks one mint's ring-wide public deposits and withdrawals against fixed-window caps.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SpendWindow {

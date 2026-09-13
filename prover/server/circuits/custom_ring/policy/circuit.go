@@ -52,7 +52,7 @@ type CustomRingPolicyCircuit struct {
 	InlineLimits [NInlineAssets]frontend.Variable
 	// Exactly one flag selects count index.
 	InlineAssetCountSelected [NInlineAssets + 1]frontend.Variable `gnark:"InlineCountOneHot"`
-	// Zero disables velocity, else the fixed window length in slots.
+	// Zero selects limits per transfer without a spend record.
 	WindowSlots frontend.Variable
 	Velocity    [NVelocityAssets]VelocityRowWires
 	// Exactly one flag selects count index.
@@ -68,12 +68,12 @@ type CustomRingPolicyCircuit struct {
 	RingID frontend.Variable
 	// The owner hash of the ring's namespace PDA, only spend record slots open to it.
 	NamespaceOwnerHash frontend.Variable
-	// The program derives slot / WindowSlots, zero without velocity.
+	// The program derives the fixed window index, zero without a window.
 	WindowIndex frontend.Variable
 	// Set when an outflow exceeds its co-sign threshold, the program then demands the co-signer.
 	ApprovalRequired frontend.Variable
 
-	// The sender's spend record, opened only when velocity is on.
+	// Counter openings are required only within the predecessor's window.
 	Record RecordWires
 
 	// All rules and transaction slots share these list facts.
@@ -86,8 +86,7 @@ func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// constrainPolicy returns the public-input chain unhashed for the compressed
-// variant to extend before the final hash.
+// Compressed transfers append their current head transition before hashing.
 func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.Variable, transactionContext) {
 	return c.constrainPolicyRail(api, false)
 }
@@ -108,11 +107,11 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate
 	policyHash, ruleEnabled, inlineEnabled, velocity := c.checkPolicy(api, rangeChecker)
 
 	// 3. Bind policy subjects and amounts to the SPP transaction.
-	recordOn := velocity.on
+	recordEnabled := velocity.windowEnabled
 	if delegate {
-		recordOn = frontend.Variable(0)
+		recordEnabled = frontend.Variable(0)
 	}
-	txContext := c.constrainTransactionContext(api, rangeChecker, recordOn)
+	txContext := c.constrainTransactionContext(api, rangeChecker, recordEnabled)
 	c.constrainNamespace(api, txContext)
 
 	// 4. Authenticate the shared list facts.
@@ -121,7 +120,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate
 	// 5. Require every applicable rule to pass.
 	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
 
-	// 6. Spend the sender's record into its successor within the caps.
+	// 6. Enforce member outflow limits or the compiled delegate exemption.
 	if delegate {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
@@ -129,8 +128,7 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate
 		c.constrainVelocity(api, rangeChecker, velocity, txContext)
 	}
 
-	// 7. Bind the policy, the supplied entry roots and the window after the
-	// audit inputs.
+	// 7. Bind policy enforcement to the audited transaction and program context.
 	chain := append(elements[:],
 		policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,

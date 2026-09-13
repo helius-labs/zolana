@@ -68,7 +68,7 @@ func (c *CustomRingPolicyCircuit) checkPolicy(
 	velocity := c.checkVelocityTable(api, rangeChecker)
 
 	// 7. Commit to the checked policy fields.
-	return c.policyHash(api, inlineEnabled, velocity.enabled), ruleEnabled, inlineEnabled, velocity
+	return c.policyHash(api, inlineEnabled, velocity.rowEnabled), ruleEnabled, inlineEnabled, velocity
 }
 
 // check binds decoded fields to the row and rejects unsupported rule
@@ -158,8 +158,7 @@ func (c *CustomRingPolicyCircuit) checkGuardAssets(api frontend.API, ruleEnabled
 	}
 }
 
-// policyHash reproduces the ring's commitment to its sources, rules, inline
-// asset limits and velocity rows.
+// Section counts bind the boundaries between rule, inline asset and velocity data.
 func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NInlineAssets]frontend.Variable, velocityEnabled [NVelocityAssets]frontend.Variable) frontend.Variable {
 	// 1. Decode the committed rule count.
 	length := frontend.Variable(0)
@@ -167,8 +166,7 @@ func (c *CustomRingPolicyCircuit) policyHash(api frontend.API, inlineEnabled [NI
 		length = api.Add(length, api.Mul(bit, size))
 	}
 
-	// 2. Hash the domain, version, source map, and the section counts that bind
-	// the inline and velocity partitions.
+	// 2. Bind the policy domain and section boundaries before their contents.
 	inlineLength := frontend.Variable(0)
 	for _, bit := range inlineEnabled {
 		inlineLength = api.Add(inlineLength, bit)

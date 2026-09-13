@@ -13,8 +13,7 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// CompressedPolicyParameters wraps the base policy request with the member's
-// head-map transition witness.
+// CompressedPolicyParameters supplies policy and head transition inputs before proof verification.
 type CompressedPolicyParameters struct {
 	Base        PolicyParameters
 	HeadOldRoot *big.Int
@@ -24,7 +23,7 @@ type CompressedPolicyParameters struct {
 	HeadProof   [policy.HeadMapHeight]*big.Int
 }
 
-// The base request nests to reuse its codec and guards.
+// compressedPolicyParametersJSON encodes a policy request with its current head proof.
 type compressedPolicyParametersJSON struct {
 	CircuitType string          `json:"circuitType"`
 	Policy      json.RawMessage `json:"policy"`
@@ -52,6 +51,7 @@ func (p *CompressedPolicyParameters) MarshalJSON() ([]byte, error) {
 }
 
 func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
+	// 1. Decode the policy statement on the compressed member rail.
 	var raw compressedPolicyParametersJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -62,6 +62,7 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(raw.Policy, &p.Base); err != nil {
 		return err
 	}
+	// 2. Require a complete path over canonical head map values.
 	if len(raw.HeadProof) != policy.HeadMapHeight {
 		return fmt.Errorf(
 			"custom-ring-compressed-policy: headProof length %d is not %d",
@@ -81,6 +82,7 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 	if p.HeadIndex, err = fieldFromHex(raw.HeadIndex, "headIndex"); err != nil {
 		return err
 	}
+	// 3. Restrict transitions to windowed records outside the sentinel slot.
 	if p.Base.WindowSlots == 0 || p.HeadIndex.Sign() == 0 || p.HeadIndex.BitLen() > policy.HeadMapHeight {
 		return fmt.Errorf("compressed policy requires a window and nonzero 40 bit head index")
 	}

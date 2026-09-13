@@ -189,6 +189,7 @@ fn bring_up(
     .start(ports.ring_rpc)
 }
 
+/// Selects a local service lifecycle without changing the project's released artifact pins.
 struct WorkspaceRun<'a> {
     config_path: &'a Path,
     config: &'a RingConfig,
@@ -204,6 +205,7 @@ fn bring_up_workspace(
         config,
         live_ring_rpc,
     } = run;
+    // 1. Confine workspace artifacts and service endpoints to an explicit local environment.
     if config.target != Target::Localnet {
         return Err(crate::workspace::WorkspaceError::WrongTarget.into());
     }
@@ -240,6 +242,7 @@ fn bring_up_workspace(
             addr: local(ports.ring_rpc),
         });
     }
+    // 2. Start core services under the caller's process scope and preserve occupied endpoints.
     if !answers(local(ports.rpc)) {
         let snapshots = workspace.account_snapshots()?;
         let mut command = workspace.command()?;
@@ -266,6 +269,7 @@ fn bring_up_workspace(
         }
     }
     check_prover_serves_custom_ring(&urls.prover)?;
+    // 3. Keep the auditor service in the foreground while the pipeline runs separately.
     let project_root = ProjectRoot::for_config(config_path);
     let auditor_key = project_root.resolve(Path::new(AUDITOR_KEY_FILE));
     if !auditor_key.is_file() {

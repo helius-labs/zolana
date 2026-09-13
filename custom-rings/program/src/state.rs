@@ -115,6 +115,7 @@ impl Account for ReadAccessRecord {
     }
 }
 
+/// Grants one authenticated reader access through a newly allocated record.
 pub(crate) struct ReadAccessRecordInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
@@ -145,8 +146,7 @@ impl Account for PolicyConfig {
     }
 }
 
-/// Borrows the bound rules and sources so no full `PolicyConfig` lands on the
-/// SBF frame.
+/// Initializes pinned policy state directly in account memory without a full SBF stack copy.
 pub(crate) struct PolicyConfigInit<'a> {
     pub policy_hash: [u8; 32],
     pub entries_tree: Address,
@@ -161,6 +161,7 @@ pub(crate) struct PolicyConfigInit<'a> {
 
 impl PolicyConfigInit<'_> {
     pub fn write(self, account: &mut AccountView) -> ProgramResult {
+        // 1. Require a fresh account with the exact policy layout.
         let mut data = account
             .try_borrow_mut()
             .map_err(|_| CustomRingError::PolicyConfigAlreadyInitialized)?;
@@ -170,6 +171,7 @@ impl PolicyConfigInit<'_> {
         if data.first() != Some(&0) {
             return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
         }
+        // 2. Publish the bound table and sources as the first policy generation.
         let config: &mut PolicyConfig = from_bytes_mut(&mut data[..]);
         config.discriminator = POLICY_CONFIG;
         config.policy_hash = self.policy_hash;
@@ -197,6 +199,7 @@ impl Account for CoSigner {
     }
 }
 
+/// Initializes the co-signer configuration for creation or replacement.
 pub(crate) struct CoSignerInitParams {
     pub signer: Address,
     pub scope: u8,
@@ -234,6 +237,7 @@ impl Account for Delegate {
     }
 }
 
+/// Records the upgrade authority's one-time delegate appointment.
 pub(crate) struct DelegateInitParams {
     pub delegate: Address,
     pub bump: u8,
@@ -275,6 +279,7 @@ impl Account for HeadMapRoot {
     }
 }
 
+/// Creates a ring's sentinel-only current-record map.
 pub(crate) struct HeadMapRootInitParams {
     pub bump: u8,
 }
@@ -287,6 +292,7 @@ pub(crate) fn advance_head_map_root(
     register: bool,
 ) -> ProgramResult {
     let mut data = account.try_borrow_mut()?;
+    // 1. Require the exact head consumed by the verified transition.
     if data.len() != HeadMapRoot::SIZE {
         return Err(CustomRingError::InvalidHeadMapRoot.into());
     }
@@ -294,6 +300,7 @@ pub(crate) fn advance_head_map_root(
     if &state.root != expected_root {
         return Err(CustomRingError::StaleHeadMapRoot.into());
     }
+    // 2. Allocate a new leaf only for registration and publish the successor root.
     if register {
         let cursor = state.next_index();
         if cursor == 0 || cursor >= (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT) {
@@ -321,6 +328,7 @@ impl HeadMapRootInitParams {
     }
 }
 
+/// Starts one mint's public settlement accounting with zero counters.
 pub(crate) struct SpendWindowInitParams {
     pub mint: Address,
     pub window_slots: u64,

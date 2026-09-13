@@ -207,8 +207,7 @@ impl Deploy<'_> {
         if deployed.is_some() && binary.deployed_sha256(rpc, self.ring)? == Some(binary.sha256) {
             return Ok(DeployPlan::Present);
         }
-        // Records key off a policy config layout, an in-place upgrade over an
-        // earlier one strands them.
+        // Existing policy state must decode under the replacement binary before upload funding.
         if deployed.is_some() {
             let account = rpc
                 .get_account(self.ring.policy_config_pda())

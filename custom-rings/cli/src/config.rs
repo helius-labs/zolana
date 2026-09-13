@@ -44,6 +44,7 @@ pub struct RingConfig {
     pub devnet: Urls,
 }
 
+/// Records the operator's intended co-signer requirement for configuration commands.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct CoSignerSpec {
     pub key: Base58Address,
@@ -52,6 +53,7 @@ pub struct CoSignerSpec {
     pub thresholds: Vec<ThresholdSpec>,
 }
 
+/// Sets one mint's withdrawal threshold for co-signing.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ThresholdSpec {
     pub mint: Base58Address,

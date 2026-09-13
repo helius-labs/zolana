@@ -1,12 +1,9 @@
 # Custom rings
 
-A custom ring is a program that owns a set of UTXOs inside the Solana Privacy
-Program. Each UTXO of the ring carries the ring's program id and the SPP
-transfer proof binds it. SPP spends such UTXOs only through `ring_transact`,
-whose ring config account is signed by the ring program's `ring_auth` PDA, so
-every transfer in the ring enters through the ring program. The ring program
-checks its policy and CPIs into SPP with that signature, SPP verifies the
-transfer proof and the owner signatures and keeps the trees and nullifiers.
+A custom ring gates UTXOs tagged with its program id inside the Solana Privacy
+Program. Their owners still hold the spending keys. The ring checks its
+policy and authorizes SPP settlement with its `ring_auth` PDA. SPP verifies
+the selected transfer or merge statement and maintains the trees and nullifiers.
 Each ring is its own program deployment with its own authority, config and
 services. Every custom ring is audited. The custom-ring circuit binds each
 transfer to the ring's auditor and the program accepts no transact without
@@ -21,6 +18,25 @@ side it is built on. A custom-rings release (`just release-custom-rings <tag>
 proving keys and the ring RPC together, the CLI deploys the binary of the
 release it was built from. One released binary serves every ring, the rules
 are data `init` pins from `ring.toml`.
+
+## Reading the proof boundary
+
+1. [`RuleTable`](policy/src/rule_table.rs) defines the obligations.
+   [`PolicyConfig`](interface/src/state.rs) pins their hash, sources and entries tree.
+2. [`transaction.go`](../prover/server/circuits/custom_ring/policy/transaction.go)
+   binds private slot openings to SPP's transaction hash.
+   [`list_facts.go`](../prover/server/circuits/custom_ring/policy/list_facts.go)
+   proves entry state, and [`evaluate.go`](../prover/server/circuits/custom_ring/policy/evaluate.go)
+   applies the rules to those openings.
+3. [`velocity.go`](../prover/server/circuits/custom_ring/policy/velocity.go)
+   accounts for outflow. [`head_map.go`](../prover/server/circuits/custom_ring/policy/head_map.go)
+   binds windowed counters to the current record, preventing history rollback.
+4. [`transact.rs`](program/src/instructions/transact.rs) binds the proof to
+   trusted accounts and the clock, checks public controls, and commits the head
+   transition atomically with SPP settlement.
+5. [`transfer.rs`](sdk/src/transfer.rs) assembles the client proof inputs.
+   [`head_map`](../services/photon/src/head_map/mod.rs) projects the public
+   history. Clients validate its exact-root proofs before using them.
 
 ## Roles
 
@@ -53,8 +69,9 @@ transfer cannot hide behind a small deposit. Withdrawals carry per-mint
 thresholds summed over the legs of one transaction, a withdrawn mint without
 a threshold always needs the co-signer. The `[cosigner]` table of `ring.toml`
 holds the key, the scope names and the thresholds, `cosigner set` without
-flags applies it, `cosigner clear` closes the account and a ring without one
-demands nothing. The transact, transfer and merge commands take
+flags applies it. `cosigner clear` removes scoped approval. A proof-derived
+approval requirement still fails without a configured co-signer. The transact,
+transfer and merge commands take
 `--cosigner-keypair`.
 
 A delegate is a Solana key the upgrade authority sets once with `zolana-ring
@@ -293,8 +310,10 @@ cannot prove that reported values equal the committed UTXOs.
 
 A velocity cap ring, per transfer or windowed, takes no deposit leg on a
 member transfer. Delegation is deliberately exempt from velocity, while
-ordinary policy and scoped co-signing still apply. A windowed ring keeps
-every note in its entries tree, deposits and merges included. A spend record publishes the member's identity and
+ordinary policy and scoped co-signing still apply. Windowed member transfers
+require the entries tree for both inputs and outputs. Deposits, merges and
+delegate moves must target that tree. Merges may collect inputs from another
+tree. A spend record publishes the member's identity and
 its lineage in the clear, so an observer who knows an identity can count that
 member's transfers, not their amounts. The window is fixed, a sender may move
 up to twice the cap across one boundary.
@@ -331,12 +350,11 @@ transaction limit. A participant sends `RingDeposit`, prepares a
 where the environment is the indexer, the RPC and the prover. `prove` reads
 the table from the policy config and trusts its rows only under the pinned
 hash (`policy_config_table`), `client_rules_match` compares a table of the
-caller's with the stored rows. `prove_async` serves both tiers. The custom-ring
-instruction forwards SPP's full account list and does not fit a legacy
-transaction, and no address lookup table rescues it because its instruction
-data alone passes the 1232-byte packet. `TransactSend` submits it as a
-transaction v1 message, which carries 4096 bytes and states its compute
-ceilings in the header rather than in a prepended instruction.
+caller's with the stored rows. `prove_async` serves both tiers. `TransactSend`
+submits a V1 message with a 4096-byte limit and compute ceilings in its header.
+The opt-in `RingTransferSubmission` retains payment intent across confirmed
+stale-head or window-boundary retries. Unknown send outcomes retain the
+original signature for status checks. Pending state is in memory.
 The auditor side is `zolana-ring-client`, `RingAudit` scans a ring and opens
 its transactions, the ring RPC and the lifecycle test both use it. Auditor
 discovery matches the auditor view tag. Compressed spend-record discovery
@@ -345,12 +363,13 @@ belongs to the ring when, in its confirmed call stack read from Solana RPC,
 the shielded pool instruction has the ring program as direct caller.
 
 The TypeScript ring SDK in `@heliuslabs/zolana` (`sdk-libs/ts/src/ring`)
-proves audit-only rings and policy rings, spends from `client.tree` only and
-takes `entriesRoots` when the pinned entries tree is another tree.
-`buildRingTransferTransaction` reads the tier and the entries tree from the
-chain and returns a version 1 transaction signed by the fee payer,
-`fetchRingPolicyConfig` reads the rows and the generation, and
-`setRingPausedInstruction` pauses and resumes the ring.
+builds unsigned V1 transfers, withdrawals, exits and delegate moves. Builders
+read the ring's tier and policy, fetch list proofs from its entries tree, and
+include the required audit and policy proofs. Money inputs come from
+`client.tree`, and `outputTree` defaults to it. Windowed member transfers
+require both to match the entries tree. Initialize the shared head map once,
+then use `prepareRingSpendRegistration` for each windowed member. Explicit
+submission APIs handle signing and confirmed stale-head or window-boundary retries.
 
 The operator CLI in `cli` reads a `ring.toml` and exposes `parse_and_run`.
 
@@ -363,8 +382,8 @@ hosted RPC, `--trust-ring-rpc` is for a local instance. The ring RPC releases
 the key only to a request the upgrade authority signs while no config exists,
 so `init` needs that keypair and the program must be deployed first. `init`
 creates the config under the upgrade authority and hands it to
-`config_authority_keypair` when that key differs. The sender of a
-custom-ring transfer pays its own v1 transaction. Keys and `.env` belong in the
+`config_authority_keypair` when that key differs. Input owners authorize
+spending, while a separate signer may sponsor the transaction fee. Keys and `.env` belong in the
 secret store, `new` writes a `.gitignore` for both, and a fresh machine mounts
 them before its first pipeline run. `status`, `devnet`, `localnet` and error
 output mask a `?api-key=` in a service URL, `zolana-ring url` prints it in
@@ -372,8 +391,10 @@ full.
 
 The auditor opens outputs created by the supported clients and reports slots
 in another encoding as undecryptable. Ring deposits are public on chain and
-not part of the auditor's view. A ring deposit passes no policy check, the ring
-only lends its `ring_auth` signature, the rules apply when the note is spent.
+not part of the auditor's view. A ring deposit carries no list-policy proof.
+The program still checks scoped co-signing, public deposit caps and the
+windowed destination tree before authorizing it. List rules apply when the
+note is transferred.
 Ring merge is also ciphertext-free: it combines up to eight notes of one owner,
 asset and ring into one note without moving value to another owner. It is not in
 the auditor-tag scan; any later transfer of the merged value still takes the
@@ -382,13 +403,13 @@ SPP takes the pause only from the ring program's `ring_auth` PDA, a renounced
 ring pauses only through its frozen `set_paused` instruction. The released
 transfer proof does not prove that a ciphertext matches a committed output.
 
-A re-pin takes effect at once, a proof built against the old table fails at
-verification and its note stays unspent. `policy set` keeps the entries
+A changed policy hash takes effect at once, proofs over the prior hash fail
+and their notes stay unspent. An identical re-pin preserves the statement.
+`policy set` keeps the entries
 tree, a `ring.toml` naming another tree is refused, the tree is fixed at
 `init`. Curated sources are per cluster, `[policy.sources.localnet]` and
 `[policy.sources.devnet]` name their own curators and a catalogue name
-resolves only on the cluster that lists it. A table pinned with its curator
-accounts can exceed the v1 transaction limit at `create_policy`, `init` then pins it
-over the ring's own sources and points each curated list afterwards. A rule
+resolves only on the cluster that lists it. The SDK checks the full signed V1
+size before pinning. Current table and curator limits fit in one transaction. A rule
 names authority-written lists only, the member-written lists are enrolled by
 their members and read by no rule.

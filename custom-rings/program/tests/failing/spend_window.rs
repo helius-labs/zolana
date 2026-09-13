@@ -1,4 +1,4 @@
-//! The per-mint spend window and the public legs it caps.
+//! Pins independent public deposit and withdrawal counters for each mint.
 
 use custom_ring_interface::{SpendWindow, AUDITOR_MESSAGE_LEN, SPEND_WINDOW};
 use custom_ring_program::CustomRingError;
@@ -183,7 +183,6 @@ fn clear_spend_window_into_itself_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidSpendWindow));
 }
 
-/// The data names the mint, the account must be that mint's window.
 #[test]
 fn clear_spend_window_of_another_mint_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
@@ -201,7 +200,7 @@ fn clear_spend_window_with_a_short_mint_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
 
-/// One window slot per leg after the co-signer prefix, `settlements` trail.
+/// Repeated mint legs retain repeated canonical window account slots.
 fn windowed_transact(
     legs: Vec<InterfaceTransfer>,
     windows: Vec<Slot>,
@@ -237,7 +236,6 @@ fn sol_settlement() -> Vec<Slot> {
     ]
 }
 
-/// `[cpi_authority, mint, spl_interface, user_token_account, token_program]`.
 fn spl_settlement(mint: Pubkey) -> Vec<Slot> {
     [55u8, 0, 56, 57, 58]
         .into_iter()
@@ -302,9 +300,8 @@ fn a_withdrawal_above_the_cap_is_rejected_exactly() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// A zero cap counts and never refuses.
 #[test]
-fn a_zero_cap_is_uncapped() {
+fn a_zero_cap_still_checks_counter_overflow() {
     let (mollusk, _) = setup_mollusk();
     let mut state = window(SOL, 0, 0);
     state.withdrawn = u64::MAX - 1;
@@ -318,9 +315,11 @@ fn a_new_window_restarts_the_counters() {
     let (mut mollusk, _) = setup_mollusk();
     let mut state = window(SOL, 0, 10);
     state.withdrawn = 10;
+    // 1. The exhausted counter blocks the last slot of its window.
     mollusk.warp_to_slot(WINDOW_SLOTS - 1);
     sol_withdrawal(1, Some(state.account()))
         .expect_err(&mollusk, custom(CustomRingError::SpendWindowExceeded));
+    // 2. The next window restores the full allowance.
     mollusk.warp_to_slot(WINDOW_SLOTS);
     sol_withdrawal(10, Some(state.account()))
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
@@ -353,8 +352,6 @@ fn the_legs_of_one_mint_sum_against_its_cap() {
     relabeled.expect_err(&mollusk, custom(CustomRingError::InvalidSpendWindow));
 }
 
-/// SOL and a mint have separate windows, a deposit leg counts against the
-/// deposit cap alone.
 #[test]
 fn each_mint_and_direction_has_its_own_cap() {
     let (mollusk, _) = setup_mollusk();
@@ -427,7 +424,7 @@ fn a_ring_deposit_with_unreadable_data_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
     let mut dangling = deposit_fixture();
     *dangling.data_mut() = ring_deposit_data(vec![DepositAssetKind::Sol], 1);
-    // `[tag, assets_len, Sol, deposits_len, asset_index, ..]`.
+    // The entry references an asset outside the declared table.
     dangling.data_mut()[4] = 3;
     dangling.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }

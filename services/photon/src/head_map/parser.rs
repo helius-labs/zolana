@@ -12,6 +12,7 @@ use crate::ingester::{
     typedefs::block_info::{Instruction, InstructionGroup, TransactionInfo},
 };
 
+/// Carries a proven registration or replacement for the head projection.
 #[derive(Debug)]
 pub enum Transition {
     Register {
@@ -32,6 +33,7 @@ pub enum Transition {
     },
 }
 
+/// Binds record reconstruction to the policy's entries tree.
 pub struct TransitionContext {
     pub slot: u64,
     pub entries_tree: [u8; 32],
@@ -103,6 +105,7 @@ pub fn transition(
     subtree: &TransactionInfo,
     context: TransitionContext,
 ) -> Result<Option<Transition>> {
+    // 1. Bind the ring instruction to its canonical shared root.
     let (old_root, new_root, registration) = match instruction.data.first() {
         Some(&tag::REGISTER_SPEND) => {
             let data: RegisterSpendIxData = wincode::deserialize_exact(&instruction.data[1..])
@@ -123,6 +126,7 @@ pub fn transition(
     if instruction.accounts.get(expected_slot) != Some(&root_address(&instruction.program_id)) {
         bail!("head-map transition does not name its canonical root");
     }
+    // 2. Select the single SPP event produced by that invocation.
     let update = parse_rings_events(subtree, context.slot)?
         .context("head-map transition has no descendant SPP event")?;
     if update.rings_transactions.len() != 1 {
@@ -147,6 +151,7 @@ pub fn transition(
     )
     .0
     .to_bytes();
+    // 3. Reconstruct the successor commitment from its public record opening.
     let spend = successor(
         event,
         &SuccessorContext {
@@ -163,6 +168,7 @@ pub fn transition(
         output_index: u16::try_from(event.outputs.len() - 1)?,
     };
     let member = *spend.member.as_bytes();
+    // 4. Bind registration to its signer or transfer to its consumed record.
     if let Some(data) = registration {
         let payer = instruction
             .accounts
@@ -208,6 +214,7 @@ pub fn transition(
     }
 }
 
+/// Identifies the namespace and publication format of the successor record.
 struct SuccessorContext {
     namespace: [u8; 32],
     registration: bool,

@@ -98,6 +98,7 @@ pub fn run(ctx: &mut Context, command: DelegateCommand) -> Result<(), DelegateEr
     Ok(())
 }
 
+/// Selects existing custody notes and a recipient for an internal delegate move.
 struct MovePlan {
     to: ShieldedAddress,
     source: PathBuf,
@@ -117,6 +118,7 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         delegate_keypair,
         cosigner_path,
     } = plan;
+    // 1. Match the delegate and any required co-signer before selecting custody notes.
     let delegate = file::read_keypair(&ctx.project_path(&delegate_keypair))?;
     let stored = ctx
         .ring
@@ -136,7 +138,7 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
     }
     .check(ctx)?;
 
-    // The source key proves the notes, it never signs the transaction.
+    // 2. Recover the source's note openings and nullifier keys without its transaction signature.
     let source_file = file::read_keypair(&ctx.project_path(&source))?;
     let source = ShieldedKeypair::from_keypair(&source_file)?;
 
@@ -181,6 +183,7 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         asset: mint,
         amount,
     }];
+    // 3. Preserve change ownership and prove ordinary policy without charging velocity counters.
     let change = selected - amount;
     if change > 0 {
         outputs.push(DelegateOutput {
@@ -206,6 +209,7 @@ fn run_move(ctx: &mut Context, plan: MovePlan) -> Result<(), DelegateError> {
         rpc: &ctx.rpc,
         prover: &ctx.prover(),
     })?;
+    // 4. The delegate authorizes the move while the separate payer covers its fees.
     let mut signers: Vec<&dyn Signer> = vec![&delegate];
     signers.extend(cosigner.iter().map(|keypair| keypair as &dyn Signer));
     let moved = TransactSend {

@@ -21,6 +21,7 @@ use crate::{
     AccountReadError, CustomRing,
 };
 
+/// Authenticates one member's current record nullifier under the shared ring root.
 #[derive(Clone, Debug)]
 pub(crate) struct HeadWitness {
     pub root: [u8; 32],
@@ -73,6 +74,7 @@ pub(crate) fn read<I: Rpc, R: Rpc>(
     indexer: &I,
     rpc: &R,
 ) -> Result<(LiveSpendRecord, HeadWitness), EntryProofError> {
+    // 1. Pin the exact current root from Solana before requesting indexer data.
     let root = ring
         .read_head_map_root(rpc)
         .map_err(account_error)?
@@ -110,6 +112,7 @@ fn decode(
     query: &GetRingHeadProofRequest,
     response: GetRingHeadTransferProofResponse,
 ) -> Result<(LiveSpendRecord, HeadWitness), EntryProofError> {
+    // 2. Authenticate the requested member's nullifier under that root.
     if response.root != query.expected_root
         || response.member != query.member
         || response.next_index != query.expected_next_index
@@ -130,6 +133,7 @@ fn decode(
         &response.nullifier.0,
         &response.nullifier.0,
     )?;
+    // 3. Rebuild the published SPP record and bind it to the authenticated nullifier.
     let transaction = zolana_client::indexer::convert_shielded_transaction(
         "record.transaction",
         response.record.transaction,
@@ -156,6 +160,7 @@ fn decode(
     Ok((live, witness))
 }
 
+/// Proves a member's first record insertion into the ring's current-record map.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegisterProofRequest {
@@ -180,6 +185,7 @@ impl RegisterProofRequest {
         response: GetRingHeadRegisterProofResponse,
         genesis: &[u8; 32],
     ) -> Result<(Self, HeadMapTransition), EntryProofError> {
+        // 1. Bind the insertion position to the root and append cursor read from Solana.
         if response.root != query.expected_root
             || response.member != query.member
             || response.next_index != query.expected_next_index
@@ -189,6 +195,7 @@ impl RegisterProofRequest {
         }
         let low_proof: Vec<_> = response.low_proof.iter().map(|hash| hash.0).collect();
         let new_proof: Vec<_> = response.new_proof.iter().map(|hash| hash.0).collect();
+        // 2. Prove the ordered absence gap before inserting the genesis nullifier.
         let new_root = HeadMapInsert {
             root: &response.root.0,
             append_index: response.next_index,
@@ -207,6 +214,7 @@ impl RegisterProofRequest {
             old_root: response.root.0,
             new_root,
         };
+        // 3. Commit both roots and the genesis record to the registration statement.
         let public_input = custom_ring_interface::CompressedRegisterPublicInput {
             head_old_root: &transition.old_root,
             head_new_root: &transition.new_root,

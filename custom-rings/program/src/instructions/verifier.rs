@@ -22,8 +22,7 @@ pub(crate) struct CompressedGroth16Proof<'a> {
 /// a commitment-carrying key requires the Pedersen proof-of-knowledge pairing,
 /// so accepting a commitment-less proof against it would skip a constraint the
 /// circuit relies on. The mismatched combinations are therefore rejected rather
-/// than coerced. Both ring statements carry one, their range checker commits
-/// over private wires.
+/// than coerced. Audited statements carry a BSB22 commitment over private wires.
 #[inline(never)]
 pub(crate) fn verify_groth16(
     proof: CompressedGroth16Proof,
@@ -50,6 +49,7 @@ pub(crate) fn verify_groth16(
     Ok(())
 }
 
+/// Verifies head registration without the audit statements' BSB22 commitment.
 #[inline(never)]
 pub(crate) fn verify_plain_groth16(
     proof: &custom_ring_interface::PlainGroth16Proof,

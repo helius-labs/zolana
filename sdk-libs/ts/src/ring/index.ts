@@ -27,7 +27,7 @@ export {
   verifyHeadMapInsert,
   verifyHeadMapTransfer,
 } from "./head-map.js";
-export type { HeadMapInsertWitness, HeadMapTransferWitness } from "./head-map.js";
+export type { HeadMapInsertProofInput, HeadMapTransferProofInput } from "./head-map.js";
 export {
   buildRingSpendRegistrationTransaction,
   prepareRingSpendRegistration,

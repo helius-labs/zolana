@@ -577,8 +577,7 @@ type fixture struct {
 	velocity *velocityFixture
 }
 
-// velocityFixture turns the window on with one row for the transferred
-// asset, the record opened at its previous counter.
+// velocityFixture selects accounting conditions and record mutations for policy tests.
 type velocityFixture struct {
 	cap         uint64
 	cosignAbove uint64
@@ -618,14 +617,14 @@ func velocityFixtureDefault() *velocityFixture {
 	return &velocityFixture{cap: velocityCap, recordWindow: windowIndex}
 }
 
-// velocityRow mirrors ring_policy::VelocityRow.
+// velocityRow provides host values for a committed mint limit.
 type velocityRow struct {
 	asset  *big.Int
 	cap    uint64
 	cosign uint64
 }
 
-// recordState is the host side of the sender's spend record and its successor.
+// recordState reconstructs predecessor and successor commitments for test transactions.
 type recordState struct {
 	sender   *big.Int
 	version  uint64
@@ -766,7 +765,7 @@ type statement struct {
 	ringID      *big.Int
 	windowIndex uint64
 	approval    bool
-	// nil without velocity
+	// nil without a velocity window
 	record *recordState
 
 	entries []entry
@@ -906,10 +905,9 @@ func newStatement(t *testing.T, f fixture) *statement {
 	return s
 }
 
-// addRecordSlots spends the sender's record into its successor as the last
-// input and output, the money input covering every output the sender makes.
 func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, asset *big.Int) {
 	t.Helper()
+	// 1. Prepare the predecessor counter opening for the selected member.
 	recordMember := sender
 	if v.recordOwner != [32]byte{} {
 		recordMember = pkField(t, v.recordOwner)
@@ -930,6 +928,7 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 		nextSalt: big.NewInt(0x5a18),
 	}
 
+	// 2. Bind the money legs before calculating the record transition.
 	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
 	if v.secondSender {
 		other := s.inputs[0]
@@ -947,13 +946,13 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 	if v.staleSuccessor {
 		s.record.nextDataHash = hostRecordDataHash(t, s.record.address, s.record.sender, s.record.version, s.windowIndex, s.record.nextCommitment)
 	}
+	// 3. Bind predecessor and successor records as the final transaction slots.
 	s.inputs = append(s.inputs, s.recordOpening(t, s.record.dataHash, 0x63))
 	s.outputs = append(s.outputs, s.recordOpening(t, s.record.nextDataHash, 0x64))
 	s.updateHashes(t)
 }
 
-// shapeSpendOutputs marks the sender's change output inside the ring and
-// stamps every other output with the ring id.
+// Change inside the ring is excluded from the sender's outflow.
 func (s *statement) shapeSpendOutputs(v *velocityFixture, sender *big.Int) {
 	if v.change > 0 {
 		change := s.outputs[0]
@@ -973,8 +972,7 @@ func (s *statement) shapeSpendOutputs(v *velocityFixture, sender *big.Int) {
 	}
 }
 
-// shapeTransferCap charges one transfer's outflow to the cap with no record,
-// a second sender replaces the dummy input.
+// Limits without a window use money slots without a record pair.
 func (s *statement) shapeTransferCap(t *testing.T, v *velocityFixture, sender *big.Int) {
 	t.Helper()
 	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
@@ -988,14 +986,14 @@ func (s *statement) shapeTransferCap(t *testing.T, v *velocityFixture, sender *b
 	s.updateHashes(t)
 }
 
-// deriveRecord charges the sender's outflow per row to the successor, the
-// previous counter only inside the window.
 func (s *statement) deriveRecord(t *testing.T) {
 	t.Helper()
 	r := s.record
+	// 1. Reconstruct the predecessor commitment at the member's record address.
 	r.address = hostSpendAddress(t, s.ownOwnerHash, r.sender)
 	r.commitment = hostCountersCommitment(t, r.salt, r.assets, r.spent)
 	r.dataHash = hostRecordDataHash(t, r.address, r.sender, r.version, r.window, r.commitment)
+	// 2. Carry current counters or reset before charging the outgoing transfer.
 	r.nextSpent = make([]uint64, len(s.velocity))
 	for i, row := range s.velocity {
 		previous := uint64(0)
@@ -1004,12 +1002,12 @@ func (s *statement) deriveRecord(t *testing.T) {
 		}
 		r.nextSpent[i] = previous + s.hostOutflow(row.asset)
 	}
+	// 3. Bind the successor counters to the next record version.
 	r.nextCommitment = hostCountersCommitment(t, r.nextSalt, r.assets, r.nextSpent)
 	r.nextDataHash = hostRecordDataHash(t, r.address, r.sender, r.version+1, s.windowIndex, r.nextCommitment)
 }
 
-// hostOutflow mirrors the circuit, inputs of the asset less the sender's
-// change inside the ring.
+// Only change to the same sender inside the ring reduces outflow.
 func (s *statement) hostOutflow(asset *big.Int) uint64 {
 	sender := s.inputs[0].OwnerPkHash.(*big.Int)
 	inflow := uint64(0)
@@ -1030,8 +1028,7 @@ func (s *statement) hostOutflow(asset *big.Int) uint64 {
 	return inflow - change
 }
 
-// recordOpening is the namespace's zero-amount SOL leaf under the entries
-// tree.
+// Spend records use the namespace owner with zero SOL in the entries tree.
 func (s *statement) recordOpening(t *testing.T, dataHash *big.Int, blinding int64) UtxoWires {
 	t.Helper()
 	return UtxoWires{
@@ -1294,7 +1291,7 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	return fact
 }
 
-// recordWires opens the record, zero wires without velocity.
+// Limits without a window do not consume the supplied counter openings.
 func (s *statement) recordWires() RecordWires {
 	wires := RecordWires{
 		Version:    big.NewInt(0),
@@ -1349,8 +1346,7 @@ func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
 	return spptest.MustPoseidon(t, 4, []*big.Int{addressUtxoHash, seed, big.NewInt(0)})
 }
 
-// hostCountersCommitment mirrors ring_policy::SpendCounters::commitment,
-// rows padded with zero mints and counters.
+// Counter commitments include canonical zero padding after active mints.
 func hostCountersCommitment(t *testing.T, salt *big.Int, assets []*big.Int, spent []uint64) *big.Int {
 	t.Helper()
 	elements := []*big.Int{salt}

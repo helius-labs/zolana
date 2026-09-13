@@ -296,6 +296,7 @@ function dataTransitionInputs(
   return inputs;
 }
 
+/** Binds the initial spend record to its SPP address claim. */
 export interface RingSpendRegistrationInput {
   readonly client: RingEntryProofClient;
   readonly ringProgramId: Address;

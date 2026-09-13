@@ -117,7 +117,7 @@ impl RegistrationOutcome {
     }
 }
 
-/// A member's record, registered by the sender itself when absent.
+/// Creates the sender's initial spend record only when its current head is absent.
 pub(crate) struct Registration<'a> {
     pub ring: CustomRing,
     pub sender: &'a dyn Signer,
@@ -128,6 +128,7 @@ pub(crate) struct Registration<'a> {
 
 impl Registration<'_> {
     pub(crate) fn ensure(self) -> Result<RegistrationOutcome, SpendError> {
+        // 1. Resolve registration against the exact current map root rather than record history.
         if self.ring.read_head_map_root(self.rpc)?.is_none() {
             return Err(SpendError::MissingHeadMap);
         }
@@ -137,6 +138,7 @@ impl Registration<'_> {
                 version: live.record.version,
             });
         }
+        // 2. Commit the SPP address claim and map insertion in one registration instruction.
         let proven = RegisterSpend {
             ring: self.ring,
             payer: member,
@@ -155,7 +157,7 @@ impl Registration<'_> {
             hint: no_hint,
         }
         .ensure_present(Observed::Absent, &[proven.instruction()?])?;
-        // The transfer discovers the record through the indexer.
+        // 3. Wait for current-head discovery before preparing a transfer from the new record.
         wait_for(format!("spend record of {member}"), || {
             Ok(
                 match read_record(self.ring, self.rpc, self.indexer, &member) {

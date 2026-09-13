@@ -24,6 +24,7 @@ pub fn process_register_spend_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
+    // 1. Bind registration to the ring's exact current root and append cursor.
     let ix: RegisterSpendIxData =
         wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
     let (head_account, mutation) = accounts
@@ -47,6 +48,7 @@ pub fn process_register_spend_ix(
             return Err(CustomRingError::InvalidHeadMapCursor.into());
         }
     }
+    // 2. Derive the signing member's zero-counter genesis record independently of the client.
     let member = Member::owner_tag(parsed.payer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
     let address = parsed
@@ -67,6 +69,7 @@ pub fn process_register_spend_ix(
         .map_err(|_| CustomRingError::HashingFailed)?;
     let genesis =
         entry_nullifier(&output_hash, &ix.blinding).map_err(|_| CustomRingError::HashingFailed)?;
+    // 3. Prove unique member insertion bound to the derived genesis nullifier.
     let public_input = CompressedRegisterPublicInput {
         head_old_root: &ix.head_old_root,
         head_new_root: &ix.head_new_root,
@@ -81,6 +84,7 @@ pub fn process_register_spend_ix(
         public_input,
         &custom_ring_interface::compressed_register_verifying_key::VERIFYINGKEY,
     )?;
+    // 4. Commit registration and the SPP address claim as one atomic state change.
     advance_head_map_root(head_account, &ix.head_old_root, ix.head_new_root, true)?;
 
     let content = record.to_output_data();

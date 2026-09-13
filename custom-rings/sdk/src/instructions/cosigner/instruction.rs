@@ -54,6 +54,7 @@ impl SetCoSigner {
     }
 }
 
+/// Removes the ring's co-signing requirement and returns its account rent.
 #[must_use]
 pub struct ClearCoSigner {
     pub ring: CustomRing,

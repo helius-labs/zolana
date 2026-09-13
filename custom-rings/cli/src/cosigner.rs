@@ -31,7 +31,7 @@ impl CosignScope {
     }
 }
 
-/// `<mint>=<amount>`, `sol` for the native token.
+/// Parses a mint's withdrawal approval threshold from command-line input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Threshold {
     pub mint: Address,
@@ -80,6 +80,7 @@ impl From<ClientError> for CosignerError {
 }
 
 pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerError> {
+    // 1. Apply requested signature controls under the config authority.
     match command {
         CosignerCommand::Set {
             signer,
@@ -142,6 +143,7 @@ pub fn run(ctx: &mut Context, command: CosignerCommand) -> Result<(), CosignerEr
         }
         CosignerCommand::Show => {}
     }
+    // 2. Report the stored requirement after any configuration change.
     match ctx.ring.read_cosigner(&ctx.rpc)? {
         Some(cosigner) => print(&cosigner),
         None => line("co-signer", "none"),

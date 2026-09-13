@@ -23,6 +23,7 @@ pub fn process_set_cosigner_ix(
     accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
+    // 1. Admit one unambiguous scope and one withdrawal threshold per mint.
     let SetCoSignerIxData {
         signer,
         scope,
@@ -61,8 +62,10 @@ pub fn process_set_cosigner_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    // 2. Let only the config authority replace the approval requirement.
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 3. Replace the canonical control account or initialize it on first configuration.
     let existing = load_cosigner(program_id, cosigner_account)?.map(|cosigner| cosigner.bump);
     let params = |bump| CoSignerInitParams {
         signer: Address::new_from_array(signer),

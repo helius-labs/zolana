@@ -16,7 +16,7 @@ import {
 } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
-import { disabledRuleAnswer, velocityWitnessOff } from "../src/client/prover/types.js";
+import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
@@ -121,7 +121,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     stateRoot: bytes(8),
     nullifierRoot: bytes(9),
     entriesTreeId: 3,
-    velocity: velocityWitnessOff(bytes(10), bytes(11)),
+    velocity: velocityProofInputOff(bytes(10), bytes(11)),
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }

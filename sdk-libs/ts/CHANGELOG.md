@@ -23,8 +23,8 @@ Breaking
   row without a bound.
 - `policyPublicInputHash` takes `ringId`, `namespaceOwnerHash`,
   `windowIndex` and `approvalRequired`, and `CustomRingPolicyProofRequest`
-  carries a `velocity` witness → build it with `velocityWitnessOff` on a ring
-  without a window.
+  carries a `velocity` proof input → build it with `velocityProofInputOff` when
+  amount controls are disabled, including rings with neither per-transfer nor window caps.
 - `proveCustomRingTransfer` charges each transfer's outflow on a velocity ring,
   a windowed ring spends the sender's record into its successor, and returns
   `approvalRequired` and the shared-map `headTransition` on `ProvenRingTransfer`
@@ -67,8 +67,10 @@ Added
   initialize and read current compressed state, recovering live counters from the sender's
   ciphertext or resetting an expired window without the lost counters.
 - `RING_VELOCITY_SLOTS`, `CustomRingVelocityRow`,
-  `CustomRingVelocityWitness`, `CustomRingSpendRecordWitness` and
-  `velocityWitnessOff`.
+  `CustomRingVelocityProofInput`, `CustomRingSpendRecordProofInput` and
+  `velocityProofInputOff`.
+- `HeadMapInsertProofInput` and `HeadMapTransferProofInput` name the paths supplied
+  to compressed-head proofs. `VelocityPlan.proofInput` carries the counter opening.
 - Ring error codes `RING_SPEND_RECORD_INVALID`,
   `RING_SPEND_RECORD_LINEAGE_BROKEN`, `RING_SPEND_RECORD_MISSING`,
   `RING_SPEND_COUNTERS_UNKNOWN`, `RING_VELOCITY_CAP_EXCEEDED`,

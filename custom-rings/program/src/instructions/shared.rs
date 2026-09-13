@@ -97,9 +97,7 @@ impl PdaCheck<'_> {
 /// account views to metas by position. `data` keeps its leading tag byte because
 /// SPP's dispatcher strips it.
 ///
-/// Only the `ring_auth` account gains a signature; every other privilege is
-/// copied from the account view, so the ring cannot escalate an account the
-/// caller passed as readonly or unsigned.
+/// Caller privileges are preserved except for authorized ring and record PDA signatures.
 ///
 /// The generic account type lets callers either forward their whole account list
 /// (`deposit`, `transact`) or hand-pick a reordered subset (`init_spp_ring_config`).
@@ -111,6 +109,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     data: &[u8],
     namespace_bump: Option<u8>,
 ) -> ProgramResult {
+    // 1. Derive only the ring authority and any record owner authorized by the caller.
     let (ring_auth, bump) = Address::find_program_address(&[RING_AUTH_PDA_SEED], program_id);
     let namespace = namespace_bump
         .map(|bump| namespace_address(program_id, bump))
@@ -125,6 +124,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     if accounts.len() > MAX_CPI_ACCOUNTS {
         return Err(CustomRingError::TooManyAccounts.into());
     }
+    // 2. Preserve caller privileges except for the explicitly authorized PDA signatures.
     let metas: Vec<InstructionAccount> = accounts
         .iter()
         .map(|account| {
@@ -145,8 +145,7 @@ pub(crate) fn cpi_spp_signed<A: AsRef<AccountView>>(
     let bump = [bump];
     let seeds = [Seed::from(RING_AUTH_PDA_SEED), Seed::from(bump.as_ref())];
     let ring_signer = Signer::from(seeds.as_ref());
-    // Upper bound: a five-mint ring deposit carries the fixed prefix, ring_auth
-    // and five SPL settlement groups.
+    // 3. Execute SPP settlement in the same atomic transaction as ring state updates.
     match namespace_bump {
         Some(namespace_bump) => {
             let namespace_bump = [namespace_bump];

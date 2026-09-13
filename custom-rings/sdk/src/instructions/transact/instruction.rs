@@ -38,7 +38,7 @@ pub struct CustomRingTransact {
     /// The pinned entries tree for a policy ring, `None` for an audit-only ring
     /// whose layout drops the policy_config and entries_tree accounts.
     pub entries_tree: Option<Address>,
-    /// The sender's record head, `Some` only on a windowed velocity transfer.
+    /// The ring's shared current-record root, present only for windowed transfers.
     pub head_map_root: Option<Address>,
     /// The ring's co-signer, a signer of the transaction when set.
     pub cosigner: Option<Address>,
@@ -47,14 +47,13 @@ pub struct CustomRingTransact {
     /// Settlement accounts for the content's `interface_transfers`, in the same
     /// order.
     pub interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
-    /// Proof of the `audit` circuit, in the program's wire encoding. Convert a
-    /// prover result with `CustomRingProof::from(..)`.
+    /// Proof of the selected ring statement, converted with `CustomRingProof::from(..)`.
     pub proof: CustomRingProof,
     /// The SPP content. Its `messages` must already carry the auditor message that
     /// the proof commits to, and its `private_tx_hash` must be the one the SPP
     /// proof was generated for.
     pub transact: TransactIxData,
-    /// History entries a policy statement binds, unread by a ring without rules.
+    /// History entries a policy statement binds, unread by an audit-only ring.
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
     /// The dual control bit the velocity statement proves, the co-signer then signs.

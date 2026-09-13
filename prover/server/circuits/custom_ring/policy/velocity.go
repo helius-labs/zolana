@@ -1,6 +1,3 @@
-// Bounds one sender's outflow per mint over a fixed window through a spend
-// record spent into its successor, and raises the dual control bit.
-
 package policy
 
 import (
@@ -10,16 +7,14 @@ import (
 	"zolana/prover/circuits/spp_transaction/shared"
 )
 
-// VelocityRowWires is one committed spend window row, a zero cap or threshold
-// leaves that bound off.
+// VelocityRowWires supplies one mint's committed outflow cap and signing threshold.
 type VelocityRowWires struct {
 	Asset       frontend.Variable
 	Cap         frontend.Variable
 	CosignAbove frontend.Variable
 }
 
-// RecordWires opens the sender's latest spend record and names the salt of
-// its successor.
+// RecordWires supplies predecessor counter openings and the successor's commitment salt.
 type RecordWires struct {
 	Version frontend.Variable
 	Window  frontend.Variable
@@ -32,17 +27,14 @@ type RecordWires struct {
 	NextSalt frontend.Variable
 }
 
-// velocityPolicy supplies the checked window switch and row flags.
+// velocityPolicy carries validated accounting selectors for outflow enforcement.
 type velocityPolicy struct {
-	// the window switch, record slots ride only while it is on
-	on frontend.Variable
-	// rows charge each transfer, with or without a window
-	rows    frontend.Variable
-	enabled [NVelocityAssets]frontend.Variable
+	windowEnabled frontend.Variable
+	rowsEnabled   frontend.Variable
+	rowEnabled    [NVelocityAssets]frontend.Variable
 }
 
-// checkVelocityTable admits rows with or without a window and rejects
-// unusable rows.
+// A fixed window requires at least one enabled accounting row.
 func (c *CustomRingPolicyCircuit) checkVelocityTable(api frontend.API, rangeChecker frontend.Rangechecker) velocityPolicy {
 	// 1. Select the committed row prefix, a window needs rows.
 	assertOneHot(api, c.VelocityCountSelected[:])
@@ -53,8 +45,7 @@ func (c *CustomRingPolicyCircuit) checkVelocityTable(api frontend.API, rangeChec
 	off := api.IsZero(c.WindowSlots)
 	api.AssertIsEqual(api.Mul(api.Sub(1, off), c.VelocityCountSelected[0]), 0)
 
-	// 2. Bound every row, require a mint and a bound, exclude nonzero padding
-	// and repeated mints.
+	// 2. Require unique mints with bounded amounts and canonical padding.
 	for i, row := range c.Velocity {
 		rangeChecker.Check(row.Cap, amountBits)
 		rangeChecker.Check(row.CosignAbove, amountBits)
@@ -68,33 +59,30 @@ func (c *CustomRingPolicyCircuit) checkVelocityTable(api frontend.API, rangeChec
 			shared.AssertWhen(api, api.Mul(enabled[i], enabled[j]), nonZero(api, api.Sub(row.Asset, c.Velocity[j].Asset)))
 		}
 	}
-	return velocityPolicy{on: api.Sub(1, off), rows: api.Sub(1, c.VelocityCountSelected[0]), enabled: enabled}
+	return velocityPolicy{windowEnabled: api.Sub(1, off), rowsEnabled: api.Sub(1, c.VelocityCountSelected[0]), rowEnabled: enabled}
 }
 
-// constrainVelocity pins the record slots, charges the sender's outflow per
-// row to its successor record and raises the dual control bit.
+// Outflow excludes only change returned to the same sender inside the ring.
 func (c *CustomRingPolicyCircuit) constrainVelocity(
 	api frontend.API,
 	rangeChecker frontend.Rangechecker,
 	policy velocityPolicy,
 	txContext transactionContext,
 ) {
-	// 1. Money rides beside the record, the first input names the one
-	// sender.
+	// 1. Bind all money inputs to the sender in the first input slot.
 	api.AssertIsEqual(txContext.inputs[0].record, 0)
-	shared.AssertWhen(api, policy.rows, txContext.inputs[0].live)
+	shared.AssertWhen(api, policy.rowsEnabled, txContext.inputs[0].live)
 	sender := txContext.inputs[0].ownerPkHash
 	for _, input := range txContext.inputs[1:] {
-		shared.AssertWhen(api, api.Mul(policy.rows, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
+		shared.AssertWhen(api, api.Mul(policy.rowsEnabled, input.live), api.IsZero(api.Sub(input.ownerPkHash, sender)))
 	}
 
-	// 3. Open the record at the sender's address, a record from a future
-	// window is refused.
+	// 2. Bind the predecessor record to the sender and a nonfuture window.
 	rangeChecker.Check(c.Record.Version, amountBits)
 	rangeChecker.Check(c.Record.Window, amountBits)
 	rangeChecker.Check(c.WindowIndex, amountBits)
-	shared.AssertWhen(api, policy.on, outputTotalAtMost(api, c.Record.Window, c.WindowIndex))
-	shared.AssertWhen(api, api.Sub(1, policy.on), api.IsZero(c.WindowIndex))
+	shared.AssertWhen(api, policy.windowEnabled, outputTotalAtMost(api, c.Record.Window, c.WindowIndex))
+	shared.AssertWhen(api, api.Sub(1, policy.windowEnabled), api.IsZero(c.WindowIndex))
 	sameWindow := api.IsZero(api.Sub(c.Record.Window, c.WindowIndex))
 	address := spendAddress(api, c.NamespaceOwnerHash, sender, c.EntriesTreeID)
 	spentDataHash := recordDataHash(api, address, sender, c.Record.Version, c.Record.Window, c.Record.Commitment)
@@ -102,16 +90,14 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 		slot.assertRecord(api, txContext.inputs[i], c.NamespaceOwnerHash, c.EntriesTreeID, spentDataHash)
 	}
 
-	// 4. Open the counters inside the window, an expired record needs only
-	// its published commitment.
+	// 3. Authenticate counter openings only while their window remains current.
 	for k := range c.Record.Spent {
 		rangeChecker.Check(c.Record.Spent[k], amountBits)
 	}
 	opened := countersCommitment(api, c.Record.Salt, c.Record.Assets[:], c.Record.Spent[:])
-	api.AssertIsEqual(api.Mul(policy.on, sameWindow, api.Sub(opened, c.Record.Commitment)), 0)
+	api.AssertIsEqual(api.Mul(policy.windowEnabled, sameWindow, api.Sub(opened, c.Record.Commitment)), 0)
 
-	// 5. Charge each row's outflow, previous counters count only inside the
-	// window of a windowed ring.
+	// 4. Charge net outflow per mint against the applicable counter and cap.
 	approval := frontend.Variable(0)
 	var nextAssets, nextSpent [NVelocityAssets]frontend.Variable
 	for r, row := range c.Velocity {
@@ -124,23 +110,24 @@ func (c *CustomRingPolicyCircuit) constrainVelocity(
 			toSender := api.Mul(api.IsZero(api.Sub(output.ownerPkHash, sender)), api.IsZero(api.Sub(output.ringProgramID, c.RingID)))
 			change = api.Add(change, api.Mul(output.live, api.IsZero(api.Sub(output.asset, row.Asset)), toSender, output.amount))
 		}
-		shared.AssertWhen(api, policy.enabled[r], outputTotalAtMost(api, change, inflow))
+		shared.AssertWhen(api, policy.rowEnabled[r], outputTotalAtMost(api, change, inflow))
 		outflow := api.Sub(inflow, change)
 
 		previous := frontend.Variable(0)
 		for k := range c.Record.Assets {
 			previous = api.Add(previous, api.Mul(api.IsZero(api.Sub(c.Record.Assets[k], row.Asset)), c.Record.Spent[k]))
 		}
-		spent := api.Mul(policy.enabled[r], api.Add(api.Mul(policy.on, sameWindow, previous), outflow))
+		spent := api.Mul(policy.rowEnabled[r], api.Add(api.Mul(policy.windowEnabled, sameWindow, previous), outflow))
 		rangeChecker.Check(spent, amountBits)
-		capped := api.Mul(policy.enabled[r], nonZero(api, row.Cap))
+		capped := api.Mul(policy.rowEnabled[r], nonZero(api, row.Cap))
 		shared.AssertWhen(api, capped, outputTotalAtMost(api, spent, row.Cap))
-		cosigned := api.Mul(policy.enabled[r], nonZero(api, row.CosignAbove))
+		cosigned := api.Mul(policy.rowEnabled[r], nonZero(api, row.CosignAbove))
 		approval = api.Or(approval, api.Mul(cosigned, api.Sub(1, outputTotalAtMost(api, outflow, row.CosignAbove))))
 
 		nextAssets[r] = row.Asset
 		nextSpent[r] = spent
 	}
+	// 5. Expose only the required approval bit to the program.
 	api.AssertIsBoolean(c.ApprovalRequired)
 	api.AssertIsEqual(c.ApprovalRequired, approval)
 
@@ -159,8 +146,7 @@ func (c *CustomRingPolicyCircuit) constrainNamespace(api frontend.API, txContext
 	}
 }
 
-// assertRecord requires a record slot to be the namespace's zero-amount SOL
-// leaf under the entries tree with the expected data hash.
+// Record slots commit namespace ownership and the expected zero amount data leaf.
 func (w UtxoWires) assertRecord(api frontend.API, view utxoView, namespaceOwnerHash, entriesTreeID, dataHash frontend.Variable) {
 	for _, pair := range [][2]frontend.Variable{
 		{w.Domain, shared.UtxoDomain},

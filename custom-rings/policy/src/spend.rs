@@ -41,7 +41,7 @@ impl ListNamespace {
     }
 }
 
-/// The published half of a spend record, the counters stay in the commitment.
+/// Publishes the spend record needed to bind private counters to a compressed UTXO.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendRecord {
     pub member: Member,
@@ -106,7 +106,7 @@ impl SpendRecord {
     }
 }
 
-/// The private half, `commitment = HashChain(salt, asset_0, spent_0, .., asset_7, spent_7)`.
+/// Opens the private per mint totals committed by a spend record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendCounters {
     pub salt: [u8; 32],

@@ -1,4 +1,4 @@
-//! Every velocity transfer spends the version before it, the counters ride its messages.
+//! Record discovery separates current-head authentication from counter recovery.
 
 use solana_address::Address;
 use zolana_client::{AsyncRpc, OutputSlot, Rpc, ShieldedTransaction};
@@ -10,7 +10,7 @@ use zolana_ring_policy::{entry_nullifier, ListNamespace, Member, SpendRecord};
 
 use crate::instructions::entry::{EntryProofError, LineageLookup, Lineages};
 
-/// The publishing transaction, its messages carry the counters under its key.
+/// Locates the transaction key and encrypted counters for a published record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecordOrigin {
     pub first_nullifier: [u8; 32],
@@ -19,7 +19,7 @@ pub struct RecordOrigin {
     pub messages: Vec<MessageData>,
 }
 
-/// The current version of a member's record and its origin.
+/// Carries a decoded spend record and the transaction metadata needed to recover its counters.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveSpendRecord {
     pub record: SpendRecord,
@@ -28,6 +28,7 @@ pub struct LiveSpendRecord {
     pub origin: RecordOrigin,
 }
 
+/// Finds a member's record through either exact-root authentication or historical discovery.
 #[must_use]
 pub struct ReadSpendRecord {
     pub entries_tree: Address,
@@ -109,6 +110,7 @@ fn current_result(
     }
 }
 
+/// Binds record decoding to one namespace, member and entries tree.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct SpendLookup {
     pub owner: ListNamespace,
@@ -131,6 +133,7 @@ impl LineageLookup for SpendLookup {
         spender: &ShieldedTransaction,
         slot: &OutputSlot,
     ) -> Option<LiveSpendRecord> {
+        // 1. Read the public record opening from registration data or the successor message.
         if ListNamespace::new(&slot.view_tag).ok()? != self.owner {
             return None;
         }
@@ -149,6 +152,7 @@ impl LineageLookup for SpendLookup {
             }
             SpendRecord::from_output_data(&message.data)?
         };
+        // 2. Rebuild the namespace-owned SPP leaf before accepting the record or its counters.
         if record.member != self.member {
             return None;
         }

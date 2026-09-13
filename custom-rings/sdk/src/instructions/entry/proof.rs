@@ -156,11 +156,13 @@ impl EntryWitness<'_> {
     }
 }
 
+/// Opens the namespace-owned predecessor that an entry update consumes.
 pub(crate) struct SpentLeaf {
     pub data_hash: [u8; 32],
     pub blinding: [u8; 32],
 }
 
+/// Proves a namespace-owned SPP record creation or replacement.
 pub(crate) struct NamespaceWrite<'a> {
     pub owner: &'a ListNamespace,
     pub namespace: Address,
@@ -181,6 +183,7 @@ impl NamespaceWrite<'_> {
         prover: &ProverClient,
         content: impl FnOnce([u8; 32]) -> Vec<u8>,
     ) -> Result<([u8; 32], EntryProof), EntryProofError> {
+        // 1. Bind the claim or predecessor spend to accepted SPP state and nullifier roots.
         let non_inclusion = non_inclusion_proof(indexer, self.entries_tree, self.slot.nullifier)?;
         let live = match &self.slot.state {
             Some(state) => StateRoot {
@@ -246,6 +249,7 @@ impl NamespaceWrite<'_> {
         let payer_hash =
             solana_owner_identity(self.payer.as_array()).map_err(|_| EntryProofError::Hashing)?;
 
+        // 2. Commit the public record opening to the SPP output and transaction context.
         let output_data_hash = self.output_data_hash;
         let output_hash = self
             .owner
@@ -372,6 +376,7 @@ impl NamespaceWrite<'_> {
     }
 }
 
+/// Keeps the SPP proof inputs and instruction metadata bound to one namespace write.
 struct NamespaceWitness {
     inputs: TransferInputs,
     blinding: [u8; 32],

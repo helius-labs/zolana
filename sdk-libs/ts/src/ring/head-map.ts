@@ -1,8 +1,4 @@
-// The member-keyed indexed tree behind the compressed velocity rail, mirroring
-// the Rust `zolana_ring_head_map` reference and the Go circuit. The leaf is
-// Poseidon(member, next, nullifier) and the root advances with the on-chain
-// root. Photon maintains the tree and serves witnesses, the client verifies
-// them here before proving.
+// Each leaf binds a member to its successor pointer and current record nullifier.
 
 import type { Bytes32 } from "../interface/types.js";
 import { bytesToBigInt, poseidon } from "../transaction/internal.js";
@@ -82,7 +78,8 @@ export function headMapRootFromProof(
   return node;
 }
 
-export interface HeadMapInsertWitness {
+/** Supplies predecessor and append paths for a new member's head proof. */
+export interface HeadMapInsertProofInput {
   root: Bytes32;
   appendIndex: bigint;
   member: Bytes32;
@@ -96,7 +93,7 @@ export interface HeadMapInsertWitness {
 }
 
 /** Verifies a member insertion off its low element and empty slot, returning the advanced root. */
-export function verifyHeadMapInsert(witness: HeadMapInsertWitness): Bytes32 {
+export function verifyHeadMapInsert(witness: HeadMapInsertProofInput): Bytes32 {
   checkedIndex(witness.appendIndex);
   checkedIndex(witness.lowIndex);
   checkedHeadMapField(witness.root);
@@ -105,7 +102,7 @@ export function verifyHeadMapInsert(witness: HeadMapInsertWitness): Bytes32 {
     invalid("proofLength");
   }
   const member = bytesToBigInt(witness.member);
-  // Strict order proves the member absent between the low element and its successor.
+  // 1. Strict predecessor order proves member absence under the supplied root.
   if (!(bytesToBigInt(witness.lowMember) < member && member < bytesToBigInt(witness.lowNext))) {
     invalid("memberRange");
   }
@@ -113,9 +110,10 @@ export function verifyHeadMapInsert(witness: HeadMapInsertWitness): Bytes32 {
   if (!equalBytes(headMapRootFromProof(lowOld, witness.lowIndex, witness.lowProof), witness.root)) {
     invalid("lowRoot");
   }
+  // 2. Splice the predecessor before checking the append path.
   const lowNew = headMapLeaf(witness.lowMember, witness.member, witness.lowNullifier);
   const spliced = headMapRootFromProof(lowNew, witness.lowIndex, witness.lowProof);
-  // A non-empty append slot would overwrite a live member.
+  // 3. The intermediate root must authenticate an empty append slot.
   if (
     !equalBytes(headMapRootFromProof(EMPTY_LEAF, witness.appendIndex, witness.newProof), spliced)
   ) {
@@ -125,7 +123,8 @@ export function verifyHeadMapInsert(witness: HeadMapInsertWitness): Bytes32 {
   return headMapRootFromProof(memberLeaf, witness.appendIndex, witness.newProof);
 }
 
-export interface HeadMapTransferWitness {
+/** Supplies the current member path for a spend-head replacement proof. */
+export interface HeadMapTransferProofInput {
   root: Bytes32;
   member: Bytes32;
   next: Bytes32;
@@ -136,7 +135,7 @@ export interface HeadMapTransferWitness {
 }
 
 /** Verifies the member's leaf holds `spent` under `root`, returning the root after `successor`. */
-export function verifyHeadMapTransfer(witness: HeadMapTransferWitness): Bytes32 {
+export function verifyHeadMapTransfer(witness: HeadMapTransferProofInput): Bytes32 {
   checkedIndex(witness.index);
   checkedHeadMapField(witness.root);
   if (

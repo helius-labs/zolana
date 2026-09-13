@@ -6,7 +6,7 @@ use zolana_interface::instruction::{RingAuthorityTransact, TransactIxData};
 
 use crate::{instructions::cosigner::cosigner_metas, CustomRing};
 
-/// Sets the delegate once under the upgrade authority, no instruction replaces it.
+/// Assigns the permanent delegate under the ring's upgrade authority.
 #[must_use]
 pub struct SetDelegate {
     pub ring: CustomRing,
@@ -48,9 +48,7 @@ pub enum DelegateInstructionError {
     Serialize(#[from] wincode::WriteError),
 }
 
-/// A delegate move over the SPP authority rail, `[payer(w,s), config, cosigner_pda,
-/// cosigner, delegate_pda, delegate(s)]` then a policy ring's `[policy_config,
-/// entries_tree]` precede SPP's `RING_AUTHORITY_TRANSACT` list.
+/// Binds an internal SPP authority transfer to the ring's delegate and policy checks.
 #[must_use]
 pub struct CustomRingDelegateTransact {
     pub ring: CustomRing,

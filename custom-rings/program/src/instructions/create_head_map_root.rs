@@ -28,8 +28,10 @@ pub fn process_create_head_map_root_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    // 1. Authenticate the ring authority before allocating shared member state.
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 2. Initialize only the canonical sentinel root without replacing a live map.
     let bump = PdaCheck {
         program_id,
         address: root_account.address(),

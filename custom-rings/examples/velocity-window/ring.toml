@@ -1,7 +1,6 @@
-# A ring with a spend window. Each sender may move at most the cap of a mint
-# out of its own balance per window, and a single transfer above the co-sign
-# threshold needs the ring's co-signer. Members register their spend record
-# once with `zolana-ring spend register` before their first transfer.
+# Caps each member's outflow per mint across a fixed window.
+# Members register once with `zolana-ring spend register` before transferring.
+# Transfers above cosign_above also require the configured co-signer.
 
 name = "velocity-window"
 target = "localnet"
@@ -26,7 +25,7 @@ ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
 # every entry the rules read lives in the named tree
 entries_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
 
-# A sender's outflow per mint over a window, windows start at multiples of the length and reset the counters.
+# Counters reset at slot multiples of window_slots, not on a sliding schedule.
 [policy.velocity]
 window_slots = 216000
 rows = [

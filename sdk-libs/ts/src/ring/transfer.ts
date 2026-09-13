@@ -11,9 +11,9 @@ import { ownerSignerAddresses, ringOpenings } from "../client/prover/assembly.js
 import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
-  velocityWitnessOff,
+  velocityProofInputOff,
   type CustomRingSourceOwner,
-  type CustomRingVelocityWitness,
+  type CustomRingVelocityProofInput,
   type CustomRingPolicyProofRequest,
 } from "../client/prover/types.js";
 import { hashBytes } from "../hasher/index.js";
@@ -161,12 +161,14 @@ export interface CustomRingTransferParams {
   readonly outputTree?: Address;
 }
 
+/** Provides the authority-rail proof and the ring's audit or policy proof. */
 export type RingDelegateProofClient = TreeContext &
   RingPolicyAnswerClient &
   Pick<
     Prover,
     "proveRingAuthorityTransact" | "proveCustomRingDelegatePolicy" | "proveCustomRingBase"
   >;
+/** Binds a prepared delegate move to its ring proof inputs. */
 export type CustomRingDelegateTransferParams = Omit<CustomRingTransferParams, "client"> &
   Readonly<{ client: RingDelegateProofClient }>;
 
@@ -189,7 +191,7 @@ export type ProvenRingTransfer = RingTransactTrees &
     window?: Readonly<{ index: bigint; slots: bigint }>;
   }>;
 
-/** Returns a version 1 transaction, signed by the fee payer only. */
+/** Builds an unsigned V1 transaction with the required ring and SPP proofs. */
 export async function buildRingTransferTransaction(
   input: RingTransferTransactionParams,
   context?: RequestContext,
@@ -197,7 +199,8 @@ export async function buildRingTransferTransaction(
   return buildRingSendTransaction(normalizeRingTransferParams(input), "ring", context);
 }
 
-interface RingBuildState {
+/** Retains selected member notes and intent across confirmed-failure retries. */
+interface RingSubmissionBuildState {
   entries?: readonly WalletUtxo[];
   reservation?: UtxoReservation;
   intent?: Bytes32;
@@ -246,10 +249,13 @@ export async function createRingWithdrawalSubmission(
 
 async function createRingSpendSubmission(
   params: RingSpendParams,
-  buildTransaction: (state: RingBuildState, context?: RequestContext) => Promise<Transaction>,
+  buildTransaction: (
+    state: RingSubmissionBuildState,
+    context?: RequestContext,
+  ) => Promise<Transaction>,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
-  const state: RingBuildState = {};
+  const state: RingSubmissionBuildState = {};
   const build = async (context?: RequestContext): Promise<RingSubmissionAttempt> => {
     await buildTransaction(state, context);
     if (state.attempt === undefined) throw new RingError("RING_BUILD_TRANSFER");
@@ -320,7 +326,7 @@ async function buildRingSendTransaction(
   input: RingTransferTransactionParams,
   destination: "ring" | "default",
   context?: RequestContext,
-  state?: RingBuildState,
+  state?: RingSubmissionBuildState,
 ): Promise<Transaction> {
   return buildRingSpend(
     input,
@@ -406,7 +412,7 @@ async function buildRingSpend<R>(
   input: RingSpendParams,
   strategy: RingSpendStrategy<R>,
   context?: RequestContext,
-  state?: RingBuildState,
+  state?: RingSubmissionBuildState,
 ): Promise<Transaction> {
   return input.authority.withSpendSession(async (session) => {
     let inputs: readonly ProofInputUtxo[] = [];
@@ -424,6 +430,7 @@ async function buildRingSpend<R>(
         ringConfigs.hasPolicy &&
         ringConfigs.policy.windowSlots !== 0n &&
         ringConfigs.policy.velocityCount !== 0;
+      // 1. Reserve the money inputs while leaving room for the spend record.
       const selected =
         state?.entries ??
         selectRingInputs(
@@ -484,6 +491,7 @@ async function buildRingSpend<R>(
         asset,
         owner: address,
       });
+      // 2. Bind approval and every retry to the same transfer intent.
       const plannedIntent = intentHash(plan.intent);
       if (state?.intent !== undefined && !equalBytes(state.intent, plannedIntent))
         throw ringIntentMismatch("retryIntent");
@@ -496,6 +504,7 @@ async function buildRingSpend<R>(
       checkIntentApproval(approval, plan.intent, ringIntentMismatch);
       const prepared = transfer.prepare();
       checkPreparedTransfer(prepared, plan.intent, ringIntentMismatch);
+      // 3. Prove the transaction together with its ring obligations.
       const proven = await proveCustomRingTransfer(
         {
           client: input.client,
@@ -516,6 +525,7 @@ async function buildRingSpend<R>(
           details: { ringProgramId: input.ringProgramId },
         });
       }
+      // 4. Compile the proved state transition with its required signers.
       const [instruction, lifetime] = await Promise.all([
         ringTransactInstruction({
           ringProgramId: input.ringProgramId,
@@ -580,7 +590,7 @@ export async function buildRingWithdrawalTransaction(
 async function buildRingWithdrawal(
   normalized: RingWithdrawalTransactionParams,
   context?: RequestContext,
-  state?: RingBuildState,
+  state?: RingSubmissionBuildState,
 ): Promise<Transaction> {
   return buildRingSpend(
     normalized,
@@ -656,6 +666,7 @@ async function proveRingTransferStatement(
       details: { tree: input.tree, clientTree: flow.client.tree },
     });
   }
+  // 1. Read the committed policy and the ring's immutable proof tier.
   const configs = await fetchRingConfigs(flow.client, input.ringProgramId, context);
   const config = configs.config;
   const policy = configs.hasPolicy ? policyContext(configs.policy) : undefined;
@@ -674,13 +685,14 @@ async function proveRingTransferStatement(
   // Captured before a windowed ring appends the record as the last output.
   const moneyOutputs = prepared.outputs;
 
-  let velocity: CustomRingVelocityWitness | undefined;
+  // 2. Charge member outflow and bind any compressed record transition.
+  let velocity: CustomRingVelocityProofInput | undefined;
   let plan: VelocityPlan | undefined;
   let head: RingHeadTransferProof | undefined;
   let headTransition: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }> | undefined;
   if (policy !== undefined && flow.kind === "delegate") {
     velocity = {
-      ...velocityWitnessOff(ringId, policy.config.namespaceOwnerHash),
+      ...velocityProofInputOff(ringId, policy.config.namespaceOwnerHash),
       rows: policy.table.velocity,
       windowSlots: policy.table.windowSlots,
     };
@@ -732,7 +744,7 @@ async function proveRingTransferStatement(
         input: plan.recordInput,
         output: plan.recordOutput,
       });
-      velocity = plan.witness;
+      velocity = plan.proofInput;
       head = facts.head;
       if (head === undefined) throw new RingError("RING_HEAD_MAP_MISSING");
       headTransition = {
@@ -751,6 +763,7 @@ async function proveRingTransferStatement(
   }
   const approvalRequired = velocity?.approvalRequired ?? false;
 
+  // 3. Seal outputs and recovery messages before committing the transaction context.
   const encrypted = await input.session.encryptCustomRingTransfer({
     firstNullifier: prepared.firstNullifier,
     outputs: prepared.outputs,
@@ -781,6 +794,7 @@ async function proveRingTransferStatement(
             : InstructionTag.ringTransact,
       }),
     );
+    // 4. Open real transaction subjects and collect reusable list facts.
     const openings = ringOpenings(proofInputs);
     const policyRound =
       policy === undefined
@@ -799,6 +813,7 @@ async function proveRingTransferStatement(
               context,
             )),
           };
+    // 5. Prove the SPP transaction that the ring statement must match.
     const { data } =
       flow.kind === "delegate"
         ? await flow.client.proveRingAuthorityTransact(proofInputs, input.ringProgramId, context)
@@ -841,9 +856,10 @@ async function proveRingTransferStatement(
       });
     }
 
+    // 6. Prove audit and rule evaluation under the committed table and list roots.
     const { answers, roots } = policyRound;
-    const velocityWitness =
-      velocity ?? velocityWitnessOff(ringId, policyRound.config.namespaceOwnerHash);
+    const velocityProofInput =
+      velocity ?? velocityProofInputOff(ringId, policyRound.config.namespaceOwnerHash);
     const policyRequest: CustomRingPolicyProofRequest = {
       publicInputHash: policyPublicInputHash({
         privateTxHash: data.privateTxHash,
@@ -854,10 +870,10 @@ async function proveRingTransferStatement(
         stateRoot: roots.stateRoot,
         nullifierRoot: roots.nullifierRoot,
         entriesTreeId: policyRound.config.entriesTreeId,
-        ringId: velocityWitness.ringId,
-        namespaceOwnerHash: velocityWitness.namespaceOwnerHash,
-        windowIndex: velocityWitness.windowIndex,
-        approvalRequired: velocityWitness.approvalRequired,
+        ringId: velocityProofInput.ringId,
+        namespaceOwnerHash: velocityProofInput.namespaceOwnerHash,
+        windowIndex: velocityProofInput.windowIndex,
+        approvalRequired: velocityProofInput.approvalRequired,
         ...(headTransition === undefined ? {} : { headTransition }),
       }),
       privateTxHash: data.privateTxHash,
@@ -887,7 +903,7 @@ async function proveRingTransferStatement(
       stateRoot: roots.stateRoot,
       nullifierRoot: roots.nullifierRoot,
       entriesTreeId: policyRound.config.entriesTreeId,
-      velocity: velocityWitness,
+      velocity: velocityProofInput,
       answers,
     };
     const proof =
@@ -919,8 +935,8 @@ async function proveRingTransferStatement(
         ? {}
         : {
             window: {
-              index: plan.witness.windowIndex,
-              slots: plan.witness.windowSlots,
+              index: plan.proofInput.windowIndex,
+              slots: plan.proofInput.windowSlots,
             },
           }),
     });

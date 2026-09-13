@@ -10,6 +10,7 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
+/** Encodes an exact-root member request for the head proof RPC. */
 export interface RingHeadProofRequest {
   readonly ringProgramId: Address;
   readonly member: Hash;
@@ -17,6 +18,7 @@ export interface RingHeadProofRequest {
   readonly expectedNextIndex: bigint;
 }
 
+/** Identifies the indexed snapshot claimed by a head proof response. */
 export interface RingHeadProofContext {
   readonly context: IndexerContext;
   readonly root: Hash;
@@ -24,6 +26,7 @@ export interface RingHeadProofContext {
   readonly member: Hash;
 }
 
+/** Carries RPC paths for inserting a previously unregistered member. */
 export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly lowMember: Hash;
   readonly lowNext: Hash;
@@ -33,6 +36,7 @@ export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly newProof: readonly Hash[];
 }
 
+/** Carries RPC inclusion and origin data for the current spend record. */
 export interface RingHeadTransferProof extends RingHeadProofContext {
   readonly next: Hash;
   readonly nullifier: Hash;

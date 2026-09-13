@@ -17,6 +17,7 @@ import type { Bytes32, RequestContext, Transaction } from "../interface/types.js
 import { equalBytes } from "../wallet/internal.js";
 import { RingError } from "./error.js";
 
+/** Binds a prepared transaction to the intent retained across retries. */
 export interface RingSubmissionAttempt {
   readonly transaction: Transaction;
   readonly intentHash: Bytes32;
@@ -24,12 +25,13 @@ export interface RingSubmissionAttempt {
   readonly window?: Readonly<{ index: bigint; slots: bigint }>;
 }
 
+/** Reports whether the submission owner can release its reservation. */
 export type RingSubmissionResult =
   | Readonly<{ kind: "confirmed"; signature: Signature; slot: bigint; attempts: number }>
   | Readonly<{ kind: "unknown"; signature: Signature; attempts: number }>
   | Readonly<{ kind: "failed"; signature: Signature; attempts: number }>;
 
-/** Unknown outcomes retain the reservation. */
+/** Retains intent and reservations until a broadcast has a known outcome. */
 export class RingTransactionSubmission {
   readonly #intent: Bytes32;
   readonly #build: (context?: RequestContext) => Promise<RingSubmissionAttempt>;
@@ -77,6 +79,7 @@ export class RingTransactionSubmission {
     this.#busy = true;
     try {
       for (;;) {
+        // 1. Sign the retained intent only when no broadcast remains unresolved.
         if (this.#pending === undefined) {
           if (!equalBytes(this.#intent, this.#attempt.intentHash))
             throw new RingError("RING_INTENT_MISMATCH");
@@ -93,6 +96,7 @@ export class RingTransactionSubmission {
             /* The local signature remains authoritative after a send error. */
           }
         }
+        // 2. Resolve the locally derived signature before releasing its reservation.
         const signature = this.#pending;
         let status: RingSubmissionStatus;
         try {
@@ -108,6 +112,7 @@ export class RingTransactionSubmission {
           this.#release();
           return { kind: "confirmed", signature, slot: status.slot, attempts: this.#attempts };
         }
+        // 3. Rebuild only after a confirmed stale-head or changed-window failure.
         let retry =
           status.instructionIndex === this.#attempt.ringInstructionIndex &&
           status.customCode === 8166;

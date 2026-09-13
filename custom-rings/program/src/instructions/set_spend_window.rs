@@ -42,8 +42,10 @@ pub fn process_set_spend_window_ix(
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
     }
+    // 1. Authenticate the config authority's per-mint settlement policy.
     load_authorized_config(program_id, config_account, authority)?;
 
+    // 2. Start replacement accounting at the current fixed-window boundary.
     let mint = Address::new_from_array(mint);
     let slot = Clock::get()?.slot;
     let existing = load_spend_window(program_id, window_account, &mint)?.map(|window| window.bump);

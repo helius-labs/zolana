@@ -146,8 +146,7 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`, `[cosigner_pda, cosigner]` follow the config. */
-/** What every ring transact carries, the member and the delegate rail alike. */
+/** Carries shared account bindings for member and delegate ring instructions. */
 type RingTransactCommon = Readonly<{
   ringProgramId: Address;
   payer: SignerAccount;
@@ -158,7 +157,7 @@ type RingTransactCommon = Readonly<{
   /** False drops the policy_config and entries_tree accounts. */
   hasPolicy?: boolean;
   proof: Uint8Array;
-  /** History entries the ring statement binds, unread by a ring without rules. */
+  /** History entries the ring statement binds, unread by an audit-only ring. */
   stateRootIndex: number;
   nullifierRootIndex: number;
   data: TransactInstructionData;
@@ -235,7 +234,7 @@ export async function ringTransactInstruction(
   };
 }
 
-/** `tag || proof || root indexes || approval || SPP content`, the layout tag 3 and tag 25 share. */
+/** Member and delegate instructions share the optional head-transition prefix. */
 function transactData(
   tag: number,
   input: Readonly<{

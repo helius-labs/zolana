@@ -89,24 +89,24 @@ async fn block_batches_cross_skipped_pages_without_skipping_live_blocks() {
     handle.stopped().await;
 }
 
-async fn fixture() -> (DatabaseConnection, Map, Cursor) {
+async fn fixture() -> (DatabaseConnection, HeadMapState, ProjectionCursor) {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     RingsMigrator::up(&db, None).await.unwrap();
     let program = [11; 32];
-    let map = Map {
+    let map = HeadMapState {
         program,
         address: parser::root_address(&Pubkey::new_from_array(program)).to_bytes(),
         root: custom_ring_interface::HEAD_MAP_EMPTY_ROOT,
         next_index: 1,
     };
-    let sentinel = Member {
+    let sentinel = MemberHead {
         member: [0; 32],
         index: 0,
         next: zolana_ring_head_map::FIELD_MAX,
         nullifier: [0; 32],
         record: None,
     };
-    let cursor = Cursor {
+    let cursor = ProjectionCursor {
         start_slot: 0,
         scanned_slot: 0,
         tip: None,

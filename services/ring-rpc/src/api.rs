@@ -320,6 +320,7 @@ pub struct DecryptedWithdrawal {
     pub amount: u64,
 }
 
+/// Returns public record metadata with counters opened by the auditor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedSpendRecord {
@@ -334,6 +335,7 @@ pub struct DecryptedSpendRecord {
     pub counters: Option<DecryptedSpendCounters>,
 }
 
+/// Returns per-mint outflow totals verified against the record commitment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DecryptedSpendCounters {

@@ -261,7 +261,7 @@ fn the_entries_tree_address_is_the_configured_one() {
     );
 }
 
-/// The state root has no window, inclusion is monotone.
+/// State roots use history bounds without the nullifier freshness window.
 #[test]
 fn a_state_root_index_past_the_history_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

@@ -9,7 +9,7 @@ use crate::{
     ingester::persist::persisted_state_tree::{get_proof_nodes, zero_hash_for_level},
 };
 
-use super::storage::Map;
+use super::storage::HeadMapState;
 
 pub const HEIGHT: usize = custom_ring_interface::HEAD_MAP_HEIGHT;
 pub const CAPACITY: u64 = 1 << HEIGHT;
@@ -36,7 +36,7 @@ pub fn root(mut leaf: [u8; 32], mut index: u64, proof: &[[u8; 32]]) -> Result<[u
 
 pub async fn path(
     tx: &DatabaseTransaction,
-    map: &Map,
+    map: &HeadMapState,
     index: u64,
 ) -> Result<([u8; 32], Vec<[u8; 32]>)> {
     if index >= CAPACITY {

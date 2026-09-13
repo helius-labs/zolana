@@ -11,16 +11,18 @@ use crate::{
     },
 };
 
+/// Stores a ring's projected root and append position.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Map {
+pub struct HeadMapState {
     pub program: [u8; 32],
     pub address: [u8; 32],
     pub root: [u8; 32],
     pub next_index: u64,
 }
 
+/// Stores the current spend record at one compressed member leaf.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Member {
+pub struct MemberHead {
     pub member: [u8; 32],
     pub index: u64,
     pub next: [u8; 32],
@@ -28,24 +30,25 @@ pub struct Member {
     pub record: Option<RingHeadRecord>,
 }
 
-impl Member {
+impl MemberHead {
     pub fn hash(&self) -> Result<[u8; 32]> {
         custom_ring_interface::head_map_leaf(&self.member, &self.next, &self.nullifier)
             .map_err(|error| anyhow::anyhow!("head leaf hash failed ({error:?})"))
     }
 }
 
+/// Tracks canonical block progress and proof availability for the head projection.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Cursor {
+pub struct ProjectionCursor {
     pub start_slot: u64,
     pub scanned_slot: u64,
     pub tip: Option<BlockMetadata>,
-    /// Undo writes must increase the storage sequence.
+    /// Rollback writes must increase the storage sequence.
     pub revision: u64,
     pub ready: bool,
 }
 
-impl Cursor {
+impl ProjectionCursor {
     pub fn advance_revision(&mut self) -> Result<u64> {
         self.revision = self
             .revision
@@ -56,34 +59,37 @@ impl Cursor {
     }
 }
 
+/// Restores one ring's member leaves and root after a fork.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Undo {
+pub struct HeadMapUndo {
     pub program: [u8; 32],
-    pub before: Option<Map>,
-    pub members: Vec<([u8; 32], Option<Member>)>,
+    pub before: Option<HeadMapState>,
+    pub members: Vec<([u8; 32], Option<MemberHead>)>,
     pub leaves: Vec<(u64, [u8; 32])>,
 }
 
+/// Groups reversible head changes under their canonical block identity.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BlockJournal {
     pub metadata: BlockMetadata,
     pub previous_tip: Option<BlockMetadata>,
-    pub undo: Vec<Undo>,
+    pub undo: Vec<HeadMapUndo>,
 }
 
+/// Retains a root initialization until the ring is registered with SPP.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Pending {
+pub struct PendingRing {
     pub program: [u8; 32],
     pub slot: u64,
     pub blockhash: Hash,
 }
 
-pub async fn save_pending<C: ConnectionTrait>(conn: &C, value: &Pending) -> Result<()> {
+pub async fn save_pending<C: ConnectionTrait>(conn: &C, value: &PendingRing) -> Result<()> {
     conn.execute(statement(conn,"INSERT INTO ring_head_pending(program,slot,state) VALUES($1,$2,$3) ON CONFLICT(program) DO NOTHING",vec![value.program.to_vec().into(),i64::try_from(value.slot)?.into(),serde_json::to_string(value)?.into()])).await?;
     Ok(())
 }
 
-pub async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<Pending>> {
+pub async fn pending<C: ConnectionTrait>(conn: &C) -> Result<Vec<PendingRing>> {
     conn.query_all(statement(
         conn,
         "SELECT state FROM ring_head_pending ORDER BY slot",
@@ -126,7 +132,7 @@ pub async fn read_json<T: DeserializeOwned, C: ConnectionTrait>(
         .transpose()
 }
 
-pub async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<Cursor>> {
+pub async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<ProjectionCursor>> {
     read_json(
         conn,
         "SELECT state FROM ring_head_cursor WHERE id = 1",
@@ -135,12 +141,12 @@ pub async fn cursor<C: ConnectionTrait>(conn: &C) -> Result<Option<Cursor>> {
     .await
 }
 
-pub async fn save_cursor<C: ConnectionTrait>(conn: &C, value: &Cursor) -> Result<()> {
+pub async fn save_cursor<C: ConnectionTrait>(conn: &C, value: &ProjectionCursor) -> Result<()> {
     conn.execute(statement(conn, "INSERT INTO ring_head_cursor(id,state) VALUES(1,$1) ON CONFLICT(id) DO UPDATE SET state=excluded.state", vec![serde_json::to_string(value)?.into()])).await?;
     Ok(())
 }
 
-pub async fn map<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<Option<Map>> {
+pub async fn map<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<Option<HeadMapState>> {
     read_json(
         conn,
         "SELECT state FROM ring_head_maps WHERE program=$1",
@@ -149,7 +155,7 @@ pub async fn map<C: ConnectionTrait>(conn: &C, program: &[u8; 32]) -> Result<Opt
     .await
 }
 
-pub async fn maps<C: ConnectionTrait>(conn: &C) -> Result<Vec<Map>> {
+pub async fn maps<C: ConnectionTrait>(conn: &C) -> Result<Vec<HeadMapState>> {
     conn.query_all(statement(
         conn,
         "SELECT state FROM ring_head_maps ORDER BY program",
@@ -164,7 +170,7 @@ pub async fn maps<C: ConnectionTrait>(conn: &C) -> Result<Vec<Map>> {
     .collect()
 }
 
-pub async fn save_map<C: ConnectionTrait>(conn: &C, value: &Map) -> Result<()> {
+pub async fn save_map<C: ConnectionTrait>(conn: &C, value: &HeadMapState) -> Result<()> {
     conn.execute(statement(conn, "INSERT INTO ring_head_maps(program,state) VALUES($1,$2) ON CONFLICT(program) DO UPDATE SET state=excluded.state", vec![value.program.to_vec().into(), serde_json::to_string(value)?.into()])).await?;
     Ok(())
 }
@@ -173,7 +179,7 @@ pub async fn member<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
     member: &[u8; 32],
-) -> Result<Option<Member>> {
+) -> Result<Option<MemberHead>> {
     read_json(
         conn,
         "SELECT state FROM ring_head_members WHERE program=$1 AND member=$2",
@@ -186,8 +192,8 @@ pub async fn predecessor<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
     member: &[u8; 32],
-) -> Result<Member> {
-    let low: Member = read_json(conn, "SELECT state FROM ring_head_members WHERE program=$1 AND member<$2 ORDER BY member DESC LIMIT 1", vec![program.to_vec().into(), member.to_vec().into()]).await?.context("no covering head-map predecessor")?;
+) -> Result<MemberHead> {
+    let low: MemberHead = read_json(conn, "SELECT state FROM ring_head_members WHERE program=$1 AND member<$2 ORDER BY member DESC LIMIT 1", vec![program.to_vec().into(), member.to_vec().into()]).await?.context("no covering head-map predecessor")?;
     if !(low.member < *member && *member < low.next) {
         bail!("member is not absent in the head map");
     }
@@ -197,7 +203,7 @@ pub async fn predecessor<C: ConnectionTrait>(
 pub async fn save_member<C: ConnectionTrait>(
     conn: &C,
     program: &[u8; 32],
-    member: &Member,
+    member: &MemberHead,
 ) -> Result<()> {
     let index = i64::try_from(member.index)?;
     conn.execute(statement(conn, "INSERT INTO ring_head_members(program,member,leaf_index,state) VALUES($1,$2,$3,$4) ON CONFLICT(program,member) DO UPDATE SET leaf_index=excluded.leaf_index,state=excluded.state", vec![program.to_vec().into(), member.member.to_vec().into(), index.into(), serde_json::to_string(member)?.into()])).await?;
@@ -206,7 +212,7 @@ pub async fn save_member<C: ConnectionTrait>(
 
 pub async fn write_leaves(
     tx: &DatabaseTransaction,
-    map: &Map,
+    map: &HeadMapState,
     leaves: &[(u64, [u8; 32])],
     revision: u64,
 ) -> Result<[u8; 32]> {
@@ -255,7 +261,8 @@ pub async fn save_journal(tx: &DatabaseTransaction, journal: &BlockJournal) -> R
     Ok(())
 }
 
-pub async fn rollback(tx: &DatabaseTransaction, cursor: &mut Cursor) -> Result<()> {
+pub async fn rollback(tx: &DatabaseTransaction, cursor: &mut ProjectionCursor) -> Result<()> {
+    // 1. Load the orphaned block's undo journal inside the caller's transaction.
     let tip = cursor
         .tip
         .as_ref()
@@ -273,6 +280,7 @@ pub async fn rollback(tx: &DatabaseTransaction, cursor: &mut Cursor) -> Result<(
         vec![i64::try_from(journal.metadata.slot)?.into()],
     ))
     .await?;
+    // 2. Restore changes in reverse order using fresh storage revisions.
     for undo in journal.undo.iter().rev() {
         if let Some(before) = &undo.before {
             let root = write_leaves(tx, before, &undo.leaves, cursor.advance_revision()?).await?;
@@ -326,6 +334,7 @@ pub async fn rollback(tx: &DatabaseTransaction, cursor: &mut Cursor) -> Result<(
         vec![i64::try_from(journal.metadata.slot)?.into()],
     ))
     .await?;
+    // 3. Keep proofs unavailable until the canonical replacement has been indexed.
     cursor.tip = journal.previous_tip;
     cursor.scanned_slot = cursor
         .tip

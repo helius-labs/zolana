@@ -26,10 +26,12 @@ pub fn process_clear_spend_window_ix(
     let window_account = iter.next_mut("window")?;
     let rent_recipient = iter.next_mut("rent_recipient")?;
 
+    // 1. Authenticate the authority and the mint whose public cap is removed.
     load_authorized_config(program_id, config_account, authority)?;
     if load_spend_window(program_id, window_account, &mint)?.is_none() {
         return Err(CustomRingError::InvalidSpendWindow.into());
     }
+    // 2. Remove public settlement accounting without changing private outflow caps.
     close_into(
         window_account,
         rent_recipient,

@@ -12,7 +12,7 @@ use zolana_transaction::SOL_MINT;
 
 use crate::{line, ui, ui::Icon, Context, ContextError, WindowCommand};
 
-/// A mint address, `sol` for the native token.
+/// Parses the public settlement mint selection, including native SOL.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mint(pub Address);
 
@@ -51,6 +51,7 @@ impl From<ClientError> for WindowError {
 }
 
 pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError> {
+    // 1. Apply public settlement caps under the config authority.
     let mint = match command {
         WindowCommand::Set {
             mint,
@@ -103,6 +104,7 @@ pub fn run(ctx: &mut Context, command: WindowCommand) -> Result<(), WindowError>
         }
         WindowCommand::Show { mint } => mint,
     };
+    // 2. Report the stored cap and window usage after any configuration change.
     match ctx.ring.read_spend_window(&ctx.rpc, &mint.0)? {
         Some(window) => print(&window),
         None => line("spend window", format_args!("{} uncapped", name(&mint.0))),

@@ -111,6 +111,7 @@ describe("fresh ring controls", () => {
     const ringProgramId = program.address;
     const auditor = ViewingKey.generate();
     try {
+      // 1. Deploy a fresh ring with list rules and independent mint caps.
       for (let i = 0; i < 6; i++) await airdrop(client, authority.address);
       await airdrop(client, delegate.address);
       await deployRingProgram({
@@ -235,6 +236,7 @@ describe("fresh ring controls", () => {
         }),
         authority,
       );
+      // 2. Register one compressed member head before funding its private notes.
       const sender = await freshActor(),
         recipient = await freshActor();
       await airdrop(client, sender.signer.address);
@@ -284,6 +286,7 @@ describe("fresh ring controls", () => {
         );
       }
       await sync(client, sender);
+      // 3. Verify co-signed outflow and counter recovery across all funded mints.
       const transfer = {
         client,
         ringProgramId,
@@ -381,6 +384,7 @@ describe("fresh ring controls", () => {
           causeCode: "RING_VELOCITY_CAP_EXCEEDED",
         });
       }
+      // 4. Delegate the same assets without advancing their velocity counters.
       const beforeDelegate = await indexedHead(state);
       const move = {
         client,
@@ -441,6 +445,7 @@ describe("fresh ring controls", () => {
             ?.assets.find((balance) => balance.mint === asset)?.amount,
         ).toBe(recipientAmount);
       }
+      // 5. Drain a sponsored token withdrawal and retain delegate list checks.
       await settle(
         await indexedHead(() =>
           createRingWithdrawalSubmission({

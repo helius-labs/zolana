@@ -14,12 +14,14 @@ const FIXTURE: &str = concat!(
 );
 const CASES: usize = 32;
 
+/// Pins policy hash agreement between Rust and Go across generated tables.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct Corpus {
     version: u8,
     cases: Vec<Case>,
 }
 
+/// Pairs one generated policy with its expected commitment.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Case {
@@ -30,6 +32,7 @@ struct Case {
     policy_hash: String,
 }
 
+/// Associates a corpus list with its namespace owner.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Source {
@@ -37,6 +40,7 @@ struct Source {
     owner_hash: String,
 }
 
+/// Preserves a decoded rule for the Go hash reconstruction.
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 struct Row {
@@ -62,6 +66,7 @@ impl Row {
     }
 }
 
+/// Generates deterministic policy fixtures without cryptographic randomness.
 struct Xorshift(u64);
 
 impl Xorshift {

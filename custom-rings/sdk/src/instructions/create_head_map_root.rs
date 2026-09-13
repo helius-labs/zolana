@@ -2,7 +2,7 @@ use crate::{tag, CustomRing};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
 
-/// Requires the config authority.
+/// Creates the shared current-record root under the ring's config authority.
 pub struct CreateHeadMapRoot {
     pub ring: CustomRing,
     pub payer: Address,

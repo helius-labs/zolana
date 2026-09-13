@@ -6,7 +6,7 @@ use zolana_ring_policy::VelocityMode;
 use crate::{
     error::CustomRingError,
     instructions::{
-        cosign::{require_cosigner, Demand},
+        cosign::{require_cosigner, CoSignerRequirement},
         loader::{load_config, load_policy_config, validate_spp_program},
         policy_shared::require_entries_trees,
         public_legs::{apply_spend_windows, PublicLegs},
@@ -30,8 +30,7 @@ impl Forward {
     }
 }
 
-/// Forwards an SPP ring transition with the ring authority signature, the
-/// co-signer prefix and one window slot per deposit asset stay behind.
+/// Applies ring controls to proofless deposits and owner-preserving SPP merges.
 #[inline(never)]
 pub fn process_spp_forward_ix(
     program_id: &Address,
@@ -39,6 +38,7 @@ pub fn process_spp_forward_ix(
     data: &[u8],
     kind: Forward,
 ) -> ProgramResult {
+    // 1. Select controls from the ring config before separating the SPP account list.
     let mut iter = AccountIterator::new(accounts);
     let config_account = iter.next_account("config")?;
     let cosigner_account = iter.next_account("cosigner_pda")?;
@@ -63,6 +63,7 @@ pub fn process_spp_forward_ix(
     }
     let (windows, spp_accounts) = rest.split_at_mut(leg_count);
     validate_spp_program(spp_accounts)?;
+    // 2. Keep windowed-ring outputs in the tree that also holds their spend records.
     if let Some(policy_config_account) = policy_config_account {
         let policy = load_policy_config(program_id, policy_config_account)?;
         // A windowed ring creates notes only in the entries tree, a merge input may be foreign.
@@ -73,16 +74,18 @@ pub fn process_spp_forward_ix(
             require_entries_trees(trees, &policy.entries_tree)?;
         }
     }
+    // 3. Enforce scoped approval and public deposit caps without charging merge change.
     let demand = match &deposit {
         Some(deposit) => {
             let settlements = spp_accounts
                 .get(4..)
                 .ok_or(ProgramError::NotEnoughAccountKeys)?;
-            Demand::deposit(PublicLegs::from_ring_deposit(deposit, settlements)?)
+            CoSignerRequirement::deposit(PublicLegs::from_ring_deposit(deposit, settlements)?)
         }
-        None => Demand::TRANSFER,
+        None => CoSignerRequirement::TRANSFER,
     };
     require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
     apply_spend_windows(program_id, windows, &demand.legs)?;
+    // 4. Delegate settlement and merge conservation to SPP with no namespace signature.
     cpi_spp_signed(program_id, spp_accounts, data, None)
 }

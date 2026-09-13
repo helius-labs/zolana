@@ -25,23 +25,24 @@ pub struct PolicySpec {
     /// Every rule must hold, in row order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RuleSpec>,
-    /// A sender's outflow per mint over a fixed window, absent leaves spending unbounded.
+    /// Optional per-mint outflow limits for each transfer or fixed window.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity: Option<VelocitySpec>,
 }
 
 pub type Sources = BTreeMap<ListName, Base58Address>;
 
+/// Defines per-mint outflow limits and whether transfers share a fixed-window counter.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VelocitySpec {
-    /// Absent caps each transfer alone, else the window the counters reset at.
+    /// Zero caps each transfer alone, nonzero resets counters at fixed slot boundaries.
     #[serde(default)]
     pub window_slots: u64,
     pub rows: Vec<VelocityRowSpec>,
 }
 
-/// A zero cap leaves the mint uncapped, a zero threshold never asks the co-signer.
+/// Sets one mint's outflow cap and per-transfer approval threshold.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VelocityRowSpec {

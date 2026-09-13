@@ -7,8 +7,7 @@ use zolana_hasher::{
 /// Matches the circuit height and the on-chain tree.
 pub const HEAD_MAP_HEIGHT: usize = 40;
 
-/// The register proof's single public input, the program recomputes it from the
-/// member and genesis it authorizes and the on-chain append cursor.
+/// Binds a member's first record to the roots and append cursor selected by the program.
 pub struct CompressedRegisterPublicInput<'a> {
     pub head_old_root: &'a [u8; 32],
     pub head_new_root: &'a [u8; 32],
@@ -18,8 +17,7 @@ pub struct CompressedRegisterPublicInput<'a> {
 }
 
 impl CompressedRegisterPublicInput<'_> {
-    /// `HashChain([head_old_root, head_new_root, member, genesis, new_index])`,
-    /// mirroring the circuit element for element.
+    /// The field order must match the registration circuit.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         create_hash_chain_from_slice(&[
             *self.head_old_root,
@@ -66,7 +64,7 @@ fn root_from_proof(
     Ok(node)
 }
 
-/// Inserts a member off a client-supplied low element and empty append slot.
+/// Authenticates a member's absence before deriving the root containing its first record.
 pub struct HeadMapInsert<'a> {
     pub root: &'a [u8; 32],
     pub append_index: u64,
@@ -81,8 +79,9 @@ pub struct HeadMapInsert<'a> {
 }
 
 impl HeadMapInsert<'_> {
-    /// The advanced root, or the first check the witness fails.
+    /// Returns the new root after authenticating both insertion paths.
     pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
+        // 1. Restrict path positions and hashes to the circuit's canonical domain.
         if self.low_proof.len() != HEAD_MAP_HEIGHT || self.new_proof.len() != HEAD_MAP_HEIGHT {
             return Err(HeadMapError::ProofLength);
         }
@@ -107,7 +106,7 @@ impl HeadMapInsert<'_> {
         {
             return Err(HeadMapError::OutOfRange);
         }
-        // Strict order proves the member absent between the low element and its successor.
+        // 2. Prove absence inside the authenticated predecessor interval.
         if !(self.low_member < self.member && self.member < self.low_next) {
             return Err(HeadMapError::OutOfRange);
         }
@@ -115,13 +114,14 @@ impl HeadMapInsert<'_> {
         if &self.reduce(low_old, self.low_index, self.low_proof)? != self.root {
             return Err(HeadMapError::RootMismatch);
         }
+        // 3. Splice the member into the ordering before authenticating the append slot.
         let low_new = self.leaf(self.low_member, self.member, self.low_nullifier)?;
         let spliced = self.reduce(low_new, self.low_index, self.low_proof)?;
-        // A non-empty append slot would overwrite a live member.
         let empty = Poseidon::zero_bytes()[0];
         if self.reduce(empty, self.append_index, self.new_proof)? != spliced {
             return Err(HeadMapError::SlotOccupied);
         }
+        // 4. Commit the first record without changing another member's current nullifier.
         let member_leaf = self.leaf(self.member, self.low_next, self.genesis)?;
         self.reduce(member_leaf, self.append_index, self.new_proof)
     }
@@ -145,7 +145,7 @@ impl HeadMapInsert<'_> {
     }
 }
 
-/// Advances a member's leaf from `spent` to `successor`, the successor pointer fixed.
+/// Authenticates a record at the supplied root before replacing its member leaf's nullifier.
 pub struct HeadMapTransfer<'a> {
     pub root: &'a [u8; 32],
     pub member: &'a [u8; 32],
@@ -157,8 +157,9 @@ pub struct HeadMapTransfer<'a> {
 }
 
 impl HeadMapTransfer<'_> {
-    /// The advanced root, or the first check the witness fails.
+    /// Returns the new root, the caller must authenticate the supplied root against chain state.
     pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
+        // 1. Exclude the sentinel and noncanonical member paths.
         if self.proof.len() != HEAD_MAP_HEIGHT {
             return Err(HeadMapError::ProofLength);
         }
@@ -180,6 +181,7 @@ impl HeadMapTransfer<'_> {
         {
             return Err(HeadMapError::OutOfRange);
         }
+        // 2. Authenticate the spent record against the supplied root.
         let spent =
             head_map_leaf(self.member, self.next, self.spent).map_err(|_| HeadMapError::Hashing)?;
         if &root_from_proof(spent, self.index, self.proof).map_err(|_| HeadMapError::Hashing)?
@@ -187,6 +189,7 @@ impl HeadMapTransfer<'_> {
         {
             return Err(HeadMapError::RootMismatch);
         }
+        // 3. Replace only the record nullifier along the authenticated path.
         let successor = head_map_leaf(self.member, self.next, self.successor)
             .map_err(|_| HeadMapError::Hashing)?;
         root_from_proof(successor, self.index, self.proof).map_err(|_| HeadMapError::Hashing)

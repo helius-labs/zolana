@@ -323,7 +323,7 @@ pub fn cosigner_account(scope: u8, thresholds: &[(Pubkey, u64)]) -> Account {
     }
 }
 
-/// `[cosigner_pda, cosigner]`, the second unsigned until a test signs it.
+/// The signer slot remains unsigned until a test grants approval.
 fn cosigner_slots() -> [Slot; 2] {
     [
         Slot {
@@ -358,7 +358,6 @@ pub fn set_cosigner_data(signer: Pubkey, scope: u8, thresholds: &[(Pubkey, u64)]
     data
 }
 
-/// `[payer(w,s), authority(s), config, cosigner_pda(w), system_program]`.
 pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
     Fixture::new(
         data,
@@ -388,7 +387,6 @@ pub fn set_cosigner_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture
     )
 }
 
-/// `[authority(s), config, cosigner_pda(w), rent_recipient(w)]`.
 pub fn clear_cosigner_fixture(existing: Account) -> Fixture {
     Fixture::new(
         vec![tag::CLEAR_CO_SIGNER],
@@ -440,7 +438,6 @@ pub fn delegate_account(delegate: Pubkey) -> Account {
     }
 }
 
-/// `[delegate_pda, delegate(s)]`.
 fn delegate_slots() -> [Slot; 2] {
     [
         Slot {
@@ -462,8 +459,7 @@ pub fn set_delegate_data(delegate: Pubkey) -> Vec<u8> {
     data
 }
 
-/// `[payer(w,s), authority(s), delegate_pda(w), system_program, program, program_data]`,
-/// the authority is the upgrade authority.
+/// Initialization requires the loader authority rather than the config authority.
 pub fn set_delegate_fixture(data: Vec<u8>, existing: Option<Account>) -> Fixture {
     Fixture::new(
         data,
@@ -502,6 +498,7 @@ pub fn spend_window_pda(mint: Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[SPEND_WINDOW_PDA_SEED, mint.as_ref()], &program_id())
 }
 
+/// Supplies public spend window state for limit and reset tests.
 pub struct WindowState {
     pub mint: Pubkey,
     pub window_slots: u64,
@@ -535,7 +532,6 @@ impl WindowState {
     }
 }
 
-/// One writable window slot at the mint's canonical address, empty by default.
 pub fn window_slot(mint: Pubkey, account: Option<Account>) -> Slot {
     Slot {
         label: "window",
@@ -563,7 +559,6 @@ pub fn set_spend_window_data(
     data
 }
 
-/// `[payer(w,s), authority(s), config, window(w), system_program]`.
 pub fn set_spend_window_fixture(mint: Pubkey, data: Vec<u8>, existing: Option<Account>) -> Fixture {
     Fixture::new(
         data,
@@ -617,7 +612,6 @@ pub fn head_map_root_slot(account: Account) -> Slot {
     }
 }
 
-/// `[payer(w,s), authority(s), config, head_map_root(w), system_program]`.
 pub fn create_head_map_root_fixture(existing: Option<Account>) -> Fixture {
     Fixture::new(
         vec![tag::CREATE_HEAD_MAP_ROOT],
@@ -647,7 +641,6 @@ pub fn create_head_map_root_fixture(existing: Option<Account>) -> Fixture {
     )
 }
 
-/// `[authority(s), config, window(w), rent_recipient(w)]`, the data is the mint.
 pub fn clear_spend_window_fixture(mint: Pubkey, existing: Account) -> Fixture {
     let mut data = vec![tag::CLEAR_SPEND_WINDOW];
     data.extend_from_slice(mint.as_ref());
@@ -918,7 +911,7 @@ fn namespace_owner_of(ring: Pubkey) -> ListNamespace {
     ListNamespace::new(namespace_pda_of(ring).0.as_array()).expect("namespace owner")
 }
 
-/// The record `register_spend` writes for `tag` at window zero.
+/// The registration record opens zero counters at window zero.
 pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
     let owner = namespace_owner_of(program_id());
     let member = Member::owner_tag(&tag).expect("member");
@@ -941,8 +934,7 @@ pub fn spend_record_output(tag: [u8; 32]) -> TransactOutput {
     }
 }
 
-/// A system-owned empty account at the head PDA, register creates over it.
-pub fn uninitialized_head_account() -> Account {
+pub fn uninitialized_head_map_root_account() -> Account {
     Account {
         lamports: 0,
         data: Vec::new(),
@@ -1143,9 +1135,7 @@ pub fn create_policy_fixture() -> Fixture {
     create_policy_fixture_with(&table_ix_data(&RuleTable::empty(), &[]))
 }
 
-/// Green `create_policy` fixture, `[payer(w,s), authority(s), config,
-/// policy_config(w), entries_tree, system_program, program, program_data]`,
-/// curators trail.
+/// Foreign source curators follow the fixed policy creation accounts.
 pub fn create_policy_fixture_with(table: &PolicyTableIxData) -> Fixture {
     Fixture::new(
         policy_table_data(tag::CREATE_POLICY, table),
@@ -1374,7 +1364,7 @@ impl EntryFixture {
     }
 }
 
-/// `payer` registers its own identity over the entry mutation layout.
+/// Registration shares the entry mutation prefix and requires the current map root.
 pub fn register_spend_fixture(policy_config: Account, payer: Pubkey) -> Fixture {
     let mut data = vec![tag::REGISTER_SPEND];
     data.extend_from_slice(
@@ -1585,7 +1575,6 @@ pub fn set_paused_fixture(paused: u8) -> Fixture {
 
 pub const SOL_DEPOSIT_AMOUNT: u64 = 5;
 
-/// A ring deposit of `amount` per entry, one entry per asset.
 pub fn ring_deposit_data(assets: Vec<DepositAssetKind>, amount: u64) -> Vec<u8> {
     let deposits = (0..assets.len())
         .map(|index| RingDepositEntry {
@@ -1612,8 +1601,6 @@ pub fn ring_deposit_data(assets: Vec<DepositAssetKind>, amount: u64) -> Vec<u8> 
     data
 }
 
-/// The SPP list of a SOL ring deposit, `[tree(w), depositor(w,s), ring_config,
-/// spp_program, system_program, sol_interface]`.
 fn sol_deposit_slots() -> Vec<Slot> {
     vec![
         Slot {
@@ -1641,8 +1628,6 @@ fn sol_deposit_slots() -> Vec<Slot> {
     ]
 }
 
-/// The SPP list of a ring merge, `[input_tree(w), output_tree(w), ring_config,
-/// spp_program, system_program, sol_interface]`.
 fn sol_merge_slots() -> Vec<Slot> {
     vec![
         Slot {
@@ -1670,8 +1655,7 @@ fn sol_merge_slots() -> Vec<Slot> {
     ]
 }
 
-/// The forward prefix, `config` leads and a policy ring adds `policy_config`
-/// after the co-signer.
+/// The ring consumes the control prefix before forwarding SPP accounts.
 fn forward_prefix(config: Account, policy_config: Option<Account>) -> Vec<Slot> {
     let [cosigner_pda, cosigner] = cosigner_slots();
     let mut slots = vec![
@@ -1703,8 +1687,6 @@ fn deposit_fixture_with(config: Account, policy_config: Option<Account>) -> Fixt
     )
 }
 
-/// A SOL-only audit-only ring deposit, `[config, cosigner_pda, cosigner,
-/// window(w)]` precede the SPP list.
 pub fn deposit_fixture() -> Fixture {
     deposit_fixture_with(
         audit_only_config_account(authority(), auditor_pubkey(2)),
@@ -1712,7 +1694,6 @@ pub fn deposit_fixture() -> Fixture {
     )
 }
 
-/// A SOL-only policy ring deposit holding `policy_config`.
 pub fn policy_deposit_fixture(policy_config: Account) -> Fixture {
     deposit_fixture_with(
         initialized_config_account(authority(), auditor_pubkey(2)),
@@ -1726,7 +1707,6 @@ fn merge_fixture_with(config: Account, policy_config: Option<Account>) -> Fixtur
     Fixture::new(vec![tag::MERGE], slots)
 }
 
-/// An audit-only ring merge, no window slot and no policy config.
 pub fn merge_fixture() -> Fixture {
     merge_fixture_with(
         audit_only_config_account(authority(), auditor_pubkey(2)),
@@ -1734,7 +1714,6 @@ pub fn merge_fixture() -> Fixture {
     )
 }
 
-/// A policy ring merge holding `policy_config`.
 pub fn policy_merge_fixture(policy_config: Account) -> Fixture {
     merge_fixture_with(
         initialized_config_account(authority(), auditor_pubkey(2)),
@@ -1797,13 +1776,10 @@ pub fn transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     )
 }
 
-/// An audit-only delegate transact, `[delegate_pda, delegate(s)]` follow the
-/// co-signer prefix.
 pub fn delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     with_delegate_slots(audit_transact_fixture(config, data))
 }
 
-/// A policy delegate transact, the policy accounts follow the delegate slots.
 pub fn policy_delegate_transact_fixture(config: Account, data: Vec<u8>) -> Fixture {
     with_delegate_slots(transact_fixture(config, data))
 }

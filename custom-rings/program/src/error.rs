@@ -123,12 +123,14 @@ pub enum CustomRingError {
     VelocityDepositLeg = 8155,
     #[error("the spend record output does not match its plaintext")]
     InvalidSpendRecord = 8156,
+    /// Retired, delegation now uses a policy statement exempt from velocity.
     #[error("the delegate rail is closed on a velocity ring")]
     DelegateOnVelocityRing = 8157,
     #[error("dual control needs a configured co-signer")]
     ApprovalWithoutCoSigner = 8158,
     #[error("the ring has no velocity window")]
     VelocityDisabled = 8159,
+    // Retired per-member head errors retain their published codes.
     #[error("spend record head account is invalid")]
     InvalidSpendRecordHead = 8160,
     #[error("the sender has no registered spend record")]

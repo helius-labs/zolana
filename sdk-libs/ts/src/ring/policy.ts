@@ -98,10 +98,10 @@ export interface Rule {
   readonly guard: RuleGuard;
 }
 
-/** Mirrors Rust `VelocityRow`, a zero cap or threshold leaves that bound off. */
+/** Sets a mint's cap and approval threshold in the committed policy table. */
 export type VelocityRow = CustomRingVelocityRow;
 
-/** One limit per inline asset, zero outside a per-asset guard, velocity rows only with a window. */
+/** Commits list rules, amount exemptions and per-transfer or windowed caps. */
 export interface RuleTable {
   readonly rules: readonly Rule[];
   readonly inlineAssets: readonly Bytes32[];
@@ -262,7 +262,7 @@ export interface RuleTableInput {
   readonly rules: readonly Rule[];
   readonly inlineAssets?: readonly Bytes32[];
   readonly inlineLimits?: readonly bigint[];
-  /** Comes with `velocity`, zero disables it. */
+  /** Zero applies velocity rows to each transfer without a spend record. */
   readonly windowSlots?: bigint;
   readonly velocity?: readonly VelocityRow[];
 }
@@ -641,7 +641,7 @@ const SPEND_RECORD_LEN = 112;
 /** Rust `SPEND_COUNTERS_LEN`. */
 export const SPEND_COUNTERS_LENGTH = 32 + RING_VELOCITY_SLOTS * 40;
 
-/** Mirrors Rust `SpendRecord`, the published half of a spend record. */
+/** Publishes a member's counter commitment as a versioned data UTXO. */
 export interface SpendRecord {
   readonly member: Member;
   readonly version: bigint;
@@ -650,7 +650,7 @@ export interface SpendRecord {
   readonly blinding: Bytes32;
 }
 
-/** Mirrors Rust `SpendCounters`, `commitment = HashChain(salt, asset_0, spent_0, ..)`. */
+/** Holds private per-mint outflow totals for one window. */
 export interface SpendCounters {
   readonly salt: Bytes32;
   readonly assets: readonly Bytes32[];
@@ -791,6 +791,7 @@ export function spendSeed(member: Member): Bytes32 {
   return poseidon([SPEND_ADDRESS_DOMAIN, member]);
 }
 
+/** Binds a spend-record opening to its compressed UTXO and nullifier. */
 export interface SpendRecordHashes {
   readonly address: Bytes32;
   readonly dataHash: Bytes32;
@@ -1142,7 +1143,7 @@ export async function readRingEntryLineages(
   return heads.map((head) => head.live);
 }
 
-/** The current version of a member's record with its origin, Rust `LiveSpendRecord`. */
+/** Locates the current record and the messages needed to recover its counters. */
 export interface LiveSpendRecord {
   readonly record: SpendRecord;
   readonly utxoHash: Bytes32;
@@ -1157,6 +1158,7 @@ export interface LiveSpendRecord {
   }>;
 }
 
+/** Identifies a member record for historical indexer discovery. */
 export interface ReadRingSpendRecordInput {
   readonly indexer: EntryIndexer;
   readonly entriesTree: Address;

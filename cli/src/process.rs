@@ -17,6 +17,7 @@ pub(crate) fn spawn_service(
     log_name: &str,
     log_dir: &str,
 ) -> Result<Child> {
+    // 1. Keep scoped logs and Photon data inside the task directory.
     let scope = process_scope()?;
     let scoped_log_dir = scope.as_ref().map(|scope| scope.join("logs"));
     let log_dir = scoped_log_dir
@@ -50,6 +51,7 @@ pub(crate) fn spawn_service(
             .env("TEMP", &temporary)
             .env("TMP", &temporary);
     }
+    // 2. Record the spawned identity before returning process ownership.
     let mut child = command
         .args(args)
         .stdin(Stdio::null())
@@ -201,12 +203,14 @@ fn owned_receipt(path: &Path) -> Option<(String, String)> {
 }
 
 fn stop_owned_receipt(path: &Path) {
+    // 1. Match the receipt against the live process identity.
     let Some((pid, identity)) = owned_receipt(path) else {
         return;
     };
     if process_identity(&pid).as_deref() != Some(identity.as_str()) {
         return;
     }
+    // 2. Escalate only while the same process identity remains alive.
     let _ = signal_pid(&pid, "-TERM");
     if !wait_for_process_exit(|| process_identity(&pid).as_deref() != Some(identity.as_str()))
         && process_identity(&pid).as_deref() == Some(identity.as_str())

@@ -11,11 +11,13 @@ import (
 // Written by custom-rings/policy/tests/policy_hash_corpus.rs.
 const corpusPath = "../../../../../custom-rings/policy/tests/fixtures/policy-hash-corpus.json"
 
+// corpus carries the Rust generated policy commitment cases.
 type corpus struct {
 	Version uint8        `json:"version"`
 	Cases   []corpusCase `json:"cases"`
 }
 
+// corpusCase pairs one policy table with its expected Rust hash.
 type corpusCase struct {
 	Sources      []corpusSource `json:"sources"`
 	Rules        []corpusRow    `json:"rules"`
@@ -24,11 +26,13 @@ type corpusCase struct {
 	PolicyHash   string         `json:"policyHash"`
 }
 
+// corpusSource maps a list to its namespace owner in a hash fixture.
 type corpusSource struct {
 	ListId    int64  `json:"listId"`
 	OwnerHash string `json:"ownerHash"`
 }
 
+// corpusRow preserves a decoded rule for host commitment reconstruction.
 type corpusRow struct {
 	Subject   int64  `json:"subject"`
 	Mode      int64  `json:"mode"`

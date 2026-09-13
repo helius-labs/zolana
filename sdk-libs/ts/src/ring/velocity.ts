@@ -1,4 +1,4 @@
-/** The record slots and witness a velocity transfer adds, mirrors Rust `custom-rings/sdk/src/velocity.rs`. */
+/** Couples private outflow counters to an atomic compressed record update. */
 import type { Address } from "@solana/kit";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
@@ -22,7 +22,10 @@ import type {
   RingHeadTransferProof,
 } from "../client/ports.js";
 import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
-import type { CustomRingVelocityRow, CustomRingVelocityWitness } from "../client/prover/types.js";
+import type {
+  CustomRingVelocityRow,
+  CustomRingVelocityProofInput,
+} from "../client/prover/types.js";
 import { RingError } from "./error.js";
 import {
   RingListNamespace,
@@ -101,6 +104,7 @@ export function senderOutflow(
   return inflow - change;
 }
 
+/** Carries the authenticated current record and recovered window state. */
 export interface VelocityFacts {
   readonly namespace: Address;
   readonly owner: RingListNamespace;
@@ -114,6 +118,7 @@ export interface VelocityFacts {
   readonly head?: RingHeadTransferProof;
 }
 
+/** Identifies the member and capabilities needed to recover current counters. */
 export interface ReadVelocityFactsInput {
   readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
     SlotReader &
@@ -128,16 +133,17 @@ export interface ReadVelocityFactsInput {
   readonly sender: Member;
 }
 
-/** Mirrors Rust `VelocityLookup::read` and `recover_counters`. */
 export async function readVelocityFacts(
   input: ReadVelocityFactsInput,
   context?: RequestContext,
 ): Promise<VelocityFacts> {
   const owner = RingListNamespace.of(input.namespace, input.entriesTreeId);
   if (input.windowSlots <= 0n) throw new RingError("RING_VELOCITY_DISABLED");
+  // 1. Authenticate the current record against the ring's shared root.
   const { head, live } = await readCurrentSpendRecord(input, context);
   const slot = await input.client.getSlot(context);
   const windowIndex = slot / input.windowSlots;
+  // 2. Recover live counters or discard expired state under the clock window.
   const counters = await recoverCounters(input, live, windowIndex);
   return Object.freeze({
     namespace: input.namespace,
@@ -172,6 +178,7 @@ async function recoverCounters(
   });
 }
 
+/** Couples counter updates to the transfer's record spend and successor. */
 export interface VelocityPlan {
   readonly nextNullifier: Bytes32;
   readonly shape: Shape;
@@ -183,10 +190,11 @@ export interface VelocityPlan {
     plaintext: Uint8Array;
     slotIndex: number;
   }>;
-  readonly witness: CustomRingVelocityWitness;
+  readonly proofInput: CustomRingVelocityProofInput;
   readonly approvalRequired: boolean;
 }
 
+/** Combines authenticated counters with the sender's planned money movement. */
 export interface PlanVelocityInput {
   readonly facts: VelocityFacts;
   readonly sender: Member;
@@ -198,13 +206,13 @@ export interface PlanVelocityInput {
   readonly moneyShape: Shape;
 }
 
-/** Mirrors Rust `VelocityPlanInput::plan`, the sender spends its record into the successor. */
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   const { facts } = input;
   const shape = recordShape(input.moneyShape);
   const sameWindow = facts.live.record.window === facts.windowIndex;
   const previous = sameWindow ? facts.counters : undefined;
 
+  // 1. Charge net outflow per mint against the current window's counters.
   const rows: VelocityRow[] = [];
   const spent: bigint[] = [];
   let approvalRequired = false;
@@ -228,6 +236,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     spent.push(charged);
   }
 
+  // 2. Commit the successor counters under a fresh salt and derived output blinding.
   const nextSalt = canonicalSalt();
   const nextCounters: SpendCounters = Object.freeze({
     salt: nextSalt,
@@ -250,6 +259,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     blinding: successorBlinding,
   });
 
+  // 3. Bind the record spend and successor to the namespace-owned slots.
   const spentHashes = facts.owner.spendRecordHashes(spentRecord);
   const nextHashes = facts.owner.spendRecordHashes(successor);
   const zeroNullifier = NullifierKey.fromSecret(ZERO_NULLIFIER_SECRET);
@@ -294,8 +304,9 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     viewing.destroy();
   }
 
+  // 4. Pair the circuit opening with the encrypted recovery message.
   const opened = facts.counters ?? zeroSpendCounters();
-  const witness: CustomRingVelocityWitness = Object.freeze({
+  const proofInput: CustomRingVelocityProofInput = Object.freeze({
     windowSlots: facts.windowSlots,
     rows: Object.freeze(rows.map((row) => Object.freeze({ ...row }))),
     ringId: hashBytes(addressBytes(input.ringProgramId)) as Bytes32,
@@ -323,12 +334,12 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
       data: encodeSpendRecord(successor),
     },
     countersSeal: sealedSpendCounters(nextCounters, addressBytes(facts.namespace)),
-    witness,
+    proofInput,
     approvalRequired,
   });
 }
 
-function emptyRecord(): CustomRingVelocityWitness["record"] {
+function emptyRecord(): CustomRingVelocityProofInput["record"] {
   const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
   return Object.freeze({
     version: 0n,
@@ -341,7 +352,7 @@ function emptyRecord(): CustomRingVelocityWitness["record"] {
   });
 }
 
-/** Mirrors Rust `ChargeRows` into a per-transfer witness, no record accompanies it. */
+/** Charges one transfer without a persistent spend record. */
 export function chargeRows(
   sender: Member,
   ringProgramId: Address,
@@ -349,7 +360,7 @@ export function chargeRows(
   outputs: readonly ProofOutputUtxo[],
   rows: readonly VelocityRow[],
   namespaceOwnerHash: Bytes32,
-): CustomRingVelocityWitness {
+): CustomRingVelocityProofInput {
   let approvalRequired = false;
   const kept: CustomRingVelocityRow[] = [];
   for (const row of rows) {

@@ -33,7 +33,7 @@ import type {
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterProofRequest,
-  CustomRingSpendRecordWitness,
+  CustomRingSpendRecordProofInput,
   CustomRingVelocityRow,
   Field,
   MergeInputs,
@@ -551,7 +551,9 @@ function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, un
   });
 }
 
-function spendRecordJson(record: CustomRingSpendRecordWitness): Readonly<Record<string, unknown>> {
+function spendRecordJson(
+  record: CustomRingSpendRecordProofInput,
+): Readonly<Record<string, unknown>> {
   return Object.freeze({
     version: u64Json(record.version, "record version"),
     window: u64Json(record.window, "record window"),

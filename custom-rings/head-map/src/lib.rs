@@ -1,10 +1,4 @@
-//! The member -> current-record-nullifier map, an indexed Merkle tree whose leaf
-//! is `Poseidon(member, next_member, nullifier)`. Registration proves a member
-//! absent between a low element and its successor and inserts the member's
-//! genesis record, a transfer replaces the member's nullifier with its successor.
-//! Off chain the whole tree lives here, on chain only the root, advanced in
-//! lockstep with the SPP transfer against the exact current root. The circuit,
-//! the program and the clients all agree with this reference.
+//! Reconstructs member head transitions against the root and append cursor stored on chain.
 
 use thiserror::Error;
 use zolana_hasher::Poseidon;
@@ -36,22 +30,22 @@ pub enum HeadMapError {
     HeadMismatch,
 }
 
-/// One sorted-list element, ordered by `member`, `next` points at the successor member.
+/// Tracks a member's current record nullifier within the indexed ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Element {
+struct IndexedHead {
     index: usize,
     member: [u8; 32],
     next: [u8; 32],
     nullifier: [u8; 32],
 }
 
-impl Element {
+impl IndexedHead {
     fn leaf(&self) -> Result<[u8; 32], HeadMapError> {
         head_map_leaf(&self.member, &self.next, &self.nullifier).map_err(|_| HeadMapError::Hashing)
     }
 }
 
-/// Proves the member absent under `old_root` and inserts its genesis, yielding `new_root`.
+/// Supplies proof inputs for inserting an unregistered member's genesis nullifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegisterWitness {
     pub old_root: [u8; 32],
@@ -67,7 +61,7 @@ pub struct RegisterWitness {
     pub new_proof: Vec<[u8; 32]>,
 }
 
-/// Proves the member's leaf holds `spent` under `old_root` and writes `successor`.
+/// Supplies proof inputs for replacing a member's current record nullifier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferWitness {
     pub old_root: [u8; 32],
@@ -80,18 +74,18 @@ pub struct TransferWitness {
     pub proof: Vec<[u8; 32]>,
 }
 
-/// The off-chain reference tree, its root is the only on-chain state.
+/// Reconstructs the indexed head map and prepares registration and transition proofs.
 #[derive(Clone)]
 pub struct HeadMap {
     tree: MerkleTree<Poseidon>,
-    elements: Vec<Element>,
+    elements: Vec<IndexedHead>,
 }
 
 impl HeadMap {
     /// A fresh map holding only the sentinel element `member 0 -> next FIELD_MAX`.
     pub fn new() -> Result<Self, HeadMapError> {
         let mut tree = MerkleTree::<Poseidon>::new(HEAD_MAP_HEIGHT, 0);
-        let sentinel = Element {
+        let sentinel = IndexedHead {
             index: 0,
             member: [0; 32],
             next: FIELD_MAX,
@@ -123,8 +117,10 @@ impl HeadMap {
         member: [u8; 32],
         genesis: [u8; 32],
     ) -> Result<RegisterWitness, HeadMapError> {
+        // 1. Stage the insertion without changing the current tree.
         let mut staged = self.clone();
         let witness = staged.register_inner(member, genesis)?;
+        // 2. Commit only a complete predecessor splice and member insertion.
         *self = staged;
         Ok(witness)
     }
@@ -134,6 +130,7 @@ impl HeadMap {
         member: [u8; 32],
         genesis: [u8; 32],
     ) -> Result<RegisterWitness, HeadMapError> {
+        // 1. Locate the predecessor interval for an unregistered member.
         if self.elements.iter().any(|element| element.member == member) {
             return Err(HeadMapError::AlreadyRegistered);
         }
@@ -145,8 +142,8 @@ impl HeadMap {
             .get_proof_of_leaf(low.index, true)
             .map_err(|_| HeadMapError::Tree)?;
 
-        // The low element's successor pointer swings to the new member.
-        let spliced = Element {
+        // 2. Splice the predecessor while retaining its current nullifier.
+        let spliced = IndexedHead {
             next: member,
             ..low
         };
@@ -155,13 +152,13 @@ impl HeadMap {
             .map_err(|_| HeadMapError::Tree)?;
         self.elements[low_position].next = member;
 
-        // The new element lands at the append cursor, proven against the empty leaf.
+        // 3. Prepare the empty append proof under the intermediate root.
         let new_index = self.elements.len();
         let new_proof = self
             .tree
             .get_proof_of_leaf(new_index, true)
             .map_err(|_| HeadMapError::Tree)?;
-        let element = Element {
+        let element = IndexedHead {
             index: new_index,
             member,
             next: low.next,
@@ -194,6 +191,7 @@ impl HeadMap {
         spent: &[u8; 32],
         successor: [u8; 32],
     ) -> Result<TransferWitness, HeadMapError> {
+        // 1. Match the consumed record to the member's current head.
         let position = self
             .elements
             .iter()
@@ -208,7 +206,8 @@ impl HeadMap {
             .tree
             .get_proof_of_leaf(element.index, true)
             .map_err(|_| HeadMapError::Tree)?;
-        let updated = Element {
+        // 2. Replace the nullifier without changing the member ordering.
+        let updated = IndexedHead {
             nullifier: successor,
             ..element
         };
@@ -229,7 +228,7 @@ impl HeadMap {
         })
     }
 
-    /// The element whose half-open range `[member, next)` covers `member`.
+    /// Registration requires strict ordering between adjacent members.
     fn covering_element(&self, member: &[u8; 32]) -> Result<usize, HeadMapError> {
         self.elements
             .iter()

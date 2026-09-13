@@ -62,10 +62,12 @@ export interface BlockhashProvider {
   getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash>;
 }
 
+/** Reads chain time for policy windows. */
 export interface SlotReader {
   getSlot(context?: RequestContext): Promise<bigint>;
 }
 
+/** Pins a head proof request to the observed ring root and member. */
 export interface RingHeadProofRequest {
   readonly ringProgramId: Address;
   readonly member: Bytes32;
@@ -73,6 +75,7 @@ export interface RingHeadProofRequest {
   readonly expectedNextIndex: bigint;
 }
 
+/** Correlates a head proof with its indexed member and root. */
 export interface RingHeadProofContext {
   readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
   readonly root: Bytes32;
@@ -80,6 +83,7 @@ export interface RingHeadProofContext {
   readonly member: Bytes32;
 }
 
+/** Supplies predecessor and append paths for a member registration. */
 export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly lowMember: Bytes32;
   readonly lowNext: Bytes32;
@@ -89,6 +93,7 @@ export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly newProof: readonly Bytes32[];
 }
 
+/** Supplies current spend-record inclusion under the shared head root. */
 export interface RingHeadTransferProof extends RingHeadProofContext {
   readonly next: Bytes32;
   readonly nullifier: Bytes32;
@@ -97,6 +102,7 @@ export interface RingHeadTransferProof extends RingHeadProofContext {
   readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
 }
 
+/** Fetches proofs for compressed spend-head transitions. */
 export interface RingHeadReader {
   getRingHeadRegisterProof(
     request: RingHeadProofRequest,
@@ -108,11 +114,13 @@ export interface RingHeadReader {
   ): Promise<RingHeadTransferProof>;
 }
 
+/** Classifies a broadcast before reservations can be released or retried. */
 export type RingSubmissionStatus =
   | Readonly<{ kind: "unknown" }>
   | Readonly<{ kind: "confirmed"; slot: bigint }>
   | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>;
 
+/** Separates transaction signing and broadcast from proof construction. */
 export interface RingSubmissionTransport {
   sign(transaction: Transaction, context?: RequestContext): Promise<Transaction>;
   send(transaction: Transaction, context?: RequestContext): Promise<void>;

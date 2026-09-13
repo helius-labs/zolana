@@ -32,6 +32,7 @@ func SetupCompressedPolicy() (*common.RingProofSystem, error) {
 	return compressedProofSystem(pk, vk, ccs), nil
 }
 
+// ConvertCompressedPolicy combines existing keys with the compiled member transition circuit.
 type ConvertCompressedPolicy struct {
 	ProvingKeyPath   string
 	VerifyingKeyPath string

@@ -22,12 +22,14 @@ import { readVelocityFacts, type VelocityFacts } from "./velocity.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { SpendSession } from "../transaction/wallet/authority.js";
 
+/** Provides chain state and both proofs required for member registration. */
 export type RingSpendRegistrationClient = RingEntryProofClient &
   RingHeadReader &
   BlockhashProvider &
   SlotReader &
   Pick<Prover, "proveCustomRingRegister">;
 
+/** Selects the member paying for its initial compressed spend record. */
 export interface RingSpendRegistrationParams {
   readonly client: RingSpendRegistrationClient;
   readonly ringProgramId: Address;
@@ -36,6 +38,7 @@ export interface RingSpendRegistrationParams {
   readonly priorityFeeLamports?: bigint;
 }
 
+/** Distinguishes an existing member record from a pending registration. */
 export type RingSpendRegistrationPreparation =
   | Readonly<{ kind: "registered"; record: LiveSpendRecord }>
   | Readonly<{ kind: "pending"; submission: RingTransactionSubmission }>;
@@ -147,6 +150,7 @@ async function buildRegistrationAttempt(
     throw new RingError("RING_VELOCITY_DISABLED");
   const payer = typeof input.payer === "string" ? input.payer : input.payer.address;
   const member = memberOfTag(addressBytes(payer));
+  // 1. Bind registration to the current window and shared head root.
   const windowIndex = (await input.client.getSlot(context)) / configs.policy.windowSlots;
   const root = await fetchRingHeadMapRoot(input.client, input.ringProgramId, context);
   if (root.nextIndex >= HEAD_MAP_CAPACITY)
@@ -166,6 +170,7 @@ async function buildRegistrationAttempt(
     head.nextIndex !== root.nextIndex
   )
     throw new RingError("RING_HEAD_MAP_STALE");
+  // 2. Prove the SPP address claim creating the initial record.
   const entry = await proveRingSpendRegistration(
     {
       client: input.client,
@@ -178,6 +183,7 @@ async function buildRegistrationAttempt(
     },
     context,
   );
+  // 3. Prove member absence and insertion of the claimed record's nullifier.
   const headNewRoot = verifyHeadMapInsert({
     root: root.root,
     appendIndex: root.nextIndex,
@@ -214,6 +220,7 @@ async function buildRegistrationAttempt(
     },
     context,
   );
+  // 4. Commit both proofs in one atomic registration instruction.
   const instruction = await registerRingSpendInstruction({
     ringProgramId: input.ringProgramId,
     payer: input.payer,

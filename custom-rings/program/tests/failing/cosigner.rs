@@ -1,4 +1,4 @@
-//! The co-signer account and the operations it gates.
+//! Pins signer authorization and per mint withdrawal thresholds.
 
 use custom_ring_interface::{
     CoSigner, AUDITOR_MESSAGE_LEN, COSIGN_DEPOSITS, COSIGN_TRANSFERS, COSIGN_WITHDRAWALS,
@@ -206,8 +206,7 @@ fn clear_cosigner_with_trailing_data_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }
 
-/// An audit-only transact whose gate decides before the proof, `legs` trail
-/// as SPP settlement groups.
+/// Signer checks run before the deliberately invalid proof.
 fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixture {
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.interface_transfers = legs;
@@ -221,7 +220,6 @@ fn gated_transact(legs: Vec<InterfaceTransfer>, settlements: Vec<Slot>) -> Fixtu
     fixture
 }
 
-/// The window slots of `legs`, empty, inserted after the co-signer prefix.
 fn with_windows(mut fixture: Fixture, mints: &[Pubkey]) -> Fixture {
     for (index, mint) in mints.iter().enumerate() {
         fixture.insert(4 + index, window_slot(*mint, None));
@@ -244,7 +242,6 @@ fn sol_withdrawal_slots() -> Vec<Slot> {
     ]
 }
 
-/// `[cpi_authority, mint, spl_interface, user_token_account, token_program]`.
 fn spl_withdrawal_slots(mint: Pubkey) -> Vec<Slot> {
     [55u8, 0, 56, 57, 58]
         .into_iter()
@@ -305,7 +302,6 @@ fn a_transfer_in_scope_needs_the_cosigner_signature() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// A transact is always a transfer, a deposit leg adds the deposit class.
 #[test]
 fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
     let (mollusk, _) = setup_mollusk();
@@ -334,6 +330,7 @@ fn a_deposit_scope_gates_only_a_transact_with_a_deposit_leg() {
 fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
     let (mollusk, _) = setup_mollusk();
     let scoped = cosigner_account(COSIGN_WITHDRAWALS, &[(SOL, 10)]);
+    // 1. A single withdrawal below the threshold reaches proof verification.
     let one_leg = with_windows(
         gated_transact(
             vec![InterfaceTransfer::SolWithdrawal { amount: 6 }],
@@ -343,6 +340,7 @@ fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
     );
     with_cosigner(one_leg, scoped.clone(), false)
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
+    // 2. Split withdrawals require approval against their combined amount.
     let mut two_legs = sol_withdrawal_slots();
     two_legs.extend(sol_withdrawal_slots());
     let split = with_windows(
@@ -359,7 +357,6 @@ fn withdrawal_thresholds_sum_the_legs_of_one_mint() {
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }
 
-/// A deposit leg of the mint ahead of the withdrawal does not hide it.
 #[test]
 fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
     let (mollusk, _) = setup_mollusk();
@@ -380,8 +377,6 @@ fn a_withdrawal_behind_a_deposit_of_the_same_mint_still_counts() {
         .expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }
 
-/// SOL and a mint never share a threshold, a mint without a row always needs
-/// the co-signer.
 #[test]
 fn a_withdrawn_mint_without_a_threshold_row_needs_the_cosigner() {
     let (mollusk, _) = setup_mollusk();

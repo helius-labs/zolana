@@ -62,7 +62,7 @@ pub struct AuditedTransaction {
     pub undecryptable_slots: Vec<u32>,
 }
 
-/// A plaintext record slot and the counters published under the transaction key.
+/// Reports a public spend record and any counters authenticated against its commitment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditedSpendRecord {
     pub slot_index: u32,

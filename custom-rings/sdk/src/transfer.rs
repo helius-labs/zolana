@@ -44,7 +44,7 @@ use zolana_tree::{TreeAccount, TreeError};
 
 use crate::{
     instructions::spend::ReadSpendRecord,
-    instructions::transact::VelocityWitness,
+    instructions::transact::VelocityProofInput,
     policy_config_table, to_instruction_proof,
     velocity::{
         ChargeRows, Outflows, VelocityContext, VelocityFacts, VelocityPlan, VelocityPlanInput,
@@ -312,6 +312,7 @@ impl<'a> CustomRingTransfer<'a> {
         self,
         environment: TransferProofEnvironment<'_, I, R>,
     ) -> Result<ProvenTransfer, TransferError> {
+        // 1. Authenticate the committed policy and recover any current-window counter record.
         let config = self
             .ring
             .read_config(environment.rpc)?
@@ -329,6 +330,7 @@ impl<'a> CustomRingTransfer<'a> {
         } else {
             None
         };
+        // 2. Add record slots and audit messages before fixing the SPP transaction context.
         let limit = policy
             .as_ref()
             .map_or(&SpendLimit::Unbounded, |(_, _, limit)| limit);
@@ -347,12 +349,14 @@ impl<'a> CustomRingTransfer<'a> {
             spends: &staged.proof_inputs.input_utxos,
         }
         .load()?;
+        // 3. Resolve reusable list facts against accepted SPP roots for the rule evaluation.
         let tier = match &policy {
             Some((policy_config, table, _)) => staged
                 .policy_tier(policy_config, table)?
                 .build(environment.indexer, environment.rpc)?,
             None => Tier::Base,
         };
+        // 4. Prove SPP spend validity and ring obligations over the same private transaction hash.
         let (request, witnessed) = staged.witness(spend_inputs, allow_dummy_inputs, tier)?;
         let spp_proof =
             ProofCompressed::try_from(environment.prover.prove_transfer_ring(witnessed.spp())?)?
@@ -486,9 +490,7 @@ impl<'a> CustomRingTransfer<'a> {
         }
     }
 
-    /// Everything before the first read: validation, the transaction viewing
-    /// key, and the auditor encryption that has to be inside `external_data`
-    /// before anything hashes it. A velocity ring adds the record slots last.
+    /// Record openings and auditor ciphertext must precede the shared transaction hash.
     fn stage(
         self,
         auditor_pk: P256Pubkey,
@@ -497,9 +499,7 @@ impl<'a> CustomRingTransfer<'a> {
         let input_tree = self.input_tree.ok_or(TransferError::TreeRequired)?;
         let output_tree = self.output_tree.unwrap_or(input_tree);
         let assets = self.assets.ok_or(TransferError::MissingAssetRegistry)?;
-        // A padded change slot pushes the custom-ring instruction past the packet
-        // limit even behind an address lookup table, and every published slot
-        // must be one the auditor can open.
+        // Compact change is required for the builder's auditor-readable output layout.
         if self.prepared.change_layout() != ChangeLayout::Compact {
             return Err(TransferError::PaddedChange);
         }
@@ -525,7 +525,7 @@ impl<'a> CustomRingTransfer<'a> {
                 .map_err(|_| TransferError::PolicyHashing)?;
             Member::owner_identity(&sender).map_err(|_| TransferError::PolicyHashing)
         };
-        let (plan, velocity_witness, head_map_root) = match limit {
+        let (plan, velocity_proof_input, head_map_root) = match limit {
             SpendLimit::Unbounded => (None, None, None),
             SpendLimit::PerTransfer {
                 rows,
@@ -545,9 +545,9 @@ impl<'a> CustomRingTransfer<'a> {
                 .charge()?;
                 let ring_id = ring_id_field(program_id.as_array())
                     .map_err(|_| TransferError::PolicyHashing)?;
-                let witness =
-                    VelocityWitness::per_transfer(&charges, ring_id, *namespace_owner_hash);
-                (None, Some(witness), None)
+                let proof_input =
+                    VelocityProofInput::per_transfer(&charges, ring_id, *namespace_owner_hash);
+                (None, Some(proof_input), None)
             }
             SpendLimit::PerWindow(facts) => {
                 let facts: &VelocityFacts = facts;
@@ -568,9 +568,9 @@ impl<'a> CustomRingTransfer<'a> {
                 }
                 .plan()?;
                 append_record_slots(&mut prepared, &plan)?;
-                let witness = plan.witness;
+                let proof_input = plan.proof_input;
                 let head = self.ring.head_map_root_pda();
-                (Some(plan), Some(witness), Some(head))
+                (Some(plan), Some(proof_input), Some(head))
             }
         };
 
@@ -626,7 +626,7 @@ impl<'a> CustomRingTransfer<'a> {
             interface_transfer_accounts: self.interface_transfer_accounts,
             ring: self.ring,
             cosigner: self.cosigner,
-            velocity: velocity_witness,
+            velocity: velocity_proof_input,
             head_map_root,
         })
     }
@@ -690,6 +690,7 @@ impl<'a> SpendLimitLookup<'a> {
     }
 }
 
+/// Reads the exact current spend record before recovering counters for the current window.
 struct VelocityLookup<'a> {
     ring: CustomRing,
     read: ReadSpendRecord,
@@ -746,12 +747,13 @@ fn append_record_slots(
     Ok(())
 }
 
+/// Supplies transaction openings for rule evaluation and optional member velocity enforcement.
 pub(crate) struct PolicyTierInput<'a> {
     pub ring: CustomRing,
     pub inputs: &'a [SppProofInputUtxo],
     pub outputs: &'a [SppProofOutputUtxo],
     pub output_tree_id: u16,
-    pub velocity: Option<VelocityWitness>,
+    pub velocity: Option<VelocityProofInput>,
 }
 
 impl PolicyTierInput<'_> {
@@ -790,7 +792,7 @@ impl PolicyTierInput<'_> {
     where
         Self: 's,
     {
-        let (velocity, delegate_velocity) = match self.velocity {
+        let (velocity, committed_velocity) = match self.velocity {
             Some(velocity) => (velocity, None),
             None => {
                 if table.window_slots() != 0
@@ -802,7 +804,8 @@ impl PolicyTierInput<'_> {
                         found: self.output_tree_id,
                     });
                 }
-                let off = VelocityWitness::off(
+                // Record-free rails evaluate every money slot while still committing configured limits.
+                let off = VelocityProofInput::off(
                     ring_id_field(self.ring.program_id().as_array())
                         .map_err(|_| TransferError::PolicyHashing)?,
                     policy_config.namespace_owner_hash,
@@ -815,7 +818,7 @@ impl PolicyTierInput<'_> {
             }
         };
         Ok(PolicyTier {
-            delegate_velocity,
+            committed_velocity,
             policy_config,
             witness: CustomRingWitnessInput {
                 policy: table,
@@ -829,8 +832,9 @@ impl PolicyTierInput<'_> {
     }
 }
 
+/// Resolves list facts while preserving the committed table for the selected ring statement.
 pub(crate) struct PolicyTier<'a> {
-    delegate_velocity: Option<VelocityWitness>,
+    committed_velocity: Option<VelocityProofInput>,
     policy_config: &'a PolicyConfig,
     witness: CustomRingWitnessInput<'a>,
 }
@@ -838,7 +842,7 @@ pub(crate) struct PolicyTier<'a> {
 impl PolicyTier<'_> {
     pub fn build<I: Rpc, R: Rpc>(self, indexer: &I, rpc: &R) -> Result<Tier, TransferError> {
         let mut witness = self.witness.build(indexer, rpc)?;
-        if let Some(velocity) = self.delegate_velocity {
+        if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
         Ok(Tier::policy(self.policy_config, witness))
@@ -850,7 +854,7 @@ impl PolicyTier<'_> {
         rpc: &R,
     ) -> Result<Tier, TransferError> {
         let mut witness = self.witness.build_async(indexer, rpc).await?;
-        if let Some(velocity) = self.delegate_velocity {
+        if let Some(velocity) = self.committed_velocity {
             witness.velocity = velocity;
         }
         Ok(Tier::policy(self.policy_config, witness))
@@ -900,7 +904,7 @@ struct StagedTransfer {
     interface_transfer_accounts: Vec<TransactInterfaceTransferAccounts>,
     ring: CustomRing,
     cosigner: Option<Address>,
-    velocity: Option<VelocityWitness>,
+    velocity: Option<VelocityProofInput>,
     head_map_root: Option<Address>,
 }
 
@@ -1040,16 +1044,17 @@ impl ProveRequest for TierRequest {
                         policy.as_str()
                     ))),
                     PolicyProofKind::Compressed { head, transition } => {
+                        /// Encodes current-record membership and replacement roots for the prover.
                         #[derive(serde::Serialize)]
                         #[serde(rename_all = "camelCase")]
-                        struct Head {
+                        struct HeadTransitionJson {
                             head_old_root: String,
                             head_new_root: String,
                             head_next: String,
                             head_index: String,
                             head_proof: Vec<String>,
                         }
-                        let head = serde_json::to_string(&Head {
+                        let head = serde_json::to_string(&HeadTransitionJson {
                             head_old_root: crate::head_map::hex(&transition.old_root),
                             head_new_root: crate::head_map::hex(&transition.new_root),
                             head_next: crate::head_map::hex(&head.next),
@@ -1182,6 +1187,7 @@ pub(crate) enum TierProof {
     },
 }
 
+/// Carries the ring proof and the exact account roots needed to verify its statement.
 pub(crate) struct TierBinding {
     pub proof: CustomRingProof,
     pub entries_tree: Option<Address>,
@@ -1635,7 +1641,7 @@ impl<I> RingSpendInputs<'_, I> {
     }
 }
 
-/// Built from the prover result, the witness and the wire content commit to the same values.
+/// Builds the forwarded SPP instruction from the transaction context covered by its proof.
 #[must_use]
 pub(crate) struct RingInstructionData<'a> {
     pub external_data: &'a ExternalData,

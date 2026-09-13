@@ -36,12 +36,10 @@ const (
 	CustomRingPolicyCircuitType         CircuitType = "custom-ring-policy"
 	CustomRingDelegatePolicyCircuitType CircuitType = "custom-ring-delegate-policy"
 
-	// CompressedPolicyCircuitType adds the in-circuit head-map transition,
-	// the windowed velocity rail with no per-member head account.
+	// Windowed members must prove the current head transition.
 	CompressedPolicyCircuitType CircuitType = "custom-ring-compressed-policy"
 
-	// CompressedRegisterCircuitType proves one head-map insertion for a fresh
-	// member on the compressed rail.
+	// Registration proves member absence before inserting the genesis record.
 	CompressedRegisterCircuitType CircuitType = "custom-ring-compressed-register"
 )
 

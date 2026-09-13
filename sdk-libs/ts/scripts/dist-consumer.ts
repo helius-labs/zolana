@@ -22,7 +22,10 @@ export type {
   RingSubmissionTransport,
   CustomRingCompressedPolicyProofRequest,
   CustomRingRegisterProofRequest,
+  CustomRingVelocityProofInput,
+  CustomRingSpendRecordProofInput,
 } from "@heliuslabs/zolana/client";
+export { velocityProofInputOff } from "@heliuslabs/zolana/client";
 export type {
   DepositClient,
   MergeClient,
@@ -61,6 +64,8 @@ export type {
   RingSubmissionResult,
   RingHeadMapRoot,
   VelocityFacts,
+  HeadMapInsertProofInput,
+  HeadMapTransferProofInput,
 } from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,

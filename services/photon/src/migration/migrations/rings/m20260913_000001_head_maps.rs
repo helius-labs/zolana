@@ -1,5 +1,6 @@
 use sea_orm_migration::prelude::*;
 
+/// Creates persistent head state and the journal needed for fork recovery.
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 

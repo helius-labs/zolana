@@ -25,10 +25,12 @@ pub fn process_clear_cosigner_ix(
     let cosigner_account = iter.next_mut("cosigner")?;
     let rent_recipient = iter.next_mut("rent_recipient")?;
 
+    // 1. Authenticate the authority allowed to remove scoped approval.
     load_authorized_config(program_id, config_account, authority)?;
     if load_cosigner(program_id, cosigner_account)?.is_none() {
         return Err(CustomRingError::InvalidCoSigner.into());
     }
+    // 2. Remove the signer account without changing proof-bound approval requirements.
     close_into(
         cosigner_account,
         rent_recipient,

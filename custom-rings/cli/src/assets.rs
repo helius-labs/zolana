@@ -51,6 +51,7 @@ impl From<ClientError> for AssetError {
     }
 }
 
+/// Keeps a registered mint's token metadata for preflight funding checks.
 pub struct ResolvedAsset {
     pub mint: Address,
     pub registry: AssetRegistry,
@@ -58,6 +59,7 @@ pub struct ResolvedAsset {
     transfer_fee: Option<TransferFeeConfig>,
 }
 
+/// Identifies the payer's public funds that will back a ring deposit.
 pub struct DepositFunding {
     pub payer: Address,
     pub token_account: Option<Address>,
@@ -169,6 +171,7 @@ impl ResolvedAsset {
     }
 }
 
+/// Checks the token account authorized to fund the requested mint and deposit amount.
 struct FundingAccount {
     address: Address,
     token_program: Address,

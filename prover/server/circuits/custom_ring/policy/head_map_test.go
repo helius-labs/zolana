@@ -28,8 +28,7 @@ func proofVars(proof []big.Int) []frontend.Variable {
 	return vars
 }
 
-// headMapRoundTripCircuit registers a member, then transfers it, asserting each
-// transition reaches the root the reference tree computed.
+// headMapRoundTripCircuit checks registration and transition against host tree roots.
 type headMapRoundTripCircuit struct {
 	OldRoot         frontend.Variable `gnark:",public"`
 	RegisteredRoot  frontend.Variable `gnark:",public"`
@@ -45,12 +44,12 @@ type headMapRoundTripCircuit struct {
 }
 
 func (c *headMapRoundTripCircuit) Define(api frontend.API) error {
-	registered := headMapRegister(api, c.OldRoot,
+	registered := constrainHeadRegistration(api, c.OldRoot,
 		c.LowMember, c.LowNext, c.LowNullifier, c.LowIndex, c.LowProof,
 		c.Member, c.Genesis, c.NewIndex, c.NewProof)
 	api.AssertIsEqual(registered, c.RegisteredRoot)
 	// The member keeps the sentinel's successor pointer, only its nullifier moves.
-	transferred := headMapTransfer(api, registered,
+	transferred := constrainHeadTransition(api, registered,
 		c.Member, c.LowNext, c.Spent, c.Successor, c.TransferIndex, c.TransferProof)
 	api.AssertIsEqual(transferred, c.TransferredRoot)
 	return nil

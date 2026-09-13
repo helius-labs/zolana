@@ -5,12 +5,11 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::load_delegate,
-        transact::{verify_and_forward, Gate, Rail},
+        transact::{verify_and_forward, Rail, TransactControlAccounts},
     },
 };
 
-/// `[payer(w,s), config, cosigner_pda, cosigner, delegate_pda, delegate(s)]`
-/// precede the accounts a member transact takes.
+/// Authorizes the appointed delegate through the audited and policy-checked authority path.
 #[inline(never)]
 pub fn process_delegate_transact_ix(
     program_id: &Address,
@@ -25,16 +24,18 @@ pub fn process_delegate_transact_ix(
     let delegate_account = iter.next_account("delegate_pda")?;
     let delegate = iter.next_account("delegate")?;
 
+    // 1. Authenticate the permanently appointed delegate.
     let expected = load_delegate(program_id, delegate_account)?
         .ok_or(CustomRingError::DelegateDisabled)?
         .delegate;
     if !delegate.is_signer() || delegate.address() != &expected {
         return Err(CustomRingError::UnauthorizedDelegate.into());
     }
+    // 2. Preserve audit and list requirements while excluding member outflow accounting.
     verify_and_forward(
         program_id,
         iter,
-        Gate {
+        TransactControlAccounts {
             config_account,
             cosigner_account,
             cosigner,

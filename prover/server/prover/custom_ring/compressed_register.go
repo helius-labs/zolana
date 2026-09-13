@@ -32,6 +32,7 @@ func SetupCompressedRegister() (*common.RingProofSystem, error) {
 	return compressedRegisterProofSystem(pk, vk, ccs), nil
 }
 
+// ConvertCompressedRegister combines existing keys with the compiled head registration circuit.
 type ConvertCompressedRegister struct {
 	ProvingKeyPath   string
 	VerifyingKeyPath string

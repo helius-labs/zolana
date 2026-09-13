@@ -1,4 +1,4 @@
-//! The counters ride the transfer in a message under the transaction viewing key.
+//! Encrypted spend counters share the transfer's audited viewing key.
 
 use thiserror::Error;
 use zolana_event::MessageData;
@@ -8,7 +8,7 @@ use zolana_keypair::{
 };
 use zolana_ring_policy::{SpendCounters, SPEND_COUNTERS_LEN};
 
-/// Off every output index, the same key never encrypts two slots alike.
+/// Counter messages use a nonce domain outside all UTXO output slots.
 pub const SPEND_COUNTERS_SLOT_INDEX: u32 = u32::MAX;
 
 #[derive(Debug, Error)]
@@ -19,7 +19,6 @@ pub enum SpendCountersError {
     Malformed,
 }
 
-/// `recipient_pk(33) || ciphertext`, opened by the transaction key alone.
 pub fn encrypt_counters(
     tx: &ViewingKey,
     recipient: &P256Pubkey,
@@ -38,6 +37,7 @@ pub fn encrypt_counters(
     Ok(body)
 }
 
+/// Recovered counters require a matching record commitment before use.
 pub fn decrypt_counters(
     tx: &ViewingKey,
     body: &[u8],

@@ -13,8 +13,7 @@ import (
 	"zolana/prover/prover/common"
 )
 
-// CompressedRegisterParameters is one head-map insertion request, the low
-// element and empty append slot with their membership proofs.
+// CompressedRegisterParameters supplies an unverified head registration request.
 type CompressedRegisterParameters struct {
 	PublicInputHash *big.Int
 	HeadOldRoot     *big.Int
@@ -30,6 +29,7 @@ type CompressedRegisterParameters struct {
 	NewProof        [policy.HeadMapHeight]*big.Int
 }
 
+// compressedRegisterParametersJSON encodes the insertion statement and its two Merkle paths.
 type compressedRegisterParametersJSON struct {
 	CircuitType     string   `json:"circuitType"`
 	PublicInputHash string   `json:"publicInputHash"`
@@ -65,6 +65,7 @@ func (p *CompressedRegisterParameters) MarshalJSON() ([]byte, error) {
 }
 
 func (p *CompressedRegisterParameters) UnmarshalJSON(data []byte) error {
+	// 1. Require the registration rail and complete predecessor and append paths.
 	var raw compressedRegisterParametersJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -75,6 +76,7 @@ func (p *CompressedRegisterParameters) UnmarshalJSON(data []byte) error {
 	if len(raw.LowProof) != policy.HeadMapHeight || len(raw.NewProof) != policy.HeadMapHeight {
 		return fmt.Errorf("custom-ring-compressed-register: proof length is not %d", policy.HeadMapHeight)
 	}
+	// 2. Decode canonical field values without modular reduction.
 	scalars := []struct {
 		dst  **big.Int
 		src  string
@@ -98,6 +100,7 @@ func (p *CompressedRegisterParameters) UnmarshalJSON(data []byte) error {
 		}
 		*s.dst = value
 	}
+	// 3. Require an append position beyond the predecessor and a strict member interval.
 	if p.NewIndex.Sign() == 0 || p.NewIndex.BitLen() > policy.HeadMapHeight ||
 		p.LowIndex.Cmp(p.NewIndex) >= 0 || p.LowMember.Cmp(p.Member) >= 0 || p.Member.Cmp(p.LowNext) >= 0 {
 		return fmt.Errorf("compressed registration has an invalid insertion index or member range")

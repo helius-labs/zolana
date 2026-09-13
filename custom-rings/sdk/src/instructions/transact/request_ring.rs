@@ -82,9 +82,9 @@ impl Default for RuleAnswer {
 /// One positional source slot, slot `i` is empty or serves list `i + 1`.
 pub use zolana_ring_policy::SourceOwner as SourceOwnerEntry;
 
-/// The sender's spend record as the circuit opens it.
+/// Opens the predecessor counters and successor salt for a windowed velocity proof.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SpendRecordWitness {
+pub struct SpendRecordProofInput {
     pub version: u64,
     pub window: u64,
     pub commitment: [u8; 32],
@@ -94,9 +94,9 @@ pub struct SpendRecordWitness {
     pub next_salt: [u8; 32],
 }
 
-/// The velocity half of the statement, zero on a ring without a window.
+/// Supplies the committed limits and counter state for per-transfer or windowed enforcement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VelocityWitness {
+pub struct VelocityProofInput {
     pub window_slots: u64,
     pub rows: [VelocityRow; MAX_VELOCITY_ASSETS],
     pub row_count: u8,
@@ -104,10 +104,10 @@ pub struct VelocityWitness {
     pub namespace_owner_hash: [u8; 32],
     pub window_index: u64,
     pub approval_required: bool,
-    pub record: SpendRecordWitness,
+    pub record: SpendRecordProofInput,
 }
 
-impl VelocityWitness {
+impl VelocityProofInput {
     /// Rows without a window carry the charges, no record accompanies them.
     pub(crate) fn per_transfer(
         charges: &crate::velocity::RowCharges,
@@ -122,7 +122,7 @@ impl VelocityWitness {
             namespace_owner_hash,
             window_index: 0,
             approval_required: charges.approval_required,
-            record: SpendRecordWitness::default(),
+            record: SpendRecordProofInput::default(),
         }
     }
 
@@ -140,7 +140,7 @@ impl VelocityWitness {
             namespace_owner_hash,
             window_index: 0,
             approval_required: false,
-            record: SpendRecordWitness::default(),
+            record: SpendRecordProofInput::default(),
         }
     }
 }
@@ -167,7 +167,7 @@ pub struct CustomRingPolicyProofRequest {
     pub state_root: [u8; 32],
     pub nullifier_root: [u8; 32],
     pub entries_tree_id: u16,
-    pub velocity: VelocityWitness,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -311,7 +311,7 @@ fn velocity_row_json(row: &VelocityRow) -> VelocityRowJson {
     }
 }
 
-fn record_json(record: &SpendRecordWitness) -> SpendRecordJson {
+fn record_json(record: &SpendRecordProofInput) -> SpendRecordJson {
     SpendRecordJson {
         version: record.version,
         window: record.window,
@@ -371,6 +371,7 @@ struct CustomRingSourceJson {
     owner_hash: String,
 }
 
+/// Encodes one mint's velocity limits in the prover's field representation.
 #[derive(Serialize)]
 struct VelocityRowJson {
     asset: String,
@@ -379,6 +380,7 @@ struct VelocityRowJson {
     cosign_above: String,
 }
 
+/// Encodes the private counter opening consumed by the policy prover.
 #[derive(Serialize)]
 struct SpendRecordJson {
     version: u64,
@@ -508,7 +510,7 @@ mod tests {
             state_root: [8u8; 32],
             nullifier_root: [9u8; 32],
             entries_tree_id: 3,
-            velocity: VelocityWitness::off([10u8; 32], [11u8; 32]),
+            velocity: VelocityProofInput::off([10u8; 32], [11u8; 32]),
             answers: vec![RuleAnswer::default(); ANSWER_SLOTS],
         }
     }

@@ -17,7 +17,7 @@ fn unavailable(error: impl std::fmt::Display) -> PhotonApiError {
     PhotonApiError::HeadMapOutOfSync(error.to_string())
 }
 
-pub async fn check_chain(rpc: &RpcClient, map: &storage::Map) -> anyhow::Result<()> {
+pub async fn check_chain(rpc: &RpcClient, map: &storage::HeadMapState) -> anyhow::Result<()> {
     let program = Pubkey::new_from_array(map.program);
     let (address, bump) =
         Pubkey::find_program_address(&[custom_ring_interface::HeadMapRoot::SEED], &program);
@@ -46,7 +46,14 @@ async fn snapshot(
     db: &DatabaseConnection,
     rpc: &RpcClient,
     request: &GetRingHeadProofRequest,
-) -> Result<(sea_orm::DatabaseTransaction, storage::Map, ApiContext), PhotonApiError> {
+) -> Result<
+    (
+        sea_orm::DatabaseTransaction,
+        storage::HeadMapState,
+        ApiContext,
+    ),
+    PhotonApiError,
+> {
     if request.expected_next_index == 0
         || request.expected_next_index > proof::CAPACITY
         || request.member.0 == [0; 32]
@@ -56,6 +63,7 @@ async fn snapshot(
             "invalid head-map member or cursor".into(),
         ));
     }
+    // 1. Read the root and member paths from one completed projection snapshot.
     let tx = db.begin().await?;
     set_transaction_isolation_if_needed(&tx).await?;
     let cursor = storage::cursor(&tx)
@@ -70,6 +78,7 @@ async fn snapshot(
     if map.root != request.expected_root.0 || map.next_index != request.expected_next_index {
         return Err(PhotonApiError::HeadRootChanged);
     }
+    // 2. Require the snapshot's block and root to remain canonical on chain.
     let tip = cursor
         .tip
         .context("head-map cursor has no canonical block")
@@ -110,6 +119,7 @@ pub async fn register(
     {
         return Err(PhotonApiError::HeadMemberAlreadyRegistered);
     }
+    // 1. Authenticate the predecessor covering the absent member.
     let low = storage::predecessor(&tx, &map.program, &request.member.0)
         .await
         .map_err(|e| PhotonApiError::ValidationError(e.to_string()))?;
@@ -125,6 +135,7 @@ pub async fn register(
     if empty != [0; 32] {
         return Err(unavailable("head-map append slot is occupied"));
     }
+    // 2. Bind the empty append path to the root after splicing the predecessor.
     let changed_low =
         custom_ring_interface::head_map_leaf(&low.member, &request.member.0, &low.nullifier)
             .map_err(|e| unavailable(format!("invalid predecessor ({e:?})")))?;

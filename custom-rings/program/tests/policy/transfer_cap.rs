@@ -1,4 +1,4 @@
-//! The per-transfer cap contract, refused before the proof and carrying no record.
+//! Pins stateless transfer limits and their approval requirements.
 
 use custom_ring_interface::{tag, COSIGN_DEPOSITS};
 use custom_ring_program::CustomRingError;
@@ -24,7 +24,7 @@ fn custom(error: CustomRingError) -> ProgramError {
     ProgramError::Custom(error as u32)
 }
 
-/// A per-transfer cap ring leaves the money trees free.
+/// Stateless caps do not confine transaction trees.
 fn transfer_cap_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
@@ -41,7 +41,6 @@ fn a_cap_ring_reaches_the_proof_without_a_record() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// Without a window the last output is money, its plaintext fails the scheme.
 #[test]
 fn a_plaintext_record_output_is_a_money_output_without_a_window() {
     let (mollusk, _) = setup_mollusk();
@@ -83,7 +82,6 @@ fn the_delegate_rail_is_exempt_from_per_transfer_caps() {
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// The approval bit demands the co-signer without a window as with one.
 #[test]
 fn an_approval_needs_the_configured_cosigner_without_a_window() {
     let (mollusk, _) = setup_mollusk();
@@ -97,7 +95,7 @@ fn an_approval_needs_the_configured_cosigner_without_a_window() {
 }
 
 #[test]
-fn register_spend_needs_a_window_not_rows() {
+fn per_transfer_caps_cannot_register_spend_records() {
     let (mollusk, _) = setup_mollusk();
     register_spend_fixture(transfer_cap_policy_config_account(), payer())
         .expect_err(&mollusk, custom(CustomRingError::VelocityDisabled));

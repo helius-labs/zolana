@@ -657,8 +657,7 @@ fn auditor_sees_every_ring_transfer() -> Result<()> {
     }
     send(rpc, &env.payer, &[pause(authority, false)?])?;
 
-    // 3b. A SOL spend window below the first deposit refuses it, cleared, the
-    //     deposit lands.
+    // 3b. Public deposit caps apply independently of shielded policy proofs.
     send(
         rpc,
         &env.payer,
@@ -1893,8 +1892,7 @@ fn usdc_crosses_the_ring_boundary_and_withdraws_through_a_ring_transact() -> Res
     Ok(())
 }
 
-/// Each sender's SOL outflow is charged to its spend record, the cap refuses
-/// the transfer that would cross it and the threshold demands the co-signer.
+/// Exercises atomic record updates, approval thresholds and fixed-window resets.
 #[test]
 fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     const WINDOW_SLOTS: u64 = VELOCITY.window_slots();
@@ -2047,6 +2045,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         "no ordinary account per member"
     );
 
+    // 2b. Another member's registration makes an unchanged sender's head proof stale.
     let stale = prove(prepare(notes.clone(), FIRST_SEND)?, None)?;
     let other = &env.recipient.keypair;
     let other_registration = RegisterSpend {
@@ -2088,7 +2087,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         .ok_or_else(|| anyhow!("head map"))?;
     assert_eq!(head_before_transfer.next_index(), 3);
 
-    // 3. The first send charges the record and stays under dual control.
+    // 3. Failed SPP verification rolls back the head before a valid send advances both.
     let prepared = prepare(notes, FIRST_SEND)?;
     let change = prepared
         .outputs
@@ -2158,8 +2157,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
     assert_eq!(audited.spend_records[0].counters, Some(counters));
     assert!(audited.undecryptable_slots.is_empty());
 
-    // 4. A send above the threshold carries the approval bit, the program then
-    //    demands a co-signer the ring must have configured.
+    // 4. The proved approval bit requires a co-signer even outside its configured scope.
     let change_note = Utxo {
         owner: sender.signing_pubkey(),
         asset: SOL_MINT,
@@ -2243,6 +2241,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         Ok(_) => return Err(anyhow!("the capped send was proven")),
     }
 
+    // 6. Delegation exceeds the velocity cap without changing member counters or the head map.
     let delegate = Keypair::new();
     send(
         rpc,
@@ -2308,6 +2307,7 @@ fn a_velocity_ring_bounds_each_senders_outflow() -> Result<()> {
         live.record
     );
 
+    // 7. The next window rejects the old proof and resets counters on a newly proved spend.
     let stale = prove(prepare(vec![third.clone()], 1)?, None)?;
     advance_local_clock(rpc, (window + 1) * WINDOW_SLOTS)?;
     let rejection = send_expecting_rejection(rpc, sender, stale.instruction()?)?;
@@ -2380,8 +2380,7 @@ fn advance_local_clock(rpc: &SolanaRpc, slot: u64) -> Result<()> {
     }
 }
 
-/// Each transfer's SOL outflow stands alone against the cap, the threshold
-/// demands the co-signer, and no record accompanies the send.
+/// Exercises per-transfer caps and approval without a spend record.
 #[test]
 fn a_transfer_cap_ring_bounds_each_transfer() -> Result<()> {
     const UNDER_THRESHOLD: u64 = 250_000_000;

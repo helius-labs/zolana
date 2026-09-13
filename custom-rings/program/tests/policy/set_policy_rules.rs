@@ -73,7 +73,7 @@ fn invalid_rows_are_rejected_exactly() {
 }
 
 #[test]
-fn rows_without_a_window_pin_under_the_next_generation() {
+fn rows_without_a_window_select_per_transfer_caps() {
     let (mollusk, _) = setup_mollusk();
     let table = table_ix_data(&TRANSFER_CAP_RULES, &own_specs(&TRANSFER_CAP_RULES));
     let config = stored_policy_config(
@@ -87,7 +87,7 @@ fn rows_without_a_window_pin_under_the_next_generation() {
     ));
 }
 
-/// Records store a window index, not its duration, so the duration is pinned.
+/// Existing record window indices retain their original duration.
 #[test]
 fn a_changed_window_duration_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
@@ -97,7 +97,6 @@ fn a_changed_window_duration_is_rejected_exactly() {
     fixture.expect_err(&mollusk, custom(CustomRingError::VelocityWindowImmutable));
 }
 
-/// The same duration re-pins the rows under the next generation.
 #[test]
 fn the_same_window_duration_re_pins() {
     let (mut mollusk, _) = setup_mollusk();

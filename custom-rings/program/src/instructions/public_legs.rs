@@ -22,7 +22,7 @@ const MAX_LEGS: usize = if MAX_INTERFACE_TRANSFERS > MAX_DEPOSIT_ASSETS {
 };
 const _: () = assert!(MAX_LEGS <= u32::BITS as usize);
 
-/// One window slot per leg follows the co-signer prefix, SOL under the zero address.
+/// Resolves public settlement amounts to mints for co-signing and ring-wide accounting.
 pub(crate) struct PublicLegs<'a> {
     settlements: &'a [AccountView],
     mint_at: [u8; MAX_LEGS],
@@ -77,6 +77,7 @@ impl<'a> PublicLegs<'a> {
         data: &RingDepositIxDataRef<'_>,
         settlements: &'a [AccountView],
     ) -> Result<Self, ProgramError> {
+        // 1. Resolve deposit asset indices to their settlement mints.
         if data.assets.len() > MAX_DEPOSIT_ASSETS {
             return Err(CustomRingError::InvalidInstructionData.into());
         }
@@ -99,6 +100,7 @@ impl<'a> PublicLegs<'a> {
             offset += width;
             flows.push(mint_at, 0, true);
         }
+        // 2. Aggregate every deposit entry into its asset's public flow.
         for entry in &data.deposits {
             let index = usize::from(entry.asset_index);
             if index >= flows.len {
@@ -171,12 +173,14 @@ pub(crate) fn apply_spend_windows(
     windows: &mut [AccountView],
     legs: &PublicLegs,
 ) -> Result<(), ProgramError> {
+    // 1. Require repeated legs of one mint to share the same canonical window account.
     for (leg, window) in windows.iter().enumerate() {
         let first = legs.first_leg(legs.mint(leg));
         if window.address() != windows[first].address() {
             return Err(CustomRingError::InvalidSpendWindow.into());
         }
     }
+    // 2. Charge each mint once and commit its counters with the enclosing SPP settlement.
     let slot = Clock::get()?.slot;
     for (leg, window) in windows.iter_mut().enumerate() {
         let mint = legs.mint(leg);
@@ -189,19 +193,21 @@ pub(crate) fn apply_spend_windows(
         if !window.is_writable() {
             return Err(CustomRingError::InvalidSpendWindow.into());
         }
-        let state = advance(state, slot, legs.sum(mint, true)?, legs.sum(mint, false)?)?;
+        let state =
+            advance_public_window(state, slot, legs.sum(mint, true)?, legs.sum(mint, false)?)?;
         let mut data = window.try_borrow_mut()?;
         *bytemuck::from_bytes_mut::<SpendWindow>(&mut data) = state;
     }
     Ok(())
 }
 
-fn advance(
+fn advance_public_window(
     mut state: SpendWindow,
     slot: u64,
     deposited: u64,
     withdrawn: u64,
 ) -> Result<SpendWindow, ProgramError> {
+    // 1. Reset only at a fixed slot boundary.
     let window_slots = state.window_slots();
     if window_slots == 0 {
         return Err(CustomRingError::InvalidSpendWindow.into());
@@ -212,6 +218,7 @@ fn advance(
         state.deposited = [0; 8];
         state.withdrawn = [0; 8];
     }
+    // 2. Apply the complete transaction flow before checking either directional cap.
     let deposited = state
         .deposited()
         .checked_add(deposited)

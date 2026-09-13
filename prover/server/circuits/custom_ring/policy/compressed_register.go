@@ -1,8 +1,3 @@
-// Proves one head-map insertion for the compressed velocity rail. Registration
-// is program-authorized, so the program vouches for the member and its genesis
-// nullifier, binds them and the append cursor into the public input, and
-// advances the on-chain root by the returned HeadNewRoot.
-
 package policy
 
 import (
@@ -11,7 +6,7 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// CompressedRegisterCircuit inserts a member off a low element and empty slot.
+// CompressedRegisterCircuit proves insertion of a member's authorized genesis nullifier.
 type CompressedRegisterCircuit struct {
 	PublicInputHash frontend.Variable `gnark:",public"`
 
@@ -31,13 +26,15 @@ type CompressedRegisterCircuit struct {
 }
 
 func (c *CompressedRegisterCircuit) Define(api frontend.API) error {
-	newRoot := headMapRegister(
+	// 1. Prove absence and insertion at the program's append cursor.
+	newRoot := constrainHeadRegistration(
 		api, c.HeadOldRoot,
 		c.LowMember, c.LowNext, c.LowNullifier, c.LowIndex, c.LowProof[:],
 		c.Member, c.Genesis, c.NewIndex, c.NewProof[:],
 	)
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
+	// 2. Bind the insertion to the member and genesis validated by the program.
 	chain := []frontend.Variable{c.HeadOldRoot, c.HeadNewRoot, c.Member, c.Genesis, c.NewIndex}
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
