@@ -1,9 +1,8 @@
 # Nullifier Tree
 
 A height-40 indexed Merkle tree with an integrated input queue of `N` batches
-(`N` = 2 in the current layout). This document specifies nullifier queue
-insertion, batch append, and nullifier-PDA cleanup. Initialization is out of
-scope.
+(`N` = 2 in the current layout). This document specifies initialization,
+nullifier queue insertion, batch append, and nullifier-PDA cleanup.
 
 ## State
 
@@ -112,10 +111,8 @@ tree.next_index <= q <= tree.capacity
 accepted_root(i) = i < RH and root_history[i] != 0
 ```
 
-Initialization fills leaf zero and sets `q = 1`, `tree.next_index = 1`, and
-`batches[i].start_index = 1 + i * B` for `0 <= i < N`. Queue sequence `x`
-reserves leaf `x`, so no queued value has sequence 0. Leaves in
-`[tree.next_index, q)` are queued but not yet appended to the tree.
+Queue sequence `x` reserves leaf `x`, so no queued value has sequence 0.
+Leaves in `[tree.next_index, q)` are queued but not yet appended to the tree.
 
 `RH = K` keeps exactly one queue batch's worth of update roots. Fully applying
 the successor batch therefore overwrites every root that predates it.
@@ -144,6 +141,36 @@ struct NullifierPda {
 
 The queued nullifier and the PDA seed use the same canonical 32-byte field
 encoding. Values outside the field are rejected, not reduced modulo the field.
+
+## Initialization
+
+**Description.** `create_tree` allocates the account across several steps and
+initializes it in the last one, writing the header and both trees at once. The
+nullifier tree starts holding the indexed tree's sentinel element, so the tree
+and the queue both start one leaf above zero.
+
+**Checks and state changes**
+
+1. Require `state == UNINITIALIZED` and the account length to equal the layout
+   size exactly. The buffer must be zeroed: hash chains and cached updates are
+   never written here, and every later reuse relies on them starting zero.
+2. Require `height == 40`, `Z` to be a size with a committed verifying key
+   (`10` or `250`), and `B` to be a nonzero multiple of `Z` with
+   `B / Z = RH`, the root-history capacity the layout was compiled with. A `Z`
+   without a verifying key would wedge the queue once both batches filled.
+3. Write the header: discriminator, `state = INITIALIZED`, `tree_id`, the
+   submitted `TreeFeeSchedule`, and `fee_balance = 0`.
+4. Set `tree.capacity = 2^height`, `sequence_number = 0`, `w = 0`,
+   `tree.next_index = 1`, and `q = 1`.
+5. Set `c = p = 0`, and each `batches[i]` to `Fill` with zeroed counters and
+   `start_index = 1 + i * B` for `0 <= i < N`.
+6. Write `root_history[0]` with the root of the height-40 tree holding the
+   single leaf `H(0, MAX)`, where `MAX` is the largest BN254 scalar, and set
+   the history cursor to `1 mod RH`.
+
+Leaf 0 is that sentinel, which is why `tree.next_index` and `q` both start at
+1. The tree must also be funded with its own rent exemption plus the
+[working capital](#working-capital) that its nullifier PDAs draw on.
 
 ## Insert into queue
 
