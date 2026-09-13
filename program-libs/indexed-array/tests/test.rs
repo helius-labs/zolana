@@ -869,3 +869,35 @@ fn appending_many_elements_does_not_degrade() {
         .unwrap();
     assert_eq!(array.elements[low].value, 15_000u64.to_biguint().unwrap());
 }
+
+/// `next_back` walks an inclusive `[front, back]` range, so returning the
+/// element at index 0 must not decrement `back` past it. Covers both halves:
+/// a populated array drained from the back, and a fresh array whose only
+/// element sits at index 0, where the first `next_back` underflowed.
+#[test]
+fn reverse_iteration_drains_without_underflowing() {
+    let next_value = BigUint::from_str(HIGHEST_ADDRESS_PLUS_ONE).unwrap();
+    let mut array: IndexedArray<Poseidon, usize> =
+        IndexedArray::new(0_u32.to_biguint().unwrap(), next_value);
+    for value in [30_u32, 10, 20] {
+        array.append(&value.to_biguint().unwrap()).unwrap();
+    }
+
+    let forward = array.iter().collect::<Vec<_>>();
+    let mut backward = array.iter().rev().collect::<Vec<_>>();
+    backward.reverse();
+    assert_eq!(backward, forward);
+
+    let mut drained = array.iter();
+    for _ in 0..forward.len() {
+        assert!(drained.next_back().is_some());
+    }
+    assert!(drained.next_back().is_none());
+    assert!(drained.next().is_none());
+
+    let sentinel: IndexedArray<Poseidon, usize> = IndexedArray::default();
+    let mut only = sentinel.iter();
+    assert_eq!(only.next_back(), sentinel.elements.first());
+    assert!(only.next_back().is_none());
+    assert!(only.next().is_none());
+}

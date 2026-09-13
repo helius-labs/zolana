@@ -481,12 +481,16 @@ where
     I: Into<usize>,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        if self.back >= self.front {
-            let result = self.indexing_array.elements.get(self.back);
-            self.back -= 1;
-            result
-        } else {
-            None
+        if self.back < self.front {
+            return None;
         }
+        let result = self.indexing_array.elements.get(self.back);
+        // `back` is inclusive, so exhausting the range at index 0 cannot
+        // decrement it; raise `front` past it to mark the iterator done.
+        match self.back.checked_sub(1) {
+            Some(back) => self.back = back,
+            None => self.front = 1,
+        }
+        result
     }
 }

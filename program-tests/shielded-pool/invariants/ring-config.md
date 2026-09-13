@@ -209,7 +209,7 @@ owner/discriminator load, derivation checked only at creation) is INV-XC-26 in
   - Partial coverage: `program-tests/shielded-pool/tests/ring_config/contract.rs` `ring_owner_burn_freezes_the_toggle_for_the_old_authority` (a true `Address::default()` burn is unreachable by construction — the incoming authority must co-sign and nothing signs for the default address, pinned by the test; a discarded-key burn locks the old authority out of toggle and rotation with 7003; post-burn `ring_transact`/`ring_deposit` availability not asserted)
   - Kind: reachability
   - Statement: after `update_ring_config_owner` sets `authority` to an address no one can sign for (e.g. `Address::default()`), no `update_ring_config` or `update_ring_config_owner` can ever succeed again. Operational ring instructions remain available only if the last stored `paused` value is 0; `ring_authority_transact` additionally remains exactly in its last-enabled state.
-  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:36-48`, `docs/spec.md:1163-1164, 1200`
+  - Location: `programs/shielded-pool/src/instructions/ring_config/loader.rs:36-48`, `docs/spec.md:1477-1481` (burn is creation-only), `docs/spec.md:1523` (tag 9 co-sign)
   - Severity: Medium (documented burn semantics)
   - Suggested test: positive (burn, then negative toggle, positive ring_transact); harness: program-tests integration (`cargo test-sbf`)
 
