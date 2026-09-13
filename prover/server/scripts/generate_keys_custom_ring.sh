@@ -30,6 +30,6 @@ for pair in custom_ring_policy:policy_verifying_key.rs custom_ring_base:base_ver
     rustfmt "$vkey_dir/$module"
 done
 
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --only-release
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --release-base-url https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7 --only-release
 
 echo "Done. Ring proving keys in ${keys_dir}, verifying keys in ${vkey_dir}"

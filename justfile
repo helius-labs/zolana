@@ -1567,7 +1567,7 @@ build-spp-keys:
             "program-libs/tree/src/nullifier_tree/verify/verifying_keys" \
             "${module}.rs"
     done
-    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+    python3 prover/server/scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --release-base-url https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7
 
 # Upload the local proving keys to their immutable S3 version folder; the prefix
 # (proving-keys/<version-hash>) comes from the committed lockfile. The two

@@ -260,9 +260,10 @@ func downloadAttempt(url string, keyPath string, tempPath string, entry lockEntr
 
 // EnsureProvingKey makes the proving key at keyPath available and verified
 // against the embedded lockfile. Keys pinned in the lockfile are downloaded from
-// the object store when missing or when the on-disk copy fails its pinned
-// sha256; keys not in the lockfile are never downloaded (they must already exist
-// locally, e.g. a locally generated key). When autoDownload is false, a missing
+// their explicit URL or the object store when missing or when the on-disk copy
+// fails its pinned sha256; keys not in the lockfile are never downloaded (they
+// must already exist locally, e.g. a locally generated key). When autoDownload
+// is false, a missing
 // or mismatched pinned key is an error and no file is removed.
 func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig) error {
 	config = normalizeDownloadConfig(config)
@@ -300,9 +301,9 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 		}
 	}
 
-	if entry.Source != "" {
+	if entry.Source != "" && entry.URL == "" {
 		return fmt.Errorf(
-			"key %s is a %s asset and is not on the object store, run just ensure-custom-ring-live-keys",
+			"key %s is a %s asset without a download URL, run just ensure-custom-ring-live-keys",
 			filename,
 			entry.Source,
 		)
@@ -319,11 +320,14 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	url := objectURL(manifest.Prefix, filename)
+	url := entry.URL
+	if url == "" {
+		url = objectURL(manifest.Prefix, filename)
+	}
 	logging.Logger().Info().
 		Str("file", filename).
 		Str("url", url).
-		Msg("Downloading proving key from object store")
+		Msg("Downloading proving key")
 
 	if err := downloadAndVerify(url, keyPath, entry, config); err != nil {
 		return err

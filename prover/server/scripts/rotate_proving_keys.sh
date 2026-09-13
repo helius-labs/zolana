@@ -78,7 +78,7 @@ echo "==> refreshing circuit fingerprints"
 echo "    paste the printed values into prover/server/prover/fingerprint/fingerprint_test.go"
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --release-base-url https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7
 
 # The lock's prefix carries the new version hash; upload the full key set into that
 # immutable version folder. Old version folders are left untouched, so previously

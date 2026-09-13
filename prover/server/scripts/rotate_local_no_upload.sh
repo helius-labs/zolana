@@ -62,6 +62,6 @@ for spec in "10" "250"; do
 done
 
 echo "==> regenerating proving-keys.lock"
-python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key
+python3 scripts/generate_lockfile.py "$keys_dir" --release custom_ring_policy.key --release custom_ring_base.key --release-base-url https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7
 
 echo "==> local rotation complete; S3 upload and the custom-ring release are the owner's step"
