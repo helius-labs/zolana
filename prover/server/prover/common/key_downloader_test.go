@@ -279,57 +279,31 @@ func TestEnsureProvingKeyNotInManifestMissingErrors(t *testing.T) {
 	}
 }
 
-func TestEnsureProvingKeySourcedKeyWithoutURLIsNotFetched(t *testing.T) {
+func TestEnsureProvingKeyWithSourceIsFetched(t *testing.T) {
 	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "sourced.key")
+	keyPath := filepath.Join(dir, "custom_ring_base.key")
+	body := []byte("body")
+	entry := entryFor(body)
+	entry.Source = "release"
 
 	useTestManifest(t, &lockManifest{Prefix: "proving-keys", Keys: map[string]lockEntry{
-		"sourced.key": {Sha256: sha256Hex([]byte("body")), Size: 4, Source: "release"},
+		"custom_ring_base.key": entry,
 	}})
 
 	server := newCountingServer()
+	server.setBody("/proving-keys/custom_ring_base.key", body)
 	httpServer := httptest.NewServer(server)
 	defer httpServer.Close()
 	t.Setenv(provingKeysURLEnvVar, httpServer.URL)
 
-	err := EnsureProvingKey(keyPath, true, testDownloadConfig(1))
-	if err == nil || !strings.Contains(err.Error(), "without a download URL") {
-		t.Fatalf("error = %v, want a missing download URL error naming the source", err)
-	}
-	if got := server.requests("/proving-keys/sourced.key"); got != 0 {
-		t.Fatalf("requests = %d, want the download skipped", got)
-	}
-}
-
-func TestEnsureProvingKeyDownloadsSourcedKeyFromExplicitURL(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "sourced.key")
-	body := []byte("release bytes")
-
-	server := newCountingServer()
-	server.setBody("/release/sourced.key", body)
-	httpServer := httptest.NewServer(server)
-	defer httpServer.Close()
-
-	entry := entryFor(body)
-	entry.Source = "release"
-	entry.URL = httpServer.URL + "/release/sourced.key"
-	useTestManifest(t, &lockManifest{Prefix: "ignored", Keys: map[string]lockEntry{
-		"sourced.key": entry,
-	}})
-	t.Setenv(provingKeysURLEnvVar, httpServer.URL+"/object-store")
-
 	if err := EnsureProvingKey(keyPath, true, testDownloadConfig(1)); err != nil {
 		t.Fatalf("EnsureProvingKey: %v", err)
 	}
+	if got := server.requests("/proving-keys/custom_ring_base.key"); got != 1 {
+		t.Fatalf("requests = %d, want one download", got)
+	}
 	if got := readTestFile(t, keyPath); !bytes.Equal(got, body) {
-		t.Fatalf("downloaded file = %q, want %q", got, body)
-	}
-	if got := server.requests("/release/sourced.key"); got != 1 {
-		t.Fatalf("release requests = %d, want 1", got)
-	}
-	if got := server.requests("/object-store/ignored/sourced.key"); got != 0 {
-		t.Fatalf("object-store requests = %d, want 0", got)
+		t.Fatalf("key on disk = %q, want %q", got, body)
 	}
 }
 
@@ -460,7 +434,6 @@ func TestEmbeddedManifestLoads(t *testing.T) {
 	if len(m.Keys) == 0 {
 		t.Fatalf("embedded manifest has no keys")
 	}
-	releaseURLs := 0
 	for name, entry := range m.Keys {
 		if len(entry.Sha256) != 64 {
 			t.Fatalf("key %s sha256 = %q, want 64 hex chars", name, entry.Sha256)
@@ -468,14 +441,5 @@ func TestEmbeddedManifestLoads(t *testing.T) {
 		if entry.Size <= 0 {
 			t.Fatalf("key %s size = %d, want > 0", name, entry.Size)
 		}
-		if entry.Source == "release" {
-			if !strings.HasPrefix(entry.URL, "https://github.com/helius-labs/zolana/releases/download/") {
-				t.Fatalf("release key %s URL = %q", name, entry.URL)
-			}
-			releaseURLs++
-		}
-	}
-	if releaseURLs != 2 {
-		t.Fatalf("release URLs = %d, want 2", releaseURLs)
 	}
 }

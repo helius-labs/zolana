@@ -15,8 +15,7 @@ preserved within each version folder.
 
 Usage:
     generate_lockfile.py <keys-dir> [--out <lockfile>] [--prefix <base-prefix>]
-    generate_lockfile.py <keys-dir> --release <name>... --release-base-url <url>
-    generate_lockfile.py <keys-dir> --release <name>... --release-base-url <url> --only-release
+    generate_lockfile.py <keys-dir> --release <name>... --only-release
 
 Defaults: keys-dir positional,
 out=prover/server/prover/provingkeys/proving-keys.lock (the file the Go
@@ -55,12 +54,7 @@ def main() -> int:
         action="append",
         default=[],
         metavar="NAME",
-        help="key distributed at its explicit release URL instead of the object store",
-    )
-    parser.add_argument(
-        "--release-base-url",
-        default=None,
-        help="HTTPS release directory containing every --release key",
+        help="key built from release assets, recorded as its provenance",
     )
     parser.add_argument(
         "--only-release",
@@ -68,11 +62,6 @@ def main() -> int:
         help="repin the --release entries of the existing lockfile, keep the rest and the prefix",
     )
     args = parser.parse_args()
-
-    if args.release and not args.release_base_url:
-        parser.error("--release-base-url is required with --release")
-    if args.release_base_url and not args.release_base_url.startswith("https://"):
-        parser.error("--release-base-url must use HTTPS")
 
     keys_dir = os.path.abspath(args.keys_dir)
     if not os.path.isdir(keys_dir):
@@ -92,7 +81,7 @@ def main() -> int:
     out = args.out or default_out
 
     if args.only_release:
-        return pin_release_entries(keys_dir, out, args.release, args.release_base_url)
+        return pin_release_entries(keys_dir, out, args.release)
 
     names = sorted(n for n in os.listdir(keys_dir) if n.endswith(".key"))
     if not names:
@@ -107,7 +96,6 @@ def main() -> int:
         keys[name] = {"sha256": digest, "size": size}
         if name in args.release:
             keys[name]["source"] = "release"
-            keys[name]["url"] = f"{args.release_base_url.rstrip('/')}/{name}"
         print(f"  {name}  {size}  {digest}", file=sys.stderr)
 
     # The version hash is derived from the key set (each name + its sha256), so it
@@ -116,7 +104,7 @@ def main() -> int:
     # versions untouched. 16 hex chars (64 bits) is collision-safe across the
     # handful of key-set versions this project will ever have.
     canonical = json.dumps(
-        {name: entry["sha256"] for name, entry in keys.items() if "source" not in entry},
+        {name: entry["sha256"] for name, entry in keys.items()},
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -131,7 +119,7 @@ def main() -> int:
     return 0
 
 
-def pin_release_entries(keys_dir: str, out: str, names: list, release_base_url: str) -> int:
+def pin_release_entries(keys_dir: str, out: str, names: list) -> int:
     if not names:
         print("--only-release needs at least one --release name", file=sys.stderr)
         return 1
@@ -141,12 +129,7 @@ def pin_release_entries(keys_dir: str, out: str, names: list, release_base_url: 
         path = os.path.join(keys_dir, name)
         size = os.path.getsize(path)
         digest = sha256_file(path)
-        manifest["keys"][name] = {
-            "sha256": digest,
-            "size": size,
-            "source": "release",
-            "url": f"{release_base_url.rstrip('/')}/{name}",
-        }
+        manifest["keys"][name] = {"sha256": digest, "size": size, "source": "release"}
         print(f"  {name}  {size}  {digest}", file=sys.stderr)
     with open(out, "w") as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
