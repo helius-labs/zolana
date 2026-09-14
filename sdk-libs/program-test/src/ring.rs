@@ -71,6 +71,22 @@ impl ZolanaProgramTest {
         Ok(ring_config)
     }
 
+    /// Rotate the authority to the default address, which nothing can sign for,
+    /// so no further `update_ring_config`/`update_ring_config_owner` can succeed.
+    pub fn burn_ring_config_owner(
+        &mut self,
+        authority: &Keypair,
+        ring_config: &Pubkey,
+    ) -> Result<(), ProgramTestError> {
+        let ix = UpdateRingConfigOwner {
+            authority: authority.pubkey(),
+            ring_config: *ring_config,
+            new_authority: [0u8; 32].into(),
+        }
+        .instruction();
+        self.send(&[ix], &[authority])
+    }
+
     pub fn update_ring_config_owner(
         &mut self,
         authority: &Keypair,

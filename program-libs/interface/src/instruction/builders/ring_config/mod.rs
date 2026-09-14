@@ -1,4 +1,4 @@
-use solana_address::Address;
+use solana_address::{address_eq, Address};
 use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::{Pubkey, PubkeyError};
 
@@ -53,12 +53,14 @@ pub struct UpdateRingConfigOwner {
 impl UpdateRingConfigOwner {
     pub fn instruction(&self) -> Instruction {
         let new_authority = Pubkey::new_from_array(self.new_authority.to_bytes());
+        // A burn rides along unsigned, because nothing can sign for the default address.
+        let co_signs = !address_eq(&self.new_authority, &Address::default());
         Instruction {
             program_id: PROGRAM_ID_PUBKEY,
             accounts: vec![
                 AccountMeta::new_readonly(self.authority, true),
                 AccountMeta::new(self.ring_config, false),
-                AccountMeta::new_readonly(new_authority, true),
+                AccountMeta::new_readonly(new_authority, co_signs),
             ],
             data: vec![tag::UPDATE_RING_CONFIG_OWNER],
         }

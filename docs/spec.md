@@ -1475,9 +1475,7 @@ but does not enforce transaction or call-chain separation.
 struct RingConfig {
     discriminator: u8,
     /// Permitted to call `update_ring_config` and `update_ring_config_owner`.
-    /// Set to `Address::default()` at `create_ring_config` to burn the authority.
-    /// It cannot be burned afterwards: `update_ring_config_owner` requires the
-    /// incoming authority to co-sign, and nothing signs for the default address.
+    /// Set to `Address::default()` to burn the authority.
     authority: Address,
     /// The ring program; read as the UTXO `ring_program_id`.
     program_id: Address,
@@ -1520,7 +1518,7 @@ operations, and tags 18–21 are maintenance and administration.
 | create_spl_interface | Tag 6; gated by `protocol_config.protocol_authority` unless `spl_interface_creation_is_permissionless`; reads + bumps the `Asset counter`, creates the per-mint SPL interface vault and writes the assigned `asset_id` into the per-mint `Asset registry` PDA. |
 | create_ring_config | Tag 7; permissionless. Creates the ring's `ring_config`; signers and initial activation state follow [Ring Accounts](#ring-accounts). |
 | update_ring_config | Tag 8; sets `ring_config.paused`. Signer must equal current `authority`; the instruction remains available while paused or inactive. |
-| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority co-signs and is read only from that signer account (the instruction carries no payload). |
+| update_ring_config_owner | Tag 9; rotates `ring_config.authority`. Signer must equal current `authority`; the new authority is read only from its account and co-signs, except `Address::default()`, which burns the authority and cannot sign (the instruction carries no payload). |
 | emit_event | Tag 10; no-op; instruction data is `[EventKind, borsh(body)]` (see [General Event](#general-event)); SPP self-CPI only. |
 | deposit | Tag 11; public deposit without a proof; the recipient `owner` is sent in the clear and the `blinding` is derived from the leaf index. See [`deposit`](#deposit). |
 | transact | Tag 12; implements deposit/withdraw/shielded transfer; verifies proofs, updates trees |
