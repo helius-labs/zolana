@@ -270,6 +270,7 @@ export {
 } from "./audit.js";
 export type {
   AuditedRingOutput,
+  AuditedRingSpendRecord,
   AuditedRingTransaction,
   RingAuditPage,
   RingAuditReader,
