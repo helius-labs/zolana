@@ -68,12 +68,7 @@ async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) 
         }
     };
     while let Some(tip) = &cursor.tip {
-        let canonical = match rpc.get_block(tip.slot, TransactionDetails::None).await {
-            Ok(block) => block.blockhash == tip.blockhash.to_string(),
-            Err(error) if skipped(&error) => false,
-            Err(error) => return Err(error.into()),
-        };
-        if canonical {
+        if canonical(rpc, tip).await? {
             break;
         }
         cursor.ready = false;
@@ -134,7 +129,10 @@ async fn synchronize(db: &DatabaseConnection, rpc: &RpcClient, start_slot: u64) 
         for block in blocks {
             let block = block?;
             if let Some(tip) = &cursor.tip {
-                if !linked(tip, &block.metadata) {
+                // A slot-adjacent block whose parent hash disagrees is kept only while the tip stays canonical, else a reorg.
+                if !linked(tip, &block.metadata)
+                    && (block.metadata.parent_slot != tip.slot || !canonical(rpc, tip).await?)
+                {
                     bail!("head-map parent mismatch");
                 }
             }
@@ -162,6 +160,18 @@ fn linked(
     child: &crate::ingester::typedefs::block_info::BlockMetadata,
 ) -> bool {
     child.parent_slot == parent.slot && child.parent_blockhash == parent.blockhash
+}
+
+/// True while the chain still holds this exact block, a pruned slot reads as noncanonical.
+async fn canonical(
+    rpc: &RpcClient,
+    meta: &crate::ingester::typedefs::block_info::BlockMetadata,
+) -> Result<bool> {
+    match rpc.get_block(meta.slot, TransactionDetails::None).await {
+        Ok(block) => Ok(block.blockhash == meta.blockhash.to_string()),
+        Err(error) if skipped(&error) => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Separates existing blocks from the full slot interval already scanned.

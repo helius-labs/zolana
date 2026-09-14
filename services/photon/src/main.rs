@@ -350,88 +350,82 @@ async fn main() -> Result<()> {
 
     load_snapshot_if_present(&args, db_conn.clone(), rpc_client.clone()).await?;
 
-    let head_map_handle = if args.disable_indexing {
-        None
+    let (head_map_handle, indexer_handle, monitor_handle) = if args.disable_indexing {
+        info!("Indexing is disabled");
+        (None, None, None)
     } else {
-        let start = match args.head_map_start_slot {
+        let last_indexed_slot = match &args.start_slot {
+            Some(start_slot) => match start_slot.as_str() {
+                "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
+                _ => {
+                    let start_slot = start_slot
+                        .parse::<u64>()
+                        .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
+                    fetch_block_parent_slot(&rpc_client, start_slot).await?
+                }
+            },
+            None => match fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
+                Some(slot) => u64::try_from(slot)
+                    .with_context(|| format!("Last indexed slot {} is negative", slot))?,
+                None => get_network_start_slot(&rpc_client).await,
+            },
+        };
+
+        // An explicit index start bounds the projector, replay before it is not linkable.
+        let head_map_start = match args.head_map_start_slot {
             Some(slot) => slot.saturating_sub(1),
+            None if args.start_slot.is_some() => last_indexed_slot,
             None => get_network_start_slot(&rpc_client).await,
         };
-        Some(photon_indexer::head_map::spawn(
-            db_conn.clone(),
-            rpc_client.clone(),
-            start,
-        ))
-    };
+        let head_map_handle =
+            photon_indexer::head_map::spawn(db_conn.clone(), rpc_client.clone(), head_map_start);
 
-    let (indexer_handle, monitor_handle) = match args.disable_indexing {
-        true => {
-            info!("Indexing is disabled");
-            (None, None)
+        info!("Starting indexer...");
+
+        info!("Syncing tree metadata...");
+        if let Err(e) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
+            rpc_client.as_ref(),
+            db_conn.as_ref(),
+        )
+        .await
+        {
+            warn!("Failed to sync tree metadata on startup: {}. Will retry in background monitor.", e);
+        } else {
+            info!("Tree metadata sync completed successfully");
         }
-        false => {
-            info!("Starting indexer...");
 
-            info!("Syncing tree metadata...");
-            if let Err(e) = photon_indexer::monitor::tree_metadata_sync::sync_tree_metadata(
-                rpc_client.as_ref(),
-                db_conn.as_ref(),
-            )
-            .await
-            {
-                warn!("Failed to sync tree metadata on startup: {}. Will retry in background monitor.", e);
-            } else {
-                info!("Tree metadata sync completed successfully");
-            }
-
-            // For localnet we can safely use a large batch size to speed up indexing.
-            let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
-                Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
-                None => {
-                    if is_rpc_node_local {
-                        200
-                    } else {
-                        20
-                    }
+        // For localnet we can safely use a large batch size to speed up indexing.
+        let max_concurrent_block_fetches = match args.max_concurrent_block_fetches {
+            Some(max_concurrent_block_fetches) => max_concurrent_block_fetches,
+            None => {
+                if is_rpc_node_local {
+                    200
+                } else {
+                    20
                 }
-            };
-            let last_indexed_slot = match args.start_slot {
-                Some(start_slot) => match start_slot.as_str() {
-                    "latest" => fetch_current_slot_with_infinite_retry(&rpc_client).await,
-                    _ => {
-                        let start_slot = start_slot
-                            .parse::<u64>()
-                            .with_context(|| format!("Invalid start slot '{}'", start_slot))?;
-                        fetch_block_parent_slot(&rpc_client, start_slot).await?
-                    }
-                },
-                None => match fetch_last_indexed_slot_with_infinite_retry(db_conn.as_ref()).await {
-                    Some(slot) => u64::try_from(slot)
-                        .with_context(|| format!("Last indexed slot {} is negative", slot))?,
-                    None => get_network_start_slot(&rpc_client).await,
-                },
-            };
+            }
+        };
 
-            let block_stream_config = BlockStreamConfig {
-                rpc_client: rpc_client.clone(),
-                max_concurrent_block_fetches,
+        let block_stream_config = BlockStreamConfig {
+            rpc_client: rpc_client.clone(),
+            max_concurrent_block_fetches,
+            last_indexed_slot,
+            geyser_url: args.grpc_url,
+        };
+
+        (
+            Some(head_map_handle),
+            Some(continuously_index_new_blocks(
+                block_stream_config,
+                db_conn.clone(),
+                rpc_client.clone(),
                 last_indexed_slot,
-                geyser_url: args.grpc_url,
-            };
-
-            (
-                Some(continuously_index_new_blocks(
-                    block_stream_config,
-                    db_conn.clone(),
-                    rpc_client.clone(),
-                    last_indexed_slot,
-                )),
-                Some(continuously_monitor_photon(
-                    db_conn.clone(),
-                    rpc_client.clone(),
-                )),
-            )
-        }
+            )),
+            Some(continuously_monitor_photon(
+                db_conn.clone(),
+                rpc_client.clone(),
+            )),
+        )
     };
 
     info!(
