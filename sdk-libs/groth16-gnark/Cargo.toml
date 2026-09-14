@@ -1,0 +1,29 @@
+[package]
+name = "zolana-groth16-gnark"
+version = "0.1.0"
+description = "Groth16 prover over gnark proving keys, the shielded-pool transfer and merge circuits."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+parallel = ["ark-ec/parallel", "ark-ff/parallel", "ark-poly/parallel", "ark-std/parallel", "dep:rayon"]
+keys = []
+
+[dependencies]
+ark-bn254 = { workspace = true, features = ["curve"] }
+ark-ec = { workspace = true }
+ark-groth16 = { workspace = true }
+ark-ff = { workspace = true }
+ark-poly = { workspace = true }
+ark-std = { workspace = true }
+rayon = { workspace = true, optional = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+groth16-solana = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+zolana-interface = { workspace = true }

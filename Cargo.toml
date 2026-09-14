@@ -24,6 +24,7 @@ members = [
     "custom-rings/sdk",
     "custom-rings/test",
     "sdk-libs/client",
+    "sdk-libs/groth16-gnark",
     "sdk-libs/indexer-api",
     "sdk-libs/keypair",
     "sdk-libs/merkle-tree",
@@ -32,6 +33,7 @@ members = [
     "sdk-libs/program-test",
     "sdk-libs/transaction",
     "sdk-libs/wallet",
+    "mobile/zolana-mobile",
     "services/photon",
     "services/ring-rpc",
     "sdk-tests/client/rust",
@@ -242,7 +244,10 @@ zerocopy = "0.8.25"
 
 # Prover math/crypto.
 ark-bn254 = "0.5"
+ark-ec = "0.5"
 ark-ff = "=0.5.0"
+ark-groth16 = "0.5"
+ark-poly = "0.5"
 ark-serialize = "0.5"
 ark-std = "0.5"
 

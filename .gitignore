@@ -46,3 +46,7 @@ poc/web/dist/
 poc/core/src/vendor/
 # `go build ./cmd/prover-wasm/` without -o drops an 18MB module here.
 prover/server/prover-wasm
+
+# Large local-proving fixtures staged into the Flutter example.
+mobile/zolana-mobile/mopro_flutter_bindings/example/assets/proving/*.key
+mobile/zolana-mobile/mopro_flutter_bindings/example/assets/proving/*.bin

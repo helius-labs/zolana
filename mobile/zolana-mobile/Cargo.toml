@@ -1,0 +1,33 @@
+[package]
+name = "zolana-mobile"
+version = "0.1.0"
+description = "Flutter-facing bindings for Zolana transaction construction and local proving."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[features]
+default = []
+flutter = ["dep:mopro-ffi", "mopro-ffi/flutter"]
+
+[dependencies]
+ark-ff = { workspace = true }
+mopro-ffi = { version = "=0.3.7", optional = true }
+rand = { workspace = true }
+solana-address = "=2.6.1"
+solana-pubkey = "=4.2.0"
+solana-signature = "=3.4.1"
+wincode = "=0.5.5"
+zolana-groth16-gnark = { path = "../../sdk-libs/groth16-gnark", features = ["parallel"] }
+zolana-hasher = { workspace = true, features = ["std"] }
+zolana-keypair = { workspace = true }
+zolana-transaction = { workspace = true }
+
+[[bin]]
+name = "flutter"
+path = "src/bin/flutter.rs"
+required-features = ["flutter"]

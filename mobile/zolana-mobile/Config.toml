@@ -1,0 +1,3 @@
+build_mode = "debug"
+target_adapters = []
+target_platforms = ["flutter"]
