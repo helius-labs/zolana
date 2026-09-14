@@ -16,7 +16,6 @@ import nodeFs from "node:fs";
 import nodePath from "node:path";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import {
-  airdropFactory,
   createKeyPairSignerFromBytes,
   getSignatureFromTransaction,
   lamports,
@@ -51,13 +50,31 @@ const client = await createZolanaClient({
   proverUrl: process.env.ZOLANA_PROVER_URL ?? "http://127.0.0.1:3001",
 });
 
+async function confirm(signature) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const { value } = await client.solanaRpc
+      .getSignatureStatuses([signature], { searchTransactionHistory: true })
+      .send({ abortSignal: AbortSignal.timeout(5_000) });
+    const status = value[0];
+    if (status?.err !== null && status?.err !== undefined) {
+      throw new Error(`transaction failed: ${JSON.stringify(status.err)}`);
+    }
+    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
+      return BigInt(status.slot);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`transaction confirmation timed out: ${signature}`);
+}
+
 async function send(transaction, signers) {
   const signed = await signTransactionWithSigners(signers, transaction);
   const signature = getSignatureFromTransaction(signed);
   await sendTransactionWithoutConfirmingFactory({ rpc: client.solanaRpc })(signed, {
     commitment: client.commitment,
   });
-  return await client.confirmTransaction(signature);
+  return await confirm(signature);
 }
 
 async function actor() {
@@ -73,19 +90,12 @@ async function actor() {
 
 const sender = await actor();
 const receiver = await actor();
-const airdrop = airdropFactory({
-  rpc: client.solanaRpc,
-  rpcSubscriptions: client.solanaRpcSubscriptions,
-});
-await Promise.all(
-  [sender, receiver].map((a) =>
-    airdrop({
-      commitment: "confirmed",
-      recipientAddress: a.signer.address,
-      lamports: lamports(3_000_000_000n),
-    }),
-  ),
-);
+for (const a of [sender, receiver]) {
+  const signature = await client.solanaRpc
+    .requestAirdrop(a.signer.address, lamports(3_000_000_000n))
+    .send();
+  await confirm(signature);
+}
 for (const a of [sender, receiver]) {
   const reg = await buildRegistrationTransaction({
     client,
@@ -157,10 +167,7 @@ console.log("wasm instance ready");
 // PRELOAD_KEYS lets a run reproduce the page's ordering, which loads a guessed
 // shape before the one the request actually names.
 const wanted = `transfer_confidential_${request.nInputs}_${request.nOutputs}.key`;
-const keyFiles = [
-  ...(process.env.PRELOAD_KEYS ?? "").split(",").filter(Boolean),
-  wanted,
-];
+const keyFiles = [...(process.env.PRELOAD_KEYS ?? "").split(",").filter(Boolean), wanted];
 const keysDir =
   process.env.ZOLANA_SPP_KEYS_DIR ??
   new URL("../../../prover/server/proving-keys", import.meta.url).pathname;

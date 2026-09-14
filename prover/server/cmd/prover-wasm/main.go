@@ -227,7 +227,7 @@ func (r *registry) proveMerge(request []byte, circuitType common.CircuitType) (*
 	if err := json.Unmarshal(request, &params); err != nil {
 		return nil, fmt.Errorf("decoding merge parameters: %w", err)
 	}
-	key := cacheKey(circuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+	key := cacheKey(circuitType, uint32(len(params.Inputs)), mergeprover.MergeNOutputs)
 	ps, ok := r.get(key)
 	if !ok {
 		return nil, fmt.Errorf("proving key %s is not loaded; call loadKey first", key)
@@ -254,7 +254,7 @@ func (r *registry) verify(args []js.Value) any {
 			return errorResult(err)
 		}
 		params = p
-		key = cacheKey(meta.CircuitType, mergeprover.MergeNInputs, mergeprover.MergeNOutputs)
+		key = cacheKey(meta.CircuitType, uint32(len(p.Inputs)), mergeprover.MergeNOutputs)
 	} else {
 		p := new(transfereddsaonly.TransferParameters)
 		if err := json.Unmarshal(request, p); err != nil {

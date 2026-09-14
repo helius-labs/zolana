@@ -56,7 +56,7 @@ it.each([1, 2, 3, 4, 5])(
         eligible: isPlainUtxo,
         ordering: "largestFirst",
         maxInputs: MAX_SPEND_INPUTS,
-        tree: { kind: "inferSingle" },
+        tree: { kind: "infer", maxTrees: 1 },
         errors: { insufficient: fail, tooManyInputs: fail, overflow: fail, multipleTrees: fail },
       },
     });

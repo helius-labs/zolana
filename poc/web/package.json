@@ -2,8 +2,8 @@
   "name": "@zolana/poc-web",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
   "description": "Browser PoC: shield/transfer/unshield with local (wasm) or remote proving, plus on-page benchmarks.",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json --noEmit && vite build",
@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@heliuslabs/zolana": "*",
-    "@solana-program/system": "^0.13.0",
-    "@solana/kit": "^7.0.0",
+    "@solana-program/system": "^0.14.1",
+    "@solana/kit": "^8.3.0",
     "@zolana/poc-core": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
