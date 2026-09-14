@@ -31,7 +31,8 @@ pub fn process_update_entry_ix(
         return Err(CustomRingError::InvalidEntryContent.into());
     }
 
-    let parsed = MutationAccounts::validate_and_parse(program_id, accounts, list_id)?;
+    let parsed = MutationAccounts::validate_and_parse(program_id, accounts)?;
+    parsed.check_source(list_id)?;
     parsed.check_mutator(list_id, &member)?;
 
     let spent = ListEntry {

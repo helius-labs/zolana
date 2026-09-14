@@ -15,7 +15,17 @@ export type {
   ProvedMerge,
   TransactionAssembler,
   TreeContext,
+  RingHeadReader,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingSubmissionTransport,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
+  CustomRingVelocityProofInput,
+  CustomRingSpendRecordProofInput,
 } from "@heliuslabs/zolana/client";
+export { velocityProofInputOff } from "@heliuslabs/zolana/client";
 export type {
   DepositClient,
   MergeClient,
@@ -27,6 +37,36 @@ export type {
 } from "@heliuslabs/zolana/wallet";
 export { syncPersistedWallet, syncWallet } from "@heliuslabs/zolana/wallet";
 export type { RingAuditReader, RingRpcOptions, RingTransferClient } from "@heliuslabs/zolana/ring";
+export {
+  buildRingDelegateTransferTransaction,
+  createRingDelegateSubmission,
+  prepareRingSpendRegistration,
+  createRingSpendRegistrationSubmission,
+  buildRingSpendRegistrationTransaction,
+  createRingTransferSubmission,
+  createRingWithdrawalSubmission,
+  createRingExitSubmission,
+  createKitRingSubmissionTransport,
+  readRingVelocityState,
+  createRingHeadMapRootInstruction,
+  fetchRingHeadMapRoot,
+  ringHeadMapRootAddress,
+  decodeRingHeadMapRoot,
+  spendRecordMessageTag,
+} from "@heliuslabs/zolana/ring";
+export type {
+  RingDelegateTransferClient,
+  RingDelegateTransferParams,
+  RingSpendRegistrationClient,
+  RingSpendRegistrationParams,
+  RingSpendRegistrationPreparation,
+  RingTransactionSubmission,
+  RingSubmissionResult,
+  RingHeadMapRoot,
+  VelocityFacts,
+  HeadMapInsertProofInput,
+  HeadMapTransferProofInput,
+} from "@heliuslabs/zolana/ring";
 export type {
   SerializedCursor,
   SerializedNoteReservation,

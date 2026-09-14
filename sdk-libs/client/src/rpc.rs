@@ -13,6 +13,9 @@ use solana_rpc_client_api::config::RpcSendTransactionConfig;
 use solana_signature::Signature;
 use solana_transaction::versioned::VersionedTransaction;
 use solana_transaction_status_client_types::TransactionStatus;
+pub use zolana_indexer_api::{
+    GetRingHeadProofRequest, GetRingHeadRegisterProofResponse, GetRingHeadTransferProofResponse,
+};
 use zolana_keypair::P256Pubkey;
 use zolana_transaction::instructions::{transact::SppProofInputs, types::InputUtxoContext};
 pub use zolana_transaction::{OutputContext, OutputSlot, ShieldedTransaction};
@@ -460,6 +463,20 @@ pub trait Rpc {
         Err(unsupported("get_merkle_proofs"))
     }
 
+    fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_register_proof"))
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_transfer_proof"))
+    }
+
     fn get_non_inclusion_proofs(
         &self,
         tree_account: Address,
@@ -652,6 +669,20 @@ pub trait AsyncRpc: Send + Sync {
         config: Option<IndexerRpcConfig>,
     ) -> Result<GetMerkleProofsResponse, ClientError> {
         Err(unsupported("get_merkle_proofs"))
+    }
+
+    async fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_register_proof"))
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        Err(unsupported("get_ring_head_transfer_proof"))
     }
 
     async fn get_non_inclusion_proofs(

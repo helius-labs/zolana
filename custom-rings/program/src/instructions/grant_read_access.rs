@@ -8,7 +8,7 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{loader::load_authorized_config, shared::PdaCheck},
-    state::{check_reader_key, ReadAccessEntryInitParams},
+    state::{check_reader_key, ReadAccessRecordInitParams},
 };
 
 #[inline(never)]
@@ -24,7 +24,7 @@ pub fn process_grant_read_access_ix(
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
     let config_account = iter.next_account("config")?;
-    let entry_account = iter.next_mut("read_access_record")?;
+    let record_account = iter.next_mut("read_access_record")?;
     let system_program = iter.next_account("system_program")?;
 
     if !pinocchio_system::check_id(system_program.address()) {
@@ -36,13 +36,13 @@ pub fn process_grant_read_access_ix(
         ReadAccessRecord::seed_hash(&reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
         program_id,
-        address: entry_account.address(),
+        address: record_account.address(),
         seeds: &[ReadAccessRecord::SEED, &seed_hash],
         mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
-    if entry_account.data_len() != 0 {
-        return Err(CustomRingError::ReadAccessEntryAlreadyExists.into());
+    if record_account.data_len() != 0 {
+        return Err(CustomRingError::ReadAccessRecordAlreadyExists.into());
     }
 
     let bump_seed = [bump];
@@ -52,7 +52,7 @@ pub fn process_grant_read_access_ix(
         Seed::from(bump_seed.as_ref()),
     ];
     pinocchio_system::create_account_with_minimum_balance_signed(
-        entry_account,
+        record_account,
         ReadAccessRecord::SIZE,
         program_id,
         payer,
@@ -60,7 +60,7 @@ pub fn process_grant_read_access_ix(
         &[Signer::from(seeds.as_ref())],
     )?;
 
-    ReadAccessEntryInitParams { reader, bump }.init(entry_account)
+    ReadAccessRecordInitParams { reader, bump }.init(record_account)
 }
 
 pub(crate) fn parse_reader(data: &[u8]) -> Result<ReaderKeyBytes, CustomRingError> {

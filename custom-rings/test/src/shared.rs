@@ -7,9 +7,9 @@
 //! also registers one SPL mint, named USDC in the tests, under asset id 2,
 //! with the mint authority parked on the payer.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use custom_ring_sdk::{
-    CreateConfig, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
+    CreateConfig, CreateHeadMapRoot, CreatePolicy, CustomRing, InitSppRingConfig, TransactSend,
     TRANSACT_COMPUTE_UNIT_LIMIT,
 };
 use solana_address::Address;
@@ -21,6 +21,7 @@ use zolana_client::{
     prover::SERVER_ADDRESS, AsyncProverClient, AsyncZolanaIndexer, ClientError,
     ComputeBudgetConfig, ProverClient, Rpc, SolanaRpc, ZolanaClient, ZolanaIndexer,
 };
+use zolana_interface::instruction::SetRingActivation;
 use zolana_interface::{
     instruction::CreateProtocolConfig,
     pda,
@@ -68,10 +69,35 @@ pub struct TestEnv {
     pub sender: TestWallet,
     pub recipient: TestWallet,
     tree_creation_authority: Keypair,
+    ring_creation_authority: Keypair,
     standard_accounts: smart_account::StandardAccounts,
 }
 
 impl TestEnv {
+    /// Governance enables the authority rail for `ring` through the ring vault.
+    pub fn enable_authority_rail(&self, ring: CustomRing) -> Result<()> {
+        let activation = SetRingActivation {
+            authority: self.standard_accounts.ring_vault,
+            ring_config: ring.ring_auth_pda(),
+            activated: true,
+            ring_authority_transact_is_enabled: true,
+        }
+        .instruction();
+        let sync = smart_account::execute_sync_ix(
+            &self.standard_accounts.ring_settings,
+            0,
+            &[self.ring_creation_authority.pubkey()],
+            &[activation],
+        );
+        self.client.rpc().create_and_send_transaction(
+            &[sync],
+            self.payer.pubkey(),
+            &[&self.payer, &self.ring_creation_authority],
+            ComputeBudgetConfig::for_instruction_count(1),
+        )?;
+        Ok(())
+    }
+
     /// Allocate and register a second SPP tree owned by the shielded pool.
     pub fn create_registered_tree(&self) -> Result<Address> {
         let rpc = self.client.rpc();
@@ -257,6 +283,18 @@ impl<'a> ConfiguredRing<'a> {
                 }
                 .instruction()?],
             )?;
+            if rules.window_slots() != 0 {
+                send(
+                    rpc,
+                    self.payer,
+                    &[CreateHeadMapRoot {
+                        ring: self.ring,
+                        payer: authority,
+                        authority,
+                    }
+                    .instruction()],
+                )?;
+            }
         }
         Ok(PinnedRing {
             payer: self.payer,
@@ -266,6 +304,10 @@ impl<'a> ConfiguredRing<'a> {
 }
 
 impl PinnedRing<'_> {
+    pub fn registration(&self) -> Instruction {
+        self.registration.clone()
+    }
+
     pub fn register(self, rpc: &SolanaRpc) -> Result<()> {
         send(rpc, self.payer, &[self.registration])?;
         Ok(())
@@ -345,7 +387,12 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
     .collect();
     validator.start_with_upgradeable_programs(&deployments);
 
-    spawn_workspace_prover();
+    if let Some(keys) = std::env::var_os("ZOLANA_PROVER_KEYS_DIR") {
+        zolana_client::spawn_prover_with_artifacts(&validator.cli_bin, keys)
+            .context("start the isolated ring prover")?;
+    } else {
+        spawn_workspace_prover();
+    }
 
     let rpc_url = std::env::var("ZOLANA_LOCALNET_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
@@ -478,6 +525,7 @@ pub fn setup_with_extra_rings(extra_ring_programs: &[Address]) -> Result<TestEnv
         sender,
         recipient,
         tree_creation_authority,
+        ring_creation_authority,
         standard_accounts: accounts,
     })
 }

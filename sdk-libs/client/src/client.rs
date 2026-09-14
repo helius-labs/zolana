@@ -636,6 +636,24 @@ impl<R: AsyncRpc> AsyncRpc for ZolanaClient<R> {
             .await
     }
 
+    async fn get_ring_head_register_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_head_register_proof(request)
+            .await
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, ClientError> {
+        self.async_indexer
+            .get_ring_head_transfer_proof(request)
+            .await
+    }
+
     async fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -866,6 +884,22 @@ impl<R: Rpc> Rpc for ZolanaClient<R> {
     ) -> Result<ShieldedTransactionStream, ClientError> {
         self.blocking_indexer()
             .subscribe_to_shielded_transactions_by_tags(tags)
+    }
+
+    fn get_ring_head_register_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, ClientError> {
+        self.blocking_indexer()
+            .get_ring_head_register_proof(request)
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: zolana_indexer_api::GetRingHeadProofRequest,
+    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, ClientError> {
+        self.blocking_indexer()
+            .get_ring_head_transfer_proof(request)
     }
 
     fn get_merkle_proofs(

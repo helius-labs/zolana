@@ -1,0 +1,2054 @@
+{
+  "version": 7,
+  "cases": [
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "0ba6f900541178d402b891daea2f409a5034493b7f282b50659c40bca6a1610f"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 16,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "0dd1567dc97356d23eb4446f66298e754e795fca0b51256a3deb9ed752aa09fb",
+        "1c5998d220a16159dc19073e9b2e6e90bfdbde1be1db548b0b846eaa3ad151e7"
+      ],
+      "inlineLimits": [],
+      "policyHash": "0e80464009f6deafff541ee6e34af0a45a054d0ddbd496b5444876527d022781"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1d20b7db9b676b021332cc6673d94874c93ba2442ed22bb461f777e95a608ae9"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 64,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "0f4333ecd56efc6018acaef314762d3036f011f626d825c7332bbab1bb2f19bc"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "03b4bf00a8c2cde7b0f1539ff5142a7db7730ff9d18dad5460527a385d881825"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "00ce74deb4674d2dd24815dccf8fc3f0c4b270e718c0df9a6b6dfba75b3a415f"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "1ae994a099cb3536d13164473f8745ae537968052ada03e776adb416c27c6dc1"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "22959fd1371129463edec9c5b40663908a16a77483dc3805576a5ffeac302672"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "0da8914723076e4b5988a26d0a9336e72bd8055c865f039ffe35eb35ba7bf653"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 144,
+          "altMask": 12,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 12,
+          "altMask": 1,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 17,
+          "altMask": 0,
+          "guardTag": 1,
+          "threshold": 176347238126
+        }
+      ],
+      "inlineAssets": [
+        "1064cc3fdb1d012d4a01f8cfcbc416d60238b776f9a02c7aee385af06b105649"
+      ],
+      "inlineLimits": [],
+      "policyHash": "11e3c83719853175b851ea1c4d2aa45a2660b14e45a0b8983e8914c30099e899"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "02befe85e02b12efc389bf5f98b58d7872ddbc42aa9b5302905204c7d6ecb188"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 32,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "1972af125422d517436f066295567e2edd238386216a54fe099e0903a0d919a9",
+        "11ab4470ef78a321e5668409e3001d1198a067fd1d9cc221e0bd1203ce955078"
+      ],
+      "inlineLimits": [],
+      "policyHash": "25785bab0a564138fb53f1c1c22529dfe59fed214b0719a0ef66042ff819bb56"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "21212a268f5dc9a5cd9342842679ad9c37ebf933bad5e08eb7f4f16e7a1af448"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "1504f790dfdc88e9fdfff28660420d2f0bcb35ceeccd2f5c53cc692c968b2742"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1641a2e96dedd40752433b7e0af1f3d9d8b0d5711f1f2fe5ad13759b1938aacb"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 80,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "2858324cff96b0d3e127a9263df400fd94159bb3ef6807cc2707d49367528964",
+        "00b0ead2dfd8960b399e349558e8c8e976d81ec79f55cf59ec57cb29c114294a",
+        "20354c01be52c0e8c6c2b913e6313af83530c64db73488292f122da5a82ffe17"
+      ],
+      "inlineLimits": [
+        13368110755407096583,
+        4057363179913107025,
+        11448216552696001277
+      ],
+      "policyHash": "05f6b389c4f81d9b792a6062de940ca7d86dc6e7c10302a913d9f1132499a112"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "0a8ae0cd8897dc7b9b294687aa4f49bc9e300c3f0524ea61187aafefc9dcaa63"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "1b27c3f3020babfa4d3efb79fa833314a6a943cab7deedff97b503da96f26f44"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "13beab51e2bbccede39cd2e2336ce9ba5771b31291e2c0ea8b0a935bd6de6d64"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "26554db665be75296f123919eddf89ed742d0ae1f494c05723d4e55f65046e44"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 1,
+          "altMask": 192,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 65,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "19158a773832674fe178aaea0f7e4a4ca283621fe0051ff2705055f70bd25b36"
+      ],
+      "inlineLimits": [],
+      "policyHash": "0e649a516d02aebebdfeb8a94d424313f16b4a523ae0fcc847931f67db754bd5"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "0fdfb8c0cf5be0f16dd485ce9c8d105d3022b756ab2bac3d4ec658358be6647b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "0c126e3d4735881155a25f345ba77852cda7c9588aa81890965c7dab6f718e28"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1667f635b5830e4eee6114df01fe13bbb35ec08649087aeefa2d757eae99ee4e"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "0ccf3ff44526f17f400c72b4d0a359a3d0f2d047a9e76a734a15d0e68d71cb39"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 1,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 192,
+          "altMask": 4,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "200a6fe2949f61c6c59cdddc2d89e8d2653c98b6b6a1806286f12b7da2bafb3c"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "0eecfb37d8a7d93f465c4fca3201e8da62e3d2c701303a6e9fac6b8c160feb28"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "2a1fdf4121668321fba46d75a32ade50fb697c66542f0d1d1f376b50dd981d26"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "18c16d88588f16b70562a33483ccea307f380200bfeb952e45f82bd158ea2def"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "00c93e3445e533991932febf1b296a44f13d3dd1e09b373dcdcd6602b8a500fb"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 8,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 9,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "305adc5235db4f7967c7e96a6f020eeadac98cd69e5ad71f056e4b83b916f8be",
+        "0fd6e486df0758c527c89691292f73834489ca9573564abfea2ab47011f0dc26",
+        "13d93415550d67dfec13caf2bf17b477f2fbbe354184501a33c786a05ce7b3ef"
+      ],
+      "inlineLimits": [],
+      "policyHash": "06bc7dcc4cef7e2ed9ee44697918ee6c596442991e49541b990136073d1853cb"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "1412b837aaa1d58821ddd6f42880946c348601786ce069c66e699d41c289e1df"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "191cd5d3483df6c26df5cfe404f05d229aee02376912186143ecbec3487ffa06"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "1bb9bd49fa1320b60a2b8cfc79f3acbf08c04a0cdb1beff27e51cd5ffc2a7409"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "128c1c84a362f53830822b72368faaaf8b645cb7357750e83232c98ab8b166a9"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "2372be3fb649ff125a6042766f9982dfb731330561f0bf534856be7395300e9e"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 16,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 65,
+          "altMask": 2,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "1b9e8067e3e5aa303f03f18b6a35a11342ee1a30e8f5edb03b8d6e62a8225e95"
+      ],
+      "inlineLimits": [],
+      "policyHash": "1be219029ed3593c15f32b25cef135d9d48f66aff0f1dc0cc888b0b7623856c1"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "15c334e8d9c20a788975ee47ff5c5abf81ee87d86fefc822391493522512eaa3"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "0ef6be5e40e100dada1130dac8c31a71e03b5db9d8908126bb4a6aecc292e00d"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "27189deba55399b601df53829a231801f57cb45ae54c43caa57666545e623cb4"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "0df8a1394629b6eb082eaef9ee9402722400b168e651d78ecce501470545dd25"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "20d426ff556b88873cef396a2a04c3d4ec4ec04a6387d10e3e938e4395668b9e"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 34,
+          "altMask": 16,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 68,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 16,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "1f8a79c42fee82cf161a82579439d2bca6dc91a3cf8ac8bbf2a7ddda021d7dc4",
+        "21c688a7ee4c1d3ac6b934043a6eb291c4fc55245cea9ec5ad63b7105e746680"
+      ],
+      "inlineLimits": [
+        9748916990632612867,
+        12393226021444963883
+      ],
+      "policyHash": "08a580841a91d40e0fe2ec97d254ff1ee41a93de4f274c665ac35403d1ce1c46"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "187cfcf4020a554549653ce88ea4507bb0ad90f4dcf9f977106c8139737652b8"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "069ed21e4020b095ebcedd26bcf58dab5b1ab54329039d6c5928bc80f2010d6a"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "0d7fd13da4e7db66a22668e8c1e831dfe67f6b77dad078fdeaab3cfb8b1bf7fc"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "009b0b23671513244920366e9e19eca61c3bf4777f55f440bf6da61df5377a70"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 129,
+          "altMask": 2,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 32,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "2eab83c474a03a0dd8bb883ff954dcddb9958ec6578f50e8f483d70bc1259817",
+        "201868739b03631bb737e1d87fce2390e4506385e9150bb8e74e4e190c298f69",
+        "2aa4304f01e95f8225ed3a1d47572bc69ffbc44c444e09154074632bcfe1035d"
+      ],
+      "inlineLimits": [],
+      "policyHash": "28142d2eb68081005f67d36c6577ea0b7c421a8bdf020038cfb4a1d2a390810c"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "0b4a53ab8e368f8043ddbd6c0e42f8ecf0ad28284db8b9df300678f2a429609d"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "122cdd8d4e8230ab97da7f7cb43200233b77cd9330bbc70be35f7824d8538e66"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "126f18d8b588d21b44a7ceadeb6de4dd9490f614da908ab71b7997524942322f"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 64,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 48,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "16058e69a725f828ffd5007ecd0708bd511d2a4d4e6eb7390162916d2bc54e6e",
+        "07336e1cb440b64fc41f26a856e3030ebd36c103010659db006a8323fe262442"
+      ],
+      "inlineLimits": [
+        14109958180301547463,
+        9627343986669022474
+      ],
+      "policyHash": "11f9a1f94c72fbbdbbf43ff10c4f8125a607b7212202c9741a0ab9a927bc6db0"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "13c225e5b1dc56b1d5d30e44633d51279c669aa1ae89961fb52a920f27d56fe8"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "033c91c4887c166d92b44171d2798392e482f71ef6bdba24c25e18278a5d1a83"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "15a750bc43d642110824242a90df7eca434dce9c9d3d1721f3270b0cb255813a"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "2b1c8d799eb19c2ea40ed8aa16bfab382179085cdf4e2ba15fb7ec1d2b432add"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 160,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 16,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 24,
+          "altMask": 0,
+          "guardTag": 1,
+          "threshold": 217627935235
+        }
+      ],
+      "inlineAssets": [
+        "1b3730a19fa3f09428fe73e33ca89a0ae80326310b16fc21e2f68e88e0a5805d"
+      ],
+      "inlineLimits": [],
+      "policyHash": "12a9a641bfcf4fa4f2f398816c5afa93f7f674a5a0918532988900af4934f765"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "2866bf55e0ff4ea6d95ff8b28cf79b6b1cb21126ea488de467c064093a2c1f4b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "1ecea87eeef65b8a44e7935cb8922984308850b7a3ea90a0c972df96e889fa44"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "256e74221300e761f2327f4615b831e3c625beb73c4b6339b355cefbe39093fd"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1a086ab953ee69c5fb90b191463e8ff1a44f171fad0b56dc2fbccc49c2395d4b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 20,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 32,
+          "altMask": 64,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "2fbce47cc28477a86b68878196ad4a0fa3fdebe9128a45e75dd5a6abf87fe275"
+      ],
+      "inlineLimits": [],
+      "policyHash": "129c74d0ecf86f81f7675293adb060d3afd2b0861a8454881386e737af9048e1"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "075fdeaec22b1a407252b11bbd07000264ed97de508dab0a48fdb511c5856596"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 8,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "0ebd2c9765ac5cd5c0fb8d70130b82eef61d46d0034af27c71ada61039d10338"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "2acf4ecd03d42ff8bf47cd59e5217439d95567eebe3a5f45d0c0af93341c9c9e"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "1cc8cbd09ef691366841d4e5c3486ad7d6cbb5d33dbab1decf29c06c906f3ddb"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "26adad53e123e4299f60f7fc55f14813c9ac37cd03262da47c77a75a82740d02"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 24,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "085605012747a1718833f823e284d6b28f30ee65518822543902c2326df947df"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "29de7fb3ae0812c82f858f2d24db97472493b5bcea0aa40012a169c4f50ad38c"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "19d45edc4513706a938b80ac4f53e1838359e405a52203d92f6531ee8b3fa627"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "11d9d886f25e14984c91971dde60d1c5b4a04b2915cc13a476904d4cda26b0a4"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "211d1ec470fbf13f742c71e24343ffe30f02e7b6d79e4e140671fcfd9133f62b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "128c793e0c5605fc0771719681c634ad7c625f1e5755c5b018fabd3bfea8a3d4"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1371bd581ca199b76473a5176aa83f26877684cf100509d64a55fc6300b7242f"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "0cc12425e3b7a95b01be3c2a540e5f55f177ed50f52a44910e4ab6b9a70409c8"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 5,
+          "altMask": 2,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 64,
+          "altMask": 40,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 12,
+          "altMask": 128,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "0ad5b4e6418d707f7da5845a07ce3ef1f4fe46c283efe90c95b7d2720c052541"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "1eb0b9a62bc3a9d1dd7c20ce342cf34649bd8a0939189a47c3183f3295926242"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "0277a290100c72b5fa9f26dae14bb4ff9ec014d8ec04c73c523e2cab7f24374d"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "1c37a27ae00821ec1827ccaaf65f00429aa4662a38ebec0752d9b79d5a7c5906"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "2321acd6d20ca090f3e4f8cf992fa16cbafc249be78c1f8659a305320c343ced"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 9,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 132,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "2ca35214bc938d2e922dbaffa6d067f04c19cbf4cf0bda115d7bcb8119fec807",
+        "2cdd337a8abbd4ee58c63e6108562af6d7f60bdf1d2d2b6565084155ba929a57",
+        "009002dbe6d66d2b4fd9728f86f99a99fec793e26954cb9b7b75333a0b789bbb"
+      ],
+      "inlineLimits": [
+        11356073987638620995,
+        6189583297472160293,
+        9717538691652248289
+      ],
+      "policyHash": "29ea46ba9f5a042ca8b22f7a32e5d9fe4b1e18314f08de3c8764c99f4c8f62fe"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "1ec5b95ee36cfc8a6b4d729c999628e990a082305d9a0ff469187a9283ea8ba8"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 4,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "21151d2af355b56eb8c773843c2f3d7cb227687da5482fca4998c5a5713dc468"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "02802f451e938030579b42a56911df3dd917141a40a08a9a27f6c6e0d11491b0"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "02e577df39d8f8909a602ef78369416c3f4e04195a528e67d0772031113ac1e4"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "1ee44beff51802b57ac818019311050c539b89f59e1fba13677119db51d78a45"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "0eec05d1119e7d6c8d42dd91c9bcce08a448d2422878435be85cf42569e8e74b"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "0a511e249c396501eda7baca0b2ff0da588d39c340ef5e6a73e0e6b28082b6e3"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 65,
+          "altMask": 16,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 9,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 0,
+          "guardTag": 1,
+          "threshold": 445517477665
+        }
+      ],
+      "inlineAssets": [
+        "166dba33599dd0d046268ffffb66d1b2dfa10b39e7f0ef184b1a354a3598109a"
+      ],
+      "inlineLimits": [],
+      "policyHash": "1f116787078adb8abf4b7ab5e06d1adf5d59ed25d956d5e3faf0c89da8d03d67"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "11ee8e21fa796625cbe9c6defe936796d6acb177e874050d7ac4e4fcdb1c19de"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "02c45ceed66134ce00c35a99515766ccb52ffb8e4882b3c087b1665e4fe42217"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "0e67a820c7ccf34ab9b66c7938230518f4e597102270eec9cc264c59eed8bb68"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 8,
+          "altMask": 1,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 4,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "2e91004a77c494ca28182865bd9fd58c25e6d726cf02f096a015d78bd4a8079e",
+        "035c6a7b130da30727c3e75a62de033f5dc676699f30c9771022dfa0e3d59ef6",
+        "058ed78356862be12edcceadb709575ce16333e6ea0590f9abd18fcdb2a27b8c"
+      ],
+      "inlineLimits": [],
+      "policyHash": "06ac5660bc63a4ca0d958b8c4b70f4ce0cc15a4e4f894db0754ab1b770e59c18"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "21fa8e07859e91d6be011d810e5427d0945243d2961875e64f43690a34fb258f"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "07a6ceeee41330e72689f3ecd2e1f215b2bcb1a658cd62b18c2c27953acbed9c"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "2e113d83a7228028c7026d51784a92e79707e130c2a76b7f725ae310b40b21d5"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "274dec5a360df8f4424478376bf01731e7c3b77727523b4bd2da0a4ae255123b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 16,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 36,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 1,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "2b4bd47269bc876ccc8991b6c1334a4a84415976f8da10f78fd7808e3cd5dea4"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "2eeb8c2fed7fb352af65d1bf59a9f6777c31317a4ec61219bd2f9e8a5a84db14"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "0238cc8901820361c9cecaff5d71713fc59882fdc6b118151e4bceec8f16974b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "22a4b9518d0086ff4d25880fbe9d3aca93b39dc5206d55b33f79902cd81004ae"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 6,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [],
+      "inlineLimits": [],
+      "policyHash": "03dd6a5e283b5290ce5011428be07eaf136f2f894f8ddfca54748786de338c1b"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "1ae6f5a044f230bfc92adb08ff6f1fcc5277cab08d3bf014e8a3ae9d4df0867b"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "028ed1991d131675798ee10f5d53c794e129c111a8707b53a4deefc3ae7f9ddd"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "08a773e7724cffaaf9c7adea731132e0853a6f7ae7aa0c05e3ad502398e9c916"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "10b7f46c1042f6a1b56facaa6ae5f76ace36bab0ea960e54247cf1b95ecff219"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "12541e6670929068b506182066908ccf6927067b78f21ade12cf64aa9b596a6d"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 17,
+          "altMask": 160,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 129,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 64,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "170364679c21499c70cb18f32d6ce317d9b28f660f342fb350e14c2f9784431a"
+      ],
+      "inlineLimits": [],
+      "policyHash": "1f7420c830e4d620759e456c0c281d4e18b6d324aca1055f2c6c57402e7902e9"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 4,
+          "ownerHash": "131286a4d987fd6c6ef5c4a910c150171db1c991479fc3faceea3ec1aa77f5a5"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "00d652e19b484b30457bee74bc0cec5fb3c99523cba0c9d2315a8ca110f26b1c"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "0f4c0a737e63ffe16ecafb15a6deb76068c1c0071fafe957155dae904a0b4132"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "06badda15c4e841650796964f9fc3b34ed969f28df12e1c2892e1d11cc88566f"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 32,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 136,
+          "altMask": 64,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "24d47796920333a0058d74b3f2f0cdc5cafe5d7ff26a0f55e20f1894890dd6b8",
+        "28e66f6f2f532ab29f3f56a0fa3123db3918deb64896ef1ab77801f153da3246"
+      ],
+      "inlineLimits": [],
+      "policyHash": "05e3d3941d00d94d92cfa745ec17b5afd300ac536c5942f2835992774595186f"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "24824a0a6675fa454686f95f0b19e990ec8fbc02d3697f76ecd6fbe9833f3bca"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "1a089fe67566575536de7c5c8007b815a745faa6bb69166b49bf9ddacbb52960"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 64,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 4,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "113446a5b6dc3adf5d70b83038a7ccb78751ecb0be32f5583d6d2627dc9575ec"
+      ],
+      "inlineLimits": [
+        12737501263601211620
+      ],
+      "policyHash": "2e2428aabf6b0583ea7f89905b8fd2806b82504e8427b05f2cc4e418f781c1a6"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "0f0d5017221091a9d6c931a3fc6df5f135f15e560fb44165ab9ae883f34a73e5"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "0ebe2914393bf8fe01fa6642061bdc0516714aaf9ec19f040edbf8ddd78d7ac8",
+        "0f33dc302a3d3e4cc88960cdc518a91a39d4b6898b70962b6344f30238d78a68",
+        "0895b5947ef51a066f529c9023958bfb5928444aea615211c1863e3a6e72665f"
+      ],
+      "inlineLimits": [],
+      "policyHash": "19427c2e1be2c94a9febcc5338b9f6f1568f5aba1fedd93719fc9d33b5b8411a"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "13cfec085ea5eb793044578f174d621f217fa0fd5043e91a18ec1f07f2347210"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "0919188fa500b713372faaa418b3d9a3aa169bc0e79b870296d5c386812686a1"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "1281d3a1073aae3ff0dbeb7425358accf73ac4920de83d2da1e99dadb3b1ff10"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 6,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "25d1625611207b7349d7a972d23d03dfe168041e4060ea56badbcd6a0eb795a9",
+        "09c1b513832b41852914e54f5ff9c5f355c45dad957642f0f59701f3a9e53582"
+      ],
+      "inlineLimits": [
+        15205950276651153972,
+        14526634807201202184
+      ],
+      "policyHash": "2051fadadb8a89524f9f935ae44a2228d92d1ca6ced2b4715d3ce87ac802575f"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 5,
+          "ownerHash": "0562d65bfbb9ef71282424abb86a5a57ff87507798290b0e093e348a187b7746"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "2dbc4a0d4c04932a8473d5eb4fff1386fcd424bf1635b5b36a5f3165f3504c37"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 48,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 16,
+          "altMask": 0,
+          "guardTag": 2,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "0abd48ebaa7633852c29040a5bdfb6cffb636f400968bfd38bfab1a41a0ae54c",
+        "2f77567b0968598407e0bf4343269400fea469fe9f2c480c16dbb8c6744d8d97",
+        "020f76c04b036ca862340f44db3a7ffd4e7abcdb911e26d83cd62e418ec47e8c"
+      ],
+      "inlineLimits": [
+        7242177639770949429,
+        14240679268851248187,
+        6790492059395811683
+      ],
+      "policyHash": "29264074a6456db75a0398ed756b85e07d597a683407e989b39f5a68c2c936fc"
+    },
+    {
+      "sources": [
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "03837c19d8d48c8b009f3eed7414334f0dbda4a5e4529eb6ad0769be94884c59"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 2,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        }
+      ],
+      "inlineAssets": [
+        "01b82879046def03d0fbe9377e91e75d1448aa155f4fe2b23b40db9701af6c5c"
+      ],
+      "inlineLimits": [],
+      "policyHash": "1de64f6c72c9797a973e038d9aabd6e9056489fcbb96b382e20c0ebd6e08ec71"
+    },
+    {
+      "sources": [
+        {
+          "listId": 1,
+          "ownerHash": "0900341f3432a18b708efb3769457ee8923a7a21d74f6d187d5baf7de26b4873"
+        },
+        {
+          "listId": 2,
+          "ownerHash": "0a432c6ae246f9aaec4ad0914280e6ca576501751843a21db28aa5a83c68fab8"
+        },
+        {
+          "listId": 3,
+          "ownerHash": "1b9ae3a83a322699b8d3f6456a82814839725e750617ce85039b329449db4c25"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 0,
+          "ownerHash": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "listId": 6,
+          "ownerHash": "03d50dcb95c442546ed18955ea64cd35fc7d7bdde267594200a196777e3955a3"
+        },
+        {
+          "listId": 7,
+          "ownerHash": "2730e50f1962add066a42939990a888649f083f286a9b82da9e4c62724a81cef"
+        },
+        {
+          "listId": 8,
+          "ownerHash": "074538488e127cc246a60b8f2889bb5398b929cb1c1c8bbd8b5d933bfb8cf235"
+        }
+      ],
+      "rules": [
+        {
+          "subject": 2,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 4,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 128,
+          "altMask": 33,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 4,
+          "mode": 1,
+          "mask": 0,
+          "altMask": 0,
+          "guardTag": 0,
+          "threshold": 0
+        },
+        {
+          "subject": 1,
+          "mode": 1,
+          "mask": 66,
+          "altMask": 0,
+          "guardTag": 1,
+          "threshold": 1018353012279
+        }
+      ],
+      "inlineAssets": [
+        "0d4781fe746413183dcd2cb662a63ed891ba6989b495af5492c40216cb8ef3fc"
+      ],
+      "inlineLimits": [],
+      "policyHash": "20f568bb521f30fddc93ccc177ed27730c4f01cff3fa0716f2f5bde078eacbba"
+    }
+  ]
+}

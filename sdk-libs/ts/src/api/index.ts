@@ -11,6 +11,9 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
 } from "../indexer/types.js";
 import type { IndexerSchemaError } from "../indexer/scalars.js";
 import {
@@ -21,6 +24,8 @@ import {
   getShieldedTransactionsBySignatureMethod,
   getShieldedTransactionsByTagsMethod,
   type MethodDescriptor,
+  getRingHeadRegisterProofMethod,
+  getRingHeadTransferProofMethod,
 } from "../indexer/methods/index.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import {
@@ -67,6 +72,20 @@ export class ZolanaApi {
   readonly #apiKey?: string;
   readonly #baseUrl: URL;
   readonly #fetch: typeof globalThis.fetch;
+
+  getRingHeadRegisterProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof> {
+    return this.#call(getRingHeadRegisterProofMethod, request, context);
+  }
+
+  getRingHeadTransferProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof> {
+    return this.#call(getRingHeadTransferProofMethod, request, context);
+  }
 
   constructor(config: ZolanaApiConfig) {
     const parsed = parseConfig(config);

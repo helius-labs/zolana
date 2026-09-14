@@ -33,9 +33,21 @@ const (
 
 	// CustomRingPolicyCircuitType folds the audit statement with policy
 	// enforcement in one proof and one verification per transact.
-	CustomRingPolicyCircuitType CircuitType = "custom-ring-policy"
+	CustomRingPolicyCircuitType         CircuitType = "custom-ring-policy"
+	CustomRingDelegatePolicyCircuitType CircuitType = "custom-ring-delegate-policy"
+
+	// Windowed members must prove the current head transition.
+	CompressedPolicyCircuitType CircuitType = "custom-ring-compressed-policy"
+
+	// Registration proves member absence before inserting the genesis record.
+	CompressedRegisterCircuitType CircuitType = "custom-ring-compressed-register"
 )
 
 const CustomRingPolicyKeyFile = "custom_ring_policy.key"
+const CustomRingDelegatePolicyKeyFile = "custom_ring_delegate_policy.key"
 
 const CustomRingBaseKeyFile = "custom_ring_base.key"
+
+const CompressedPolicyKeyFile = "custom_ring_compressed_policy.key"
+
+const CompressedRegisterKeyFile = "custom_ring_compressed_register.key"

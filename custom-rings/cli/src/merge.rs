@@ -8,10 +8,9 @@ use custom_ring_sdk::{
 use solana_address::Address;
 use solana_signer::Signer;
 use thiserror::Error;
-use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SolanaRpc, SppProofInputUtxo};
-use zolana_interface::{pda, state::SplAssetRegistry, SHIELDED_POOL_PROGRAM_ID};
+use zolana_client::{ClientError, ComputeBudgetConfig, Rpc, SppProofInputUtxo};
 use zolana_keypair::{KeypairError, ShieldedKeypair};
-use zolana_transaction::{AssetRegistry, TransactionError, Wallet, WalletUtxo, SOL_MINT};
+use zolana_transaction::{TransactionError, Wallet, WalletUtxo, SOL_MINT};
 use zolana_wallet::sync_wallet;
 
 use crate::{
@@ -34,6 +33,10 @@ pub enum MergeError {
     #[error(transparent)]
     Transaction(#[from] TransactionError),
     #[error(transparent)]
+    Asset(#[from] crate::assets::AssetError),
+    #[error(transparent)]
+    Preflight(Box<crate::transact::TransactError>),
+    #[error(transparent)]
     Client(Box<ClientError>),
     #[error(transparent)]
     Indexer(#[from] WaitError<ClientError>),
@@ -45,10 +48,6 @@ pub enum MergeError {
         ring: Address,
         found: usize,
     },
-    #[error("mint {0} is not registered with SPP")]
-    AssetNotRegistered(Address),
-    #[error("mint {0} has an invalid SPP asset registry account")]
-    InvalidAssetRegistry(Address),
     #[error("the indexer did not reconstruct merged output {0:?}")]
     OutputNotFound([u8; 32]),
 }
@@ -58,11 +57,18 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         return Err(MergeError::Count(args.count));
     }
 
-    let payer = ctx.funded_authority()?;
     let sender = sender_keypair(ctx)?;
     let indexer = ctx.indexer();
     let mint = args.mint.unwrap_or(SOL_MINT);
-    let registry = asset_registry(&ctx.rpc, mint)?;
+    let registry = crate::assets::resolve(&ctx.rpc, mint)?.registry;
+    let cosigner = crate::transact::cosigner_keypair(ctx, args.cosigner_keypair.as_deref())?;
+    crate::transact::CoSignerCheck {
+        provided: cosigner.as_ref().map(|keypair| keypair.pubkey()),
+        scope: custom_ring_interface::COSIGN_TRANSFERS,
+        payment: None,
+    }
+    .check(ctx)
+    .map_err(|error| MergeError::Preflight(Box::new(error)))?;
     let mut wallet = Wallet::new(sender.shielded_address()?, registry)?;
 
     println!("syncing the sender wallet");
@@ -86,15 +92,23 @@ pub fn run(ctx: &mut Context, args: MergeArgs) -> Result<(), MergeError> {
         CustomRingMergeProofEnvironment {
             indexer: &indexer,
             prover: &ctx.prover(),
+            rpc: &ctx.rpc,
         },
     )?;
     let output_hash = proven.output_hash;
     let merged_amount = proven.merged_amount;
+    let proven = match &cosigner {
+        Some(cosigner) => proven.with_cosigner(cosigner.pubkey()),
+        None => proven,
+    };
+    let payer = ctx.funded_authority()?;
     let merge = proven.instruction(tree, tree, payer.pubkey());
+    let mut signers: Vec<&dyn Signer> = vec![&payer];
+    signers.extend(cosigner.as_ref().map(|keypair| keypair as &dyn Signer));
     let signature = ctx.rpc.create_and_send_transaction(
         &[merge],
         payer.pubkey(),
-        &[&payer],
+        &signers,
         ComputeBudgetConfig::new(MERGE_COMPUTE_UNIT_LIMIT),
     )?;
 
@@ -121,23 +135,6 @@ fn sender_keypair(ctx: &Context) -> Result<ShieldedKeypair, MergeError> {
     let path = ctx.project_path(Path::new(SENDER_KEYPAIR_FILE));
     let keypair = file::read_or_create_keypair(&path)?;
     Ok(ShieldedKeypair::from_keypair(&keypair)?)
-}
-
-fn asset_registry(rpc: &SolanaRpc, mint: Address) -> Result<AssetRegistry, MergeError> {
-    if mint == SOL_MINT {
-        return Ok(AssetRegistry::default());
-    }
-    let address = pda::spl_asset_registry(&mint);
-    let account = rpc
-        .get_account(address)?
-        .ok_or(MergeError::AssetNotRegistered(mint))?;
-    let expected_owner = Address::new_from_array(SHIELDED_POOL_PROGRAM_ID);
-    let record = SplAssetRegistry::from_account_bytes(&account.data)
-        .map_err(|_| MergeError::InvalidAssetRegistry(mint))?;
-    if account.owner != expected_owner || record.mint != mint {
-        return Err(MergeError::InvalidAssetRegistry(mint));
-    }
-    Ok(AssetRegistry::new([(record.asset_id, record.mint)])?)
 }
 
 fn candidate_groups(

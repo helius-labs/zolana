@@ -21,9 +21,10 @@ use zolana_transaction::instructions::{transact::SppProofOutputUtxo, types::SppP
 use zolana_tree::TreeAccount;
 
 use crate::{
-    instructions::entry::{EntryLookup, Lineages, LiveEntry},
+    instructions::entry::{EntryLookup, LineageLookup, Lineages, LiveEntry},
     instructions::transact::{
-        CustomRingOpening, RuleAnswer, SourceOwnerEntry, NULLIFIER_PATH_LEN, STATE_PATH_LEN,
+        CustomRingOpening, RuleAnswer, SourceOwnerEntry, VelocityProofInput, NULLIFIER_PATH_LEN,
+        STATE_PATH_LEN,
     },
     shared::source_map,
     TransferError,
@@ -53,6 +54,7 @@ pub struct CustomRingWitness {
     pub inline_assets: [[u8; 32]; MAX_INLINE_ASSETS],
     pub inline_limits: [u64; MAX_INLINE_ASSETS],
     pub inline_count: u8,
+    pub velocity: VelocityProofInput,
     pub answers: Vec<RuleAnswer>,
 }
 
@@ -65,6 +67,8 @@ pub struct CustomRingWitnessInput<'a> {
     pub outputs: &'a [SppProofOutputUtxo],
     /// The tree the outputs are appended to, every output hashes under it.
     pub output_tree_id: u16,
+    /// Outflow proof inputs, with a nonzero window only when record slots are present.
+    pub velocity: VelocityProofInput,
 }
 
 impl<'a> CustomRingWitnessInput<'a> {
@@ -188,7 +192,7 @@ impl<'a> CustomRingWitnessInput<'a> {
         let assets = self.policy.inline_assets();
         let limits = self.policy.inline_limits();
         let mut totals = [0u128; MAX_INLINE_ASSETS];
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -208,11 +212,31 @@ impl<'a> CustomRingWitnessInput<'a> {
             .all(|(total, limit)| *total <= u128::from(*limit)))
     }
 
+    /// A windowed ring carries the record as its last input and output.
+    fn has_record(&self) -> bool {
+        self.velocity.window_slots != 0
+    }
+
+    /// Rule subjects skip the record slot the circuit excludes.
+    fn rule_inputs(&self) -> &[SppProofInputUtxo] {
+        match self.has_record() {
+            true => &self.inputs[..self.inputs.len().saturating_sub(1)],
+            false => self.inputs,
+        }
+    }
+
+    fn rule_outputs(&self) -> &[SppProofOutputUtxo] {
+        match self.has_record() {
+            true => &self.outputs[..self.outputs.len().saturating_sub(1)],
+            false => self.outputs,
+        }
+    }
+
     /// The total the subject value receives across live outputs, aggregated per
     /// owner or per asset as the circuit does.
     fn subject_total(&self, subject: Subject, member: &Member) -> Result<u128, TransferError> {
         let mut total: u128 = 0;
-        for output in self.outputs {
+        for output in self.rule_outputs() {
             let Some(address) = output.owner_address.as_ref() else {
                 continue;
             };
@@ -232,13 +256,13 @@ impl<'a> CustomRingWitnessInput<'a> {
     fn subjects(&self, rule: &Rule) -> Result<Vec<Member>, TransferError> {
         match rule.subject {
             Subject::OutputOwner => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter_map(|output| output.owner_address.as_ref())
                 .map(|address| owner_member(address.signing_pubkey.owner_proof_input_hash()))
                 .collect(),
             Subject::Sender => self
-                .inputs
+                .rule_inputs()
                 .iter()
                 .filter(|spend| !spend.is_dummy())
                 .map(|spend| owner_member(spend.utxo.owner.owner_proof_input_hash()))
@@ -246,7 +270,7 @@ impl<'a> CustomRingWitnessInput<'a> {
             // The circuit ranges asset rules over live outputs, using the same
             // hashed mint field as output_opening.
             Subject::Asset => self
-                .outputs
+                .rule_outputs()
                 .iter()
                 .filter(|output| output.owner_address.is_some())
                 .map(|output| {
@@ -260,8 +284,18 @@ impl<'a> CustomRingWitnessInput<'a> {
     }
 }
 
-fn list_entry(error: crate::EntryProofError) -> TransferError {
-    TransferError::ListEntry(Box::new(error))
+pub(crate) fn list_entry(error: crate::EntryProofError) -> TransferError {
+    match error {
+        crate::EntryProofError::Client(error)
+            if matches!(
+                *error,
+                zolana_client::ClientError::RingHeadMemberUnregistered
+            ) =>
+        {
+            TransferError::SpendRecordMissing
+        }
+        error => TransferError::ListEntry(Box::new(error)),
+    }
 }
 
 struct Demand {
@@ -282,7 +316,7 @@ struct WitnessPlan<'a> {
 }
 
 impl<'a> WitnessPlan<'a> {
-    fn lineages(&self) -> Lineages<'_> {
+    fn lineages(&self) -> Lineages<'_, EntryLookup> {
         Lineages {
             entries_tree: self.input.policy_config.entries_tree,
             lookups: &self.lookups,
@@ -472,6 +506,7 @@ impl ResolvedWitness<'_> {
             inline_assets: table.inline_assets,
             inline_limits: table.inline_limits.map(u64::from_be_bytes),
             inline_count: table.inline_count,
+            velocity: input.velocity,
             answers,
         })
     }
@@ -736,6 +771,7 @@ mod tests {
             entries_tree: tree(),
             entries_tree_id: [0; 2],
             namespace_bump: 0,
+            namespace_owner_hash: [0u8; 32],
             bump: 0,
             sources,
             rules: policy.encode(),
@@ -823,6 +859,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
 
         assert_eq!(
@@ -845,6 +882,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         let guarded = Rule::require(Subject::OutputOwner, ListId::Allow).above(2000);
         assert!(!input
@@ -860,6 +898,7 @@ mod tests {
             inputs: &[],
             outputs: &one,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(below
             .guard_exempts(&guarded, &member)
@@ -879,6 +918,7 @@ mod tests {
             inputs: &[],
             outputs: &one_recipient,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(!input
             .guard_exempts(&guarded, &member)
@@ -890,6 +930,7 @@ mod tests {
             inputs: &[],
             outputs: &two_recipients,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(split
             .guard_exempts(&guarded, &member)
@@ -926,6 +967,7 @@ mod tests {
             inputs: &[],
             outputs: &below,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(input.guard_exempts(rule, &owner).expect("at both limits"));
 
@@ -936,6 +978,7 @@ mod tests {
             inputs: &[],
             outputs: &above,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(!input
             .guard_exempts(rule, &owner)
@@ -948,6 +991,7 @@ mod tests {
             inputs: &[],
             outputs: &unknown,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         assert!(matches!(
             input.guard_exempts(rule, &owner),
@@ -965,6 +1009,7 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         };
         let guarded = Rule::require(Subject::Sender, ListId::Allow).above(u64::MAX);
         assert!(!input.guard_exempts(&guarded, &member).expect("sender"));
@@ -1149,6 +1194,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1196,6 +1242,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1217,6 +1264,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1245,6 +1293,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRootMismatch)));
@@ -1263,6 +1312,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1289,6 +1339,7 @@ mod tests {
             inputs: &[],
             outputs: &[],
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1325,6 +1376,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1357,6 +1409,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");
@@ -1389,6 +1442,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc);
         assert!(matches!(refused, Err(TransferError::PolicyRuleUnsatisfied)));
@@ -1409,6 +1463,7 @@ mod tests {
             inputs: &[],
             outputs: &outputs,
             output_tree_id: 0,
+            velocity: VelocityProofInput::off([0u8; 32], [0u8; 32]),
         }
         .build(&rpc, &rpc)
         .expect("witness");

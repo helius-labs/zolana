@@ -6,8 +6,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
     },
     RpcMethod,
 };
@@ -16,7 +16,8 @@ pub use zolana_indexer_api::{
     Base64String, Context, EncryptedUtxoMatch, GetEncryptedUtxosByTagsResponse,
     GetMerkleProofsRequest, GetMerkleProofsResponse, GetNonInclusionProofsRequest,
     GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingHeadProofRequest, GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
     GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, Hash,
     IndexedShieldedTransaction, Limit, MerkleContext, MerkleProof, NonInclusionProof,
@@ -233,6 +234,20 @@ impl ZolanaApi {
         .await
     }
 
+    pub async fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ApiError> {
+        self.call::<GetRingHeadRegisterProof>(request).await
+    }
+
+    pub async fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ApiError> {
+        self.call::<GetRingHeadTransferProof>(request).await
+    }
+
     pub async fn get_non_inclusion_proofs(
         &self,
         tree_account: SerializablePubkey,
@@ -390,6 +405,20 @@ impl BlockingZolanaApi {
             tree_account,
             leaves,
         })
+    }
+
+    pub fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ApiError> {
+        self.call::<GetRingHeadRegisterProof>(request)
+    }
+
+    pub fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ApiError> {
+        self.call::<GetRingHeadTransferProof>(request)
     }
 
     pub fn get_non_inclusion_proofs(

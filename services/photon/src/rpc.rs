@@ -19,6 +19,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
 pub struct RpcClient {
     http: Client,
     url: String,
+    fixture: Result<bool, String>,
 }
 
 #[derive(Debug, Error)]
@@ -35,6 +36,8 @@ pub enum RpcError {
     MissingResult(&'static str),
     #[error("invalid account returned by RPC: {0}")]
     InvalidAccount(String),
+    #[error("invalid Surfpool fixture configuration {0}")]
+    FixtureConfiguration(String),
 }
 
 impl RpcError {
@@ -85,9 +88,15 @@ struct ProgramAccount {
 
 impl RpcClient {
     pub fn new(url: String) -> Self {
+        let fixture = fixture_mode(
+            &url,
+            std::env::var_os("ZOLANA_RING_SURFPOOL_FIXTURE").as_deref(),
+            std::env::var_os("ZOLANA_PROCESS_SCOPE_DIR").as_deref(),
+        );
         Self {
             http: Client::new(),
             url,
+            fixture,
         }
     }
 
@@ -105,8 +114,34 @@ impl RpcClient {
         slot: u64,
         transaction_details: TransactionDetails,
     ) -> Result<UiConfirmedBlock, RpcError> {
-        self.call("getBlock", block_params(slot, transaction_details))
-            .await
+        let fixture = *self
+            .fixture
+            .as_ref()
+            .map_err(|error| RpcError::FixtureConfiguration(error.clone()))?;
+        let mut block: UiConfirmedBlock = self
+            .call("getBlock", block_params(slot, transaction_details))
+            .await?;
+        if fixture {
+            let parent: UiConfirmedBlock = self
+                .call(
+                    "getBlock",
+                    block_params(block.parent_slot, TransactionDetails::None),
+                )
+                .await?;
+            normalize_fixture_header(&mut block, &parent)?;
+        }
+        Ok(block)
+    }
+
+    pub async fn get_blocks(
+        &self,
+        slots: std::ops::RangeInclusive<u64>,
+    ) -> Result<Vec<u64>, RpcError> {
+        self.call(
+            "getBlocks",
+            json!([slots.start(), slots.end(), { "commitment": "confirmed" }]),
+        )
+        .await
     }
 
     pub async fn get_account(&self, pubkey: &Pubkey) -> Result<Account, RpcError> {
@@ -195,6 +230,65 @@ impl RpcClient {
     }
 }
 
+fn fixture_mode(
+    url: &str,
+    opt_in: Option<&std::ffi::OsStr>,
+    scope: Option<&std::ffi::OsStr>,
+) -> Result<bool, String> {
+    let Some(opt_in) = opt_in else {
+        return Ok(false);
+    };
+    if !cfg!(feature = "surfpool-fixture") {
+        return Err("binary lacks surfpool-fixture support".into());
+    }
+    if opt_in != "1" {
+        return Err("ZOLANA_RING_SURFPOOL_FIXTURE must equal 1".into());
+    }
+    let loopback = reqwest::Url::parse(url).ok().is_some_and(|url| {
+        url.host_str().is_some_and(|host| {
+            host == "localhost"
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+    });
+    let scope = scope
+        .map(std::path::Path::new)
+        .ok_or("task scope is required")?;
+    let metadata = std::fs::symlink_metadata(scope).map_err(|_| "task scope is missing")?;
+    let canonical = std::fs::canonicalize(scope).map_err(|_| "task scope is invalid")?;
+    if !loopback
+        || !scope.is_absolute()
+        || !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || canonical.parent().is_none()
+        || std::env::var_os("HOME").is_some_and(|home| canonical == home)
+    {
+        return Err("fixture needs loopback RPC and a dedicated absolute task directory".into());
+    }
+    Ok(true)
+}
+
+fn normalize_fixture_header(
+    block: &mut UiConfirmedBlock,
+    parent: &UiConfirmedBlock,
+) -> Result<(), RpcError> {
+    if [
+        &block.blockhash,
+        &block.previous_blockhash,
+        &parent.blockhash,
+    ]
+    .into_iter()
+    .any(|hash| !hash.starts_with("SURFNETxSAFEHASH"))
+    {
+        return Err(RpcError::FixtureConfiguration(
+            "only Surfpool synthetic block headers are supported".into(),
+        ));
+    }
+    block.previous_blockhash = parent.blockhash.clone();
+    Ok(())
+}
+
 impl EncodedAccount {
     fn decode(self) -> Result<Account, RpcError> {
         if self.data.1 != "base64" {
@@ -261,6 +355,29 @@ mod tests {
             stream.write_all(response.as_bytes()).unwrap();
         });
         (format!("http://{address}"), handle)
+    }
+
+    #[test]
+    fn fixture_only_normalizes_surfpool_parent_links() {
+        let mut block:UiConfirmedBlock=serde_json::from_value(json!({"blockhash":"SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx28","previousBlockhash":"SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxxxx","parentSlot":39,"blockTime":1,"blockHeight":40})).unwrap();
+        let mut parent = block.clone();
+        parent.blockhash = "SURFNETxSAFEHASHxxxxxxxxxxxxxxxxxxxxxxxxx27".into();
+        let original = block.blockhash.clone();
+        normalize_fixture_header(&mut block, &parent).unwrap();
+        assert_eq!(block.previous_blockhash, parent.blockhash);
+        assert_eq!(block.blockhash, original);
+        parent.blockhash = "11111111111111111111111111111111".into();
+        assert!(matches!(
+            normalize_fixture_header(&mut block, &parent),
+            Err(RpcError::FixtureConfiguration(_))
+        ));
+        assert_eq!(fixture_mode("http://127.0.0.1:8899", None, None), Ok(false));
+        assert!(fixture_mode(
+            "https://api.mainnet-beta.solana.com",
+            Some(std::ffi::OsStr::new("1")),
+            None
+        )
+        .is_err());
     }
 
     #[test]

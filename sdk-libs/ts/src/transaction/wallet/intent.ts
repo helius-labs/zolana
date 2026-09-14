@@ -15,6 +15,14 @@ import { TransactionError } from "../error.js";
 
 /** What the user approves, every field is bound into `intentHash`. */
 export type TransactionIntent =
+  | Readonly<{
+      kind: "ringDelegate";
+      ringProgramId: Address;
+      delegate: Address;
+      cosigner?: Address;
+      source: ShieldedAddress;
+      outputs: readonly Readonly<{ recipient: ShieldedAddress; asset: Address; amount: bigint }>[];
+    }>
   | Readonly<{ kind: "transfer"; asset: Address; amount: bigint; recipient: ShieldedAddress }>
   | Readonly<{ kind: "withdrawal"; asset: Address; amount: bigint; recipient: Address }>
   | Readonly<{ kind: "split"; asset: Address; numOutputs: number; perOutputAmount: bigint }>
@@ -61,6 +69,7 @@ const KIND_TAGS = {
   ringTransfer: 5,
   ringWithdrawal: 6,
   ringEntry: 7,
+  ringDelegate: 8,
 } as const;
 const BOUNDARY_TAGS = { entry: 0, transfer: 1, exit: 2 } as const;
 
@@ -76,6 +85,19 @@ export function intentHash(intent: TransactionIntent): Bytes32 {
   hash.update(new TextEncoder().encode(INTENT_DOMAIN));
   hash.update(Uint8Array.of(KIND_TAGS[intent.kind]));
   switch (intent.kind) {
+    case "ringDelegate":
+      hash.update(addressBytes(intent.ringProgramId));
+      hash.update(addressBytes(intent.delegate));
+      hash.update(Uint8Array.of(intent.cosigner === undefined ? 0 : 1));
+      if (intent.cosigner !== undefined) hash.update(addressBytes(intent.cosigner));
+      hash.update(intent.source.toBytes());
+      hash.update(Uint8Array.of(intent.outputs.length));
+      for (const output of intent.outputs) {
+        hash.update(output.recipient.toBytes());
+        hash.update(addressBytes(output.asset));
+        hash.update(u64(output.amount));
+      }
+      break;
     case "transfer":
       hash.update(addressBytes(intent.asset));
       hash.update(u64(intent.amount));
@@ -150,6 +172,51 @@ export function checkPreparedTransfer(
   mismatch: (field: string) => Error,
 ): void {
   switch (intent.kind) {
+    case "ringDelegate": {
+      if (
+        prepared.interfaceTransfers.length !== 0 ||
+        !equalBytes(prepared.owner.toBytes(), intent.source.toBytes())
+      )
+        throw mismatch("source");
+      if (
+        prepared.inputs.some(
+          (input) =>
+            !input.isDummy() &&
+            (!equalBytes(
+              input.utxo.owner.ownerProofInputHash(),
+              intent.source.signingPublicKey.ownerProofInputHash(),
+            ) ||
+              input.utxo.ringProgramId !== intent.ringProgramId),
+        )
+      )
+        throw mismatch("inputs");
+      const outputs = prepared.outputs
+        .slice(prepared.senderOutputCount)
+        .filter((output) => !output.isDummy());
+      if (outputs.length !== intent.outputs.length) throw mismatch("outputs");
+      for (const [index, wanted] of intent.outputs.entries()) {
+        const actual = outputs[index];
+        if (
+          actual === undefined ||
+          actual.ownerAddress === undefined ||
+          !equalBytes(actual.ownerAddress.toBytes(), wanted.recipient.toBytes()) ||
+          actual.asset !== wanted.asset ||
+          actual.amount !== wanted.amount ||
+          actual.ringProgramId !== intent.ringProgramId
+        )
+          throw mismatch("outputs");
+      }
+      for (const output of prepared.outputs.slice(0, prepared.senderOutputCount)) {
+        if (
+          !output.isDummy() &&
+          (output.ownerAddress === undefined ||
+            !equalBytes(output.ownerAddress.toBytes(), intent.source.toBytes()) ||
+            output.ringProgramId !== intent.ringProgramId)
+        )
+          throw mismatch("change");
+      }
+      return;
+    }
     case "transfer":
       if (prepared.interfaceTransfers.length > 0) throw mismatch("settlements");
       checkRecipientOutputs(prepared, intent, undefined, mismatch);
@@ -296,8 +363,28 @@ export function checkTransactionIntent(
   mismatch: (field: string) => Error,
 ): void {
   if (typeof intent !== "object" || intent === null) throw mismatch("kind");
-  checkMint(intent.asset, mismatch);
+  if (intent.kind !== "ringDelegate") checkMint(intent.asset, mismatch);
   switch (intent.kind) {
+    case "ringDelegate":
+      checkIntentFields(
+        intent,
+        ["kind", "ringProgramId", "delegate", "cosigner", "source", "outputs"],
+        mismatch,
+      );
+      checkAccount(intent.ringProgramId, "ringProgramId", mismatch);
+      checkAccount(intent.delegate, "delegate", mismatch);
+      if (intent.cosigner !== undefined) checkAccount(intent.cosigner, "cosigner", mismatch);
+      checkShieldedRecipient(intent.source, mismatch);
+      if (!Array.isArray(intent.outputs) || intent.outputs.length < 1 || intent.outputs.length > 4)
+        throw mismatch("outputs");
+      for (const output of intent.outputs) {
+        if (typeof output !== "object" || output === null) throw mismatch("outputs");
+        checkIntentFields(output, ["recipient", "asset", "amount"], mismatch);
+        checkShieldedRecipient(output.recipient, mismatch);
+        checkMint(output.asset, mismatch);
+        checkAmount(output.amount, mismatch);
+      }
+      return;
     case "transfer":
       checkIntentFields(intent, ["kind", "asset", "amount", "recipient"], mismatch);
       checkAmount(intent.amount, mismatch);

@@ -121,7 +121,7 @@ func (s *statement) deriveEntries(t *testing.T) {
 
 func (s *statement) updateHashes(t *testing.T) {
 	t.Helper()
-	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources)
+	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources, s.windowSlots, s.velocity)
 	inputHashes := make([]*big.Int, len(s.inputs))
 	outputHashes := make([]*big.Int, len(s.outputs))
 	for i, input := range s.inputs {
@@ -144,7 +144,10 @@ func (s *statement) updateHashes(t *testing.T) {
 		s.privateTxBlinding,
 	})
 	elements := s.keys.ChainElements(t, s.privateTxHash)
-	s.publicInputHash = spptest.MustHashChain(t, append(elements, s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID)))
+	s.publicInputHash = spptest.MustHashChain(t, append(elements,
+		s.policyHash, s.stateRoot, s.nullifierRoot, big.NewInt(entriesTreeID),
+		s.ringID, s.ownOwnerHash, new(big.Int).SetUint64(s.windowIndex), boolVar(s.approval),
+	))
 }
 
 func rejectAssignment(t *testing.T, c *CustomRingPolicyCircuit) {

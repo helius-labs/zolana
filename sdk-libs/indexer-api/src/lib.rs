@@ -18,6 +18,8 @@ pub const GET_SHIELDED_TRANSACTIONS_BY_TAGS: &str = "getShieldedTransactionsByTa
 pub const GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE: &str = "getShieldedTransactionsBySignature";
 pub const GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS: &str = "getShieldedTransactionsByNullifiers";
 pub const GET_MERKLE_PROOFS: &str = "getMerkleProofs";
+pub const GET_RING_HEAD_REGISTER_PROOF: &str = "getRingHeadRegisterProof";
+pub const GET_RING_HEAD_TRANSFER_PROOF: &str = "getRingHeadTransferProof";
 pub const GET_NON_INCLUSION_PROOFS: &str = "getNonInclusionProofs";
 pub const GET_NULLIFIER_QUEUE_ELEMENTS: &str = "getNullifierQueueElements";
 
@@ -40,6 +42,10 @@ pub mod method {
     pub struct GetShieldedTransactionsBySignature;
     pub struct GetShieldedTransactionsByNullifiers;
     pub struct GetMerkleProofs;
+    /// Selects the RPC contract for inserting a member spend head.
+    pub struct GetRingHeadRegisterProof;
+    /// Selects the RPC contract for reading the current member spend head.
+    pub struct GetRingHeadTransferProof;
     pub struct GetNonInclusionProofs;
     pub struct GetNullifierQueueElements;
 
@@ -71,6 +77,18 @@ pub mod method {
         const NAME: &'static str = GET_MERKLE_PROOFS;
         type Request = GetMerkleProofsRequest;
         type Response = GetMerkleProofsResponse;
+    }
+
+    impl RpcMethod for GetRingHeadRegisterProof {
+        const NAME: &'static str = GET_RING_HEAD_REGISTER_PROOF;
+        type Request = GetRingHeadProofRequest;
+        type Response = GetRingHeadRegisterProofResponse;
+    }
+
+    impl RpcMethod for GetRingHeadTransferProof {
+        const NAME: &'static str = GET_RING_HEAD_TRANSFER_PROOF;
+        type Request = GetRingHeadProofRequest;
+        type Response = GetRingHeadTransferProofResponse;
     }
 
     impl RpcMethod for GetNonInclusionProofs {
@@ -672,6 +690,60 @@ pub struct GetMerkleProofsRequest {
 pub struct GetMerkleProofsResponse {
     pub context: Context,
     pub proofs: Vec<MerkleProof>,
+}
+
+/// Pins a head proof request to the observed ring root and member.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingHeadProofRequest {
+    pub ring_program_id: SerializablePubkey,
+    pub member: Hash,
+    pub expected_root: Hash,
+    pub expected_next_index: u64,
+}
+
+/// Supplies predecessor and append paths for a member registration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingHeadRegisterProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub low_member: Hash,
+    pub low_next: Hash,
+    pub low_nullifier: Hash,
+    pub low_index: u64,
+    pub low_proof: Vec<Hash>,
+    /// Computed after the predecessor update.
+    pub new_proof: Vec<Hash>,
+}
+
+/// Locates the current record output and its encrypted counter messages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct RingHeadRecord {
+    pub transaction: ShieldedTransaction,
+    pub output_index: u16,
+}
+
+/// Supplies current spend-record inclusion under the shared head root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct GetRingHeadTransferProofResponse {
+    pub context: Context,
+    pub root: Hash,
+    pub next_index: u64,
+    pub member: Hash,
+    pub next: Hash,
+    pub nullifier: Hash,
+    pub index: u64,
+    pub proof: Vec<Hash>,
+    pub record: RingHeadRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

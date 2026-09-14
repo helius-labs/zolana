@@ -13,6 +13,7 @@ import {
   type SpendSelectionErrors,
 } from "../src/flows/select.js";
 import { MAX_INPUT_TREES } from "../src/interface/tree-slot.js";
+import { selectRingInputs } from "../src/ring/transfer.js";
 
 const TREE = address("3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3");
 const OTHER_TREE = address("8qbHbw2BbbTHBW1sbeqakYXV9q2RZ1R6MUi6nEZa6wJk");
@@ -66,6 +67,19 @@ function walletWith(utxos: readonly (readonly [bigint, Address?])[]): Wallet {
 }
 
 describe("UTXO selection", () => {
+  it("allows wide eligible ring balances without changing the default rail's u64 check", () => {
+    const half = (1n << 63n) + 1n;
+    const amount = (1n << 64n) - 1n;
+    const wallet = walletWith([[half], [half]]);
+    const before = wallet.utxos();
+    const selected = selectRingInputs(wallet, OTHER_TREE, MINT, amount, "default", TREE);
+    expect(selected).toHaveLength(2);
+    expect(selected.reduce((sum, entry) => sum + entry.utxo.amount, 0n) - amount).toBe(3n);
+    expect(() =>
+      selectUtxos({ wallet, asset: MINT, target: { kind: "cover", amount }, policy: policy() }),
+    ).toThrow("overflow");
+    expect(wallet.utxos()).toEqual(before);
+  });
   it("covers with the fewest UTXOs under largest-first ordering", () => {
     const wallet = walletWith([[5n], [5n], [5n], [5n], [5n], [5n], [100n]]);
     const selection = selectUtxos({

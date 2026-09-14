@@ -1,0 +1,33 @@
+# Caps each member's outflow per mint across a fixed window.
+# Members register once with `zolana-ring spend register` before transferring.
+# Transfers above cosign_above also require the configured co-signer.
+
+name = "velocity-window"
+target = "localnet"
+# Replace with the id of keys/program-keypair.json, `zolana-ring new` writes one.
+program_id = "71xpmf2e94nEd9T1S32trTQnhY39xfSUeNW7GH4quTw6"
+authority_keypair = "~/.config/solana/id.json"
+
+[localnet]
+rpc = "http://127.0.0.1:8899"
+indexer = "http://127.0.0.1:8784"
+prover = "http://127.0.0.1:3001"
+ring_rpc = "http://127.0.0.1:8785"
+
+[devnet]
+rpc = "https://api.devnet.solana.com"
+indexer = "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com"
+prover = "https://d30sgubc9yxiri.cloudfront.net"
+ring_rpc = "https://d1ojzfopdqqs5r.cloudfront.net"
+ring_rpc_pubkey = "C8TeRCdueRdXj3y4uFDtNywYThc3qeiH2ZGfcbYZzVSs"
+
+[policy]
+# every entry the rules read lives in the named tree
+entries_tree = "33KVhbT4QtdQDrrrGwwThqD47Dh4Q6tA443t9jMNcWFN"
+
+# Counters reset at slot multiples of window_slots, not on a sliding schedule.
+[policy.velocity]
+window_slots = 216000
+rows = [
+  { asset = "11111111111111111111111111111111", cap = 5000000000, cosign_above = 1000000000 },
+]

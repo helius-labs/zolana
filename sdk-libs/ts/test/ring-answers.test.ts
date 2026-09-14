@@ -116,6 +116,8 @@ describe("answer planning", () => {
       rules: [require("asset", ListId.allow)],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const plan = planPolicyAnswers(input(table, [output(address, 1n)]));
     expect(plan.lookups).toEqual([
@@ -162,6 +164,8 @@ describe("answer planning", () => {
       rules: [{ ...require("outputOwner", ListId.allow), guard: { kind: "aboveAmountByAsset" } }],
       inlineAssets: [memberOfAsset(first), memberOfAsset(second)],
       inlineLimits: [10n, 20n],
+      windowSlots: 0n,
+      velocity: [],
     });
     const below = [
       output(address, 4n, first),
@@ -195,6 +199,8 @@ describe("answer planning", () => {
       rules: [above(require("sender", ListId.allow), (1n << 64n) - 1n)],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const plan = planPolicyAnswers({ table: guarded, config, inputs: [spend], outputs: [] });
     expect(plan.demands).toHaveLength(1);
@@ -534,6 +540,8 @@ describe("answer proving", () => {
       ],
       inlineAssets: [],
       inlineLimits: [],
+      windowSlots: 0n,
+      velocity: [],
     };
     const parties = Array.from({ length: 4 }, () => recipient());
     const client = entryProofReads({

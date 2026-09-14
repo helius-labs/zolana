@@ -155,6 +155,79 @@ fn free_form_message() -> MessageData {
 }
 
 #[test]
+fn the_auditor_reads_record_sidecar_and_counters_without_counting_the_carrier_as_money() {
+    use zolana_ring_client::{counters_message, encrypt_counters};
+    use zolana_ring_policy::{spend_record_message_tag, Member, SpendCounters, SpendRecord};
+    let auditor = ViewingKey::new();
+    let tx_key = ViewingKey::new();
+    let namespace = [7u8; 32];
+    let counters = SpendCounters::zero(&[]);
+    let record = SpendRecord {
+        member: Member::owner_tag(&[8; 32]).unwrap(),
+        version: 1,
+        window: 9,
+        counters_commitment: counters.commitment().unwrap(),
+        blinding: [6; 32],
+    };
+    let mut slot = confidential_slot(&tx_key, &tx_key.pubkey(), &plaintext(SOL_ASSET_ID, 0, 6), 0);
+    slot.view_tag = namespace;
+    let record_message = MessageData {
+        view_tag: spend_record_message_tag(&namespace).unwrap(),
+        data: record.to_output_data().to_vec(),
+    };
+    let mut tx = transaction(
+        &tx_key,
+        vec![slot],
+        vec![
+            record_message.clone(),
+            counters_message(
+                namespace,
+                encrypt_counters(&tx_key, &tx_key.pubkey(), SALT, &counters).unwrap(),
+            ),
+            auditor_message_data(&tx_key, &auditor.pubkey()),
+        ],
+    );
+    let assets = registry();
+    let audit = |tx: &ShieldedTransaction| {
+        TransactionAudit {
+            auditor: &auditor,
+            transaction: tx,
+            assets: &assets,
+        }
+        .run()
+    };
+    let opened = audit(&tx).unwrap();
+    assert!(opened.outputs.is_empty());
+    assert!(opened.undecryptable_slots.is_empty());
+    assert_eq!(opened.spend_records.len(), 1);
+    assert_eq!(opened.spend_records[0].record, record);
+    assert_eq!(opened.spend_records[0].counters, Some(counters));
+    tx.messages.insert(0, record_message);
+    assert!(matches!(
+        audit(&tx),
+        Err(AuditError::InvalidSpendRecordMessage)
+    ));
+    tx.messages.remove(0);
+    tx.messages[0].data.pop();
+    assert!(matches!(
+        audit(&tx),
+        Err(AuditError::InvalidSpendRecordMessage)
+    ));
+    tx.messages[0].data = record.to_output_data().to_vec();
+    tx.messages[0].data[85] ^= 1;
+    assert!(matches!(
+        audit(&tx),
+        Err(AuditError::InvalidSpendRecordMessage)
+    ));
+    tx.messages[0].data = record.to_output_data().to_vec();
+    tx.output_slots.push(dummy_slot(1));
+    assert!(matches!(
+        audit(&tx),
+        Err(AuditError::InvalidSpendRecordMessage)
+    ));
+}
+
+#[test]
 fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
     let auditor = ViewingKey::new();
     let tx_key = ViewingKey::new();
@@ -210,6 +283,7 @@ fn audit_returns_the_amounts_assets_and_blindings_that_were_encrypted() {
                     ring_program_id: None,
                 },
             ],
+            spend_records: vec![],
             undecryptable_slots: vec![],
         }
     );

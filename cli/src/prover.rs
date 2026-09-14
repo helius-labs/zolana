@@ -9,7 +9,10 @@ use crate::{
         READINESS_TIMEOUT,
     },
     http::wait_for_http_get_with_child,
-    process::{find_binary, path_string_with_trailing_separator, spawn_service, stop_port},
+    process::{
+        find_binary, path_string_with_trailing_separator, require_scoped_port_available,
+        spawn_service, stop_port,
+    },
 };
 
 pub(crate) fn run_start_prover(opts: StartProverOptions) -> Result<()> {
@@ -39,6 +42,8 @@ pub(crate) fn start_prover_service(
 
     stop_port(prover_port);
     stop_port(metrics_port);
+    require_scoped_port_available(prover_port)?;
+    require_scoped_port_available(metrics_port)?;
 
     let prover = match binary {
         Some(path) => path.to_path_buf(),

@@ -34,6 +34,7 @@ zolana-event = { workspace = true }
 zolana-event-parser = { workspace = true }
 zolana-interface = { workspace = true }
 zolana-keypair = { workspace = true }
+zolana-ring-policy = { workspace = true }
 zolana-transaction = { workspace = true }
 
 [dev-dependencies]

@@ -72,6 +72,12 @@ pub enum LocalnetError {
         #[source]
         source: io::Error,
     },
+    #[error(transparent)]
+    Workspace(#[from] crate::workspace::WorkspaceError),
+    #[error("local workspace service is unavailable at {0}, run `zolana-ring dev` first")]
+    WorkspaceService(String),
+    #[error("workspace services require a loopback URL, found {0}")]
+    WorkspaceEndpoint(String),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -127,6 +133,16 @@ fn bring_up(
     config: &RingConfig,
     live_ring_rpc: LiveRingRpc,
 ) -> Result<(), LocalnetError> {
+    if let Some(workspace) = crate::workspace::Workspace::from_env()? {
+        return bring_up_workspace(
+            workspace,
+            WorkspaceRun {
+                config_path,
+                config,
+                live_ring_rpc,
+            },
+        );
+    }
     let urls = config.urls();
     let ports = Ports::of(urls)?;
     let release = RingRelease::from_lock()?;
@@ -142,6 +158,9 @@ fn bring_up(
             &keys_dir.join(POLICY_PROVING_KEY_FILE),
         )?;
         release.ensure_as(release.audit_key()?, &keys_dir.join(BASE_PROVING_KEY_FILE))?;
+        for (asset, name) in release.control_keys()? {
+            release.ensure_as(asset, &keys_dir.join(name))?;
+        }
         start_validator(ports)?;
     }
     check_prover_serves_custom_ring(&urls.prover)?;
@@ -168,6 +187,112 @@ fn bring_up(
         log_dir: &release::config_dir().join("localnet"),
     }
     .start(ports.ring_rpc)
+}
+
+/// Selects a local service lifecycle without changing the project's released artifact pins.
+struct WorkspaceRun<'a> {
+    config_path: &'a Path,
+    config: &'a RingConfig,
+    live_ring_rpc: LiveRingRpc,
+}
+
+fn bring_up_workspace(
+    workspace: crate::workspace::Workspace,
+    run: WorkspaceRun<'_>,
+) -> Result<(), LocalnetError> {
+    let WorkspaceRun {
+        config_path,
+        config,
+        live_ring_rpc,
+    } = run;
+    // 1. Confine workspace artifacts and service endpoints to an explicit local environment.
+    if config.target != Target::Localnet {
+        return Err(crate::workspace::WorkspaceError::WrongTarget.into());
+    }
+    let urls = config.urls();
+    for url in [&urls.rpc, &urls.indexer, &urls.prover, &urls.ring_rpc] {
+        let local = reqwest::Url::parse(url).ok().is_some_and(|url| {
+            url.host_str().is_some_and(|host| {
+                host == "localhost"
+                    || host
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            })
+        });
+        if !local {
+            return Err(LocalnetError::WorkspaceEndpoint(url.clone()));
+        }
+    }
+    let ports = Ports::of(urls)?;
+    if matches!(live_ring_rpc, LiveRingRpc::Keep) {
+        for (port, url) in [
+            (ports.rpc, &urls.rpc),
+            (ports.photon, &urls.indexer),
+            (ports.prover, &urls.prover),
+            (ports.ring_rpc, &urls.ring_rpc),
+        ] {
+            if !answers(local(port)) {
+                return Err(LocalnetError::WorkspaceService(url.clone()));
+            }
+        }
+        return check_prover_serves_custom_ring(&urls.prover);
+    }
+    if answers(local(ports.ring_rpc)) {
+        return Err(LocalnetError::PortBusy {
+            addr: local(ports.ring_rpc),
+        });
+    }
+    // 2. Start core services under the caller's process scope and preserve occupied endpoints.
+    if !answers(local(ports.rpc)) {
+        let snapshots = workspace.account_snapshots()?;
+        let mut command = workspace.command()?;
+        command
+            .args(["dev", "start", "--local"])
+            .args(["--rpc-port", &ports.rpc.to_string()])
+            .args(["--photon-port", &ports.photon.to_string()])
+            .args(["--prover-port", &ports.prover.to_string()])
+            .arg("--photon-start-slot")
+            .arg("0")
+            .arg("--account-dir")
+            .arg(snapshots)
+            .arg("--sbf-program")
+            .arg(zolana_interface::pda::shielded_pool_program_id().to_string())
+            .arg(workspace.artifact("target/deploy/shielded_pool_program.so")?)
+            .args(["--", "--deactivate-feature", SBPF_V0_FEATURE]);
+        ZOLANA
+            .named("workspace zolana dev start")
+            .run(&mut command)?;
+    }
+    for (port, url) in [(ports.photon, &urls.indexer), (ports.prover, &urls.prover)] {
+        if !answers(local(port)) {
+            return Err(LocalnetError::WorkspaceService(url.clone()));
+        }
+    }
+    check_prover_serves_custom_ring(&urls.prover)?;
+    // 3. Keep the auditor service in the foreground while the pipeline runs separately.
+    let project_root = ProjectRoot::for_config(config_path);
+    let auditor_key = project_root.resolve(Path::new(AUDITOR_KEY_FILE));
+    if !auditor_key.is_file() {
+        keys::run(
+            &project_root,
+            AuditorKeyArgs {
+                key_file: PathBuf::from(AUDITOR_KEY_FILE),
+                create: true,
+            },
+        )?;
+    }
+    println!("workspace services ready, run `zolana-ring pipeline` in a second terminal with the same environment");
+    RING_RPC.run(
+        Command::new(workspace.artifact("target/debug/ring-rpc")?)
+            .arg("serve")
+            .args(["--port", &ports.ring_rpc.to_string()])
+            .args(["--indexer-url", &urls.indexer])
+            .args(["--rpc-url", &urls.rpc])
+            .arg("--auditor-key-file")
+            .arg(auditor_key)
+            .args(["--ring-program-id", &config.program_id.to_string()]),
+    )?;
+    Ok(())
 }
 
 fn local(port: u16) -> SocketAddr {
@@ -219,9 +344,15 @@ fn check_prover_serves_custom_ring(prover_url: &str) -> Result<(), LocalnetError
             url: url.clone(),
             source,
         })?;
-    if ["custom-ring-base", "custom-ring-policy"]
-        .iter()
-        .all(|required| health.circuits.iter().any(|circuit| circuit == required))
+    if [
+        "custom-ring-base",
+        "custom-ring-policy",
+        "custom-ring-compressed-policy",
+        "custom-ring-compressed-register",
+        "custom-ring-delegate-policy",
+    ]
+    .iter()
+    .all(|required| health.circuits.iter().any(|circuit| circuit == required))
     {
         return Ok(());
     }

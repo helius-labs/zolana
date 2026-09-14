@@ -1,5 +1,5 @@
 use bytemuck::from_bytes;
-use custom_ring_interface::PolicyConfig;
+use custom_ring_interface::{CoSigner, Delegate, HeadMapRoot, PolicyConfig, SpendWindow};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
 use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -53,13 +53,107 @@ pub fn load_policy_config<'a>(
     Ok(config)
 }
 
+/// `Ok(None)` for the canonical address with no account, the ring has no co-signer.
+#[inline(always)]
+pub fn load_cosigner<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Option<Ref<'a, CoSigner>>, ProgramError> {
+    if account.data_len() == 0 {
+        PdaCheck {
+            program_id,
+            address: account.address(),
+            seeds: &[CoSigner::SEED],
+            mismatch: CustomRingError::InvalidCoSigner,
+        }
+        .verify()?;
+        return Ok(None);
+    }
+    let cosigner = load_account::<CoSigner>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[CoSigner::SEED],
+        mismatch: CustomRingError::InvalidCoSigner,
+    }
+    .verify_stored_bump(cosigner.bump)?;
+    Ok(Some(cosigner))
+}
+
+/// `Ok(None)` for the canonical address with no account, the ring has no delegate.
+#[inline(always)]
+pub fn load_delegate<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Option<Ref<'a, Delegate>>, ProgramError> {
+    let check = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[Delegate::SEED],
+        mismatch: CustomRingError::InvalidDelegate,
+    };
+    if account.data_len() == 0 {
+        check.verify()?;
+        return Ok(None);
+    }
+    let delegate = load_account::<Delegate>(program_id, account)?;
+    check.verify_stored_bump(delegate.bump)?;
+    Ok(Some(delegate))
+}
+
+/// `Ok(None)` for the canonical address of `mint` with no account.
+#[inline(always)]
+pub fn load_spend_window<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+    mint: &Address,
+) -> Result<Option<Ref<'a, SpendWindow>>, ProgramError> {
+    let seeds = [SpendWindow::SEED, mint.as_array()];
+    let check = PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &seeds,
+        mismatch: CustomRingError::InvalidSpendWindow,
+    };
+    if account.data_len() == 0 {
+        check.verify()?;
+        return Ok(None);
+    }
+    let window = load_account::<SpendWindow>(program_id, account)?;
+    if window.mint != *mint {
+        return Err(CustomRingError::InvalidSpendWindow.into());
+    }
+    check.verify_stored_bump(window.bump)?;
+    Ok(Some(window))
+}
+
+pub(crate) fn load_head_map_root<'a>(
+    program_id: &Address,
+    account: &'a AccountView,
+) -> Result<Ref<'a, HeadMapRoot>, ProgramError> {
+    let root = load_account::<HeadMapRoot>(program_id, account)?;
+    PdaCheck {
+        program_id,
+        address: account.address(),
+        seeds: &[HeadMapRoot::SEED],
+        mismatch: CustomRingError::InvalidHeadMapRoot,
+    }
+    .verify_stored_bump(root.bump)?;
+    if root.next_index() == 0
+        || root.next_index() > (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT)
+    {
+        return Err(CustomRingError::InvalidHeadMapCursor.into());
+    }
+    Ok(root)
+}
+
 #[inline(always)]
 pub fn load_read_access_record<'a>(
     program_id: &Address,
     account: &'a AccountView,
     reader: &ReaderKeyBytes,
 ) -> Result<Ref<'a, ReadAccessRecord>, ProgramError> {
-    let entry = load_account::<ReadAccessRecord>(program_id, account)?;
+    let record = load_account::<ReadAccessRecord>(program_id, account)?;
     let seed_hash =
         ReadAccessRecord::seed_hash(reader).map_err(|_| CustomRingError::HashingFailed)?;
     let bump = PdaCheck {
@@ -69,10 +163,10 @@ pub fn load_read_access_record<'a>(
         mismatch: CustomRingError::InvalidReadAccessRecord,
     }
     .verify()?;
-    if entry.reader != *reader || entry.bump != bump {
+    if record.reader != *reader || record.bump != bump {
         return Err(CustomRingError::InvalidReadAccessRecord.into());
     }
-    Ok(entry)
+    Ok(record)
 }
 
 /// Require the shielded-pool program to be among `accounts` and executable.

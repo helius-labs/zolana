@@ -51,7 +51,7 @@ Accepted nonces are held in process memory for the timestamp window. Run one pro
 
 ## Audit result
 
-Each opened output includes the asset mint, amount, recipient viewing key, and ring field. Each transaction also includes public nullifiers and undecryptable output positions. The response does not identify private input owners and does not return blindings.
+Each opened output includes the asset mint, amount, recipient viewing key, and ring field. Each transaction also includes public nullifiers and undecryptable output positions. A velocity transfer reports its public spend-record metadata, including its blinding, with counters verified against the record commitment. Private input owners and ordinary output blindings are not returned.
 
 The released transfer proof does not prove that output ciphertext matches the committed UTXO. The ring program checks Confidential framing. Ring RPC reports output slots that it cannot decrypt. A decrypted value is not proof of the committed plaintext.
 

@@ -35,6 +35,16 @@ pub enum EntryError {
     TransactionCompile(#[source] Box<ClientError>),
     #[error(transparent)]
     Encoding(#[from] wincode::WriteError),
+    #[error(transparent)]
+    AccountRead(#[from] crate::AccountReadError),
+    #[error(transparent)]
+    PolicyMatch(#[from] crate::PolicyMatchError),
+    #[error("the ring has no policy config")]
+    MissingPolicyConfig,
+    #[error("the ring has no velocity window")]
+    VelocityDisabled,
+    #[error("the member already registered a spend record")]
+    SpendRecordExists,
 }
 
 /// Pins the table and its source map, signed by the upgrade authority.
@@ -68,6 +78,7 @@ impl CreatePolicy<'_> {
         let mut accounts = vec![
             AccountMeta::new(payer, true),
             AccountMeta::new_readonly(authority, true),
+            AccountMeta::new_readonly(ring.config_pda(), false),
             AccountMeta::new(ring.policy_config_pda(), false),
             AccountMeta::new_readonly(entries_tree, false),
             AccountMeta::new_readonly(Address::default(), false),

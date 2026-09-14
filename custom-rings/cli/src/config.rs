@@ -12,6 +12,7 @@ use thiserror::Error;
 use toml_edit::{DocumentMut, Item};
 
 use crate::{
+    cosigner::CosignScope,
     file::{self, FileError},
     policy::{render, PolicyError, PolicySpec},
     ProjectRoot,
@@ -36,8 +37,33 @@ pub struct RingConfig {
     /// Presence selects the policy tier, `init` pins the compiled table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PolicySpec>,
+    /// Applied by `cosigner set` without flags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cosigner: Option<CoSignerSpec>,
     pub localnet: Urls,
     pub devnet: Urls,
+}
+
+/// Records the operator's intended co-signer requirement for configuration commands.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct CoSignerSpec {
+    pub key: Base58Address,
+    pub scope: Vec<CosignScope>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub thresholds: Vec<ThresholdSpec>,
+}
+
+/// Sets one mint's withdrawal threshold for co-signing.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ThresholdSpec {
+    pub mint: Base58Address,
+    pub above: u64,
+}
+
+impl CoSignerSpec {
+    pub fn scope_bits(&self) -> u8 {
+        self.scope.iter().fold(0, |bits, scope| bits | scope.bit())
+    }
 }
 
 /// Map values take no `#[serde(with)]`, the newtype carries the codec.

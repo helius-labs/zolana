@@ -1,23 +1,40 @@
-import {
-  getProgramDerivedAddress,
-  type Address,
-  type Instruction,
-  type ProgramDerivedAddress,
-} from "@solana/kit";
+import { getProgramDerivedAddress, type Address, type Instruction } from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
-import { meta, type SignerAccount } from "../interface/instructions/index.js";
-import { addressBytes } from "../interface/internal.js";
-import { ringAuthAddress } from "../interface/pda/index.js";
+import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
+import { Writer, addressBytes } from "../interface/internal.js";
+import {
+  ringAuthAddress,
+  ringCoSignerAddress,
+  ringConfigAddress,
+  ringConfigPda,
+  ringDelegateAddress,
+  ringDelegatePda,
+  ringHeadMapRootPda,
+  ringPolicyConfigAddress,
+  ringPolicyConfigPda,
+  ringSpendWindowAddress,
+  ringSpendWindowPda,
+} from "../interface/pda/index.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../interface/program.js";
 import type { RequestContext } from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 
 import {
+  RING_COSIGN_SCOPE_MASK,
+  RING_COSIGN_THRESHOLD_SLOTS,
+  type RingCoSigner,
+  type RingDelegate,
   type RingPolicyConfig,
   type RingProgramConfig,
+  type RingSpendWindow,
+  decodeRingCoSigner,
+  decodeRingDelegate,
   decodeRingPolicyConfig,
   decodeRingProgramConfig,
+  decodeRingSpendWindow,
+  decodeRingHeadMapRoot,
+  type RingHeadMapRoot,
 } from "./codecs.js";
 import { RingError } from "./error.js";
 
@@ -25,28 +42,48 @@ const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
 const SET_AUTHORITY_TAG = 6;
 const SET_PAUSED_TAG = 11;
+const SET_CO_SIGNER_TAG = 28;
+const CLEAR_CO_SIGNER_TAG = 21;
+const SET_SPEND_WINDOW_TAG = 22;
+const CLEAR_SPEND_WINDOW_TAG = 23;
+const SET_DELEGATE_TAG = 24;
+const CREATE_HEAD_MAP_ROOT_TAG = 27;
 
-export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringConfigPda(ringProgramId))[0];
+export { ringConfigAddress, ringPolicyConfigAddress };
+
+/** Only the canonical on-chain root is authoritative. */
+export async function fetchRingHeadMapRoot(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingHeadMapRoot> {
+  const [address, bump] = await ringHeadMapRootPda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined) throw new RingError("RING_HEAD_MAP_MISSING");
+  if (account.owner !== ringProgramId) throw new RingError("RING_HEAD_MAP_INVALID");
+  const root = decodeRingHeadMapRoot(account.data);
+  if (root.bump !== bump) throw new RingError("RING_HEAD_MAP_INVALID");
+  return root;
 }
 
-function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("config")],
-  });
-}
-
-/** Mirrors Rust `CustomRing::policy_config_pda`. */
-export async function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringPolicyConfigPda(ringProgramId))[0];
-}
-
-function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("policy")],
-  });
+export async function createRingHeadMapRootInstruction(
+  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
+): Promise<Instruction> {
+  const [config, [root]] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringHeadMapRootPda(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(root, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data: Uint8Array.of(CREATE_HEAD_MAP_ROOT_TAG),
+  };
 }
 
 /** Mirrors Rust `CustomRing::namespace_pda`, the shielded owner of every policy entry. */
@@ -126,6 +163,247 @@ export async function fetchRingConfigs(
   if (!config.hasPolicy) return Object.freeze({ hasPolicy: false, config });
   const policy = await fetchRingPolicyConfig(client, ringProgramId, context);
   return Object.freeze({ hasPolicy: true, config, policy });
+}
+
+/** Mirrors Rust `CustomRing::read_cosigner`, `undefined` when the ring has no co-signer. */
+export async function fetchRingCoSigner(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingCoSigner | undefined> {
+  const address = await ringCoSignerAddress(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined || account.data.length === 0) return undefined;
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const [, bump] = await getProgramDerivedAddress({
+    programAddress: ringProgramId,
+    seeds: [encoder.encode("cosigner")],
+  });
+  const cosigner = decodeRingCoSigner(account.data);
+  if (cosigner.bump !== bump) {
+    throw new RingError("RING_CO_SIGNER_INVALID", { details: { ringProgramId, address } });
+  }
+  return cosigner;
+}
+
+/** Mirrors Rust `SetCoSigner`, creates or replaces the co-signer under the config authority. */
+export async function setRingCoSignerInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    signer: Address;
+    /** A nonzero subset of the `RING_COSIGN_*` bits. */
+    scope: number;
+    /** Per mint, SOL under the zero address. */
+    thresholds?: readonly { readonly mint: Address; readonly above: bigint }[];
+  }>,
+): Promise<Instruction> {
+  const thresholds = input.thresholds ?? [];
+  if (
+    input.scope === 0 ||
+    (input.scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
+    thresholds.length > RING_COSIGN_THRESHOLD_SLOTS ||
+    new Set(thresholds.map((row) => row.mint)).size !== thresholds.length
+  ) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { scope: input.scope, thresholds: thresholds.length },
+    });
+  }
+  const [config, cosigner] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+  ]);
+  const writer = new Writer()
+    .u8(SET_CO_SIGNER_TAG, "tag")
+    .bytes(addressBytes(input.signer, "signer"), 32, "signer")
+    .u8(input.scope, "scope")
+    .u8(thresholds.length, "thresholdCount");
+  for (const row of thresholds) {
+    writer.bytes(addressBytes(row.mint, "mint"), 32, "mint").u64(row.above, "above");
+  }
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(cosigner, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data: writer.finish(),
+  };
+}
+
+/** Mirrors Rust `ClearCoSigner`. */
+export async function clearRingCoSignerInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    authority: SignerAccount;
+    rentRecipient: Address;
+  }>,
+): Promise<Instruction> {
+  const [config, cosigner] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringCoSignerAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(cosigner, false, true),
+      meta(input.rentRecipient, false, true),
+    ],
+    data: Uint8Array.of(CLEAR_CO_SIGNER_TAG),
+  };
+}
+
+/** Mirrors Rust `CustomRing::read_delegate`, `undefined` when the ring has no delegate. */
+export async function fetchRingDelegate(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingDelegate | undefined> {
+  const [address, bump] = await ringDelegatePda(ringProgramId);
+  const account = await client.getAccount(address, context);
+  if (account === undefined || account.data.length === 0) return undefined;
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_DELEGATE_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const delegate = decodeRingDelegate(account.data);
+  if (delegate.bump !== bump) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { ringProgramId, address } });
+  }
+  return delegate;
+}
+
+/** Mirrors Rust `SetDelegate`, once under the upgrade authority, no instruction replaces it. */
+export async function setRingDelegateInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    delegate: Address;
+  }>,
+): Promise<Instruction> {
+  const [delegatePda, programData] = await Promise.all([
+    ringDelegateAddress(input.ringProgramId),
+    ringProgramDataAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(delegatePda, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+      meta(input.ringProgramId, false, false),
+      meta(programData, false, false),
+    ],
+    data: new Writer()
+      .u8(SET_DELEGATE_TAG, "tag")
+      .bytes(addressBytes(input.delegate, "delegate"), 32, "delegate")
+      .finish(),
+  };
+}
+
+/** Mirrors Rust `CustomRing::read_spend_window`, `undefined` when the mint is uncapped. */
+export async function fetchRingSpendWindow(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  mint: Address,
+  context?: RequestContext,
+): Promise<RingSpendWindow | undefined> {
+  const [address, bump] = await ringSpendWindowPda(ringProgramId, mint);
+  const account = await client.getAccount(address, context);
+  if (account === undefined || account.data.length === 0) return undefined;
+  if (account.owner !== ringProgramId) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", {
+      details: { ringProgramId, owner: account.owner },
+    });
+  }
+  const window = decodeRingSpendWindow(account.data);
+  if (window.mint !== mint || window.bump !== bump) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { ringProgramId, address } });
+  }
+  return window;
+}
+
+/** Mirrors Rust `SetSpendWindow`, creates or replaces the mint's window under the config authority, the counters restart. */
+export async function setRingSpendWindowInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    payer: SignerAccount;
+    authority: SignerAccount;
+    /** SOL under the zero address. */
+    mint: Address;
+    /** Nonzero, windows start at multiples of it. */
+    windowSlots: bigint;
+    /** Zero leaves the direction uncapped. */
+    depositCap?: bigint;
+    withdrawalCap?: bigint;
+  }>,
+): Promise<Instruction> {
+  if (input.windowSlots === 0n) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint: input.mint } });
+  }
+  const [config, window] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringSpendWindowAddress(input.ringProgramId, input.mint),
+  ]);
+  const data = new Writer()
+    .u8(SET_SPEND_WINDOW_TAG, "tag")
+    .bytes(addressBytes(input.mint, "mint"), 32, "mint")
+    .u64(input.windowSlots, "windowSlots")
+    .u64(input.depositCap ?? 0n, "depositCap")
+    .u64(input.withdrawalCap ?? 0n, "withdrawalCap")
+    .finish();
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.payer, true, true),
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(window, false, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    data,
+  };
+}
+
+/** Mirrors Rust `ClearSpendWindow`. */
+export async function clearRingSpendWindowInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    authority: SignerAccount;
+    mint: Address;
+    rentRecipient: Address;
+  }>,
+): Promise<Instruction> {
+  const [config, window] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringSpendWindowAddress(input.ringProgramId, input.mint),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.authority, true, false),
+      meta(config, false, false),
+      meta(window, false, true),
+      meta(input.rentRecipient, false, true),
+    ],
+    data: new Writer()
+      .u8(CLEAR_SPEND_WINDOW_TAG, "tag")
+      .bytes(addressBytes(input.mint, "mint"), 32, "mint")
+      .finish(),
+  };
 }
 
 /** Mirrors Rust `SetAuthority`. Both authorities sign, a mistyped address cannot strand the config. */

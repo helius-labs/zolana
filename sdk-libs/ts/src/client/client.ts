@@ -51,6 +51,9 @@ import {
   type TransactionAssembler,
   type TransactionConfirmer,
   type TreeContext,
+  type RingHeadProofRequest,
+  type RingHeadRegisterProof,
+  type RingHeadTransferProof,
 } from "./ports.js";
 import {
   createKitClients,
@@ -66,6 +69,8 @@ import { compressProof } from "./prover/proof.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
   TransferInputs,
 } from "./prover/types.js";
 import {
@@ -345,6 +350,12 @@ export class ZolanaClient
     return value;
   }
 
+  async getSlot(context?: RequestContext): Promise<bigint> {
+    return runKitRpc("getSlot", context, (abortSignal) =>
+      this.solanaRpc.getSlot({ commitment: this.commitment }).send({ abortSignal }),
+    );
+  }
+
   getEncryptedUtxosByTags(
     request: GetByTagsRequest,
     config?: IndexerRpcConfig,
@@ -503,6 +514,20 @@ export class ZolanaClient
     );
   }
 
+  getRingHeadRegisterProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof> {
+    return this.#indexer.getRingHeadRegisterProof(request, context);
+  }
+
+  getRingHeadTransferProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof> {
+    return this.#indexer.getRingHeadTransferProof(request, context);
+  }
+
   /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
   /// nothing gets the client's config, not the indexer's own default.
   #configOr(config: IndexerRpcConfig | undefined): IndexerRpcConfig {
@@ -655,6 +680,54 @@ export class ZolanaClient
     }
   }
 
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingCompressedPolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingRegister(inputs, context),
+      ).toPlainCompressedProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingDelegatePolicy(inputs, context),
+      ).toCustomRingProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact> {
+    checkedAddress(ringProgramId, "ringProgramId");
+    return this.#proveTransfer(proofInputs, ringProgramId, undefined, context, "authority");
+  }
+
   async proveCustomRingBase(
     inputs: CustomRingBaseProofRequest,
     context?: RequestContext,
@@ -684,6 +757,7 @@ export class ZolanaClient
     ring: Address | undefined,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
+    rail: "member" | "authority" = "member",
   ): Promise<ProvenRingTransact> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -737,7 +811,7 @@ export class ZolanaClient
           });
         }
       });
-      const assembled = assemble(proofInputs, proofs, dummyProofs, ring);
+      const assembled = assemble(proofInputs, proofs, dummyProofs, ring, rail);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return Object.freeze({
         data: assembled.withProof(compressProof(proof).toTransactProof()),

@@ -14,6 +14,7 @@ import type { NullifierKey } from "../keypair/nullifier-key.js";
 import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
+import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
 import { intentHash } from "../transaction/wallet/intent.js";
@@ -24,6 +25,8 @@ import type { ProverHealth } from "./prover/client.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
   RingTransactRoots,
   TransferInputs,
 } from "./prover/types.js";
@@ -57,6 +60,71 @@ export interface ChainReader {
 
 export interface BlockhashProvider {
   getLatestBlockhash(context?: RequestContext): Promise<LatestBlockhash>;
+}
+
+/** Reads chain time for policy windows. */
+export interface SlotReader {
+  getSlot(context?: RequestContext): Promise<bigint>;
+}
+
+/** Pins a head proof request to the observed ring root and member. */
+export interface RingHeadProofRequest {
+  readonly ringProgramId: Address;
+  readonly member: Bytes32;
+  readonly expectedRoot: Bytes32;
+  readonly expectedNextIndex: bigint;
+}
+
+/** Correlates a head proof with its indexed member and root. */
+export interface RingHeadProofContext {
+  readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+  readonly member: Bytes32;
+}
+
+/** Supplies predecessor and append paths for a member registration. */
+export interface RingHeadRegisterProof extends RingHeadProofContext {
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowNullifier: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+/** Supplies current spend-record inclusion under the shared head root. */
+export interface RingHeadTransferProof extends RingHeadProofContext {
+  readonly next: Bytes32;
+  readonly nullifier: Bytes32;
+  readonly index: bigint;
+  readonly proof: readonly Bytes32[];
+  readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+}
+
+/** Fetches proofs for compressed spend-head transitions. */
+export interface RingHeadReader {
+  getRingHeadRegisterProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof>;
+  getRingHeadTransferProof(
+    request: RingHeadProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof>;
+}
+
+/** Classifies a broadcast before reservations can be released or retried. */
+export type RingSubmissionStatus =
+  | Readonly<{ kind: "unknown" }>
+  | Readonly<{ kind: "confirmed"; slot: bigint }>
+  | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>;
+
+/** Separates transaction signing and broadcast from proof construction. */
+export interface RingSubmissionTransport {
+  sign(transaction: Transaction, context?: RequestContext): Promise<Transaction>;
+  send(transaction: Transaction, context?: RequestContext): Promise<void>;
+  status(signature: Signature, context?: RequestContext): Promise<RingSubmissionStatus>;
 }
 
 export interface IndexerReader {
@@ -103,6 +171,23 @@ export interface ProofReader {
 }
 
 export interface Prover {
+  proveRingAuthorityTransact(
+    proofInputs: SppProofInputs,
+    ringProgramId: Address,
+    context?: RequestContext,
+  ): Promise<ProvenRingTransact>;
+  proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
   proveTransact(
     proofInputs: SppProofInputs,
     config?: IndexerRpcConfig,

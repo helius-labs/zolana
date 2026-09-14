@@ -363,6 +363,8 @@ SBPF v0 and do not load on Agave 4.1.2.
 
 ## Public API
 
+For the fresh local controls lifecycle, see [the ring test guide](test/e2e/RING-CONTROLS.md).
+
 Common exports from `@heliuslabs/zolana` include:
 
 - setup: `createZolanaClient`, `ShieldedKeypair`, `Wallet`,

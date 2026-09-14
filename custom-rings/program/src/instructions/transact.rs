@@ -1,8 +1,12 @@
 use custom_ring_interface::{
-    CustomRingBasePublicInput, CustomRingPolicyPublicInput, CustomRingTransactIxData,
-    AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
+    CompressedPolicyPublicInput, CustomRingBasePublicInput, CustomRingPolicyPublicInput,
+    CustomRingTransactIxData, HeadMapTransition, AUDIT_CIPHERTEXT_LEN, COMPRESSED_P256_KEY_LEN,
 };
-use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
+use pinocchio::{
+    error::ProgramError,
+    sysvars::{clock::Clock, Sysvar},
+    AccountView, Address, ProgramResult,
+};
 use zolana_account_checks::AccountIterator;
 use zolana_interface::instruction::{
     instruction_data::transact::{
@@ -10,28 +14,23 @@ use zolana_interface::instruction::{
     },
     tag, CircuitId, MessageData,
 };
+use zolana_ring_policy::{ring_id_field, ListNamespace, VelocityMode};
 
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_config, load_policy_config, validate_spp_program},
+        cosign::{require_approval, require_cosigner, CoSignerRequirement},
+        loader::{load_config, load_head_map_root, load_policy_config, validate_spp_program},
+        policy_shared::{namespace_address, require_entries_trees, verify_spend_record_output},
+        public_legs::{apply_spend_windows, PublicLegs},
         roots::load_roots,
         shared::cpi_spp_signed,
         verifier::{verify_groth16, CompressedGroth16Proof},
     },
+    state::advance_head_map_root,
 };
 
-/// Verifies the ring proof against the recomputed public input, then CPIs SPP
-/// `RING_TRANSACT` with the `ring_auth` PDA as signer.
-///
-/// The config `has_policy` flag pins the tier and no client input can override
-/// it. A policy ring verifies the folded eleven-element statement over the
-/// pinned policy hash and the entries-tree roots, its accounts
-/// `[payer(w,s), config, policy_config, entries_tree(r)]` precede the SPP list.
-/// A base ring verifies just the eight-element audit statement against the
-/// base verifying key, its accounts are `[payer(w,s), config]`. Only the SPP
-/// `RING_TRANSACT` list is forwarded, position for position, with `ring_config`
-/// gaining a signature.
+/// Authorizes member settlement through the ring's immutable audit or policy tier.
 #[inline(never)]
 pub fn process_transact_ix(
     program_id: &Address,
@@ -41,34 +40,153 @@ pub fn process_transact_ix(
     let mut iter = AccountIterator::new(accounts);
     iter.next_signer_mut("payer")?;
     let config_account = iter.next_account("config")?;
+    let cosigner_account = iter.next_account("cosigner_pda")?;
+    let cosigner = iter.next_account("cosigner")?;
+    verify_and_forward(
+        program_id,
+        iter,
+        TransactControlAccounts {
+            config_account,
+            cosigner_account,
+            cosigner,
+        },
+        data,
+        Rail::Member,
+    )
+}
 
-    let CustomRingTransactIxData {
-        proof,
-        state_root_index,
-        nullifier_root_index,
-        transact,
-    } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Rail {
+    Member,
+    /// Owner signatures are replaced by the delegate's, value never leaves.
+    Delegate,
+}
 
-    // The tier comes from the authenticated config, a policy ring cannot drop its
-    // policy accounts to spend through the lighter audit statement.
+impl Rail {
+    fn accepts(self, circuit: CircuitId) -> bool {
+        match self {
+            Self::Member => matches!(circuit, CircuitId::RingEddsa(..)),
+            Self::Delegate => matches!(circuit, CircuitId::RingAuthority(..)),
+        }
+    }
+
+    const fn spp_tag(self) -> u8 {
+        match self {
+            Self::Member => tag::RING_TRANSACT,
+            Self::Delegate => tag::RING_AUTHORITY_TRANSACT,
+        }
+    }
+}
+
+/// Groups ring configuration and second-signature accounts for transaction authorization.
+pub(crate) struct TransactControlAccounts<'a> {
+    pub config_account: &'a AccountView,
+    pub cosigner_account: &'a AccountView,
+    pub cosigner: &'a AccountView,
+}
+
+pub(crate) fn verify_and_forward(
+    program_id: &Address,
+    mut iter: AccountIterator<'_>,
+    controls: TransactControlAccounts<'_>,
+    data: &[u8],
+    rail: Rail,
+) -> ProgramResult {
+    // 1. Decode the single transaction statement shared by ring verification and SPP.
+    let TransactControlAccounts {
+        config_account,
+        cosigner_account,
+        cosigner,
+    } = controls;
+    let decoded = decode_transact(data)?;
+    let proof = &decoded.proof;
+    let state_root_index = decoded.state_root_index;
+    let nullifier_root_index = decoded.nullifier_root_index;
+    let head_transition = decoded.head_transition;
+    let transact = &decoded.transact;
+    let approval_required = match decoded.approval_required {
+        0 => false,
+        1 => true,
+        _ => return Err(CustomRingError::InvalidInstructionData.into()),
+    };
+    if rail == Rail::Delegate && !transact.interface_transfers.is_empty() {
+        return Err(CustomRingError::DelegatePublicLeg.into());
+    }
+
+    // 2. Select the immutable tier and bind windowed member spends to the current head.
     let (auditor_pubkey, has_policy) = {
         let config = load_config(program_id, config_account)?;
         (config.auditor_pubkey, config.has_policy)
     };
-    let policy_accounts = if has_policy != 0 {
+    let policy = if has_policy != 0 {
         let policy_config_account = iter.next_account("policy_config")?;
         let entries_tree_account = iter.next_account("entries_tree")?;
-        Some((policy_config_account, entries_tree_account))
+        let binding = PolicyBinding::load(program_id, policy_config_account)?;
+        Some((binding, entries_tree_account))
+    } else {
+        None
+    };
+    let amount_controls_active = rail == Rail::Member
+        && policy
+            .as_ref()
+            .is_some_and(|(binding, _)| !matches!(binding.velocity, VelocityMode::Off));
+    let windowed_policy = policy
+        .as_ref()
+        .is_some_and(|(binding, _)| matches!(binding.velocity, VelocityMode::PerWindow { .. }));
+    let updates_spend_record = rail == Rail::Member && windowed_policy;
+    if approval_required && !amount_controls_active {
+        return Err(CustomRingError::InvalidInstructionData.into());
+    }
+    if head_transition.is_some() != updates_spend_record {
+        return Err(CustomRingError::InvalidInstructionData.into());
+    }
+
+    let head_map_account = if updates_spend_record {
+        let account = iter.next_mut("head_map_root")?;
+        let head = load_head_map_root(program_id, account)?;
+        if head.root
+            != head_transition
+                .as_ref()
+                .ok_or(CustomRingError::InvalidInstructionData)?
+                .old_root
+        {
+            return Err(CustomRingError::StaleHeadMapRoot.into());
+        }
+        drop(head);
+        Some(account)
     } else {
         None
     };
 
-    // The forwarded list is validated before the pairing so a malformed account
-    // list costs no verification.
-    let spp_accounts = iter.remaining_mut()?;
+    // 3. Enforce public settlement caps and scoped approval before verifying hidden amounts.
+    let rest = iter.remaining_mut()?;
+    let leg_count = transact.interface_transfers.len();
+    if rest.len() < leg_count {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    }
+    let (windows, spp_accounts) = rest.split_at_mut(leg_count);
     validate_spp_program(spp_accounts)?;
+    let settlement_len: usize = transact
+        .interface_transfers
+        .iter()
+        .map(|leg| leg.settlement_account_count())
+        .sum();
+    let settlements = spp_accounts
+        .len()
+        .checked_sub(settlement_len)
+        .and_then(|start| spp_accounts.get(start..))
+        .ok_or(CustomRingError::InvalidInstructionData)?;
+    let demand = CoSignerRequirement::transact(PublicLegs::from_transact(
+        &transact.interface_transfers,
+        settlements,
+    )?);
+    require_cosigner(program_id, cosigner_account, cosigner, &demand)?;
+    if amount_controls_active && demand.legs.has_deposits() {
+        return Err(CustomRingError::VelocityDepositLeg.into());
+    }
+    apply_spend_windows(program_id, windows, &demand.legs)?;
 
-    if !matches!(transact.circuit, CircuitId::RingEddsa(..)) {
+    if !rail.accepts(transact.circuit) {
         return Err(CustomRingError::UnsupportedCircuit.into());
     }
     if transact.outputs.iter().any(|output| {
@@ -80,6 +198,7 @@ pub fn process_transact_ix(
         return Err(CustomRingError::UnsupportedOutputScheme.into());
     }
 
+    // 4. Bind the published audit ciphertext to the same private transaction hash.
     let view_tag: &[u8; 32] = auditor_pubkey
         .get(1..COMPRESSED_P256_KEY_LEN)
         .and_then(|tag| tag.try_into().ok())
@@ -100,37 +219,75 @@ pub fn process_transact_ix(
         commitment_pok: &proof.commitment_pok,
     };
 
-    match policy_accounts {
-        Some((policy_config_account, entries_tree_account)) => {
-            let (policy_hash, entries_tree, entries_tree_id) = {
-                let policy = load_policy_config(program_id, policy_config_account)?;
-                (
-                    policy.policy_hash,
-                    policy.entries_tree,
-                    policy.entries_tree_id(),
-                )
+    // 5. Verify policy compliance and authorize only the proven spend-record transition.
+    let namespace = match policy {
+        Some((binding, entries_tree_account)) => {
+            let namespace = if updates_spend_record {
+                let record_output = transact
+                    .outputs
+                    .last()
+                    .ok_or(CustomRingError::InvalidSpendRecord)?;
+                verify_spend_record_output(
+                    record_output,
+                    &transact.messages,
+                    &ListNamespace {
+                        owner_hash: binding.namespace_owner_hash,
+                    },
+                    &namespace_address(program_id, binding.namespace_bump)?,
+                    binding.entries_tree_id,
+                )?;
+                require_entries_tree(
+                    spp_accounts,
+                    &binding.entries_tree,
+                    transact.tree_contexts.len(),
+                )?;
+                Some(binding.namespace_bump)
+            } else {
+                if windowed_policy {
+                    let destination = spp_accounts
+                        .get(1..2)
+                        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+                    require_entries_trees(destination, &binding.entries_tree)?;
+                }
+                None
             };
-            // The borrow drops before the CPI below, else SPP faults borrowing the
-            // aliased money tree.
+            if approval_required {
+                require_approval(program_id, cosigner_account, cosigner)?;
+            }
+            let window_index = match (rail, binding.velocity) {
+                (Rail::Member, VelocityMode::PerWindow { window_slots }) => {
+                    Clock::get()?.slot / window_slots
+                }
+                _ => 0,
+            };
+            let ring_id =
+                ring_id_field(program_id.as_array()).map_err(|_| CustomRingError::HashingFailed)?;
+            // Root reads must release any tree borrow before SPP mutates the same account.
             let roots = load_roots(
                 entries_tree_account,
-                &entries_tree,
+                &binding.entries_tree,
                 state_root_index,
                 nullifier_root_index,
             )?;
-            verify_groth16(
+            let policy_input = CustomRingPolicyPublicInput {
+                audit,
+                policy_hash: &binding.policy_hash,
+                state_root: &roots.state,
+                nullifier_root: &roots.nullifier,
+                entries_tree_id: binding.entries_tree_id,
+                ring_id: &ring_id,
+                namespace_owner_hash: &binding.namespace_owner_hash,
+                window_index,
+                approval_required,
+            };
+            verify_policy_and_advance_head(
                 compressed,
-                CustomRingPolicyPublicInput {
-                    audit,
-                    policy_hash: &policy_hash,
-                    state_root: &roots.state,
-                    nullifier_root: &roots.nullifier,
-                    entries_tree_id,
-                }
-                .hash()
-                .map_err(|_| CustomRingError::HashingFailed)?,
-                &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
+                policy_input,
+                rail,
+                head_transition,
+                head_map_account,
             )?;
+            namespace
         }
         None => {
             verify_groth16(
@@ -138,19 +295,116 @@ pub fn process_transact_ix(
                 audit.hash().map_err(|_| CustomRingError::HashingFailed)?,
                 &custom_ring_interface::base_verifying_key::VERIFYINGKEY,
             )?;
+            None
         }
-    }
+    };
 
-    // Reserialized from the parsed struct rather than sliced out of `data`: the
-    // proof is verified against the parsed content, so the bytes SPP sees must be
-    // the ones that were parsed.
+    // 6. Settle the verified statement atomically with the head and public-window updates.
+    // Reserialize the decoded statement to keep verification and settlement on identical bytes.
     let transact_bytes = transact
         .serialize()
         .map_err(|_| CustomRingError::InvalidInstructionData)?;
     let mut instruction_data = Vec::with_capacity(1 + transact_bytes.len());
-    instruction_data.push(tag::RING_TRANSACT);
+    instruction_data.push(rail.spp_tag());
     instruction_data.extend_from_slice(&transact_bytes);
-    cpi_spp_signed(program_id, spp_accounts, &instruction_data)
+    cpi_spp_signed(program_id, spp_accounts, &instruction_data, namespace)
+}
+
+#[inline(never)]
+fn decode_transact(data: &[u8]) -> Result<Box<CustomRingTransactIxData>, ProgramError> {
+    wincode::deserialize_exact(data)
+        .map(Box::new)
+        .map_err(|_| CustomRingError::InvalidInstructionData.into())
+}
+
+/// Inlining exceeds the SBF stack frame limit.
+#[inline(never)]
+fn verify_policy_and_advance_head(
+    compressed: CompressedGroth16Proof<'_>,
+    policy_input: CustomRingPolicyPublicInput<'_>,
+    rail: Rail,
+    head_transition: Option<HeadMapTransition>,
+    head_map_account: Option<&mut AccountView>,
+) -> ProgramResult {
+    match (rail, head_transition) {
+        (Rail::Member, Some(transition)) => {
+            // 1. Verify both roots as part of the audited policy statement.
+            let public_input = CompressedPolicyPublicInput {
+                policy: policy_input,
+                head_old_root: &transition.old_root,
+                head_new_root: &transition.new_root,
+            }
+            .hash()
+            .map_err(|_| CustomRingError::HashingFailed)?;
+            verify_groth16(
+                compressed,
+                public_input,
+                &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
+            )?;
+            // 2. Advance the exact consumed head subject to the enclosing SPP settlement.
+            advance_head_map_root(
+                head_map_account.ok_or(ProgramError::NotEnoughAccountKeys)?,
+                &transition.old_root,
+                transition.new_root,
+                false,
+            )
+        }
+        (Rail::Delegate, None) => verify_groth16(
+            compressed,
+            policy_input
+                .hash()
+                .map_err(|_| CustomRingError::HashingFailed)?,
+            &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
+        ),
+        (Rail::Member, None) => verify_groth16(
+            compressed,
+            policy_input
+                .hash()
+                .map_err(|_| CustomRingError::HashingFailed)?,
+            &custom_ring_interface::policy_verifying_key::VERIFYINGKEY,
+        ),
+        (Rail::Delegate, Some(_)) => Err(CustomRingError::InvalidInstructionData.into()),
+    }
+}
+
+/// Retains pinned policy state without holding account borrows across settlement.
+struct PolicyBinding {
+    policy_hash: [u8; 32],
+    entries_tree: Address,
+    entries_tree_id: u16,
+    namespace_owner_hash: [u8; 32],
+    namespace_bump: u8,
+    velocity: VelocityMode,
+}
+
+impl PolicyBinding {
+    #[inline(never)]
+    fn load(program_id: &Address, account: &AccountView) -> Result<Self, ProgramError> {
+        let policy = load_policy_config(program_id, account)?;
+        Ok(Self {
+            policy_hash: policy.policy_hash,
+            entries_tree: policy.entries_tree,
+            entries_tree_id: policy.entries_tree_id(),
+            namespace_owner_hash: policy.namespace_owner_hash,
+            namespace_bump: policy.namespace_bump,
+            velocity: policy.rules.velocity_mode(),
+        })
+    }
+}
+
+fn require_entries_tree(
+    spp_accounts: &[AccountView],
+    entries_tree: &Address,
+    input_trees: usize,
+) -> ProgramResult {
+    let output = spp_accounts
+        .get(1..2)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    let inputs = spp_accounts
+        .get(5..5 + input_trees)
+        .ok_or(ProgramError::NotEnoughAccountKeys)?;
+    require_entries_trees(output, entries_tree)?;
+    require_entries_trees(inputs, entries_tree)
 }
 
 /// The auditor message of a transaction: `eph_pk(33) || ciphertext(32)` split out

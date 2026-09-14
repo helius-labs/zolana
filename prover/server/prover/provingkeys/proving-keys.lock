@@ -9,13 +9,28 @@
       "size": 3752013184
     },
     "custom_ring_base.key": {
-      "sha256": "841ded3769cd7a0be089eb9d54d6a8aeaf26c792bfbbacb16158448f698d2003",
+      "sha256": "6e9bb77dcf739ea80cfb23b948322bc2aa5cd2f7bd677793da32b679f758ac6f",
       "size": 58012883,
       "source": "release"
     },
+    "custom_ring_compressed_policy.key": {
+      "sha256": "71c4f8dad326f7e9193469ef698108d511a8294a45e4b1116db726792802e4b9",
+      "size": 175674199,
+      "source": "release"
+    },
+    "custom_ring_compressed_register.key": {
+      "sha256": "667866eec1fb2f008bc449af8dbcfb1909d19c69b0aa62ae511e7a3c0b774f96",
+      "size": 14174248,
+      "source": "release"
+    },
+    "custom_ring_delegate_policy.key": {
+      "sha256": "81f0e7f6bb665c84dbb96660f40b30f370dd13f4313bb66ca9b30e093b7117a8",
+      "size": 148315474,
+      "source": "release"
+    },
     "custom_ring_policy.key": {
-      "sha256": "be884b9fc2d867b9ae196ca6feaa77b0e17efa0b869567ff8cfa9bf8e19b21a5",
-      "size": 145691406,
+      "sha256": "c4b78c75b32d2b181c542bb74ae4c77876cdcddcdf49929510defeb1421eaded",
+      "size": 151884024,
       "source": "release"
     },
     "merge_36_1.key": {

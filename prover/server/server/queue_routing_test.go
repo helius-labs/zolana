@@ -25,6 +25,9 @@ func TestGetQueueNameForCircuit(t *testing.T) {
 		{common.MergeRingCircuitType, "zk_transfer_queue"},
 		{common.CustomRingBaseCircuitType, "zk_custom_ring_queue"},
 		{common.CustomRingPolicyCircuitType, "zk_custom_ring_queue"},
+		{common.CustomRingDelegatePolicyCircuitType, "zk_custom_ring_queue"},
+		{common.CompressedPolicyCircuitType, "zk_custom_ring_queue"},
+		{common.CompressedRegisterCircuitType, "zk_custom_ring_queue"},
 		{common.CircuitType("unknown"), ""},
 	}
 	for _, c := range cases {
@@ -69,6 +72,9 @@ func TestCustomRingIsServedOnEveryRail(t *testing.T) {
 	for _, want := range []common.CircuitType{
 		common.CustomRingBaseCircuitType,
 		common.CustomRingPolicyCircuitType,
+		common.CustomRingDelegatePolicyCircuitType,
+		common.CompressedPolicyCircuitType,
+		common.CompressedRegisterCircuitType,
 	} {
 		if (proveHandler{}).shouldUseQueueForCircuit(want) {
 			t.Fatalf("%s routed to a queue the server does not have", want)

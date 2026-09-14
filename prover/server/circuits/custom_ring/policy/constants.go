@@ -17,10 +17,12 @@ const (
 	NListFacts    = 10
 	NInlineAssets = 8
 	NSources      = 8
+	// One spend counter per velocity mint.
+	NVelocityAssets = 8
 )
 
 // PolicyVersion is committed in policy_hash.
-const PolicyVersion = 4
+const PolicyVersion = 7
 
 // Subjects select the transaction value checked against a rule.
 const (
@@ -56,17 +58,21 @@ const (
 	AbsentBranchCleared          = 2
 )
 
-// Domain tags separate entry addresses, entry records and policy commitments.
+// Distinct hash domains separate policy commitments from list and spend records.
 const (
-	addressDomainTag = "zolana:ring-policy:address:v1"
-	recordDomainTag  = "zolana:ring-policy:record:v1"
-	tableDomainTag   = "zolana:ring-policy:policy:v1"
+	addressDomainTag      = "zolana:ring-policy:address:v1"
+	recordDomainTag       = "zolana:ring-policy:record:v1"
+	tableDomainTag        = "zolana:ring-policy:policy:v1"
+	spendAddressDomainTag = "zolana:ring-policy:spend:v1"
+	spendRecordDomainTag  = "zolana:ring-spend:record:v1"
 )
 
 var (
 	policyAddressDomain = packedASCII(addressDomainTag)
 	policyRecordDomain  = packedASCII(recordDomainTag)
 	policyTableDomain   = packedASCII(tableDomainTag)
+	spendAddressDomain  = packedASCII(spendAddressDomainTag)
+	spendRecordDomain   = packedASCII(spendRecordDomainTag)
 )
 
 // Policy entries use the SOL asset Poseidon(0, 0).
@@ -79,8 +85,8 @@ var emptyRingHash = solAssetField
 // UTXO amounts and thresholds use the same unsigned width.
 const amountBits = 64
 
-// Sum width includes the largest possible output group.
-var amountSumBits = amountBits + bits.Len(uint(NOutputs-1))
+// The sum width bounds the larger of the input and output groups.
+var amountSumBits = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
 
 // Adding the offset makes the top bit indicate total <= threshold.
 var amountSumOffset = new(big.Int).Lsh(big.NewInt(1), uint(amountSumBits))

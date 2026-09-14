@@ -2,6 +2,7 @@
 pub mod api;
 pub mod common;
 pub mod dao;
+pub mod head_map;
 pub mod ingester;
 pub mod migration;
 pub mod monitor;

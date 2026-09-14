@@ -9,7 +9,8 @@ use async_trait::async_trait;
 use solana_address::Address;
 use solana_signature::Signature;
 use zolana_api::{
-    Base64String, BlockingZolanaApi, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
+    Base64String, BlockingZolanaApi, GetRingHeadProofRequest, GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse, Hash as ApiHash, RingsOutputSlot as ApiOutputSlot,
     SerializablePubkey, SerializableSignature, ZolanaApi,
 };
 use zolana_interface::instruction::instruction_data::transact::TransactIxData;
@@ -330,6 +331,24 @@ impl Rpc for ZolanaIndexer {
         )
     }
 
+    fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_head_register_proof(request)
+            .map_err(indexer_error)
+    }
+
+    fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        self.api
+            .get_ring_head_transfer_proof(request)
+            .map_err(indexer_error)
+    }
+
     fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -549,6 +568,26 @@ impl AsyncRpc for AsyncZolanaIndexer {
         .await
     }
 
+    async fn get_ring_head_register_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, ClientError> {
+        self.api
+            .get_ring_head_register_proof(request)
+            .await
+            .map_err(indexer_error)
+    }
+
+    async fn get_ring_head_transfer_proof(
+        &self,
+        request: GetRingHeadProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, ClientError> {
+        self.api
+            .get_ring_head_transfer_proof(request)
+            .await
+            .map_err(indexer_error)
+    }
+
     async fn get_merkle_proofs(
         &self,
         tree_account: Address,
@@ -622,6 +661,18 @@ impl AsyncRpc for AsyncZolanaIndexer {
 fn indexer_error(error: zolana_api::ApiError) -> ClientError {
     let message = error.to_string();
     match error {
+        zolana_api::ApiError::JsonRpc {
+            code: Some(-32070), ..
+        } => ClientError::RingHeadMapOutOfSync,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(-32071), ..
+        } => ClientError::RingHeadRootChanged,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(-32072), ..
+        } => ClientError::RingHeadMemberUnregistered,
+        zolana_api::ApiError::JsonRpc {
+            code: Some(-32073), ..
+        } => ClientError::RingHeadMemberAlreadyRegistered,
         zolana_api::ApiError::Request(error) if error.is_timeout() || error.is_connect() => {
             ClientError::IndexerUnavailable(message)
         }
@@ -706,7 +757,7 @@ fn convert_shielded_transactions_by_signature_response(
     })
 }
 
-fn convert_shielded_transaction(
+pub fn convert_shielded_transaction(
     path: &str,
     item: zolana_api::ShieldedTransaction,
 ) -> Result<ShieldedTransaction, ClientError> {
@@ -1260,6 +1311,78 @@ mod tests {
             message: Some("Internal error".to_string()),
         });
         assert!(matches!(internal_error, ClientError::IndexerUnavailable(_)));
+    }
+
+    fn head_query() -> zolana_indexer_api::GetRingHeadProofRequest {
+        zolana_indexer_api::GetRingHeadProofRequest {
+            ring_program_id: SerializablePubkey::from(bytes32(1)),
+            member: ApiHash(bytes32(2)),
+            expected_root: ApiHash(bytes32(3)),
+            expected_next_index: 19,
+        }
+    }
+
+    fn head_registration() -> Value {
+        let hash = encode_hash_string(bytes32(4));
+        json!({
+            "context": {"blockTime": 90, "slot": 20},
+            "root": encode_hash_string(bytes32(3)), "member": encode_hash_string(bytes32(2)),
+            "nextIndex": 19, "lowMember": hash, "lowNext": hash, "lowNullifier": hash,
+            "lowIndex": 7, "lowProof": vec![hash.clone(); 40], "newProof": vec![hash; 40],
+        })
+    }
+
+    #[test]
+    fn head_registration_transport_preserves_the_exact_root_and_cursor() {
+        let server = MockServer::respond_once(rpc_result(head_registration()));
+        let query = head_query();
+        let response = ZolanaIndexer::new(server.url())
+            .get_ring_head_register_proof(query.clone())
+            .unwrap();
+        let request = server.request();
+        assert_eq!(request.path, "/getRingHeadRegisterProof");
+        assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+        assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+        assert_eq!(response.next_index, 19);
+        assert_eq!(response.low_index, 7);
+        assert_eq!(response.low_proof.len(), 40);
+        assert_eq!(response.new_proof.len(), 40);
+    }
+
+    #[tokio::test]
+    async fn async_head_registration_uses_the_same_contract() {
+        let server = MockServer::respond_once(rpc_result(head_registration()));
+        let query = head_query();
+        let response = AsyncZolanaIndexer::new(server.url())
+            .get_ring_head_register_proof(query.clone())
+            .await
+            .unwrap();
+        let request = server.request();
+        assert_json_rpc_request(&request.body, "getRingHeadRegisterProof");
+        assert_eq!(request.body["params"], serde_json::to_value(query).unwrap());
+        assert_eq!(response.root.0, bytes32(3));
+        assert_eq!(response.member.0, bytes32(2));
+    }
+
+    #[test]
+    fn head_errors_never_become_an_absence_result() {
+        for code in [-32070, -32071, -32072, -32073] {
+            let server = MockServer::respond_once(json!({
+                "id": "test-account", "jsonrpc": "2.0", "error": {"code": code, "message": "head unavailable"},
+            }));
+            let error = ZolanaIndexer::new(server.url())
+                .get_ring_head_transfer_proof(head_query())
+                .unwrap_err();
+            let request = server.request();
+            assert_json_rpc_request(&request.body, "getRingHeadTransferProof");
+            assert!(matches!(
+                (code, error),
+                (-32070, ClientError::RingHeadMapOutOfSync)
+                    | (-32071, ClientError::RingHeadRootChanged)
+                    | (-32072, ClientError::RingHeadMemberUnregistered)
+                    | (-32073, ClientError::RingHeadMemberAlreadyRegistered)
+            ));
+        }
     }
 
     #[test]

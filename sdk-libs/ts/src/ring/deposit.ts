@@ -2,7 +2,7 @@ import { compileUnsignedTransaction } from "../flows/compile.js";
 import { DEFAULT_COMPUTE_UNIT_LIMIT } from "../flows/internal.js";
 import type { DepositClient } from "../wallet/deposit.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
-import { ringDepositInstruction } from "../interface/instructions/index.js";
+import { ringDepositInstruction, type SignerAccount } from "../interface/instructions/index.js";
 import { initializePoseidon } from "../hasher/index.js";
 import { randomBlinding, randomSalt } from "../keypair/bytes.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
@@ -13,6 +13,7 @@ import { SOL_MINT } from "../transaction/asset.js";
 import { resolveDepositSettlement } from "../flows/settlement.js";
 import { resolveShieldedRecipient } from "../wallet/registry.js";
 
+import { fetchRingProgramConfig } from "./config.js";
 import { RingError, wrapRingError } from "./error.js";
 
 const ZERO_32 = new Uint8Array(32) as Bytes32;
@@ -29,6 +30,8 @@ export interface RingDepositTransactionParams {
   readonly splTokenAccount?: Address;
   readonly splTokenProgram?: Address | null;
   readonly memo?: Uint8Array;
+  /** The ring's co-signer when its scope covers deposits. */
+  readonly cosigner?: SignerAccount;
 }
 
 /** Mirrors Rust `ring_deposit_sol`. The output is ring-bound, so only the ring's transact can spend it. */
@@ -49,6 +52,7 @@ export async function buildRingDepositTransaction(
     const depositor = input.depositor ?? input.feePayer;
     const tree = input.tree ?? input.client.tree;
     const asset = input.asset ?? SOL_MINT;
+    const { hasPolicy } = await fetchRingProgramConfig(input.client, input.ringProgramId, context);
     const settlement = await resolveDepositSettlement(
       {
         asset,
@@ -76,6 +80,8 @@ export async function buildRingDepositTransaction(
         ringProgramId: input.ringProgramId,
         tree,
         depositor,
+        hasPolicy,
+        ...(input.cosigner === undefined ? {} : { cosigner: input.cosigner }),
         deposits: [
           {
             asset: settlement,

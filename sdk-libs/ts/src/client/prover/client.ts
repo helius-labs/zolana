@@ -1,7 +1,7 @@
 import { treeIdField } from "../../interface/tree-slot.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import type { RequestContext } from "../../interface/types.js";
+import type { Bytes32, RequestContext } from "../../interface/types.js";
 
 import { ClientError } from "../error.js";
 import {
@@ -23,6 +23,7 @@ import {
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
 } from "./types.js";
 import type {
   CustomRingBaseProofRequest,
@@ -30,6 +31,10 @@ import type {
   CustomRingSourceOwner,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
+  CustomRingSpendRecordProofInput,
+  CustomRingVelocityRow,
   Field,
   MergeInputs,
   Proof,
@@ -89,6 +94,40 @@ export class ProverClient {
   readonly #fetch: typeof globalThis.fetch;
   readonly #url: URL;
   readonly #asyncPoll: AsyncPollConfig;
+
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(
+      JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
+      "queued",
+      context,
+    );
+  }
+
+  async proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingRegisterProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return this.#send(
+      JSON.stringify({
+        circuitType: "custom-ring-delegate-policy",
+        policy: customRingPolicyProofRequest(inputs),
+      }),
+      "queued",
+      context,
+    );
+  }
 
   constructor(
     input: Readonly<{
@@ -434,7 +473,99 @@ export function customRingPolicyProofRequest(
     stateRoot: hex32(inputs.stateRoot, "stateRoot"),
     nullifierRoot: hex32(inputs.nullifierRoot, "nullifierRoot"),
     entriesTreeId: hex32(treeIdField(inputs.entriesTreeId), "entriesTreeId"),
+    windowSlots: u64Json(inputs.velocity.windowSlots, "windowSlots"),
+    velocity: paddedVelocityRows(inputs.velocity.rows).map(velocityRowJson),
+    velocityCount: u8(inputs.velocity.rows.length, "velocityCount"),
+    ringId: hex32(inputs.velocity.ringId, "ringId"),
+    namespaceOwnerHash: hex32(inputs.velocity.namespaceOwnerHash, "namespaceOwnerHash"),
+    windowIndex: u64Json(inputs.velocity.windowIndex, "windowIndex"),
+    approvalRequired: inputs.velocity.approvalRequired,
+    record: spendRecordJson(inputs.velocity.record),
     answers: sized(inputs.answers, RING_ANSWER_SLOTS, "answers").map(answersJson),
+  });
+}
+
+function headIndexHex(index: bigint, field: string): string {
+  if (typeof index !== "bigint" || index < 0n || index >= 1n << 40n)
+    throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
+  return `0x${index.toString(16).padStart(64, "0")}`;
+}
+
+export function customRingCompressedPolicyProofRequest(
+  input: CustomRingCompressedPolicyProofRequest,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "custom-ring-compressed-policy",
+    policy: customRingPolicyProofRequest(input.policy),
+    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
+    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
+    headNext: hex32(input.headNext, "headNext"),
+    headIndex: headIndexHex(input.headIndex, "headIndex"),
+    headProof: sized(input.headProof, 40, "headProof").map((node) => hex32(node, "headProof")),
+  });
+}
+
+export function customRingRegisterProofRequest(
+  input: CustomRingRegisterProofRequest,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    circuitType: "custom-ring-compressed-register",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
+    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
+    member: hex32(input.member, "member"),
+    genesis: hex32(input.genesis, "genesis"),
+    newIndex: headIndexHex(input.newIndex, "newIndex"),
+    lowIndex: headIndexHex(input.lowIndex, "lowIndex"),
+    lowMember: hex32(input.lowMember, "lowMember"),
+    lowNext: hex32(input.lowNext, "lowNext"),
+    lowNullifier: hex32(input.lowNullifier, "lowNullifier"),
+    lowProof: sized(input.lowProof, 40, "lowProof").map((node) => hex32(node, "lowProof")),
+    newProof: sized(input.newProof, 40, "newProof").map((node) => hex32(node, "newProof")),
+  });
+}
+
+/** Rows past the count are zero, the server refuses other padding. */
+function paddedVelocityRows(
+  rows: readonly CustomRingVelocityRow[],
+): readonly CustomRingVelocityRow[] {
+  if (rows.length > RING_VELOCITY_SLOTS) {
+    throw new ClientError("CLIENT_INVALID_LENGTH", {
+      details: { field: "velocity", expected: RING_VELOCITY_SLOTS, actual: rows.length },
+    });
+  }
+  return Object.freeze(
+    Array.from(
+      { length: RING_VELOCITY_SLOTS },
+      (_, index) =>
+        rows[index] ?? { asset: new Uint8Array(32) as Bytes32, cap: 0n, cosignAbove: 0n },
+    ),
+  );
+}
+
+function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    asset: hex32(row.asset, "velocity asset"),
+    cap: u64FieldHex(row.cap, "velocity cap"),
+    cosignAbove: u64FieldHex(row.cosignAbove, "velocity cosignAbove"),
+  });
+}
+
+function spendRecordJson(
+  record: CustomRingSpendRecordProofInput,
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    version: u64Json(record.version, "record version"),
+    window: u64Json(record.window, "record window"),
+    commitment: hex32(record.commitment, "record commitment"),
+    salt: hex32(record.salt, "record salt"),
+    assets: sized(record.assets, RING_VELOCITY_SLOTS, "record assets").map((asset) =>
+      hex32(asset, "record assets"),
+    ),
+    spent: sized(record.spent, RING_VELOCITY_SLOTS, "record spent").map((spent) =>
+      u64FieldHex(spent, "record spent"),
+    ),
+    nextSalt: hex32(record.nextSalt, "record nextSalt"),
   });
 }
 
@@ -536,7 +667,12 @@ function sized<T>(values: readonly T[], expected: number, field: string): readon
 function proverRequest(inputs: ProverInputs): Readonly<Record<string, unknown>> {
   const payload = inputs.payload;
   return Object.freeze({
-    circuitType: inputs.circuit === "transferRing" ? "transfer-ring" : "transfer-confidential",
+    circuitType:
+      inputs.circuit === "transferRingAuthority"
+        ? "transfer-ring-authority"
+        : inputs.circuit === "transferRing"
+          ? "transfer-ring"
+          : "transfer-confidential",
     nInputs: payload.inputs.length,
     nOutputs: payload.outputs.length,
     inputs: payload.inputs.map(inputJson),

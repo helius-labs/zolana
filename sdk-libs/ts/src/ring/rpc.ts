@@ -14,13 +14,16 @@ import type {
   RequestContext,
   Signature,
 } from "../interface/types.js";
+import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
 import { postJsonRpc } from "../services/jsonrpc.js";
 import { TransportFailure, checkedEndpoint, checkedFetch } from "../services/transport.js";
 import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
+import type { AuditedRingSpendRecord } from "./audit.js";
 import { RingError } from "./error.js";
+import { memberOfIdentity, type SpendCounters } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
@@ -318,6 +321,8 @@ export interface DecryptedRingTransaction {
   readonly signers: readonly Address[];
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
+  /** Empty unless a velocity transfer published one. */
+  readonly spendRecords: readonly AuditedRingSpendRecord[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -665,7 +670,54 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
         });
       }),
     ),
+    spendRecords: Object.freeze(
+      list(wire["spendRecords"], "spendRecords").map((entry, index) =>
+        decodeSpendRecord(record(entry, `spendRecords[${index}]`)),
+      ),
+    ),
   });
+}
+
+function decodeSpendRecord(entry: Record<string, unknown>): AuditedRingSpendRecord {
+  const counters = entry["counters"];
+  return Object.freeze({
+    slotIndex: u32(entry["slotIndex"], "spendRecords.slotIndex"),
+    record: Object.freeze({
+      member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
+      version: u64(entry["version"], "spendRecords.version"),
+      window: u64(entry["window"], "spendRecords.window"),
+      countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
+      blinding: hash(entry["blinding"], "spendRecords.blinding"),
+    }),
+    ...(counters === undefined || counters === null
+      ? {}
+      : { counters: decodeSpendCounters(record(counters, "spendRecords.counters")) }),
+  });
+}
+
+function decodeSpendCounters(counters: Record<string, unknown>): SpendCounters {
+  const assets = list(counters["assets"], "spendRecords.counters.assets");
+  const spent = list(counters["spent"], "spendRecords.counters.spent");
+  if (assets.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.assets");
+  if (spent.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.spent");
+  return Object.freeze({
+    salt: hash(counters["salt"], "spendRecords.counters.salt"),
+    assets: Object.freeze(assets.map((asset) => hash(asset, "spendRecords.counters.assets"))),
+    spent: Object.freeze(spent.map((value) => u64(value, "spendRecords.counters.spent"))),
+  });
+}
+
+/** A slot index, rejected outside the u32 range. */
+function u32(value: unknown, path: string): number {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffffn) throw invalid(path);
+  return Number(decoded);
+}
+
+function u64(value: unknown, path: string): bigint {
+  const decoded = integer(value, path);
+  if (decoded < 0n || decoded > 0xffff_ffff_ffff_ffffn) throw invalid(path);
+  return decoded;
 }
 
 function decodeOutput(output: Record<string, unknown>): DecryptedRingOutput {

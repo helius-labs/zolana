@@ -93,6 +93,9 @@ function tableBody(sources: readonly (readonly [number, number])[]): number[] {
     ...ASSET,
     1,
     ...new Uint8Array(8),
+    // No window, no velocity rows.
+    ...new Uint8Array(8),
+    0,
   ];
 }
 
@@ -110,6 +113,7 @@ describe("policy admin instructions", () => {
     expect(instruction.accounts?.map((meta) => [meta.address, meta.role])).toEqual([
       [PAYER, AccountRole.WRITABLE_SIGNER],
       [AUTHORITY, AccountRole.READONLY_SIGNER],
+      [await ringConfigAddress(RING), AccountRole.READONLY],
       [await ringPolicyConfigAddress(RING), AccountRole.WRITABLE],
       [ENTRIES_TREE, AccountRole.READONLY],
       [SYSTEM_PROGRAM, AccountRole.READONLY],

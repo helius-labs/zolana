@@ -302,6 +302,51 @@ func ReadSystemFromFile(path string) (interface{}, error) {
 		}
 		return ps, nil
 	}
+	if filepath.Base(lowerPath) == CustomRingDelegatePolicyKeyFile {
+		ps := &RingProofSystem{
+			CircuitType: CustomRingDelegatePolicyCircuitType,
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	}
+	if filepath.Base(lowerPath) == CompressedPolicyKeyFile {
+		ps := &RingProofSystem{
+			CircuitType: CompressedPolicyCircuitType,
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	}
+	if filepath.Base(lowerPath) == CompressedRegisterKeyFile {
+		ps := &RingProofSystem{
+			CircuitType: CompressedRegisterCircuitType,
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+
+		if _, err = ps.UnsafeReadFrom(file); err != nil {
+			return nil, err
+		}
+		return ps, nil
+	}
 	if filepath.Base(lowerPath) == CustomRingPolicyKeyFile {
 		ps := &RingProofSystem{
 			CircuitType: CustomRingPolicyCircuitType,

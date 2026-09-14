@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use custom_ring_sdk::CustomRing;
+use custom_ring_sdk::{CustomRing, PolicyConfig};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
@@ -105,8 +105,18 @@ pub enum DeployError {
         expected: String,
         found: String,
     },
+    #[error("program {program} keeps a policy config of {found} bytes, the release needs {expected}, deploy a fresh ring")]
+    IncompatiblePolicyConfig {
+        program: Address,
+        found: usize,
+        expected: usize,
+    },
+    #[error("program {program} has an incompatible policy commitment, deploy a fresh ring")]
+    IncompatiblePolicyVersion { program: Address },
     #[error(transparent)]
     Client(Box<ClientError>),
+    #[error(transparent)]
+    Workspace(#[from] crate::workspace::WorkspaceError),
 }
 
 /// The smallest growth of `ProgramData` the loader accepts.
@@ -117,9 +127,16 @@ const USABLE_TIMEOUT: Duration = Duration::from_secs(60);
 const SLOT_POLL: Duration = Duration::from_millis(400);
 
 pub fn run(ctx: &mut Context, args: DeployArgs) -> Result<(), DeployError> {
+    let workspace = crate::workspace::Workspace::from_env()?;
+    if workspace.is_some() && ctx.config.target != crate::Target::Localnet {
+        return Err(crate::workspace::WorkspaceError::WrongTarget.into());
+    }
     let program_so = match args.program_so {
         Some(path) => ctx.project_path(&path),
-        None => released_program_so()?,
+        None => match workspace {
+            Some(workspace) => workspace.artifact("target/deploy/custom_ring_program.so")?,
+            None => released_program_so()?,
+        },
     };
     line("binary", program_so.display());
     let program_keypair = ctx.project_path(&args.program_keypair);
@@ -189,6 +206,18 @@ impl Deploy<'_> {
         }
         if deployed.is_some() && binary.deployed_sha256(rpc, self.ring)? == Some(binary.sha256) {
             return Ok(DeployPlan::Present);
+        }
+        // Existing policy state must decode under the replacement binary before upload funding.
+        if deployed.is_some() {
+            let account = rpc
+                .get_account(self.ring.policy_config_pda())
+                .map_err(|error| DeployError::Client(Box::new(error)))?;
+            ensure_policy_config_compatible(
+                program,
+                account
+                    .as_ref()
+                    .map(|account| (account.owner, account.data.as_slice())),
+            )?;
         }
         let required_balance = required_balance(rpc, binary.len, deployed.as_ref())?;
         Ok(DeployPlan::Upload {
@@ -322,6 +351,34 @@ impl ProgramBinary {
             });
         }
         Ok(())
+    }
+}
+
+/// The current schema must reproduce the pinned policy hash.
+fn ensure_policy_config_compatible(
+    program: Address,
+    policy_config: Option<(Address, &[u8])>,
+) -> Result<(), DeployError> {
+    match policy_config {
+        // Only a program-owned account is a real policy config, a donated PDA is not.
+        Some((owner, data)) if owner == program && data.len() != PolicyConfig::SIZE => {
+            Err(DeployError::IncompatiblePolicyConfig {
+                program,
+                found: data.len(),
+                expected: PolicyConfig::SIZE,
+            })
+        }
+        Some((owner, data)) if owner == program => {
+            let config = bytemuck::try_from_bytes::<PolicyConfig>(data)
+                .map_err(|_| DeployError::IncompatiblePolicyVersion { program })?;
+            if config.discriminator != custom_ring_interface::POLICY_CONFIG
+                || custom_ring_sdk::policy_config_table(config).is_err()
+            {
+                return Err(DeployError::IncompatiblePolicyVersion { program });
+            }
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -459,6 +516,42 @@ mod tests {
         assert_eq!(deployed_bytes(&data, 3 + 8), Some(&data[meta..]));
         assert_eq!(deployed_bytes(&data, 3 + 9), None);
         assert_eq!(deployed_bytes(&data[..meta - 1], 0), None);
+    }
+
+    #[test]
+    fn an_incompatible_policy_config_refuses_the_upgrade() {
+        use bytemuck::Zeroable;
+        let program = Address::from([7u8; 32]);
+        let foreign = Address::from([9u8; 32]);
+        let mut current = PolicyConfig::zeroed();
+        current.discriminator = custom_ring_interface::POLICY_CONFIG;
+        current.rules = zolana_ring_policy::RuleTable::builder().build().encode();
+        current.policy_hash = current
+            .rules
+            .hash(&zolana_ring_policy::SourceMap::new(&[]).unwrap())
+            .unwrap();
+        assert!(ensure_policy_config_compatible(program, None).is_ok());
+        assert!(ensure_policy_config_compatible(
+            program,
+            Some((program, bytemuck::bytes_of(&current)))
+        )
+        .is_ok());
+        // A donated or foreign-owned PDA is not a policy config to guard.
+        assert!(ensure_policy_config_compatible(
+            program,
+            Some((foreign, &[0; PolicyConfig::SIZE - 1]))
+        )
+        .is_ok());
+        assert!(matches!(
+            ensure_policy_config_compatible(program, Some((program, &[0;PolicyConfig::SIZE - 1]))),
+            Err(DeployError::IncompatiblePolicyConfig { found, expected, .. })
+                if found == PolicyConfig::SIZE - 1 && expected == PolicyConfig::SIZE
+        ));
+        current.policy_hash[0] ^= 1;
+        assert!(matches!(
+            ensure_policy_config_compatible(program, Some((program, bytemuck::bytes_of(&current)))),
+            Err(DeployError::IncompatiblePolicyVersion { .. })
+        ));
     }
 
     #[test]

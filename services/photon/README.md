@@ -88,6 +88,37 @@ storage.
 
 ## Operations
 
+### Compressed velocity heads
+
+`getRingHeadRegisterProof` and `getRingHeadTransferProof` take the ring program,
+member, and the exact root and append index read from the ring's head-map PDA.
+The transfer response includes the current record's publishing transaction.
+Clients can recover counter ciphertexts without reading prior records.
+
+The head projector runs alongside SPP indexing with its own durable cursor and
+undo journal. It applies confirmed blocks in order. On a fork it suspends proofs,
+rewinds its own rows, and replays canonical blocks. It never rewinds SPP tables. An SPP indexer fork or
+archive gap can still prevent an ordinary SPP proof from being obtained.
+
+Use a persistent `--db-url` and run migrations before starting a new binary.
+The default temporary database is discarded on startup. For a fresh ring,
+`--head-map-start-slot` may name its creation slot. Do not start after the
+`CREATE_HEAD_MAP_ROOT` instruction. Head-map initialization is not an SPP event,
+so SPP-only block snapshots cannot bootstrap the head map. Keep RPC
+history available from that slot, and back up the database and its undo journal.
+
+Error `-32070` means the head projector is unavailable or disagrees with the
+chain. Wait for indexing or recovery. Error `-32071` means the requested root or
+append cursor has changed. Fetch the current head proof before proving again.
+Historical head roots are never accepted. Delegate moves do not update velocity heads.
+
+Pinned Surfpool uses synthetic block headers with inconsistent parent hashes
+during startup. Local tests build Photon with `--features surfpool-fixture` and
+set `ZOLANA_RING_SURFPOOL_FIXTURE=1` plus a dedicated `ZOLANA_PROCESS_SCOPE_DIR`.
+The fixture accepts loopback RPC only and reads the reported parent slot to
+normalize its synthetic hash link. It rejects ordinary block headers.
+Production builds keep the feature disabled and validate the original links.
+
 Photon fails closed when it cannot safely reconstruct Rings nullifier tree batches. A
 non-contiguous nullifier queue or reconstructed-root mismatch makes the indexer retry the same
 block batch until the underlying data or code is fixed. Alert on stale `getIndexerHealth` results,

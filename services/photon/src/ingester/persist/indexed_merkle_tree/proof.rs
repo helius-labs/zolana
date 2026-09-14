@@ -21,7 +21,7 @@ fn zeroeth_exclusion_range(
 ) -> Result<indexed_trees::Model, PhotonApiError> {
     match tree_kind {
         RingsTreeKind::Nullifier => Ok(get_zeroeth_nullifier_exclusion_range(tree)),
-        RingsTreeKind::State => Err(PhotonApiError::UnexpectedError(
+        RingsTreeKind::State | RingsTreeKind::HeadMap => Err(PhotonApiError::UnexpectedError(
             "State trees do not use indexed-tree non-inclusion proofs".to_string(),
         )),
     }

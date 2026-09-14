@@ -67,6 +67,26 @@ impl ReadEntry {
     }
 }
 
+pub(crate) trait LineageLookup {
+    type Live: Clone;
+
+    fn address(&self) -> Result<[u8; 32], EntryProofError>;
+
+    /// `None` unless the slot reproduces the on-chain leaf at `address`.
+    fn decode(
+        &self,
+        address: &[u8; 32],
+        spender: &ShieldedTransaction,
+        slot: &OutputSlot,
+    ) -> Option<Self::Live>;
+
+    fn nullifier(live: &Self::Live) -> [u8; 32];
+
+    fn version(live: &Self::Live) -> u64;
+
+    fn broken(&self, version: u64) -> EntryProofError;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct EntryLookup {
     pub owner: ListNamespace,
@@ -75,14 +95,21 @@ pub(crate) struct EntryLookup {
     pub tree_id: u16,
 }
 
-impl EntryLookup {
-    pub(crate) fn address(&self) -> Result<[u8; 32], EntryProofError> {
+impl LineageLookup for EntryLookup {
+    type Live = LiveEntry;
+
+    fn address(&self) -> Result<[u8; 32], EntryProofError> {
         self.owner
             .address(self.list_id, &self.member, self.tree_id)
             .map_err(|_| EntryProofError::Hashing)
     }
 
-    fn decode(&self, address: &[u8; 32], slot: &OutputSlot) -> Option<LiveEntry> {
+    fn decode(
+        &self,
+        address: &[u8; 32],
+        _spender: &ShieldedTransaction,
+        slot: &OutputSlot,
+    ) -> Option<LiveEntry> {
         let OutputDataEncoding::Plaintext(content) = slot.output_data()? else {
             return None;
         };
@@ -101,19 +128,35 @@ impl EntryLookup {
             nullifier,
         })
     }
+
+    fn nullifier(live: &LiveEntry) -> [u8; 32] {
+        live.nullifier
+    }
+
+    fn version(live: &LiveEntry) -> u64 {
+        live.entry.version
+    }
+
+    fn broken(&self, version: u64) -> EntryProofError {
+        EntryProofError::BrokenLineage {
+            list_id: self.list_id,
+            member: *self.member.as_bytes(),
+            version,
+        }
+    }
 }
 
-pub(crate) struct Lineages<'a> {
+pub(crate) struct Lineages<'a, L> {
     pub entries_tree: Address,
-    pub lookups: &'a [EntryLookup],
+    pub lookups: &'a [L],
 }
 
-impl Lineages<'_> {
-    /// One entry per lookup, in order.
+impl<L: LineageLookup> Lineages<'_, L> {
+    /// One live version per lookup, in order.
     pub(crate) fn fetch<I: Rpc>(
         self,
         indexer: &I,
-    ) -> Result<Vec<Option<LiveEntry>>, EntryProofError> {
+    ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer.get_shielded_transactions_by_nullifiers(
@@ -130,7 +173,7 @@ impl Lineages<'_> {
     pub(crate) async fn fetch_async<I: AsyncRpc>(
         self,
         indexer: &I,
-    ) -> Result<Vec<Option<LiveEntry>>, EntryProofError> {
+    ) -> Result<Vec<Option<L::Live>>, EntryProofError> {
         let mut walk = LineageWalk::start(self)?;
         while let Some(query) = walk.query() {
             let page = indexer
@@ -149,23 +192,23 @@ struct LineageQuery {
 
 /// Every pending lineage advances one version per round, a round ends when the
 /// indexer returns its last page.
-struct LineageWalk<'a> {
+struct LineageWalk<'a, L: LineageLookup> {
     entries_tree: Address,
-    heads: Vec<Head<'a>>,
+    heads: Vec<Head<'a, L>>,
     cursor: Option<Vec<u8>>,
     spenders: Vec<ShieldedTransaction>,
 }
 
-struct Head<'a> {
-    lookup: &'a EntryLookup,
+struct Head<'a, L: LineageLookup> {
+    lookup: &'a L,
     address: [u8; 32],
-    live: Option<LiveEntry>,
+    live: Option<L::Live>,
     nullifier: [u8; 32],
     ended: bool,
 }
 
-impl<'a> LineageWalk<'a> {
-    fn start(lineages: Lineages<'a>) -> Result<Self, EntryProofError> {
+impl<'a, L: LineageLookup> LineageWalk<'a, L> {
+    fn start(lineages: Lineages<'a, L>) -> Result<Self, EntryProofError> {
         let heads = lineages
             .lookups
             .iter()
@@ -232,23 +275,21 @@ impl<'a> LineageWalk<'a> {
                 .output_slots
                 .iter()
                 .filter(|slot| slot.output_context.tree == self.entries_tree)
-                .find_map(|slot| head.lookup.decode(&head.address, slot));
+                .find_map(|slot| head.lookup.decode(&head.address, spender, slot));
             let Some(successor) = successor else {
-                return Err(EntryProofError::BrokenLineage {
-                    list_id: head.lookup.list_id,
-                    member: *head.lookup.member.as_bytes(),
-                    version: head
-                        .live
-                        .map_or(0, |live| live.entry.version.saturating_add(1)),
-                });
+                let version = head
+                    .live
+                    .as_ref()
+                    .map_or(0, |live| L::version(live).saturating_add(1));
+                return Err(head.lookup.broken(version));
             };
-            head.nullifier = successor.nullifier;
+            head.nullifier = L::nullifier(&successor);
             head.live = Some(successor);
         }
         Ok(())
     }
 
-    fn finish(self) -> Vec<Option<LiveEntry>> {
+    fn finish(self) -> Vec<Option<L::Live>> {
         self.heads.into_iter().map(|head| head.live).collect()
     }
 }
@@ -571,13 +612,17 @@ pub(crate) mod tests {
         let live = lineage.versions[0];
         let address = lineage.address();
         let genuine = slot(&live, tree());
-        assert_eq!(lineage.lookup.decode(&address, &genuine), Some(live));
+        let spender = transaction(address, Vec::new());
+        assert_eq!(
+            lineage.lookup.decode(&address, &spender, &genuine),
+            Some(live)
+        );
         let mut tampered = genuine.clone();
         // Flipping the state byte breaks the commitment.
         tampered.payload[38] = EntryState::Cleared as u8;
-        assert_eq!(lineage.lookup.decode(&address, &tampered), None);
+        assert_eq!(lineage.lookup.decode(&address, &spender, &tampered), None);
         let mut wrong_pair = genuine;
         wrong_pair.payload[5] = ListId::Block as u8;
-        assert_eq!(lineage.lookup.decode(&address, &wrong_pair), None);
+        assert_eq!(lineage.lookup.decode(&address, &spender, &wrong_pair), None);
     }
 }

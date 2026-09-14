@@ -23,6 +23,16 @@ pub mod tag {
     pub const SET_POLICY_SOURCE: u8 = 10;
     pub const SET_PAUSED: u8 = 11;
     pub const SET_POLICY_RULES: u8 = 12;
+    /// Ring-local tags must not collide with the forwarded SPP deposit and merge tags.
+    pub const SET_CO_SIGNER: u8 = 28;
+    pub const CLEAR_CO_SIGNER: u8 = 21;
+    pub const SET_SPEND_WINDOW: u8 = 22;
+    pub const CLEAR_SPEND_WINDOW: u8 = 23;
+    pub const SET_DELEGATE: u8 = 24;
+    /// Tag 3 data over the SPP authority rail, signed by the delegate.
+    pub const DELEGATE_TRANSACT: u8 = 25;
+    pub const REGISTER_SPEND: u8 = 26;
+    pub const CREATE_HEAD_MAP_ROOT: u8 = 27;
 }
 
 pub const CREATE_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
@@ -30,12 +40,16 @@ pub const READ_ACCESS_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const INIT_SPP_RING_CONFIG_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_AUTHORITY_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 pub const SET_PAUSED_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_CO_SIGNER_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_SPEND_WINDOW_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const SET_DELEGATE_COMPUTE_UNIT_LIMIT: u32 = 50_000;
+pub const CREATE_HEAD_MAP_ROOT_COMPUTE_UNIT_LIMIT: u32 = 50_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CreateConfigIxData {
     /// Auditor P256 public key in SEC1 compressed form.
     pub auditor_pubkey: [u8; COMPRESSED_P256_KEY_LEN],
-    /// Nonzero deploys a policy ring, zero an audit-only ring.
+    /// One selects a policy ring, zero an audit-only ring.
     pub has_policy: u8,
 }
 
@@ -50,6 +64,31 @@ pub struct SetPausedIxData {
     pub paused: u8,
 }
 
+/// Sets the aggregate withdrawal amount that requires approval for one mint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct WithdrawalThresholdIxData {
+    pub mint: [u8; 32],
+    pub amount: u64,
+}
+
+/// Configures the ring's additional signer and the operations requiring its approval.
+#[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetCoSignerIxData {
+    pub signer: [u8; 32],
+    pub scope: u8,
+    #[wincode(with = "containers::Vec<WithdrawalThresholdIxData, FixIntLen<u8>>")]
+    pub thresholds: Vec<WithdrawalThresholdIxData>,
+}
+
+/// Replaces one mint's public settlement caps and restarts its fixed-window counters.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct SetSpendWindowIxData {
+    pub mint: [u8; 32],
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+}
+
 /// Groth16 proof of the custom-ring circuit. The circuit's emulated P256
 /// arithmetic adds one BSB22 commitment, so the commitment and its
 /// proof-of-knowledge are not optional here.
@@ -62,16 +101,35 @@ pub struct CustomRingProof {
     pub commitment_pok: [u8; 32],
 }
 
+/// Carries a registration proof without the audit circuit's BSB22 commitment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct PlainGroth16Proof {
+    pub proof_a: [u8; 32],
+    pub proof_b: [u8; 64],
+    pub proof_c: [u8; 32],
+}
+
+/// Declares the exact current root consumed and the successor root authorized by a transfer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct HeadMapTransition {
+    pub old_root: [u8; 32],
+    pub new_root: [u8; 32],
+}
+
 /// Wire format of tag 3, the ring's own proof followed by the SPP content this
 /// ring forwards verbatim.
 ///
 /// The root indices name the tree history entries a policy statement binds. A
-/// ring without rules carries them unread, one encoding serves both tiers.
+/// audit-only ring carries them unread, one encoding serves both tiers.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct CustomRingTransactIxData {
     pub proof: CustomRingProof,
     pub state_root_index: u16,
     pub nullifier_root_index: u16,
+    /// Proof-bound approval demand, zero when member amount controls do not apply.
+    pub approval_required: u8,
+    /// Required only on the windowed member rail.
+    pub head_transition: Option<HeadMapTransition>,
     pub transact: TransactIxData,
 }
 
@@ -89,7 +147,15 @@ pub struct SourceSpec {
     pub source: u8,
 }
 
-/// One source per list the rules reference.
+/// Sets one asset's outflow cap and private-amount approval threshold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct VelocityRowIxData {
+    pub asset: [u8; 32],
+    pub cap: u64,
+    pub cosign_above: u64,
+}
+
+/// Commits list requirements and amount controls under one policy hash.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct PolicyTableIxData {
     #[wincode(with = "containers::Vec<SourceSpec, FixIntLen<u8>>")]
@@ -100,6 +166,26 @@ pub struct PolicyTableIxData {
     pub inline_assets: Vec<[u8; 32]>,
     #[wincode(with = "containers::Vec<u64, FixIntLen<u8>>")]
     pub inline_limits: Vec<u64>,
+    pub window_slots: u64,
+    #[wincode(with = "containers::Vec<VelocityRowIxData, FixIntLen<u8>>")]
+    pub velocity: Vec<VelocityRowIxData>,
+}
+
+pub const REGISTER_SPEND_COMPUTE_UNIT_LIMIT: u32 = ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
+
+/// Couples the payer's first compressed spend record with its head-map registration proof.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
+pub struct RegisterSpendIxData {
+    /// The SPP output blinding, the proof fails unless it is the derived one.
+    pub blinding: [u8; 32],
+    pub private_tx_blinding: [u8; 32],
+    pub nullifier_tree_root_index: u16,
+    pub utxo_tree_root_index: u16,
+    pub proof: zolana_interface::instruction::instruction_data::transact::TransactProof,
+    pub head_old_root: [u8; 32],
+    pub head_new_root: [u8; 32],
+    pub head_next_index: u64,
+    pub head_proof: PlainGroth16Proof,
 }
 
 /// One hash over the stored rows plus one curator verification.

@@ -44,7 +44,7 @@ fn policy_verifying_key_fingerprint_is_pinned() {
     // `Sha256BE` zeroes the leading byte (field-element convention), so the
     // fingerprint always starts with `00`.
     assert_eq!(
-        fingerprint, "00641a12478db23f03e4a9990a59bd51eeb3a4e514f07a90ac53bdde4e2a7dcb",
+        fingerprint, "0008f0771d0985359afa3031172fa16c56aa291bbcd43f6ba2b30899e28d0ca9",
         "policy verifying key changed; if this rotation is intentional, re-pin the fingerprint"
     );
 }
@@ -61,7 +61,45 @@ fn base_verifying_key_fingerprint_is_pinned() {
     let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
 
     assert_eq!(
-        fingerprint, "00aad717b591551d14a8236ef330e964ec2ad32f2d5951bef72f390412d389aa",
+        fingerprint, "00ea03fe4e5727e6b1b29e84cb559748543165b25951d9a6d448f5123517b51f",
         "base verifying key changed; if this rotation is intentional, re-pin the fingerprint"
+    );
+}
+
+fn assert_rail_fingerprint(name: &str, vk: &Groth16Verifyingkey, expected: &str) {
+    let mut preimage = Vec::new();
+    absorb(&mut preimage, name, vk);
+    let digest = Sha256BE::hash(&preimage).expect("fingerprint digest");
+    let fingerprint: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    assert_eq!(
+        fingerprint, expected,
+        "{name} changed; confirm the rotation before re-pinning"
+    );
+}
+
+#[test]
+fn compressed_policy_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "compressed_policy_verifying_key",
+        &custom_ring_interface::compressed_policy_verifying_key::VERIFYINGKEY,
+        "0079af27c65e29430b78c3a85db28fcc1d335d7f5b806b9fa03f163fa7c3f8e4",
+    );
+}
+
+#[test]
+fn compressed_register_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "compressed_register_verifying_key",
+        &custom_ring_interface::compressed_register_verifying_key::VERIFYINGKEY,
+        "00b806b5ca0ad7e48f519769b378ab0ddd22561507a8f8771c408f4042103f0d",
+    );
+}
+
+#[test]
+fn delegate_policy_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "delegate_policy_verifying_key",
+        &custom_ring_interface::delegate_policy_verifying_key::VERIFYINGKEY,
+        "006e8543f0a8b8c4d143be5bfbde888514f70c711c6bbd69a1711c22bea1c146",
     );
 }

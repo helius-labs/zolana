@@ -1,19 +1,30 @@
 import { describe, expect, it } from "vitest";
+import { address, type Signature } from "@solana/kit";
 
 import { poseidon } from "../src/keypair/poseidon.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { treeIdField } from "../src/interface/tree-slot.js";
-import type { Bytes32, Bytes33 } from "../src/interface/types.js";
+import type { Bytes16, Bytes32, Bytes33 } from "../src/interface/types.js";
 import {
   auditPublicInputHash,
-  customRingPublicInputHash,
+  policyPublicInputHash,
   auditSharedSecret,
   auditorMessageData,
   decryptTransactionViewingSecret,
   encryptTransactionViewingSecret,
   parseAuditorMessage,
 } from "../src/keypair/audit.js";
+import { auditRingTransaction } from "../src/ring/audit.js";
+import { encodeSpendRecord, memberOfIdentity, spendRecordMessageTag } from "../src/ring/policy.js";
+import { AssetRegistry, SOL_ASSET_ID } from "../src/transaction/asset.js";
+import { Data } from "../src/transaction/data.js";
+import {
+  EncryptedScheme,
+  encodeOutputData,
+  encryptConfidential,
+} from "../src/transaction/serialization/codecs.js";
+import type { IndexedShieldedTransaction } from "../src/transaction/instructions/transact.js";
 
 function hex(value: string): Uint8Array {
   return Uint8Array.from(Buffer.from(value, "hex"));
@@ -95,12 +106,24 @@ describe("ring audit encryption", () => {
     const policyHash = new Uint8Array(32).fill(0x2a) as Bytes32;
     const stateRoot = new Uint8Array(32).fill(6) as Bytes32;
     const nullifierRoot = new Uint8Array(32).fill(7) as Bytes32;
-    const extended = poseidon([
-      poseidon([poseidon([poseidon([PUBLIC_INPUT_HASH, policyHash]), stateRoot]), nullifierRoot]),
+    const ringId = new Uint8Array(32).fill(8) as Bytes32;
+    const namespaceOwnerHash = new Uint8Array(32).fill(10) as Bytes32;
+    const windowIndex = new Uint8Array(32) as Bytes32;
+    windowIndex[31] = 3;
+    const approval = new Uint8Array(32) as Bytes32;
+    approval[31] = 1;
+    const extended = [
+      policyHash,
+      stateRoot,
+      nullifierRoot,
       treeIdField(9),
-    ]);
+      ringId,
+      namespaceOwnerHash,
+      windowIndex,
+      approval,
+    ].reduce((chain, element) => poseidon([chain, element]), PUBLIC_INPUT_HASH);
     expect(
-      customRingPublicInputHash({
+      policyPublicInputHash({
         privateTxHash: PRIVATE_TX_HASH,
         txViewingPublicKey: P256PublicKey.fromBytes(TX_PK),
         auditorPublicKey: P256PublicKey.fromBytes(AUDITOR_PK),
@@ -112,6 +135,10 @@ describe("ring audit encryption", () => {
         entriesTreeId: 9,
         stateRoot,
         nullifierRoot,
+        ringId,
+        namespaceOwnerHash,
+        windowIndex: 3n,
+        approvalRequired: true,
       }),
     ).toEqual(extended);
   });
@@ -123,5 +150,71 @@ describe("ring audit encryption", () => {
     expect(uncompressed[0]).toBe(4);
     expect(uncompressed.subarray(1, 33)).toEqual(auditor.x());
     expect(P256PublicKey.fromUncompressed(uncompressed).equals(auditor)).toBe(true);
+  });
+});
+
+describe("ring audit spend records", () => {
+  it("reports a record whose first member byte is not a scheme byte", () => {
+    const auditor = ViewingKey.generate();
+    const tx = ViewingKey.generate();
+    const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey());
+    const message = auditorMessageData(encrypted.message, auditor.publicKey());
+    const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
+    const record = {
+      member,
+      version: 3n,
+      window: 4n,
+      countersCommitment: new Uint8Array(32).fill(5) as Bytes32,
+      blinding: new Uint8Array(32).fill(6) as Bytes32,
+    };
+    const transaction: IndexedShieldedTransaction = {
+      slot: 1n,
+      txSignature: "sig" as Signature,
+      txViewingPublicKey: tx.publicKey(),
+      salt: new Uint8Array(16) as Bytes16,
+      outputSlots: [
+        {
+          viewTag: new Uint8Array(32).fill(0x77) as Bytes32,
+          outputContext: {
+            hash: new Uint8Array(32) as Bytes32,
+            tree: address("11111111111111111111111111111111"),
+            leafIndex: 0n,
+          },
+          payload: encodeOutputData(
+            EncryptedScheme.confidential,
+            encryptConfidential(
+              tx,
+              tx.publicKey(),
+              {
+                assetId: SOL_ASSET_ID,
+                amount: 0n,
+                blinding: record.blinding,
+                data: new Data(),
+              },
+              new Uint8Array(16) as Bytes16,
+              0,
+            ),
+            "encrypted",
+          ),
+        },
+      ],
+      messages: [
+        {
+          viewTag: spendRecordMessageTag(new Uint8Array(32).fill(0x77) as Bytes32),
+          data: encodeSpendRecord(record),
+        },
+        message,
+      ],
+      nullifiers: [],
+      proofless: false,
+    };
+    const audited = auditRingTransaction({
+      auditor,
+      transaction,
+      assets: new AssetRegistry(),
+    });
+    expect(audited.spendRecords).toHaveLength(1);
+    expect(audited.spendRecords[0]?.record.member).toEqual(member);
+    expect(audited.undecryptableSlots).toHaveLength(0);
   });
 });

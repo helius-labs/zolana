@@ -1,5 +1,9 @@
 use bytemuck::{from_bytes_mut, Pod};
-use custom_ring_interface::{PolicyConfig, SourceSlot, N_SOURCE_SLOTS, POLICY_CONFIG};
+use custom_ring_interface::{
+    CoSigner, Delegate, HeadMapRoot, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold,
+    CO_SIGNER, DELEGATE, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, MAX_CO_SIGNER_THRESHOLDS,
+    N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+};
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
     READ_ACCESS_RECORD, RING_PROGRAM_CONFIG,
@@ -103,7 +107,7 @@ fn is_signing_ed25519_key(body: [u8; 32]) -> bool {
 impl Account for ReadAccessRecord {
     const DISCRIMINATOR: u8 = READ_ACCESS_RECORD;
     const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidReadAccessRecord;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessEntryAlreadyExists;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::ReadAccessRecordAlreadyExists;
     const WRONG_SIZE: CustomRingError = CustomRingError::InvalidReadAccessRecord;
 
     fn discriminator(&self) -> u8 {
@@ -111,12 +115,13 @@ impl Account for ReadAccessRecord {
     }
 }
 
-pub(crate) struct ReadAccessEntryInitParams {
+/// Grants one authenticated reader access through a newly allocated record.
+pub(crate) struct ReadAccessRecordInitParams {
     pub reader: ReaderKeyBytes,
     pub bump: u8,
 }
 
-impl ReadAccessEntryInitParams {
+impl ReadAccessRecordInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(
@@ -141,35 +146,216 @@ impl Account for PolicyConfig {
     }
 }
 
-pub(crate) struct PolicyConfigInitParams {
+/// Initializes pinned policy state directly in account memory without a full SBF stack copy.
+pub(crate) struct PolicyConfigInit<'a> {
     pub policy_hash: [u8; 32],
     pub entries_tree: Address,
     pub entries_tree_id: u16,
     pub namespace_bump: u8,
     pub bump: u8,
-    pub sources: [SourceSlot; N_SOURCE_SLOTS],
-    pub rules: EncodedRuleTable,
+    pub namespace_owner_hash: [u8; 32],
+    pub sources: &'a [SourceSlot; N_SOURCE_SLOTS],
+    pub rules: &'a EncodedRuleTable,
     pub generation_slot: u64,
 }
 
-impl PolicyConfigInitParams {
+impl PolicyConfigInit<'_> {
+    pub fn write(self, account: &mut AccountView) -> ProgramResult {
+        // 1. Require a fresh account with the exact policy layout.
+        let mut data = account
+            .try_borrow_mut()
+            .map_err(|_| CustomRingError::PolicyConfigAlreadyInitialized)?;
+        if data.len() != PolicyConfig::SIZE {
+            return Err(CustomRingError::InvalidPolicyConfigPda.into());
+        }
+        if data.first() != Some(&0) {
+            return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
+        }
+        // 2. Publish the bound table and sources as the first policy generation.
+        let config: &mut PolicyConfig = from_bytes_mut(&mut data[..]);
+        config.discriminator = POLICY_CONFIG;
+        config.policy_hash = self.policy_hash;
+        config.entries_tree = self.entries_tree;
+        config.entries_tree_id = self.entries_tree_id.to_le_bytes();
+        config.namespace_bump = self.namespace_bump;
+        config.bump = self.bump;
+        config.namespace_owner_hash = self.namespace_owner_hash;
+        config.sources = *self.sources;
+        config.rules = *self.rules;
+        config.generation = 1u32.to_le_bytes();
+        config.generation_slot = self.generation_slot.to_le_bytes();
+        Ok(())
+    }
+}
+
+impl Account for CoSigner {
+    const DISCRIMINATOR: u8 = CO_SIGNER;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidCoSigner;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidCoSigner;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+/// Initializes the co-signer configuration for creation or replacement.
+pub(crate) struct CoSignerInitParams {
+    pub signer: Address,
+    pub scope: u8,
+    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub threshold_count: u8,
+    pub bump: u8,
+}
+
+impl CoSignerInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub const fn value(self) -> CoSigner {
+        CoSigner {
+            discriminator: CO_SIGNER,
+            signer: self.signer,
+            scope: self.scope,
+            threshold_count: self.threshold_count,
+            thresholds: self.thresholds,
+            bump: self.bump,
+        }
+    }
+}
+
+impl Account for Delegate {
+    const DISCRIMINATOR: u8 = DELEGATE;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidDelegate;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::DelegateAlreadySet;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidDelegate;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+/// Records the upgrade authority's one-time delegate appointment.
+pub(crate) struct DelegateInitParams {
+    pub delegate: Address,
+    pub bump: u8,
+}
+
+impl DelegateInitParams {
     #[inline(always)]
     pub fn init(self, account: &mut AccountView) -> ProgramResult {
         init_account(
             account,
-            PolicyConfig {
-                discriminator: POLICY_CONFIG,
-                policy_hash: self.policy_hash,
-                entries_tree: self.entries_tree,
-                entries_tree_id: self.entries_tree_id.to_le_bytes(),
-                namespace_bump: self.namespace_bump,
+            Delegate {
+                discriminator: DELEGATE,
+                delegate: self.delegate,
                 bump: self.bump,
-                sources: self.sources,
-                rules: self.rules,
-                generation: 1u32.to_le_bytes(),
-                generation_slot: self.generation_slot.to_le_bytes(),
             },
         )
+    }
+}
+
+impl Account for SpendWindow {
+    const DISCRIMINATOR: u8 = SPEND_WINDOW;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidSpendWindow;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidSpendWindow;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+impl Account for HeadMapRoot {
+    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+}
+
+/// Creates a ring's sentinel-only current-record map.
+pub(crate) struct HeadMapRootInitParams {
+    pub bump: u8,
+}
+
+/// The root update and SPP CPI commit atomically.
+pub(crate) fn advance_head_map_root(
+    account: &mut AccountView,
+    expected_root: &[u8; 32],
+    new_root: [u8; 32],
+    register: bool,
+) -> ProgramResult {
+    let mut data = account.try_borrow_mut()?;
+    // 1. Require the exact head consumed by the verified transition.
+    if data.len() != HeadMapRoot::SIZE {
+        return Err(CustomRingError::InvalidHeadMapRoot.into());
+    }
+    let state = from_bytes_mut::<HeadMapRoot>(&mut data);
+    if &state.root != expected_root {
+        return Err(CustomRingError::StaleHeadMapRoot.into());
+    }
+    // 2. Allocate a new leaf only for registration and publish the successor root.
+    if register {
+        let cursor = state.next_index();
+        if cursor == 0 || cursor >= (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT) {
+            return Err(CustomRingError::InvalidHeadMapCursor.into());
+        }
+        state.next_index = (cursor + 1).to_le_bytes();
+    }
+    state.root = new_root;
+    Ok(())
+}
+
+impl HeadMapRootInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        // Leaf 0 holds the sentinel, the first registration appends at 1.
+        init_account(
+            account,
+            HeadMapRoot {
+                discriminator: HEAD_MAP_ROOT,
+                root: HEAD_MAP_EMPTY_ROOT,
+                next_index: 1u64.to_le_bytes(),
+                bump: self.bump,
+            },
+        )
+    }
+}
+
+/// Starts one mint's public settlement accounting with zero counters.
+pub(crate) struct SpendWindowInitParams {
+    pub mint: Address,
+    pub window_slots: u64,
+    pub deposit_cap: u64,
+    pub withdrawal_cap: u64,
+    pub window_start_slot: u64,
+    pub bump: u8,
+}
+
+impl SpendWindowInitParams {
+    #[inline(always)]
+    pub fn init(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, self.value())
+    }
+
+    pub(crate) const fn value(self) -> SpendWindow {
+        SpendWindow {
+            discriminator: SPEND_WINDOW,
+            mint: self.mint,
+            window_slots: self.window_slots.to_le_bytes(),
+            deposit_cap: self.deposit_cap.to_le_bytes(),
+            withdrawal_cap: self.withdrawal_cap.to_le_bytes(),
+            window_start_slot: self.window_start_slot.to_le_bytes(),
+            deposited: [0; 8],
+            withdrawn: [0; 8],
+            bump: self.bump,
+        }
     }
 }
 
@@ -178,6 +364,10 @@ mod sealed {
     impl Sealed for super::RingProgramConfig {}
     impl Sealed for super::ReadAccessRecord {}
     impl Sealed for super::PolicyConfig {}
+    impl Sealed for super::CoSigner {}
+    impl Sealed for super::Delegate {}
+    impl Sealed for super::SpendWindow {}
+    impl Sealed for super::HeadMapRoot {}
 }
 
 #[inline(always)]

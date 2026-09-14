@@ -29,6 +29,8 @@ pub enum AuditError {
     RecoveredKeyInvalid(KeypairError),
     #[error("output slot count exceeds the bound u32 slot index {0}")]
     SlotIndexOverflow(usize),
+    #[error("the public spend record message is malformed or does not match its carrier")]
+    InvalidSpendRecordMessage,
     #[error("decrypted output references unknown asset id {asset_id}")]
     UnknownAsset {
         asset_id: u64,

@@ -1,11 +1,11 @@
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::UpgradeAuthorityCheck,
-        policy_shared::{compute_policy_hash, namespace_pda, BoundTable, TableBinding},
+        loader::{load_config, UpgradeAuthorityCheck},
+        policy_shared::{compute_policy_hash, namespace_pda, TableBinding},
         shared::PdaCheck,
     },
-    state::PolicyConfigInitParams,
+    state::PolicyConfigInit,
 };
 use custom_ring_interface::{PolicyConfig, PolicyTableIxData};
 use pinocchio::{
@@ -19,6 +19,7 @@ use zolana_interface::{
     state::{discriminator::TREE_ACCOUNT_DISCRIMINATOR, read_tree_id},
     SHIELDED_POOL_PROGRAM_ID,
 };
+use zolana_ring_policy::ListNamespace;
 
 /// Only the program upgrade authority pins a table.
 #[inline(never)]
@@ -33,6 +34,7 @@ pub fn process_create_policy_ix(
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
     let authority = iter.next_signer("authority")?;
+    let config = iter.next_account("config")?;
     let policy_config = iter.next_mut("policy_config")?;
     let entries_tree = iter.next_account("entries_tree")?;
     let system_program = iter.next_account("system_program")?;
@@ -42,6 +44,10 @@ pub fn process_create_policy_ix(
 
     if !pinocchio_system::check_id(system_program.address()) {
         return Err(CustomRingError::InvalidSystemProgram.into());
+    }
+    // 1. Admit policy initialization only for the immutable policy tier.
+    if load_config(program_id, config)?.has_policy == 0 {
+        return Err(CustomRingError::PolicyOnAuditOnlyRing.into());
     }
     let entries_tree_id = check_entries_tree(entries_tree)?;
     UpgradeAuthorityCheck {
@@ -63,17 +69,22 @@ pub fn process_create_policy_ix(
         return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
     }
 
+    // 2. Bind the rule table to its authenticated local and curator namespaces.
     let (own_namespace, namespace_bump) = namespace_pda(program_id)?;
-    let BoundTable { rules, sources } = TableBinding {
+    let namespace_owner_hash = ListNamespace::new(own_namespace.as_array())
+        .map_err(|_| CustomRingError::HashingFailed)?
+        .owner_hash;
+    let bound = TableBinding {
         table: &ix,
         curators,
         own_namespace: &own_namespace,
         entries_tree: entries_tree.address(),
     }
     .bind()?;
-    let policy_hash = compute_policy_hash(&rules, &sources)?;
+    let policy_hash = compute_policy_hash(&bound.rules, &bound.sources)?;
     let generation_slot = Clock::get()?.slot;
 
+    // 3. Pin the policy hash and tree identity in a fresh config account.
     let bump_seed = [bump];
     let seeds = [
         Seed::from(PolicyConfig::SEED),
@@ -88,17 +99,18 @@ pub fn process_create_policy_ix(
         &[Signer::from(seeds.as_ref())],
     )?;
 
-    PolicyConfigInitParams {
+    PolicyConfigInit {
         policy_hash,
         entries_tree: *entries_tree.address(),
         entries_tree_id,
         namespace_bump,
         bump,
-        sources,
-        rules,
+        namespace_owner_hash,
+        sources: &bound.sources,
+        rules: &bound.rules,
         generation_slot,
     }
-    .init(policy_config)
+    .write(policy_config)
 }
 
 /// The raw tree id the config pins for every entry hash.

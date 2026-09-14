@@ -40,6 +40,8 @@ import {
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
+import { ringProgramConfigData } from "./helpers/ring-accounts.js";
+import { ringConfigPda } from "../src/interface/pda/index.js";
 import { approveIntent } from "../src/transaction/wallet/intent.js";
 import { withdrawalSetupInstructions } from "../src/flows/settlement.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
@@ -639,6 +641,25 @@ describe("selectRingInputs", () => {
 });
 
 describe("ring approval summary", () => {
+  async function approvalClient(keypair: ShieldedKeypair) {
+    const [config, bump] = await ringConfigPda(RING);
+    return ringTransferClient({
+      tree: TREE,
+      getAccount: async (address) =>
+        address === config
+          ? {
+              owner: RING,
+              lamports: 1n,
+              data: ringProgramConfigData({
+                authority: PAYER,
+                auditorPublicKey: keypair.viewingPublicKey().toBytes(),
+                bump,
+                hasPolicy: false,
+              }),
+            }
+          : undefined,
+    });
+  }
   it("approves the exact amount moved into the ring", async () => {
     const keypair = spendingKeypair();
     const wallet = ringUtxoWallet(keypair, [[40n, undefined]]);
@@ -655,7 +676,7 @@ describe("ring approval summary", () => {
 
     await expect(
       buildRingEntryTransaction({
-        client: ringTransferClient({ tree: TREE }),
+        client: await approvalClient(keypair),
         ringProgramId: RING,
         wallet,
         authority,
@@ -684,7 +705,7 @@ describe("ring approval summary", () => {
     });
     await expect(
       buildRingTransferTransaction({
-        client: ringTransferClient({ tree: TREE }),
+        client: await approvalClient(keypair),
         ringProgramId: RING,
         wallet,
         authority,

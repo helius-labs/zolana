@@ -1,10 +1,12 @@
 use thiserror::Error;
 
 use crate::{
-    authority::AuthorityError, config::ConfigError, deploy::DeployError, init::InitError,
-    list::ListError, localnet::LocalnetError, merge::MergeError, new::NewError,
-    pipeline::PipelineError, policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
-    ring_rpc::RingRpcClientError, tool::ToolError, transact::TransactError,
+    authority::AuthorityError, config::ConfigError, cosigner::CosignerError,
+    delegate::DelegateError, deploy::DeployError, init::InitError, list::ListError,
+    localnet::LocalnetError, merge::MergeError, new::NewError, pipeline::PipelineError,
+    policy::PolicyCommandError, probe::ProbeError, reader::ReaderError,
+    ring_rpc::RingRpcClientError, spend::SpendError, tool::ToolError, transact::TransactError,
+    window::WindowError,
 };
 use zolana_ring_rpc::KeyFileError;
 
@@ -39,6 +41,14 @@ pub enum CliError {
     #[error(transparent)]
     Reader(Box<ReaderError>),
     #[error(transparent)]
+    Cosigner(Box<CosignerError>),
+    #[error(transparent)]
+    Window(Box<WindowError>),
+    #[error(transparent)]
+    Delegate(Box<DelegateError>),
+    #[error(transparent)]
+    Spend(Box<SpendError>),
+    #[error(transparent)]
     List(Box<ListError>),
     #[error(transparent)]
     Policy(Box<PolicyCommandError>),
@@ -70,6 +80,10 @@ boxed_from!(
     RingRpc(RingRpcClientError),
     Authority(AuthorityError),
     Reader(ReaderError),
+    Cosigner(CosignerError),
+    Window(WindowError),
+    Delegate(DelegateError),
+    Spend(SpendError),
     List(ListError),
     Policy(PolicyCommandError),
 );

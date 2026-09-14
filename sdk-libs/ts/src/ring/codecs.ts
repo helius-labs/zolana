@@ -3,6 +3,8 @@ import {
   RING_INLINE_ASSET_SLOTS,
   RING_RULE_SLOTS,
   RING_SOURCE_SLOTS,
+  RING_VELOCITY_SLOTS,
+  type CustomRingVelocityRow,
 } from "../client/prover/types.js";
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
@@ -10,6 +12,25 @@ import { P256PublicKey } from "../keypair/public-key.js";
 import { bytesToBigInt } from "../transaction/internal.js";
 
 import { RingError } from "./error.js";
+import { checkedHeadMapField, HEAD_MAP_CAPACITY } from "./head-map.js";
+
+/** Represents the current shared root anchoring all member spend records. */
+export interface RingHeadMapRoot {
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+  readonly bump: number;
+}
+
+export function decodeRingHeadMapRoot(data: Uint8Array): RingHeadMapRoot {
+  if (data.length !== 42 || data[0] !== 8) throw new RingError("RING_HEAD_MAP_INVALID");
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const root = checkedHeadMapField(reader.bytes(32, "root") as Bytes32);
+  const nextIndex = reader.u64("nextIndex");
+  const bump = reader.u8("bump");
+  if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) throw new RingError("RING_HEAD_MAP_INVALID");
+  return Object.freeze({ root, nextIndex, bump });
+}
 
 export interface RingProgramConfig {
   readonly authority: Address;
@@ -32,6 +53,8 @@ export interface RingPolicyConfig {
   readonly entriesTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
+  /** The shielded owner of every record the ring's namespace holds. */
+  readonly namespaceOwnerHash: Bytes32;
   readonly sources: readonly RingPolicySource[];
   /** Counted arrays exclude zero padding. */
   readonly ruleCount: number;
@@ -39,12 +62,35 @@ export interface RingPolicyConfig {
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
+  /** Zero applies each cap per transfer instead of accumulating a window. */
+  readonly windowSlots: bigint;
+  readonly velocityCount: number;
+  readonly velocity: readonly CustomRingVelocityRow[];
   readonly generation: number;
   readonly generationSlot: bigint;
 }
 
+/** Defines the extra signature required by scoped ring operations. */
+export interface RingCoSigner {
+  readonly signer: Address;
+  readonly scope: number;
+  readonly bump: number;
+  /** Per mint, SOL under the zero address, a withdrawn mint without a row always needs the co-signer. */
+  readonly thresholds: readonly { readonly mint: Address; readonly above: bigint }[];
+}
+
+export const RING_COSIGN_TRANSFERS = 1;
+export const RING_COSIGN_DEPOSITS = 2;
+export const RING_COSIGN_WITHDRAWALS = 4;
+export const RING_COSIGN_SCOPE_MASK = 7;
+/** Rust `MAX_CO_SIGNER_THRESHOLDS`. */
+export const RING_COSIGN_THRESHOLD_SLOTS = 8;
+
 const RING_PROGRAM_CONFIG_DISCRIMINATOR = 1;
 const RING_PROGRAM_CONFIG_SIZE = 68;
+/** Rust `CO_SIGNER` and `CoSigner::SIZE`. */
+const RING_CO_SIGNER_DISCRIMINATOR = 4;
+const RING_CO_SIGNER_SIZE = 356;
 
 export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   if (data.length !== RING_PROGRAM_CONFIG_SIZE || data[0] !== RING_PROGRAM_CONFIG_DISCRIMINATOR) {
@@ -62,9 +108,113 @@ export function decodeRingProgramConfig(data: Uint8Array): RingProgramConfig {
   return Object.freeze({ authority, auditorPublicKey, bump, hasPolicy });
 }
 
+export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
+  if (data.length !== RING_CO_SIGNER_SIZE || data[0] !== RING_CO_SIGNER_DISCRIMINATOR) {
+    throw new RingError("RING_CO_SIGNER_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const signer = encodeBase58(reader.bytes(32, "signer"));
+  const scope = reader.u8("scope");
+  const count = reader.u8("thresholdCount");
+  if (
+    scope === 0 ||
+    (scope & ~RING_COSIGN_SCOPE_MASK) !== 0 ||
+    count > RING_COSIGN_THRESHOLD_SLOTS
+  ) {
+    throw new RingError("RING_CO_SIGNER_INVALID", { details: { scope, count } });
+  }
+  const thresholds = [];
+  for (let slot = 0; slot < RING_COSIGN_THRESHOLD_SLOTS; slot += 1) {
+    const mint = encodeBase58(reader.bytes(32, "mint"));
+    const above = reader.u64("above");
+    if (slot < count) thresholds.push(Object.freeze({ mint, above }));
+  }
+  const bump = reader.u8("bump");
+  reader.done();
+  return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
+}
+
+/** Identifies the permanent signer allowed to move ring notes. */
+export interface RingDelegate {
+  readonly delegate: Address;
+  readonly bump: number;
+}
+
+/** Rust `DELEGATE` and `Delegate::SIZE`. */
+const RING_DELEGATE_DISCRIMINATOR = 6;
+const RING_DELEGATE_SIZE = 34;
+
+export function decodeRingDelegate(data: Uint8Array): RingDelegate {
+  if (data.length !== RING_DELEGATE_SIZE || data[0] !== RING_DELEGATE_DISCRIMINATOR) {
+    throw new RingError("RING_DELEGATE_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const key = reader.bytes(32, "delegate");
+  const bump = reader.u8("bump");
+  reader.done();
+  if (key.every((byte) => byte === 0)) {
+    throw new RingError("RING_DELEGATE_INVALID", { details: { delegate: "zero" } });
+  }
+  return Object.freeze({ delegate: encodeBase58(key), bump });
+}
+
+/** Tracks a mint's public deposits and withdrawals against fixed-window caps. */
+export interface RingSpendWindow {
+  readonly mint: Address;
+  readonly windowSlots: bigint;
+  readonly depositCap: bigint;
+  readonly withdrawalCap: bigint;
+  readonly windowStartSlot: bigint;
+  readonly deposited: bigint;
+  readonly withdrawn: bigint;
+  readonly bump: number;
+}
+
+/** Rust `SPEND_WINDOW` and `SpendWindow::SIZE`. */
+const RING_SPEND_WINDOW_DISCRIMINATOR = 5;
+const RING_SPEND_WINDOW_SIZE = 82;
+
+export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
+  if (data.length !== RING_SPEND_WINDOW_SIZE || data[0] !== RING_SPEND_WINDOW_DISCRIMINATOR) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", {
+      details: { length: data.length, discriminator: data[0] },
+    });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const mint = encodeBase58(reader.bytes(32, "mint"));
+  const windowSlots = reader.u64("windowSlots");
+  const depositCap = reader.u64("depositCap");
+  const withdrawalCap = reader.u64("withdrawalCap");
+  const windowStartSlot = reader.u64("windowStartSlot");
+  const deposited = reader.u64("deposited");
+  const withdrawn = reader.u64("withdrawn");
+  const bump = reader.u8("bump");
+  reader.done();
+  if (windowSlots === 0n) {
+    throw new RingError("RING_SPEND_WINDOW_INVALID", { details: { mint, windowSlots } });
+  }
+  return Object.freeze({
+    mint,
+    windowSlots,
+    depositCap,
+    withdrawalCap,
+    windowStartSlot,
+    deposited,
+    withdrawn,
+    bump,
+  });
+}
+
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
-const RING_POLICY_CONFIG_SIZE = 1179;
+export const RING_POLICY_CONFIG_SIZE = 1604;
 
 export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   if (data.length !== RING_POLICY_CONFIG_SIZE || data[0] !== RING_POLICY_CONFIG_DISCRIMINATOR) {
@@ -79,6 +229,7 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   const entriesTreeId = reader.u16("entriesTreeId");
   const namespaceBump = reader.u8("namespaceBump");
   const bump = reader.u8("bump");
+  const namespaceOwnerHash = reader.bytes(32, "namespaceOwnerHash") as Bytes32;
   const sources = Object.freeze(
     Array.from({ length: RING_SOURCE_SLOTS }, () =>
       Object.freeze({
@@ -89,36 +240,72 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   );
   const rules = countedRows(reader, RING_RULE_SLOTS, "rules");
   const inlineAssets = countedRows(reader, RING_INLINE_ASSET_SLOTS, "inlineAssets");
-  const inlineLimits = countedLimits(reader, inlineAssets.length);
+  const inlineLimits = countedLimits(
+    reader,
+    inlineAssets.length,
+    RING_INLINE_ASSET_SLOTS,
+    "inlineLimits",
+  );
+  const windowSlots = bytesToBigInt(reader.bytes(8, "windowSlots"));
+  const velocityAssets = countedRows(reader, RING_VELOCITY_SLOTS, "velocityAssets");
+  const velocityCaps = countedLimits(
+    reader,
+    velocityAssets.length,
+    RING_VELOCITY_SLOTS,
+    "velocityCaps",
+  );
+  const velocityCosign = countedLimits(
+    reader,
+    velocityAssets.length,
+    RING_VELOCITY_SLOTS,
+    "velocityCosign",
+  );
   const generation = reader.u32("generation");
   const generationSlot = reader.u64("generationSlot");
   reader.done();
+  const velocity = Object.freeze(
+    velocityAssets.map((asset, index) =>
+      Object.freeze({
+        asset,
+        cap: velocityCaps[index] ?? 0n,
+        cosignAbove: velocityCosign[index] ?? 0n,
+      }),
+    ),
+  );
   return Object.freeze({
     policyHash,
     entriesTree,
     entriesTreeId,
     namespaceBump,
     bump,
+    namespaceOwnerHash,
     sources,
     ruleCount: rules.length,
     rules,
     inlineCount: inlineAssets.length,
     inlineAssets,
     inlineLimits,
+    windowSlots,
+    velocityCount: velocity.length,
+    velocity,
     generation,
     generationSlot,
   });
 }
 
-function countedLimits(reader: Reader, count: number): readonly bigint[] {
+/** Big endian amounts, one per counted row, zero past the count. */
+function countedLimits(
+  reader: Reader,
+  count: number,
+  slots: number,
+  field: string,
+): readonly bigint[] {
   const limits: bigint[] = [];
-  for (let index = 0; index < RING_INLINE_ASSET_SLOTS; index += 1) {
-    const limit = bytesToBigInt(reader.bytes(8, "inlineLimits"));
+  for (let index = 0; index < slots; index += 1) {
+    const limit = bytesToBigInt(reader.bytes(8, field));
     if (index < count) limits.push(limit);
     else if (limit !== 0n) {
-      throw new RingError("RING_POLICY_CONFIG_INVALID", {
-        details: { field: "inlineLimits", index },
-      });
+      throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field, index } });
     }
   }
   return Object.freeze(limits);

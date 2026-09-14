@@ -7,6 +7,7 @@ export type {
 } from "./client.js";
 export type {
   BlockhashProvider,
+  SlotReader,
   ChainReader,
   IndexerReader,
   KitRpcAccess,
@@ -17,6 +18,13 @@ export type {
   TransactionAssembler,
   TransactionConfirmer,
   TreeContext,
+  RingHeadReader,
+  RingHeadProofRequest,
+  RingHeadRegisterProof,
+  RingHeadTransferProof,
+  RingHeadProofContext,
+  RingSubmissionStatus,
+  RingSubmissionTransport,
 } from "./ports.js";
 export { CANONICAL_CLIENT_ERROR_CODES, ClientError } from "./error.js";
 export type {
@@ -40,7 +48,9 @@ export {
   RING_ANSWER_SLOTS,
   RING_RULE_SLOTS,
   RING_STATE_PATH_LENGTH,
+  RING_VELOCITY_SLOTS,
   disabledRuleAnswer,
+  velocityProofInputOff,
 } from "./prover/types.js";
 export type {
   CircuitUtxo,
@@ -49,7 +59,12 @@ export type {
   CustomRingOpening,
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
+  CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterProofRequest,
   CustomRingSourceOwner,
+  CustomRingSpendRecordProofInput,
+  CustomRingVelocityRow,
+  CustomRingVelocityProofInput,
   Field,
   Proof,
   RingTransactRoots,

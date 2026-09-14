@@ -20,6 +20,9 @@ func TestRingKeysCarryTheCompiledCircuits(t *testing.T) {
 	}{
 		{name: string(common.CustomRingPolicyCircuitType), file: common.CustomRingPolicyKeyFile, compile: R1CSPolicy},
 		{name: string(common.CustomRingBaseCircuitType), file: common.CustomRingBaseKeyFile, compile: R1CSBase},
+		{name: string(common.CustomRingDelegatePolicyCircuitType), file: common.CustomRingDelegatePolicyKeyFile, compile: R1CSDelegatePolicy},
+		{name: string(common.CompressedPolicyCircuitType), file: common.CompressedPolicyKeyFile, compile: R1CSCompressedPolicy},
+		{name: string(common.CompressedRegisterCircuitType), file: common.CompressedRegisterKeyFile, compile: R1CSCompressedRegister},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

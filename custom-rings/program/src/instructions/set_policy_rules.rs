@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-/// Takes effect at once, a proof over the old hash fails at verification.
+/// Replaces the pinned policy under upgrade authority without changing its entries tree.
 #[inline(never)]
 pub fn process_set_policy_rules_ix(
     program_id: &Address,
@@ -35,7 +35,11 @@ pub fn process_set_policy_rules_ix(
         program_data,
     }
     .verify()?;
-    let entries_tree = load_policy_config(program_id, policy_config)?.entries_tree;
+    // 1. Preserve the deployed entries tree while resolving the replacement policy.
+    let (entries_tree, old_window_slots) = {
+        let config = load_policy_config(program_id, policy_config)?;
+        (config.entries_tree, config.rules.window_slots())
+    };
 
     let (own_namespace, _) = namespace_pda(program_id)?;
     let bound = TableBinding {
@@ -46,6 +50,12 @@ pub fn process_set_policy_rules_ix(
     }
     .bind()?;
 
+    // 2. Preserve the slot duration that gives existing record windows their meaning.
+    if old_window_slots != 0 && bound.rules.window_slots() != old_window_slots {
+        return Err(CustomRingError::VelocityWindowImmutable.into());
+    }
+
+    // 3. Commit the replacement table and advance the configuration generation.
     let mut data = policy_config.try_borrow_mut()?;
     let live: &mut PolicyConfig = from_bytes_mut(&mut data);
     repin(live, Repin::Table(&bound))

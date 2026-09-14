@@ -91,6 +91,7 @@ func TestAmountSumBounds(t *testing.T) {
 		{"maximum threshold", [NOutputs]frontend.Variable{maximum, 0, 0, 0}, maximum, 1},
 		{"one above threshold", [NOutputs]frontend.Variable{maximum, 1, 0, 0}, maximum, 0},
 		{"maximum sum", [NOutputs]frontend.Variable{maximum, maximum, maximum, maximum}, 0, 0},
+		{"maximum sum against the maximum threshold", [NOutputs]frontend.Variable{maximum, maximum, maximum, maximum}, maximum, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

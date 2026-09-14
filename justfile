@@ -273,8 +273,8 @@ ensure-custom-ring-live-keys: && check-custom-ring-keys
         fi
         install -m 0644 "$temp_dir/$name" "$keys_dir/$name"
     }
-    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v7"
-    for name in custom_ring_policy.key custom_ring_base.key; do
+    release_url="https://github.com/helius-labs/zolana/releases/download/custom-ring-keys-v8"
+    for name in custom_ring_policy.key custom_ring_base.key custom_ring_compressed_policy.key custom_ring_compressed_register.key custom_ring_delegate_policy.key; do
         installed "$name" || fetch "$name" "$release_url/$name"
     done
     for name in transfer_ring_1_2.key transfer_ring_2_2.key; do
@@ -287,7 +287,7 @@ check-custom-ring-keys: build-prover-server
     set -euo pipefail
     export_dir="$(mktemp -d)"
     trap 'rm -rf "$export_dir"' EXIT
-    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs; do
+    for pair in custom_ring_policy.key:policy_verifying_key.rs custom_ring_base.key:base_verifying_key.rs custom_ring_compressed_policy.key:compressed_policy_verifying_key.rs custom_ring_compressed_register.key:compressed_register_verifying_key.rs custom_ring_delegate_policy.key:delegate_policy_verifying_key.rs; do
         key="${pair%%:*}"
         module="${pair##*:}"
         if [[ ! -f "prover/server/proving-keys/$key" ]]; then
@@ -620,6 +620,7 @@ build-cli:
 
 test-cli:
     cargo nextest run -p zolana-cli
+    cargo nextest run -p xtask
 
 # === Bench ===
 #
@@ -713,8 +714,8 @@ regen-swap-keys:
         done
     done
 
-# Rotate both ring proving keys with their verifying keys and lock entries,
-# then repin vk_fingerprint.rs and run release-custom-rings.
+# Rotate ring proving keys with their verifying keys and lock entries,
+# then repin the circuit fingerprints and run release-custom-rings.
 regen-custom-ring-keys:
     prover/server/scripts/generate_keys_custom_ring.sh prover/server/proving-keys
 
@@ -1266,25 +1267,10 @@ test-custom-ring-validator: ensure-custom-ring-live-keys build-programs build-cl
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    cargo build -q -p custom-ring-cli
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test ring --no-capture
-    # The custom-ring proving key is guaranteed here.
-    tools/ci/nextest-suite.sh -p custom-ring-sdk --run-ignored all -E 'binary(custom_ring_circuit)'
-    if [ -n "${ZOLANA_RING_TEMPLATE_DIR:-}" ]; then
-      cargo nextest run -p custom-ring-cli --run-ignored all -E 'binary(new_smoke)'
-    fi
+    bash tools/test-ring-controls.sh ring
+    tools/ci/nextest-suite.sh -p custom-ring-sdk -E 'binary(custom_ring_circuit)'
 
 # Two-ring shared policy source lifecycle on a local validator. One curator
 # write refuses the subscriber's transfer, clearing it or re-pointing the
@@ -1306,20 +1292,9 @@ _custom-ring-suite test: ensure-custom-ring-live-keys build-programs build-cli e
     eval "$program_ids"
     : "${CUSTOM_RING_PROGRAM_ID:?xtask did not emit CUSTOM_RING_PROGRAM_ID}"
     : "${SHIELDED_POOL_PROGRAM_ID:?xtask did not emit SHIELDED_POOL_PROGRAM_ID}"
-    cleanup() {
-      lsof -ti "tcp:{{localnet-rpc-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      lsof -ti "tcp:{{localnet-photon-port}}" 2>/dev/null | xargs kill -9 2>/dev/null || true
-      {{stop-localnet-backends}}
-    }
-    trap cleanup EXIT
     export CUSTOM_RING_PROGRAM_ID
     export SHIELDED_POOL_PROGRAM_ID
-    export ZOLANA_PHOTON_BIN="{{photon-bin}}"
-    export ZOLANA_LOCALNET_RPC_PORT="{{localnet-rpc-port}}"
-    export ZOLANA_LOCALNET_PHOTON_PORT="{{localnet-photon-port}}"
-    cargo build -q -p custom-ring-cli
-    env ZOLANA_LOCALNET_URL="{{localnet-rpc-url}}" ZOLANA_INDEXER_URL="{{localnet-photon-url}}" \
-      tools/ci/nextest-suite.sh -p custom-ring-test-validator --test {{test}} --no-capture
+    bash tools/test-ring-controls.sh {{test}}
 
 # Timelock escrow lifecycle on a local validator, driven against a real
 # localnet (sdk-tests/timelock-escrow/test/tests/escrow.rs). Boots
@@ -1649,7 +1624,8 @@ prover-server-test:
     # SupportedShapes alone proves every supported shape -- so the run can exceed
     # Go's default 10m; the generous timeout is a ceiling, not a floor.
     go test ./circuits/... ./prover/... ./prover-test/... -timeout 60m
-    # Routing and timeout tests do not need Redis.
+    # The `server` package's handler tests need redis, the queue-routing and
+    # timeout unit tests do not.
     go test ./server/ -run '^(TestGetQueueNameForCircuit|TestSyncProofTimeout)$'
 
 [private]

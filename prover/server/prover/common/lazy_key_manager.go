@@ -325,11 +325,20 @@ func (m *LazyKeyManager) determineTransferKeyPath(circuitType CircuitType, nInpu
 }
 
 func (m *LazyKeyManager) determineRingKeyPath(circuitType CircuitType) string {
+	if circuitType == CustomRingDelegatePolicyCircuitType {
+		return m.keyPath(CustomRingDelegatePolicyKeyFile)
+	}
 	if circuitType == CustomRingPolicyCircuitType {
 		return m.keyPath(CustomRingPolicyKeyFile)
 	}
 	if circuitType == CustomRingBaseCircuitType {
 		return m.keyPath(CustomRingBaseKeyFile)
+	}
+	if circuitType == CompressedPolicyCircuitType {
+		return m.keyPath(CompressedPolicyKeyFile)
+	}
+	if circuitType == CompressedRegisterCircuitType {
+		return m.keyPath(CompressedRegisterKeyFile)
 	}
 	return ""
 }
