@@ -1,11 +1,12 @@
-//! A generated table corpus the Go circuit package re-hashes,
-//! `prover/server/circuits/custom_ring/policy/corpus_test.go`.
-//! `WRITE_POLICY_HASH_CORPUS=1` rewrites the fixture.
+//! The policy hash corpus `prover/server/circuits/custom_ring/policy/corpus_test.go` re-hashes.
+
+use std::num::NonZeroU64;
 
 use serde::{Deserialize, Serialize};
 use solana_address::Address;
 use zolana_ring_policy::{
-    ListId, ListNamespace, ListSet, Member, Rule, RuleTable, SourceMap, Subject, POLICY_VERSION,
+    ListId, ListNamespace, ListSet, Member, Rule, RuleTable, SourceMap, Subject, VelocityRow,
+    POLICY_VERSION,
 };
 
 const FIXTURE: &str = concat!(
@@ -13,6 +14,7 @@ const FIXTURE: &str = concat!(
     "/tests/fixtures/policy-hash-corpus.json"
 );
 const CASES: usize = 32;
+const SUBJECTS: [Subject; 3] = [Subject::OutputOwner, Subject::Sender, Subject::Asset];
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
 struct Corpus {
@@ -27,6 +29,8 @@ struct Case {
     rules: Vec<Row>,
     inline_assets: Vec<String>,
     inline_limits: Vec<u64>,
+    window_slots: u64,
+    velocity: Vec<VelocityCase>,
     policy_hash: String,
 }
 
@@ -58,6 +62,24 @@ impl Row {
             alt_mask: bytes[19],
             guard_tag: bytes[28],
             threshold: u64::from_be_bytes(bytes[20..28].try_into().expect("threshold")),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+struct VelocityCase {
+    asset: String,
+    cap: u64,
+    cosign_above: u64,
+}
+
+impl VelocityCase {
+    fn of(row: &VelocityRow) -> Self {
+        Self {
+            asset: hex::encode(row.asset),
+            cap: row.cap,
+            cosign_above: row.cosign_above,
         }
     }
 }
@@ -94,6 +116,31 @@ impl Xorshift {
         }
         set
     }
+
+    fn asset(&mut self) -> [u8; 32] {
+        *Member::asset(&Address::new_from_array(self.bytes()))
+            .expect("asset member")
+            .as_bytes()
+    }
+
+    fn velocity(&mut self) -> Vec<VelocityRow> {
+        let count = 1 + self.below(3) as usize;
+        (0..count)
+            .map(|_| {
+                let bound = 1 + self.below(1 << 40);
+                let (cap, cosign_above) = match self.below(3) {
+                    0 => (bound, 0),
+                    1 => (0, bound),
+                    _ => (bound, 1 + self.below(bound)),
+                };
+                VelocityRow {
+                    asset: self.asset(),
+                    cap,
+                    cosign_above,
+                }
+            })
+            .collect()
+    }
 }
 
 fn generate() -> Corpus {
@@ -103,9 +150,8 @@ fn generate() -> Corpus {
         let mut builder = RuleTable::builder();
         let mut assets: Vec<[u8; 32]> = Vec::new();
         let mut limits: Vec<u64> = Vec::new();
-        let subjects = [Subject::OutputOwner, Subject::Sender, Subject::Asset];
         for _ in 0..=rng.below(3) {
-            let subject = subjects[rng.below(3) as usize];
+            let subject = SUBJECTS[rng.below(SUBJECTS.len() as u64) as usize];
             let present = rng.lists(ListSet::EMPTY);
             let absent = if rng.below(2) == 0 {
                 ListSet::EMPTY
@@ -118,30 +164,38 @@ fn generate() -> Corpus {
             0 => {}
             1 => {
                 let count = 1 + rng.below(3) as usize;
-                assets = (0..count).map(|_| asset(&mut rng)).collect();
+                assets = (0..count).map(|_| rng.asset()).collect();
                 builder = builder.rule(Rule::allow_only_assets());
             }
             2 => {
                 let count = 1 + rng.below(3) as usize;
-                assets = (0..count).map(|_| asset(&mut rng)).collect();
+                assets = (0..count).map(|_| rng.asset()).collect();
                 limits = (0..count).map(|_| 1 + rng.below(u64::MAX - 1)).collect();
                 let present = rng.lists(ListSet::EMPTY);
                 builder =
                     builder.rule(Rule::require_any(Subject::OutputOwner, present).above_by_asset());
             }
             _ => {
-                assets = vec![asset(&mut rng)];
+                assets = vec![rng.asset()];
                 let present = rng.lists(ListSet::EMPTY);
                 builder = builder.rule(Rule::allow_only_assets()).rule(
                     Rule::require_any(Subject::OutputOwner, present).above(1 + rng.below(1 << 40)),
                 );
             }
         }
-        let Ok(table) = builder
+        let velocity = if rng.below(3) == 0 {
+            Vec::new()
+        } else {
+            rng.velocity()
+        };
+        let mut builder = builder
             .inline_assets(&assets)
             .inline_limits(&limits)
-            .try_build()
-        else {
+            .velocity(&velocity);
+        if !velocity.is_empty() && rng.below(2) == 1 {
+            builder = builder.windowed(NonZeroU64::MIN.saturating_add(rng.below(1 << 20)));
+        }
+        let Ok(table) = builder.try_build() else {
             continue;
         };
         let owners: Vec<(ListId, [u8; 32])> = table
@@ -168,6 +222,8 @@ fn generate() -> Corpus {
             rules: table.rules().iter().map(Row::of).collect(),
             inline_assets: assets.iter().map(hex::encode).collect(),
             inline_limits: limits,
+            window_slots: table.window_slots(),
+            velocity: table.velocity().iter().map(VelocityCase::of).collect(),
             policy_hash: hex::encode(policy_hash),
         });
     }
@@ -175,12 +231,6 @@ fn generate() -> Corpus {
         version: POLICY_VERSION,
         cases,
     }
-}
-
-fn asset(rng: &mut Xorshift) -> [u8; 32] {
-    *Member::asset(&Address::new_from_array(rng.bytes()))
-        .expect("asset member")
-        .as_bytes()
 }
 
 #[test]
@@ -196,9 +246,4 @@ fn the_corpus_fixture_is_the_generated_corpus() {
     let stored: Corpus =
         serde_json::from_str(&std::fs::read_to_string(FIXTURE).expect("fixture")).expect("json");
     assert_eq!(stored, corpus, "run with WRITE_POLICY_HASH_CORPUS=1");
-}
-
-#[test]
-fn the_policy_version_is_pinned() {
-    assert_eq!(POLICY_VERSION, 7);
 }

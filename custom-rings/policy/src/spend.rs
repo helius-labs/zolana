@@ -1,4 +1,6 @@
-//! One spend record per member identity, spent into its successor by the member's own transfer.
+//! One spend record lineage per member.
+
+use core::ops::Range;
 
 use zolana_hasher::{
     hash_chain::create_hash_chain_from_slice, primitives::hash_bytes, Hasher, HasherError,
@@ -6,25 +8,28 @@ use zolana_hasher::{
 };
 
 use crate::{
-    entry::{entry_nullifier, ListNamespace},
-    field_u64, Member, SPEND_ADDRESS_DOMAIN, SPEND_RECORD_DOMAIN,
+    entry::{entry_nullifier, Leaf, ListNamespace},
+    field_u64, open_plaintext, seal_plaintext, Member, RuleTableError, MAX_VELOCITY_ASSETS,
+    PLAINTEXT_ENVELOPE_LEN, SPEND_ADDRESS_DOMAIN, SPEND_RECORD_DOMAIN,
 };
 
-pub use crate::rule_table::MAX_VELOCITY_ASSETS;
+const MEMBER: Range<usize> = 0..32;
+const VERSION: Range<usize> = 32..40;
+const WINDOW: Range<usize> = 40..48;
+const COMMITMENT: Range<usize> = 48..80;
+const BLINDING: Range<usize> = 80..112;
+const SPEND_RECORD_LEN: usize = BLINDING.end;
+const SPEND_RECORD_OUTPUT_DATA_LEN: usize = PLAINTEXT_ENVELOPE_LEN + SPEND_RECORD_LEN;
+const COUNTER_SLOT_LEN: usize = 32 + 8;
+/// The private half a sender keeps.
+pub const SPEND_COUNTERS_LEN: usize = 32 + MAX_VELOCITY_ASSETS * COUNTER_SLOT_LEN;
 
-/// `member(32) || version(8) || window(8) || counters_commitment(32) || blinding(32)`.
-pub const SPEND_RECORD_LEN: usize = 112;
-/// `salt(32) || assets(8 x 32) || spent(8 x 8)`, the private half a sender keeps.
-pub const SPEND_COUNTERS_LEN: usize = 32 + MAX_VELOCITY_ASSETS * 40;
-/// The plaintext envelope byte and the length prefix in front of the record.
-pub const SPEND_RECORD_OUTPUT_DATA_LEN: usize = 5 + SPEND_RECORD_LEN;
-
-/// Public records and encrypted counters have distinct message domains.
+/// Apart from the counters message, tagged by the bare namespace.
 pub fn spend_record_message_tag(namespace: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     Sha256::hashv(&[b"zolana:spend-record:v1", namespace])
 }
 
-/// The ring id field a UTXO inside the ring carries, `hash_bytes` of the program address.
+/// The ring id field a UTXO inside the ring carries.
 pub fn ring_id_field(program_id: &[u8; 32]) -> Result<[u8; 32], HasherError> {
     hash_bytes(program_id)
 }
@@ -41,7 +46,6 @@ impl ListNamespace {
     }
 }
 
-/// The published half of a spend record, the counters stay in the commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendRecord {
     pub member: Member,
@@ -70,43 +74,45 @@ impl SpendRecord {
         address: &[u8; 32],
         tree_id: u16,
     ) -> Result<[u8; 32], HasherError> {
-        owner.leaf_hash(&self.data_hash(address)?, &self.blinding, tree_id)
-    }
-
-    pub fn from_record_bytes(content: &[u8]) -> Option<Self> {
-        let content: &[u8; SPEND_RECORD_LEN] = content.try_into().ok()?;
-        Some(Self {
-            member: Member::from_bytes(content[..32].try_into().ok()?).ok()?,
-            version: u64::from_le_bytes(content[32..40].try_into().ok()?),
-            window: u64::from_le_bytes(content[40..48].try_into().ok()?),
-            counters_commitment: content[48..80].try_into().ok()?,
-            blinding: content[80..112].try_into().ok()?,
-        })
+        owner.leaf_hash(
+            Leaf {
+                data_hash: &self.data_hash(address)?,
+                blinding: &self.blinding,
+            },
+            tree_id,
+        )
     }
 
     pub fn to_output_data(&self) -> [u8; SPEND_RECORD_OUTPUT_DATA_LEN] {
-        let mut content = [0u8; SPEND_RECORD_OUTPUT_DATA_LEN];
-        content[1..5].copy_from_slice(&(SPEND_RECORD_LEN as u32).to_le_bytes());
-        content[5..37].copy_from_slice(self.member.as_bytes());
-        content[37..45].copy_from_slice(&self.version.to_le_bytes());
-        content[45..53].copy_from_slice(&self.window.to_le_bytes());
-        content[53..85].copy_from_slice(&self.counters_commitment);
-        content[85..117].copy_from_slice(&self.blinding);
-        content
+        seal_plaintext(self.record_bytes())
     }
 
     pub fn from_output_data(data: &[u8]) -> Option<Self> {
-        if data.len() != SPEND_RECORD_OUTPUT_DATA_LEN
-            || data[0] != 0
-            || data[1..5] != (SPEND_RECORD_LEN as u32).to_le_bytes()
-        {
-            return None;
-        }
-        Self::from_record_bytes(&data[5..])
+        Self::from_record_bytes(open_plaintext(data, SPEND_RECORD_LEN)?)
+    }
+
+    fn record_bytes(&self) -> [u8; SPEND_RECORD_LEN] {
+        let mut content = [0u8; SPEND_RECORD_LEN];
+        content[MEMBER].copy_from_slice(self.member.as_bytes());
+        content[VERSION].copy_from_slice(&self.version.to_le_bytes());
+        content[WINDOW].copy_from_slice(&self.window.to_le_bytes());
+        content[COMMITMENT].copy_from_slice(&self.counters_commitment);
+        content[BLINDING].copy_from_slice(&self.blinding);
+        content
+    }
+
+    fn from_record_bytes(content: &[u8]) -> Option<Self> {
+        let content: &[u8; SPEND_RECORD_LEN] = content.try_into().ok()?;
+        Some(Self {
+            member: Member::from_bytes(content[MEMBER].try_into().ok()?).ok()?,
+            version: u64::from_le_bytes(content[VERSION].try_into().ok()?),
+            window: u64::from_le_bytes(content[WINDOW].try_into().ok()?),
+            counters_commitment: content[COMMITMENT].try_into().ok()?,
+            blinding: content[BLINDING].try_into().ok()?,
+        })
     }
 }
 
-/// The private half, `commitment = HashChain(salt, asset_0, spent_0, .., asset_7, spent_7)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SpendCounters {
     pub salt: [u8; 32],
@@ -115,17 +121,21 @@ pub struct SpendCounters {
 }
 
 impl SpendCounters {
-    /// Every counter at zero under the zero salt, a registration pins it over no mints.
-    pub fn zero(assets: &[[u8; 32]]) -> Self {
-        let mut counters = Self {
-            salt: [0u8; 32],
-            assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
-            spent: [0; MAX_VELOCITY_ASSETS],
-        };
-        for (slot, asset) in counters.assets.iter_mut().zip(assets) {
-            *slot = *asset;
-        }
+    /// Zero salt, the program recomputes the genesis commitment on chain.
+    pub const EMPTY: Self = Self {
+        salt: [0u8; 32],
+        assets: [[0u8; 32]; MAX_VELOCITY_ASSETS],
+        spent: [0; MAX_VELOCITY_ASSETS],
+    };
+
+    pub fn zero(assets: &[[u8; 32]]) -> Result<Self, RuleTableError> {
+        let mut counters = Self::EMPTY;
         counters
+            .assets
+            .get_mut(..assets.len())
+            .ok_or(RuleTableError::TooManyVelocityAssets)?
+            .copy_from_slice(assets);
+        Ok(counters)
     }
 
     pub fn commitment(&self) -> Result<[u8; 32], HasherError> {
@@ -141,33 +151,39 @@ impl SpendCounters {
     pub fn to_bytes(&self) -> [u8; SPEND_COUNTERS_LEN] {
         let mut bytes = [0u8; SPEND_COUNTERS_LEN];
         bytes[..32].copy_from_slice(&self.salt);
-        for (index, (asset, spent)) in self.assets.iter().zip(self.spent).enumerate() {
-            let at = 32 + index * 40;
-            bytes[at..at + 32].copy_from_slice(asset);
-            bytes[at + 32..at + 40].copy_from_slice(&spent.to_le_bytes());
+        let (slots, _) = bytes[32..].as_chunks_mut::<COUNTER_SLOT_LEN>();
+        for ((slot, asset), spent) in slots.iter_mut().zip(&self.assets).zip(self.spent) {
+            let (asset_bytes, spent_bytes) = slot.split_at_mut(32);
+            asset_bytes.copy_from_slice(asset);
+            spent_bytes.copy_from_slice(&spent.to_le_bytes());
         }
         bytes
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let bytes: &[u8; SPEND_COUNTERS_LEN] = bytes.try_into().ok()?;
-        let mut counters = Self::zero(&[]);
+        let mut counters = Self::EMPTY;
         counters.salt = bytes[..32].try_into().ok()?;
-        for index in 0..MAX_VELOCITY_ASSETS {
-            let at = 32 + index * 40;
-            counters.assets[index] = bytes[at..at + 32].try_into().ok()?;
-            counters.spent[index] = u64::from_le_bytes(bytes[at + 32..at + 40].try_into().ok()?);
+        let (slots, _) = bytes[32..].as_chunks::<COUNTER_SLOT_LEN>();
+        for ((slot, asset), spent) in slots
+            .iter()
+            .zip(&mut counters.assets)
+            .zip(&mut counters.spent)
+        {
+            let (asset_bytes, spent_bytes) = slot.split_first_chunk::<32>()?;
+            *asset = *asset_bytes;
+            *spent = u64::from_le_bytes(spent_bytes.try_into().ok()?);
         }
         Some(counters)
     }
 
-    /// The total spent in `asset`, zero for a mint the record does not carry.
+    /// Every slot naming the mint counts, mirroring the circuit.
     pub fn spent(&self, asset: &[u8; 32]) -> u64 {
         self.assets
             .iter()
             .zip(self.spent)
-            .find(|(known, _)| *known == asset)
-            .map_or(0, |(_, spent)| spent)
+            .filter(|(known, _)| *known == asset)
+            .fold(0, |total, (_, spent)| total.saturating_add(spent))
     }
 }
 
@@ -254,7 +270,7 @@ mod tests {
 
     #[test]
     fn counters_round_trip_through_their_bytes() {
-        let mut counters = SpendCounters::zero(&[[1u8; 32], [2u8; 32]]);
+        let mut counters = SpendCounters::zero(&[[1u8; 32], [2u8; 32]]).unwrap();
         counters.salt = [9u8; 32];
         counters.spent[1] = u64::MAX;
         let bytes = counters.to_bytes();
@@ -263,9 +279,21 @@ mod tests {
     }
 
     #[test]
+    fn counters_take_at_most_the_circuit_width_of_mints() {
+        let eight = [[1u8; 32]; MAX_VELOCITY_ASSETS];
+        assert_eq!(SpendCounters::zero(&eight).unwrap().assets, eight);
+        let nine = [[1u8; 32]; MAX_VELOCITY_ASSETS + 1];
+        assert_eq!(
+            SpendCounters::zero(&nine),
+            Err(RuleTableError::TooManyVelocityAssets)
+        );
+        assert_eq!(SpendCounters::zero(&[]), Ok(SpendCounters::EMPTY));
+    }
+
+    #[test]
     fn counters_commit_to_their_mints_and_the_salt() {
         let assets = [[1u8; 32], [2u8; 32]];
-        let zero = SpendCounters::zero(&assets);
+        let zero = SpendCounters::zero(&assets).unwrap();
         assert_eq!(zero.spent(&[1u8; 32]), 0);
         assert_eq!(zero.assets[2], [0u8; 32]);
         let mut spent = zero;
@@ -279,5 +307,15 @@ mod tests {
         let mut salted = zero;
         salted.salt = [3u8; 32];
         assert_ne!(salted.commitment().unwrap(), zero.commitment().unwrap());
+    }
+
+    #[test]
+    fn a_repeated_mint_sums_every_slot_naming_it() {
+        let mut counters = SpendCounters::zero(&[[1u8; 32], [1u8; 32], [2u8; 32]]).unwrap();
+        counters.spent = [5, 7, 11, 0, 0, 0, 0, 0];
+        assert_eq!(counters.spent(&[1u8; 32]), 12);
+        assert_eq!(counters.spent(&[2u8; 32]), 11);
+        counters.spent[1] = u64::MAX;
+        assert_eq!(counters.spent(&[1u8; 32]), u64::MAX);
     }
 }
