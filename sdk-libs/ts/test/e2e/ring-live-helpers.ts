@@ -12,7 +12,14 @@ import {
 
 import type { ZolanaClient } from "../../src/client/client.js";
 import { compileUnsignedTransaction } from "../../src/flows/compile.js";
-import { ShieldedKeypair, SigningKey, Wallet, syncWallet, type Bytes32 } from "../../src/index.js";
+import {
+  LocalKeys,
+  ShieldedKeypair,
+  SigningKey,
+  Wallet,
+  syncWallet,
+  type Bytes32,
+} from "../../src/index.js";
 import {
   ListId,
   RingListNamespace,
@@ -24,8 +31,6 @@ import {
   type RingRpc,
   messageSignerReader,
 } from "../../src/ring/index.js";
-import { KeypairWalletAuthority } from "../../src/transaction/wallet/authority.js";
-
 import { currentSlot, signSendAndConfirm, waitForSignature, type Actor } from "./live-helpers.js";
 
 export function requiredEnv(name: string): string {
@@ -34,7 +39,7 @@ export function requiredEnv(name: string): string {
   return value;
 }
 
-export async function freshActor(): Promise<Actor> {
+export async function freshActor(client: ZolanaClient): Promise<Actor> {
   const seed = new Uint8Array(32);
   globalThis.crypto.getRandomValues(seed);
   const signer = await createKeyPairSignerFromBytes(
@@ -45,7 +50,7 @@ export async function freshActor(): Promise<Actor> {
     signer,
     keypair,
     wallet: new Wallet({ identity: keypair.shieldedAddress() }),
-    authority: new KeypairWalletAuthority({ solanaPublicKey: signer.address, keypair }),
+    keys: LocalKeys.fromKeypair(keypair, client.proofService),
   };
 }
 
@@ -80,7 +85,7 @@ export async function sync(client: ZolanaClient, actor: Actor): Promise<void> {
   await syncWallet({
     client,
     wallet: actor.wallet,
-    authority: actor.authority,
+    keys: actor.keys,
     config: { requireSlot: await currentSlot(client) },
   });
 }

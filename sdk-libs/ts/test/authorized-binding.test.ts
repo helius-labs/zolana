@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ZolanaClient } from "../src/client/client.js";
 import { ClientError } from "../src/client/error.js";
+import { LocalKeys } from "../src/client/keys.js";
 import {
   AuthorizedPrivateTransaction,
   authorizedPrivateTransactionMaterial,
@@ -11,7 +12,7 @@ import {
 import { treeAddress } from "../src/interface/pda/index.js";
 import { type Bytes32 } from "../src/interface/types.js";
 import { ShieldedKeypair, SigningKey } from "../src/keypair/index.js";
-import { Data, KeypairWalletAuthority, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
+import { Data, SOL_MINT, Utxo, Wallet } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
 import { SppProofInputs } from "../src/transaction/instructions/transact.js";
 import { createProofOutput } from "../src/transaction/utxo.js";
@@ -67,7 +68,10 @@ async function authorize(kind: "transfer" | "withdrawal" | "split") {
   const asset = kind === "withdrawal" ? SPL_MINT : SOL_MINT;
   const wallet = fundedWallet(keypair, asset);
   const feePayer = keypair.shieldedAddress().solanaAddress();
-  const authority = new KeypairWalletAuthority({ solanaPublicKey: feePayer, keypair });
+  const keys = LocalKeys.fromKeypair(keypair, {
+    prove: () => Promise.reject(new Error("prove must not be called")),
+    proveMerge: () => Promise.reject(new Error("proveMerge must not be called")),
+  });
   const transaction =
     kind === "transfer"
       ? (
@@ -90,10 +94,10 @@ async function authorize(kind: "transfer" | "withdrawal" | "split") {
             })
           ).transaction
         : createSplit({ wallet, payer: feePayer, asset, parts: 2 }).transaction;
-  const authorized = await authorizePrivateTransaction(transaction, wallet, authority);
+  const authorized = await authorizePrivateTransaction(transaction, wallet, keys);
   const material = authorizedPrivateTransactionMaterial(authorized);
   if (material === undefined) throw new Error("authorization was not minted");
-  return { authorized, material, feePayer };
+  return { authorized, material, feePayer, keys };
 }
 
 function mismatch(field: string): ClientError {
@@ -180,7 +184,7 @@ describe("authorized transaction binding", () => {
   });
 
   it("rejects a coherent clone before the prover sees it", async () => {
-    const { material, feePayer } = await authorize("transfer");
+    const { material, feePayer, keys } = await authorize("transfer");
     const intent = material.intent;
     if (intent.kind !== "transfer") throw new Error("expected transfer");
     const recipient = ShieldedKeypair.generate().shieldedAddress();
@@ -218,20 +222,21 @@ describe("authorized transaction binding", () => {
     const { client, fetch } = offlineClient();
     await expect(
       Reflect.apply(client.assembleAuthorizedPrivateTransaction, client, [
-        { authorized: counterfeit, feePayer },
+        { authorized: counterfeit, feePayer, keys },
       ]),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_TRANSACTION" });
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it("rejects caller-supplied setup instructions", async () => {
-    const { authorized, feePayer } = await authorize("transfer");
+    const { authorized, feePayer, keys } = await authorize("transfer");
     const { client, fetch } = offlineClient();
     await expect(
       Reflect.apply(client.assembleAuthorizedPrivateTransaction, client, [
         {
           authorized,
           feePayer,
+          keys,
           setupInstructions: [{ programAddress: RING }],
         },
       ]),
@@ -240,21 +245,22 @@ describe("authorized transaction binding", () => {
   });
 
   it("requires assembler fields to be own properties", async () => {
-    const { authorized, feePayer } = await authorize("transfer");
+    const { authorized, feePayer, keys } = await authorize("transfer");
     const { client, fetch } = offlineClient();
     await expect(
       Reflect.apply(client.assembleAuthorizedPrivateTransaction, client, [
-        Object.create({ authorized, feePayer }),
+        Object.create({ authorized, feePayer, keys }),
       ]),
     ).rejects.toMatchObject({ code: "CLIENT_INVALID_TRANSACTION" });
     expect(fetch).not.toHaveBeenCalled();
   });
 
   it("snapshots the public request before asynchronous work", async () => {
-    const { authorized, feePayer } = await authorize("transfer");
+    const { authorized, feePayer, keys } = await authorize("transfer");
     const { client, fetch } = offlineClient();
     let authorizedReads = 0;
     let feePayerReads = 0;
+    let keysReads = 0;
     const request = Object.defineProperties(
       {},
       {
@@ -272,6 +278,13 @@ describe("authorized transaction binding", () => {
             return feePayer;
           },
         },
+        keys: {
+          enumerable: true,
+          get: () => {
+            keysReads += 1;
+            return keys;
+          },
+        },
       },
     );
 
@@ -281,13 +294,25 @@ describe("authorized transaction binding", () => {
     expect(fetch).toHaveBeenCalled();
     expect(authorizedReads).toBe(1);
     expect(feePayerReads).toBe(1);
+    expect(keysReads).toBe(1);
   });
 
-  it("accepts an untouched capability", async () => {
+  it("refuses keys that cannot prove", async () => {
     const { authorized, feePayer } = await authorize("transfer");
     const { client, fetch } = offlineClient();
     await expect(
-      client.assembleAuthorizedPrivateTransaction({ authorized, feePayer }),
+      Reflect.apply(client.assembleAuthorizedPrivateTransaction, client, [
+        { authorized, feePayer, keys: { prove: "not a function" } },
+      ]),
+    ).rejects.toMatchObject({ code: "CLIENT_INVALID_PROOF_AUTHORITY" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts an untouched capability", async () => {
+    const { authorized, feePayer, keys } = await authorize("transfer");
+    const { client, fetch } = offlineClient();
+    await expect(
+      client.assembleAuthorizedPrivateTransaction({ authorized, feePayer, keys }),
     ).rejects.toBeDefined();
     expect(fetch).toHaveBeenCalled();
   });

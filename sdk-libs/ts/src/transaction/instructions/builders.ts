@@ -1,9 +1,12 @@
 import type { Address, Bytes16, Bytes32, OwnerTag } from "../../interface/types.js";
 import { randomBlinding, randomSalt } from "../../keypair/bytes.js";
-import type { NullifierKey } from "../../keypair/nullifier-key.js";
-import { mergeDummyNullifier, mergeOutputBlinding } from "../../keypair/merge/index.js";
+import {
+  mergeDummyNullifier,
+  mergeOutputBlinding,
+  mergePrivateTxBlinding,
+} from "../../keypair/merge/index.js";
 import type { P256PublicKey, ShieldedPublicKey } from "../../keypair/public-key.js";
-import { ShieldedKeypair, type ShieldedAddress } from "../../keypair/shielded.js";
+import type { ShieldedAddress, ShieldedKeypair } from "../../keypair/shielded.js";
 
 import { Data } from "../data.js";
 import { MERGE_INPUT_COUNT } from "../../interface/constants.js";
@@ -47,10 +50,13 @@ export class PreparedMerge {
   readonly output: ProofOutputUtxo;
   readonly expiryUnixTs: bigint;
   readonly signingPublicKey: ShieldedPublicKey;
+  readonly nullifierPublicKey: Bytes32;
   /** The tree every input is spent from. */
   readonly inputTreeId: TreeId;
   /** The tree the merged output is appended to. */
   readonly outputTreeId: TreeId;
+  readonly #dummyNullifiers: readonly Bytes32[];
+  readonly #privateTxBlinding: Bytes32;
 
   constructor(
     input: Readonly<{
@@ -58,6 +64,11 @@ export class PreparedMerge {
       output: ProofOutputUtxo;
       expiryUnixTs: bigint;
       signingPublicKey: ShieldedPublicKey;
+      nullifierPublicKey: Bytes32;
+      /** One per padded slot, in slot order: `mergeDummyNullifier(firstNullifier, slot)`. */
+      dummyNullifiers: readonly Bytes32[];
+      /** `mergePrivateTxBlinding(firstNullifier)`. */
+      privateTxBlinding: Bytes32;
       outputTreeId: TreeId;
     }>,
   ) {
@@ -68,18 +79,42 @@ export class PreparedMerge {
       });
     }
     let sawDummy = false;
+    let dummies = 0;
     input.inputs.forEach((spend, index) => {
       if (spend.isDummy()) {
         sawDummy = true;
+        dummies++;
       } else if (sawDummy) {
         throw new TransactionError("TRANSACTION_DUMMY_INPUT_NOT_ALLOWED", { index });
       }
     });
+    if (input.dummyNullifiers.length !== dummies) {
+      throw new TransactionError("TRANSACTION_INVALID_LENGTH", {
+        field: "dummyNullifiers",
+        expected: dummies,
+        actual: input.dummyNullifiers.length,
+      });
+    }
     this.inputTreeId = singleInputTreeId(input.inputs);
     this.inputs = Object.freeze([...input.inputs]);
     this.output = input.output;
     this.expiryUnixTs = checkedU64(input.expiryUnixTs, "expiryUnixTs");
     this.signingPublicKey = input.signingPublicKey;
+    this.nullifierPublicKey = checked<Bytes32>(
+      input.nullifierPublicKey,
+      32,
+      "nullifier public key",
+    );
+    this.#dummyNullifiers = Object.freeze(
+      input.dummyNullifiers.map((nullifier, index) =>
+        checked<Bytes32>(nullifier, 32, `dummy nullifier ${String(index)}`),
+      ),
+    );
+    this.#privateTxBlinding = checked<Bytes32>(
+      input.privateTxBlinding,
+      32,
+      "merge private tx blinding",
+    );
     this.outputTreeId = checkedTreeId(input.outputTreeId);
   }
 
@@ -92,13 +127,17 @@ export class PreparedMerge {
     return realInputContexts(this.inputs, hasData);
   }
 
-  dummyNullifiers(nullifierKey: NullifierKey): readonly Bytes32[] {
-    const first = this.inputs.find((input) => !input.isDummy());
-    if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
-    const firstNullifier = first.nullifier();
-    return this.inputs.flatMap((input, index) =>
-      input.isDummy() ? [mergeDummyNullifier(nullifierKey, firstNullifier, index)] : [],
-    );
+  dummyNullifiers(): readonly Bytes32[] {
+    return Object.freeze(this.#dummyNullifiers.map((value) => new Uint8Array(value) as Bytes32));
+  }
+
+  privateTxBlinding(): Bytes32 {
+    return new Uint8Array(this.#privateTxBlinding) as Bytes32;
+  }
+
+  /** The slots the padding fills, in order; what `dummyNullifiers` was derived for. */
+  static dummySlots(realInputs: number): readonly number[] {
+    return Array.from({ length: MERGE_INPUTS - realInputs }, (_, offset) => realInputs + offset);
   }
 }
 
@@ -132,19 +171,29 @@ function realInputContexts(
     });
 }
 
+/**
+ * Consolidates up to `MERGE_INPUTS` plain UTXOs of one owner and asset into one.
+ * The output blinding, private-transaction blinding, and padded slots'
+ * nullifiers derive from the nullifier secret; the builder receives them
+ * derived by `ShieldedKeys.derive`.
+ */
 export class Merge {
   #prepared: PreparedMerge;
 
-  /**
-   * Consolidates up to eight inputs of one asset into one output. The output
-   * lands in `outputTreeId`, `DEFAULT_TREE_ID` unless given; mirrors Rust
-   * `Merge::new(.., output_tree_id)`.
-   */
   constructor(
-    identity: ShieldedKeypair | Readonly<{ address: ShieldedAddress; nullifierKey: NullifierKey }>,
-    inputs: readonly ProofInputUtxo[],
-    outputTreeId: TreeId = DEFAULT_TREE_ID,
+    input: Readonly<{
+      address: ShieldedAddress;
+      inputs: readonly ProofInputUtxo[];
+      /** `mergeOutputBlinding(firstNullifier)`. */
+      outputBlinding: Bytes32;
+      /** `mergePrivateTxBlinding(firstNullifier)`. */
+      privateTxBlinding: Bytes32;
+      /** `mergeDummyNullifier(firstNullifier, slot)` for each padded slot. */
+      dummyNullifiers: readonly Bytes32[];
+      outputTreeId?: TreeId;
+    }>,
   ) {
+    const inputs = input.inputs;
     if (inputs.length === 0) throw new TransactionError("TRANSACTION_NO_INPUTS");
     if (inputs.length > MERGE_INPUTS) {
       throw new TransactionError("TRANSACTION_TOO_MANY_INPUTS", {
@@ -152,61 +201,79 @@ export class Merge {
         max: MERGE_INPUTS,
       });
     }
-    const address =
-      identity instanceof ShieldedKeypair ? identity.shieldedAddress() : identity.address;
-    const nullifierKey =
-      identity instanceof ShieldedKeypair ? identity.nullifierKey() : identity.nullifierKey;
+    const address = input.address;
+    const owner = address.signingPublicKey;
+    const firstInput = inputs[0];
+    if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
+    const asset = firstInput.utxo.asset;
+    let amount = 0n;
+    inputs.forEach((spend, index) => {
+      if (spend.utxo.owner.signatureType() !== owner.signatureType()) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
+      }
+      if (!equal(spend.utxo.owner.toBytes(), owner.toBytes())) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
+      }
+      if (!equal(spend.nullifierPublicKey, address.nullifierPublicKey)) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
+      }
+      if (spend.utxo.asset !== asset) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
+      }
+      if (spend.utxo.ringProgramId !== undefined) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
+      }
+      if (!spend.utxo.data.isEmpty() || spend.dataHash || spend.ringDataHash) {
+        throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
+      }
+      amount += spend.utxo.amount;
+      if (amount > 0xffff_ffff_ffff_ffffn) {
+        throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
+      }
+    });
+    const inputTreeId = singleInputTreeId(inputs);
+    const padded = [...inputs];
+    while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, inputTreeId));
+    this.#prepared = new PreparedMerge({
+      inputs: padded,
+      output: createProofOutput({
+        ownerAddress: address,
+        asset,
+        amount,
+        blinding: checked<Bytes32>(input.outputBlinding, 32, "merge output blinding"),
+      }),
+      expiryUnixTs: U64_MAX,
+      signingPublicKey: owner,
+      nullifierPublicKey: address.nullifierPublicKey,
+      dummyNullifiers: input.dummyNullifiers,
+      privateTxBlinding: input.privateTxBlinding,
+      outputTreeId: checkedTreeId(input.outputTreeId ?? DEFAULT_TREE_ID),
+    });
+  }
+
+  /** Keypair rail: derives all nullifier-key values here; the key never leaves this call. */
+  static fromKeypair(
+    keypair: ShieldedKeypair,
+    inputs: readonly ProofInputUtxo[],
+    outputTreeId: TreeId = DEFAULT_TREE_ID,
+  ): Merge {
+    const first = inputs[0];
+    if (!first) throw new TransactionError("TRANSACTION_NO_INPUTS");
+    const firstNullifier = first.nullifier();
+    const nullifierKey = keypair.nullifierKey();
     try {
-      const owner = address.signingPublicKey;
-      const firstInput = inputs[0];
-      if (!firstInput) throw new TransactionError("TRANSACTION_NO_INPUTS");
-      const asset = firstInput.utxo.asset;
-      const nullifierPublicKey = nullifierKey.publicKey();
-      const firstNullifier = firstInput.nullifier();
-      let amount = 0n;
-      inputs.forEach((input, index) => {
-        if (input.utxo.owner.signatureType() !== owner.signatureType()) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_RAIL_MISMATCH", { index });
-        }
-        if (!equal(input.utxo.owner.toBytes(), owner.toBytes())) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_OWNER_MISMATCH", { index });
-        }
-        if (!equal(input.nullifierKey.publicKey(), nullifierPublicKey)) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_NULLIFIER_KEY_MISMATCH", { index });
-        }
-        if (input.utxo.asset !== asset) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_ASSET_MISMATCH", { index });
-        }
-        if (input.utxo.ringProgramId !== undefined) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_RING_MISMATCH", { index });
-        }
-        if (!input.utxo.data.isEmpty() || input.dataHash || input.ringDataHash) {
-          throw new TransactionError("TRANSACTION_MERGE_INPUT_HAS_DATA", { index });
-        }
-        amount += input.utxo.amount;
-        if (amount > 0xffff_ffff_ffff_ffffn) {
-          throw new TransactionError("TRANSACTION_SELECTED_BALANCE_OVERFLOW");
-        }
-      });
-      // Dummies are hashed under the input tree like every real input.
-      const treeId = singleInputTreeId(inputs);
-      const padded = [...inputs];
-      while (padded.length < MERGE_INPUTS) padded.push(ProofInputUtxo.dummy(undefined, treeId));
-      this.#prepared = new PreparedMerge({
-        inputs: padded,
-        output: createProofOutput({
-          ownerAddress: address,
-          asset,
-          amount,
-          blinding: mergeOutputBlinding(nullifierKey, firstNullifier),
-        }),
-        expiryUnixTs: 0xffff_ffff_ffff_ffffn,
-        signingPublicKey: owner,
-        outputTreeId: checkedTreeId(outputTreeId),
+      return new Merge({
+        address: keypair.shieldedAddress(),
+        inputs,
+        outputBlinding: mergeOutputBlinding(nullifierKey, firstNullifier),
+        privateTxBlinding: mergePrivateTxBlinding(nullifierKey, firstNullifier),
+        dummyNullifiers: PreparedMerge.dummySlots(inputs.length).map((slot) =>
+          mergeDummyNullifier(nullifierKey, firstNullifier, slot),
+        ),
+        outputTreeId,
       });
     } finally {
-      // Destroy only the fresh copy, a caller-held key stays the caller's.
-      if (identity instanceof ShieldedKeypair) nullifierKey.destroy();
+      nullifierKey.destroy();
     }
   }
 
@@ -220,6 +287,9 @@ export class Merge {
       output: this.#prepared.output,
       expiryUnixTs: checkedU64(expiryUnixTs, "expiryUnixTs"),
       signingPublicKey: this.#prepared.signingPublicKey,
+      nullifierPublicKey: this.#prepared.nullifierPublicKey,
+      dummyNullifiers: this.#prepared.dummyNullifiers(),
+      privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: this.#prepared.outputTreeId,
     });
     return this;
@@ -232,6 +302,9 @@ export class Merge {
       output: this.#prepared.output,
       expiryUnixTs: this.#prepared.expiryUnixTs,
       signingPublicKey: this.#prepared.signingPublicKey,
+      nullifierPublicKey: this.#prepared.nullifierPublicKey,
+      dummyNullifiers: this.#prepared.dummyNullifiers(),
+      privateTxBlinding: this.#prepared.privateTxBlinding(),
       outputTreeId: checkedTreeId(outputTreeId),
     });
     return this;
@@ -283,7 +356,7 @@ export class ConfidentialSplit {
     if (!equal(input.input.utxo.owner.toBytes(), input.owner.signingPublicKey.toBytes())) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_OWNER_MISMATCH");
     }
-    if (!equal(input.input.nullifierKey.publicKey(), input.owner.nullifierPublicKey)) {
+    if (!equal(input.input.nullifierPublicKey, input.owner.nullifierPublicKey)) {
       throw new TransactionError("TRANSACTION_SPLIT_INPUT_NULLIFIER_KEY_MISMATCH");
     }
     if (input.input.utxo.asset !== input.asset) {
@@ -347,10 +420,9 @@ export class ConfidentialSplit {
   }
 
   /**
-   * Keypair rail: assemble with the owner's own viewing key, seal the bundle at
-   * slot 0, and sign in place. The authority rail is `prepare` plus
-   * `PreparedSplit.finalize`, with encryption and signing delegated to a
-   * `WalletAuthority`.
+   * Keypair shortcut: seal the bundle at slot 0 under the owner's own viewing
+   * key in one step. The keys rail is `prepare`, `encryptSplit` over the key
+   * `ShieldedKeys.transactionKeys` returns, then `PreparedSplit.finalize`.
    */
   sign(keypair: ShieldedKeypair, assets: AssetRegistry): SppProofInputs {
     const prepared = this.prepare();

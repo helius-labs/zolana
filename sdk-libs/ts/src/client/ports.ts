@@ -10,13 +10,12 @@ import type {
   TransactWithdrawal,
   Bytes32,
 } from "../interface/types.js";
-import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { InputUtxoContext, SppProofInputs } from "../transaction/instructions/transact.js";
 import type { TransactionIntent } from "../transaction/wallet/intent.js";
 import { intentHash } from "../transaction/wallet/intent.js";
+import type { ShieldedKeys } from "../transaction/wallet/keys.js";
 import { equal } from "../transaction/internal.js";
 
 import type { LatestBlockhash, SolanaRpc } from "./kit.js";
@@ -24,6 +23,9 @@ import type { ProverHealth } from "./prover/client.js";
 import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
+  MergeInputs,
+  Proof,
+  ProverInputs,
   RingTransactRoots,
   TransferInputs,
 } from "./prover/types.js";
@@ -102,15 +104,45 @@ export interface ProofReader {
   ): Promise<readonly SpendProof[]>;
 }
 
+/**
+ * Proves inputs that are complete. What an in-process `ProofAuthority`
+ * forwards to once it has filled the nullifier secrets in; the prover server
+ * behind `ZolanaClient`.
+ */
+export interface ProofService {
+  prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof>;
+  proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof>;
+}
+
+/**
+ * The one capability that consumes the nullifier secret: completes proof
+ * inputs whose owner it holds the secret for, and proves them. Inputs arrive
+ * with `nullifierSecret` absent on the wallet's own real inputs; dummy slots
+ * carry zero and any other owner's inputs arrive already complete.
+ */
+export interface ProofAuthority {
+  prove(inputs: ProverInputs, context?: RequestContext): Promise<Proof>;
+  proveMerge(inputs: MergeInputs, context?: RequestContext): Promise<Proof>;
+}
+
+/**
+ * Everything a wallet needs of its privacy roles: the derivations
+ * (`ShieldedKeys`) and proving (`ProofAuthority`). `LocalKeys` answers both
+ * in-process; a remote key holder answers both over its own transport.
+ */
+export type WalletKeys = ShieldedKeys & ProofAuthority;
+
 export interface Prover {
   proveTransact(
     proofInputs: SppProofInputs,
+    keys: ProofAuthority,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData>;
   proveRingTransact(
     proofInputs: SppProofInputs,
     ringProgramId: Address,
+    keys: ProofAuthority,
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<ProvenRingTransact>;
@@ -217,11 +249,6 @@ export function authorizedPrivateTransactionMaterial(
   return state.material;
 }
 
-export interface MergeMaterialInput {
-  readonly signingPublicKey: ShieldedPublicKey;
-  readonly nullifierKey: NullifierKey;
-}
-
 export interface ProvedMerge {
   readonly data: MergeTransactInstructionData;
   readonly outputHash: Bytes32;
@@ -238,6 +265,7 @@ export interface TransactionAssembler {
     input: Readonly<{
       authorized: AuthorizedPrivateTransaction;
       feePayer: Address;
+      keys: ProofAuthority;
     }>,
     context?: RequestContext,
   ): Promise<Transaction>;
@@ -247,7 +275,7 @@ export interface MergeAssembler {
   proveMerge(
     input: Readonly<{
       prepared: PreparedMerge;
-      material: MergeMaterialInput;
+      keys: ProofAuthority;
       indexer?: Pick<ProofReader, "getInputMerkleProofs" | "getNonInclusionProofs">;
     }>,
     context?: RequestContext,
