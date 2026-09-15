@@ -5,12 +5,10 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::load_delegate,
-        transact::{verify_and_forward, Gate, Rail},
+        transact::{Rail, TransactControls},
     },
 };
 
-/// `[payer(w,s), config, cosigner_pda, cosigner, delegate_pda, delegate(s)]`
-/// precede the accounts a member transact takes.
 #[inline(never)]
 pub fn process_delegate_transact_ix(
     program_id: &Address,
@@ -31,15 +29,14 @@ pub fn process_delegate_transact_ix(
     if !delegate.is_signer() || delegate.address() != &expected {
         return Err(CustomRingError::UnauthorizedDelegate.into());
     }
-    verify_and_forward(
-        program_id,
-        iter,
-        Gate {
+    Rail::Delegate.verify_and_forward(
+        TransactControls {
+            program_id,
             config_account,
             cosigner_account,
             cosigner,
         },
+        iter,
         data,
-        Rail::Delegate,
     )
 }

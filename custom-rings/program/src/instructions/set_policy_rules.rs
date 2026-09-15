@@ -49,8 +49,6 @@ pub fn process_set_policy_rules_ix(
     }
     .bind()?;
 
-    // Records store a window index, not the duration that produced it, so a
-    // changed window strands every live record.
     if old_window_slots != 0 && bound.rules.window_slots() != old_window_slots {
         return Err(CustomRingError::VelocityWindowImmutable.into());
     }

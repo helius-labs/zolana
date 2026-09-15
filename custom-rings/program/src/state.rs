@@ -1,8 +1,9 @@
 use bytemuck::{from_bytes_mut, Pod};
 use custom_ring_interface::{
-    CoSigner, Delegate, HeadMapRoot, PolicyConfig, SourceSlot, SpendWindow, WithdrawalThreshold,
-    CO_SIGNER, DELEGATE, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT, MAX_CO_SIGNER_THRESHOLDS,
-    N_SOURCE_SLOTS, POLICY_CONFIG, SPEND_WINDOW,
+    CoSigner, Delegate, HeadMapRoot, KeyRegistryRoot, PolicyConfig, SourceSlot, SpendWindow,
+    WithdrawalThresholdRow, CO_SIGNER, DELEGATE, HEAD_MAP_CAPACITY, HEAD_MAP_EMPTY_ROOT,
+    HEAD_MAP_ROOT, KEY_REGISTRY_ROOT, MAX_CO_SIGNER_THRESHOLDS, N_SOURCE_SLOTS, POLICY_CONFIG,
+    SPEND_WINDOW,
 };
 use custom_ring_interface::{
     ReadAccessRecord, ReaderKeyBytes, RingProgramConfig, READER_KEY_ED25519, READER_KEY_P256,
@@ -25,6 +26,7 @@ pub(crate) trait Account: Pod + sealed::Sealed {
     const WRONG_SIZE: CustomRingError;
 
     fn discriminator(&self) -> u8;
+    fn bump(&self) -> u8;
 }
 
 impl Account for RingProgramConfig {
@@ -35,6 +37,10 @@ impl Account for RingProgramConfig {
 
     fn discriminator(&self) -> u8 {
         self.discriminator
+    }
+
+    fn bump(&self) -> u8 {
+        self.bump
     }
 }
 
@@ -113,6 +119,10 @@ impl Account for ReadAccessRecord {
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
 }
 
 pub(crate) struct ReadAccessRecordInitParams {
@@ -143,10 +153,13 @@ impl Account for PolicyConfig {
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
 }
 
-/// Borrows the bound rules and sources so no full `PolicyConfig` lands on the
-/// SBF frame.
+/// Written field by field, a whole `PolicyConfig` exceeds the SBF stack frame.
 pub(crate) struct PolicyConfigInit<'a> {
     pub policy_hash: [u8; 32],
     pub entries_tree: Address,
@@ -161,28 +174,19 @@ pub(crate) struct PolicyConfigInit<'a> {
 
 impl PolicyConfigInit<'_> {
     pub fn write(self, account: &mut AccountView) -> ProgramResult {
-        let mut data = account
-            .try_borrow_mut()
-            .map_err(|_| CustomRingError::PolicyConfigAlreadyInitialized)?;
-        if data.len() != PolicyConfig::SIZE {
-            return Err(CustomRingError::InvalidPolicyConfigPda.into());
-        }
-        if data.first() != Some(&0) {
-            return Err(CustomRingError::PolicyConfigAlreadyInitialized.into());
-        }
-        let config: &mut PolicyConfig = from_bytes_mut(&mut data[..]);
-        config.discriminator = POLICY_CONFIG;
-        config.policy_hash = self.policy_hash;
-        config.entries_tree = self.entries_tree;
-        config.entries_tree_id = self.entries_tree_id.to_le_bytes();
-        config.namespace_bump = self.namespace_bump;
-        config.bump = self.bump;
-        config.namespace_owner_hash = self.namespace_owner_hash;
-        config.sources = *self.sources;
-        config.rules = *self.rules;
-        config.generation = 1u32.to_le_bytes();
-        config.generation_slot = self.generation_slot.to_le_bytes();
-        Ok(())
+        init_account_with(account, |config: &mut PolicyConfig| {
+            config.discriminator = POLICY_CONFIG;
+            config.policy_hash = self.policy_hash;
+            config.entries_tree = self.entries_tree;
+            config.entries_tree_id = self.entries_tree_id.to_le_bytes();
+            config.namespace_bump = self.namespace_bump;
+            config.bump = self.bump;
+            config.namespace_owner_hash = self.namespace_owner_hash;
+            config.sources = *self.sources;
+            config.rules = *self.rules;
+            config.generation = 1u32.to_le_bytes();
+            config.generation_slot = self.generation_slot.to_le_bytes();
+        })
     }
 }
 
@@ -195,12 +199,16 @@ impl Account for CoSigner {
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
 }
 
 pub(crate) struct CoSignerInitParams {
     pub signer: Address,
     pub scope: u8,
-    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub thresholds: [WithdrawalThresholdRow; MAX_CO_SIGNER_THRESHOLDS],
     pub threshold_count: u8,
     pub bump: u8,
 }
@@ -232,6 +240,10 @@ impl Account for Delegate {
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
 }
 
 pub(crate) struct DelegateInitParams {
@@ -262,62 +274,9 @@ impl Account for SpendWindow {
     fn discriminator(&self) -> u8 {
         self.discriminator
     }
-}
 
-impl Account for HeadMapRoot {
-    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
-    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
-    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
-    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidHeadMapRoot;
-
-    fn discriminator(&self) -> u8 {
-        self.discriminator
-    }
-}
-
-pub(crate) struct HeadMapRootInitParams {
-    pub bump: u8,
-}
-
-/// The root update and SPP CPI commit atomically.
-pub(crate) fn advance_head_map_root(
-    account: &mut AccountView,
-    expected_root: &[u8; 32],
-    new_root: [u8; 32],
-    register: bool,
-) -> ProgramResult {
-    let mut data = account.try_borrow_mut()?;
-    if data.len() != HeadMapRoot::SIZE {
-        return Err(CustomRingError::InvalidHeadMapRoot.into());
-    }
-    let state = from_bytes_mut::<HeadMapRoot>(&mut data);
-    if &state.root != expected_root {
-        return Err(CustomRingError::StaleHeadMapRoot.into());
-    }
-    if register {
-        let cursor = state.next_index();
-        if cursor == 0 || cursor >= (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT) {
-            return Err(CustomRingError::InvalidHeadMapCursor.into());
-        }
-        state.next_index = (cursor + 1).to_le_bytes();
-    }
-    state.root = new_root;
-    Ok(())
-}
-
-impl HeadMapRootInitParams {
-    #[inline(always)]
-    pub fn init(self, account: &mut AccountView) -> ProgramResult {
-        // Leaf 0 holds the sentinel, the first registration appends at 1.
-        init_account(
-            account,
-            HeadMapRoot {
-                discriminator: HEAD_MAP_ROOT,
-                root: HEAD_MAP_EMPTY_ROOT,
-                next_index: 1u64.to_le_bytes(),
-                bump: self.bump,
-            },
-        )
+    fn bump(&self) -> u8 {
+        self.bump
     }
 }
 
@@ -351,6 +310,150 @@ impl SpendWindowInitParams {
     }
 }
 
+/// A root over an append-only leaf map, leaf 0 the sentinel, cursor at 1 when fresh.
+pub(crate) trait AppendRoot: Account {
+    const SEED: &'static [u8];
+    const STALE: CustomRingError;
+    const CURSOR: CustomRingError;
+
+    fn sentinel(bump: u8) -> Self;
+    fn root(&self) -> &[u8; 32];
+    fn next_index(&self) -> u64;
+    fn advance_to(&mut self, root: [u8; 32], next_index: u64);
+}
+
+impl Account for HeadMapRoot {
+    const DISCRIMINATOR: u8 = HEAD_MAP_ROOT;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::HeadMapRootAlreadyExists;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidHeadMapRoot;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
+}
+
+impl AppendRoot for HeadMapRoot {
+    const SEED: &'static [u8] = HeadMapRoot::SEED;
+    const STALE: CustomRingError = CustomRingError::StaleHeadMapRoot;
+    const CURSOR: CustomRingError = CustomRingError::InvalidHeadMapCursor;
+
+    fn sentinel(bump: u8) -> Self {
+        Self {
+            discriminator: HEAD_MAP_ROOT,
+            root: HEAD_MAP_EMPTY_ROOT,
+            next_index: 1u64.to_le_bytes(),
+            bump,
+        }
+    }
+
+    fn root(&self) -> &[u8; 32] {
+        &self.root
+    }
+
+    fn next_index(&self) -> u64 {
+        HeadMapRoot::next_index(self)
+    }
+
+    fn advance_to(&mut self, root: [u8; 32], next_index: u64) {
+        self.root = root;
+        self.next_index = next_index.to_le_bytes();
+    }
+}
+
+impl Account for KeyRegistryRoot {
+    const DISCRIMINATOR: u8 = KEY_REGISTRY_ROOT;
+    const NOT_INITIALIZED: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
+    const ALREADY_INITIALIZED: CustomRingError = CustomRingError::KeyRegistryRootAlreadyExists;
+    const WRONG_SIZE: CustomRingError = CustomRingError::InvalidKeyRegistryRoot;
+
+    fn discriminator(&self) -> u8 {
+        self.discriminator
+    }
+
+    fn bump(&self) -> u8 {
+        self.bump
+    }
+}
+
+impl AppendRoot for KeyRegistryRoot {
+    const SEED: &'static [u8] = KeyRegistryRoot::SEED;
+    const STALE: CustomRingError = CustomRingError::StaleKeyRegistryRoot;
+    const CURSOR: CustomRingError = CustomRingError::InvalidKeyRegistryCursor;
+
+    // Same sentinel leaf as the head map, same empty root.
+    fn sentinel(bump: u8) -> Self {
+        Self {
+            discriminator: KEY_REGISTRY_ROOT,
+            root: HEAD_MAP_EMPTY_ROOT,
+            next_index: 1u64.to_le_bytes(),
+            bump,
+        }
+    }
+
+    fn root(&self) -> &[u8; 32] {
+        &self.root
+    }
+
+    fn next_index(&self) -> u64 {
+        KeyRegistryRoot::next_index(self)
+    }
+
+    fn advance_to(&mut self, root: [u8; 32], next_index: u64) {
+        self.root = root;
+        self.next_index = next_index.to_le_bytes();
+    }
+}
+
+pub(crate) struct SentinelRootInit {
+    pub bump: u8,
+}
+
+impl SentinelRootInit {
+    #[inline(always)]
+    pub fn init<T: AppendRoot>(self, account: &mut AccountView) -> ProgramResult {
+        init_account(account, T::sentinel(self.bump))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Advance {
+    Register,
+    Transfer,
+}
+
+/// The root update and the SPP CPI commit atomically.
+#[must_use]
+pub(crate) struct RootTransition<'a> {
+    pub expected_root: &'a [u8; 32],
+    pub new_root: [u8; 32],
+    pub advance: Advance,
+}
+
+impl RootTransition<'_> {
+    pub fn apply<T: AppendRoot>(self, root: &mut T) -> ProgramResult {
+        if root.root() != self.expected_root {
+            return Err(T::STALE.into());
+        }
+        let next_index = match self.advance {
+            Advance::Register => {
+                let cursor = root.next_index();
+                if cursor == 0 || cursor >= HEAD_MAP_CAPACITY {
+                    return Err(T::CURSOR.into());
+                }
+                cursor + 1
+            }
+            Advance::Transfer => root.next_index(),
+        };
+        root.advance_to(self.new_root, next_index);
+        Ok(())
+    }
+}
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for super::RingProgramConfig {}
@@ -360,10 +463,19 @@ mod sealed {
     impl Sealed for super::Delegate {}
     impl Sealed for super::SpendWindow {}
     impl Sealed for super::HeadMapRoot {}
+    impl Sealed for super::KeyRegistryRoot {}
 }
 
 #[inline(always)]
 fn init_account<T: Account>(account: &mut AccountView, value: T) -> ProgramResult {
+    init_account_with(account, |slot: &mut T| *slot = value)
+}
+
+#[inline(always)]
+fn init_account_with<T: Account>(
+    account: &mut AccountView,
+    write: impl FnOnce(&mut T),
+) -> ProgramResult {
     let mut data = account
         .try_borrow_mut()
         .map_err(|_| T::ALREADY_INITIALIZED)?;
@@ -378,6 +490,75 @@ fn init_account<T: Account>(account: &mut AccountView, value: T) -> ProgramResul
         return Err(T::ALREADY_INITIALIZED.into());
     }
     // Length is checked above and each account is align 1, so this cannot panic.
-    *from_bytes_mut::<T>(&mut data[..]) = value;
+    write(from_bytes_mut::<T>(&mut data[..]));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pinocchio::error::ProgramError;
+
+    fn root(root: [u8; 32], next_index: u64) -> KeyRegistryRoot {
+        KeyRegistryRoot {
+            discriminator: KEY_REGISTRY_ROOT,
+            root,
+            next_index: next_index.to_le_bytes(),
+            bump: 254,
+        }
+    }
+
+    fn apply(
+        state: &mut KeyRegistryRoot,
+        expected_root: &[u8; 32],
+        advance: Advance,
+    ) -> ProgramResult {
+        RootTransition {
+            expected_root,
+            new_root: [7u8; 32],
+            advance,
+        }
+        .apply(state)
+    }
+
+    fn custom(error: CustomRingError) -> ProgramError {
+        ProgramError::Custom(error as u32)
+    }
+
+    #[test]
+    fn a_root_that_is_not_the_head_is_refused() {
+        let mut state = root([1u8; 32], 1);
+        assert_eq!(
+            apply(&mut state, &[2u8; 32], Advance::Register),
+            Err(custom(CustomRingError::StaleKeyRegistryRoot))
+        );
+        assert_eq!(state.root, [1u8; 32]);
+    }
+
+    #[test]
+    fn registration_advances_the_cursor_and_publishes_the_successor_root() {
+        let mut state = root([1u8; 32], 5);
+        apply(&mut state, &[1u8; 32], Advance::Register).expect("advance");
+        assert_eq!(state.root, [7u8; 32]);
+        assert_eq!(state.next_index(), 6);
+    }
+
+    #[test]
+    fn a_transfer_publishes_the_root_and_keeps_the_cursor() {
+        let mut state = root([1u8; 32], 5);
+        apply(&mut state, &[1u8; 32], Advance::Transfer).expect("advance");
+        assert_eq!(state.root, [7u8; 32]);
+        assert_eq!(state.next_index(), 5);
+    }
+
+    #[test]
+    fn registration_refuses_an_out_of_bounds_cursor() {
+        for cursor in [0, HEAD_MAP_CAPACITY] {
+            let mut state = root([1u8; 32], cursor);
+            assert_eq!(
+                apply(&mut state, &[1u8; 32], Advance::Register),
+                Err(custom(CustomRingError::InvalidKeyRegistryCursor))
+            );
+        }
+    }
 }

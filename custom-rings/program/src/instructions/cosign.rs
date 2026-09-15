@@ -1,4 +1,4 @@
-use custom_ring_interface::{COSIGN_DEPOSITS, COSIGN_TRANSFERS, COSIGN_WITHDRAWALS};
+use custom_ring_interface::CoSignScope;
 use pinocchio::{error::ProgramError, AccountView, Address};
 
 use crate::{
@@ -6,80 +6,67 @@ use crate::{
     instructions::{loader::load_cosigner, public_legs::PublicLegs},
 };
 
-pub(crate) struct Demand<'a> {
-    pub classes: u8,
+pub(crate) struct CoSignerRequirement<'a> {
+    pub classes: CoSignScope,
     pub legs: PublicLegs<'a>,
 }
 
-impl<'a> Demand<'a> {
+impl<'a> CoSignerRequirement<'a> {
     pub const TRANSFER: Self = Self {
-        classes: COSIGN_TRANSFERS,
+        classes: CoSignScope::TRANSFERS,
         legs: PublicLegs::NONE,
     };
 
     /// A transact is a transfer, each public leg adds its class.
     pub fn transact(legs: PublicLegs<'a>) -> Self {
-        let mut classes = COSIGN_TRANSFERS;
+        let mut classes = CoSignScope::TRANSFERS;
         if legs.has_deposits() {
-            classes |= COSIGN_DEPOSITS;
+            classes = classes | CoSignScope::DEPOSITS;
         }
         if legs.withdrawals().next().is_some() {
-            classes |= COSIGN_WITHDRAWALS;
+            classes = classes | CoSignScope::WITHDRAWALS;
         }
         Self { classes, legs }
     }
 
     pub fn deposit(legs: PublicLegs<'a>) -> Self {
         Self {
-            classes: COSIGN_DEPOSITS,
+            classes: CoSignScope::DEPOSITS,
             legs,
         }
     }
-}
 
-/// No account at the canonical address demands nothing.
-pub(crate) fn require_cosigner(
-    program_id: &Address,
-    cosigner_account: &AccountView,
-    signer: &AccountView,
-    demand: &Demand,
-) -> Result<(), ProgramError> {
-    let Some(cosigner) = load_cosigner(program_id, cosigner_account)? else {
-        return Ok(());
-    };
-    let mut in_scope = cosigner.scope & demand.classes & (COSIGN_TRANSFERS | COSIGN_DEPOSITS) != 0;
-    if !in_scope && cosigner.scope & demand.classes & COSIGN_WITHDRAWALS != 0 {
-        for withdrawal in demand.legs.withdrawals() {
-            let (mint, sum) = withdrawal?;
-            if cosigner.threshold(mint).is_none_or(|limit| sum > limit) {
-                in_scope = true;
-                break;
+    /// No account at the canonical address demands nothing.
+    pub fn demanded_signer(
+        &self,
+        program_id: &Address,
+        cosigner_account: &AccountView,
+    ) -> Result<Option<Address>, ProgramError> {
+        let Some(cosigner) = load_cosigner(program_id, cosigner_account)? else {
+            return Ok(None);
+        };
+        let scope = cosigner.scope();
+        let shared = |class| scope.contains(class) && self.classes.contains(class);
+        let mut in_scope = shared(CoSignScope::TRANSFERS) || shared(CoSignScope::DEPOSITS);
+        if !in_scope && shared(CoSignScope::WITHDRAWALS) {
+            for withdrawal in self.legs.withdrawals() {
+                let (mint, sum) = withdrawal?;
+                if cosigner.threshold(mint).is_none_or(|limit| sum > limit) {
+                    in_scope = true;
+                    break;
+                }
             }
         }
+        Ok(in_scope.then_some(cosigner.signer))
     }
-    if !in_scope {
-        return Ok(());
-    }
-    check_signature(signer, &cosigner.signer)
 }
 
 /// The approval bit demands the co-signer whatever its scope.
-pub(crate) fn require_approval(
+pub(crate) fn approval_signer(
     program_id: &Address,
     cosigner_account: &AccountView,
-    signer: &AccountView,
-) -> Result<(), ProgramError> {
-    let cosigner = load_cosigner(program_id, cosigner_account)?
-        .ok_or(CustomRingError::ApprovalWithoutCoSigner)?;
-    check_signature(signer, &cosigner.signer)
-}
-
-fn check_signature(signer: &AccountView, cosigner: &Address) -> Result<(), ProgramError> {
-    if !signer.is_signer() {
-        return Err(CustomRingError::MissingCoSigner.into());
-    }
-    if signer.address() != cosigner {
-        return Err(CustomRingError::UnauthorizedCoSigner.into());
-    }
-    Ok(())
+) -> Result<Address, ProgramError> {
+    Ok(load_cosigner(program_id, cosigner_account)?
+        .ok_or(CustomRingError::ApprovalWithoutCoSigner)?
+        .signer)
 }

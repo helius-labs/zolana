@@ -1,8 +1,10 @@
-use custom_ring_interface::SpendWindow;
+use core::num::NonZeroU64;
+
+use custom_ring_interface::{FixedWindow, SpendWindow};
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
-    AccountView, Address,
+    AccountView, Address, ProgramResult,
 };
 use zolana_interface::{
     instruction::instruction_data::{
@@ -12,33 +14,53 @@ use zolana_interface::{
     MAX_INTERFACE_TRANSFERS,
 };
 
-use crate::{error::CustomRingError, instructions::loader::load_spend_window};
+use crate::{error::CustomRingError, instructions::loader::load_spend_window_mut};
 
-pub(crate) const SOL: Address = Address::new_from_array([0; 32]);
+const SOL: Address = Address::new_from_array([0; 32]);
 const MAX_LEGS: usize = if MAX_INTERFACE_TRANSFERS > MAX_DEPOSIT_ASSETS {
     MAX_INTERFACE_TRANSFERS
 } else {
     MAX_DEPOSIT_ASSETS
 };
-const _: () = assert!(MAX_LEGS <= u32::BITS as usize);
 
-/// One window slot per leg follows the co-signer prefix, SOL under the zero address.
-pub(crate) struct PublicLegs<'a> {
-    settlements: &'a [AccountView],
-    mint_at: [u8; MAX_LEGS],
-    amounts: [u64; MAX_LEGS],
-    deposits: u32,
-    len: usize,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Direction {
+    Deposit,
+    Withdrawal,
 }
 
-const SOL_LEG: u8 = u8::MAX;
+#[derive(Clone, Copy)]
+enum LegMint {
+    Sol,
+    /// Index of the mint account inside the settlement groups.
+    Settlement(u8),
+}
+
+#[derive(Clone, Copy)]
+struct Leg {
+    mint: LegMint,
+    amount: u64,
+    direction: Direction,
+}
+
+impl Leg {
+    const EMPTY: Self = Self {
+        mint: LegMint::Sol,
+        amount: 0,
+        direction: Direction::Deposit,
+    };
+}
+
+pub(crate) struct PublicLegs<'a> {
+    settlements: &'a [AccountView],
+    legs: [Leg; MAX_LEGS],
+    len: usize,
+}
 
 impl<'a> PublicLegs<'a> {
     pub const NONE: Self = Self {
         settlements: &[],
-        mint_at: [SOL_LEG; MAX_LEGS],
-        amounts: [0; MAX_LEGS],
-        deposits: 0,
+        legs: [Leg::EMPTY; MAX_LEGS],
         len: 0,
     };
 
@@ -60,13 +82,24 @@ impl<'a> PublicLegs<'a> {
             let group = settlements
                 .get(offset..offset + leg.settlement_account_count())
                 .ok_or(CustomRingError::InvalidInstructionData)?;
-            let mint_at = match leg.mint_account_position() {
-                Some(position) => u8::try_from(offset + position)
-                    .map_err(|_| CustomRingError::InvalidInstructionData)?,
-                None => SOL_LEG,
+            let mint = match leg.mint_account_position() {
+                Some(position) => LegMint::Settlement(
+                    u8::try_from(offset + position)
+                        .map_err(|_| CustomRingError::InvalidInstructionData)?,
+                ),
+                None => LegMint::Sol,
             };
             offset += group.len();
-            flows.push(mint_at, leg.amount(), leg.is_deposit());
+            let direction = if leg.is_deposit() {
+                Direction::Deposit
+            } else {
+                Direction::Withdrawal
+            };
+            flows.push(Leg {
+                mint,
+                amount: leg.amount(),
+                direction,
+            });
         }
         Ok(flows)
     }
@@ -86,145 +119,160 @@ impl<'a> PublicLegs<'a> {
         };
         let mut offset = 0usize;
         for kind in &data.assets {
-            let (width, mint_at) = match kind {
-                DepositAssetKind::Sol => (2, SOL_LEG),
+            let (width, mint) = match kind {
+                DepositAssetKind::Sol => (2, LegMint::Sol),
                 DepositAssetKind::Spl { .. } => {
                     let position = offset + 1;
                     if position >= settlements.len() {
                         return Err(CustomRingError::InvalidInstructionData.into());
                     }
-                    (4, position as u8)
+                    let at = u8::try_from(position)
+                        .map_err(|_| CustomRingError::InvalidInstructionData)?;
+                    (4, LegMint::Settlement(at))
                 }
             };
             offset += width;
-            flows.push(mint_at, 0, true);
+            flows.push(Leg {
+                mint,
+                amount: 0,
+                direction: Direction::Deposit,
+            });
         }
         for entry in &data.deposits {
-            let index = usize::from(entry.asset_index);
-            if index >= flows.len {
-                return Err(CustomRingError::InvalidInstructionData.into());
-            }
-            flows.amounts[index] = flows.amounts[index]
+            let leg = flows
+                .legs
+                .get_mut(..flows.len)
+                .and_then(|legs| legs.get_mut(usize::from(entry.asset_index)))
+                .ok_or(CustomRingError::InvalidInstructionData)?;
+            leg.amount = leg
+                .amount
                 .checked_add(entry.amount)
                 .ok_or(ProgramError::ArithmeticOverflow)?;
         }
         Ok(flows)
     }
 
-    fn push(&mut self, mint_at: u8, amount: u64, deposit: bool) {
-        self.mint_at[self.len] = mint_at;
-        self.amounts[self.len] = amount;
-        if deposit {
-            self.deposits |= 1 << self.len;
-        }
-        self.len += 1;
-    }
-
-    fn mint(&self, leg: usize) -> &'a Address {
-        match self.mint_at[leg] {
-            SOL_LEG => &SOL,
-            at => self.settlements[usize::from(at)].address(),
-        }
-    }
-
-    fn is_deposit(&self, leg: usize) -> bool {
-        self.deposits & (1 << leg) != 0
-    }
-
-    fn first_leg(&self, mint: &Address) -> usize {
-        (0..self.len)
-            .find(|leg| self.mint(*leg) == mint)
-            .unwrap_or(self.len)
-    }
-
-    fn earlier_withdrawal(&self, leg: usize) -> bool {
-        (0..leg).any(|earlier| !self.is_deposit(earlier) && self.mint(earlier) == self.mint(leg))
-    }
-
-    fn sum(&self, mint: &Address, deposit: bool) -> Result<u64, ProgramError> {
-        (0..self.len)
-            .filter(|leg| self.mint(*leg) == mint && self.is_deposit(*leg) == deposit)
-            .try_fold(0u64, |sum, leg| sum.checked_add(self.amounts[leg]))
-            .ok_or(ProgramError::ArithmeticOverflow)
-    }
-
     pub fn has_deposits(&self) -> bool {
-        self.deposits != 0
+        self.legs[..self.len]
+            .iter()
+            .any(|leg| leg.direction == Direction::Deposit)
     }
 
     pub fn withdrawals(
         &self,
     ) -> impl Iterator<Item = Result<(&'a Address, u64), ProgramError>> + '_ {
         (0..self.len)
-            .filter(move |leg| !self.is_deposit(*leg) && !self.earlier_withdrawal(*leg))
+            .filter(move |leg| {
+                self.legs[*leg].direction == Direction::Withdrawal && !self.earlier_withdrawal(*leg)
+            })
             .map(move |leg| {
                 let mint = self.mint(leg);
-                self.sum(mint, false).map(|sum| (mint, sum))
+                self.sum(mint, Direction::Withdrawal).map(|sum| (mint, sum))
             })
     }
-}
 
-/// A mint on several legs is counted once, each of its slots names one account.
-#[inline(never)]
-pub(crate) fn apply_spend_windows(
-    program_id: &Address,
-    windows: &mut [AccountView],
-    legs: &PublicLegs,
-) -> Result<(), ProgramError> {
-    for (leg, window) in windows.iter().enumerate() {
-        let first = legs.first_leg(legs.mint(leg));
-        if window.address() != windows[first].address() {
-            return Err(CustomRingError::InvalidSpendWindow.into());
+    /// A mint on several legs is counted once, each of its slots names one account.
+    #[inline(never)]
+    pub fn apply_windows(
+        &self,
+        program_id: &Address,
+        windows: &mut [AccountView],
+    ) -> ProgramResult {
+        for (leg, window) in windows.iter().enumerate() {
+            if window.address() != windows[self.first_leg(leg)].address() {
+                return Err(CustomRingError::InvalidSpendWindow.into());
+            }
+        }
+        let slot = Clock::get()?.slot;
+        for (leg, window) in windows.iter_mut().enumerate() {
+            if self.first_leg(leg) != leg {
+                continue;
+            }
+            let mint = self.mint(leg);
+            let writable = window.is_writable();
+            let Some(mut state) = load_spend_window_mut(program_id, window, mint)? else {
+                continue;
+            };
+            if !writable {
+                return Err(CustomRingError::InvalidSpendWindow.into());
+            }
+            WindowCharge {
+                slot,
+                deposited: self.sum(mint, Direction::Deposit)?,
+                withdrawn: self.sum(mint, Direction::Withdrawal)?,
+            }
+            .apply(&mut state)?;
+        }
+        Ok(())
+    }
+
+    fn push(&mut self, leg: Leg) {
+        self.legs[self.len] = leg;
+        self.len += 1;
+    }
+
+    fn mint(&self, leg: usize) -> &'a Address {
+        match self.legs[leg].mint {
+            LegMint::Sol => &SOL,
+            LegMint::Settlement(at) => self.settlements[usize::from(at)].address(),
         }
     }
-    let slot = Clock::get()?.slot;
-    for (leg, window) in windows.iter_mut().enumerate() {
-        let mint = legs.mint(leg);
-        if legs.first_leg(mint) != leg {
-            continue;
-        }
-        let Some(state) = load_spend_window(program_id, window, mint)?.map(|state| *state) else {
-            continue;
-        };
-        if !window.is_writable() {
-            return Err(CustomRingError::InvalidSpendWindow.into());
-        }
-        let state = advance(state, slot, legs.sum(mint, true)?, legs.sum(mint, false)?)?;
-        let mut data = window.try_borrow_mut()?;
-        *bytemuck::from_bytes_mut::<SpendWindow>(&mut data) = state;
+
+    fn first_leg(&self, leg: usize) -> usize {
+        (0..leg)
+            .find(|earlier| self.mint(*earlier) == self.mint(leg))
+            .unwrap_or(leg)
     }
-    Ok(())
+
+    fn earlier_withdrawal(&self, leg: usize) -> bool {
+        (0..leg).any(|earlier| {
+            self.legs[earlier].direction == Direction::Withdrawal
+                && self.mint(earlier) == self.mint(leg)
+        })
+    }
+
+    fn sum(&self, mint: &Address, direction: Direction) -> Result<u64, ProgramError> {
+        (0..self.len)
+            .filter(|leg| self.mint(*leg) == mint && self.legs[*leg].direction == direction)
+            .try_fold(0u64, |sum, leg| sum.checked_add(self.legs[leg].amount))
+            .ok_or(ProgramError::ArithmeticOverflow)
+    }
 }
 
-fn advance(
-    mut state: SpendWindow,
+/// The whole transaction flow lands before either directional cap is checked.
+#[must_use]
+struct WindowCharge {
     slot: u64,
     deposited: u64,
     withdrawn: u64,
-) -> Result<SpendWindow, ProgramError> {
-    let window_slots = state.window_slots();
-    if window_slots == 0 {
-        return Err(CustomRingError::InvalidSpendWindow.into());
+}
+
+impl WindowCharge {
+    fn apply(self, state: &mut SpendWindow) -> ProgramResult {
+        let window = FixedWindow {
+            slots: NonZeroU64::new(state.window_slots())
+                .ok_or(CustomRingError::InvalidSpendWindow)?,
+        };
+        let start = window.start(self.slot);
+        if start != state.window_start_slot() {
+            state.window_start_slot = start.to_le_bytes();
+            state.deposited = [0; 8];
+            state.withdrawn = [0; 8];
+        }
+        let deposited = state
+            .deposited()
+            .checked_add(self.deposited)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let withdrawn = state
+            .withdrawn()
+            .checked_add(self.withdrawn)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        let capped = |total: u64, cap: u64| cap != 0 && total > cap;
+        if capped(deposited, state.deposit_cap()) || capped(withdrawn, state.withdrawal_cap()) {
+            return Err(CustomRingError::SpendWindowExceeded.into());
+        }
+        state.deposited = deposited.to_le_bytes();
+        state.withdrawn = withdrawn.to_le_bytes();
+        Ok(())
     }
-    let start = slot - slot % window_slots;
-    if start != state.window_start_slot() {
-        state.window_start_slot = start.to_le_bytes();
-        state.deposited = [0; 8];
-        state.withdrawn = [0; 8];
-    }
-    let deposited = state
-        .deposited()
-        .checked_add(deposited)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let withdrawn = state
-        .withdrawn()
-        .checked_add(withdrawn)
-        .ok_or(ProgramError::ArithmeticOverflow)?;
-    let capped = |total: u64, cap: u64| cap != 0 && total > cap;
-    if capped(deposited, state.deposit_cap()) || capped(withdrawn, state.withdrawal_cap()) {
-        return Err(CustomRingError::SpendWindowExceeded.into());
-    }
-    state.deposited = deposited.to_le_bytes();
-    state.withdrawn = withdrawn.to_le_bytes();
-    Ok(state)
 }

@@ -1,11 +1,19 @@
-use bytemuck::from_bytes;
-use custom_ring_interface::{CoSigner, Delegate, HeadMapRoot, PolicyConfig, SpendWindow};
+use bytemuck::{from_bytes, from_bytes_mut};
+use custom_ring_interface::{CoSigner, Delegate, PolicyConfig, SpendWindow, HEAD_MAP_CAPACITY};
 use custom_ring_interface::{ReadAccessRecord, ReaderKeyBytes, RingProgramConfig};
-use pinocchio::{account::Ref, error::ProgramError, AccountView, Address};
+use pinocchio::{
+    account::{Ref, RefMut},
+    error::ProgramError,
+    AccountView, Address,
+};
 use solana_loader_v3_interface::state::UpgradeableLoaderState;
 use zolana_interface::{BPF_LOADER_UPGRADEABLE_ID, SHIELDED_POOL_PROGRAM_ID};
 
-use crate::{error::CustomRingError, instructions::shared::PdaCheck, state::Account};
+use crate::{
+    error::CustomRingError,
+    instructions::shared::PdaCheck,
+    state::{Account, AppendRoot},
+};
 
 /// Loads only the canonical config PDA and stored bump.
 #[inline(always)]
@@ -53,55 +61,91 @@ pub fn load_policy_config<'a>(
     Ok(config)
 }
 
-/// `Ok(None)` for the canonical address with no account, the ring has no co-signer.
+/// `Ok(None)` for the canonical address with no account.
+pub(crate) struct OptionalPda<'a> {
+    pub program_id: &'a Address,
+    pub seeds: &'a [&'a [u8]],
+    pub mismatch: CustomRingError,
+}
+
+impl<'a> OptionalPda<'a> {
+    #[inline(always)]
+    pub fn load<'acc, T: Account>(
+        self,
+        account: &'acc AccountView,
+    ) -> Result<Option<Ref<'acc, T>>, ProgramError> {
+        if account.data_len() == 0 {
+            self.check(account.address()).verify()?;
+            return Ok(None);
+        }
+        let value = load_account::<T>(self.program_id, account)?;
+        self.check(account.address())
+            .verify_stored_bump(value.bump())?;
+        Ok(Some(value))
+    }
+
+    #[inline(always)]
+    pub fn load_mut<'acc, T: Account>(
+        self,
+        account: &'acc mut AccountView,
+    ) -> Result<Option<RefMut<'acc, T>>, ProgramError> {
+        let address = *account.address();
+        if account.data_len() == 0 {
+            self.check(&address).verify()?;
+            return Ok(None);
+        }
+        let value = load_account_mut::<T>(self.program_id, account)?;
+        self.check(&address).verify_stored_bump(value.bump())?;
+        Ok(Some(value))
+    }
+
+    fn check<'b>(&'b self, address: &'b Address) -> PdaCheck<'b> {
+        PdaCheck {
+            program_id: self.program_id,
+            address,
+            seeds: self.seeds,
+            mismatch: self.mismatch,
+        }
+    }
+}
+
 #[inline(always)]
 pub fn load_cosigner<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Option<Ref<'a, CoSigner>>, ProgramError> {
-    if account.data_len() == 0 {
-        PdaCheck {
-            program_id,
-            address: account.address(),
-            seeds: &[CoSigner::SEED],
-            mismatch: CustomRingError::InvalidCoSigner,
-        }
-        .verify()?;
-        return Ok(None);
-    }
-    let cosigner = load_account::<CoSigner>(program_id, account)?;
-    PdaCheck {
+    cosigner_pda(program_id).load(account)
+}
+
+#[inline(always)]
+pub fn load_cosigner_mut<'a>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<Option<RefMut<'a, CoSigner>>, ProgramError> {
+    cosigner_pda(program_id).load_mut(account)
+}
+
+fn cosigner_pda(program_id: &Address) -> OptionalPda<'_> {
+    OptionalPda {
         program_id,
-        address: account.address(),
         seeds: &[CoSigner::SEED],
         mismatch: CustomRingError::InvalidCoSigner,
     }
-    .verify_stored_bump(cosigner.bump)?;
-    Ok(Some(cosigner))
 }
 
-/// `Ok(None)` for the canonical address with no account, the ring has no delegate.
 #[inline(always)]
 pub fn load_delegate<'a>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Option<Ref<'a, Delegate>>, ProgramError> {
-    let check = PdaCheck {
+    OptionalPda {
         program_id,
-        address: account.address(),
         seeds: &[Delegate::SEED],
         mismatch: CustomRingError::InvalidDelegate,
-    };
-    if account.data_len() == 0 {
-        check.verify()?;
-        return Ok(None);
     }
-    let delegate = load_account::<Delegate>(program_id, account)?;
-    check.verify_stored_bump(delegate.bump)?;
-    Ok(Some(delegate))
+    .load(account)
 }
 
-/// `Ok(None)` for the canonical address of `mint` with no account.
 #[inline(always)]
 pub fn load_spend_window<'a>(
     program_id: &Address,
@@ -109,40 +153,53 @@ pub fn load_spend_window<'a>(
     mint: &Address,
 ) -> Result<Option<Ref<'a, SpendWindow>>, ProgramError> {
     let seeds = [SpendWindow::SEED, mint.as_array()];
-    let check = PdaCheck {
-        program_id,
-        address: account.address(),
-        seeds: &seeds,
-        mismatch: CustomRingError::InvalidSpendWindow,
-    };
-    if account.data_len() == 0 {
-        check.verify()?;
-        return Ok(None);
-    }
-    let window = load_account::<SpendWindow>(program_id, account)?;
-    if window.mint != *mint {
-        return Err(CustomRingError::InvalidSpendWindow.into());
-    }
-    check.verify_stored_bump(window.bump)?;
-    Ok(Some(window))
+    let window = spend_window_pda(program_id, &seeds).load::<SpendWindow>(account)?;
+    check_window_mint(window.as_deref(), mint)?;
+    Ok(window)
 }
 
-pub(crate) fn load_head_map_root<'a>(
+#[inline(always)]
+pub fn load_spend_window_mut<'a>(
     program_id: &Address,
-    account: &'a AccountView,
-) -> Result<Ref<'a, HeadMapRoot>, ProgramError> {
-    let root = load_account::<HeadMapRoot>(program_id, account)?;
+    account: &'a mut AccountView,
+    mint: &Address,
+) -> Result<Option<RefMut<'a, SpendWindow>>, ProgramError> {
+    let seeds = [SpendWindow::SEED, mint.as_array()];
+    let window = spend_window_pda(program_id, &seeds).load_mut::<SpendWindow>(account)?;
+    check_window_mint(window.as_deref(), mint)?;
+    Ok(window)
+}
+
+fn spend_window_pda<'a>(program_id: &'a Address, seeds: &'a [&'a [u8]; 2]) -> OptionalPda<'a> {
+    OptionalPda {
+        program_id,
+        seeds,
+        mismatch: CustomRingError::InvalidSpendWindow,
+    }
+}
+
+fn check_window_mint(window: Option<&SpendWindow>, mint: &Address) -> Result<(), ProgramError> {
+    if window.is_some_and(|window| window.mint != *mint) {
+        return Err(CustomRingError::InvalidSpendWindow.into());
+    }
+    Ok(())
+}
+
+pub(crate) fn load_append_root_mut<'a, T: AppendRoot>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, T>, ProgramError> {
+    let address = *account.address();
+    let root = load_account_mut::<T>(program_id, account)?;
     PdaCheck {
         program_id,
-        address: account.address(),
-        seeds: &[HeadMapRoot::SEED],
-        mismatch: CustomRingError::InvalidHeadMapRoot,
+        address: &address,
+        seeds: &[T::SEED],
+        mismatch: T::NOT_INITIALIZED,
     }
-    .verify_stored_bump(root.bump)?;
-    if root.next_index() == 0
-        || root.next_index() > (1u64 << custom_ring_interface::HEAD_MAP_HEIGHT)
-    {
-        return Err(CustomRingError::InvalidHeadMapCursor.into());
+    .verify_stored_bump(root.bump())?;
+    if root.next_index() == 0 || root.next_index() > HEAD_MAP_CAPACITY {
+        return Err(T::CURSOR.into());
     }
     Ok(root)
 }
@@ -245,19 +302,39 @@ fn load_account<'a, T: Account>(
     program_id: &Address,
     account: &'a AccountView,
 ) -> Result<Ref<'a, T>, ProgramError> {
-    if !account.owned_by(program_id) {
-        return Err(T::NOT_INITIALIZED.into());
-    }
+    check_account::<T>(program_id, account)?;
     let data = account.try_borrow().map_err(|_| T::NOT_INITIALIZED)?;
-    if data.len() != T::SIZE {
-        return Err(T::NOT_INITIALIZED.into());
-    }
     // Length is checked above and each account is align 1, so this cannot panic.
     let value = Ref::map(data, |data| from_bytes::<T>(data));
     if value.discriminator() != T::DISCRIMINATOR {
         return Err(T::NOT_INITIALIZED.into());
     }
     Ok(value)
+}
+
+#[inline(always)]
+fn load_account_mut<'a, T: Account>(
+    program_id: &Address,
+    account: &'a mut AccountView,
+) -> Result<RefMut<'a, T>, ProgramError> {
+    check_account::<T>(program_id, account)?;
+    let data = account.try_borrow_mut().map_err(|_| T::NOT_INITIALIZED)?;
+    let value = RefMut::map(data, |data| from_bytes_mut::<T>(data));
+    if value.discriminator() != T::DISCRIMINATOR {
+        return Err(T::NOT_INITIALIZED.into());
+    }
+    Ok(value)
+}
+
+#[inline(always)]
+fn check_account<T: Account>(
+    program_id: &Address,
+    account: &AccountView,
+) -> Result<(), CustomRingError> {
+    if !account.owned_by(program_id) || account.data_len() != T::SIZE {
+        return Err(T::NOT_INITIALIZED);
+    }
+    Ok(())
 }
 
 fn decode_loader_state(data: &[u8]) -> Option<UpgradeableLoaderState> {

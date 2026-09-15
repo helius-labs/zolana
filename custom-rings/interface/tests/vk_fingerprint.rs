@@ -103,3 +103,12 @@ fn delegate_policy_verifying_key_fingerprint_is_pinned() {
         "006e8543f0a8b8c4d143be5bfbde888514f70c711c6bbd69a1711c22bea1c146",
     );
 }
+
+#[test]
+fn register_key_verifying_key_fingerprint_is_pinned() {
+    assert_rail_fingerprint(
+        "register_key_verifying_key",
+        &custom_ring_interface::register_key_verifying_key::VERIFYINGKEY,
+        "00d19fa87f5ef162037f4cccc69d6fbcd969d964a2bb9e06761624a94750bdf0",
+    );
+}

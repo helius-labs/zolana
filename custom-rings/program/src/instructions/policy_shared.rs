@@ -30,7 +30,7 @@ use zolana_program::{TransactExternalData, TransactInputs};
 use zolana_ring_policy::{
     entry_nullifier, mutation_private_tx_hash, spend_record_message_tag, EncodedRuleTable,
     ListEntry, ListId, ListNamespace, ListSet, Member, PolicyHashError, SourceMap, SpendRecord,
-    VelocityRow, Writer, NAMESPACE_PDA_SEED,
+    TableParts, Writer, NAMESPACE_PDA_SEED,
 };
 
 use crate::{
@@ -130,8 +130,7 @@ pub(crate) struct TableBinding<'a> {
 }
 
 impl TableBinding<'_> {
-    /// Boxed so the table stays off the caller's SBF frame, the writer borrows it
-    /// from the heap.
+    /// The bound table must remain off the caller's SBF stack frame.
     #[inline(never)]
     pub fn bind(self) -> Result<Box<BoundTable>, ProgramError> {
         let rules = decode_policy_table(self.table)?;
@@ -207,22 +206,15 @@ pub(crate) fn repin(live: &mut PolicyConfig, repin: Repin<'_>) -> ProgramResult 
 
 #[inline(never)]
 fn decode_policy_table(table: &PolicyTableIxData) -> Result<EncodedRuleTable, CustomRingError> {
-    let velocity: Vec<VelocityRow> = table
-        .velocity
-        .iter()
-        .map(|row| VelocityRow {
-            asset: row.asset,
-            cap: row.cap,
-            cosign_above: row.cosign_above,
-        })
-        .collect();
-    EncodedRuleTable::from_parts_with_velocity(
-        &table.rules,
-        &table.inline_assets,
-        &table.inline_limits,
-        table.window_slots,
-        &velocity,
-    )
+    let velocity: Vec<_> = table.velocity.iter().map(Into::into).collect();
+    TableParts {
+        rows: &table.rules,
+        inline_assets: &table.inline_assets,
+        inline_limits: &table.inline_limits,
+        window_slots: table.window_slots,
+        velocity: &velocity,
+    }
+    .encode()
     .and_then(|encoded| encoded.decode().map(|_| encoded))
     .map_err(|_| CustomRingError::InvalidPolicyRules)
 }
@@ -433,43 +425,57 @@ impl NamespaceWrite<'_> {
     }
 }
 
-pub(crate) fn verify_spend_record_output(
-    output: &TransactOutput,
-    messages: &[MessageData],
-    owner: &ListNamespace,
-    namespace_address: &Address,
-    tree_id: u16,
-) -> Result<(), ProgramError> {
-    if output.owner_tag != OwnerTag::Inline(namespace_address.to_bytes()) {
-        return Err(CustomRingError::InvalidSpendRecord.into());
+/// The namespace every spend record of the ring is addressed under.
+pub(crate) struct RecordNamespace {
+    pub owner: ListNamespace,
+    pub address: Address,
+    pub tree_id: u16,
+}
+
+/// The last output of a windowed transfer plus the messages carrying its plaintext.
+pub(crate) struct SpendRecordCarrier<'a> {
+    pub output: &'a TransactOutput,
+    pub messages: &'a [MessageData],
+}
+
+impl SpendRecordCarrier<'_> {
+    pub fn verify(&self, namespace: &RecordNamespace) -> Result<(), ProgramError> {
+        if self.output.owner_tag != OwnerTag::Inline(namespace.address.to_bytes()) {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        if self
+            .output
+            .data
+            .as_deref()
+            .and_then(confidential_encrypted_output_body)
+            .is_none()
+        {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        let tag = spend_record_message_tag(namespace.address.as_array())
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        let mut tagged = self
+            .messages
+            .iter()
+            .filter(|message| message.view_tag == tag);
+        let message = tagged.next().ok_or(CustomRingError::InvalidSpendRecord)?;
+        if tagged.next().is_some() {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        let record = SpendRecord::from_output_data(&message.data)
+            .ok_or(CustomRingError::InvalidSpendRecord)?;
+        let address = namespace
+            .owner
+            .spend_address(&record.member, namespace.tree_id)
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        let leaf = record
+            .utxo_hash(&namespace.owner, &address, namespace.tree_id)
+            .map_err(|_| CustomRingError::HashingFailed)?;
+        if leaf != self.output.utxo_hash {
+            return Err(CustomRingError::InvalidSpendRecord.into());
+        }
+        Ok(())
     }
-    if output
-        .data
-        .as_deref()
-        .and_then(confidential_encrypted_output_body)
-        .is_none()
-    {
-        return Err(CustomRingError::InvalidSpendRecord.into());
-    }
-    let tag = spend_record_message_tag(namespace_address.as_array())
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    let mut tagged = messages.iter().filter(|message| message.view_tag == tag);
-    let message = tagged.next().ok_or(CustomRingError::InvalidSpendRecord)?;
-    if tagged.next().is_some() {
-        return Err(CustomRingError::InvalidSpendRecord.into());
-    }
-    let record =
-        SpendRecord::from_output_data(&message.data).ok_or(CustomRingError::InvalidSpendRecord)?;
-    let address = owner
-        .spend_address(&record.member, tree_id)
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    let leaf = record
-        .utxo_hash(owner, &address, tree_id)
-        .map_err(|_| CustomRingError::HashingFailed)?;
-    if leaf != output.utxo_hash {
-        return Err(CustomRingError::InvalidSpendRecord.into());
-    }
-    Ok(())
 }
 
 pub(crate) fn entry_spend_input(

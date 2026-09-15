@@ -115,7 +115,6 @@ fn a_tenth_account_on_a_mutation_is_rejected_exactly() {
     fixture.expect_err(&mollusk, ProgramError::InvalidArgument);
 }
 
-/// Zero is the inline-asset sentinel, nine is past the last list.
 #[test]
 fn a_list_byte_outside_the_lists_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

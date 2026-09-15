@@ -1,3 +1,5 @@
+use core::{num::NonZeroU64, ops::BitOr};
+
 use bytemuck::{Pod, Zeroable};
 use solana_address::Address;
 use zolana_hasher::{sha256::Sha256, Hasher, HasherError};
@@ -62,24 +64,53 @@ pub const CO_SIGNER_PDA_SEED: &[u8] = b"cosigner";
 pub const CO_SIGNER: u8 = 4;
 pub const MAX_CO_SIGNER_THRESHOLDS: usize = 8;
 
-/// Scope bits of [`CoSigner`], a transact is always a transfer and a public
-/// leg adds its class.
-pub const COSIGN_TRANSFERS: u8 = 1;
-pub const COSIGN_DEPOSITS: u8 = 2;
-pub const COSIGN_WITHDRAWALS: u8 = 4;
-pub const COSIGN_SCOPE_MASK: u8 = COSIGN_TRANSFERS | COSIGN_DEPOSITS | COSIGN_WITHDRAWALS;
+/// Nonzero subset of the class bits.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CoSignScope(u8);
 
-/// Withdrawals of `mint` in one transaction summed above `amount` need the
-/// co-signer, a withdrawn mint without a row always does.
+impl CoSignScope {
+    pub const TRANSFERS: Self = Self(1);
+    pub const DEPOSITS: Self = Self(2);
+    pub const WITHDRAWALS: Self = Self(4);
+    pub const ALL: Self = Self(Self::TRANSFERS.0 | Self::DEPOSITS.0 | Self::WITHDRAWALS.0);
+
+    pub const fn new(bits: u8) -> Option<Self> {
+        if bits == 0 || bits & !Self::ALL.0 != 0 {
+            return None;
+        }
+        Some(Self(bits))
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+}
+
+impl BitOr for CoSignScope {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+
+/// Summed per transaction, exceeding it needs the co-signer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
-pub struct WithdrawalThreshold {
+pub struct WithdrawalThresholdRow {
     pub mint: Address,
     /// Little endian.
     pub amount: [u8; 8],
 }
 
-/// The ring's optional second signature, absent account means no requirement.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct CoSigner {
@@ -87,11 +118,11 @@ pub struct CoSigner {
     pub signer: Address,
     pub scope: u8,
     pub threshold_count: u8,
-    pub thresholds: [WithdrawalThreshold; MAX_CO_SIGNER_THRESHOLDS],
+    pub thresholds: [WithdrawalThresholdRow; MAX_CO_SIGNER_THRESHOLDS],
     pub bump: u8,
 }
 
-impl WithdrawalThreshold {
+impl WithdrawalThresholdRow {
     pub const fn amount(&self) -> u64 {
         u64::from_le_bytes(self.amount)
     }
@@ -101,15 +132,19 @@ impl CoSigner {
     pub const SEED: &'static [u8] = CO_SIGNER_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    pub fn thresholds(&self) -> &[WithdrawalThreshold] {
-        &self.thresholds[..usize::from(self.threshold_count).min(MAX_CO_SIGNER_THRESHOLDS)]
+    pub const fn scope(&self) -> CoSignScope {
+        CoSignScope(self.scope)
+    }
+
+    pub fn thresholds(&self) -> &[WithdrawalThresholdRow] {
+        &self.thresholds[..usize::from(self.threshold_count)]
     }
 
     pub fn threshold(&self, mint: &Address) -> Option<u64> {
         self.thresholds()
             .iter()
             .find(|row| &row.mint == mint)
-            .map(WithdrawalThreshold::amount)
+            .map(WithdrawalThresholdRow::amount)
     }
 }
 
@@ -120,7 +155,7 @@ pub const DELEGATE_PDA_SEED: &[u8] = b"delegate";
 /// First byte of an initialized delegate account.
 pub const DELEGATE: u8 = 6;
 
-/// The key that moves notes between members on the authority rail, set once.
+/// Permanent once set.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct Delegate {
@@ -137,16 +172,10 @@ impl Delegate {
 const _: () = assert!(Delegate::SIZE == 34);
 const _: () = assert!(core::mem::align_of::<Delegate>() == 1);
 
-/// Reserved and never reused.
-pub const SPEND_RECORD_HEAD_PDA_SEED: &[u8] = b"record";
-pub const SPEND_RECORD_HEAD: u8 = 7;
-
 pub const HEAD_MAP_ROOT_PDA_SEED: &[u8] = b"headmap";
 /// First byte of an initialized head map root account.
 pub const HEAD_MAP_ROOT: u8 = 8;
 
-/// A ring's compressed spend-record head map, the tree lives off chain and only
-/// the root and the append cursor advance on chain.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct HeadMapRoot {
@@ -161,11 +190,7 @@ impl HeadMapRoot {
     pub const SEED: &'static [u8] = HEAD_MAP_ROOT_PDA_SEED;
     pub const SIZE: usize = core::mem::size_of::<Self>();
 
-    pub const fn root(&self) -> &[u8; 32] {
-        &self.root
-    }
-
-    pub fn next_index(&self) -> u64 {
+    pub const fn next_index(&self) -> u64 {
         u64::from_le_bytes(self.next_index)
     }
 }
@@ -179,12 +204,36 @@ pub const HEAD_MAP_EMPTY_ROOT: [u8; 32] = [
     161, 56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
 ];
 
+pub const KEY_REGISTRY_ROOT_PDA_SEED: &[u8] = b"keyreg";
+/// First byte of an initialized key registry root account.
+pub const KEY_REGISTRY_ROOT: u8 = 9;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
+#[repr(C)]
+pub struct KeyRegistryRoot {
+    pub discriminator: u8,
+    pub root: [u8; 32],
+    /// Little endian, the next free leaf index a registration appends at.
+    pub next_index: [u8; 8],
+    pub bump: u8,
+}
+
+impl KeyRegistryRoot {
+    pub const SEED: &'static [u8] = KEY_REGISTRY_ROOT_PDA_SEED;
+    pub const SIZE: usize = core::mem::size_of::<Self>();
+
+    pub const fn next_index(&self) -> u64 {
+        u64::from_le_bytes(self.next_index)
+    }
+}
+
+const _: () = assert!(KeyRegistryRoot::SIZE == 42);
+const _: () = assert!(core::mem::align_of::<KeyRegistryRoot>() == 1);
+
 pub const SPEND_WINDOW_PDA_SEED: &[u8] = b"window";
 /// First byte of an initialized spend window.
 pub const SPEND_WINDOW: u8 = 5;
 
-/// Caps per fixed window of slots, a zero cap leaves its direction uncapped,
-/// integers little endian.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Pod, Zeroable)]
 #[repr(C)]
 pub struct SpendWindow {
@@ -232,6 +281,22 @@ impl SpendWindow {
 
 const _: () = assert!(SpendWindow::SIZE == 82);
 const _: () = assert!(core::mem::align_of::<SpendWindow>() == 1);
+
+/// Windows start at multiples of `slots`, the counters reset at each start.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FixedWindow {
+    pub slots: NonZeroU64,
+}
+
+impl FixedWindow {
+    pub const fn start(self, slot: u64) -> u64 {
+        slot - slot % self.slots.get()
+    }
+
+    pub const fn index(self, slot: u64) -> u64 {
+        slot / self.slots.get()
+    }
+}
 
 /// Seed of the account pinning the policy hash and the source map.
 pub const POLICY_CONFIG_PDA_SEED: &[u8] = b"policy";

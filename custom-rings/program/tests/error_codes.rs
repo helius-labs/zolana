@@ -58,17 +58,17 @@ fn error_codes_are_stable() {
         (InvalidDelegate as u32, 8154),
         (VelocityDepositLeg as u32, 8155),
         (InvalidSpendRecord as u32, 8156),
-        (DelegateOnVelocityRing as u32, 8157),
         (ApprovalWithoutCoSigner as u32, 8158),
         (VelocityDisabled as u32, 8159),
-        (InvalidSpendRecordHead as u32, 8160),
-        (SpendRecordUnregistered as u32, 8161),
-        (SpendRecordHeadMismatch as u32, 8162),
-        (SpendRecordAlreadyRegistered as u32, 8163),
         (VelocityWindowImmutable as u32, 8164),
         (InvalidHeadMapRoot as u32, 8165),
         (StaleHeadMapRoot as u32, 8166),
         (InvalidHeadMapCursor as u32, 8167),
+        (InvalidKeyRegistryRoot as u32, 8168),
+        (StaleKeyRegistryRoot as u32, 8169),
+        (InvalidKeyRegistryCursor as u32, 8170),
+        (HeadMapRootAlreadyExists as u32, 8171),
+        (KeyRegistryRootAlreadyExists as u32, 8172),
     ];
     for (got, want) in table {
         assert_eq!(got, want, "error code drifted");
@@ -134,16 +134,16 @@ fn every_variant_is_pinned(error: custom_ring_program::CustomRingError) {
         | InvalidDelegate
         | VelocityDepositLeg
         | InvalidSpendRecord
-        | DelegateOnVelocityRing
         | ApprovalWithoutCoSigner
         | VelocityDisabled
-        | InvalidSpendRecordHead
-        | SpendRecordUnregistered
-        | SpendRecordHeadMismatch
-        | SpendRecordAlreadyRegistered
         | VelocityWindowImmutable
         | InvalidHeadMapRoot
         | StaleHeadMapRoot
-        | InvalidHeadMapCursor => {}
+        | InvalidHeadMapCursor
+        | InvalidKeyRegistryRoot
+        | StaleKeyRegistryRoot
+        | InvalidKeyRegistryCursor
+        | HeadMapRootAlreadyExists
+        | KeyRegistryRootAlreadyExists => {}
     }
 }

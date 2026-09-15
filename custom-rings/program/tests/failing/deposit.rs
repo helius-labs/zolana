@@ -47,8 +47,8 @@ fn oversized_account_list_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = deposit_fixture();
     let mut filler = 100u8;
-    // The config, co-signer and window slots stay behind, only the rest forwards.
-    while fixture.instruction().accounts.len() - 4 <= MAX_CPI_ACCOUNTS {
+    let forwarded = fixture.position("tree");
+    while fixture.instruction().accounts.len() - forwarded <= MAX_CPI_ACCOUNTS {
         filler += 1;
         fixture.push(Slot {
             label: "filler",
@@ -66,8 +66,6 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
     mollusk.add_program(&spp_id, "spp_recorder_program");
     let mut fixture = deposit_fixture();
     let metas = fixture.instruction().accounts.clone();
-    // The co-signer prefix and the window slots stay behind, SPP receives the
-    // list from the tree onward.
     let tree_key = fixture.account_key("tree");
     let forwarded = metas
         .iter()
@@ -100,7 +98,6 @@ fn the_forward_raises_only_ring_auth_to_a_signer() {
 #[test]
 fn a_windowed_deposit_off_the_entries_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    // The default tree is foreign to the policy's entries tree.
     policy_deposit_fixture(velocity_policy_config_account())
         .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
 }

@@ -1,29 +1,17 @@
-//! The compressed head-map root account.
+//! Pins canonical root initialization and forbids resetting an advanced map.
 
 use custom_ring_interface::{HeadMapRoot, HEAD_MAP_EMPTY_ROOT, HEAD_MAP_ROOT};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::{InstructionResult, ProgramResult};
-use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 
 use crate::common::{
-    account, create_head_map_root_fixture, head_map_root_account, head_map_root_pda, program_id,
-    setup_mollusk,
+    account, create_head_map_root_fixture, custom, head_map_root_account, head_map_root_pda,
+    setup_mollusk, stored,
 };
 
-fn custom(error: CustomRingError) -> ProgramError {
-    ProgramError::Custom(error as u32)
-}
-
-fn stored(result: &InstructionResult) -> HeadMapRoot {
-    let written = result
-        .resulting_accounts
-        .iter()
-        .find(|(key, _)| key == &head_map_root_pda().0)
-        .map(|(_, account)| account.clone())
-        .expect("head map root in result");
-    assert_eq!(written.owner, program_id());
-    *bytemuck::from_bytes::<HeadMapRoot>(&written.data)
+fn stored_root(result: &InstructionResult) -> HeadMapRoot {
+    stored(result, head_map_root_pda().0)
 }
 
 #[test]
@@ -32,9 +20,9 @@ fn create_head_map_root_writes_the_empty_root_at_the_canonical_bump() {
     let fixture = create_head_map_root_fixture(None);
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
-    let written = stored(&result);
+    let written = stored_root(&result);
     assert_eq!(written.discriminator, HEAD_MAP_ROOT);
-    assert_eq!(*written.root(), HEAD_MAP_EMPTY_ROOT);
+    assert_eq!(written.root, HEAD_MAP_EMPTY_ROOT);
     assert_eq!(written.next_index(), 1);
     assert_eq!(written.bump, head_map_root_pda().1);
 }
@@ -69,8 +57,8 @@ fn prefunding_the_empty_root_pda_does_not_prevent_initialization() {
     let fixture = create_head_map_root_fixture(Some(account(1_000_000)));
     let result = mollusk.process_instruction(fixture.instruction(), fixture.accounts());
     assert_eq!(result.program_result, ProgramResult::Success);
-    assert_eq!(stored(&result).root, HEAD_MAP_EMPTY_ROOT);
-    assert_eq!(stored(&result).next_index(), 1);
+    assert_eq!(stored_root(&result).root, HEAD_MAP_EMPTY_ROOT);
+    assert_eq!(stored_root(&result).next_index(), 1);
 }
 
 #[test]
@@ -78,5 +66,13 @@ fn authority_cannot_reinitialize_an_advanced_root() {
     let (mollusk, _) = setup_mollusk();
     let advanced = head_map_root_account([0x11; 32], 19);
     let fixture = create_head_map_root_fixture(Some(advanced));
-    fixture.expect_err(&mollusk, ProgramError::Custom(0));
+    fixture.expect_err(&mollusk, custom(CustomRingError::HeadMapRootAlreadyExists));
+}
+
+#[test]
+fn create_head_map_root_with_trailing_data_is_rejected_exactly() {
+    let (mollusk, _) = setup_mollusk();
+    let mut fixture = create_head_map_root_fixture(None);
+    fixture.push_data(0);
+    fixture.expect_err(&mollusk, custom(CustomRingError::InvalidInstructionData));
 }

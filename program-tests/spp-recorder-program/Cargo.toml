@@ -22,5 +22,5 @@ pinocchio = { workspace = true }
 level = "allow"
 check-cfg = [
     'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+    'cfg(feature, values("no-entrypoint"))',
 ]

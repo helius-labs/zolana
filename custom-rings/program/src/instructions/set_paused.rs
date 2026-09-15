@@ -7,7 +7,7 @@ use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_authorized_config, validate_spp_program},
-        shared::cpi_spp_signed,
+        shared::{cpi_spp_signed, SppSigners},
     },
 };
 
@@ -41,6 +41,6 @@ pub fn process_set_paused_ix(
         program_id,
         &[&*ring_auth, &*ring_auth],
         &instruction_data,
-        None,
+        SppSigners::RingAuth,
     )
 }

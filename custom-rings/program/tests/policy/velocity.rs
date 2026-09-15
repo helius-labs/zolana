@@ -1,11 +1,11 @@
-//! The velocity transact contract and the record registration, refused before the proof or the CPI.
+//! Pins compressed velocity validation before proof verification or SPP execution.
 
 use custom_ring_interface::{
-    tag, CustomRingTransactIxData, HeadMapTransition, COSIGN_DEPOSITS, HEAD_MAP_EMPTY_ROOT,
+    tag, CoSignScope, CustomRingTransactIxData, HeadMapTransition, HEAD_MAP_CAPACITY,
+    HEAD_MAP_EMPTY_ROOT,
 };
 use custom_ring_program::CustomRingError;
 use solana_instruction::AccountMeta;
-use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{
@@ -16,25 +16,19 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, auditor_pubkey, authority, cosigner_account, entries_tree, head_map_root_account,
-    head_map_root_slot, initialized_config_account, initialized_policy_config_account,
-    namespace_pda, payer, policy_delegate_transact_fixture, register_spend_fixture, setup_mollusk,
-    spend_record_output, transact_fixture, uninitialized_head_account,
-    velocity_policy_config_account, window_slot, Fixture, Slot,
+    account, auditor_pubkey, authority, cosigner_account, custom, entries_tree,
+    head_map_root_account, head_map_root_slot, initialized_config_account,
+    initialized_policy_config_account, namespace_pda, payer, policy_delegate_transact_fixture,
+    register_spend_fixture, setup_mollusk, spend_record_output, transact_fixture,
+    uninitialized_head_map_root_account, velocity_policy_config_account, window_slot, Fixture,
+    Slot,
 };
 use crate::transact::{body, confidential_output, transact_data};
 
-fn custom(error: CustomRingError) -> ProgramError {
-    ProgramError::Custom(error as u32)
-}
-
-/// The record output's member, keys the head and its spend address.
 const RECORD_MEMBER_TAG: [u8; 32] = [61u8; 32];
-/// The nullifier the registered head pins, the record input carries it.
 const SPENT_RECORD_NULLIFIER: [u8; 32] = [0x5eu8; 32];
 
-/// The record input the transfer spends, then the sender's money output, then
-/// the successor record.
+/// Synthetic openings exercise program validation without a valid policy proof.
 fn velocity_transact() -> TransactIxData {
     let mut content = transact_data();
     content.circuit = CircuitId::RingEddsa(2, 2, N_PUBLIC_SLOTS as u8);
@@ -57,18 +51,16 @@ fn velocity_transact() -> TransactIxData {
     content
 }
 
-/// Both SPP trees are the entries tree, the record lives there, the sender's
-/// head pins the spent record.
 fn velocity_fixture(approval_required: u8, transact: TransactIxData) -> Fixture {
-    registered_velocity_fixture(approval_required, transact, || {
+    velocity_fixture_with_root(approval_required, transact, || {
         head_map_root_account(HEAD_MAP_EMPTY_ROOT, 1)
     })
 }
 
-fn registered_velocity_fixture(
+fn velocity_fixture_with_root(
     approval_required: u8,
     transact: TransactIxData,
-    head: impl FnOnce() -> solana_account::Account,
+    root_account: impl FnOnce() -> solana_account::Account,
 ) -> Fixture {
     let mut fixture = transact_fixture(
         initialized_config_account(authority(), auditor_pubkey(2)),
@@ -88,12 +80,10 @@ fn registered_velocity_fixture(
         &wincode::serialize(&decoded).expect("body"),
     ]
     .concat();
-    fixture.insert(6, head_map_root_slot(head()));
+    fixture.insert(6, head_map_root_slot(root_account()));
     fixture
 }
 
-/// The spent record on the sender's head chain clears the boundary and reaches
-/// the proof.
 #[test]
 fn a_velocity_transfer_reaches_the_proof() {
     let (mollusk, _) = setup_mollusk();
@@ -101,19 +91,17 @@ fn a_velocity_transfer_reaches_the_proof() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// No head means no registered record, the transfer cannot spend one.
 #[test]
 fn an_uninitialized_map_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    registered_velocity_fixture(0, velocity_transact(), uninitialized_head_account)
+    velocity_fixture_with_root(0, velocity_transact(), uninitialized_head_map_root_account)
         .expect_err(&mollusk, custom(CustomRingError::InvalidHeadMapRoot));
 }
 
-/// A forged record whose nullifier is not the head's cannot reset the meter.
 #[test]
 fn a_stale_head_map_is_rejected_before_the_proof() {
     let (mollusk, _) = setup_mollusk();
-    registered_velocity_fixture(0, velocity_transact(), || {
+    velocity_fixture_with_root(0, velocity_transact(), || {
         head_map_root_account([0x11u8; 32], 1)
     })
     .expect_err(&mollusk, custom(CustomRingError::StaleHeadMapRoot));
@@ -175,7 +163,6 @@ fn a_record_carrier_cannot_hide_its_default_ring_owner() {
     velocity_fixture(0, masked).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
-/// Without the record slot there is nothing to charge.
 #[test]
 fn a_transfer_without_a_record_output_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
@@ -184,14 +171,13 @@ fn a_transfer_without_a_record_output_is_rejected_exactly() {
     velocity_fixture(0, content).expect_err(&mollusk, custom(CustomRingError::InvalidSpendRecord));
 }
 
-/// A deposit leg would let inflow exceed the record's inputs.
 #[test]
 fn a_deposit_leg_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut content = velocity_transact();
     content.interface_transfers = vec![InterfaceTransfer::SolDeposit { amount: 5 }];
     let mut fixture = velocity_fixture(0, content);
-    fixture.insert(7, window_slot(Pubkey::new_from_array([0; 32]), None));
+    fixture.insert_windows(vec![window_slot(Pubkey::new_from_array([0; 32]), None)]);
     for byte in [53u8, 54] {
         fixture.push(Slot {
             label: "settlement",
@@ -218,7 +204,7 @@ fn the_delegate_rail_is_velocity_exempt_and_reaches_its_own_proof() {
     fixture.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// The approval bit demands a configured co-signer whatever its scope.
+/// Approval overrides the configured operation scope.
 #[test]
 fn an_approval_needs_the_configured_cosigner() {
     let (mollusk, _) = setup_mollusk();
@@ -226,22 +212,21 @@ fn an_approval_needs_the_configured_cosigner() {
         .expect_err(&mollusk, custom(CustomRingError::ApprovalWithoutCoSigner));
 
     let mut unsigned = velocity_fixture(1, velocity_transact());
-    unsigned.set_account("cosigner_pda", cosigner_account(COSIGN_DEPOSITS, &[]));
+    unsigned.set_account("cosigner_pda", cosigner_account(CoSignScope::DEPOSITS, &[]));
     unsigned.expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 
     let mut signed = velocity_fixture(1, velocity_transact());
-    signed.set_account("cosigner_pda", cosigner_account(COSIGN_DEPOSITS, &[]));
+    signed.set_account("cosigner_pda", cosigner_account(CoSignScope::DEPOSITS, &[]));
     signed.sign("cosigner");
     signed.expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 
     let mut impostor = velocity_fixture(1, velocity_transact());
-    impostor.set_account("cosigner_pda", cosigner_account(COSIGN_DEPOSITS, &[]));
+    impostor.set_account("cosigner_pda", cosigner_account(CoSignScope::DEPOSITS, &[]));
     impostor.substitute("cosigner", Pubkey::new_from_array([39; 32]));
     impostor.sign("cosigner");
     impostor.expect_err(&mollusk, custom(CustomRingError::UnauthorizedCoSigner));
 }
 
-/// The bit is a velocity statement, a plain policy ring cannot carry it.
 #[test]
 fn an_approval_outside_velocity_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
@@ -268,7 +253,6 @@ fn register_spend_requires_the_head_insertion_proof() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// A member registers once, a second registration cannot reset the head.
 #[test]
 fn register_spend_refuses_a_stale_registration_root() {
     let (mollusk, _) = setup_mollusk();
@@ -280,7 +264,7 @@ fn register_spend_refuses_a_stale_registration_root() {
 #[test]
 fn register_spend_requires_the_live_append_cursor() {
     let (mollusk, _) = setup_mollusk();
-    for cursor in [0, 2, 1u64 << custom_ring_interface::HEAD_MAP_HEIGHT] {
+    for cursor in [0, 2, HEAD_MAP_CAPACITY] {
         let mut fixture = register_spend_fixture(velocity_policy_config_account(), payer());
         fixture.set_account(
             "head_map_root",

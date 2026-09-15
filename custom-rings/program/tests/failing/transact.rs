@@ -6,7 +6,9 @@
 //! real BSB22 verifier against the committed verifying key, which is what proves
 //! the recomputed public-input hash path is reached.
 
-use custom_ring_interface::{tag, CustomRingProof, CustomRingTransactIxData, AUDITOR_MESSAGE_LEN};
+use custom_ring_interface::{
+    tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, AUDITOR_MESSAGE_LEN,
+};
 use custom_ring_program::CustomRingError;
 use solana_account::Account;
 use solana_program_error::ProgramError;
@@ -88,9 +90,11 @@ pub(crate) fn transact(messages: Vec<MessageData>) -> TransactIxData {
 /// on, which exercises the BSB22 commitment path itself.
 pub(crate) fn bogus_proof() -> CustomRingProof {
     CustomRingProof {
-        proof_a: [0; 32],
-        proof_b: [0; 64],
-        proof_c: [0; 32],
+        groth16: PlainGroth16Proof {
+            proof_a: [0; 32],
+            proof_b: [0; 64],
+            proof_c: [0; 32],
+        },
         commitment: [0xFF; 32],
         commitment_pok: [0xFF; 32],
     }
@@ -426,9 +430,11 @@ fn zeroed_proof_is_rejected_exactly() {
         valid_config(),
         instruction_data(
             CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0; 32],
                 commitment_pok: [0; 32],
             },

@@ -6,9 +6,8 @@ use zolana_hasher::{
 
 /// Matches the circuit height and the on-chain tree.
 pub const HEAD_MAP_HEIGHT: usize = 40;
+pub const HEAD_MAP_CAPACITY: u64 = 1 << HEAD_MAP_HEIGHT;
 
-/// The register proof's single public input, the program recomputes it from the
-/// member and genesis it authorizes and the on-chain append cursor.
 pub struct CompressedRegisterPublicInput<'a> {
     pub head_old_root: &'a [u8; 32],
     pub head_new_root: &'a [u8; 32],
@@ -18,8 +17,7 @@ pub struct CompressedRegisterPublicInput<'a> {
 }
 
 impl CompressedRegisterPublicInput<'_> {
-    /// `HashChain([head_old_root, head_new_root, member, genesis, new_index])`,
-    /// mirroring the circuit element for element.
+    /// The field order must match the registration circuit.
     pub fn hash(&self) -> Result<[u8; 32], HasherError> {
         create_hash_chain_from_slice(&[
             *self.head_old_root,
@@ -32,7 +30,7 @@ impl CompressedRegisterPublicInput<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HeadMapError {
+pub enum HeadMapVerifyError {
     Hashing,
     ProofLength,
     OutOfRange,
@@ -40,33 +38,56 @@ pub enum HeadMapError {
     SlotOccupied,
 }
 
-/// Leaf preimage binding a member to its successor pointer and current nullifier.
-pub fn head_map_leaf(
-    member: &[u8; 32],
-    next: &[u8; 32],
-    nullifier: &[u8; 32],
-) -> Result<[u8; 32], HasherError> {
-    Poseidon::hashv(&[member, next, nullifier])
-}
-
-fn root_from_proof(
-    leaf: [u8; 32],
-    mut index: u64,
-    proof: &[[u8; 32]],
-) -> Result<[u8; 32], HasherError> {
-    let mut node = leaf;
-    for sibling in proof {
-        node = if index & 1 == 0 {
-            Poseidon::hashv(&[&node[..], &sibling[..]])?
-        } else {
-            Poseidon::hashv(&[&sibling[..], &node[..]])?
-        };
-        index >>= 1;
+impl From<HasherError> for HeadMapVerifyError {
+    fn from(_: HasherError) -> Self {
+        Self::Hashing
     }
-    Ok(node)
 }
 
-/// Inserts a member off a client-supplied low element and empty append slot.
+pub struct HeadMapLeaf<'a> {
+    pub member: &'a [u8; 32],
+    pub next: &'a [u8; 32],
+    pub nullifier: &'a [u8; 32],
+}
+
+impl HeadMapLeaf<'_> {
+    pub fn hash(&self) -> Result<[u8; 32], HasherError> {
+        Poseidon::hashv(&[self.member, self.next, self.nullifier])
+    }
+}
+
+pub struct MerklePath<'a> {
+    pub index: u64,
+    pub siblings: &'a [[u8; 32]],
+}
+
+impl MerklePath<'_> {
+    pub fn root_of(&self, leaf: [u8; 32]) -> Result<[u8; 32], HeadMapVerifyError> {
+        self.check()?;
+        let mut index = self.index;
+        let mut node = leaf;
+        for sibling in self.siblings {
+            node = if index & 1 == 0 {
+                Poseidon::hashv(&[&node[..], &sibling[..]])?
+            } else {
+                Poseidon::hashv(&[&sibling[..], &node[..]])?
+            };
+            index >>= 1;
+        }
+        Ok(node)
+    }
+
+    fn check(&self) -> Result<(), HeadMapVerifyError> {
+        if self.siblings.len() != HEAD_MAP_HEIGHT {
+            return Err(HeadMapVerifyError::ProofLength);
+        }
+        if self.index >= HEAD_MAP_CAPACITY {
+            return Err(HeadMapVerifyError::OutOfRange);
+        }
+        Ok(())
+    }
+}
+
 pub struct HeadMapInsert<'a> {
     pub root: &'a [u8; 32],
     pub append_index: u64,
@@ -81,16 +102,21 @@ pub struct HeadMapInsert<'a> {
 }
 
 impl HeadMapInsert<'_> {
-    /// The advanced root, or the first check the witness fails.
-    pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
-        if self.low_proof.len() != HEAD_MAP_HEIGHT || self.new_proof.len() != HEAD_MAP_HEIGHT {
-            return Err(HeadMapError::ProofLength);
-        }
-        if self.low_index >= (1u64 << HEAD_MAP_HEIGHT)
-            || self.append_index == 0
-            || self.append_index >= (1u64 << HEAD_MAP_HEIGHT)
-        {
-            return Err(HeadMapError::OutOfRange);
+    /// `root` is not checked against chain state.
+    pub fn verify(&self) -> Result<[u8; 32], HeadMapVerifyError> {
+        let low_path = MerklePath {
+            index: self.low_index,
+            siblings: self.low_proof,
+        };
+        let new_path = MerklePath {
+            index: self.append_index,
+            siblings: self.new_proof,
+        };
+        low_path.check()?;
+        new_path.check()?;
+        // Slot 0 is the sentinel.
+        if self.append_index == 0 {
+            return Err(HeadMapVerifyError::OutOfRange);
         }
         if [
             self.root,
@@ -105,47 +131,41 @@ impl HeadMapInsert<'_> {
         .chain(self.new_proof)
         .any(|field| !is_canonical_bn254_scalar_be(field))
         {
-            return Err(HeadMapError::OutOfRange);
+            return Err(HeadMapVerifyError::OutOfRange);
         }
-        // Strict order proves the member absent between the low element and its successor.
         if !(self.low_member < self.member && self.member < self.low_next) {
-            return Err(HeadMapError::OutOfRange);
+            return Err(HeadMapVerifyError::OutOfRange);
         }
-        let low_old = self.leaf(self.low_member, self.low_next, self.low_nullifier)?;
-        if &self.reduce(low_old, self.low_index, self.low_proof)? != self.root {
-            return Err(HeadMapError::RootMismatch);
+        let low_old = HeadMapLeaf {
+            member: self.low_member,
+            next: self.low_next,
+            nullifier: self.low_nullifier,
         }
-        let low_new = self.leaf(self.low_member, self.member, self.low_nullifier)?;
-        let spliced = self.reduce(low_new, self.low_index, self.low_proof)?;
-        // A non-empty append slot would overwrite a live member.
+        .hash()?;
+        if &low_path.root_of(low_old)? != self.root {
+            return Err(HeadMapVerifyError::RootMismatch);
+        }
+        let low_new = HeadMapLeaf {
+            member: self.low_member,
+            next: self.member,
+            nullifier: self.low_nullifier,
+        }
+        .hash()?;
+        let spliced = low_path.root_of(low_new)?;
         let empty = Poseidon::zero_bytes()[0];
-        if self.reduce(empty, self.append_index, self.new_proof)? != spliced {
-            return Err(HeadMapError::SlotOccupied);
+        if new_path.root_of(empty)? != spliced {
+            return Err(HeadMapVerifyError::SlotOccupied);
         }
-        let member_leaf = self.leaf(self.member, self.low_next, self.genesis)?;
-        self.reduce(member_leaf, self.append_index, self.new_proof)
-    }
-
-    fn leaf(
-        &self,
-        member: &[u8; 32],
-        next: &[u8; 32],
-        nullifier: &[u8; 32],
-    ) -> Result<[u8; 32], HeadMapError> {
-        head_map_leaf(member, next, nullifier).map_err(|_| HeadMapError::Hashing)
-    }
-
-    fn reduce(
-        &self,
-        leaf: [u8; 32],
-        index: u64,
-        proof: &[[u8; 32]],
-    ) -> Result<[u8; 32], HeadMapError> {
-        root_from_proof(leaf, index, proof).map_err(|_| HeadMapError::Hashing)
+        let member_leaf = HeadMapLeaf {
+            member: self.member,
+            next: self.low_next,
+            nullifier: self.genesis,
+        }
+        .hash()?;
+        new_path.root_of(member_leaf)
     }
 }
 
-/// Advances a member's leaf from `spent` to `successor`, the successor pointer fixed.
 pub struct HeadMapTransfer<'a> {
     pub root: &'a [u8; 32],
     pub member: &'a [u8; 32],
@@ -157,15 +177,15 @@ pub struct HeadMapTransfer<'a> {
 }
 
 impl HeadMapTransfer<'_> {
-    /// The advanced root, or the first check the witness fails.
-    pub fn verify(&self) -> Result<[u8; 32], HeadMapError> {
-        if self.proof.len() != HEAD_MAP_HEIGHT {
-            return Err(HeadMapError::ProofLength);
-        }
-        if self.index == 0 || self.index >= (1u64 << HEAD_MAP_HEIGHT) {
-            return Err(HeadMapError::OutOfRange);
-        }
-        if self.member == &[0u8; 32]
+    /// `root` is not checked against chain state.
+    pub fn verify(&self) -> Result<[u8; 32], HeadMapVerifyError> {
+        let path = MerklePath {
+            index: self.index,
+            siblings: self.proof,
+        };
+        path.check()?;
+        if self.index == 0
+            || self.member == &[0u8; 32]
             || self.member >= self.next
             || [
                 self.root,
@@ -178,17 +198,23 @@ impl HeadMapTransfer<'_> {
             .chain(self.proof)
             .any(|field| !is_canonical_bn254_scalar_be(field))
         {
-            return Err(HeadMapError::OutOfRange);
+            return Err(HeadMapVerifyError::OutOfRange);
         }
-        let spent =
-            head_map_leaf(self.member, self.next, self.spent).map_err(|_| HeadMapError::Hashing)?;
-        if &root_from_proof(spent, self.index, self.proof).map_err(|_| HeadMapError::Hashing)?
-            != self.root
-        {
-            return Err(HeadMapError::RootMismatch);
+        let spent = HeadMapLeaf {
+            member: self.member,
+            next: self.next,
+            nullifier: self.spent,
         }
-        let successor = head_map_leaf(self.member, self.next, self.successor)
-            .map_err(|_| HeadMapError::Hashing)?;
-        root_from_proof(successor, self.index, self.proof).map_err(|_| HeadMapError::Hashing)
+        .hash()?;
+        if &path.root_of(spent)? != self.root {
+            return Err(HeadMapVerifyError::RootMismatch);
+        }
+        let successor = HeadMapLeaf {
+            member: self.member,
+            next: self.next,
+            nullifier: self.successor,
+        }
+        .hash()?;
+        path.root_of(successor)
     }
 }

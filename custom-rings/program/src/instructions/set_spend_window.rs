@@ -1,6 +1,7 @@
-use custom_ring_interface::{SetSpendWindowIxData, SpendWindow};
+use core::num::NonZeroU64;
+
+use custom_ring_interface::{FixedWindow, SetSpendWindowIxData, SpendWindow};
 use pinocchio::{
-    cpi::{Seed, Signer},
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
@@ -9,8 +10,8 @@ use zolana_account_checks::AccountIterator;
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_authorized_config, load_spend_window},
-        shared::PdaCheck,
+        loader::{load_authorized_config, load_spend_window_mut},
+        shared::PdaCreate,
     },
     state::SpendWindowInitParams,
 };
@@ -28,9 +29,9 @@ pub fn process_set_spend_window_ix(
         deposit_cap,
         withdrawal_cap,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    if window_slots == 0 {
-        return Err(CustomRingError::InvalidSpendWindow.into());
-    }
+    let window = FixedWindow {
+        slots: NonZeroU64::new(window_slots).ok_or(CustomRingError::InvalidSpendWindow)?,
+    };
 
     let mut iter = AccountIterator::new(accounts);
     let payer = iter.next_signer_mut("payer")?;
@@ -45,41 +46,25 @@ pub fn process_set_spend_window_ix(
     load_authorized_config(program_id, config_account, authority)?;
 
     let mint = Address::new_from_array(mint);
-    let slot = Clock::get()?.slot;
-    let existing = load_spend_window(program_id, window_account, &mint)?.map(|window| window.bump);
+    let window_start_slot = window.start(Clock::get()?.slot);
     let params = |bump| SpendWindowInitParams {
         mint,
         window_slots,
         deposit_cap,
         withdrawal_cap,
-        window_start_slot: slot - slot % window_slots,
+        window_start_slot,
         bump,
     };
-    if let Some(bump) = existing {
-        let mut data = window_account.try_borrow_mut()?;
-        *bytemuck::from_bytes_mut::<SpendWindow>(&mut data) = params(bump).value();
+    if let Some(mut existing) = load_spend_window_mut(program_id, window_account, &mint)? {
+        *existing = params(existing.bump).value();
         return Ok(());
     }
-    let bump = PdaCheck {
+    let bump = PdaCreate {
         program_id,
-        address: window_account.address(),
+        payer,
         seeds: &[SpendWindow::SEED, mint.as_array()],
         mismatch: CustomRingError::InvalidSpendWindow,
     }
-    .verify()?;
-    let bump_seed = [bump];
-    let seeds = [
-        Seed::from(SpendWindow::SEED),
-        Seed::from(mint.as_array().as_ref()),
-        Seed::from(bump_seed.as_ref()),
-    ];
-    pinocchio_system::create_account_with_minimum_balance_signed(
-        window_account,
-        SpendWindow::SIZE,
-        program_id,
-        payer,
-        None,
-        &[Signer::from(seeds.as_ref())],
-    )?;
+    .create::<SpendWindow>(window_account)?;
     params(bump).init(window_account)
 }

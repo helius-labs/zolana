@@ -1,10 +1,9 @@
-//! The permanent delegate and the authority rail it unlocks.
+//! Pins permanent delegate authorization and transfer confinement.
 
-use custom_ring_interface::{tag, Delegate, AUDITOR_MESSAGE_LEN, COSIGN_TRANSFERS, DELEGATE};
+use custom_ring_interface::{tag, CoSignScope, Delegate, AUDITOR_MESSAGE_LEN, DELEGATE};
 use custom_ring_program::CustomRingError;
 use mollusk_svm::result::ProgramResult;
 use pinocchio::Address;
-use solana_program_error::ProgramError;
 use solana_pubkey::Pubkey;
 use zolana_interface::{
     instruction::{CircuitId, InterfaceTransfer},
@@ -12,16 +11,12 @@ use zolana_interface::{
 };
 
 use crate::common::{
-    account, audit_only_config_account, auditor_pubkey, authority, cosigner_account, delegate,
-    delegate_account, delegate_pda, delegate_transact_fixture, initialized_config_account,
-    policy_delegate_transact_fixture, program_id, set_delegate_data, set_delegate_fixture,
-    setup_mollusk, Fixture,
+    account, audit_only_config_account, auditor_pubkey, authority, cosigner_account, custom,
+    delegate, delegate_account, delegate_pda, delegate_transact_fixture,
+    initialized_config_account, policy_delegate_transact_fixture, program_id, set_delegate_data,
+    set_delegate_fixture, setup_mollusk, Fixture,
 };
 use crate::transact::{auditor_message, bogus_proof, instruction_data, transact};
-
-fn custom(error: CustomRingError) -> ProgramError {
-    ProgramError::Custom(error as u32)
-}
 
 #[test]
 fn set_delegate_creates_the_account_at_the_canonical_bump() {
@@ -88,7 +83,7 @@ fn set_delegate_with_malformed_data_is_rejected_exactly() {
         .expect_err(&mollusk, custom(CustomRingError::InvalidDelegate));
 }
 
-/// Wire-valid authority rail content under the delegate tag.
+/// Authority context reaches program checks before the deliberately invalid proof.
 fn delegate_move(legs: Vec<InterfaceTransfer>) -> Fixture {
     let mut content = transact(vec![auditor_message(AUDITOR_MESSAGE_LEN)]);
     content.circuit = CircuitId::RingAuthority(2, 2, N_PUBLIC_SLOTS as u8);
@@ -108,7 +103,6 @@ fn a_delegate_move_reaches_the_proof() {
         .expect_err(&mollusk, custom(CustomRingError::ProofVerificationFailed));
 }
 
-/// The policy accounts follow the delegate slots.
 #[test]
 fn a_policy_ring_delegate_move_reaches_the_policy_proof() {
     let (mollusk, _) = setup_mollusk();
@@ -203,6 +197,9 @@ fn a_delegate_move_still_needs_the_auditor_message() {
 fn a_transfer_scoped_cosigner_gates_the_delegate_move() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = delegate_move(Vec::new());
-    fixture.set_account("cosigner_pda", cosigner_account(COSIGN_TRANSFERS, &[]));
+    fixture.set_account(
+        "cosigner_pda",
+        cosigner_account(CoSignScope::TRANSFERS, &[]),
+    );
     fixture.expect_err(&mollusk, custom(CustomRingError::MissingCoSigner));
 }

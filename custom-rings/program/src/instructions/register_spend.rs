@@ -1,9 +1,14 @@
-use custom_ring_interface::{CompressedRegisterPublicInput, RegisterSpendIxData, HEAD_MAP_HEIGHT};
+use core::num::NonZeroU64;
+
+use custom_ring_interface::{
+    CompressedRegisterPublicInput, FixedWindow, HeadMapRoot, RegisterSpendIxData, HEAD_MAP_CAPACITY,
+};
 use pinocchio::{
     error::ProgramError,
     sysvars::{clock::Clock, Sysvar},
     AccountView, Address, ProgramResult,
 };
+use zolana_account_checks::checks::check_mut;
 use zolana_interface::instruction::instruction_data::transact::{InputUtxo, TreeContext};
 use zolana_program::TransactInputs;
 use zolana_ring_policy::{entry_nullifier, Member, SpendCounters, SpendRecord};
@@ -11,11 +16,11 @@ use zolana_ring_policy::{entry_nullifier, Member, SpendCounters, SpendRecord};
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::load_head_map_root,
+        loader::load_append_root_mut,
         policy_shared::{cpi_spp_namespace_signed, MutationAccounts, NamespaceWrite},
         verifier::verify_plain_groth16,
     },
-    state::advance_head_map_root,
+    state::{Advance, RootTransition},
 };
 
 #[inline(never)]
@@ -29,23 +34,17 @@ pub fn process_register_spend_ix(
     let (head_account, mutation) = accounts
         .split_last_mut()
         .ok_or(ProgramError::NotEnoughAccountKeys)?;
-    if !head_account.is_writable() {
-        return Err(ProgramError::InvalidAccountData);
-    }
+    check_mut(head_account)?;
     let parsed = MutationAccounts::validate_and_parse(program_id, mutation)?;
-    if parsed.window_slots == 0 {
-        return Err(CustomRingError::VelocityDisabled.into());
+    let window = FixedWindow {
+        slots: NonZeroU64::new(parsed.window_slots).ok_or(CustomRingError::VelocityDisabled)?,
+    };
+    let mut head = load_append_root_mut::<HeadMapRoot>(program_id, head_account)?;
+    if head.root != ix.head_old_root {
+        return Err(CustomRingError::StaleHeadMapRoot.into());
     }
-    {
-        let head = load_head_map_root(program_id, head_account)?;
-        if head.root != ix.head_old_root {
-            return Err(CustomRingError::StaleHeadMapRoot.into());
-        }
-        if head.next_index() != ix.head_next_index
-            || ix.head_next_index >= (1u64 << HEAD_MAP_HEIGHT)
-        {
-            return Err(CustomRingError::InvalidHeadMapCursor.into());
-        }
+    if head.next_index() != ix.head_next_index || ix.head_next_index >= HEAD_MAP_CAPACITY {
+        return Err(CustomRingError::InvalidHeadMapCursor.into());
     }
     let member = Member::owner_tag(parsed.payer.address().as_array())
         .map_err(|_| CustomRingError::HashingFailed)?;
@@ -56,8 +55,8 @@ pub fn process_register_spend_ix(
     let record = SpendRecord {
         member,
         version: 0,
-        window: Clock::get()?.slot / parsed.window_slots,
-        counters_commitment: SpendCounters::zero(&[])
+        window: window.index(Clock::get()?.slot),
+        counters_commitment: SpendCounters::EMPTY
             .commitment()
             .map_err(|_| CustomRingError::HashingFailed)?,
         blinding: ix.blinding,
@@ -81,7 +80,13 @@ pub fn process_register_spend_ix(
         public_input,
         &custom_ring_interface::compressed_register_verifying_key::VERIFYINGKEY,
     )?;
-    advance_head_map_root(head_account, &ix.head_old_root, ix.head_new_root, true)?;
+    RootTransition {
+        expected_root: &ix.head_old_root,
+        new_root: ix.head_new_root,
+        advance: Advance::Register,
+    }
+    .apply(&mut *head)?;
+    drop(head);
 
     let content = record.to_output_data();
     let transact = NamespaceWrite {

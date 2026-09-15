@@ -1,5 +1,6 @@
 use custom_ring_interface::{
-    tag, CustomRingProof, CustomRingTransactIxData, PolicyConfig, AUDITOR_MESSAGE_LEN,
+    tag, CustomRingProof, CustomRingTransactIxData, PlainGroth16Proof, PolicyConfig,
+    AUDITOR_MESSAGE_LEN,
 };
 use custom_ring_program::{CustomRingError, NULLIFIER_ROOT_WINDOW};
 use pinocchio::cpi::MAX_CPI_ACCOUNTS;
@@ -90,9 +91,11 @@ pub(crate) fn body(
     data.extend_from_slice(
         &wincode::serialize(&CustomRingTransactIxData {
             proof: CustomRingProof {
-                proof_a: [0; 32],
-                proof_b: [0; 64],
-                proof_c: [0; 32],
+                groth16: PlainGroth16Proof {
+                    proof_a: [0; 32],
+                    proof_b: [0; 64],
+                    proof_c: [0; 32],
+                },
                 commitment: [0xFF; 32],
                 commitment_pok: [0xFF; 32],
             },
@@ -261,7 +264,7 @@ fn the_entries_tree_address_is_the_configured_one() {
     );
 }
 
-/// The state root has no window, inclusion is monotone.
+/// State roots use history bounds without the nullifier freshness window.
 #[test]
 fn a_state_root_index_past_the_history_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();

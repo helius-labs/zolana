@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors of the custom ring program.
 ///
-/// The 8100..8167 range is reserved for the ring program and is collision-free
+/// The 8100..8172 range is reserved for the ring program and is collision-free
 /// against SPP (7000..7065) and the other programs (zk-program-swap
 /// 8005..8016, the rest 9xxx). Every code is pinned by
 /// `tests/error_codes.rs::error_codes_are_stable`; clients observe them, so they
@@ -123,20 +123,12 @@ pub enum CustomRingError {
     VelocityDepositLeg = 8155,
     #[error("the spend record output does not match its plaintext")]
     InvalidSpendRecord = 8156,
-    #[error("the delegate rail is closed on a velocity ring")]
-    DelegateOnVelocityRing = 8157,
+    // 8157 retired.
     #[error("dual control needs a configured co-signer")]
     ApprovalWithoutCoSigner = 8158,
     #[error("the ring has no velocity window")]
     VelocityDisabled = 8159,
-    #[error("spend record head account is invalid")]
-    InvalidSpendRecordHead = 8160,
-    #[error("the sender has no registered spend record")]
-    SpendRecordUnregistered = 8161,
-    #[error("the spend record is not the sender's current record")]
-    SpendRecordHeadMismatch = 8162,
-    #[error("the sender already registered a spend record")]
-    SpendRecordAlreadyRegistered = 8163,
+    // 8160..8163 retired.
     #[error("the velocity window duration cannot change once set")]
     VelocityWindowImmutable = 8164,
     #[error("head map root account is invalid")]
@@ -145,6 +137,16 @@ pub enum CustomRingError {
     StaleHeadMapRoot = 8166,
     #[error("head map append cursor is invalid or exhausted")]
     InvalidHeadMapCursor = 8167,
+    #[error("key registry root account is invalid")]
+    InvalidKeyRegistryRoot = 8168,
+    #[error("key registry root changed")]
+    StaleKeyRegistryRoot = 8169,
+    #[error("key registry append cursor is invalid or exhausted")]
+    InvalidKeyRegistryCursor = 8170,
+    #[error("head map root already exists")]
+    HeadMapRootAlreadyExists = 8171,
+    #[error("key registry root already exists")]
+    KeyRegistryRootAlreadyExists = 8172,
 }
 
 impl From<CustomRingError> for ProgramError {

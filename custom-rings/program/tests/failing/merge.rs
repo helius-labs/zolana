@@ -39,7 +39,6 @@ fn merge_requires_the_custom_ring_authority() {
 #[test]
 fn a_windowed_merge_off_the_entries_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
-    // Both default trees are foreign to the policy's entries tree.
     policy_merge_fixture(velocity_policy_config_account())
         .expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
 }
@@ -49,7 +48,6 @@ fn a_windowed_merge_with_a_foreign_output_tree_is_rejected_exactly() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = policy_merge_fixture(velocity_policy_config_account());
     fixture.substitute("input_tree", entries_tree());
-    // The output tree stays foreign.
     fixture.expect_err(&mollusk, custom(CustomRingError::InvalidPolicyTree));
 }
 
@@ -66,7 +64,7 @@ fn a_windowed_merge_into_the_entries_tree_reaches_the_spp_cpi() {
 fn a_windowed_merge_consolidates_a_foreign_input_into_the_entries_tree() {
     let (mollusk, _) = setup_mollusk();
     let mut fixture = policy_merge_fixture(velocity_policy_config_account());
-    // The input tree stays foreign, only the created output must be the entries tree.
+    // Only the destination is confined during consolidation.
     fixture.substitute("output_tree", entries_tree());
     fixture.expect_spp_cpi(&mollusk);
 }

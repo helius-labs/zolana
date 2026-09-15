@@ -1,4 +1,6 @@
-use custom_ring_interface::{HeadMapError, HeadMapInsert, HeadMapTransfer, HEAD_MAP_HEIGHT};
+use custom_ring_interface::{
+    HeadMapInsert, HeadMapTransfer, HeadMapVerifyError, HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT,
+};
 use zolana_hasher::primitives::{right_align, BN254_SCALAR_MODULUS_BE};
 
 #[test]
@@ -16,26 +18,21 @@ fn indexed_proofs_reject_truncated_indices_and_noncanonical_fields() {
         index: 1,
         proof: &proof,
     };
-    for index in [
-        0,
-        1 << HEAD_MAP_HEIGHT,
-        (1 << HEAD_MAP_HEIGHT) + 1,
-        u64::MAX,
-    ] {
+    for index in [0, HEAD_MAP_CAPACITY, HEAD_MAP_CAPACITY + 1, u64::MAX] {
         transfer.index = index;
-        assert_eq!(transfer.verify(), Err(HeadMapError::OutOfRange));
+        assert_eq!(transfer.verify(), Err(HeadMapVerifyError::OutOfRange));
     }
     transfer.index = 1;
     transfer.member = &BN254_SCALAR_MODULUS_BE;
-    assert_eq!(transfer.verify(), Err(HeadMapError::OutOfRange));
+    assert_eq!(transfer.verify(), Err(HeadMapVerifyError::OutOfRange));
     transfer.member = &member;
     transfer.next = &member;
-    assert_eq!(transfer.verify(), Err(HeadMapError::OutOfRange));
+    assert_eq!(transfer.verify(), Err(HeadMapVerifyError::OutOfRange));
     transfer.next = &next;
     let mut bad_proof = proof;
     bad_proof[9] = BN254_SCALAR_MODULUS_BE;
     transfer.proof = &bad_proof;
-    assert_eq!(transfer.verify(), Err(HeadMapError::OutOfRange));
+    assert_eq!(transfer.verify(), Err(HeadMapVerifyError::OutOfRange));
 }
 
 #[test]
@@ -56,17 +53,17 @@ fn registration_checks_both_indices_and_strict_member_range() {
         low_proof: &proof,
         new_proof: &proof,
     };
-    insertion.low_index = 1 << HEAD_MAP_HEIGHT;
-    assert_eq!(insertion.verify(), Err(HeadMapError::OutOfRange));
+    insertion.low_index = HEAD_MAP_CAPACITY;
+    assert_eq!(insertion.verify(), Err(HeadMapVerifyError::OutOfRange));
     insertion.low_index = 0;
-    for index in [0, 1 << HEAD_MAP_HEIGHT, u64::MAX] {
+    for index in [0, HEAD_MAP_CAPACITY, u64::MAX] {
         insertion.append_index = index;
-        assert_eq!(insertion.verify(), Err(HeadMapError::OutOfRange));
+        assert_eq!(insertion.verify(), Err(HeadMapVerifyError::OutOfRange));
     }
     insertion.append_index = 1;
     insertion.member = &zero;
-    assert_eq!(insertion.verify(), Err(HeadMapError::OutOfRange));
+    assert_eq!(insertion.verify(), Err(HeadMapVerifyError::OutOfRange));
     insertion.member = &member;
     insertion.genesis = &BN254_SCALAR_MODULUS_BE;
-    assert_eq!(insertion.verify(), Err(HeadMapError::OutOfRange));
+    assert_eq!(insertion.verify(), Err(HeadMapVerifyError::OutOfRange));
 }

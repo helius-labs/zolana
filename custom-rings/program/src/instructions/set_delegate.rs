@@ -1,15 +1,12 @@
 use custom_ring_interface::Delegate;
-use pinocchio::{
-    cpi::{Seed, Signer},
-    AccountView, Address, ProgramResult,
-};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
     error::CustomRingError,
     instructions::{
         loader::{load_delegate, UpgradeAuthorityCheck},
-        shared::PdaCheck,
+        shared::PdaCreate,
     },
     state::DelegateInitParams,
 };
@@ -49,23 +46,13 @@ pub fn process_set_delegate_ix(
         return Err(CustomRingError::DelegateAlreadySet.into());
     }
 
-    let bump = PdaCheck {
+    let bump = PdaCreate {
         program_id,
-        address: delegate_account.address(),
+        payer,
         seeds: &[Delegate::SEED],
         mismatch: CustomRingError::InvalidDelegate,
     }
-    .verify()?;
-    let bump_seed = [bump];
-    let seeds = [Seed::from(Delegate::SEED), Seed::from(bump_seed.as_ref())];
-    pinocchio_system::create_account_with_minimum_balance_signed(
-        delegate_account,
-        Delegate::SIZE,
-        program_id,
-        payer,
-        None,
-        &[Signer::from(seeds.as_ref())],
-    )?;
+    .create::<Delegate>(delegate_account)?;
     DelegateInitParams {
         delegate: Address::new_from_array(delegate),
         bump,

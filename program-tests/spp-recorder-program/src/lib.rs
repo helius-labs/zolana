@@ -1,4 +1,4 @@
-//! Records the privileges of every account it is called with into the first.
+//! Captures CPI account privileges for forwarding contract tests.
 
 use pinocchio::{error::ProgramError, AccountView, Address, ProgramResult};
 

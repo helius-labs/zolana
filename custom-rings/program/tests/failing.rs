@@ -16,6 +16,8 @@ mod dispatch;
 mod head_map_root;
 #[path = "failing/init_spp_ring_config.rs"]
 mod init_spp_ring_config;
+#[path = "failing/key_registry.rs"]
+mod key_registry;
 #[path = "failing/merge.rs"]
 mod merge;
 #[path = "failing/read_access.rs"]

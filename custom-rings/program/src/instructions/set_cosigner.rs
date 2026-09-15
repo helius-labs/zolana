@@ -1,22 +1,19 @@
+use bytemuck::Zeroable;
 use custom_ring_interface::{
-    CoSigner, SetCoSignerIxData, WithdrawalThreshold, COSIGN_SCOPE_MASK, MAX_CO_SIGNER_THRESHOLDS,
+    CoSignScope, CoSigner, SetCoSignerIxData, WithdrawalThresholdRow, MAX_CO_SIGNER_THRESHOLDS,
 };
-use pinocchio::{
-    cpi::{Seed, Signer},
-    AccountView, Address, ProgramResult,
-};
+use pinocchio::{AccountView, Address, ProgramResult};
 use zolana_account_checks::AccountIterator;
 
 use crate::{
     error::CustomRingError,
     instructions::{
-        loader::{load_authorized_config, load_cosigner},
-        shared::PdaCheck,
+        loader::{load_authorized_config, load_cosigner_mut},
+        shared::PdaCreate,
     },
     state::CoSignerInitParams,
 };
 
-/// Creates the co-signer at the canonical bump or replaces it in place.
 #[inline(never)]
 pub fn process_set_cosigner_ix(
     program_id: &Address,
@@ -28,16 +25,14 @@ pub fn process_set_cosigner_ix(
         scope,
         thresholds,
     } = wincode::deserialize_exact(data).map_err(|_| CustomRingError::InvalidInstructionData)?;
-    if scope == 0 || scope & !COSIGN_SCOPE_MASK != 0 {
-        return Err(CustomRingError::InvalidCoSignerScope.into());
+    let scope = CoSignScope::new(scope).ok_or(CustomRingError::InvalidCoSignerScope)?;
+    if signer == [0; 32] {
+        return Err(CustomRingError::InvalidCoSigner.into());
     }
     if thresholds.len() > MAX_CO_SIGNER_THRESHOLDS {
         return Err(CustomRingError::InvalidCoSignerThresholds.into());
     }
-    let mut rows = [WithdrawalThreshold {
-        mint: Address::new_from_array([0; 32]),
-        amount: [0; 8],
-    }; MAX_CO_SIGNER_THRESHOLDS];
+    let mut rows = [WithdrawalThresholdRow::zeroed(); MAX_CO_SIGNER_THRESHOLDS];
     for (index, threshold) in thresholds.iter().enumerate() {
         if thresholds[..index]
             .iter()
@@ -45,7 +40,7 @@ pub fn process_set_cosigner_ix(
         {
             return Err(CustomRingError::InvalidCoSignerThresholds.into());
         }
-        rows[index] = WithdrawalThreshold {
+        rows[index] = WithdrawalThresholdRow {
             mint: Address::new_from_array(threshold.mint),
             amount: threshold.amount.to_le_bytes(),
         };
@@ -63,35 +58,23 @@ pub fn process_set_cosigner_ix(
     }
     load_authorized_config(program_id, config_account, authority)?;
 
-    let existing = load_cosigner(program_id, cosigner_account)?.map(|cosigner| cosigner.bump);
     let params = |bump| CoSignerInitParams {
         signer: Address::new_from_array(signer),
-        scope,
+        scope: scope.bits(),
         thresholds: rows,
         threshold_count: thresholds.len() as u8,
         bump,
     };
-    if let Some(bump) = existing {
-        let mut data = cosigner_account.try_borrow_mut()?;
-        *bytemuck::from_bytes_mut::<CoSigner>(&mut data) = params(bump).value();
+    if let Some(mut existing) = load_cosigner_mut(program_id, cosigner_account)? {
+        *existing = params(existing.bump).value();
         return Ok(());
     }
-    let bump = PdaCheck {
+    let bump = PdaCreate {
         program_id,
-        address: cosigner_account.address(),
+        payer,
         seeds: &[CoSigner::SEED],
         mismatch: CustomRingError::InvalidCoSigner,
     }
-    .verify()?;
-    let bump_seed = [bump];
-    let seeds = [Seed::from(CoSigner::SEED), Seed::from(bump_seed.as_ref())];
-    pinocchio_system::create_account_with_minimum_balance_signed(
-        cosigner_account,
-        CoSigner::SIZE,
-        program_id,
-        payer,
-        None,
-        &[Signer::from(seeds.as_ref())],
-    )?;
+    .create::<CoSigner>(cosigner_account)?;
     params(bump).init(cosigner_account)
 }
