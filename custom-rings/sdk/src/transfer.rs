@@ -269,8 +269,12 @@ impl<'a> CustomRingTransfer<'a> {
         // another program, or not a tree account at all fails here rather than
         // after the indexer has served a full inclusion and non-inclusion proof
         // set that nothing can use.
-        let input_tree = read_tree_state(environment.rpc, staged.input_tree)?;
-        let output_tree = read_tree_state(environment.rpc, staged.output_tree)?;
+        let input_tree = read_tree_state(
+            environment.rpc,
+            staged.input_tree,
+            staged.proof_inputs.input_utxos.len() as u64,
+        )?;
+        let output_tree = read_tree_state(environment.rpc, staged.output_tree, 0)?;
         staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
         let allow_dummy_inputs = input_tree.allow_dummy_inputs;
         let spend_inputs = RingSpendInputs {
@@ -315,8 +319,13 @@ impl<'a> CustomRingTransfer<'a> {
         let staged = self.stage(config.auditor_pubkey)?;
         // Same ordering reason as the blocking path: validate the tree before
         // asking the indexer for proofs against it.
-        let input_tree = read_tree_state_async(environment.rpc, staged.input_tree).await?;
-        let output_tree = read_tree_state_async(environment.rpc, staged.output_tree).await?;
+        let input_tree = read_tree_state_async(
+            environment.rpc,
+            staged.input_tree,
+            staged.proof_inputs.input_utxos.len() as u64,
+        )
+        .await?;
+        let output_tree = read_tree_state_async(environment.rpc, staged.output_tree, 0).await?;
         staged.check_tree_ids(input_tree.tree_id, output_tree.tree_id)?;
         let allow_dummy_inputs = input_tree.allow_dummy_inputs;
         let spend_inputs = RingSpendInputs {
@@ -787,11 +796,11 @@ impl RingDeposit<'_> {
 
 /// The raw id of a pool tree, every UTXO in it hashes under this id.
 pub fn tree_id<R: Rpc>(rpc: &R, tree: Address) -> Result<u16, TransferError> {
-    Ok(read_tree_state(rpc, tree)?.tree_id)
+    Ok(read_tree_state(rpc, tree, 0)?.tree_id)
 }
 
 pub async fn tree_id_async<R: AsyncRpc>(rpc: &R, tree: Address) -> Result<u16, TransferError> {
-    Ok(read_tree_state_async(rpc, tree).await?.tree_id)
+    Ok(read_tree_state_async(rpc, tree, 0).await?.tree_id)
 }
 
 struct TreeState {
@@ -799,19 +808,28 @@ struct TreeState {
     tree_id: u16,
 }
 
-fn read_tree_state<R: Rpc>(rpc: &R, tree: Address) -> Result<TreeState, TransferError> {
-    tree_state(rpc.get_account(tree)?, tree)
+fn read_tree_state<R: Rpc>(
+    rpc: &R,
+    tree: Address,
+    input_count: u64,
+) -> Result<TreeState, TransferError> {
+    tree_state(rpc.get_account(tree)?, tree, input_count)
 }
 
 async fn read_tree_state_async<R: AsyncRpc>(
     rpc: &R,
     tree: Address,
+    input_count: u64,
 ) -> Result<TreeState, TransferError> {
-    tree_state(rpc.get_account(tree).await?, tree)
+    tree_state(rpc.get_account(tree).await?, tree, input_count)
 }
 
 /// Reading the state out of a fetched tree account is transport-independent.
-fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, TransferError> {
+fn tree_state(
+    account: Option<Account>,
+    tree: Address,
+    input_count: u64,
+) -> Result<TreeState, TransferError> {
     let mut account = account.ok_or(TransferError::MissingTree)?;
     if account.owner.to_bytes() != SHIELDED_POOL_PROGRAM_ID {
         return Err(TransferError::InvalidTreeOwner);
@@ -821,7 +839,7 @@ fn tree_state(account: Option<Account>, tree: Address) -> Result<TreeState, Tran
     }
     let mut tree_account = TreeAccount::from_bytes(&mut account.data, tree.to_bytes())?;
     Ok(TreeState {
-        allow_dummy_inputs: tree_account.allow_dummy_inputs()?,
+        allow_dummy_inputs: tree_account.allow_dummy_inputs(input_count)?,
         tree_id: tree_account.tree_id(),
     })
 }

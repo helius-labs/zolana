@@ -412,13 +412,13 @@ covers the whole group) and referenced from the coverage matrix.
   - Suggested test: negative (two slots, same nullifier); harness: Go circuit tests (`go test ./circuits/spp_transaction/shared`)
 
 - [x] **INV-TRANSACT-33: dummy-slot proofs are locked out once the tree crosses the capacity threshold**
-  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_dummy_inputs_after_capacity_threshold`
+  - Covered by: `program-tests/shielded-pool/tests/transact/functional.rs` `transact_rejects_dummy_inputs_after_capacity_threshold`; `program-tests/shielded-pool/tests/deposit/functional.rs` `deposit_succeeds_when_dummy_inputs_are_disabled`; `program-libs/tree/tests/dummy_capacity.rs` `dummy_capacity_reserves_the_whole_state_tree_and_current_input_batch`, `exhausted_nullifier_space_disallows_dummies_despite_free_state_leaves`, `dummy_capacity_rejects_invalid_reservations`
   - Kind: precondition
-  - Statement: when the nullifier tree has strictly fewer free leaves than the state tree (queue reservations count against nullifier capacity), the on-chain `allow_dummy_inputs` public input is false; a proof carrying dummy input slots commits to `allow_dummy_inputs = true`, so the public input hash mismatches and verification fails. Equality of the two remaining capacities still allows dummies.
-  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs:20-21` (`fn apply_input_tree`), `program-libs/tree/src/lib.rs:279-290` (`fn allow_dummy_inputs`); merge proofs bind the same flag in `programs/shielded-pool/src/instructions/merge/verify.rs`
+  - Statement: dummy and address inputs are allowed only if every input tree retains at least its UTXO tree's total capacity in free nullifier leaves after reserving this transaction's inputs assigned to that tree. Existing queue reservations count against capacity. Equality after the transaction is allowed. Below this threshold the on-chain `allow_dummy_inputs` public input is false, so proofs must contain only real spends. Deposits remain allowed, with capacity reserved for their eventual spends.
+  - Location: `programs/shielded-pool/src/instructions/transact/tree.rs` (`fn apply_input_trees`), `program-libs/tree/src/lib.rs` (`fn allow_dummy_inputs`); merge uses the same check in `programs/shielded-pool/src/instructions/merge/processor.rs`
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability: near-capacity trees must not accept spends they cannot nullify)
-  - Suggested test: negative (queue cursor moved past the threshold, roots unchanged); harness: program-tests integration (`cargo test-sbf`)
+  - Suggested test: negative (current input batch would cross the reserve, roots unchanged); positive (exact reserve boundary and deposits after dummies are disabled); harness: tree unit tests and program-tests integration
 
 ## RingTransact
 

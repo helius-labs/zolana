@@ -296,26 +296,26 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
     let record = write_user_record(&mut rpc, payer, None, true);
 
     // INV-TRANSACT-33, merge side: move only the nullifier queue cursor so the
-    // tree has strictly fewer free nullifier leaves than state leaves, flipping
-    // `allow_dummy_inputs` to false. The roots are unchanged, so every parse
-    // and tree step still succeeds; the proof fails verification (7008).
+    // merge would leave fewer nullifier leaves than the state tree's total
+    // capacity, flipping `allow_dummy_inputs` to false. The roots are unchanged,
+    // so every parse and tree step still succeeds; the zeroed proof fails
+    // verification (7008).
     let mut account = rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
         assert!(
-            on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            on_chain
+                .allow_dummy_inputs(MERGE_DEFAULT_INPUT_COUNT as u64)
+                .expect("dummy-input policy"),
             "fresh tree must allow dummy inputs"
         );
-        let state_remaining = {
-            let utxo = on_chain.utxo_tree();
-            utxo.capacity() - utxo.next_index()
-        };
+        let required_capacity = on_chain.utxo_tree().capacity() + MERGE_DEFAULT_INPUT_COUNT as u64;
         {
             let nullifier = on_chain.nullifier_tree();
             let next_leaf = nullifier
                 .capacity
-                .checked_sub(state_remaining)
+                .checked_sub(required_capacity)
                 .expect("nullifier capacity exceeds state capacity")
                 + 1;
             nullifier
@@ -325,9 +325,14 @@ fn merge_rejects_dummy_inputs_after_capacity_threshold() {
             nullifier.queue_next_index = next_leaf;
         }
         assert!(
-            !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            !on_chain
+                .allow_dummy_inputs(MERGE_DEFAULT_INPUT_COUNT as u64)
+                .expect("dummy-input policy"),
             "fixture must cross the dummy-input threshold"
         );
+        assert!(on_chain
+            .allow_dummy_inputs(0)
+            .expect("pre-transaction reserve"));
     }
     rpc.svm
         .set_account(tree, account)

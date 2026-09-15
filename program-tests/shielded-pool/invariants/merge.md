@@ -74,7 +74,7 @@ nullifiers.
 - [x] **INV-MERGE-17: a merge past the dummy-input capacity threshold fails at proof verification**
   - Covered by: `program-tests/shielded-pool/tests/merge/contract.rs` `merge_rejects_dummy_inputs_after_capacity_threshold`
   - Kind: postcondition
-  - Statement: when the input tree's `allow_dummy_inputs()` is false, the on-chain public input recomputes with the flag 0 while merge proofs are always built with `allow_dummy_inputs = true`, so `merge_transact`/`ring_merge_transact` fail pairing before any queue insertion or append.
+  - Statement: when the input tree's `allow_dummy_inputs(input_count)` is false because the merge would leave fewer free nullifier leaves than the UTXO tree's total capacity, the on-chain public input recomputes with the flag 0 while merge proofs are always built with `allow_dummy_inputs = true`, so `merge_transact`/`ring_merge_transact` fail pairing and roll back all queue insertions and appends.
   - Location: `programs/shielded-pool/src/instructions/merge/processor.rs` (`fn process_merge_core`, `allow_dummy_inputs` leg)
   - Error: `ShieldedPoolError::TransactProofVerificationFailed = 7008`
   - Severity: High (availability)

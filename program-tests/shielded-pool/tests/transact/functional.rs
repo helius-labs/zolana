@@ -1557,11 +1557,9 @@ fn transact_rejects_an_owner_signer_run_longer_than_the_input_count() {
         .assert_rolled_back_except(&[payer]);
 }
 
-/// Capacity gate (INV-TRANSACT-33): once the nullifier tree has strictly fewer
-/// free leaves than the state tree, the on-chain `allow_dummy_inputs` public
-/// input flips to false, so a proof built with dummy slots (the client-side
-/// `allow_dummy_inputs = true` assumption) fails verification -- dummy-slot
-/// proofs are locked out before the tree runs out of room to nullify them.
+/// Capacity gate (INV-TRANSACT-33): reject dummy inputs when the current
+/// transaction would leave fewer nullifier leaves than the state tree's total
+/// capacity, even if the reserve is sufficient before this transaction.
 #[test]
 fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let mut env = proof_env();
@@ -1569,28 +1567,28 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
     let payer = env.rpc.payer.pubkey();
     let tree = env.tree;
     let transact_ix_data = build_valid_transact_ix(&mut env);
+    let input_count = transact_ix_data.inputs.len() as u64;
 
-    // Move only the nullifier queue cursor so it has one fewer free leaf than
-    // the state tree. The roots are unchanged, so the proof (built with the
-    // normal `allow_dummy_inputs = true`) still reaches the program's
+    // Move only the nullifier queue cursor so this transaction would consume
+    // one leaf of the real-spend reserve. The roots are unchanged, so the proof
+    // (built with `allow_dummy_inputs = true`) still reaches the program's
     // public-input verification -- only the flipped flag breaks it.
     let mut account = env.rpc.svm.get_account(&tree).expect("tree account");
     {
         let mut on_chain =
             TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
         assert!(
-            on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            on_chain
+                .allow_dummy_inputs(input_count)
+                .expect("dummy-input policy"),
             "fresh tree must allow dummy inputs"
         );
-        let state_remaining = {
-            let utxo = on_chain.utxo_tree();
-            utxo.capacity() - utxo.next_index()
-        };
+        let required_capacity = on_chain.utxo_tree().capacity() + input_count;
         {
             let nullifier = on_chain.nullifier_tree();
             let next_leaf = nullifier
                 .capacity
-                .checked_sub(state_remaining)
+                .checked_sub(required_capacity)
                 .expect("nullifier capacity exceeds state capacity")
                 + 1;
             nullifier
@@ -1600,9 +1598,14 @@ fn transact_rejects_dummy_inputs_after_capacity_threshold() {
             nullifier.queue_next_index = next_leaf;
         }
         assert!(
-            !on_chain.allow_dummy_inputs().expect("dummy-input policy"),
+            !on_chain
+                .allow_dummy_inputs(input_count)
+                .expect("dummy-input policy"),
             "fixture must cross the dummy-input threshold"
         );
+        assert!(on_chain
+            .allow_dummy_inputs(0)
+            .expect("pre-transaction reserve"));
     }
     env.rpc
         .svm

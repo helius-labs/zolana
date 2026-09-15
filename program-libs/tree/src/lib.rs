@@ -329,23 +329,24 @@ impl<'a> TreeAccount<'a> {
         self.layout().nullifier.close_before_index
     }
 
-    /// Whether a proof may contain dummy input slots at the current tree state.
+    /// Whether a proof may contain dummy or address input slots after reserving
+    /// `input_count` nullifiers in this tree for the current transaction.
     ///
     /// Nullifier capacity counts queue reservations, not only leaves already
-    /// applied by the forester. Equality is allowed; dummies are disabled only
-    /// once the nullifier tree has strictly fewer leaves left than the state
-    /// tree.
-    pub fn allow_dummy_inputs(&mut self) -> Result<bool, TreeError> {
-        let utxo_tree = self.utxo_tree();
-        let state_remaining = utxo_tree
+    /// applied by the forester. Keep the state tree's total capacity available
+    /// for real spends, including UTXOs deposited later. Equality after this
+    /// transaction's reservations is allowed.
+    pub fn allow_dummy_inputs(&mut self, input_count: u64) -> Result<bool, TreeError> {
+        let required_capacity = self
+            .utxo_tree()
             .capacity()
-            .checked_sub(utxo_tree.next_index())
+            .checked_add(input_count)
             .ok_or(TreeError::InvalidCapacity)?;
         let nullifier_remaining = self
             .nullifier_tree()
             .remaining_queue_capacity()
             .map_err(|_| TreeError::InvalidCapacity)?;
-        Ok(nullifier_remaining >= state_remaining)
+        Ok(nullifier_remaining >= required_capacity)
     }
 
     pub fn get_utxo_tree_root(&self, index: u16) -> Result<[u8; 32], TreeError> {

@@ -38,6 +38,40 @@ use shielded_pool_tests::support::{
 const FIXTURE_FIRST_NULLIFIER: [u8; 32] = [7u8; 32];
 
 #[test]
+fn deposit_succeeds_when_dummy_inputs_are_disabled() {
+    let mut pool = Pool::initialized();
+    let tree = pool.tree;
+    let depositor = pool.funded_signer(1_000_000_000);
+    let mut account = pool.rpc.svm.get_account(&tree).expect("tree account");
+    let queue_index = {
+        let mut on_chain =
+            TreeAccount::from_bytes(&mut account.data, tree.to_bytes()).expect("load tree");
+        let state_capacity = on_chain.utxo_tree().capacity();
+        let nullifier = on_chain.nullifier_tree();
+        let queue_index = nullifier.capacity - state_capacity;
+        nullifier.queue_next_index = queue_index;
+        nullifier
+            .get_current_batch_mut()
+            .expect("current batch")
+            .start_index = queue_index;
+        assert!(!on_chain.allow_dummy_inputs(1).expect("dummy-input policy"));
+        queue_index
+    };
+    pool.rpc
+        .svm
+        .set_account(tree, account)
+        .expect("set reserve boundary");
+
+    pool.rpc
+        .deposit_sol(&tree, &depositor, 1_000_000, [1; 32])
+        .expect("deposit with reserved nullifier capacity");
+    assert_eq!(tree_progress(&pool.rpc, &tree), (1, queue_index));
+    let mut data = pool.rpc.account_data(&tree).expect("tree data");
+    let mut on_chain = TreeAccount::from_bytes(&mut data, tree.to_bytes()).expect("load tree");
+    assert!(!on_chain.allow_dummy_inputs(1).expect("dummy-input policy"));
+}
+
+#[test]
 fn sol_deposit_moves_lamports_emits_the_exact_output_and_updates_the_indexer() {
     let mut pool = Pool::initialized();
     let depositor = pool.funded_signer(5_000_000_000);
