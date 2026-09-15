@@ -31,7 +31,9 @@ pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
 #[cfg(feature = "protocol")]
 pub use create_tree::CreateTree;
-pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
+pub use deposit::{
+    AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositData, DepositSplAccounts,
+};
 pub use merge_ring::MergeRing;
 pub use merge_transact::{CacheWriteAccounts, MergeTransact};
 #[cfg(feature = "protocol")]

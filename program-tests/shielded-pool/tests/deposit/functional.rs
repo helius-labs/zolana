@@ -13,7 +13,7 @@ use zolana_interface::{
 use zolana_keypair::{
     hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair, ViewingKey,
 };
-use zolana_program::instruction::{AssetDeposit, Deposit};
+use zolana_program::instruction::{AssetDeposit, Deposit, DepositData};
 use zolana_program_test::{
     DepositOutput, RingDepositOutput, ZolanaProgramTest, RING_TEST_PROGRAM_ID,
 };
@@ -364,11 +364,13 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
         *last = 42;
     }
     let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field);
-    data.utxo_data = Some(UtxoData {
-        data_hash,
-        signing_pk: depositor.pubkey().to_bytes(),
-        nullifier_pk,
-        data: vec![1, 2, 3],
+    data.utxo_data = Some(DepositData {
+        signing_pk: depositor.pubkey(),
+        data: UtxoData {
+            data_hash,
+            nullifier_pk,
+            data: vec![1, 2, 3],
+        },
     });
 
     let tree = pool.tree;

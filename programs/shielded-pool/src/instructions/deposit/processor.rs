@@ -43,6 +43,9 @@ fn check_entry_field_elements(entry_index: usize, entry: &ProcessingEntry<'_>) -
             check_field_element(entry.owner, "deposit owner", index, error)?;
             if let Some(utxo_data) = &entry.utxo_data {
                 check_field_element(utxo_data.data_hash, "deposit data hash", index, error)?;
+                if pubkey_eq(utxo_data.data_hash, &[0; 32]) {
+                    return Err(ShieldedPoolError::ZeroDepositDataHash.into());
+                }
             }
         }
         ProcessingEntry::Ring(entry) => {
@@ -97,12 +100,13 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
         return Err(ShieldedPoolError::EmptyDepositBatch.into());
     }
 
+    // Reject malformed entry fields before owner authorization hashes or cache lookups.
+    for (entry_index, entry) in entries.clone().enumerate() {
+        check_entry_field_elements(entry_index, &entry)?;
+    }
+
     let owner_authorizations = entries.clone().filter_map(|entry| match entry {
-        ProcessingEntry::Default(entry) => entry
-            .utxo_data
-            .as_ref()
-            .filter(|data| !pubkey_eq(data.data_hash, &[0; 32]))
-            .map(|data| (entry.owner, data)),
+        ProcessingEntry::Default(entry) => entry.utxo_data.as_ref().map(|data| (entry.owner, data)),
         ProcessingEntry::Ring(_) => None,
     });
     let (parsed, ring_program_id) = DepositAccounts::validate_and_parse::<HAS_RING>(
@@ -138,7 +142,6 @@ fn process_deposit_internal<'a, const HAS_RING: bool>(
     let mut utxo_hashes = Vec::with_capacity(entry_count);
 
     for (entry_index, processing_entry) in entries.enumerate() {
-        check_entry_field_elements(entry_index, &processing_entry)?;
         let (asset_index, amount) = match &processing_entry {
             ProcessingEntry::Default(entry) => (entry.asset_index, entry.amount),
             ProcessingEntry::Ring(entry) => (entry.asset_index, entry.amount),

@@ -11,7 +11,6 @@ fn entry(seed: u8) -> DepositEntry {
         amount: u64::from(seed) + 1,
         utxo_data: Some(UtxoData {
             data_hash: [seed.wrapping_add(3); 32],
-            signing_pk: [seed.wrapping_add(4); 32],
             nullifier_pk: [seed.wrapping_add(5); 32],
             data: vec![seed, seed.wrapping_add(1)],
         }),
@@ -48,7 +47,6 @@ fn deposit_ref_borrows_variable_payloads() {
     let actual_utxo = actual.utxo_data.unwrap();
     let expected_utxo = expected.utxo_data.as_ref().unwrap();
     assert_eq!(actual_utxo.data_hash, &expected_utxo.data_hash);
-    assert_eq!(actual_utxo.signing_pk, &expected_utxo.signing_pk);
     assert_eq!(actual_utxo.nullifier_pk, &expected_utxo.nullifier_pk);
     assert_eq!(actual_utxo.data, expected_utxo.data);
     assert_eq!(actual.memo.unwrap(), expected.memo.as_deref().unwrap());

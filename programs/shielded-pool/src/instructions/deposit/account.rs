@@ -56,7 +56,7 @@ impl<'a> DepositAccounts<'a> {
     /// instruction data declares the layout, so nothing is inferred from the
     /// account count: too few accounts hits NotEnoughAccountKeys and too many
     /// leaves the iterator non-empty (InvalidSettlementAccounts). After settlement
-    /// groups, plain deposits take one owner signer per nonzero data hash.
+    /// groups, plain deposits take one owner signer per application-data record.
     pub fn validate_and_parse<const HAS_RING: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
@@ -152,18 +152,17 @@ impl<'a> DepositAccounts<'a> {
         }
         // Reuse the last verified binding for consecutive outputs with the
         // same owner. Keep only references into immutable instruction data;
-        // every account still passes its signer and address checks.
-        let mut previous_authorization: Option<(&[u8; 32], &UtxoDataRef<'_>)> = None;
+        // every account must still sign and match the cached signer address.
+        let mut previous_authorization: Option<(&[u8; 32], &UtxoDataRef<'_>, &Address)> = None;
         for (owner, data) in owner_authorizations {
             let signer = iter.next_signer("deposit_owner")?;
-            if !pubkey_eq(signer.address().as_array(), data.signing_pk) {
-                return Err(ShieldedPoolError::UnauthorizedCaller.into());
-            }
-            if previous_authorization.is_some_and(|(verified_owner, verified_data)| {
-                pubkey_eq(verified_owner, owner)
-                    && pubkey_eq(verified_data.signing_pk, data.signing_pk)
-                    && pubkey_eq(verified_data.nullifier_pk, data.nullifier_pk)
-            }) {
+            if previous_authorization.is_some_and(
+                |(verified_owner, verified_data, verified_signer)| {
+                    pubkey_eq(verified_owner, owner)
+                        && address_eq(verified_signer, signer.address())
+                        && pubkey_eq(verified_data.nullifier_pk, data.nullifier_pk)
+                },
+            ) {
                 continue;
             }
             check_field_element(
@@ -179,7 +178,7 @@ impl<'a> DepositAccounts<'a> {
             if !pubkey_eq(&expected_owner, owner) {
                 return Err(ShieldedPoolError::UnauthorizedCaller.into());
             }
-            previous_authorization = Some((owner, data));
+            previous_authorization = Some((owner, data, signer.address()));
         }
         if !iter.iterator_is_empty() {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());

@@ -181,6 +181,8 @@ pub enum ShieldedPoolError {
     CacheWriteAuthorityMismatch = 7076,
     #[error("rent recipient is not the cache's rent sponsor")]
     CacheRentRecipientMismatch = 7077,
+    #[error("deposit application data must have a nonzero data hash")]
+    ZeroDepositDataHash = 7078,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -304,6 +306,7 @@ mod tests {
                 CacheExpiryNotInFuture => 7075,
                 CacheWriteAuthorityMismatch => 7076,
                 CacheRentRecipientMismatch => 7077,
+                ZeroDepositDataHash => 7078,
             }
         }
 
@@ -387,6 +390,7 @@ mod tests {
             CacheExpiryNotInFuture,
             CacheWriteAuthorityMismatch,
             CacheRentRecipientMismatch,
+            ZeroDepositDataHash,
         ];
         let codes = (7000_u32..).filter(|code| *code != 7072);
         for (variant, code) in variants.into_iter().zip(codes) {
@@ -398,7 +402,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 77, "variant count drifted");
+        assert_eq!(variants.len(), 78, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

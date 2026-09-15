@@ -24,7 +24,8 @@ use zolana_interface::{
 use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey, ShieldedKeypair};
 use zolana_merkle_tree::MerkleTree;
 use zolana_program::instruction::{
-    AssetDeposit, Deposit, Transact, TransactInterfaceTransferAccounts, TransactSolTransferAccounts,
+    AssetDeposit, Deposit, DepositData, Transact, TransactInterfaceTransferAccounts,
+    TransactSolTransferAccounts,
 };
 use zolana_program_test::ZolanaProgramTest;
 use zolana_transaction::{instructions::transact::PrivateTxHash, Mint, SOL_MINT};
@@ -421,11 +422,13 @@ fn attach_deposit_data(data: &mut AssetDeposit, depositor: &Keypair) {
     data.owner = owner_hash(&PublicKey::from_ed25519(&signing_pk), &nullifier_pk)
         .expect("deposit owner hash");
     data.view_tag = signing_pk;
-    data.utxo_data = Some(UtxoData {
-        data_hash: [1; 32],
-        signing_pk,
-        nullifier_pk,
-        data: vec![1, 2, 3],
+    data.utxo_data = Some(DepositData {
+        signing_pk: depositor.pubkey(),
+        data: UtxoData {
+            data_hash: [1; 32],
+            nullifier_pk,
+            data: vec![1, 2, 3],
+        },
     });
 }
 
