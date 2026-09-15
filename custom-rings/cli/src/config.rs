@@ -566,7 +566,7 @@ ring_rpc = "http://127.0.0.1:8785"
         assert!(local("http://127.0.0.1:8785"));
         assert!(local("http://localhost:8785/"));
         assert!(local("http://[::1]:8785"));
-        assert!(!local("https://d1ojzfopdqqs5r.cloudfront.net"));
+        assert!(!local("https://d24brah9h1i4q9.cloudfront.net"));
         assert!(!local("http://ring.example.com:8785"));
         // A host that merely starts with a loopback name is not one.
         assert!(!local("http://localhost.example.com:8785"));
