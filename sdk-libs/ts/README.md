@@ -128,29 +128,27 @@ price per compute unit. The RPC and the validator must accept version 1.
 A client needs a
 [Helius API key](https://dashboard.helius.dev/).
 
-The RPC endpoint serves the Solana RPC. The Photon indexer to fetch encrypted
-state, and the prover that generates the zero-knowledge proofs currently use aws URLs.
-It's planned to make indexer and prover available through using the same Helius RPC URL.
+The Solana RPC, Photon indexer, and prover must target the same devnet release.
+Custom-ring authorities and auditors use the separate ring RPC. The public
+dashboard reports protocol and service health.
 
 **Devnet:**
 
-| Service    | Host the SDK uses                                                   | Notes                                                                                     |
-| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>`                  | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
-| Indexer    | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com`      | Fetches encrypted state.                                                                  |
-| Prover     | `http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001` | Generates ZK proofs                                                                       |
+| Service    | URL                                                | Notes                                                                                     |
+| ---------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Solana RPC | `https://devnet.helius-rpc.com/?api-key=<API_KEY>` | Helius key. Fund the payer with [devnet SOL](https://www.helius.dev/docs/rpc/devnet-sol). |
+| Indexer    | `https://d2xah7tnhdhcom.cloudfront.net`            | Fetches encrypted state.                                                                  |
+| Prover     | `https://d21ni15goiip6l.cloudfront.net`            | Generates ZK proofs.                                                                      |
+| Ring RPC   | `https://d24brah9h1i4q9.cloudfront.net`            | Releases and uses custom-ring auditor keys.                                               |
+| Dashboard  | `https://djq45ljnl16bl.cloudfront.net`             | Shows public protocol and service health.                                                 |
 
 ```ts
 const client = await createZolanaClient({
   solanaRpcUrl: `https://devnet.helius-rpc.com/?api-key=${process.env.API_KEY!}`,
-  indexerUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com",
-  proverUrl: "http://zolnet-devnet-1779374825.eu-north-1.elb.amazonaws.com:3001",
-  allowInsecureHttp: true,
+  indexerUrl: "https://d2xah7tnhdhcom.cloudfront.net",
+  proverUrl: "https://d21ni15goiip6l.cloudfront.net",
 });
 ```
-
-`allowInsecureHttp: true` is required for these plaintext `http://` indexer and
-prover hosts. Use it only on this devnet path with test funds.
 
 On localnet, start the stack first with `zolana dev start`. The local test
 validator (`:8899`), Photon indexer (`:8784`), and prover (`:3001`) then
