@@ -13,10 +13,13 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+  USER_REGISTRY_PROGRAM_ID,
 } from "../program.js";
 import type { AddressTreeParams } from "../program.js";
 import {
   type Address,
+  type Bytes32,
+  type Bytes33,
   type AssetDeposit,
   type DepositAsset,
   type MergeTransactInstructionData,
@@ -49,6 +52,58 @@ export type { MergeTransactInstructionData } from "../types.js";
 type Meta = NonNullable<Instruction["accounts"]>[number];
 
 export type SignerAccount = Address | TransactionSigner;
+
+export interface RegisterInstructionData {
+  readonly ownerP256?: undefined;
+  readonly nullifierPublicKey: Bytes32;
+  readonly viewingPublicKey: Bytes33;
+}
+
+function registryKeysData(tag: number, data: RegisterInstructionData): Uint8Array {
+  if (data.ownerP256 !== undefined) {
+    fail("INTERFACE_CODEC", { reason: "P256 owner registration is unsupported" });
+  }
+  return new Writer()
+    .u8(tag, "discriminator")
+    .u8(0, "ownerP256")
+    .bytes(data.nullifierPublicKey, 32, "nullifierPublicKey")
+    .bytes(data.viewingPublicKey, 33, "viewingPublicKey")
+    .finish();
+}
+
+export function registerInstruction(
+  input: Readonly<{ userRecord: Address; owner: SignerAccount; data: RegisterInstructionData }>,
+): Instruction {
+  return instruction(
+    registryKeysData(0, input.data),
+    [
+      meta(input.userRecord, false, true),
+      meta(input.owner, true, true),
+      meta(SYSTEM_PROGRAM, false, false),
+    ],
+    USER_REGISTRY_PROGRAM_ID,
+  );
+}
+
+export function setMergingEnabledInstruction(
+  input: Readonly<{ userRecord: Address; owner: SignerAccount; enabled: boolean }>,
+): Instruction {
+  return instruction(
+    new Writer().u8(1, "discriminator").bool(input.enabled, "enabled").finish(),
+    [meta(input.userRecord, false, true), meta(input.owner, true, false)],
+    USER_REGISTRY_PROGRAM_ID,
+  );
+}
+
+export function updateRegistryKeysInstruction(
+  input: Readonly<{ userRecord: Address; owner: SignerAccount; data: RegisterInstructionData }>,
+): Instruction {
+  return instruction(
+    registryKeysData(2, input.data),
+    [meta(input.userRecord, false, true), meta(input.owner, true, false)],
+    USER_REGISTRY_PROGRAM_ID,
+  );
+}
 
 function accountAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
