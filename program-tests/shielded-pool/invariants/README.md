@@ -82,9 +82,9 @@ apply to every row. Post-PR164, INV-XC-12 (P256 proof encoding) is not applicabl
 
 ## Summary
 
-- Total invariants: 286
+- Total invariants: 287
   - transact.md: 60 (Transact 45, RingTransact 8, RingAuthorityTransact 7)
-  - deposit.md: 35 (Deposit 25, RingDeposit 10)
+  - deposit.md: 36 (Deposit 26, RingDeposit 10)
   - merge.md: 33 (MergeTransact 19, RingMergeTransact 14)
   - tree.md: 55 (CreateTree 10, BatchUpdateNullifierTree 9, PauseTree 5, nullifier PDAs INV-TRANSACT-46..50, CloseNullifierPdas 10, SetTreeFees 9, ClaimTreeLamports 7)
   - protocol-config.md: 18 (Create 10, Update 8)
@@ -149,7 +149,7 @@ ticked. The counts below include them.
 
 Post-PR172 sync (2026-07-31):
 
-- Covered: 259 / 286
+- Covered: 260 / 287
 - Covered on companion security branches (#175, #176): 2 (the `- [~]` entries:
   INV-CREATE-AC-07, INV-BATCH-NULL-07 — behavior and tests land with those
   branches)
@@ -157,11 +157,11 @@ Post-PR172 sync (2026-07-31):
 - Pointer: 1 (INV-XC-30, by design: it documents reachability and defers to INV-XC-31 / INV-TRANSACT-44 for coverage; it is counted in cross-cutting's 6 partial+untested below)
 - Not covered: 0
 
-(259 + 2 + 19 + 1 + 5 = 286. The per-file partial+untested column sums to 21
+(260 + 2 + 19 + 1 + 5 = 287. The per-file partial+untested column sums to 21
 because it includes the pointer.)
 
 Per file (covered / partial+untested / companion / not-applicable):
-transact 57/2/0/1, deposit 35/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
+transact 57/2/0/1, deposit 36/0/0/0, merge 23/6/0/4, tree 50/4/1/0,
 protocol-config 18/0/0/0, ring-config 24/2/0/0, spl 21/0/1/0, event 4/0/0/0,
 cross-cutting 27/6/0/0.
 
