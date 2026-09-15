@@ -66,6 +66,46 @@ func (k Keys) WithInfinityEphScalar(value *big.Int) Keys {
 	return k
 }
 
+func (k Keys) EphSk() [32]byte {
+	return k.ephSk
+}
+
+func (k Keys) AuditorPk() [65]byte {
+	return k.auditorPk
+}
+
+type Sealed struct {
+	AuditorLo      *big.Int
+	AuditorHi      *big.Int
+	EphLo          *big.Int
+	EphHi          *big.Int
+	CiphertextHash *big.Int
+}
+
+// Mirrors base.Envelope.Seal.
+func (k Keys) Seal(t testing.TB, plaintext []byte, info string) Sealed {
+	t.Helper()
+	dhLo, dhHi := pack32(k.dh)
+	ephLo, ephHi := pack33(k.ephPk)
+	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
+
+	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
+		tag(base.DomSepCRShared),
+		dhLo, dhHi,
+		ephLo, ephHi,
+		auditorLo, auditorHi,
+	})
+	key, nonce := keySchedule(t, sharedSecret, info)
+	ciphertext, err := protocol.HashBytes(ctrEncrypt(t, key, nonce, plaintext))
+	return Sealed{
+		AuditorLo:      auditorLo,
+		AuditorHi:      auditorHi,
+		EphLo:          ephLo,
+		EphHi:          ephHi,
+		CiphertextHash: spptest.MustHash(t, ciphertext, err),
+	}
+}
+
 func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 	w := base.AuditBlockWires{PrivateTxHash: privateTxHash}
 	setBytes(w.TxViewingSk[:], k.txSk[:])
@@ -77,27 +117,15 @@ func (k Keys) AuditBlockWires(privateTxHash *big.Int) base.AuditBlockWires {
 // Chain elements 1 to 8 of package base.
 func (k Keys) ChainElements(t testing.TB, privateTxHash *big.Int) []*big.Int {
 	t.Helper()
-	dhLo, dhHi := pack32(k.dh)
 	txLo, txHi := pack33(k.txPk)
-	ephLo, ephHi := pack33(k.ephPk)
-	auditorLo, auditorHi := pack33(compress(t, k.auditorPk[:]))
-
-	sharedSecret := spptest.MustPoseidon(t, 8, []*big.Int{
-		tag(base.DomSepCRShared),
-		dhLo, dhHi,
-		ephLo, ephHi,
-		auditorLo, auditorHi,
-	})
-	key, nonce := keySchedule(t, sharedSecret)
-	ciphertext, err := protocol.HashBytes(ctrEncrypt(t, key, nonce, k.txSk[:]))
-	ciphertextHash := spptest.MustHash(t, ciphertext, err)
+	sealed := k.Seal(t, k.txSk[:], auditEncInfo)
 
 	return []*big.Int{
 		privateTxHash,
 		txLo, txHi,
-		auditorLo, auditorHi,
-		ephLo, ephHi,
-		ciphertextHash,
+		sealed.AuditorLo, sealed.AuditorHi,
+		sealed.EphLo, sealed.EphHi,
+		sealed.CiphertextHash,
 	}
 }
 
@@ -153,13 +181,13 @@ func pack33(key [33]byte) (lo, hi *big.Int) {
 	return new(big.Int).SetBytes(key[:31]), new(big.Int).SetUint64(uint64(key[31])<<8 | uint64(key[32]))
 }
 
-// Mirrors ve.KeySchedule with auditEncInfo as the info string.
-func keySchedule(t testing.TB, sharedSecret *big.Int) (key [32]byte, nonce [12]byte) {
+// Mirrors ve.KeySchedule.
+func keySchedule(t testing.TB, sharedSecret *big.Int, info string) (key [32]byte, nonce [12]byte) {
 	t.Helper()
 	siloed := spptest.MustPoseidon(t, 4, []*big.Int{
 		tag(ve.DomSepSilo),
 		sharedSecret,
-		new(big.Int).SetBytes([]byte(auditEncInfo)),
+		new(big.Int).SetBytes([]byte(info)),
 	})
 	keyLo := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tag(ve.DomSepKey), siloed}))
 	keyHi := spptest.MustFieldBytes(t, spptest.MustPoseidon(t, 3, []*big.Int{tag(ve.DomSepKey + 1), siloed}))

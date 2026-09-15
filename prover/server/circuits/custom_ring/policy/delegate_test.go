@@ -1,11 +1,13 @@
 package policy
 
 import (
+	"math/big"
+	"testing"
+
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/frontend/cs/r1cs"
-	"math/big"
-	"testing"
+
 	"zolana/prover/prover-test/spp/spptest"
 )
 
@@ -45,7 +47,7 @@ func TestDelegatePolicyKeepsRulesButExemptsVelocity(t *testing.T) {
 			if tc.change != nil {
 				tc.change(&f, s, &facts)
 			}
-			s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources, s.windowSlots, s.velocity)
+			s.policyHash = s.policy().hash(t)
 			c := &CustomRingDelegatePolicyCircuit{Policy: *s.assignment(t, facts)}
 			witness, err := frontend.NewWitness(c, ecc.BN254.ScalarField())
 			if err != nil {

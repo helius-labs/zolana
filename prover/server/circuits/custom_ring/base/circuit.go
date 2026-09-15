@@ -119,45 +119,78 @@ func DefineAuditBlock(api frontend.API, w AuditBlockWires) [8]frontend.Variable 
 	txCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.TxViewingSk))
 	txLo, txHi := Pack33To2FECircuit(api, txCompressed)
 
+	sealed := Envelope{
+		Plaintext: w.TxViewingSk,
+		EphSk:     w.EphSk,
+		AuditorPk: w.AuditorPk,
+		Info:      auditEncInfo,
+	}.Seal(api)
+
+	return [8]frontend.Variable{
+		w.PrivateTxHash,
+		txLo, txHi,
+		sealed.AuditorLo, sealed.AuditorHi,
+		sealed.EphLo, sealed.EphHi,
+		sealed.CiphertextHash,
+	}
+}
+
+type Envelope struct {
+	Plaintext [32]frontend.Variable
+	EphSk     [32]frontend.Variable
+	AuditorPk [65]frontend.Variable
+	Info      string
+}
+
+type Sealed struct {
+	AuditorLo      frontend.Variable
+	AuditorHi      frontend.Variable
+	EphLo          frontend.Variable
+	EphHi          frontend.Variable
+	CiphertextHash frontend.Variable
+}
+
+// The caller range checks every byte and checks the auditor point first.
+func (e Envelope) Seal(api frontend.API) Sealed {
 	// (d) Chain elements 4 and 5: the auditor key the program reads from its
 	// config account.
-	auditorCompressed := p256.CompressPubkey(api, w.AuditorPk)
+	auditorCompressed := p256.CompressPubkey(api, e.AuditorPk)
 	auditorLo, auditorHi := Pack33To2FECircuit(api, auditorCompressed)
 
 	// (e) Chain elements 6 and 7: the ephemeral key that rides in the message
 	// data, so the auditor can rederive the shared secret.
-	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, w.EphSk))
+	ephCompressed := p256.CompressPubkey(api, p256.ScalarMulGenerator(api, e.EphSk))
 	ephLo, ephHi := Pack33To2FECircuit(api, ephCompressed)
 
 	// (f) ECDH: the 32-byte big-endian x-coordinate of EphSk * AuditorPk.
-	dh := p256.ECDH(api, w.EphSk, w.AuditorPk)
+	dh := p256.ECDH(api, e.EphSk, e.AuditorPk)
 
 	// (g) Bind the raw ECDH output to both public keys (see pack.go).
 	sharedSecret := DeriveAuditSharedSecret(api, dh, ephCompressed, auditorCompressed)
 
 	// (h) Poseidon key schedule, mirroring the Rust host KDF
 	// (zolana_keypair::symmetric_apply with the same info string).
-	key, nonce := ve.KeySchedule(api, sharedSecret, auditEncInfoVars(), len(auditEncInfo))
+	key, nonce := ve.KeySchedule(api, sharedSecret, infoVars(e.Info), len(e.Info))
 
 	// (i) AES-256-CTR over the 32-byte plaintext scalar. Ciphertext integrity
 	// comes from the hash in (j), not from a GCM tag.
-	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, w.TxViewingSk[:])
+	ciphertext := aes.CTREncrypt(api, aes.NewAESGadget(api), key, nonce, e.Plaintext[:])
 
 	// (j) Chain element 8.
 	ciphertextHash := gadget.HashBytes(api, ciphertext)
 
-	return [8]frontend.Variable{
-		w.PrivateTxHash,
-		txLo, txHi,
-		auditorLo, auditorHi,
-		ephLo, ephHi,
-		ciphertextHash,
+	return Sealed{
+		AuditorLo:      auditorLo,
+		AuditorHi:      auditorHi,
+		EphLo:          ephLo,
+		EphHi:          ephHi,
+		CiphertextHash: ciphertextHash,
 	}
 }
 
-func auditEncInfoVars() []frontend.Variable {
-	out := make([]frontend.Variable, len(auditEncInfo))
-	for i, b := range auditEncInfo {
+func infoVars(info string) []frontend.Variable {
+	out := make([]frontend.Variable, len(info))
+	for i, b := range info {
 		out[i] = frontend.Variable(b)
 	}
 	return out

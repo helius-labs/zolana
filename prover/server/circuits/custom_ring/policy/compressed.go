@@ -1,6 +1,3 @@
-// The compressed windowed-velocity rail, the base policy statement plus an
-// in-circuit head-map transition standing in for the per-member on-chain head PDA.
-
 package policy
 
 import (
@@ -9,13 +6,12 @@ import (
 	"zolana/prover/circuits/gadget"
 )
 
-// CompressedPolicyCircuit carries the head-map transition under its own key.
 type CompressedPolicyCircuit struct {
 	Policy CustomRingPolicyCircuit
 
 	// Bound by the program to the live on-chain head-map root.
 	HeadOldRoot frontend.Variable
-	// The head-map root the program writes after the transfer.
+	// The successor root commits atomically with the SPP transfer.
 	HeadNewRoot frontend.Variable
 	// Successor pointer, held fixed across a transfer.
 	HeadNext  frontend.Variable
@@ -25,15 +21,19 @@ type CompressedPolicyCircuit struct {
 
 func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	api.AssertIsDifferent(c.Policy.WindowSlots, 0)
-	chain, txContext := c.Policy.constrainPolicy(api)
+	chain, txContext := c.Policy.constrainPolicyRail(api, memberRail)
 
-	// Input 0 is the member, the velocity sender slot.
-	member := txContext.inputs[0].ownerPkHash
-	spent := recordEntryNullifier(api, txContext.inputs[:])
-	successor := recordEntryNullifier(api, txContext.outputs[:])
-	newRoot := headMapTransfer(
-		api, c.HeadOldRoot, member, c.HeadNext, spent, successor, c.HeadIndex, c.HeadProof[:],
-	)
+	newRoot := headTransition{
+		oldRoot: c.HeadOldRoot,
+		leaf: headLeaf{
+			member:    txContext.inputs[0].ownerPkHash,
+			next:      c.HeadNext,
+			nullifier: selectedRecordNullifier(api, txContext.inputs[:]),
+		},
+		successor: selectedRecordNullifier(api, txContext.outputs[:]),
+		index:     c.HeadIndex,
+		proof:     c.HeadProof[:],
+	}.newRoot(api)
 	api.AssertIsEqual(newRoot, c.HeadNewRoot)
 
 	chain = append(chain, c.HeadOldRoot, c.HeadNewRoot)
@@ -41,9 +41,8 @@ func (c *CompressedPolicyCircuit) Define(api frontend.API) error {
 	return nil
 }
 
-// recordEntryNullifier opens the record slot the flag selects, the nullifier
-// secret fixed to 0 to match SPP's record spend.
-func recordEntryNullifier(api frontend.API, slots []utxoView) frontend.Variable {
+// The selected record uses SPP's namespace nullifier secret of zero.
+func selectedRecordNullifier(api frontend.API, slots []utxoView) frontend.Variable {
 	leaf := frontend.Variable(0)
 	blinding := frontend.Variable(0)
 	for _, slot := range slots {

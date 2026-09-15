@@ -486,26 +486,29 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("private_tx_hash      %s\n", hex32(s.privateTxHash))
 	fmt.Printf("public_input_hash    %s\n", hex32(s.publicInputHash))
 
-	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicyHash(t, nil, nil, nil, emptySources(), 0, nil)))
+	fmt.Printf("empty_policy_hash    %s\n", hex32(hostPolicy{sources: emptySources()}.hash(t)))
 	oneMap := emptySources()
 	oneMap[listAllow-1] = source{listId: listAllow, owner: s.ownOwnerHash}
 	oneRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow)}}
-	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap, 0, nil)))
+	fmt.Printf("one_rule_policy_hash %s\n", hex32(hostPolicy{rules: oneRule, sources: oneMap}.hash(t)))
 	twoMap := oneMap
 	twoMap[listFrozen-1] = source{listId: listFrozen, owner: s.curatorOwnerHash}
 	twoRules := append(oneRule, rule{subject: SubjectSender, mode: ModeAbsent, mask: listMask(listFrozen)})
-	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicyHash(t, twoRules, nil, nil, twoMap, 0, nil)))
+	fmt.Printf("two_rule_policy_hash %s\n", hex32(hostPolicy{rules: twoRules, sources: twoMap}.hash(t)))
 	mixedMap := emptySources()
 	mixedMap[listBlock-1] = source{listId: listBlock, owner: s.ownOwnerHash}
 	mixedMap[listApproval-1] = source{listId: listApproval, owner: s.ownOwnerHash}
 	mixedRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listApproval), altMask: listMask(listBlock)}}
-	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicyHash(t, mixedRule, nil, nil, mixedMap, 0, nil)))
+	fmt.Printf("mixed_rule_policy_hash %s\n", hex32(hostPolicy{rules: mixedRule, sources: mixedMap}.hash(t)))
 	perAssetRule := []rule{{subject: SubjectOutputOwner, mode: ModePresent, mask: listMask(listAllow), guardTag: GuardAboveAmountByAsset}}
-	fmt.Printf("per_asset_policy_hash %s\n", hex32(hostPolicyHash(
-		t, perAssetRule, []*big.Int{assetField(t, fill(0xd4))}, []uint64{123}, oneMap, 0, nil,
-	)))
+	fmt.Printf("per_asset_policy_hash %s\n", hex32(hostPolicy{
+		rules:        perAssetRule,
+		inlineAssets: []*big.Int{assetField(t, fill(0xd4))},
+		inlineLimits: []uint64{123},
+		sources:      oneMap,
+	}.hash(t)))
 	velocityRows := []velocityRow{{asset: assetField(t, fill(0xd4)), cap: 5000, cosign: 600}}
-	fmt.Printf("velocity_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap, 216000, velocityRows)))
+	fmt.Printf("velocity_policy_hash %s\n", hex32(hostPolicy{rules: oneRule, sources: oneMap, windowSlots: 216000, velocity: velocityRows}.hash(t)))
 
 	f := defaultFixture()
 	f.velocity = velocityFixtureDefault()
@@ -523,7 +526,7 @@ func TestPrintPolicyVectors(t *testing.T) {
 	fmt.Printf("velocity_public_input_hash %s\n", hex32(v.publicInputHash))
 
 	capRows := []velocityRow{{asset: assetField(t, fill(0xd4)), cap: 5000, cosign: 600}}
-	fmt.Printf("transfer_cap_policy_hash %s\n", hex32(hostPolicyHash(t, oneRule, nil, nil, oneMap, 0, capRows)))
+	fmt.Printf("transfer_cap_policy_hash %s\n", hex32(hostPolicy{rules: oneRule, sources: oneMap, velocity: capRows}.hash(t)))
 	cf := defaultFixture()
 	cf.velocity = velocityFixtureDefault()
 	cf.velocity.perTransfer = true
@@ -577,8 +580,13 @@ type fixture struct {
 	velocity *velocityFixture
 }
 
-// velocityFixture turns the window on with one row for the transferred
-// asset, the record opened at its previous counter.
+func (f fixture) facts() []int {
+	if f.rulesFree || (f.velocity != nil && f.velocity.rulesFree) {
+		return nil
+	}
+	return f.listFacts
+}
+
 type velocityFixture struct {
 	cap         uint64
 	cosignAbove uint64
@@ -618,14 +626,12 @@ func velocityFixtureDefault() *velocityFixture {
 	return &velocityFixture{cap: velocityCap, recordWindow: windowIndex}
 }
 
-// velocityRow mirrors ring_policy::VelocityRow.
 type velocityRow struct {
 	asset  *big.Int
 	cap    uint64
 	cosign uint64
 }
 
-// recordState is the host side of the sender's spend record and its successor.
 type recordState struct {
 	sender   *big.Int
 	version  uint64
@@ -766,8 +772,9 @@ type statement struct {
 	ringID      *big.Int
 	windowIndex uint64
 	approval    bool
-	// nil without velocity
-	record *recordState
+	// nil without a velocity window
+	record         *recordState
+	forgetCounters bool
 
 	entries []entry
 	derived []derived
@@ -801,6 +808,9 @@ type statement struct {
 func newStatement(t *testing.T, f fixture) *statement {
 	t.Helper()
 	s := &statement{}
+	if v := f.velocity; v != nil && v.rulesFree {
+		f.rulesFree = true
+	}
 
 	s.ownOwnerHash = spptest.MustOwnerHash(t,
 		pkField(t, fill(0x11)),
@@ -882,9 +892,10 @@ func newStatement(t *testing.T, f fixture) *statement {
 			s.windowIndex = windowIndex
 		}
 		s.approval = v.approval
+		s.forgetCounters = v.forgetCounters
 		s.velocity = append([]velocityRow{{asset: asset, cap: v.cap, cosign: v.cosignAbove}}, v.rows...)
 	}
-	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources, s.windowSlots, s.velocity)
+	s.policyHash = s.policy().hash(t)
 
 	s.keys = audittest.DefaultKeys(t)
 	if f.keys != nil {
@@ -906,8 +917,6 @@ func newStatement(t *testing.T, f fixture) *statement {
 	return s
 }
 
-// addRecordSlots spends the sender's record into its successor as the last
-// input and output, the money input covering every output the sender makes.
 func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, asset *big.Int) {
 	t.Helper()
 	recordMember := sender
@@ -930,15 +939,12 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 		nextSalt: big.NewInt(0x5a18),
 	}
 
-	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
+	s.shapeSpendInputs(t, v)
+	senders := 1
 	if v.secondSender {
-		other := s.inputs[0]
-		other.OwnerPkHash = pkField(t, fill(0xb4))
-		other.Blinding = big.NewInt(0x61)
-		s.inputs = []UtxoWires{s.inputs[0], other}
-	} else {
-		s.inputs = s.inputs[:1]
+		senders = 2
 	}
+	s.inputs = s.inputs[:senders]
 	s.shapeSpendOutputs(v, sender)
 	s.deriveRecord(t)
 	if v.entryAsRecord {
@@ -952,8 +958,19 @@ func (s *statement) addRecordSlots(t *testing.T, v *velocityFixture, sender, ass
 	s.updateHashes(t)
 }
 
-// shapeSpendOutputs marks the sender's change output inside the ring and
-// stamps every other output with the ring id.
+func (s *statement) shapeSpendInputs(t *testing.T, v *velocityFixture) {
+	t.Helper()
+	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
+	if !v.secondSender {
+		return
+	}
+	other := s.inputs[0]
+	other.OwnerPkHash = pkField(t, fill(0xb4))
+	other.Blinding = big.NewInt(0x61)
+	s.inputs[1] = other
+}
+
+// Change inside the ring is excluded from the sender's outflow.
 func (s *statement) shapeSpendOutputs(v *velocityFixture, sender *big.Int) {
 	if v.change > 0 {
 		change := s.outputs[0]
@@ -973,23 +990,14 @@ func (s *statement) shapeSpendOutputs(v *velocityFixture, sender *big.Int) {
 	}
 }
 
-// shapeTransferCap charges one transfer's outflow to the cap with no record,
-// a second sender replaces the dummy input.
+// Limits without a window use money slots without a record pair.
 func (s *statement) shapeTransferCap(t *testing.T, v *velocityFixture, sender *big.Int) {
 	t.Helper()
-	s.inputs[0].Amount = new(big.Int).SetUint64(s.inputs[0].Amount.(*big.Int).Uint64() + v.change)
-	if v.secondSender {
-		other := s.inputs[0]
-		other.OwnerPkHash = pkField(t, fill(0xb4))
-		other.Blinding = big.NewInt(0x61)
-		s.inputs[1] = other
-	}
+	s.shapeSpendInputs(t, v)
 	s.shapeSpendOutputs(v, sender)
 	s.updateHashes(t)
 }
 
-// deriveRecord charges the sender's outflow per row to the successor, the
-// previous counter only inside the window.
 func (s *statement) deriveRecord(t *testing.T) {
 	t.Helper()
 	r := s.record
@@ -1008,8 +1016,6 @@ func (s *statement) deriveRecord(t *testing.T) {
 	r.nextDataHash = hostRecordDataHash(t, r.address, r.sender, r.version+1, s.windowIndex, r.nextCommitment)
 }
 
-// hostOutflow mirrors the circuit, inputs of the asset less the sender's
-// change inside the ring.
 func (s *statement) hostOutflow(asset *big.Int) uint64 {
 	sender := s.inputs[0].OwnerPkHash.(*big.Int)
 	inflow := uint64(0)
@@ -1030,8 +1036,7 @@ func (s *statement) hostOutflow(asset *big.Int) uint64 {
 	return inflow - change
 }
 
-// recordOpening is the namespace's zero-amount SOL leaf under the entries
-// tree.
+// Spend records use the namespace owner with zero SOL in the entries tree.
 func (s *statement) recordOpening(t *testing.T, dataHash *big.Int, blinding int64) UtxoWires {
 	t.Helper()
 	return UtxoWires{
@@ -1142,11 +1147,7 @@ func (s *statement) buildTransaction(
 
 func buildAssignment(t *testing.T, f fixture) *CustomRingPolicyCircuit {
 	t.Helper()
-	s := newStatement(t, f)
-	if f.rulesFree {
-		return s.assignment(t, nil)
-	}
-	return s.assignment(t, f.listFacts)
+	return newStatement(t, f).assignment(t, f.facts())
 }
 
 func (s *statement) assignment(t *testing.T, listFacts []int) *CustomRingPolicyCircuit {
@@ -1294,7 +1295,7 @@ func (s *statement) listFactForEntry(t *testing.T, index int) ListFactWires {
 	return fact
 }
 
-// recordWires opens the record, zero wires without velocity.
+// Limits without a window do not consume the supplied counter openings.
 func (s *statement) recordWires() RecordWires {
 	wires := RecordWires{
 		Version:    big.NewInt(0),
@@ -1314,8 +1315,11 @@ func (s *statement) recordWires() RecordWires {
 	wires.Version = new(big.Int).SetUint64(r.version)
 	wires.Window = new(big.Int).SetUint64(r.window)
 	wires.Commitment = r.commitment
-	wires.Salt = r.salt
 	wires.NextSalt = r.nextSalt
+	if s.forgetCounters {
+		return wires
+	}
+	wires.Salt = r.salt
 	for i := range r.assets {
 		wires.Assets[i] = r.assets[i]
 		wires.Spent[i] = new(big.Int).SetUint64(r.spent[i])
@@ -1336,7 +1340,7 @@ const entriesTreeID = 7
 // hostSpendAddress mirrors ring_policy::ListNamespace::spend_address.
 func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
 	t.Helper()
-	seed := spptest.MustPoseidon(t, 3, []*big.Int{spendAddressDomain, sender})
+	seed := spptest.MustPoseidon(t, 3, []*big.Int{SpendAddressDomain, sender})
 	addressUtxoHash := spptest.MustPoseidon(t, 8, []*big.Int{
 		big.NewInt(protocol.AddressDomain),
 		big.NewInt(entriesTreeID),
@@ -1349,8 +1353,7 @@ func hostSpendAddress(t *testing.T, ownerHash, sender *big.Int) *big.Int {
 	return spptest.MustPoseidon(t, 4, []*big.Int{addressUtxoHash, seed, big.NewInt(0)})
 }
 
-// hostCountersCommitment mirrors ring_policy::SpendCounters::commitment,
-// rows padded with zero mints and counters.
+// Counter commitments include canonical zero padding after active mints.
 func hostCountersCommitment(t *testing.T, salt *big.Int, assets []*big.Int, spent []uint64) *big.Int {
 	t.Helper()
 	elements := []*big.Int{salt}
@@ -1369,7 +1372,7 @@ func hostCountersCommitment(t *testing.T, salt *big.Int, assets []*big.Int, spen
 func hostRecordDataHash(t *testing.T, address, sender *big.Int, version, window uint64, commitment *big.Int) *big.Int {
 	t.Helper()
 	return spptest.MustPoseidon(t, 7, []*big.Int{
-		spendRecordDomain,
+		SpendRecordDomain,
 		address,
 		sender,
 		new(big.Int).SetUint64(version),
@@ -1420,36 +1423,48 @@ func deriveRecord(t *testing.T, ownerHash *big.Int, r entry) derived {
 	}
 }
 
-// hostPolicyHash mirrors ring_policy::RuleTable::hash.
-func hostPolicyHash(
-	t *testing.T,
-	rules []rule,
-	inlineAssets []*big.Int,
-	inlineLimits []uint64,
-	sources [NSources]source,
-	windowSlots uint64,
-	velocity []velocityRow,
-) *big.Int {
+type hostPolicy struct {
+	rules        []rule
+	inlineAssets []*big.Int
+	inlineLimits []uint64
+	sources      [NSources]source
+	windowSlots  uint64
+	velocity     []velocityRow
+}
+
+func (s *statement) policy() hostPolicy {
+	return hostPolicy{
+		rules:        s.rules,
+		inlineAssets: s.inlineAssets,
+		inlineLimits: s.inlineLimits,
+		sources:      s.sources,
+		windowSlots:  s.windowSlots,
+		velocity:     s.velocity,
+	}
+}
+
+// Mirrors ring_policy::RuleTable::hash.
+func (p hostPolicy) hash(t *testing.T) *big.Int {
 	t.Helper()
 	elements := []*big.Int{policyTableDomain, big.NewInt(PolicyVersion)}
-	for _, slot := range sources {
+	for _, slot := range p.sources {
 		elements = append(elements, big.NewInt(slot.listId), slot.owner)
 	}
-	elements = append(elements, big.NewInt(int64(len(rules))))
-	elements = append(elements, big.NewInt(int64(len(inlineAssets))))
-	elements = append(elements, big.NewInt(int64(len(velocity))))
-	for _, r := range rules {
+	elements = append(elements, big.NewInt(int64(len(p.rules))))
+	elements = append(elements, big.NewInt(int64(len(p.inlineAssets))))
+	elements = append(elements, big.NewInt(int64(len(p.velocity))))
+	for _, r := range p.rules {
 		elements = append(elements, r.packed())
 	}
-	for i, asset := range inlineAssets {
+	for i, asset := range p.inlineAssets {
 		limit := uint64(0)
-		if i < len(inlineLimits) {
-			limit = inlineLimits[i]
+		if i < len(p.inlineLimits) {
+			limit = p.inlineLimits[i]
 		}
 		elements = append(elements, asset, new(big.Int).SetUint64(limit))
 	}
-	elements = append(elements, new(big.Int).SetUint64(windowSlots))
-	for _, row := range velocity {
+	elements = append(elements, new(big.Int).SetUint64(p.windowSlots))
+	for _, row := range p.velocity {
 		elements = append(elements, row.asset, new(big.Int).SetUint64(row.cap), new(big.Int).SetUint64(row.cosign))
 	}
 	return spptest.MustHashChain(t, elements)

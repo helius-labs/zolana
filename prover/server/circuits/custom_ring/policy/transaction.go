@@ -36,7 +36,7 @@ type utxoView struct {
 	ringProgramID frontend.Variable
 	// Selected, whatever the domain.
 	active frontend.Variable
-	// The last selected slot while velocity is on, never a policy subject.
+	// The final selected slot when windowed accounting requires a record.
 	record frontend.Variable
 	// Only selected UTXO slots outside the record can create policy obligations.
 	live frontend.Variable
@@ -53,7 +53,7 @@ type transactionContext struct {
 
 // constrainTransactionContext binds subjects and amounts to the transaction
 // checked by SPP.
-func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, rangeChecker frontend.Rangechecker, velocityOn frontend.Variable) transactionContext {
+func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, rangeChecker frontend.Rangechecker, recordEnabled frontend.Variable) transactionContext {
 	// 1. Select the transaction slot prefixes.
 	assertOneHot(api, c.InputCountSelected[:])
 	assertOneHot(api, c.OutputCountSelected[:])
@@ -64,14 +64,14 @@ func (c *CustomRingPolicyCircuit) constrainTransactionContext(api frontend.API, 
 	// 2. Check input domains and commitments.
 	inputHashes := make([]frontend.Variable, NInputs)
 	for i, wires := range c.Inputs {
-		record := api.Mul(velocityOn, c.InputCountSelected[i])
+		record := api.Mul(recordEnabled, c.InputCountSelected[i])
 		inputHashes[i], txContext.inputs[i] = wires.checkInput(api, rangeChecker, activeIn[i], record)
 	}
 
 	// 3. Check output domains and commitments.
 	outputHashes := make([]frontend.Variable, NOutputs)
 	for i, wires := range c.Outputs {
-		record := api.Mul(velocityOn, c.OutputCountSelected[i])
+		record := api.Mul(recordEnabled, c.OutputCountSelected[i])
 		outputHashes[i], txContext.outputs[i] = wires.checkOutput(api, rangeChecker, activeOut[i], record)
 	}
 

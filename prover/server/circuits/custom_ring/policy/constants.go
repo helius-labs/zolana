@@ -58,8 +58,7 @@ const (
 	AbsentBranchCleared          = 2
 )
 
-// Domain tags separate entry addresses, entry records, policy commitments,
-// spend record addresses and spend record leaves.
+// Distinct hash domains separate policy commitments from list and spend records.
 const (
 	addressDomainTag      = "zolana:ring-policy:address:v1"
 	recordDomainTag       = "zolana:ring-policy:record:v1"
@@ -72,8 +71,8 @@ var (
 	policyAddressDomain = packedASCII(addressDomainTag)
 	policyRecordDomain  = packedASCII(recordDomainTag)
 	policyTableDomain   = packedASCII(tableDomainTag)
-	spendAddressDomain  = packedASCII(spendAddressDomainTag)
-	spendRecordDomain   = packedASCII(spendRecordDomainTag)
+	SpendAddressDomain  = packedASCII(spendAddressDomainTag)
+	SpendRecordDomain   = packedASCII(spendRecordDomainTag)
 )
 
 // Policy entries use the SOL asset Poseidon(0, 0).
@@ -86,8 +85,7 @@ var emptyRingHash = solAssetField
 // UTXO amounts and thresholds use the same unsigned width.
 const amountBits = 64
 
-// Sum width includes the largest possible slot group, an inflow over every
-// money input or an output group.
+// The sum width bounds the larger of the input and output groups.
 var amountSumBits = amountBits + bits.Len(uint(max(NInputs, NOutputs)-1))
 
 // Adding the offset makes the top bit indicate total <= threshold.

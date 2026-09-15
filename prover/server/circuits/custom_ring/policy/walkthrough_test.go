@@ -121,7 +121,7 @@ func (s *statement) deriveEntries(t *testing.T) {
 
 func (s *statement) updateHashes(t *testing.T) {
 	t.Helper()
-	s.policyHash = hostPolicyHash(t, s.rules, s.inlineAssets, s.inlineLimits, s.sources, s.windowSlots, s.velocity)
+	s.policyHash = s.policy().hash(t)
 	inputHashes := make([]*big.Int, len(s.inputs))
 	outputHashes := make([]*big.Int, len(s.outputs))
 	for i, input := range s.inputs {

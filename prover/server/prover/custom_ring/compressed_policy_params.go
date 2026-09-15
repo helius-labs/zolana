@@ -5,16 +5,10 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/consensys/gnark-crypto/ecc"
-	"github.com/consensys/gnark/backend/groth16"
-	"github.com/consensys/gnark/frontend"
-
 	"zolana/prover/circuits/custom_ring/policy"
 	"zolana/prover/prover/common"
 )
 
-// CompressedPolicyParameters wraps the base policy request with the member's
-// head-map transition witness.
 type CompressedPolicyParameters struct {
 	Base        PolicyParameters
 	HeadOldRoot *big.Int
@@ -24,7 +18,6 @@ type CompressedPolicyParameters struct {
 	HeadProof   [policy.HeadMapHeight]*big.Int
 }
 
-// The base request nests to reuse its codec and guards.
 type compressedPolicyParametersJSON struct {
 	CircuitType string          `json:"circuitType"`
 	Policy      json.RawMessage `json:"policy"`
@@ -41,7 +34,7 @@ func (p *CompressedPolicyParameters) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(compressedPolicyParametersJSON{
-		CircuitType: string(common.CompressedPolicyCircuitType),
+		CircuitType: string(common.CustomRingCompressedPolicyCircuitType),
 		Policy:      base,
 		HeadOldRoot: common.ToHex(p.HeadOldRoot),
 		HeadNewRoot: common.ToHex(p.HeadNewRoot),
@@ -56,7 +49,7 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.CircuitType != string(common.CompressedPolicyCircuitType) {
+	if raw.CircuitType != string(common.CustomRingCompressedPolicyCircuitType) {
 		return fmt.Errorf("custom-ring-compressed-policy: unexpected circuitType %q", raw.CircuitType)
 	}
 	if err := json.Unmarshal(raw.Policy, &p.Base); err != nil {
@@ -81,8 +74,11 @@ func (p *CompressedPolicyParameters) UnmarshalJSON(data []byte) error {
 	if p.HeadIndex, err = fieldFromHex(raw.HeadIndex, "headIndex"); err != nil {
 		return err
 	}
-	if p.Base.WindowSlots == 0 || p.HeadIndex.Sign() == 0 || p.HeadIndex.BitLen() > policy.HeadMapHeight {
-		return fmt.Errorf("compressed policy requires a window and nonzero 40 bit head index")
+	if p.Base.WindowSlots == 0 {
+		return fmt.Errorf("custom-ring-compressed-policy: windowSlots is zero")
+	}
+	if p.HeadIndex.Sign() == 0 || p.HeadIndex.BitLen() > policy.HeadMapHeight {
+		return fmt.Errorf("custom-ring-compressed-policy: headIndex must be nonzero and below 2^%d", policy.HeadMapHeight)
 	}
 	for i, hex := range raw.HeadProof {
 		if p.HeadProof[i], err = fieldFromHex(hex, "headProof"); err != nil {
@@ -108,20 +104,4 @@ func (p *CompressedPolicyParameters) CreateWitness() (*policy.CompressedPolicyCi
 		circuit.HeadProof[i] = p.HeadProof[i]
 	}
 	return circuit, nil
-}
-
-func ProveCompressedPolicy(ps *common.RingProofSystem, params *CompressedPolicyParameters) (*common.Proof, error) {
-	assignment, err := params.CreateWitness()
-	if err != nil {
-		return nil, err
-	}
-	witness, err := frontend.NewWitness(assignment, ecc.BN254.ScalarField())
-	if err != nil {
-		return nil, fmt.Errorf("create witness: %w", err)
-	}
-	proof, err := groth16.Prove(ps.ConstraintSystem, ps.ProvingKey, witness)
-	if err != nil {
-		return nil, fmt.Errorf("prove: %w", err)
-	}
-	return &common.Proof{Proof: proof}, nil
 }

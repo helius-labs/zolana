@@ -1,9 +1,3 @@
-// The member -> current-record-nullifier map, an indexed Merkle tree whose leaf
-// carries the successor pointer and the member's current nullifier. Registration
-// proves the member absent and inserts its genesis, a transfer replaces the
-// member's nullifier with its successor. Only the root is on chain, advanced in
-// lockstep with the SPP transfer against the exact current root.
-
 package policy
 
 import (
@@ -16,65 +10,74 @@ import (
 	merkletree "zolana/prover/merkle-tree"
 )
 
-// HeadMapHeight is the indexed-tree height, the member key space folds into the
-// sorted linked list the same way the nullifier tree folds addresses.
 const HeadMapHeight = 40
 
-// headMapEmptyLeaf is the value at an unoccupied position, the insert target.
+type headLeaf struct {
+	member    frontend.Variable
+	next      frontend.Variable
+	nullifier frontend.Variable
+}
+
+type headTransition struct {
+	oldRoot   frontend.Variable
+	leaf      headLeaf
+	successor frontend.Variable
+	index     frontend.Variable
+	proof     []frontend.Variable
+}
+
+type headRegistration struct {
+	oldRoot  frontend.Variable
+	low      headLeaf
+	lowIndex frontend.Variable
+	lowProof []frontend.Variable
+	member   frontend.Variable
+	genesis  frontend.Variable
+	newIndex frontend.Variable
+	newProof []frontend.Variable
+}
+
 func headMapEmptyLeaf() frontend.Variable {
 	return frontend.Variable(new(big.Int).SetBytes(merkletree.ZERO_BYTES[0][:]))
 }
 
-// headMapLeaf binds a member to its successor pointer and current nullifier.
-func headMapLeaf(api frontend.API, member, next, nullifier frontend.Variable) frontend.Variable {
-	return gadget.PoseidonHash(api, []frontend.Variable{member, next, nullifier})
+func (l headLeaf) hash(api frontend.API) frontend.Variable {
+	return gadget.PoseidonHash(api, []frontend.Variable{l.member, l.next, l.nullifier})
 }
 
-// headMapTransfer proves the member's leaf holds spent under oldRoot and returns
-// the root after writing successor, the member and its successor pointer fixed.
-func headMapTransfer(
-	api frontend.API,
-	oldRoot, member, next, spent, successor, index frontend.Variable,
-	proof []frontend.Variable,
-) frontend.Variable {
-	api.AssertIsDifferent(index, 0)
-	gadget.AssertStrictlyOrderedFullField(api, 0, member, next)
+// Membership authenticates the consumed nullifier while preserving member ordering.
+func (t headTransition) newRoot(api frontend.API) frontend.Variable {
+	// Index zero is the sentinel.
+	api.AssertIsDifferent(t.index, 0)
+	gadget.AssertStrictlyOrderedFullField(api, 0, t.leaf.member, t.leaf.next)
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
-		OldRoot:     oldRoot,
-		OldLeaf:     headMapLeaf(api, member, next, spent),
-		NewLeaf:     headMapLeaf(api, member, next, successor),
-		PathIndex:   api.ToBinary(index, HeadMapHeight),
-		MerkleProof: proof,
+		OldRoot:     t.oldRoot,
+		OldLeaf:     t.leaf.hash(api),
+		NewLeaf:     headLeaf{member: t.leaf.member, next: t.leaf.next, nullifier: t.successor}.hash(api),
+		PathIndex:   api.ToBinary(t.index, HeadMapHeight),
+		MerkleProof: t.proof,
 		Height:      HeadMapHeight,
 	})
 }
 
-// headMapRegister proves the member absent between the low leaf and its
-// successor, splices the low leaf to it, and writes the genesis at an empty leaf.
-func headMapRegister(
-	api frontend.API,
-	oldRoot frontend.Variable,
-	lowMember, lowNext, lowNullifier, lowIndex frontend.Variable,
-	lowProof []frontend.Variable,
-	member, genesis, newIndex frontend.Variable,
-	newProof []frontend.Variable,
-) frontend.Variable {
-	api.AssertIsDifferent(newIndex, 0)
-	gadget.AssertStrictlyOrderedFullField(api, lowMember, member, lowNext)
+// Registration preserves the ordered member chain across both root updates.
+func (r headRegistration) newRoot(api frontend.API) frontend.Variable {
+	api.AssertIsDifferent(r.newIndex, 0)
+	gadget.AssertStrictlyOrderedFullField(api, r.low.member, r.member, r.low.next)
 	root := abstractor.Call(api, gadget.MerkleRootUpdateGadget{
-		OldRoot:     oldRoot,
-		OldLeaf:     headMapLeaf(api, lowMember, lowNext, lowNullifier),
-		NewLeaf:     headMapLeaf(api, lowMember, member, lowNullifier),
-		PathIndex:   api.ToBinary(lowIndex, HeadMapHeight),
-		MerkleProof: lowProof,
+		OldRoot:     r.oldRoot,
+		OldLeaf:     r.low.hash(api),
+		NewLeaf:     headLeaf{member: r.low.member, next: r.member, nullifier: r.low.nullifier}.hash(api),
+		PathIndex:   api.ToBinary(r.lowIndex, HeadMapHeight),
+		MerkleProof: r.lowProof,
 		Height:      HeadMapHeight,
 	})
 	return abstractor.Call(api, gadget.MerkleRootUpdateGadget{
 		OldRoot:     root,
 		OldLeaf:     headMapEmptyLeaf(),
-		NewLeaf:     headMapLeaf(api, member, lowNext, genesis),
-		PathIndex:   api.ToBinary(newIndex, HeadMapHeight),
-		MerkleProof: newProof,
+		NewLeaf:     headLeaf{member: r.member, next: r.low.next, nullifier: r.genesis}.hash(api),
+		PathIndex:   api.ToBinary(r.newIndex, HeadMapHeight),
+		MerkleProof: r.newProof,
 		Height:      HeadMapHeight,
 	})
 }

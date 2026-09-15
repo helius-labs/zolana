@@ -10,18 +10,22 @@ import (
 	"github.com/consensys/gnark/frontend"
 
 	"zolana/prover/circuits/custom_ring/policy"
-	merkletree "zolana/prover/merkle-tree"
 	"zolana/prover/prover-test/spp/protocol"
 	"zolana/prover/prover-test/spp/spptest"
 	"zolana/prover/prover/common"
 )
 
+type compressedFixture struct {
+	register *CompressedRegisterParameters
+	transfer *CompressedPolicyParameters
+}
+
 func TestCompressedRegistrationAndSuccessorProofsVerify(t *testing.T) {
-	register, transfer := compressedProofParameters(t, nil)
-	registerSystem := loadRingSystem(t, common.CompressedRegisterKeyFile)
+	f := compressedProofParameters(t, nil)
+	registerSystem := loadRingSystem(t, common.CustomRingCompressedRegisterKeyFile)
 	var decodedRegister CompressedRegisterParameters
-	roundTripProofParameters(t, register, &decodedRegister)
-	registrationProof, err := ProveCompressedRegister(registerSystem, &decodedRegister)
+	roundTripProofParameters(t, f.register, &decodedRegister)
+	registrationProof, err := Prove(registerSystem, &decodedRegister)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,10 +37,10 @@ func TestCompressedRegistrationAndSuccessorProofsVerify(t *testing.T) {
 	registrationAssignment.PublicInputHash = big.NewInt(1)
 	rejectInstalledProof(t, registerSystem, registrationProof, registrationAssignment)
 
-	transferSystem := loadRingSystem(t, common.CompressedPolicyKeyFile)
+	transferSystem := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decodedTransfer CompressedPolicyParameters
-	roundTripProofParameters(t, transfer, &decodedTransfer)
-	transferProof, err := ProveCompressedPolicy(transferSystem, &decodedTransfer)
+	roundTripProofParameters(t, f.transfer, &decodedTransfer)
+	transferProof, err := Prove(transferSystem, &decodedTransfer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,14 +58,14 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 		p.Record.Version = 3
 		p.Record.Commitment = proofCounters(t, big.NewInt(71), p.Velocity[0].Asset, p.Velocity[0].Cap)
 	}
-	_, transfer := compressedProofParameters(t, func(p *PolicyParameters) {
+	transfer := compressedProofParameters(t, func(p *PolicyParameters) {
 		unknownCounters(p)
 		p.Record.Window--
-	})
-	ps := loadRingSystem(t, common.CompressedPolicyKeyFile)
+	}).transfer
+	ps := loadRingSystem(t, common.CustomRingCompressedPolicyKeyFile)
 	var decoded CompressedPolicyParameters
 	roundTripProofParameters(t, transfer, &decoded)
-	proof, err := ProveCompressedPolicy(ps, &decoded)
+	proof, err := Prove(ps, &decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,12 +82,12 @@ func TestCompressedProofResetsExpiredCountersWithoutTheirOpening(t *testing.T) {
 		t.Fatal(err)
 	}
 	rejectInstalledProof(t, ps, proof, staleWindow)
-	if _, err := ProveCompressedPolicy(ps, &decoded); err == nil {
+	if _, err := Prove(ps, &decoded); err == nil {
 		t.Fatal("an expired successor was proven under the predecessor window")
 	}
 
-	_, live := compressedProofParameters(t, unknownCounters)
-	if _, err := ProveCompressedPolicy(ps, live); err == nil {
+	live := compressedProofParameters(t, unknownCounters).transfer
+	if _, err := Prove(ps, live); err == nil {
 		t.Fatal("a live record was proven without its counter opening")
 	}
 }
@@ -97,7 +101,7 @@ func TestDelegateProofVerifiesAboveCommittedWindowCap(t *testing.T) {
 	var decoded DelegatePolicyParameters
 	roundTripProofParameters(t, &params, &decoded)
 	ps := loadRingSystem(t, common.CustomRingDelegatePolicyKeyFile)
-	proof, err := ProveDelegatePolicy(ps, &decoded)
+	proof, err := Prove(ps, &decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +147,7 @@ func verifyProofAssignment(ps *common.RingProofSystem, proof *common.Proof, assi
 	return groth16.Verify(proof.Proof, ps.VerifyingKey, witness)
 }
 
-func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) (*CompressedRegisterParameters, *CompressedPolicyParameters) {
+func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) compressedFixture {
 	t.Helper()
 	p := rulesFreeParams(t)
 	zero := big.NewInt(0)
@@ -159,7 +163,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 		configure(p)
 	}
 	nextCommitment := proofCounters(t, p.Record.NextSalt, p.Velocity[0].Asset, p.Inputs[0].Amount)
-	seed := spptest.MustPoseidon(t, 3, []*big.Int{new(big.Int).SetBytes([]byte("zolana:ring-policy:spend:v1")), member})
+	seed := spptest.MustPoseidon(t, 3, []*big.Int{policy.SpendAddressDomain, member})
 	addressLeaf := spptest.MustUtxoHash(t, protocol.Utxo{
 		Domain: big.NewInt(protocol.AddressDomain), Owner: p.NamespaceOwnerHash,
 		Asset: zero, Amount: zero, Blinding: seed, DataHash: zero, RingDataHash: zero, RingProgramID: zero,
@@ -175,7 +179,7 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 			OwnerPkHash: ownerPk, NullifierPk: nullifierPk, Asset: protocol.SolAsset(), Amount: zero,
 			Blinding: big.NewInt(blinding), RingProgramID: zero, RingDataHash: zero,
 			DataHash: spptest.MustPoseidon(t, 7, []*big.Int{
-				new(big.Int).SetBytes([]byte("zolana:ring-spend:record:v1")), address, member,
+				policy.SpendRecordDomain, address, member,
 				new(big.Int).SetUint64(version), new(big.Int).SetUint64(window), commitment,
 			}),
 		}
@@ -183,34 +187,47 @@ func compressedProofParameters(t *testing.T, configure func(*PolicyParameters)) 
 	p.Inputs[1], p.Outputs[1] = opening(p.Record.Version, p.Record.Commitment, 101), opening(p.Record.Version+1, nextCommitment, 102)
 	genesis := spptest.MustNullifier(t, openingHash(t, p.Inputs[1]), p.Inputs[1].Blinding, zero)
 	successor := spptest.MustNullifier(t, openingHash(t, p.Outputs[1]), p.Outputs[1].Blinding, zero)
-	maximum := new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1))
-	leaf := func(owner, next, nullifier *big.Int) big.Int {
-		return *spptest.MustPoseidon(t, 4, []*big.Int{owner, next, nullifier})
-	}
-	tree := merkletree.NewTree(policy.HeadMapHeight)
-	tree.Update(0, leaf(zero, maximum, zero))
-	emptyRoot, lowProof := tree.Root.Value(), tree.GenerateProof(0)
-	tree.Update(0, leaf(zero, member, zero))
-	emptyProof := tree.GenerateProof(1)
-	tree.Update(1, leaf(member, maximum, genesis))
-	registeredRoot, transferProof := tree.Root.Value(), tree.GenerateProof(1)
-	tree.Update(1, leaf(member, maximum, successor))
-	transferredRoot := tree.Root.Value()
+	heads := spptest.NewHeadMap(t, policy.HeadMapHeight)
+	insertion := heads.Register(t, member, genesis)
+	transition := heads.Transfer(t, insertion.NewIndex, successor)
+
 	register := &CompressedRegisterParameters{
-		HeadOldRoot: &emptyRoot, HeadNewRoot: &registeredRoot, Member: member, Genesis: genesis,
-		NewIndex: big.NewInt(1), LowMember: zero, LowNext: maximum, LowNullifier: zero, LowIndex: zero,
+		headInsertion: fixtureInsertion(insertion, member),
+		Genesis:       genesis,
 	}
 	register.PublicInputHash = spptest.MustHashChain(t, []*big.Int{
 		register.HeadOldRoot, register.HeadNewRoot, member, genesis, register.NewIndex,
 	})
 	transfer := &CompressedPolicyParameters{
-		Base: *p, HeadOldRoot: &registeredRoot, HeadNewRoot: &transferredRoot, HeadNext: maximum, HeadIndex: big.NewInt(1),
+		Base:        *p,
+		HeadOldRoot: transition.OldRoot,
+		HeadNewRoot: transition.NewRoot,
+		HeadNext:    transition.Leaf.Next,
+		HeadIndex:   new(big.Int).SetUint64(transition.Index),
 	}
-	for i := range register.LowProof {
-		register.LowProof[i], register.NewProof[i], transfer.HeadProof[i] = &lowProof[i], &emptyProof[i], &transferProof[i]
+	for i := range transfer.HeadProof {
+		transfer.HeadProof[i] = &transition.Proof[i]
 	}
 	bindRulesFreeStatement(t, &transfer.Base, transfer.HeadOldRoot, transfer.HeadNewRoot)
-	return register, transfer
+	return compressedFixture{register: register, transfer: transfer}
+}
+
+func fixtureInsertion(insertion spptest.HeadMapInsertion, member *big.Int) headInsertion {
+	h := headInsertion{
+		HeadOldRoot:  insertion.OldRoot,
+		HeadNewRoot:  insertion.NewRoot,
+		Member:       member,
+		NewIndex:     new(big.Int).SetUint64(insertion.NewIndex),
+		LowMember:    insertion.Low.Member,
+		LowNext:      insertion.Low.Next,
+		LowNullifier: insertion.Low.Nullifier,
+		LowIndex:     new(big.Int).SetUint64(insertion.LowIndex),
+	}
+	for i := range h.LowProof {
+		h.LowProof[i] = &insertion.LowProof[i]
+		h.NewProof[i] = &insertion.NewProof[i]
+	}
+	return h
 }
 
 func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {
@@ -220,40 +237,4 @@ func proofCounters(t *testing.T, salt, asset, spent *big.Int) *big.Int {
 		elements = append(elements, big.NewInt(0), big.NewInt(0))
 	}
 	return spptest.MustHashChain(t, elements)
-}
-
-func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int) {
-	t.Helper()
-	inputs, outputs := []*big.Int{}, []*big.Int{}
-	for i := 0; i < int(p.NIn); i++ {
-		inputs = append(inputs, openingHash(t, p.Inputs[i]))
-	}
-	for i := 0; i < int(p.NOut); i++ {
-		outputs = append(outputs, openingHash(t, p.Outputs[i]))
-	}
-	p.PrivateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
-		spptest.MustHashChain4(t, inputs), spptest.MustHashChain4(t, outputs),
-		p.AddressChain, p.ExternalDataHash, p.PrivateTxBlinding,
-	})
-	preimage := []*big.Int{new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1")), big.NewInt(policy.PolicyVersion)}
-	for range p.Sources {
-		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
-	}
-	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.VelocityCount)), new(big.Int).SetUint64(p.WindowSlots))
-	for i := 0; i < int(p.VelocityCount); i++ {
-		row := p.Velocity[i]
-		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
-	}
-	policyHash := spptest.MustHashChain(t, preimage)
-	elements := []*big.Int{p.PrivateTxHash}
-	for _, value := range auditChainElements {
-		n, ok := new(big.Int).SetString(value[2:], 16)
-		if !ok {
-			t.Fatal("invalid audit element")
-		}
-		elements = append(elements, n)
-	}
-	elements = append(elements, policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
-		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0))
-	p.PublicInputHash = spptest.MustHashChain(t, append(elements, tail...))
 }

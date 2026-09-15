@@ -17,11 +17,13 @@ type corpus struct {
 }
 
 type corpusCase struct {
-	Sources      []corpusSource `json:"sources"`
-	Rules        []corpusRow    `json:"rules"`
-	InlineAssets []string       `json:"inlineAssets"`
-	InlineLimits []uint64       `json:"inlineLimits"`
-	PolicyHash   string         `json:"policyHash"`
+	Sources      []corpusSource   `json:"sources"`
+	Rules        []corpusRow      `json:"rules"`
+	InlineAssets []string         `json:"inlineAssets"`
+	InlineLimits []uint64         `json:"inlineLimits"`
+	WindowSlots  uint64           `json:"windowSlots"`
+	Velocity     []corpusVelocity `json:"velocity"`
+	PolicyHash   string           `json:"policyHash"`
 }
 
 type corpusSource struct {
@@ -36,6 +38,12 @@ type corpusRow struct {
 	AltMask   int64  `json:"altMask"`
 	GuardTag  int64  `json:"guardTag"`
 	Threshold uint64 `json:"threshold"`
+}
+
+type corpusVelocity struct {
+	Asset       string `json:"asset"`
+	Cap         uint64 `json:"cap"`
+	CosignAbove uint64 `json:"cosignAbove"`
 }
 
 func TestPolicyHashCorpus(t *testing.T) {
@@ -69,7 +77,18 @@ func TestPolicyHashCorpus(t *testing.T) {
 		for j, a := range tc.InlineAssets {
 			assets[j] = hexField(t, a)
 		}
-		got := hex32(hostPolicyHash(t, rules, assets, tc.InlineLimits, sources, 0, nil))
+		velocity := make([]velocityRow, len(tc.Velocity))
+		for j, row := range tc.Velocity {
+			velocity[j] = velocityRow{asset: hexField(t, row.Asset), cap: row.Cap, cosign: row.CosignAbove}
+		}
+		got := hex32(hostPolicy{
+			rules:        rules,
+			inlineAssets: assets,
+			inlineLimits: tc.InlineLimits,
+			sources:      sources,
+			windowSlots:  tc.WindowSlots,
+			velocity:     velocity,
+		}.hash(t))
 		if got != tc.PolicyHash {
 			t.Fatalf("case %d hashes to %s, the Rust side pins %s", i, got, tc.PolicyHash)
 		}

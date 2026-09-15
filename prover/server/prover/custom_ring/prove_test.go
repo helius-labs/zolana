@@ -30,7 +30,7 @@ var auditChainElements = [7]string{
 func TestCustomRingProofVerifies(t *testing.T) {
 	loadedSystem := loadRingSystem(t, common.CustomRingPolicyKeyFile)
 	params := rulesFreeParams(t)
-	proof, err := ProvePolicy(loadedSystem, params)
+	proof, err := Prove(loadedSystem, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestCustomRingProofVerifies(t *testing.T) {
 func TestAuditProofVerifies(t *testing.T) {
 	ps := loadRingSystem(t, common.CustomRingBaseKeyFile)
 	params := baseParams(t)
-	proof, err := ProveBase(ps, params)
+	proof, err := Prove(ps, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,23 +163,36 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 	for i := range p.ListFacts {
 		p.ListFacts[i] = zeroedListFact()
 	}
+	bindRulesFreeStatement(t, p)
+	return p
+}
 
+// The tail extends the chain past the program context.
+func bindRulesFreeStatement(t *testing.T, p *PolicyParameters, tail ...*big.Int) {
+	t.Helper()
+	inputs, outputs := []*big.Int{}, []*big.Int{}
+	for i := 0; i < int(p.NIn); i++ {
+		inputs = append(inputs, openingHash(t, p.Inputs[i]))
+	}
+	for i := 0; i < int(p.NOut); i++ {
+		outputs = append(outputs, openingHash(t, p.Outputs[i]))
+	}
 	p.PrivateTxHash = spptest.MustPoseidon(t, 6, []*big.Int{
-		openingHash(t, p.Inputs[0]),
-		openingHash(t, p.Outputs[0]),
-		p.AddressChain,
-		p.ExternalDataHash,
-		p.PrivateTxBlinding,
+		spptest.MustHashChain4(t, inputs), spptest.MustHashChain4(t, outputs),
+		p.AddressChain, p.ExternalDataHash, p.PrivateTxBlinding,
 	})
 	// Mirrors ring_policy::packed_ascii of the policy table domain tag.
 	tableDomain := new(big.Int).SetBytes([]byte("zolana:ring-policy:policy:v1"))
-	policyElements := []*big.Int{tableDomain, big.NewInt(policy.PolicyVersion)}
+	preimage := []*big.Int{tableDomain, big.NewInt(policy.PolicyVersion)}
 	for range p.Sources {
-		policyElements = append(policyElements, big.NewInt(0), big.NewInt(0))
+		preimage = append(preimage, big.NewInt(0), big.NewInt(0))
 	}
-	// The rule, inline and velocity counts, then the window length, all zero.
-	policyHash := spptest.MustHashChain(t, append(policyElements,
-		big.NewInt(0), big.NewInt(0), big.NewInt(0), big.NewInt(0)))
+	preimage = append(preimage, big.NewInt(0), big.NewInt(0), big.NewInt(int64(p.VelocityCount)), new(big.Int).SetUint64(p.WindowSlots))
+	for i := 0; i < int(p.VelocityCount); i++ {
+		row := p.Velocity[i]
+		preimage = append(preimage, row.Asset, row.Cap, row.CosignAbove)
+	}
+	policyHash := spptest.MustHashChain(t, preimage)
 	elements := []*big.Int{p.PrivateTxHash}
 	for _, element := range auditChainElements {
 		value, ok := new(big.Int).SetString(element[2:], 16)
@@ -188,10 +201,9 @@ func rulesFreeParams(t *testing.T) *PolicyParameters {
 		}
 		elements = append(elements, value)
 	}
-	p.PublicInputHash = spptest.MustHashChain(t, append(elements,
-		policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
-		p.RingID, p.NamespaceOwnerHash, big.NewInt(0), big.NewInt(0)))
-	return p
+	elements = append(elements, policyHash, p.StateRoot, p.NullifierRoot, p.EntriesTreeID,
+		p.RingID, p.NamespaceOwnerHash, new(big.Int).SetUint64(p.WindowIndex), big.NewInt(0))
+	p.PublicInputHash = spptest.MustHashChain(t, append(elements, tail...))
 }
 
 func zeroedRecord() SpendRecord {

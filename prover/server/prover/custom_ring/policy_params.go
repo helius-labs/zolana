@@ -65,14 +65,13 @@ type SourceOwner struct {
 	OwnerHash *big.Int
 }
 
-// VelocityRow is one spend window row, zero leaves a bound off.
 type VelocityRow struct {
 	Asset       *big.Int
 	Cap         *big.Int
 	CosignAbove *big.Int
 }
 
-// SpendRecord opens the sender's latest record.
+// SpendRecord supplies private counter openings without authenticating the record's current head.
 type SpendRecord struct {
 	Version    uint64
 	Window     uint64
@@ -775,6 +774,13 @@ func validateP256Scalar(value []byte, name string) error {
 	scalar := new(big.Int).SetBytes(value)
 	if scalar.Sign() == 0 || scalar.Cmp(elliptic.P256().Params().N) >= 0 {
 		return fmt.Errorf("custom-ring: %s is not a canonical P256 scalar", name)
+	}
+	return nil
+}
+
+func validateP256Point(value []byte, name string) error {
+	if x, y := elliptic.Unmarshal(elliptic.P256(), value); x == nil || y == nil {
+		return fmt.Errorf("custom-ring: %s is not a P256 point", name)
 	}
 	return nil
 }

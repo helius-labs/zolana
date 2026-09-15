@@ -7,18 +7,9 @@ import (
 	"github.com/consensys/gnark-crypto/ecc"
 	"github.com/consensys/gnark/frontend"
 	"github.com/consensys/gnark/test"
-	"github.com/iden3/go-iden3-crypto/poseidon"
 
-	merkletree "zolana/prover/merkle-tree"
+	"zolana/prover/prover-test/spp/spptest"
 )
-
-func headLeafValue(member, next, nullifier *big.Int) big.Int {
-	hash, err := poseidon.Hash([]*big.Int{member, next, nullifier})
-	if err != nil {
-		panic(err)
-	}
-	return *hash
-}
 
 func proofVars(proof []big.Int) []frontend.Variable {
 	vars := make([]frontend.Variable, len(proof))
@@ -28,8 +19,6 @@ func proofVars(proof []big.Int) []frontend.Variable {
 	return vars
 }
 
-// headMapRoundTripCircuit registers a member, then transfers it, asserting each
-// transition reaches the root the reference tree computed.
 type headMapRoundTripCircuit struct {
 	OldRoot         frontend.Variable `gnark:",public"`
 	RegisteredRoot  frontend.Variable `gnark:",public"`
@@ -45,63 +34,154 @@ type headMapRoundTripCircuit struct {
 }
 
 func (c *headMapRoundTripCircuit) Define(api frontend.API) error {
-	registered := headMapRegister(api, c.OldRoot,
-		c.LowMember, c.LowNext, c.LowNullifier, c.LowIndex, c.LowProof,
-		c.Member, c.Genesis, c.NewIndex, c.NewProof)
+	registered := headRegistration{
+		oldRoot:  c.OldRoot,
+		low:      headLeaf{member: c.LowMember, next: c.LowNext, nullifier: c.LowNullifier},
+		lowIndex: c.LowIndex,
+		lowProof: c.LowProof,
+		member:   c.Member,
+		genesis:  c.Genesis,
+		newIndex: c.NewIndex,
+		newProof: c.NewProof,
+	}.newRoot(api)
 	api.AssertIsEqual(registered, c.RegisteredRoot)
 	// The member keeps the sentinel's successor pointer, only its nullifier moves.
-	transferred := headMapTransfer(api, registered,
-		c.Member, c.LowNext, c.Spent, c.Successor, c.TransferIndex, c.TransferProof)
+	transferred := headTransition{
+		oldRoot:   registered,
+		leaf:      headLeaf{member: c.Member, next: c.LowNext, nullifier: c.Spent},
+		successor: c.Successor,
+		index:     c.TransferIndex,
+		proof:     c.TransferProof,
+	}.newRoot(api)
 	api.AssertIsEqual(transferred, c.TransferredRoot)
 	return nil
 }
 
-func TestHeadMapRegisterThenTransfer(t *testing.T) {
-	pMinusOne := new(big.Int).Sub(ecc.BN254.ScalarField(), big.NewInt(1))
-	zero := big.NewInt(0)
-	member := big.NewInt(0x1234)
-	genesis := big.NewInt(0x5e)
-	successor := big.NewInt(0x77)
+type headTransitionCircuit struct {
+	OldRoot frontend.Variable `gnark:",public"`
+	NewRoot frontend.Variable `gnark:",public"`
 
-	tree := merkletree.NewTree(HeadMapHeight)
-	sentinel := headLeafValue(zero, pMinusOne, zero)
-	tree.Update(0, sentinel)
-	oldRoot := tree.Root.Value()
+	Member, Next, Spent, Successor, Index frontend.Variable
+	Proof                                 []frontend.Variable
+}
 
-	lowProof := tree.GenerateProof(0)
-	spliced := headLeafValue(zero, member, zero)
-	tree.Update(0, spliced)
-	newProof := tree.GenerateProof(1)
-	memberLeaf := headLeafValue(member, pMinusOne, genesis)
-	tree.Update(1, memberLeaf)
-	registeredRoot := tree.Root.Value()
+func (c *headTransitionCircuit) Define(api frontend.API) error {
+	newRoot := headTransition{
+		oldRoot:   c.OldRoot,
+		leaf:      headLeaf{member: c.Member, next: c.Next, nullifier: c.Spent},
+		successor: c.Successor,
+		index:     c.Index,
+		proof:     c.Proof,
+	}.newRoot(api)
+	api.AssertIsEqual(newRoot, c.NewRoot)
+	return nil
+}
 
-	transferProof := tree.GenerateProof(1)
-	tree.Update(1, headLeafValue(member, pMinusOne, successor))
-	transferredRoot := tree.Root.Value()
-
-	assignment := &headMapRoundTripCircuit{
-		OldRoot:         oldRoot,
-		RegisteredRoot:  registeredRoot,
-		TransferredRoot: transferredRoot,
-		LowMember:       zero,
-		LowNext:         pMinusOne,
-		LowNullifier:    zero,
-		LowIndex:        0,
-		LowProof:        proofVars(lowProof),
-		Member:          member,
-		Genesis:         genesis,
-		NewIndex:        1,
-		NewProof:        proofVars(newProof),
-		Spent:           genesis,
-		Successor:       successor,
-		TransferIndex:   1,
-		TransferProof:   proofVars(transferProof),
-	}
-	circuit := &headMapRoundTripCircuit{
+func roundTripCircuit() *headMapRoundTripCircuit {
+	return &headMapRoundTripCircuit{
 		LowProof:      make([]frontend.Variable, HeadMapHeight),
 		NewProof:      make([]frontend.Variable, HeadMapHeight),
 		TransferProof: make([]frontend.Variable, HeadMapHeight),
 	}
-	test.NewAssert(t).SolvingSucceeded(circuit, assignment, test.WithCurves(ecc.BN254))
+}
+
+func roundTripAssignment(t *testing.T, member, genesis, successor *big.Int) *headMapRoundTripCircuit {
+	t.Helper()
+	heads := spptest.NewHeadMap(t, HeadMapHeight)
+	insertion := heads.Register(t, member, genesis)
+	transition := heads.Transfer(t, insertion.NewIndex, successor)
+	return &headMapRoundTripCircuit{
+		OldRoot:         insertion.OldRoot,
+		RegisteredRoot:  insertion.NewRoot,
+		TransferredRoot: transition.NewRoot,
+		LowMember:       insertion.Low.Member,
+		LowNext:         insertion.Low.Next,
+		LowNullifier:    insertion.Low.Nullifier,
+		LowIndex:        insertion.LowIndex,
+		LowProof:        proofVars(insertion.LowProof),
+		Member:          member,
+		Genesis:         genesis,
+		NewIndex:        insertion.NewIndex,
+		NewProof:        proofVars(insertion.NewProof),
+		Spent:           genesis,
+		Successor:       successor,
+		TransferIndex:   transition.Index,
+		TransferProof:   proofVars(transition.Proof),
+	}
+}
+
+func transitionCircuit() *headTransitionCircuit {
+	return &headTransitionCircuit{Proof: make([]frontend.Variable, HeadMapHeight)}
+}
+
+func transitionAssignment(transition spptest.HeadMapTransition, successor *big.Int) *headTransitionCircuit {
+	return &headTransitionCircuit{
+		OldRoot:   transition.OldRoot,
+		NewRoot:   transition.NewRoot,
+		Member:    transition.Leaf.Member,
+		Next:      transition.Leaf.Next,
+		Spent:     transition.Leaf.Nullifier,
+		Successor: successor,
+		Index:     transition.Index,
+		Proof:     proofVars(transition.Proof),
+	}
+}
+
+// custom-rings/interface/src/state.rs HEAD_MAP_EMPTY_ROOT.
+func TestSentinelRootMatchesProgram(t *testing.T) {
+	const programEmptyRoot = "03a753cd12b351201070a629c59b9a162c53a1fd33a138cbd6be814bfcfe980e"
+	if got := hex32(spptest.NewHeadMap(t, HeadMapHeight).Root()); got != programEmptyRoot {
+		t.Fatalf("sentinel root %s, the program pins %s", got, programEmptyRoot)
+	}
+}
+
+func TestHeadMapRegisterThenTransfer(t *testing.T) {
+	assignment := roundTripAssignment(t, big.NewInt(0x1234), big.NewInt(0x5e), big.NewInt(0x77))
+	test.NewAssert(t).SolvingSucceeded(roundTripCircuit(), assignment, test.WithCurves(ecc.BN254))
+}
+
+// The host roots stay consistent, only the ordering assertion refuses.
+func TestHeadMapRejectsMisorderedRegistration(t *testing.T) {
+	cases := []struct {
+		name   string
+		member *big.Int
+	}{
+		{"member equal to the predecessor", big.NewInt(0)},
+		{"member equal to the predecessor successor", spptest.HeadMapSentinelNext()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assignment := roundTripAssignment(t, tc.member, big.NewInt(0x5e), big.NewInt(0x77))
+			test.NewAssert(t).SolvingFailed(roundTripCircuit(), assignment, test.WithCurves(ecc.BN254))
+		})
+	}
+}
+
+func TestHeadMapTransitionSolves(t *testing.T) {
+	heads := spptest.NewHeadMap(t, HeadMapHeight)
+	insertion := heads.Register(t, big.NewInt(0x1234), big.NewInt(0x5e))
+	successor := big.NewInt(0x77)
+	transition := heads.Transfer(t, insertion.NewIndex, successor)
+	test.NewAssert(t).SolvingSucceeded(
+		transitionCircuit(), transitionAssignment(transition, successor), test.WithCurves(ecc.BN254),
+	)
+}
+
+func TestHeadMapRejectsTransitionOverTheSentinel(t *testing.T) {
+	heads := spptest.NewHeadMap(t, HeadMapHeight)
+	heads.Register(t, big.NewInt(0x1234), big.NewInt(0x5e))
+	successor := big.NewInt(0x77)
+	transition := heads.Transfer(t, 0, successor)
+	test.NewAssert(t).SolvingFailed(
+		transitionCircuit(), transitionAssignment(transition, successor), test.WithCurves(ecc.BN254),
+	)
+}
+
+func TestHeadMapRejectsTransitionOffTheSpentNullifier(t *testing.T) {
+	heads := spptest.NewHeadMap(t, HeadMapHeight)
+	insertion := heads.Register(t, big.NewInt(0x1234), big.NewInt(0x5e))
+	successor := big.NewInt(0x77)
+	assignment := transitionAssignment(heads.Transfer(t, insertion.NewIndex, successor), successor)
+	assignment.Spent = big.NewInt(0x5f)
+	test.NewAssert(t).SolvingFailed(transitionCircuit(), assignment, test.WithCurves(ecc.BN254))
 }

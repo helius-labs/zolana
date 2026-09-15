@@ -186,219 +186,6 @@ func runCli() {
 				},
 			},
 			{
-				Name: "setup-custom-ring-policy",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring-policy reads"},
-					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
-				},
-				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output"), common.CustomRingPolicyKeyFile); err != nil {
-						return err
-					}
-					ps, err := customring.SetupPolicy()
-					if err != nil {
-						return err
-					}
-					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-							return err
-						}
-					}
-					if path := context.String("vk-out"); path != "" {
-						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
-							return err
-						}
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name: "setup-custom-ring-base",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file"},
-					&cli.StringFlag{Name: "pk-out", Usage: "raw gnark proving key (pk.WriteTo)"},
-					&cli.StringFlag{Name: "vk-out", Usage: "raw gnark verifying key (vk.WriteRawTo)", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.SetupBase()
-					if err != nil {
-						return err
-					}
-					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-							return err
-						}
-					}
-					if path := context.String("output"); path != "" {
-						if err := writeRingProofSystem(ps, path); err != nil {
-							return err
-						}
-					}
-					return writeKey(context.String("vk-out"), ps.VerifyingKey.WriteRawTo)
-				},
-			},
-			{
-				Name: "setup-custom-ring-delegate-policy",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-custom-ring-delegate-policy reads"},
-					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
-				},
-				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output"), common.CustomRingDelegatePolicyKeyFile); err != nil {
-						return err
-					}
-					ps, err := customring.SetupDelegatePolicy()
-					if err != nil {
-						return err
-					}
-					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-							return err
-						}
-					}
-					if path := context.String("vk-out"); path != "" {
-						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
-							return err
-						}
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-custom-ring-delegate-policy",
-				Usage: "Wrap an existing custom-ring-delegate-policy gnark pk/vk pair into a proving system file without a new setup",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertDelegatePolicy{
-						ProvingKeyPath:   context.String("pk"),
-						VerifyingKeyPath: context.String("vk"),
-					}.Run()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name: "setup-compressed-policy",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-compressed-policy reads"},
-					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
-				},
-				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output"), common.CompressedPolicyKeyFile); err != nil {
-						return err
-					}
-					ps, err := customring.SetupCompressedPolicy()
-					if err != nil {
-						return err
-					}
-					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-							return err
-						}
-					}
-					if path := context.String("vk-out"); path != "" {
-						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
-							return err
-						}
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-compressed-policy",
-				Usage: "Wrap an existing compressed-policy gnark pk/vk pair into a proving system file without a new setup",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCompressedPolicy{
-						ProvingKeyPath:   context.String("pk"),
-						VerifyingKeyPath: context.String("vk"),
-					}.Run()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name: "setup-compressed-register",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-					&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-compressed-register reads"},
-					&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
-				},
-				Action: func(context *cli.Context) error {
-					if err := checkRingKeyName(context.String("output"), common.CompressedRegisterKeyFile); err != nil {
-						return err
-					}
-					ps, err := customring.SetupCompressedRegister()
-					if err != nil {
-						return err
-					}
-					if path := context.String("pk-out"); path != "" {
-						if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
-							return err
-						}
-					}
-					if path := context.String("vk-out"); path != "" {
-						if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
-							return err
-						}
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-compressed-register",
-				Usage: "Wrap an existing compressed-register gnark pk/vk pair into a proving system file without a new setup",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCompressedRegister{
-						ProvingKeyPath:   context.String("pk"),
-						VerifyingKeyPath: context.String("vk"),
-					}.Run()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
-				Name:  "convert-custom-ring-policy",
-				Usage: "Wrap an existing gnark pk/vk pair into a proving system file without a new setup",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
-					&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
-					&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
-				},
-				Action: func(context *cli.Context) error {
-					ps, err := customring.ConvertCustomRingPolicy{
-						ProvingKeyPath:   context.String("pk"),
-						VerifyingKeyPath: context.String("vk"),
-					}.Run()
-					if err != nil {
-						return err
-					}
-					return writeRingProofSystem(ps, context.String("output"))
-				},
-			},
-			{
 				Name: "r1cs",
 				Flags: []cli.Flag{
 					&cli.StringFlag{Name: "output", Usage: "Output file", Required: true},
@@ -837,7 +624,7 @@ func runCli() {
 							workersStarted = append(workersStarted, "transfer")
 						}
 
-						if startAll || enabledCircuitsMap["custom-ring-base"] || enabledCircuitsMap["custom-ring-policy"] || enabledCircuitsMap["custom-ring-compressed-policy"] || enabledCircuitsMap["custom-ring-compressed-register"] {
+						if startAll || ringCircuitEnabled(enabledCircuits) {
 							customRingWorker := server.NewCustomRingQueueWorker(redisQueue, keyManager)
 							workers = append(workers, customRingWorker)
 							go customRingWorker.Start()
@@ -985,6 +772,7 @@ func runCli() {
 		},
 	}
 
+	app.Commands = append(app.Commands, ringCommands()...)
 	if err := app.Run(os.Args); err != nil {
 		logging.Logger().Fatal().Err(err).Msg("App failed.")
 	}
@@ -1229,16 +1017,9 @@ func checkRingKeyName(path string, want string) error {
 }
 
 func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
-	want := common.CustomRingPolicyKeyFile
-	switch ps.CircuitType {
-	case common.CustomRingBaseCircuitType:
-		want = common.CustomRingBaseKeyFile
-	case common.CustomRingDelegatePolicyCircuitType:
-		want = common.CustomRingDelegatePolicyKeyFile
-	case common.CompressedPolicyCircuitType:
-		want = common.CompressedPolicyKeyFile
-	case common.CompressedRegisterCircuitType:
-		want = common.CompressedRegisterKeyFile
+	want, ok := common.RingKeyFiles[ps.CircuitType]
+	if !ok {
+		return fmt.Errorf("no key file for circuit %s", ps.CircuitType)
 	}
 	if err := checkRingKeyName(path, want); err != nil {
 		return err
@@ -1262,4 +1043,77 @@ func writeRingProofSystem(ps *common.RingProofSystem, path string) error {
 		Str("output", path).
 		Msg("Proving system written")
 	return nil
+}
+
+func ringCommands() []*cli.Command {
+	commands := make([]*cli.Command, 0, 2*len(customring.RingCircuits))
+	for _, ring := range customring.RingCircuits {
+		commands = append(commands, ringSetupCommand(ring), ringConvertCommand(ring))
+	}
+	return commands
+}
+
+func ringSetupCommand(ring customring.RingCircuit) *cli.Command {
+	name := string(ring.Type)
+	return &cli.Command{
+		Name: "setup-" + name,
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+			&cli.StringFlag{Name: "pk-out", Usage: "Also write the gnark proving key (pk.WriteTo), the release asset convert-" + name + " reads"},
+			&cli.StringFlag{Name: "vk-out", Usage: "Also write the raw gnark verifying key (vk.WriteRawTo)"},
+		},
+		Action: func(context *cli.Context) error {
+			if err := checkRingKeyName(context.String("output"), common.RingKeyFiles[ring.Type]); err != nil {
+				return err
+			}
+			ps, err := ring.Setup()
+			if err != nil {
+				return err
+			}
+			if path := context.String("pk-out"); path != "" {
+				if err := writeKey(path, ps.ProvingKey.WriteTo); err != nil {
+					return err
+				}
+			}
+			if path := context.String("vk-out"); path != "" {
+				if err := writeKey(path, ps.VerifyingKey.WriteRawTo); err != nil {
+					return err
+				}
+			}
+			return writeRingProofSystem(ps, context.String("output"))
+		},
+	}
+}
+
+func ringConvertCommand(ring customring.RingCircuit) *cli.Command {
+	name := string(ring.Type)
+	return &cli.Command{
+		Name:  "convert-" + name,
+		Usage: "Wrap an existing " + name + " gnark pk/vk pair into a proving system file without a new setup",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "pk", Usage: "gnark proving key (pk.WriteTo)", Required: true},
+			&cli.StringFlag{Name: "vk", Usage: "gnark verifying key (vk.WriteRawTo or WriteTo)", Required: true},
+			&cli.StringFlag{Name: "output", Usage: "Output key file", Required: true},
+		},
+		Action: func(context *cli.Context) error {
+			ps, err := customring.Convert{
+				Circuit:          ring,
+				ProvingKeyPath:   context.String("pk"),
+				VerifyingKeyPath: context.String("vk"),
+			}.Run()
+			if err != nil {
+				return err
+			}
+			return writeRingProofSystem(ps, context.String("output"))
+		},
+	}
+}
+
+func ringCircuitEnabled(circuits []string) bool {
+	for _, circuit := range circuits {
+		if common.CircuitType(circuit).IsRing() {
+			return true
+		}
+	}
+	return false
 }

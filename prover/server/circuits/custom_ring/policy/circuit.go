@@ -52,7 +52,7 @@ type CustomRingPolicyCircuit struct {
 	InlineLimits [NInlineAssets]frontend.Variable
 	// Exactly one flag selects count index.
 	InlineAssetCountSelected [NInlineAssets + 1]frontend.Variable `gnark:"InlineCountOneHot"`
-	// Zero disables velocity, else the fixed window length in slots.
+	// Zero selects limits per transfer without a spend record.
 	WindowSlots frontend.Variable
 	Velocity    [NVelocityAssets]VelocityRowWires
 	// Exactly one flag selects count index.
@@ -68,32 +68,33 @@ type CustomRingPolicyCircuit struct {
 	RingID frontend.Variable
 	// The owner hash of the ring's namespace PDA, only spend record slots open to it.
 	NamespaceOwnerHash frontend.Variable
-	// The program derives slot / WindowSlots, zero without velocity.
+	// The program derives the fixed window index, zero without a window.
 	WindowIndex frontend.Variable
 	// Set when an outflow exceeds its co-sign threshold, the program then demands the co-signer.
 	ApprovalRequired frontend.Variable
 
-	// The sender's spend record, opened only when velocity is on.
+	// Counter openings are required only within the predecessor's window.
 	Record RecordWires
 
 	// All rules and transaction slots share these list facts.
 	ListFacts [NListFacts]ListFactWires `gnark:"Answers"`
 }
 
+type policyRail uint8
+
+const (
+	memberRail policyRail = iota
+	delegateRail
+)
+
 func (c *CustomRingPolicyCircuit) Define(api frontend.API) error {
-	chain, _ := c.constrainPolicy(api)
+	chain, _ := c.constrainPolicyRail(api, memberRail)
 	api.AssertIsEqual(c.PublicInputHash, gadget.HashChain(api, chain))
 	return nil
 }
 
-// constrainPolicy returns the public-input chain unhashed for the compressed
-// variant to extend before the final hash.
-func (c *CustomRingPolicyCircuit) constrainPolicy(api frontend.API) ([]frontend.Variable, transactionContext) {
-	return c.constrainPolicyRail(api, false)
-}
-
 // The rail is fixed in the compiled circuit, never selected by a witness.
-func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate bool) ([]frontend.Variable, transactionContext) {
+func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, rail policyRail) ([]frontend.Variable, transactionContext) {
 	// 1. Prove the audit encryption statement.
 	elements := base.DefineAuditBlock(api, base.AuditBlockWires{
 		PrivateTxHash: c.PrivateTxHash,
@@ -105,34 +106,31 @@ func (c *CustomRingPolicyCircuit) constrainPolicyRail(api frontend.API, delegate
 	rangeChecker := rangecheck.New(api)
 
 	// 2. Check the policy and reconstruct its commitment.
-	policyHash, ruleEnabled, inlineEnabled, velocity := c.checkPolicy(api, rangeChecker)
+	checked := c.checkPolicy(api, rangeChecker)
 
 	// 3. Bind policy subjects and amounts to the SPP transaction.
-	recordOn := velocity.on
-	if delegate {
-		recordOn = frontend.Variable(0)
+	recordEnabled := checked.velocity.windowEnabled
+	if rail == delegateRail {
+		recordEnabled = frontend.Variable(0)
 	}
-	txContext := c.constrainTransactionContext(api, rangeChecker, recordOn)
+	txContext := c.constrainTransactionContext(api, rangeChecker, recordEnabled)
 	c.constrainNamespace(api, txContext)
 
 	// 4. Authenticate the shared list facts.
 	listFacts := c.checkListFacts(api, rangeChecker)
 
 	// 5. Require every applicable rule to pass.
-	c.constrainRules(api, txContext, listFacts, ruleEnabled, inlineEnabled)
+	c.constrainRules(api, txContext, listFacts, checked.ruleEnabled, checked.inlineEnabled)
 
-	// 6. Spend the sender's record into its successor within the caps.
-	if delegate {
+	if rail == delegateRail {
 		api.AssertIsEqual(c.WindowIndex, 0)
 		api.AssertIsEqual(c.ApprovalRequired, 0)
 	} else {
-		c.constrainVelocity(api, rangeChecker, velocity, txContext)
+		c.constrainVelocity(api, rangeChecker, checked.velocity, txContext)
 	}
 
-	// 7. Bind the policy, the supplied entry roots and the window after the
-	// audit inputs.
 	chain := append(elements[:],
-		policyHash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
+		checked.hash, c.StateRoot, c.NullifierRoot, c.EntriesTreeID,
 		c.RingID, c.NamespaceOwnerHash, c.WindowIndex, c.ApprovalRequired,
 	)
 	return chain, txContext
