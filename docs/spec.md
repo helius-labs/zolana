@@ -1837,14 +1837,14 @@ One instruction is a batch: it carries a list of entries, each appending one out
 
 **Accounts**
 
-Settlement groups follow `payer` in the order `assets` declares them: a `Sol` group reads two accounts, an `Spl` group four. The instruction data declares the layout, so the program never infers it from the account count.
+Settlement groups follow `tree`, `payer`, and the SPP program account in the order `assets` declares them.
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
 | 1 | tree_account | x |   | UTXO tree |
-| 2 | payer |   | x | depositor; signer authorizes any attached `utxo_data` |
-| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `user_spl_token_account`, `spl_token_interface`, `spl_asset_registry`) |
-| n | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| 2 | payer | x | x | depositor; signer authorizes any attached `utxo_data` |
+| 3 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `mint`, `user_token`, `spl_interface`) |
 
 **Instruction data**
 
@@ -1889,14 +1889,7 @@ struct DepositEntry {
 }
 ```
 
-The settlement accounts follow `tree_account` and `payer`. SOL rail:
-`system_program`, `sol_interface` (writable, the canonical
-`[b"sol_interface", [0]]` PDA), `user_sol` (writable, must equal `payer`), and
-the SPP program account. SPL rail: `user_token` (writable, its token owner must
-equal `payer`), `vault` (writable, the canonical `[b"spl_asset_vault", mint]`
-PDA owned by the SPP CPI authority), the mint's `Asset registry`, the token
-program, and the SPP program account. The rail is selected by the account
-count; surplus accounts are rejected.
+SOL deposits transfer from the payer to the canonical SOL interface PDA. SPL deposits transfer from the payer's token account to the canonical per-mint SPL interface PDA. The asset descriptors determine the account layout; surplus accounts are rejected.
 
 <a id="blinding-derivation"></a>
 **Blinding.** `blinding` is not in the instruction data. The program derives it
