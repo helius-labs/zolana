@@ -4,7 +4,17 @@ use jsonrpsee::types::{ErrorCode, ErrorObjectOwned};
 use log::error;
 use solana_pubkey::ParsePubkeyError;
 use thiserror::Error;
-use zolana_indexer_api::ParseHashError;
+use zolana_indexer_api::{
+    error_code::{
+        RING_HEAD_MAP_OUT_OF_SYNC, RING_HEAD_MEMBER_ALREADY_REGISTERED,
+        RING_HEAD_MEMBER_UNREGISTERED, RING_HEAD_ROOT_CHANGED,
+        RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED, RING_KEY_REGISTRY_MEMBER_UNREGISTERED,
+        RING_KEY_REGISTRY_OUT_OF_SYNC, RING_KEY_REGISTRY_ROOT_CHANGED,
+    },
+    ParseHashError,
+};
+
+use crate::ring_projection::ProjectionKind;
 
 #[derive(Error, Debug, PartialEq, Eq)]
 pub enum PhotonApiError {
@@ -24,30 +34,63 @@ pub enum PhotonApiError {
     /// cannot provide the history entry a client must quote. Retryable.
     #[error("Stale Root: {0}")]
     StaleRoot(String),
-    #[error("head map is out of sync ({0})")]
-    HeadMapOutOfSync(String),
-    #[error("head root changed")]
-    HeadRootChanged,
-    #[error("member has no registered spend record")]
-    HeadMemberUnregistered,
-    #[error("member already has a spend record")]
-    HeadMemberAlreadyRegistered,
+    #[error(transparent)]
+    RingProjection(#[from] RingProjectionError),
+}
+
+#[derive(Error, Debug, PartialEq, Eq)]
+pub enum RingProjectionError {
+    #[error("{kind} is out of sync ({reason})")]
+    OutOfSync {
+        kind: ProjectionKind,
+        reason: String,
+    },
+    #[error("{0} root changed")]
+    RootChanged(ProjectionKind),
+    #[error("member is not registered in the {0}")]
+    MemberUnregistered(ProjectionKind),
+    #[error("member is already registered in the {0}")]
+    MemberAlreadyRegistered(ProjectionKind),
+}
+
+const HEAD_MAP_CODES: [i32; 4] = [
+    wire_code(RING_HEAD_MAP_OUT_OF_SYNC),
+    wire_code(RING_HEAD_ROOT_CHANGED),
+    wire_code(RING_HEAD_MEMBER_UNREGISTERED),
+    wire_code(RING_HEAD_MEMBER_ALREADY_REGISTERED),
+];
+const KEY_REGISTRY_CODES: [i32; 4] = [
+    wire_code(RING_KEY_REGISTRY_OUT_OF_SYNC),
+    wire_code(RING_KEY_REGISTRY_ROOT_CHANGED),
+    wire_code(RING_KEY_REGISTRY_MEMBER_UNREGISTERED),
+    wire_code(RING_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED),
+];
+
+const fn wire_code(code: i64) -> i32 {
+    assert!(code >= i32::MIN as i64 && code <= i32::MAX as i64);
+    code as i32
+}
+
+impl RingProjectionError {
+    pub fn code(&self) -> i32 {
+        let (kind, cause) = match self {
+            Self::OutOfSync { kind, .. } => (*kind, 0),
+            Self::RootChanged(kind) => (*kind, 1),
+            Self::MemberUnregistered(kind) => (*kind, 2),
+            Self::MemberAlreadyRegistered(kind) => (*kind, 3),
+        };
+        match kind {
+            ProjectionKind::HeadMap => HEAD_MAP_CODES[cause],
+            ProjectionKind::KeyRegistry => KEY_REGISTRY_CODES[cause],
+        }
+    }
 }
 
 impl From<PhotonApiError> for ErrorObjectOwned {
     fn from(val: PhotonApiError) -> Self {
         match val {
-            PhotonApiError::HeadMapOutOfSync(_) => {
-                ErrorObjectOwned::owned(-32070, val.to_string(), None::<()>)
-            }
-            PhotonApiError::HeadRootChanged => {
-                ErrorObjectOwned::owned(-32071, val.to_string(), None::<()>)
-            }
-            PhotonApiError::HeadMemberUnregistered => {
-                ErrorObjectOwned::owned(-32072, val.to_string(), None::<()>)
-            }
-            PhotonApiError::HeadMemberAlreadyRegistered => {
-                ErrorObjectOwned::owned(-32073, val.to_string(), None::<()>)
+            PhotonApiError::RingProjection(ref error) => {
+                ErrorObjectOwned::owned(error.code(), val.to_string(), None::<()>)
             }
             PhotonApiError::ValidationError(_) => {
                 metric! {

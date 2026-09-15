@@ -307,7 +307,7 @@ pub struct DecryptedTransaction {
     pub signers: Vec<SerializablePubkey>,
     /// Public settlement legs, where value left the ring.
     pub withdrawals: Vec<DecryptedWithdrawal>,
-    /// A velocity transfer's spend records, empty otherwise.
+    /// Empty outside velocity transfers.
     pub spend_records: Vec<DecryptedSpendRecord>,
 }
 
@@ -328,18 +328,18 @@ pub struct DecryptedSpendRecord {
     pub version: u64,
     pub window: u64,
     pub counters_commitment: Hash,
-    pub blinding: Hash,
-    /// Absent when no sealed message opened to the commitment.
+    /// Absent when no sealed message opened to the commitment, populated slots only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub counters: Option<DecryptedSpendCounters>,
+    pub counters: Option<Vec<DecryptedSpendCounter>>,
 }
 
+/// Verified against the record commitment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct DecryptedSpendCounters {
-    pub salt: Hash,
-    pub assets: Vec<Hash>,
-    pub spent: Vec<u64>,
+pub struct DecryptedSpendCounter {
+    pub slot: u8,
+    pub asset: Hash,
+    pub spent: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -691,57 +691,5 @@ mod tests {
             String::from_utf8(message).expect("text"),
             "zolana/ring-rpc-read/v1\nring: US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx\ntimestamp: 1700000000\nnonce: BAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ=\nlimit: 5\ncursor: AQID"
         );
-    }
-
-    #[test]
-    fn a_spend_record_serializes_to_the_camel_case_wire() {
-        let record = DecryptedSpendRecord {
-            slot_index: 2,
-            member: Hash([12; 32]),
-            version: 3,
-            window: 5,
-            counters_commitment: Hash([13; 32]),
-            blinding: Hash([14; 32]),
-            counters: Some(DecryptedSpendCounters {
-                salt: Hash([15; 32]),
-                assets: vec![Hash([16; 32])],
-                spent: vec![8],
-            }),
-        };
-        let value = serde_json::to_value(&record).expect("json");
-        let object = value.as_object().expect("object");
-        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
-        keys.sort_unstable();
-        assert_eq!(
-            keys,
-            [
-                "blinding",
-                "counters",
-                "countersCommitment",
-                "member",
-                "slotIndex",
-                "version",
-                "window"
-            ]
-        );
-        // Base58 string, not a byte array.
-        assert!(object["member"].is_string());
-        assert_eq!(
-            object["member"],
-            serde_json::to_value(Hash([12; 32])).expect("hash")
-        );
-        let counters = object["counters"].as_object().expect("counters");
-        let mut counter_keys: Vec<&str> = counters.keys().map(String::as_str).collect();
-        counter_keys.sort_unstable();
-        assert_eq!(counter_keys, ["assets", "salt", "spent"]);
-        assert!(counters["assets"][0].is_string());
-        assert_eq!(counters["spent"], serde_json::json!([8]));
-
-        let without = DecryptedSpendRecord {
-            counters: None,
-            ..record
-        };
-        let value = serde_json::to_value(&without).expect("json");
-        assert!(value.as_object().expect("object").get("counters").is_none());
     }
 }

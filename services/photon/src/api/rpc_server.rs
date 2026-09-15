@@ -175,6 +175,24 @@ fn build_rpc_module(api_and_indexer: PhotonApi) -> Result<RpcModule<PhotonApi>, 
         },
     )?;
     module.register_async_method(
+        zolana_indexer_api::GET_RING_KEY_REGISTRY_ENTRY,
+        |params, context, _| async move {
+            context
+                .get_ring_key_registry_entry(params.parse()?)
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+    module.register_async_method(
+        zolana_indexer_api::GET_RING_KEY_REGISTRY_REGISTER_PROOF,
+        |params, context, _| async move {
+            context
+                .get_ring_key_registry_register_proof(params.parse()?)
+                .await
+                .map_err(ErrorObjectOwned::from)
+        },
+    )?;
+    module.register_async_method(
         zolana_indexer_api::GET_RING_HEAD_TRANSFER_PROOF,
         |params, context, _| async move {
             context
@@ -209,6 +227,8 @@ mod tests {
         assert!(methods.contains(&"getNonInclusionProofs"));
         assert!(methods.contains(&"getNullifierQueueElements"));
         assert!(methods.contains(&"getRingHeadRegisterProof"));
+        assert!(methods.contains(&"getRingKeyRegistryEntry"));
+        assert!(methods.contains(&"getRingKeyRegistryRegisterProof"));
         assert!(methods.contains(&"getRingHeadTransferProof"));
     }
 

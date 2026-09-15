@@ -515,6 +515,622 @@ paths:
                     type: string
                   jsonrpc:
                     type: string
+  /getRingHeadRegisterProof:
+    summary: getRingHeadRegisterProof
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingHeadRegisterProof
+                params:
+                  type: object
+                  required:
+                  - ringProgramId
+                  - member
+                  - expectedRoot
+                  - expectedNextIndex
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    member:
+                      $ref: '#/components/schemas/Hash'
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - root
+                    - nextIndex
+                    - member
+                    - lowMember
+                    - lowNext
+                    - lowNullifier
+                    - lowIndex
+                    - lowProof
+                    - newProof
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      lowIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      lowMember:
+                        $ref: '#/components/schemas/Hash'
+                      lowNext:
+                        $ref: '#/components/schemas/Hash'
+                      lowNullifier:
+                        $ref: '#/components/schemas/Hash'
+                      lowProof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      member:
+                        $ref: '#/components/schemas/Hash'
+                      newProof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                        description: Computed after the predecessor update.
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+  /getRingHeadTransferProof:
+    summary: getRingHeadTransferProof
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingHeadTransferProof
+                params:
+                  type: object
+                  required:
+                  - ringProgramId
+                  - member
+                  - expectedRoot
+                  - expectedNextIndex
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    member:
+                      $ref: '#/components/schemas/Hash'
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - root
+                    - nextIndex
+                    - member
+                    - next
+                    - nullifier
+                    - index
+                    - proof
+                    - record
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      index:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      member:
+                        $ref: '#/components/schemas/Hash'
+                      next:
+                        $ref: '#/components/schemas/Hash'
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      nullifier:
+                        $ref: '#/components/schemas/Hash'
+                      proof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      record:
+                        $ref: '#/components/schemas/RingHeadRecord'
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+  /getRingKeyRegistryEntry:
+    summary: getRingKeyRegistryEntry
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingKeyRegistryEntry
+                params:
+                  type: object
+                  required:
+                  - ringProgramId
+                  - member
+                  - expectedRoot
+                  - expectedNextIndex
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    member:
+                      $ref: '#/components/schemas/Hash'
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - root
+                    - nextIndex
+                    - member
+                    - next
+                    - index
+                    - ephPk
+                    - ciphertext
+                    - proof
+                    properties:
+                      ciphertext:
+                        $ref: '#/components/schemas/Base64String'
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      ephPk:
+                        $ref: '#/components/schemas/Base64String'
+                      index:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      member:
+                        $ref: '#/components/schemas/Hash'
+                      next:
+                        $ref: '#/components/schemas/Hash'
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      proof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+  /getRingKeyRegistryRegisterProof:
+    summary: getRingKeyRegistryRegisterProof
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - jsonrpc
+              - id
+              - method
+              - params
+              properties:
+                id:
+                  type: string
+                  description: An ID to identify the request.
+                  enum:
+                  - test-account
+                jsonrpc:
+                  type: string
+                  description: The version of the JSON-RPC protocol.
+                  enum:
+                  - '2.0'
+                method:
+                  type: string
+                  description: The name of the method to invoke.
+                  enum:
+                  - getRingKeyRegistryRegisterProof
+                params:
+                  type: object
+                  required:
+                  - ringProgramId
+                  - member
+                  - expectedRoot
+                  - expectedNextIndex
+                  properties:
+                    expectedNextIndex:
+                      type: integer
+                      format: u-int64
+                      minimum: 0
+                    expectedRoot:
+                      $ref: '#/components/schemas/Hash'
+                    member:
+                      $ref: '#/components/schemas/Hash'
+                    ringProgramId:
+                      $ref: '#/components/schemas/SerializablePubkey'
+                  additionalProperties: false
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - jsonrpc
+                - id
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                    description: An ID to identify the response.
+                    enum:
+                    - test-account
+                  jsonrpc:
+                    type: string
+                    description: The version of the JSON-RPC protocol.
+                    enum:
+                    - '2.0'
+                  result:
+                    type: object
+                    required:
+                    - context
+                    - root
+                    - nextIndex
+                    - member
+                    - lowMember
+                    - lowNext
+                    - lowCtCommitment
+                    - lowIndex
+                    - lowProof
+                    - newProof
+                    properties:
+                      context:
+                        $ref: '#/components/schemas/Context'
+                      lowCtCommitment:
+                        $ref: '#/components/schemas/Hash'
+                      lowIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      lowMember:
+                        $ref: '#/components/schemas/Hash'
+                      lowNext:
+                        $ref: '#/components/schemas/Hash'
+                      lowProof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                      member:
+                        $ref: '#/components/schemas/Hash'
+                      newProof:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Hash'
+                        description: Computed after the predecessor update.
+                      nextIndex:
+                        type: integer
+                        format: u-int64
+                        minimum: 0
+                      root:
+                        $ref: '#/components/schemas/Hash'
+                    additionalProperties: false
+        '429':
+          description: Exceeded rate limit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
+        '500':
+          description: The server encountered an unexpected condition that prevented it from fulfilling the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: integer
+                      message:
+                        type: string
+                  id:
+                    type: string
+                  jsonrpc:
+                    type: string
   /getShieldedTransactionsByNullifiers:
     summary: getShieldedTransactionsByNullifiers
     post:
@@ -1099,6 +1715,19 @@ components:
           minimum: 0
         value:
           $ref: '#/components/schemas/Hash'
+      additionalProperties: false
+    RingHeadRecord:
+      type: object
+      required:
+      - transaction
+      - outputIndex
+      properties:
+        outputIndex:
+          type: integer
+          format: u-int16
+          minimum: 0
+        transaction:
+          $ref: '#/components/schemas/ShieldedTransaction'
       additionalProperties: false
     RingsMessage:
       type: object

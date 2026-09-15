@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::api::root_index_cache::RootIndexCache;
+use crate::ring_projection::{head_map, key_registry};
 use crate::rpc::RpcClient;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use utoipa::openapi::{RefOr, Schema};
@@ -8,14 +9,18 @@ use utoipa::PartialSchema;
 use zolana_indexer_api::{
     method::{
         GetEncryptedUtxosByTags, GetMerkleProofs, GetNonInclusionProofs, GetNullifierQueueElements,
-        GetShieldedTransactionsByNullifiers, GetShieldedTransactionsBySignature,
-        GetShieldedTransactionsByTags,
+        GetRingHeadRegisterProof, GetRingHeadTransferProof, GetRingKeyRegistryEntry,
+        GetRingKeyRegistryRegisterProof, GetShieldedTransactionsByNullifiers,
+        GetShieldedTransactionsBySignature, GetShieldedTransactionsByTags,
     },
     GetEncryptedUtxosByTagsResponse, GetMerkleProofsRequest, GetMerkleProofsResponse,
     GetNonInclusionProofsRequest, GetNonInclusionProofsResponse, GetNullifierQueueElementsRequest,
-    GetNullifierQueueElementsResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
+    GetNullifierQueueElementsResponse, GetRingHeadRegisterProofResponse,
+    GetRingHeadTransferProofResponse, GetRingKeyRegistryEntryResponse,
+    GetRingKeyRegistryRegisterProofResponse, GetRingsByNullifiersRequest, GetRingsByTagsRequest,
     GetShieldedTransactionsByNullifiersResponse, GetShieldedTransactionsBySignatureRequest,
-    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse, RpcMethod,
+    GetShieldedTransactionsBySignatureResponse, GetShieldedTransactionsByTagsResponse,
+    RingMemberProofRequest, RpcMethod,
 };
 
 use super::{
@@ -157,16 +162,30 @@ impl PhotonApi {
 
     pub async fn get_ring_head_register_proof(
         &self,
-        request: zolana_indexer_api::GetRingHeadProofRequest,
-    ) -> Result<zolana_indexer_api::GetRingHeadRegisterProofResponse, PhotonApiError> {
-        crate::head_map::api::register(&self.db_conn, &self.rpc_client, request).await
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadRegisterProofResponse, PhotonApiError> {
+        head_map::register(&self.db_conn, &self.rpc_client, request).await
     }
 
     pub async fn get_ring_head_transfer_proof(
         &self,
-        request: zolana_indexer_api::GetRingHeadProofRequest,
-    ) -> Result<zolana_indexer_api::GetRingHeadTransferProofResponse, PhotonApiError> {
-        crate::head_map::api::transfer(&self.db_conn, &self.rpc_client, request).await
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingHeadTransferProofResponse, PhotonApiError> {
+        head_map::transfer(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    pub async fn get_ring_key_registry_entry(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryEntryResponse, PhotonApiError> {
+        key_registry::lookup(&self.db_conn, &self.rpc_client, request).await
+    }
+
+    pub async fn get_ring_key_registry_register_proof(
+        &self,
+        request: RingMemberProofRequest,
+    ) -> Result<GetRingKeyRegistryRegisterProofResponse, PhotonApiError> {
+        key_registry::register(&self.db_conn, &self.rpc_client, request).await
     }
 
     pub fn rings_method_api_specs() -> Vec<OpenApiSpec> {
@@ -178,8 +197,10 @@ impl PhotonApi {
             method_api_spec::<GetMerkleProofs>(),
             method_api_spec::<GetNonInclusionProofs>(),
             method_api_spec::<GetNullifierQueueElements>(),
-            method_api_spec::<zolana_indexer_api::method::GetRingHeadRegisterProof>(),
-            method_api_spec::<zolana_indexer_api::method::GetRingHeadTransferProof>(),
+            method_api_spec::<GetRingHeadRegisterProof>(),
+            method_api_spec::<GetRingKeyRegistryEntry>(),
+            method_api_spec::<GetRingKeyRegistryRegisterProof>(),
+            method_api_spec::<GetRingHeadTransferProof>(),
         ]
     }
 }

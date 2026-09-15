@@ -52,6 +52,12 @@ pub struct BlockMetadata {
     pub block_height: u64,
 }
 
+impl BlockMetadata {
+    pub fn is_parent_of(&self, child: &Self) -> bool {
+        child.parent_slot == self.slot && child.parent_blockhash == self.blockhash
+    }
+}
+
 pub fn parse_ui_confirmed_blocked(
     block: UiConfirmedBlock,
     slot: Slot,

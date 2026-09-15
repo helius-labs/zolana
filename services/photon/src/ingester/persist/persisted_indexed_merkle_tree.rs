@@ -36,7 +36,7 @@ fn ensure_zeroeth_element_exists(
             RingsTreeKind::Nullifier => {
                 get_zeroeth_nullifier_exclusion_range(tree.to_bytes().to_vec())
             }
-            RingsTreeKind::State | RingsTreeKind::HeadMap => {
+            RingsTreeKind::State | RingsTreeKind::HeadMap | RingsTreeKind::KeyRegistry => {
                 return Err(IngesterError::ParserError(
                     "State trees do not use indexed-tree zeroeth elements".to_string(),
                 ));

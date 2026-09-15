@@ -11,7 +11,7 @@ use zolana_ring_client::{
 
 use crate::{
     api::{
-        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedSpendCounters,
+        cursor_in_bounds, limit_in_bounds, AuthorityAuth, DecryptedOutput, DecryptedSpendCounter,
         DecryptedSpendRecord, DecryptedTransaction, DecryptedTransactionsPage, DecryptedWithdrawal,
         GetDecryptedTransactionsResponse, ReadAttestation, ReadAuth, SkippedReason,
         SkippedTransaction, AUDIT_PAGE_LIMIT,
@@ -388,15 +388,16 @@ fn decrypted_transaction(
                 version: spend.record.version,
                 window: spend.record.window,
                 counters_commitment: spend.record.counters_commitment.into(),
-                blinding: spend.record.blinding.into(),
-                counters: spend.counters.map(|counters| DecryptedSpendCounters {
-                    salt: counters.salt.into(),
-                    assets: counters
-                        .assets
-                        .iter()
-                        .map(|asset| (*asset).into())
-                        .collect(),
-                    spent: counters.spent.to_vec(),
+                counters: spend.counters.map(|counters| {
+                    (0u8..)
+                        .zip(counters.assets.iter().zip(counters.spent))
+                        .filter(|(_, (asset, _))| **asset != [0; 32])
+                        .map(|(slot, (asset, spent))| DecryptedSpendCounter {
+                            slot,
+                            asset: (*asset).into(),
+                            spent,
+                        })
+                        .collect()
                 }),
             })
             .collect(),
