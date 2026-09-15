@@ -88,6 +88,9 @@ Breaking
   reprove pending merges and transfers with the program and prover of this
   release, set the five fields on a hand-built `TransferInputs`, and handle
   the new variants in exhaustive switches.
+- `UtxoData` requires `signingPk` and `nullifierPk`, and
+  `depositInstruction` requires the recipient owner to sign when `dataHash`
+  is nonzero → supply the owner hash preimage and sign with that owner.
 
 Added
 

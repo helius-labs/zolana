@@ -24,6 +24,9 @@ export interface DepositInstructionData {
 
 export interface UtxoData {
   readonly dataHash: Bytes32;
+  /** Owner signer required when dataHash is nonzero. */
+  readonly signingPk: Address;
+  readonly nullifierPk: Bytes32;
   readonly data: Uint8Array;
 }
 

@@ -310,6 +310,11 @@ export async function depositInstruction(
     input.depositor,
     layout,
   );
+  for (const deposit of input.deposits) {
+    if (deposit.utxoData?.dataHash.some((byte) => byte !== 0)) {
+      accounts.push(meta(deposit.utxoData.signingPk, true, false));
+    }
+  }
   return instruction(
     tagged(
       InstructionTag.deposit,
