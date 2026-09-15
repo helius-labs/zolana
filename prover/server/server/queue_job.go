@@ -724,6 +724,14 @@ func (w *BaseQueueWorker) processMergeProof(payload json.RawMessage, circuitType
 }
 
 func (w *BaseQueueWorker) processCustomRingProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
+	proof, err := w.customRingProof(payload, circuitType)
+	if err != nil {
+		logging.Logger().Error().Err(err).Msg(errCustomRingProof.Error())
+	}
+	return proof, err
+}
+
+func (w *BaseQueueWorker) customRingProof(payload json.RawMessage, circuitType common.CircuitType) (*common.Proof, error) {
 	switch circuitType {
 	case common.CustomRingBaseCircuitType:
 		var params customring.BaseParameters

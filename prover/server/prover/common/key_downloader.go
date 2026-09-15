@@ -300,14 +300,6 @@ func EnsureProvingKey(keyPath string, autoDownload bool, config *DownloadConfig)
 		}
 	}
 
-	if entry.Source != "" {
-		return fmt.Errorf(
-			"key %s is a %s asset and is not on the object store, run just ensure-custom-ring-live-keys",
-			filename,
-			entry.Source,
-		)
-	}
-
 	if !autoDownload {
 		if fileExists {
 			return fmt.Errorf("key file %s exists but does not match the lockfile checksum (auto-download disabled)", filename)
