@@ -165,6 +165,63 @@ const client = await createZolanaClient({});
 
 These snippets continue from the setup used in quickstart.
 
+### Register and enable merging
+
+For a new Ed25519 owner, compose registration and merge opt-in in one transaction:
+
+```ts
+import {
+  appendTransactionMessageInstructions,
+  createTransactionMessage,
+  pipe,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+} from "@solana/kit";
+import { getUserRecordAddress } from "@heliuslabs/zolana/addresses";
+import {
+  getRegisterInstruction,
+  getSetMergingEnabledInstruction,
+} from "@heliuslabs/zolana/instructions";
+
+const shieldedAddress = keypair.shieldedAddress();
+const userRecord = await getUserRecordAddress(feePayer.address);
+const registerIx = getRegisterInstruction({
+  userRecord,
+  owner: feePayer,
+  data: {
+    ownerP256: undefined,
+    nullifierPublicKey: shieldedAddress.nullifierPublicKey,
+    viewingPublicKey: shieldedAddress.viewingPublicKey.toBytes(),
+  },
+});
+const enableMergingIx = getSetMergingEnabledInstruction({
+  userRecord,
+  owner: feePayer,
+  enabled: true,
+});
+
+const lifetime = await client.getLatestBlockhash();
+const message = pipe(
+  createTransactionMessage({ version: 0 }),
+  (message) => setTransactionMessageFeePayerSigner(feePayer, message),
+  (message) => setTransactionMessageLifetimeUsingBlockhash(lifetime, message),
+  (message) => appendTransactionMessageInstructions([registerIx, enableMergingIx], message),
+);
+const signed = await signTransactionMessageWithSigners(message);
+await sendAndConfirm(signed, { commitment: "confirmed" });
+```
+
+The PDA helper performs no RPC calls. Both instruction builders return a Solana
+Kit `Instruction` synchronously, preserve supplied signers, and do not fetch,
+compile, sign, or send transactions. `owner` accepts an address or a Kit signer.
+P-256 owner registration is unsupported; `ownerP256` must be omitted or `undefined`.
+
+`getRegisterInstruction` creates a new record and fails on-chain if one already
+exists. `buildRegistrationTransaction` retains its registration check: matching
+keys return `undefined`, while different keys produce an update transaction.
+`buildSetMergingEnabledTransaction` builds a separate merge opt-in transaction.
+
 ### Deposit
 
 The quick start shows a SOL deposit. For an SPL token, provide its mint and the

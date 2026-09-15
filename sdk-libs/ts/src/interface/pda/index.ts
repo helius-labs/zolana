@@ -11,10 +11,22 @@ import {
   SHIELDED_POOL_PROGRAM_ID,
   SOL_INTERFACE,
   SPL_TOKEN_PROGRAM_ID,
+  USER_REGISTRY_PROGRAM_ID,
 } from "../program.js";
 
 const encoder = new TextEncoder();
 const addressEncoder = getAddressEncoder();
+
+export function userRecordPda(owner: Address): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({
+    programAddress: USER_REGISTRY_PROGRAM_ID,
+    seeds: [encoder.encode("zolana/registry/v0"), addressEncoder.encode(owner)],
+  });
+}
+
+export async function userRecordAddress(owner: Address): Promise<Address> {
+  return (await userRecordPda(owner))[0];
+}
 
 function derive(seed: string, address?: Address): Promise<ProgramDerivedAddress> {
   return getProgramDerivedAddress({
