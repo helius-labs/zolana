@@ -21,6 +21,9 @@ priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- The user-registry `register` instruction takes a `payer` writable signer
+  after `owner` and no longer debits `owner` → a transaction built against the
+  previous three-account layout fails with `NotEnoughAccountKeys`.
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
   from it, while `InstructionTag` renumbers every tag → point at a deployment of
@@ -255,6 +258,8 @@ Breaking
 
 Added
 
+- `buildRegistrationTransaction({ payer })` lets a sponsor fund the record's
+  rent and pay the transaction fee; the owner still signs and may hold 0 SOL.
 - `Bytes128` is exported as the type of the `b` proof point.
 
 - `proveCustomRingTransfer` proves the tier the ring config selects and, for
