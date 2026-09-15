@@ -21,7 +21,7 @@ priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
-- `UtxoData` requires `signingPk` and `nullifierPk`, and `depositInstruction` requires the recipient owner to sign when `dataHash` is nonzero → supply the owner hash preimage and sign with that owner.
+- `UtxoData` requires a nonzero `dataHash` and `nullifierPk`; `AssetDeposit.utxoData` is a builder-only `DepositData` containing required `signingPk` and wire `data`, and `depositInstruction` requires that owner to sign → omit `utxoData` for no application data, or supply the nullifier key and owner signer account. The signer key is read from the account list and is not serialized in deposit data. The program reports `ZeroDepositDataHash` (7066) for a present zero-hash record, separately from malformed instruction encoding.
 
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive

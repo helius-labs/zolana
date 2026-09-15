@@ -36,6 +36,14 @@ impl DepositAsset {
     }
 }
 
+/// Builder-only application data and the account that authorizes its owner.
+/// Only `data` is serialized; `signing_pk` supplies the signer account meta.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DepositData {
+    pub signing_pk: Pubkey,
+    pub data: UtxoData,
+}
+
 /// One output of a deposit batch, tagged with the asset it deposits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetDeposit {
@@ -43,7 +51,7 @@ pub struct AssetDeposit {
     pub view_tag: [u8; 32],
     pub owner: [u8; 32],
     pub amount: u64,
-    pub utxo_data: Option<UtxoData>,
+    pub utxo_data: Option<DepositData>,
     pub memo: Option<Vec<u8>>,
 }
 
@@ -60,6 +68,8 @@ pub struct Deposit {
 pub enum DepositBuildError {
     #[error("deposit batch contains no entries")]
     EmptyBatch,
+    #[error("deposit application data must have a nonzero data hash; omit utxo_data otherwise")]
+    ZeroDataHash,
     #[error("deposit batch has {count} entries; the wire format supports at most {max}")]
     TooManyEntries { count: usize, max: usize },
     #[error("deposit batch has {count} assets; at most {max} are supported")]
@@ -214,7 +224,7 @@ impl AssetDeposit {
             view_tag: self.view_tag,
             owner: self.owner,
             amount: self.amount,
-            utxo_data: self.utxo_data,
+            utxo_data: self.utxo_data.map(|data| data.data),
             memo: self.memo,
         }
     }
@@ -226,6 +236,23 @@ impl Deposit {
             self.deposits.len(),
             self.deposits.iter().map(|deposit| deposit.asset),
         )?;
+        let mut accounts = vec![
+            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.depositor, true),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        ];
+        layout.extend_account_metas(&mut accounts);
+        // One owner signer per application-data record, in entry order. Repeated
+        // owners intentionally occupy repeated instruction account slots.
+        for entry in &self.deposits {
+            if let Some(data) = &entry.utxo_data {
+                if data.data.data_hash == [0; 32] {
+                    return Err(DepositBuildError::ZeroDataHash);
+                }
+                accounts.push(AccountMeta::new_readonly(data.signing_pk, true));
+            }
+        }
+
         let deposits = self
             .deposits
             .into_iter()
@@ -234,25 +261,6 @@ impl Deposit {
                 Ok(deposit.into_entry(asset_index))
             })
             .collect::<Result<Vec<_>, DepositBuildError>>()?;
-
-        let mut accounts = vec![
-            AccountMeta::new(self.tree, false),
-            AccountMeta::new(self.depositor, true),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-        ];
-        layout.extend_account_metas(&mut accounts);
-        // One owner signer per nonzero data hash, in entry order. Repeated
-        // owners intentionally occupy repeated instruction account slots.
-        for entry in &deposits {
-            if let Some(data) = &entry.utxo_data {
-                if data.data_hash != [0; 32] {
-                    accounts.push(AccountMeta::new_readonly(
-                        Pubkey::new_from_array(data.signing_pk),
-                        true,
-                    ));
-                }
-            }
-        }
 
         let mut data = vec![tag::DEPOSIT];
         data.extend_from_slice(
@@ -309,6 +317,39 @@ mod tests {
     fn decode(ix: &Instruction) -> DepositIxData {
         DepositIxData::deserialize(ix.data.get(1..).expect("instruction tag"))
             .expect("builder emits valid instruction data")
+    }
+
+    #[test]
+    fn application_data_requires_nonzero_hash_and_uses_its_owner_signer() {
+        for payload in [vec![], vec![1, 2, 3]] {
+            let signer = Pubkey::new_unique();
+            let mut output = entry(DepositAsset::Sol, 1);
+            output.utxo_data = Some(DepositData {
+                signing_pk: signer,
+                data: UtxoData {
+                    data_hash: [0; 32],
+                    nullifier_pk: [2; 32],
+                    data: payload,
+                },
+            });
+            assert_eq!(
+                deposit(vec![output.clone()]).instruction(),
+                Err(DepositBuildError::ZeroDataHash)
+            );
+            output
+                .utxo_data
+                .as_mut()
+                .expect("application data")
+                .data
+                .data_hash = [1; 32];
+            let ix = deposit(vec![output])
+                .instruction()
+                .expect("authorized application data");
+            assert_eq!(
+                ix.accounts.last(),
+                Some(&AccountMeta::new_readonly(signer, true))
+            );
+        }
     }
 
     #[test]

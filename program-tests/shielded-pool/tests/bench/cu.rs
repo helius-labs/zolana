@@ -17,8 +17,9 @@ use zolana_hasher::primitives::solana_owner_identity;
 use zolana_hasher::Poseidon;
 use zolana_interface::{
     instruction::{
-        instruction_data::transact::InterfaceTransfer, AssetDeposit, Deposit, Transact,
-        TransactInterfaceTransferAccounts, TransactIxData, TransactSolTransferAccounts, UtxoData,
+        instruction_data::transact::InterfaceTransfer, AssetDeposit, Deposit, DepositData,
+        Transact, TransactInterfaceTransferAccounts, TransactIxData, TransactSolTransferAccounts,
+        UtxoData,
     },
     state::{nullifier_tree_params, tree_account_size, tree_working_capital_lamports},
     NULLIFIER_PDA_SIZE, PROGRAM_ID_PUBKEY, SHIELDED_POOL_PROGRAM_ID, SPL_TOKEN_PROGRAM_ID,
@@ -400,11 +401,13 @@ fn attach_deposit_data(data: &mut AssetDeposit, depositor: &Keypair) {
     data.owner = owner_hash(&PublicKey::from_ed25519(&signing_pk), &nullifier_pk)
         .expect("deposit owner hash");
     data.view_tag = signing_pk;
-    data.utxo_data = Some(UtxoData {
-        data_hash: [1; 32],
-        signing_pk,
-        nullifier_pk,
-        data: vec![1, 2, 3],
+    data.utxo_data = Some(DepositData {
+        signing_pk: depositor.pubkey(),
+        data: UtxoData {
+            data_hash: [1; 32],
+            nullifier_pk,
+            data: vec![1, 2, 3],
+        },
     });
 }
 

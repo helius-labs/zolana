@@ -23,9 +23,8 @@ export interface DepositInstructionData {
 }
 
 export interface UtxoData {
+  /** Must be nonzero; omit utxoData to omit application data. */
   readonly dataHash: Bytes32;
-  /** Owner signer required when dataHash is nonzero. */
-  readonly signingPk: Address;
   readonly nullifierPk: Bytes32;
   readonly data: Uint8Array;
 }
@@ -65,8 +64,15 @@ export const DepositAsset = Object.freeze({
   },
 });
 
-export interface AssetDeposit extends Omit<DepositEntry, "assetIndex"> {
+/** Builder-only data authorization. Only data is serialized in the entry. */
+export interface DepositData {
+  readonly signingPk: Address;
+  readonly data: UtxoData;
+}
+
+export interface AssetDeposit extends Omit<DepositEntry, "assetIndex" | "utxoData"> {
   readonly asset: DepositAsset;
+  readonly utxoData?: DepositData;
 }
 
 export interface EncryptedRingDepositData {

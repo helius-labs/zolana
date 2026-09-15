@@ -1841,20 +1841,19 @@ Settlement groups follow `tree`, `payer`, and the SPP program account in the ord
 
 | # | Name | W | S | Description |
 | --- | --- | --- | --- | --- |
-| 1 | tree_account | x | | UTXO tree |
+| 1 | tree_account | x |   | UTXO tree |
 | 2 | payer | x | x | Depositor; authorizes funding |
-| 3 | program | | | SPP, for the event self-CPI |
-| .. | settlement groups | | | `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `mint`, `user_token`, `spl_interface`) |
-| .. | owner signers | | x | One per entry with nonzero `data_hash`, in entry order |
+| 3 | program |   |   | SPP, for the [`emit_event`](#instructions) self-CPI |
+| .. | settlement groups |   |   | per `assets` entry: `Sol` = (`system_program`, `sol_interface`); `Spl` = (`token_program`, `mint`, `user_token`, `spl_interface`) |
+| .. | owner signers |   | x | One per entry with `utxo_data`, in entry order |
 
 **Instruction data**
 
 ```rust
 /// Application data committed into the deposited UTXO's `data_hash`;
-/// requires the recipient owner to sign when the hash is nonzero.
+/// requires a nonzero hash and the recipient owner to sign.
 struct UtxoData {
     data_hash: [u8; 32],
-    signing_pk: [u8; 32],
     nullifier_pk: [u8; 32],
     /// Preimage of `data_hash`.
     data: Vec<u8>,
@@ -1914,7 +1913,7 @@ the transaction executes.
 2. `deposits` is non-empty and `assets` holds 1..=`MAX_DEPOSIT_ASSETS` entries.
 3. Read the accounts each `assets` entry names, validating each group as its kind requires. Two groups must not name the same asset: that would split one asset's settlement across two transfers and let an entry pick either.
 4. Every `asset_index` is within `assets`, and every declared asset is named by at least one entry; an unfunded group would otherwise pass validation without settling.
-5. When an entry has nonzero `utxo_data.data_hash`, its owner must sign. After settlement groups, pass one signer account per such entry, in entry order (including repeated owners). Its address must equal `signing_pk`, `nullifier_pk` must be a canonical field element, and `Poseidon(pk_field(signing_pk), nullifier_pk)` must equal the entry's `owner`. This matches the circuit output rule and applies even to zero-amount deposits. A zero data hash requires no owner signer. SPP does not recompute the application-defined data hash.
+5. `utxo_data: None` is the only representation of no application data and requires no owner signature. When `utxo_data` is present, its `data_hash` must be nonzero (even for an empty payload), otherwise reject with `ZeroDepositDataHash` (7066). Its owner must sign. After settlement groups, pass one signer account per data-bearing entry, in entry order (including repeated owners). Read `signing_pk` from that account's address; it is not serialized in the entry. `nullifier_pk` must be a canonical field element, and `Poseidon(owner_proof_input_hash(signing_pk), nullifier_pk)` must equal the entry's `owner`. The nonzero-hash signature requirement matches the circuit output rule and applies even to zero-amount deposits. SPP does not recompute the application-defined data hash.
 6. Per entry, derive its `blinding` from the tree and the leaf index the entry appends at (see [Blinding](#blinding-derivation)), compute `owner_utxo_hash = Poseidon(owner, blinding)`, then the [UTXO hash](#utxo-hash): `tree_id` is `output_tree`'s id, `asset` from the entry's settlement group (the mint pubkey, SOL: `Address::default()`) and `amount` from the entry, `data_hash` from instruction data or `0`, `ring_program_id` is `0`, `ring_data_hash` is `0`. Append each hash to the UTXO tree in entry order.
 7. Sum each asset's entry amounts; the sum must not overflow.
 8. Transfer each asset's total once: SOL `payer → sol interface account`, or CPI the token program `user_spl_token_account → spl_token_interface`.
@@ -1967,7 +1966,7 @@ GeneralEvent {
 }
 ```
 
-`data_hash` and `utxo_data` are set when attached to the entry (a nonzero hash requires its owner's signature),
+`data_hash` and `utxo_data` are set when attached to the entry (the hash must be nonzero and its owner must sign),
 else `None`. `ring_program_id`, `ring_data_hash`, and `ring_data` are set only by
 [`ring_deposit`](#ring_deposit). SPP does not interpret
 `utxo_data`; it copies the hash and preimage from instruction data into the event

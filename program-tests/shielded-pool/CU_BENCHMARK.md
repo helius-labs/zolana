@@ -49,8 +49,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     37,873 |     36,672 |
-| `process_instruction`         |     37,925 |          0 |
+| `process_deposit`             |     37,917 |     36,716 |
+| `process_instruction`         |     37,969 |          0 |
 
 ## 3. Deposit sol batch 3
 
@@ -58,8 +58,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     49,607 |     48,406 |
-| `process_instruction`         |     49,659 |          0 |
+| `process_deposit`             |     49,631 |     48,430 |
+| `process_instruction`         |     49,683 |          0 |
 
 ## 4. Deposit sol batch 3 with data
 
@@ -67,8 +67,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     51,945 |     50,744 |
-| `process_instruction`         |     51,997 |          0 |
+| `process_deposit`             |     51,898 |     50,697 |
+| `process_instruction`         |     51,950 |          0 |
 
 ## 5. Deposit sol with data
 
@@ -76,8 +76,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_sol`                  |      1,170 |      1,170 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     39,800 |     38,599 |
-| `process_instruction`         |     39,852 |          0 |
+| `process_deposit`             |     39,819 |     38,618 |
+| `process_instruction`         |     39,871 |          0 |
 
 ## 6. Deposit spl
 
@@ -85,8 +85,8 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_spl_deposit`          |      1,303 |      1,303 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     39,708 |     38,374 |
-| `process_instruction`         |     39,760 |          0 |
+| `process_deposit`             |     39,753 |     38,419 |
+| `process_instruction`         |     39,805 |          0 |
 
 ## 7. Deposit spl with data
 
@@ -94,26 +94,26 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `settle_spl_deposit`          |      1,303 |      1,303 |
 | `process_instruction`         |         31 |         31 |
-| `process_deposit`             |     41,635 |     40,301 |
-| `process_instruction`         |     41,687 |          0 |
+| `process_deposit`             |     41,655 |     40,321 |
+| `process_instruction`         |     41,707 |          0 |
 
 ## 8. Merge 36x1
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `create_nullifier_pdas`       |     71,843 |     71,843 |
+| `create_nullifier_pdas`       |     79,703 |     79,703 |
 | `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         31 |         31 |
-| `process_instruction`         |    234,196 |     82,799 |
+| `process_instruction`         |    241,717 |     82,460 |
 
 ## 9. Merge 8x1
 
 | Function                      |   Total CU |     Net CU |
 | ----------------------------- | ---------- | ---------- |
-| `create_nullifier_pdas`       |     19,327 |     19,327 |
+| `create_nullifier_pdas`       |     18,608 |     18,608 |
 | `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         31 |         31 |
-| `process_instruction`         |    148,594 |     49,713 |
+| `process_instruction`         |    147,536 |     49,374 |
 
 ## 10. Pause tree
 
@@ -292,14 +292,14 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_owner_signer_hashes`    |        935 |        935 |
 | `fill_output_owner_pk_hashes` |         38 |         38 |
-| `create_nullifier_pdas`       |     69,672 |     69,672 |
-| `apply_input_trees`           |     95,858 |     26,186 |
+| `create_nullifier_pdas`       |     70,035 |     70,035 |
+| `apply_input_trees`           |     96,221 |     26,186 |
 | `apply_output_tree`           |     29,135 |     29,135 |
 | `public_input_hash`           |     37,363 |     37,363 |
 | `verify_groth16`              |     79,523 |     79,523 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    251,042 |          0 |
-| `process_instruction`         |    251,095 |          0 |
+| `process_transact_ix`         |    251,405 |          0 |
+| `process_instruction`         |    251,458 |          0 |
 
 ## 23. Transfer ring p256 36x2
 
@@ -311,10 +311,10 @@ Regenerate with `just bench-shielded-pool`.
 | `apply_input_trees`           |     95,858 |     26,186 |
 | `apply_output_tree`           |     29,135 |     29,135 |
 | `public_input_hash`           |     40,965 |     40,965 |
-| `verify_groth16`              |    210,790 |    210,790 |
+| `verify_groth16`              |    210,853 |    210,853 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    385,968 |          0 |
-| `process_instruction`         |    386,021 |          0 |
+| `process_transact_ix`         |    386,031 |          0 |
+| `process_instruction`         |    386,084 |          0 |
 
 ## 24. Withdrawal sol
 
@@ -322,15 +322,15 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_owner_signer_hashes`    |        935 |        935 |
 | `fill_output_owner_pk_hashes` |        224 |        224 |
-| `create_nullifier_pdas`       |      3,632 |      3,632 |
-| `apply_input_trees`           |      4,882 |      1,250 |
+| `create_nullifier_pdas`       |      3,995 |      3,995 |
+| `apply_input_trees`           |      5,245 |      1,250 |
 | `apply_output_tree`           |     29,171 |     29,171 |
 | `public_input_hash`           |     21,635 |     21,635 |
 | `verify_groth16`              |     79,523 |     79,523 |
 | `settle_sol`                  |      1,189 |      1,189 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    142,627 |      1,405 |
-| `process_instruction`         |    142,680 |          0 |
+| `process_transact_ix`         |    142,990 |      1,042 |
+| `process_instruction`         |    143,043 |          0 |
 
 ## 25. Withdrawal spl
 
@@ -338,13 +338,13 @@ Regenerate with `just bench-shielded-pool`.
 | ----------------------------- | ---------- | ---------- |
 | `fill_owner_signer_hashes`    |        935 |        935 |
 | `fill_output_owner_pk_hashes` |        224 |        224 |
-| `create_nullifier_pdas`       |      5,063 |      5,063 |
-| `apply_input_trees`           |      6,313 |      1,250 |
+| `create_nullifier_pdas`       |      3,995 |      3,995 |
+| `apply_input_trees`           |      5,245 |      1,250 |
 | `apply_output_tree`           |     29,171 |     29,171 |
 | `public_input_hash`           |     21,638 |     21,638 |
 | `verify_groth16`              |     79,523 |     79,523 |
 | `settle_spl_withdrawal`       |      1,210 |      1,210 |
 | `process_instruction`         |         31 |         31 |
-| `process_transact_ix`         |    145,697 |      1,589 |
-| `process_instruction`         |    145,750 |          0 |
+| `process_transact_ix`         |    144,629 |      2,657 |
+| `process_instruction`         |    144,682 |          0 |
 

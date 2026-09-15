@@ -10,12 +10,11 @@ use zolana_hasher::{sha256::Sha256BE, Hasher, HasherError};
 type DepositRefConfig = Configuration<true, DEFAULT_PREALLOCATION_SIZE_LIMIT, FixIntLen<u16>>;
 
 /// Application data committed into the deposited UTXO's `data_hash`. The deposit
-/// requires the recipient owner's signature when `data_hash` is nonzero.
+/// requires a nonzero `data_hash` and the recipient owner's signature.
+/// Use `None` on the entry to omit application data.
 #[derive(Clone, Debug, PartialEq, Eq, SchemaRead, SchemaWrite)]
 pub struct UtxoData {
     pub data_hash: [u8; 32],
-    /// Solana signer whose tagged identity and `nullifier_pk` hash to the owner.
-    pub signing_pk: [u8; 32],
     pub nullifier_pk: [u8; 32],
     #[wincode(with = "containers::Vec<u8, FixIntLen<u16>>")]
     pub data: Vec<u8>,
@@ -69,7 +68,7 @@ pub struct DepositEntry {
     /// Deposited amount of the asset selected by `asset_index`.
     pub amount: u64,
     /// Application data committed into the UTXO's `data_hash`, authorized by the
-    /// recipient owner when nonzero; `None` for a plain user deposit. Policy-ring
+    /// recipient owner; `None` for a plain user deposit. Policy-ring
     /// deposits use [`RingDepositIxData`].
     pub utxo_data: Option<UtxoData>,
     /// Optional free-form memo emitted in the clear with the proofless output.
@@ -110,7 +109,6 @@ impl DepositIxData {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, SchemaRead)]
 pub struct UtxoDataRef<'a> {
     pub data_hash: &'a [u8; 32],
-    pub signing_pk: &'a [u8; 32],
     pub nullifier_pk: &'a [u8; 32],
     pub data: &'a [u8],
 }

@@ -334,5 +334,5 @@ each selecting its asset by `asset_index` into `assets`.
 
 - [x] **INV-DEPOSIT-35: nonzero application data requires the recipient owner to sign**
   - Covered by: `tests/deposit/rejection.rs` `deposit_data_requires_each_owner_signature_and_matching_preimage_atomically`
-  - Statement: for every plain deposit entry with nonzero `data_hash`, including zero-amount entries, a trailing owner account signs and matches `signing_pk`, and `Poseidon(pk_field(signing_pk), nullifier_pk)` equals `owner` with canonical `nullifier_pk`. An absent or zero data hash needs no owner signature. Failed authorization preserves the tree and settlement accounts atomically.
+  - Statement: for every plain deposit entry with nonzero `data_hash`, including zero-amount entries, a trailing owner account signs and supplies `signing_pk`, and `Poseidon(owner_proof_input_hash(signing_pk), nullifier_pk)` equals `owner` with canonical `nullifier_pk`. `utxo_data: None` needs no owner signature. A present record with zero `data_hash` is rejected with `ZeroDepositDataHash` (7066), even with an empty payload or a valid owner signature, including after a cached authorization. Failed authorization preserves the tree and settlement accounts atomically.
   - Reference: `prover/server/circuits/spp_transaction/shared/outputs.go` `ConstrainOutput`.

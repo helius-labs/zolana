@@ -387,7 +387,7 @@ proptest! {
         cut in any::<prop::sample::Index>(),
         trailing in any::<u8>(),
     ) {
-        let utxo_data = utxo_data.map(|(data_hash, data)| UtxoData { data_hash, signing_pk: view_tag, nullifier_pk: owner, data });
+        let utxo_data = utxo_data.map(|(data_hash, data)| UtxoData { data_hash, nullifier_pk: owner, data });
         let entry = DepositEntry {
             asset_index: 0,
             view_tag,

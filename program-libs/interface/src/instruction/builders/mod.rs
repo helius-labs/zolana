@@ -20,7 +20,9 @@ pub use create_asset_counter::CreateAssetCounter;
 pub use create_associated_token_account::CreateAssociatedTokenAccount;
 pub use create_spl_interface::CreateSplInterface;
 pub use create_tree::CreateTree;
-pub use deposit::{AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositSplAccounts};
+pub use deposit::{
+    AssetDeposit, Deposit, DepositAsset, DepositBuildError, DepositData, DepositSplAccounts,
+};
 pub use merge_ring::MergeRing;
 pub use merge_transact::MergeTransact;
 pub use protocol_config::{
