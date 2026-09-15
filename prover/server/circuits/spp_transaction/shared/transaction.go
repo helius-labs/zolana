@@ -41,6 +41,9 @@ import (
 // mirrors.
 type Transaction struct {
 	Shape Shape
+	// Inclusion is nil for variants that prove every input against the state
+	// tree, and set by variants that prove some inputs exist another way.
+	Inclusion *InclusionRelay
 
 	Nullifiers   []frontend.Variable
 	OutputHashes []frontend.Variable
@@ -81,9 +84,69 @@ type Transaction struct {
 	//	owner-signed ring: masked output owner chain
 	//	ring authority:    owner tags stay private
 	//
+	// A variant that relays inclusion appends what it proves against.
+	//
 	// Constrain only chains these, never reads them: the count varies, so naming
 	// them as fields would need nil-means-omit branching in here instead.
 	PreimageTail []frontend.Variable
+}
+
+// InclusionRelay hands a variant's inclusion policy into Constrain and the
+// per-input values Constrain derived back out.
+//
+// Skip[i] == 1 takes input i's existence away from the state tree: its
+// inclusion check is not asserted and its tree slot needs no state root. The
+// variant owns the replacement proof, and binds it with Hashes and TreeIDs —
+// the commitment the core actually spent and the raw u16 id of the tree it
+// spent it from — so it never has to recompute either and cannot drift from
+// what the rest of the transaction constrains.
+//
+// The relay carries no policy of its own: every rule about which inputs may
+// skip, and what stands in for inclusion, belongs to the variant.
+type InclusionRelay struct {
+	Skip []frontend.Variable
+
+	Hashes  []frontend.Variable
+	TreeIDs []frontend.Variable
+}
+
+func (r *InclusionRelay) init(nInputs int) {
+	if r == nil {
+		return
+	}
+	r.Hashes = make([]frontend.Variable, nInputs)
+	r.TreeIDs = make([]frontend.Variable, nInputs)
+}
+
+func (r *InclusionRelay) skip(i int) frontend.Variable {
+	if r == nil {
+		return nil
+	}
+	return r.Skip[i]
+}
+
+func (r *InclusionRelay) record(i int, hash, treeID frontend.Variable) {
+	if r == nil {
+		return
+	}
+	r.Hashes[i], r.TreeIDs[i] = hash, treeID
+}
+
+// spendableSlots replaces the state root of every slot a skipped input could
+// select with a placeholder, so SelectTreeSlot keeps rejecting an unused slot
+// by its nullifier root while no longer demanding a state root the input
+// proves nothing against. The placeholder reaches no other constraint: the
+// public-input hash commits to the published slots, not to these.
+func (r *InclusionRelay) spendableSlots(api frontend.API, i int, slots []TreeSlot) []TreeSlot {
+	if r == nil {
+		return slots
+	}
+	out := make([]TreeSlot, len(slots))
+	for k, slot := range slots {
+		out[k] = slot
+		out[k].UtxoRoot = api.Select(r.Skip[i], 1, slot.UtxoRoot)
+	}
+	return out
 }
 
 // LengthCheck is one witness slice length a variant adds to the core's.
@@ -107,6 +170,9 @@ func (t Transaction) ValidateLayout(extra ...LengthCheck) error {
 		{"tree slot", len(t.TreeSlots), InputTrees},
 		{"output", len(t.Outputs), t.Shape.NOutputs},
 	}
+	if t.Inclusion != nil {
+		checks = append(checks, LengthCheck{"inclusion skip", len(t.Inclusion.Skip), t.Shape.NInputs})
+	}
 	for _, check := range append(checks, extra...) {
 		if err := ValidateLength(check.Name, check.Got, check.Want); err != nil {
 			return err
@@ -126,6 +192,7 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 	// and range-checks it, so no bit above the layout can carry a value.
 	flagBits := api.ToBinary(t.InputFlags, 1+TreeIndexBits*t.Shape.NInputs)
 	allowDummyInputs := flagBits[0]
+	t.Inclusion.init(t.Shape.NInputs)
 	// 1. check inputs
 	inputHashes := make([]frontend.Variable, t.Shape.NInputs)
 	addressNullifiers := make([]frontend.Variable, t.Shape.NInputs)
@@ -146,11 +213,13 @@ func (t Transaction) Constrain(api frontend.API, signers Signers, outputSigned [
 			api.FromBinary(flagBits[1+TreeIndexBits*i:1+TreeIndexBits*(i+1)]...),
 		)
 		signals := PublicInputUtxoInputs{
-			Nullifier: t.Nullifiers[i],
-			SignerPk:  signers[i],
-			Tree:      SelectTreeSlot(api, in.TreeSlot, t.TreeSlots),
+			Nullifier:     t.Nullifiers[i],
+			SignerPk:      signers[i],
+			Tree:          SelectTreeSlot(api, in.TreeSlot, t.Inclusion.spendableSlots(api, i, t.TreeSlots)),
+			SkipInclusion: t.Inclusion.skip(i),
 		}
 		inputHashes[i], addressNullifiers[i] = constrainInput(api, in, signals)
+		t.Inclusion.record(i, inputHashes[i], signals.Tree.ID)
 	}
 	AssertDistinctNullifiers(api, t.Nullifiers)
 
