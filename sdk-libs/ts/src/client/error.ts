@@ -51,6 +51,10 @@ export interface ClientErrorDetailsMap {
   readonly CLIENT_HEAD_ROOT_CHANGED: MethodDetails;
   readonly CLIENT_HEAD_MEMBER_UNREGISTERED: MethodDetails;
   readonly CLIENT_HEAD_MEMBER_ALREADY_REGISTERED: MethodDetails;
+  readonly CLIENT_KEY_REGISTRY_OUT_OF_SYNC: MethodDetails;
+  readonly CLIENT_KEY_REGISTRY_ROOT_CHANGED: MethodDetails;
+  readonly CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: MethodDetails;
+  readonly CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: MethodDetails;
   readonly CLIENT_KEYPAIR: Readonly<{ code: KeypairErrorCode }>;
   readonly CLIENT_TRANSACTION: Readonly<{ code: TransactionErrorCode }>;
   readonly CLIENT_HASHER: Readonly<{ code: HasherErrorCode }>;
@@ -205,6 +209,10 @@ export const TYPESCRIPT_CLIENT_ERROR_CODES = Object.freeze([
   "CLIENT_HEAD_ROOT_CHANGED",
   "CLIENT_HEAD_MEMBER_UNREGISTERED",
   "CLIENT_HEAD_MEMBER_ALREADY_REGISTERED",
+  "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
+  "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
+  "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED",
+  "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED",
   "CLIENT_INVALID_CONFIG",
   "CLIENT_UNEXPECTED",
   "CLIENT_INVALID_INTEGER",
@@ -344,6 +352,10 @@ const DETAIL_SHAPES: Partial<Readonly<Record<ClientErrorCode, DetailShape>>> = {
   CLIENT_HEAD_ROOT_CHANGED: { method: "string" },
   CLIENT_HEAD_MEMBER_UNREGISTERED: { method: "string" },
   CLIENT_HEAD_MEMBER_ALREADY_REGISTERED: { method: "string" },
+  CLIENT_KEY_REGISTRY_OUT_OF_SYNC: { method: "string" },
+  CLIENT_KEY_REGISTRY_ROOT_CHANGED: { method: "string" },
+  CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED: { method: "string" },
+  CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED: { method: "string" },
   CLIENT_UNSUPPORTED_RPC_METHOD: { method: "string" },
   CLIENT_INDEXER_TIMEOUT: { signature: "string", expectedTags: "number", attempts: "number" },
   CLIENT_INDEXER_NOT_CAUGHT_UP: { target: "string", latest: "string", attempts: "number" },

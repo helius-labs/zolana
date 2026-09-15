@@ -7,6 +7,7 @@ import type {
   TransactInstructionData,
   TransactWithdrawal,
 } from "../../interface/types.js";
+import { RING_AUTHORITY_MAX_WIDTH } from "../../interface/shape.js";
 import { ShieldedAddress } from "../../keypair/shielded.js";
 
 import type { PreparedTransfer, WithdrawalTarget } from "../instructions/transact.js";
@@ -375,7 +376,11 @@ export function checkTransactionIntent(
       checkAccount(intent.delegate, "delegate", mismatch);
       if (intent.cosigner !== undefined) checkAccount(intent.cosigner, "cosigner", mismatch);
       checkShieldedRecipient(intent.source, mismatch);
-      if (!Array.isArray(intent.outputs) || intent.outputs.length < 1 || intent.outputs.length > 4)
+      if (
+        !Array.isArray(intent.outputs) ||
+        intent.outputs.length < 1 ||
+        intent.outputs.length > RING_AUTHORITY_MAX_WIDTH
+      )
         throw mismatch("outputs");
       for (const output of intent.outputs) {
         if (typeof output !== "object" || output === null) throw mismatch("outputs");

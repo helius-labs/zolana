@@ -19,6 +19,10 @@ export class HasherFailure extends Error {
 
 const FIELD_BYTES = 32;
 
+/** Every Poseidon input and output is below it. */
+export const BN254_SCALAR_ORDER =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
 /** The widest digest supported by both the runtime and the Solana verifier. */
 export const MAX_POSEIDON_INPUTS = 12;
 

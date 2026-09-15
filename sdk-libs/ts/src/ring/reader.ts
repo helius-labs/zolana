@@ -16,7 +16,7 @@ import { isDerivationPoint } from "../keypair/derivation.js";
 import { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
 import { equal } from "../transaction/internal.js";
 
-import { ringConfigAddress } from "./config.js";
+import { ringConfigAddress } from "../interface/pda/index.js";
 import { RingError } from "./error.js";
 
 const encoder = new TextEncoder();

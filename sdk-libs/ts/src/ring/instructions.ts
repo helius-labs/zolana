@@ -1,4 +1,10 @@
-import { AccountRole, type Address, type Instruction } from "@solana/kit";
+import {
+  AccountRole,
+  downgradeRoleToNonSigner,
+  isSignerRole,
+  type Address,
+  type Instruction,
+} from "@solana/kit";
 
 import {
   SYSTEM_PROGRAM,
@@ -6,6 +12,7 @@ import {
   ringCoSignerMetas,
   ringSpendWindowMetas,
   ringTransactAccounts,
+  signerAddress,
   type SignerAccount,
 } from "../interface/instructions/index.js";
 import { encodeTransactInstructionData } from "../interface/codecs/index.js";
@@ -15,23 +22,27 @@ import {
   protocolConfigAddress,
   ringAuthAddress,
   ringCoSignerAddress,
+  ringConfigAddress,
   ringDelegateAddress,
   ringHeadMapRootAddress,
+  ringKeyRegistryRootAddress,
+  ringPolicyConfigAddress,
 } from "../interface/pda/index.js";
-import type { Bytes32, TransactInstructionData, TransactWithdrawal } from "../interface/types.js";
+import type {
+  Bytes32,
+  Bytes33,
+  TransactInstructionData,
+  TransactWithdrawal,
+} from "../interface/types.js";
 import { isDerivationPoint } from "../keypair/derivation.js";
 import type { P256PublicKey } from "../keypair/public-key.js";
 import { SOL_MINT } from "../transaction/asset.js";
 
 import { Writer } from "../interface/internal.js";
 
+import { CUSTOM_RING_PROOF_LENGTH } from "../client/prover/proof.js";
 import { checkedCustomRingProof } from "./codecs.js";
-import {
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-  ringProgramDataAddress,
-} from "./config.js";
+import { ringPolicyNamespaceAddress, ringProgramDataAddress } from "./config.js";
 import type { RingEntryProof } from "./entry-proof.js";
 import { RingError } from "./error.js";
 import {
@@ -55,6 +66,7 @@ const RingProgramTag = Object.freeze({
   setPolicySource: 10,
   setPolicyRules: 12,
   registerSpend: 26,
+  registerKey: 30,
 } as const);
 
 /** Rust `*_COMPUTE_UNIT_LIMIT`. */
@@ -67,6 +79,7 @@ export const RING_SET_POLICY_RULES_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_SET_POLICY_SOURCE_COMPUTE_UNIT_LIMIT = 150_000;
 export const RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT = 1_400_000;
 export const RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
+export const RING_REGISTER_KEY_COMPUTE_UNIT_LIMIT = RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT;
 
 export type RingTransactTrees = Readonly<{ tree: Address; outputTree: Address }> &
   (
@@ -146,8 +159,6 @@ export async function initSppRingConfigInstruction(
   };
 }
 
-/** Mirrors Rust `CustomRingTransact`, `tag || proof || state root index || nullifier root index || transact data`, `[cosigner_pda, cosigner]` follow the config. */
-/** What every ring transact carries, the member and the delegate rail alike. */
 type RingTransactCommon = Readonly<{
   ringProgramId: Address;
   payer: SignerAccount;
@@ -158,22 +169,15 @@ type RingTransactCommon = Readonly<{
   /** False drops the policy_config and entries_tree accounts. */
   hasPolicy?: boolean;
   proof: Uint8Array;
-  /** History entries the ring statement binds, unread by a ring without rules. */
+  /** History entries the ring statement binds, unread by an audit-only ring. */
   stateRootIndex: number;
   nullifierRootIndex: number;
   data: TransactInstructionData;
-  /** The ring's co-signer, a signer when set. */
   cosigner?: SignerAccount;
-  /** The dual control bit the velocity statement proves, the co-signer then signs. */
+  /** Must equal the proof's approval bit. */
   approvalRequired?: boolean;
   headTransition?: Readonly<{ oldRoot: Bytes32; newRoot: Bytes32 }>;
 }>;
-
-function nonSignerRole(role: AccountRole): AccountRole {
-  if (role === AccountRole.WRITABLE_SIGNER) return AccountRole.WRITABLE;
-  if (role === AccountRole.READONLY_SIGNER) return AccountRole.READONLY;
-  return role;
-}
 
 export async function ringTransactInstruction(
   input: RingTransactCommon &
@@ -191,7 +195,7 @@ export async function ringTransactInstruction(
     ringCoSignerAddress(input.ringProgramId),
     ringSpendWindowMetas(input.ringProgramId, settledMints(input.data, input.withdrawal)),
   ]);
-  const payerAddress = typeof input.payer === "string" ? input.payer : input.payer.address;
+  const payerAddress = signerAddress(input.payer);
   const raw = await ringTransactAccounts({
     payer: input.payer,
     inputTree: input.inputTree,
@@ -202,11 +206,11 @@ export async function ringTransactInstruction(
     ...(input.ownerSigners === undefined ? {} : { ownerSigners: input.ownerSigners }),
     ...(input.withdrawal === undefined ? {} : { withdrawal: input.withdrawal }),
   });
-  // The program raises the namespace PDA inside its CPI, so it never signs here.
+  // The namespace PDA signs only inside the program's CPI.
   const namespace = hasPolicy ? await ringPolicyNamespaceAddress(input.ringProgramId) : undefined;
   const pool = raw.map((account) =>
-    account.address === namespace
-      ? { address: account.address, role: nonSignerRole(account.role) }
+    account.address === namespace && isSignerRole(account.role)
+      ? { address: account.address, role: downgradeRoleToNonSigner(account.role) }
       : account,
   );
   return {
@@ -235,7 +239,6 @@ export async function ringTransactInstruction(
   };
 }
 
-/** `tag || proof || root indexes || approval || SPP content`, the layout tag 3 and tag 25 share. */
 function transactData(
   tag: number,
   input: Readonly<{
@@ -257,13 +260,13 @@ function transactData(
     prefix
       .bytes(input.headTransition.oldRoot, 32, "headOldRoot")
       .bytes(input.headTransition.newRoot, 32, "headNewRoot");
-  const rootIndexes = prefix.finish();
+  const prefixBytes = prefix.finish();
   const transact = encodeTransactInstructionData(input.data);
-  const data = new Uint8Array(1 + proof.length + rootIndexes.length + transact.length);
+  const data = new Uint8Array(1 + proof.length + prefixBytes.length + transact.length);
   data[0] = tag;
   data.set(proof, 1);
-  data.set(rootIndexes, 1 + proof.length);
-  data.set(transact, 1 + proof.length + rootIndexes.length);
+  data.set(prefixBytes, 1 + proof.length);
+  data.set(transact, 1 + proof.length + prefixBytes.length);
   return data;
 }
 
@@ -271,8 +274,14 @@ function transactData(
 export async function ringDelegateTransactInstruction(
   input: RingTransactCommon & Readonly<{ delegate: SignerAccount }>,
 ): Promise<Instruction> {
-  if (input.headTransition !== undefined || input.approvalRequired === true)
-    throw new RingError("RING_DELEGATE_INVALID");
+  if (input.headTransition !== undefined || input.approvalRequired === true) {
+    throw new RingError("RING_DELEGATE_ON_VELOCITY_RING", {
+      details: {
+        headTransition: input.headTransition !== undefined,
+        approvalRequired: input.approvalRequired === true,
+      },
+    });
+  }
   if (input.data.interfaceTransfers.length > 0) {
     throw new RingError("RING_DELEGATE_PUBLIC_LEG", {
       details: { legs: input.data.interfaceTransfers.length },
@@ -510,6 +519,44 @@ export async function registerRingSpendInstruction(
   return {
     ...instruction,
     accounts: [...(instruction.accounts ?? []), meta(headMapRoot, false, true)],
+  };
+}
+
+/** Mirrors Rust `ProvenKeyRegistration::instruction`, the member signs and pays. */
+export async function registerRingKeyInstruction(
+  input: Readonly<{
+    ringProgramId: Address;
+    member: SignerAccount;
+    proof: Uint8Array;
+    registryOldRoot: Bytes32;
+    registryNewRoot: Bytes32;
+    registryNextIndex: bigint;
+    nullifierPublicKey: Bytes32;
+    ephemeralPublicKey: Bytes33;
+    ciphertext: Bytes32;
+  }>,
+): Promise<Instruction> {
+  const [config, root] = await Promise.all([
+    ringConfigAddress(input.ringProgramId),
+    ringKeyRegistryRootAddress(input.ringProgramId),
+  ]);
+  return {
+    programAddress: input.ringProgramId,
+    accounts: [
+      meta(input.member, true, false),
+      meta(config, false, false),
+      meta(root, false, true),
+    ],
+    data: new Writer()
+      .u8(RingProgramTag.registerKey, "tag")
+      .bytes(checkedCustomRingProof(input.proof), CUSTOM_RING_PROOF_LENGTH, "proof")
+      .bytes(input.registryOldRoot, 32, "registryOldRoot")
+      .bytes(input.registryNewRoot, 32, "registryNewRoot")
+      .u64(input.registryNextIndex, "registryNextIndex")
+      .bytes(input.nullifierPublicKey, 32, "nullifierPublicKey")
+      .bytes(input.ephemeralPublicKey, 33, "ephemeralPublicKey")
+      .bytes(input.ciphertext, 32, "ciphertext")
+      .finish(),
   };
 }
 

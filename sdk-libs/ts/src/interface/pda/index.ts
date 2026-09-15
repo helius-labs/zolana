@@ -6,6 +6,7 @@ import {
   type Address,
   type ProgramDerivedAddress,
   type ProgramDerivedAddressBump,
+  type ReadonlyUint8Array,
 } from "@solana/kit";
 
 import { copyBytes, encodeBase58, fail, sha256, unsigned } from "../internal.js";
@@ -93,77 +94,78 @@ export async function ringAuthAddress(ringProgramId: Address): Promise<Address> 
   return address;
 }
 
-/** Mirrors Rust `CustomRing::cosigner_pda`, uninitialized when the ring has no co-signer. */
-export async function ringCoSignerAddress(ringProgramId: Address): Promise<Address> {
-  const [address] = await getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("cosigner")],
-  });
-  return address;
+function ringPda(
+  ringProgramId: Address,
+  ...seeds: readonly ReadonlyUint8Array[]
+): Promise<ProgramDerivedAddress> {
+  return getProgramDerivedAddress({ programAddress: ringProgramId, seeds: [...seeds] });
 }
 
-export async function ringConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringConfigPda(ringProgramId))[0];
+async function ringAddress(pda: Promise<ProgramDerivedAddress>): Promise<Address> {
+  return (await pda)[0];
+}
+
+/** Mirrors Rust `CustomRing::cosigner_pda`, uninitialized when the ring has no co-signer. */
+export function ringCoSignerPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("cosigner"));
+}
+
+export function ringCoSignerAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringCoSignerPda(ringProgramId));
 }
 
 export function ringConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("config")],
-  });
+  return ringPda(ringProgramId, encoder.encode("config"));
+}
+
+export function ringConfigAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringConfigPda(ringProgramId));
 }
 
 /** Mirrors Rust `CustomRing::policy_config_pda`. */
-export async function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringPolicyConfigPda(ringProgramId))[0];
+export function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("policy"));
 }
 
-export function ringPolicyConfigPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("policy")],
-  });
+export function ringPolicyConfigAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringPolicyConfigPda(ringProgramId));
 }
 
 /** Mirrors Rust `CustomRing::delegate_pda`, uninitialized when the ring has no delegate. */
-export async function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringDelegatePda(ringProgramId))[0];
+export function ringDelegatePda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("delegate"));
 }
 
-export function ringDelegatePda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("delegate")],
-  });
+export function ringDelegateAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringDelegatePda(ringProgramId));
 }
 
 /** Mirrors Rust `CustomRing::spend_window_pda`, SOL under the zero address. */
-export async function ringSpendWindowAddress(
-  ringProgramId: Address,
-  mint: Address,
-): Promise<Address> {
-  return (await ringSpendWindowPda(ringProgramId, mint))[0];
-}
-
 export function ringSpendWindowPda(
   ringProgramId: Address,
   mint: Address,
 ): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("window"), addressEncoder.encode(mint)],
-  });
+  return ringPda(ringProgramId, encoder.encode("window"), addressEncoder.encode(mint));
+}
+
+export function ringSpendWindowAddress(ringProgramId: Address, mint: Address): Promise<Address> {
+  return ringAddress(ringSpendWindowPda(ringProgramId, mint));
 }
 
 export function ringHeadMapRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
-  return getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("headmap")],
-  });
+  return ringPda(ringProgramId, encoder.encode("headmap"));
 }
 
-export async function ringHeadMapRootAddress(ringProgramId: Address): Promise<Address> {
-  return (await ringHeadMapRootPda(ringProgramId))[0];
+export function ringHeadMapRootAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringHeadMapRootPda(ringProgramId));
+}
+
+export function ringKeyRegistryRootPda(ringProgramId: Address): Promise<ProgramDerivedAddress> {
+  return ringPda(ringProgramId, encoder.encode("keyreg"));
+}
+
+export function ringKeyRegistryRootAddress(ringProgramId: Address): Promise<Address> {
+  return ringAddress(ringKeyRegistryRootPda(ringProgramId));
 }
 
 export async function protocolConfigAddress(): Promise<Address> {

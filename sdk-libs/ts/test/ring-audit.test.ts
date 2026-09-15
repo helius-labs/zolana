@@ -154,27 +154,31 @@ describe("ring audit encryption", () => {
 });
 
 describe("ring audit spend records", () => {
-  it("reports a record whose first member byte is not a scheme byte", () => {
-    const auditor = ViewingKey.generate();
-    const tx = ViewingKey.generate();
+  const auditor = ViewingKey.generate();
+  const tx = ViewingKey.generate();
+  const viewTag = new Uint8Array(32).fill(0x77) as Bytes32;
+  const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
+  const record = {
+    member,
+    version: 3n,
+    window: 4n,
+    countersCommitment: new Uint8Array(32).fill(5) as Bytes32,
+    blinding: new Uint8Array(32).fill(6) as Bytes32,
+  };
+
+  function transaction(
+    input: Readonly<{ amount: bigint; recordMessage: Uint8Array | undefined }>,
+  ): IndexedShieldedTransaction {
     const encrypted = encryptTransactionViewingSecret(tx.secretBytes(), auditor.publicKey());
     const message = auditorMessageData(encrypted.message, auditor.publicKey());
-    const member = memberOfIdentity(new Uint8Array(32).fill(0x11) as Bytes32);
-    const record = {
-      member,
-      version: 3n,
-      window: 4n,
-      countersCommitment: new Uint8Array(32).fill(5) as Bytes32,
-      blinding: new Uint8Array(32).fill(6) as Bytes32,
-    };
-    const transaction: IndexedShieldedTransaction = {
+    return {
       slot: 1n,
       txSignature: "sig" as Signature,
       txViewingPublicKey: tx.publicKey(),
       salt: new Uint8Array(16) as Bytes16,
       outputSlots: [
         {
-          viewTag: new Uint8Array(32).fill(0x77) as Bytes32,
+          viewTag,
           outputContext: {
             hash: new Uint8Array(32) as Bytes32,
             tree: address("11111111111111111111111111111111"),
@@ -187,7 +191,7 @@ describe("ring audit spend records", () => {
               tx.publicKey(),
               {
                 assetId: SOL_ASSET_ID,
-                amount: 0n,
+                amount: input.amount,
                 blinding: record.blinding,
                 data: new Data(),
               },
@@ -199,22 +203,37 @@ describe("ring audit spend records", () => {
         },
       ],
       messages: [
-        {
-          viewTag: spendRecordMessageTag(new Uint8Array(32).fill(0x77) as Bytes32),
-          data: encodeSpendRecord(record),
-        },
+        ...(input.recordMessage === undefined
+          ? []
+          : [{ viewTag: spendRecordMessageTag(viewTag), data: input.recordMessage }]),
         message,
       ],
       nullifiers: [],
       proofless: false,
     };
-    const audited = auditRingTransaction({
-      auditor,
-      transaction,
-      assets: new AssetRegistry(),
-    });
+  }
+
+  const audit = (transaction: IndexedShieldedTransaction) =>
+    auditRingTransaction({ auditor, transaction, assets: new AssetRegistry() });
+
+  it("reports a record whose first member byte is not a scheme byte", () => {
+    const audited = audit(transaction({ amount: 0n, recordMessage: encodeSpendRecord(record) }));
     expect(audited.spendRecords).toHaveLength(1);
     expect(audited.spendRecords[0]?.record.member).toEqual(member);
     expect(audited.undecryptableSlots).toHaveLength(0);
+    expect(audited.invalidSpendRecordSlots).toHaveLength(0);
+  });
+
+  it("reports a crafted record message and still counts the slot's money", () => {
+    const malformed = audit(transaction({ amount: 5n, recordMessage: new Uint8Array(3) }));
+    expect(malformed.invalidSpendRecordSlots).toEqual([0]);
+    expect(malformed.spendRecords).toHaveLength(0);
+    expect(malformed.outputs.map((output) => output.amount)).toEqual([5n]);
+    const wrongCarrier = audit(
+      transaction({ amount: 5n, recordMessage: encodeSpendRecord(record) }),
+    );
+    expect(wrongCarrier.invalidSpendRecordSlots).toEqual([0]);
+    expect(wrongCarrier.spendRecords).toHaveLength(0);
+    expect(wrongCarrier.outputs.map((output) => output.amount)).toEqual([5n]);
   });
 });

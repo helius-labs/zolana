@@ -62,12 +62,12 @@ type Meta = NonNullable<Instruction["accounts"]>[number];
 
 export type SignerAccount = Address | TransactionSigner;
 
-function accountAddress(account: SignerAccount): Address {
+export function signerAddress(account: SignerAccount): Address {
   return checkedAddress(typeof account === "string" ? account : account.address);
 }
 
 export function meta(account: SignerAccount, isSigner: boolean, isWritable: boolean): Meta {
-  const address = accountAddress(account);
+  const address = signerAddress(account);
   return {
     address,
     role: isSigner
@@ -307,14 +307,13 @@ export async function depositInstruction(
   );
 }
 
-/** Mirrors Rust `RingDeposit::instruction`. The ring keeps `[config, cosigner_pda, cosigner, policy_config?]` and one spend window slot per settled mint, the shielded pool gets the rest unchanged. */
+/** Mirrors Rust `RingDeposit::instruction`, the shielded pool gets everything after the ring prefix unchanged. */
 export async function ringDepositInstruction(
   input: Readonly<{
     ringProgramId: Address;
     tree: Address;
     depositor: SignerAccount;
     deposits: readonly RingAssetDeposit[];
-    /** The ring's co-signer, a signer when set. */
     cosigner?: SignerAccount;
     /** True when the ring runs a policy, its `policy_config` joins the prefix. */
     hasPolicy: boolean;
@@ -370,7 +369,7 @@ export async function ringDepositInstruction(
   );
 }
 
-/** `[cosigner_pda, cosigner]`, unset the slot repeats the PDA, a top-level slot inherits the message signer flag of its address. */
+/** An unset co-signer repeats the PDA, the message signer flag comes from the address. */
 export function ringCoSignerMetas(
   cosignerPda: Address,
   cosigner: SignerAccount | undefined,
@@ -381,7 +380,7 @@ export function ringCoSignerMetas(
   ];
 }
 
-/** One writable spend window slot per public leg, in leg order, SOL under the zero address. */
+/** One writable spend window slot per public leg, in leg order. */
 export async function ringSpendWindowMetas(
   ringProgramId: Address,
   mints: readonly Address[],
@@ -557,7 +556,7 @@ export async function updateProtocolConfigInstruction(
   let newAuthority: SignerAccount | undefined;
   switch (input.update.field) {
     case "protocolAuthority":
-      writer.u8(0, "update.field").bytes(addressBytes(accountAddress(input.update.value)));
+      writer.u8(0, "update.field").bytes(addressBytes(signerAddress(input.update.value)));
       newAuthority = input.update.value;
       break;
     case "treeCreationAuthority":

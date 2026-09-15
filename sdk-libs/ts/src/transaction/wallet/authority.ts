@@ -70,6 +70,12 @@ export interface EncryptedCustomRingTransfer extends EncryptedTransfer {
   readonly audit: AuditWitness;
 }
 
+export interface SealedMessageInput {
+  readonly viewTag: Bytes32;
+  readonly plaintext: Uint8Array;
+  readonly slotIndex: number;
+}
+
 export interface AnonymousRecipientSlot {
   readonly viewTag: Bytes32;
   readonly recipientPublicKey: P256PublicKey;
@@ -105,20 +111,11 @@ export interface SpendSession {
       auditorPublicKey: P256PublicKey;
       /** The final output must be encrypted to the transaction viewing key. */
       recordOutputIndex?: number;
-      sealedMessages?: readonly Readonly<{
-        viewTag: Bytes32;
-        plaintext: Uint8Array;
-        slotIndex: number;
-      }>[];
+      sealedMessages?: readonly SealedMessageInput[];
       /** Protocol counter seal, never a caller message channel. */
-      counterMessage?: Readonly<{
-        viewTag: Bytes32;
-        plaintext: Uint8Array;
-        slotIndex: number;
-      }>;
+      counterMessage?: SealedMessageInput;
     }>,
   ): Promise<EncryptedCustomRingTransfer>;
-  /** Opens a message sealed under the transaction key of a past `firstNullifier`. */
   openSealedMessage(
     input: Readonly<{
       firstNullifier: Bytes32;
@@ -294,11 +291,7 @@ export class KeypairWalletAuthority implements WalletAuthority {
     input: Readonly<
       { solanaPublicKey: Address } & (
         | { keypair: ShieldedKeypair }
-        | {
-            address: ShieldedAddress;
-            viewingKey: ViewingKey;
-            nullifierKey: NullifierKey;
-          }
+        | { address: ShieldedAddress; viewingKey: ViewingKey; nullifierKey: NullifierKey }
       )
     >,
   ) {

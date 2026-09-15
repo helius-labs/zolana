@@ -2,12 +2,18 @@ import type { BlockhashProvider, Prover, RingHeadReader, SlotReader } from "../c
 import { ClientError } from "../client/error.js";
 import { compileUnsignedTransaction } from "../flows/compile.js";
 import { hashBytes, initializePoseidon } from "../hasher/index.js";
-import type { SignerAccount } from "../interface/instructions/index.js";
+import { signerAddress, type SignerAccount } from "../interface/instructions/index.js";
 import { addressBytes } from "../interface/internal.js";
 import type { Address, Bytes32, RequestContext, Transaction } from "../interface/types.js";
 import { bigIntBytes, hashChain } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
-import { fetchRingConfigs, fetchRingHeadMapRoot, ringPolicyNamespaceAddress } from "./config.js";
+import type { RingPolicyConfig } from "./codecs.js";
+import {
+  fetchRingConfigs,
+  fetchRingHeadMapRoot,
+  ringPolicyNamespaceAddress,
+  windowedPolicy,
+} from "./config.js";
 import { proveRingSpendRegistration, type RingEntryProofClient } from "./entry-proof.js";
 import { RingError } from "./error.js";
 import { HEAD_MAP_CAPACITY, checkedHeadMapField, verifyHeadMapInsert } from "./head-map.js";
@@ -15,9 +21,13 @@ import {
   registerRingSpendInstruction,
   RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
 } from "./instructions.js";
-import { memberOfTag, memberOfIdentity, type LiveSpendRecord } from "./policy.js";
+import { memberOfTag, memberOfIdentity, type LiveSpendRecord, type Member } from "./policy.js";
 import { readCurrentSpendRecord } from "./head-reader.js";
-import { RingTransactionSubmission, type RingSubmissionAttempt } from "./submission.js";
+import {
+  RingTransactionSubmission,
+  windowChangedOn,
+  type RingSubmissionAttempt,
+} from "./submission.js";
 import { readVelocityFacts, type VelocityFacts } from "./velocity.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { SpendSession } from "../transaction/wallet/authority.js";
@@ -44,21 +54,16 @@ export async function prepareRingSpendRegistration(
   input: RingSpendRegistrationParams,
   context?: RequestContext,
 ): Promise<RingSpendRegistrationPreparation> {
-  await initializePoseidon();
-  const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
-  if (!configs.hasPolicy || configs.policy.windowSlots === 0n || configs.policy.velocityCount === 0)
-    throw new RingError("RING_VELOCITY_DISABLED");
-  const payer = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const member = memberOfTag(addressBytes(payer));
+  const registration = await registrationContext(input, context);
   try {
     const { live } = await readCurrentSpendRecord(
       {
         client: input.client,
         ringProgramId: input.ringProgramId,
         namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-        entriesTree: configs.policy.entriesTree,
-        entriesTreeId: configs.policy.entriesTreeId,
-        sender: member,
+        entriesTree: registration.policy.entriesTree,
+        entriesTreeId: registration.policy.entriesTreeId,
+        sender: registration.member,
       },
       context,
     );
@@ -69,7 +74,7 @@ export async function prepareRingSpendRegistration(
   }
   return {
     kind: "pending",
-    submission: await createRingSpendRegistrationSubmission(input, context),
+    submission: await registrationSubmission({ params: input, registration }, context),
   };
 }
 
@@ -77,26 +82,8 @@ export async function createRingSpendRegistrationSubmission(
   input: RingSpendRegistrationParams,
   context?: RequestContext,
 ): Promise<RingTransactionSubmission> {
-  const captured = { ...input };
-  await initializePoseidon();
-  const payer = typeof captured.payer === "string" ? captured.payer : captured.payer.address;
-  const member = memberOfTag(addressBytes(payer));
-  const intent = hashChain([
-    checkedHeadMapField(hashBytes(addressBytes(captured.ringProgramId))),
-    member,
-  ]);
-  const build = async (context?: RequestContext): Promise<RingSubmissionAttempt> => ({
-    ...(await buildRegistrationAttempt(captured, context)),
-    intentHash: intent,
-    ringInstructionIndex: 0,
-  });
-  return new RingTransactionSubmission({
-    first: await build(context),
-    build,
-    release: () => {},
-    windowChanged: async (window, context) =>
-      (await captured.client.getSlot(context)) / window.slots !== window.index,
-  });
+  const registration = await registrationContext(input, context);
+  return registrationSubmission({ params: input, registration }, context);
 }
 
 /** Expired counters reset without decryption. */
@@ -111,20 +98,19 @@ export async function readRingVelocityState(
   context?: RequestContext,
 ): Promise<VelocityFacts> {
   await initializePoseidon();
-  const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
-  if (!configs.hasPolicy || configs.policy.windowSlots === 0n || configs.policy.velocityCount === 0)
-    throw new RingError("RING_VELOCITY_DISABLED");
+  const policy = windowedPolicy(await fetchRingConfigs(input.client, input.ringProgramId, context));
+  if (policy === undefined) throw new RingError("RING_VELOCITY_DISABLED");
   return readVelocityFacts(
     {
       client: input.client,
       ringProgramId: input.ringProgramId,
       session: input.session,
       namespace: await ringPolicyNamespaceAddress(input.ringProgramId),
-      entriesTree: configs.policy.entriesTree,
-      entriesTreeId: configs.policy.entriesTreeId,
+      entriesTree: policy.entriesTree,
+      entriesTreeId: policy.entriesTreeId,
       sender: memberOfIdentity(input.member.signingPublicKey.ownerProofInputHash()),
-      windowSlots: configs.policy.windowSlots,
-      rows: configs.policy.velocity,
+      windowSlots: policy.windowSlots,
+      rows: policy.velocity,
     },
     context,
   );
@@ -134,26 +120,69 @@ export async function buildRingSpendRegistrationTransaction(
   input: RingSpendRegistrationParams,
   context?: RequestContext,
 ): Promise<Transaction> {
-  return (await buildRegistrationAttempt({ ...input }, context)).transaction;
+  const registration = await registrationContext(input, context);
+  return (await buildRegistrationAttempt({ params: input, registration }, context)).transaction;
+}
+
+interface Registration {
+  readonly policy: RingPolicyConfig;
+  readonly payer: Address;
+  readonly member: Member;
+}
+
+type RegistrationBuild = Readonly<{
+  params: RingSpendRegistrationParams;
+  registration: Registration;
+}>;
+
+async function registrationContext(
+  input: RingSpendRegistrationParams,
+  context?: RequestContext,
+): Promise<Registration> {
+  await initializePoseidon();
+  const policy = windowedPolicy(await fetchRingConfigs(input.client, input.ringProgramId, context));
+  if (policy === undefined) throw new RingError("RING_VELOCITY_DISABLED");
+  const payer = signerAddress(input.payer);
+  return Object.freeze({ policy, payer, member: memberOfTag(addressBytes(payer)) });
+}
+
+async function registrationSubmission(
+  input: RegistrationBuild,
+  context?: RequestContext,
+): Promise<RingTransactionSubmission> {
+  const held: RegistrationBuild = Object.freeze({
+    params: Object.freeze({ ...input.params }),
+    registration: input.registration,
+  });
+  const intent = hashChain([
+    checkedHeadMapField(hashBytes(addressBytes(held.params.ringProgramId))),
+    held.registration.member,
+  ]);
+  const build = async (context?: RequestContext): Promise<RingSubmissionAttempt> => ({
+    ...(await buildRegistrationAttempt(held, context)),
+    intentHash: intent,
+    ringInstructionIndex: 0,
+  });
+  return new RingTransactionSubmission({
+    first: await build(context),
+    build,
+    windowChanged: windowChangedOn(held.params.client),
+  });
 }
 
 async function buildRegistrationAttempt(
-  input: RingSpendRegistrationParams,
+  input: RegistrationBuild,
   context?: RequestContext,
-): Promise<Pick<RingSubmissionAttempt, "transaction" | "window">> {
-  await initializePoseidon();
-  const configs = await fetchRingConfigs(input.client, input.ringProgramId, context);
-  if (!configs.hasPolicy || configs.policy.windowSlots === 0n || configs.policy.velocityCount === 0)
-    throw new RingError("RING_VELOCITY_DISABLED");
-  const payer = typeof input.payer === "string" ? input.payer : input.payer.address;
-  const member = memberOfTag(addressBytes(payer));
-  const windowIndex = (await input.client.getSlot(context)) / configs.policy.windowSlots;
-  const root = await fetchRingHeadMapRoot(input.client, input.ringProgramId, context);
+): Promise<Pick<RingSubmissionAttempt, "transaction" | "lastValidBlockHeight" | "window">> {
+  const { params, registration } = input;
+  const { policy, payer, member } = registration;
+  const windowIndex = (await params.client.getSlot(context)) / policy.windowSlots;
+  const root = await fetchRingHeadMapRoot(params.client, params.ringProgramId, context);
   if (root.nextIndex >= HEAD_MAP_CAPACITY)
     throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason: "capacity" } });
-  const head = await input.client.getRingHeadRegisterProof(
+  const head = await params.client.getRingHeadRegisterProof(
     {
-      ringProgramId: input.ringProgramId,
+      ringProgramId: params.ringProgramId,
       member,
       expectedRoot: root.root,
       expectedNextIndex: root.nextIndex,
@@ -168,10 +197,10 @@ async function buildRegistrationAttempt(
     throw new RingError("RING_HEAD_MAP_STALE");
   const entry = await proveRingSpendRegistration(
     {
-      client: input.client,
-      ringProgramId: input.ringProgramId,
-      entriesTree: configs.policy.entriesTree,
-      entriesTreeId: configs.policy.entriesTreeId,
+      client: params.client,
+      ringProgramId: params.ringProgramId,
+      entriesTree: policy.entriesTree,
+      entriesTreeId: policy.entriesTreeId,
       payer,
       member,
       windowIndex,
@@ -197,7 +226,7 @@ async function buildRegistrationAttempt(
     entry.genesis,
     bigIntBytes(root.nextIndex) as Bytes32,
   ]);
-  const headProof = await input.client.proveCustomRingRegister(
+  const headProof = await params.client.proveCustomRingRegister(
     {
       publicInputHash,
       headOldRoot: root.root,
@@ -215,9 +244,9 @@ async function buildRegistrationAttempt(
     context,
   );
   const instruction = await registerRingSpendInstruction({
-    ringProgramId: input.ringProgramId,
-    payer: input.payer,
-    entriesTree: configs.policy.entriesTree,
+    ringProgramId: params.ringProgramId,
+    payer: params.payer,
+    entriesTree: policy.entriesTree,
     blinding: entry.record.blinding,
     proof: entry.proof,
     headOldRoot: root.root,
@@ -225,14 +254,19 @@ async function buildRegistrationAttempt(
     headNextIndex: root.nextIndex,
     headProof,
   });
+  const lifetime = await params.client.getLatestBlockhash(context);
   const transaction = compileUnsignedTransaction({
     feePayer: payer,
-    lifetime: await input.client.getLatestBlockhash(context),
+    lifetime,
     instructions: [instruction],
     computeUnitLimit: RING_REGISTER_SPEND_COMPUTE_UNIT_LIMIT,
-    ...(input.priorityFeeLamports === undefined
+    ...(params.priorityFeeLamports === undefined
       ? {}
-      : { priorityFeeLamports: input.priorityFeeLamports }),
+      : { priorityFeeLamports: params.priorityFeeLamports }),
   });
-  return { transaction, window: { index: windowIndex, slots: configs.policy.windowSlots } };
+  return {
+    transaction,
+    lastValidBlockHeight: lifetime.lastValidBlockHeight,
+    window: { index: windowIndex, slots: policy.windowSlots },
+  };
 }

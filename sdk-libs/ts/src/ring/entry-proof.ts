@@ -176,32 +176,45 @@ function transitionInputs(
     ...input.entry,
     blinding: transactOutputBlinding(slot.nullifier, outputSeed, 0),
   });
-  const txBlinding = privateTxBlinding(slot.nullifier, input.blindingSeed);
-  const hashes = namespace.entryHashes(entry);
-  return Object.freeze({
-    entry,
-    inputs: dataTransitionInputs(slot, input, {
+  const transition = dataTransitionInputs({
+    slot,
+    namespace,
+    entriesTreeId: input.entriesTreeId,
+    payer: input.payer,
+    state: input.state,
+    absence: input.absence,
+    blindingSeed: input.blindingSeed,
+    output: {
       blinding: entry.blinding,
-      hashes,
+      hashes: namespace.entryHashes(entry),
       encoded: encodeListEntry(entry),
-    }),
-    privateTxBlinding: txBlinding,
+    },
   });
+  return Object.freeze({ entry, ...transition });
 }
 
-function dataTransitionInputs(
-  slot: InputSlot,
-  input: Omit<RingEntryTransitionProofInputs, "spent" | "entry">,
-  output: Readonly<{
+interface DataTransition {
+  readonly slot: InputSlot;
+  readonly namespace: RingListNamespace;
+  readonly entriesTreeId: TreeId;
+  readonly payer: Address;
+  readonly state: RingEntryStateLeaf;
+  readonly absence: NonInclusionProof;
+  readonly blindingSeed: Bytes32;
+  readonly output: Readonly<{
     blinding: Bytes32;
     hashes: Readonly<{ utxoHash: Bytes32; dataHash: Bytes32 }>;
     encoded: Uint8Array;
-  }>,
-): TransferInputs {
-  const namespace = RingListNamespace.of(input.namespace, input.entriesTreeId);
+  }>;
+}
+
+function dataTransitionInputs(
+  input: DataTransition,
+): Pick<RingEntryTransitionInputs, "inputs" | "privateTxBlinding"> {
+  const { slot, namespace, output } = input;
   const txBlinding = privateTxBlinding(slot.nullifier, input.blindingSeed);
   const hashes = output.hashes;
-  const namespaceBytes = addressBytes(input.namespace, "namespace") as Bytes32;
+  const namespaceBytes = addressBytes(namespace.address, "namespace") as Bytes32;
   const external = externalDataHash({
     instructionDiscriminator: InstructionTag.transact,
     expiryUnixTs: U64_MAX,
@@ -226,7 +239,7 @@ function dataTransitionInputs(
     externalDataHash: external,
     blinding: txBlinding,
   });
-  const namespaceHash = signerIdentity(input.namespace);
+  const namespaceHash = signerIdentity(namespace.address);
   const payerHash = signerIdentity(input.payer);
   const inputTree: TreeSlot = Object.freeze({
     id: input.entriesTreeId,
@@ -293,7 +306,7 @@ function dataTransitionInputs(
     publishedOutputOwnerPublicKeyHashes: Object.freeze([asField(namespaceHash)]),
     publicInputHash: asField(publicInputHash),
   });
-  return inputs;
+  return Object.freeze({ inputs, privateTxBlinding: txBlinding });
 }
 
 export interface RingSpendRegistrationInput {
@@ -340,19 +353,17 @@ export async function proveRingSpendRegistration(
       blinding: transactOutputBlinding(address, outputBlindingSeed(address, seedBytes), 0),
     });
     const hashes = namespace.spendRecordHashes(record);
-    const witness = dataTransitionInputs(
+    const transition = dataTransitionInputs({
       slot,
-      {
-        namespace: namespaceAddress,
-        payer: input.payer,
-        entriesTreeId: input.entriesTreeId,
-        state,
-        absence,
-        blindingSeed: seedBytes,
-      },
-      { blinding: record.blinding, hashes, encoded: encodeSpendRecord(record) },
-    );
-    const proof = await input.client.proveTransferInputs(witness, context);
+      namespace,
+      payer: input.payer,
+      entriesTreeId: input.entriesTreeId,
+      state,
+      absence,
+      blindingSeed: seedBytes,
+      output: { blinding: record.blinding, hashes, encoded: encodeSpendRecord(record) },
+    });
+    const proof = await input.client.proveTransferInputs(transition.inputs, context);
     return Object.freeze({
       record,
       genesis: hashes.nullifier,
@@ -361,7 +372,7 @@ export async function proveRingSpendRegistration(
         utxoTreeRootIndex: state.rootIndex,
         nullifierTreeRootIndex: absence.rootIndex,
         nullifier: address,
-        privateTxBlinding: privateTxBlinding(address, seedBytes),
+        privateTxBlinding: transition.privateTxBlinding,
       }),
     });
   } finally {

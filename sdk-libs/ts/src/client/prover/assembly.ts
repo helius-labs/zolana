@@ -3,11 +3,17 @@ import { getAddressDecoder } from "@solana/kit";
 import type {
   Address,
   Bytes32,
+  CircuitId,
   TransactInstructionData,
   TransactProof,
 } from "../../interface/types.js";
 import { DUMMY_DOMAIN, UTXO_DOMAIN } from "../../interface/program.js";
-import { selectSppShape, signerWidth } from "../../interface/shape.js";
+import {
+  RING_AUTHORITY_MAX_WIDTH,
+  selectSppShape,
+  signerWidth,
+  type Shape,
+} from "../../interface/shape.js";
 import { treeAddress } from "../../interface/pda/index.js";
 import {
   MAX_INPUT_TREES,
@@ -54,6 +60,7 @@ import type {
   Field,
   InputRootIndexes,
   ProverInputs,
+  TransferCircuit,
   TransferInput,
   TransferInputs,
   TransferOutput,
@@ -90,16 +97,56 @@ export function signerIdentity(address: Address): bigint {
   return bytesToBigInt(solanaOwnerIdentity(addressBytes(address)));
 }
 
-/** With `ring` set, every real UTXO is in that ring or in the default ring, per its own fields. */
+interface CircuitPlan {
+  readonly ring: Address | undefined;
+  readonly authority: boolean;
+  readonly prover: ProverInputs["circuit"];
+  readonly data: CircuitId["kind"];
+  readonly signerSlots: number;
+  readonly owners: "every" | "confidentialMarked" | "none";
+}
+
+function circuitPlan(circuit: TransferCircuit, shape: Shape): CircuitPlan {
+  switch (circuit.kind) {
+    case "confidential":
+      return {
+        ring: undefined,
+        authority: false,
+        prover: "transfer",
+        data: "confidentialEddsa",
+        signerSlots: signerWidth(shape),
+        owners: "every",
+      };
+    case "ring":
+      return {
+        ring: circuit.ring,
+        authority: false,
+        prover: "transferRing",
+        data: "ringEddsa",
+        signerSlots: signerWidth(shape),
+        owners: "confidentialMarked",
+      };
+    case "ringAuthority":
+      return {
+        ring: circuit.ring,
+        authority: true,
+        prover: "transferRingAuthority",
+        data: "ringAuthority",
+        signerSlots: 1,
+        owners: "none",
+      };
+  }
+}
+
+/** With a ring circuit, every real UTXO is in that ring or in the default ring, per its own fields. */
 export function assemble(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[] = [],
-  ring?: Address,
-  rail: "member" | "authority" = "member",
+  circuit: TransferCircuit = { kind: "confidential" },
 ): AssembledTransfer {
   try {
-    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs, ring, rail);
+    return assembleUnchecked(proofInputs, spendProofs, dummyNullifierProofs, circuit);
   } catch (cause) {
     throw fromClientCause(cause);
   }
@@ -109,23 +156,22 @@ function assembleUnchecked(
   proofInputs: SppProofInputs,
   spendProofs: readonly SpendProof[],
   dummyNullifierProofs: readonly NonInclusionProof[],
-  ring: Address | undefined,
-  rail: "member" | "authority",
+  circuit: TransferCircuit,
 ): AssembledTransfer {
   if (!(proofInputs instanceof SppProofInputs)) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
   const shape = proofInputs.checkShape();
+  const plan = circuitPlan(circuit, shape);
   if (
-    rail === "authority" &&
-    (ring === undefined ||
-      shape.inputs !== shape.outputs ||
-      shape.inputs > 4 ||
+    plan.authority &&
+    (shape.inputs !== shape.outputs ||
+      shape.inputs > RING_AUTHORITY_MAX_WIDTH ||
       proofInputs.externalData.interfaceTransfers.length !== 0 ||
       proofInputs.inputUtxos.some(
-        (input) => !input.isDummy() && input.utxo.ringProgramId !== ring,
+        (input) => !input.isDummy() && input.utxo.ringProgramId !== plan.ring,
       ) ||
-      proofInputs.outputs.some((output) => !output.isDummy() && output.ringProgramId !== ring))
+      proofInputs.outputs.some((output) => !output.isDummy() && output.ringProgramId !== plan.ring))
   ) {
     throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
   }
@@ -148,12 +194,7 @@ function assembleUnchecked(
   const privateOutputHashes = proofInputs.outputs.map((output, index) =>
     output.isDummy() ? 0n : (outputHashes[index] as bigint),
   );
-  const outputOwnerFields =
-    rail === "authority"
-      ? []
-      : ring === undefined
-        ? transferOutputs.map((output) => output.ownerPublicKeyHash)
-        : confidentialMarkedOutputOwnerHashes(proofInputs.externalData);
+  const outputOwnerFields = publishedOwnerFields(plan, transferOutputs, proofInputs.externalData);
   const externalDataHash = bytesField(proofInputs.externalData.hash(), "external data hash");
   const privateTxHash = poseidon([
     hashChain4(inputHashes),
@@ -170,20 +211,16 @@ function assembleUnchecked(
   // The circuit authorizes an input owner by finding its tagged identity in
   // the vector, the payer in slot zero and unique non-payer owners after it,
   // matching Rust's `signer_pk_hashes`.
-  const ownerSignerHashes =
-    rail === "authority"
-      ? []
-      : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(signerIdentity);
+  const ownerSignerHashes = plan.authority
+    ? []
+    : ownerSignerAddresses(proofInputs.inputUtxos, proofInputs.payer).map(signerIdentity);
   const signerPublicKeyHashes = [
     signerIdentity(proofInputs.payer),
     ...ownerSignerHashes,
-    ...Array.from(
-      { length: (rail === "authority" ? 1 : signerWidth(shape)) - 1 - ownerSignerHashes.length },
-      () => 0n,
-    ),
+    ...Array.from({ length: plan.signerSlots - 1 - ownerSignerHashes.length }, () => 0n),
   ];
   const flags = inputFlags(true, treeIndexes);
-  const ringProgramId = ring === undefined ? 0n : hashBytesBigInt(addressBytes(ring));
+  const ringProgramId = plan.ring === undefined ? 0n : hashBytesBigInt(addressBytes(plan.ring));
   const treeSlots = inputTreeSlots(inputTrees.map((tree) => tree.slot));
   const outputTreeIdField = bytesToBigInt(treeIdField(outputTreeId));
   const publicInputHash = transferPublicInputHash({
@@ -198,7 +235,6 @@ function assembleUnchecked(
     signerPublicKeyHashes,
     inputFlags: flags,
     publishedOutputOwnerPublicKeyHashes: outputOwnerFields,
-    omitPublishedOwners: rail === "authority",
   });
   const common: TransferInputs = Object.freeze({
     inputs: Object.freeze(transferInputs),
@@ -213,18 +249,10 @@ function assembleUnchecked(
     ringProgramId: asField(ringProgramId),
     signerPublicKeyHashes: Object.freeze(signerPublicKeyHashes.map(asField)),
     inputFlags: asField(flags),
-    publishedOutputOwnerPublicKeyHashes: Object.freeze(outputOwnerFields.map(asField)),
+    publishedOutputOwnerPublicKeyHashes: Object.freeze((outputOwnerFields ?? []).map(asField)),
     publicInputHash: asField(publicInputHash),
   });
-  const proverInputs: ProverInputs = Object.freeze({
-    circuit:
-      rail === "authority"
-        ? "transferRingAuthority"
-        : ring === undefined
-          ? "transfer"
-          : "transferRing",
-    payload: common,
-  });
+  const proverInputs: ProverInputs = Object.freeze({ circuit: plan.prover, payload: common });
 
   const rootIndexes: InputRootIndexes = Object.freeze({
     utxoTree: firstTree.utxoRootIndex,
@@ -234,12 +262,7 @@ function assembleUnchecked(
     expiryUnixTs: proofInputs.externalData.expiryUnixTs,
     privateTxHash: bigintToBytes(privateTxHash) as Bytes32,
     circuit: Object.freeze({
-      kind:
-        rail === "authority"
-          ? "ringAuthority"
-          : ring === undefined
-            ? "confidentialEddsa"
-            : "ringEddsa",
+      kind: plan.data,
       inputs: proofInputs.inputUtxos.length,
       outputs: proofInputs.outputs.length,
       publicAssetSlots: 3,
@@ -341,6 +364,22 @@ function validateOutputBlindings(proofInputs: SppProofInputs): void {
       throw new ClientError("CLIENT_OUTPUT_BLINDING_MISMATCH", { details: { index } });
     }
   });
+}
+
+/** `undefined` on the authority rail, its statement folds no owner list. */
+function publishedOwnerFields(
+  plan: CircuitPlan,
+  outputs: readonly TransferOutput[],
+  external: ExternalData,
+): readonly bigint[] | undefined {
+  switch (plan.owners) {
+    case "none":
+      return undefined;
+    case "every":
+      return outputs.map((output) => output.ownerPublicKeyHash);
+    case "confidentialMarked":
+      return confidentialMarkedOutputOwnerHashes(external);
+  }
 }
 
 /**
@@ -540,8 +579,8 @@ export function transferPublicInputHash(
     signerPublicKeyHashes: readonly bigint[];
     /** The packed dummy policy and per-input tree indexes, `inputFlags`. */
     inputFlags: bigint;
-    publishedOutputOwnerPublicKeyHashes: readonly bigint[];
-    omitPublishedOwners?: boolean;
+    /** `undefined` folds no owner list. */
+    publishedOutputOwnerPublicKeyHashes: readonly bigint[] | undefined;
   }>,
 ): bigint {
   return hashChain4([
@@ -555,7 +594,7 @@ export function transferPublicInputHash(
     input.ringProgramId,
     rightHashChain(input.signerPublicKeyHashes),
     input.inputFlags,
-    ...(input.omitPublishedOwners === true
+    ...(input.publishedOutputOwnerPublicKeyHashes === undefined
       ? []
       : [hashChain4(input.publishedOutputOwnerPublicKeyHashes)]),
   ]);

@@ -9,27 +9,11 @@ import {
 import type { Address, Bytes32, Bytes33 } from "../interface/types.js";
 import { Reader, encodeBase58 } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
-import { bytesToBigInt } from "../transaction/internal.js";
+import { ZERO_32, bytesToBigInt } from "../transaction/internal.js";
+import { equalBytes } from "../wallet/internal.js";
 
 import { RingError } from "./error.js";
 import { checkedHeadMapField, HEAD_MAP_CAPACITY } from "./head-map.js";
-
-export interface RingHeadMapRoot {
-  readonly root: Bytes32;
-  readonly nextIndex: bigint;
-  readonly bump: number;
-}
-
-export function decodeRingHeadMapRoot(data: Uint8Array): RingHeadMapRoot {
-  if (data.length !== 42 || data[0] !== 8) throw new RingError("RING_HEAD_MAP_INVALID");
-  const reader = new Reader(data);
-  reader.u8("discriminator");
-  const root = checkedHeadMapField(reader.bytes(32, "root") as Bytes32);
-  const nextIndex = reader.u64("nextIndex");
-  const bump = reader.u8("bump");
-  if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) throw new RingError("RING_HEAD_MAP_INVALID");
-  return Object.freeze({ root, nextIndex, bump });
-}
 
 export interface RingProgramConfig {
   readonly authority: Address;
@@ -52,7 +36,6 @@ export interface RingPolicyConfig {
   readonly entriesTreeId: number;
   readonly namespaceBump: number;
   readonly bump: number;
-  /** The shielded owner of every record the ring's namespace holds. */
   readonly namespaceOwnerHash: Bytes32;
   readonly sources: readonly RingPolicySource[];
   /** Counted arrays exclude zero padding. */
@@ -61,7 +44,6 @@ export interface RingPolicyConfig {
   readonly inlineCount: number;
   readonly inlineAssets: readonly Bytes32[];
   readonly inlineLimits: readonly bigint[];
-  /** Zero disables velocity, else the fixed window length in slots. */
   readonly windowSlots: bigint;
   readonly velocityCount: number;
   readonly velocity: readonly CustomRingVelocityRow[];
@@ -69,12 +51,11 @@ export interface RingPolicyConfig {
   readonly generationSlot: bigint;
 }
 
-/** Mirrors Rust `CoSigner`, `scope` is a subset of the `RING_COSIGN_*` bits. */
 export interface RingCoSigner {
   readonly signer: Address;
   readonly scope: number;
   readonly bump: number;
-  /** Per mint, SOL under the zero address, a withdrawn mint without a row always needs the co-signer. */
+  /** A withdrawn mint without a row always needs the co-signer. */
   readonly thresholds: readonly { readonly mint: Address; readonly above: bigint }[];
 }
 
@@ -136,7 +117,6 @@ export function decodeRingCoSigner(data: Uint8Array): RingCoSigner {
   return Object.freeze({ signer, scope, bump, thresholds: Object.freeze(thresholds) });
 }
 
-/** Mirrors Rust `Delegate`, the key that moves notes between members on the authority rail. */
 export interface RingDelegate {
   readonly delegate: Address;
   readonly bump: number;
@@ -157,13 +137,12 @@ export function decodeRingDelegate(data: Uint8Array): RingDelegate {
   const key = reader.bytes(32, "delegate");
   const bump = reader.u8("bump");
   reader.done();
-  if (key.every((byte) => byte === 0)) {
+  if (equalBytes(key, ZERO_32)) {
     throw new RingError("RING_DELEGATE_INVALID", { details: { delegate: "zero" } });
   }
   return Object.freeze({ delegate: encodeBase58(key), bump });
 }
 
-/** Mirrors Rust `SpendWindow`, a mint's public-leg caps over fixed windows, zero caps do not bind. */
 export interface RingSpendWindow {
   readonly mint: Address;
   readonly windowSlots: bigint;
@@ -211,6 +190,48 @@ export function decodeRingSpendWindow(data: Uint8Array): RingSpendWindow {
   });
 }
 
+export interface RingHeadMapRoot {
+  readonly root: Bytes32;
+  readonly nextIndex: bigint;
+  readonly bump: number;
+}
+
+/** Same layout as the head map root, Rust `KeyRegistryRoot`. */
+export type RingKeyRegistryRoot = RingHeadMapRoot;
+
+/** Rust `HEAD_MAP_ROOT`, `KEY_REGISTRY_ROOT` and `HeadMapRoot::SIZE`. */
+const RING_HEAD_MAP_ROOT_DISCRIMINATOR = 8;
+const RING_KEY_REGISTRY_ROOT_DISCRIMINATOR = 9;
+const RING_INDEXED_ROOT_SIZE = 42;
+
+export function decodeRingHeadMapRoot(data: Uint8Array): RingHeadMapRoot {
+  return decodeIndexedRoot(data, RING_HEAD_MAP_ROOT_DISCRIMINATOR, "RING_HEAD_MAP_INVALID");
+}
+
+export function decodeRingKeyRegistryRoot(data: Uint8Array): RingKeyRegistryRoot {
+  return decodeIndexedRoot(data, RING_KEY_REGISTRY_ROOT_DISCRIMINATOR, "RING_KEY_REGISTRY_INVALID");
+}
+
+function decodeIndexedRoot(
+  data: Uint8Array,
+  discriminator: number,
+  invalid: "RING_HEAD_MAP_INVALID" | "RING_KEY_REGISTRY_INVALID",
+): RingHeadMapRoot {
+  if (data.length !== RING_INDEXED_ROOT_SIZE || data[0] !== discriminator) {
+    throw new RingError(invalid, { details: { length: data.length, discriminator: data[0] } });
+  }
+  const reader = new Reader(data);
+  reader.u8("discriminator");
+  const root = checkedHeadMapField(reader.bytes(32, "root"));
+  const nextIndex = reader.u64("nextIndex");
+  const bump = reader.u8("bump");
+  reader.done();
+  if (nextIndex < 1n || nextIndex > HEAD_MAP_CAPACITY) {
+    throw new RingError(invalid, { details: { nextIndex } });
+  }
+  return Object.freeze({ root, nextIndex, bump });
+}
+
 /** Rust `POLICY_CONFIG` and `PolicyConfig::SIZE`. */
 const RING_POLICY_CONFIG_DISCRIMINATOR = 3;
 export const RING_POLICY_CONFIG_SIZE = 1604;
@@ -239,26 +260,16 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
   );
   const rules = countedRows(reader, RING_RULE_SLOTS, "rules");
   const inlineAssets = countedRows(reader, RING_INLINE_ASSET_SLOTS, "inlineAssets");
-  const inlineLimits = countedLimits(
-    reader,
-    inlineAssets.length,
-    RING_INLINE_ASSET_SLOTS,
-    "inlineLimits",
-  );
+  const inlineLimits = countedLimits(reader, {
+    count: inlineAssets.length,
+    slots: RING_INLINE_ASSET_SLOTS,
+    field: "inlineLimits",
+  });
   const windowSlots = bytesToBigInt(reader.bytes(8, "windowSlots"));
   const velocityAssets = countedRows(reader, RING_VELOCITY_SLOTS, "velocityAssets");
-  const velocityCaps = countedLimits(
-    reader,
-    velocityAssets.length,
-    RING_VELOCITY_SLOTS,
-    "velocityCaps",
-  );
-  const velocityCosign = countedLimits(
-    reader,
-    velocityAssets.length,
-    RING_VELOCITY_SLOTS,
-    "velocityCosign",
-  );
+  const velocityLimits = { count: velocityAssets.length, slots: RING_VELOCITY_SLOTS };
+  const velocityCaps = countedLimits(reader, { ...velocityLimits, field: "velocityCaps" });
+  const velocityCosign = countedLimits(reader, { ...velocityLimits, field: "velocityCosign" });
   const generation = reader.u32("generation");
   const generationSlot = reader.u64("generationSlot");
   reader.done();
@@ -295,16 +306,14 @@ export function decodeRingPolicyConfig(data: Uint8Array): RingPolicyConfig {
 /** Big endian amounts, one per counted row, zero past the count. */
 function countedLimits(
   reader: Reader,
-  count: number,
-  slots: number,
-  field: string,
+  rows: Readonly<{ count: number; slots: number; field: string }>,
 ): readonly bigint[] {
   const limits: bigint[] = [];
-  for (let index = 0; index < slots; index += 1) {
-    const limit = bytesToBigInt(reader.bytes(8, field));
-    if (index < count) limits.push(limit);
+  for (let index = 0; index < rows.slots; index += 1) {
+    const limit = bytesToBigInt(reader.bytes(8, rows.field));
+    if (index < rows.count) limits.push(limit);
     else if (limit !== 0n) {
-      throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field, index } });
+      throw new RingError("RING_POLICY_CONFIG_INVALID", { details: { field: rows.field, index } });
     }
   }
   return Object.freeze(limits);

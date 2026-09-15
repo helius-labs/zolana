@@ -57,7 +57,11 @@ function fixture() {
   };
   const hashes = owner.spendRecordHashes(record);
   const output = createProofOutput({
-    ownerAddress: ShieldedAddress.forPda(NAMESPACE, nullifier.publicKey(), viewing.publicKey()),
+    ownerAddress: ShieldedAddress.forPda({
+      pda: NAMESPACE,
+      nullifierPublicKey: nullifier.publicKey(),
+      viewingPublicKey: viewing.publicKey(),
+    }),
     asset: SOL_MINT,
     amount: 0n,
     dataHash: hashes.dataHash,

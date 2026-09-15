@@ -81,7 +81,7 @@ export function compressedProof(
       bytes.set(commitmentPok, 160);
       return bytes;
     },
-    toPlainCompressedProof(): Uint8Array {
+    toPlainProof(): Uint8Array {
       if (commitment !== undefined || commitmentPok !== undefined) {
         throw new ClientError("CLIENT_PROOF_PARSE", {
           details: { reason: "unexpected commitment" },

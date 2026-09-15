@@ -9,14 +9,20 @@ import {
   encodeRingsByNullifiersRequest,
   encodeRingsByTagsRequest,
   encodeShieldedTransactionsBySignatureRequest,
-  encodeRingHeadProofRequest,
+  encodeRingMemberProofRequest,
   decodeRingHeadRegisterProof,
   decodeRingHeadTransferProof,
+  decodeRingKeyRegistryEntry,
+  decodeRingKeyRegistryRegisterProof,
 } from "../codec.js";
 import {
   GET_ENCRYPTED_UTXOS_BY_TAGS,
   GET_MERKLE_PROOFS,
   GET_NON_INCLUSION_PROOFS,
+  GET_RING_HEAD_REGISTER_PROOF,
+  GET_RING_HEAD_TRANSFER_PROOF,
+  GET_RING_KEY_REGISTRY_ENTRY,
+  GET_RING_KEY_REGISTRY_REGISTER_PROOF,
   GET_SHIELDED_TRANSACTIONS_BY_NULLIFIERS,
   GET_SHIELDED_TRANSACTIONS_BY_SIGNATURE,
   GET_SHIELDED_TRANSACTIONS_BY_TAGS,
@@ -33,9 +39,11 @@ import type {
   GetShieldedTransactionsBySignatureRequest,
   GetShieldedTransactionsBySignatureResponse,
   GetShieldedTransactionsByTagsResponse,
-  RingHeadProofRequest,
+  RingMemberProofRequest,
   RingHeadRegisterProof,
   RingHeadTransferProof,
+  RingKeyRegistryEntry,
+  RingKeyRegistryRegisterProof,
 } from "../types.js";
 
 export interface MethodDescriptor<Request, Response> {
@@ -45,20 +53,36 @@ export interface MethodDescriptor<Request, Response> {
 }
 
 export const getRingHeadRegisterProofMethod: MethodDescriptor<
-  RingHeadProofRequest,
+  RingMemberProofRequest,
   RingHeadRegisterProof
 > = {
-  name: "getRingHeadRegisterProof",
-  encodeRequest: encodeRingHeadProofRequest,
+  name: GET_RING_HEAD_REGISTER_PROOF,
+  encodeRequest: encodeRingMemberProofRequest,
   decodeResponse: decodeRingHeadRegisterProof,
 };
 export const getRingHeadTransferProofMethod: MethodDescriptor<
-  RingHeadProofRequest,
+  RingMemberProofRequest,
   RingHeadTransferProof
 > = {
-  name: "getRingHeadTransferProof",
-  encodeRequest: encodeRingHeadProofRequest,
+  name: GET_RING_HEAD_TRANSFER_PROOF,
+  encodeRequest: encodeRingMemberProofRequest,
   decodeResponse: decodeRingHeadTransferProof,
+};
+export const getRingKeyRegistryEntryMethod: MethodDescriptor<
+  RingMemberProofRequest,
+  RingKeyRegistryEntry
+> = {
+  name: GET_RING_KEY_REGISTRY_ENTRY,
+  encodeRequest: encodeRingMemberProofRequest,
+  decodeResponse: decodeRingKeyRegistryEntry,
+};
+export const getRingKeyRegistryRegisterProofMethod: MethodDescriptor<
+  RingMemberProofRequest,
+  RingKeyRegistryRegisterProof
+> = {
+  name: GET_RING_KEY_REGISTRY_REGISTER_PROOF,
+  encodeRequest: encodeRingMemberProofRequest,
+  decodeResponse: decodeRingKeyRegistryRegisterProof,
 };
 
 export const getEncryptedUtxosByTagsMethod: MethodDescriptor<

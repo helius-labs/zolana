@@ -1,28 +1,35 @@
-/** The record slots and witness a velocity transfer adds, mirrors Rust `custom-rings/sdk/src/velocity.rs`. */
 import type { Address } from "@solana/kit";
 import { NullifierKey } from "../keypair/nullifier-key.js";
 import { ShieldedAddress } from "../keypair/shielded.js";
 import { ShieldedPublicKey } from "../keypair/public-key.js";
 import { ViewingKey } from "../keypair/viewing-key.js";
+import { randomBlinding } from "../keypair/bytes.js";
 import { transactOutputBlinding } from "../keypair/transact/index.js";
 import { hashBytes } from "../hasher/index.js";
-import { addressBytes } from "../client/internal.js";
 import type { Shape } from "../interface/shape.js";
 import { SPP_SUPPORTED_SHAPES } from "../interface/shape.js";
-import type { Bytes16, Bytes31, Bytes32, MessageData, RequestContext } from "../interface/types.js";
+import type { Bytes31, Bytes32, MessageData, RequestContext } from "../interface/types.js";
 import { Utxo, ProofInputUtxo, createProofOutput } from "../transaction/utxo.js";
 import type { ProofOutputUtxo, TreeId } from "../transaction/utxo.js";
 import { SOL_MINT } from "../transaction/asset.js";
+import { U64_MAX, decodeAddress } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
-import type { SpendSession } from "../transaction/wallet/authority.js";
+import type { SealedMessageInput, SpendSession } from "../transaction/wallet/authority.js";
 import type {
   SlotReader,
   ChainReader,
   RingHeadReader,
   RingHeadTransferProof,
 } from "../client/ports.js";
-import { RING_VELOCITY_SLOTS } from "../client/prover/types.js";
-import type { CustomRingVelocityRow, CustomRingVelocityWitness } from "../client/prover/types.js";
+import {
+  RING_INPUT_SLOTS,
+  RING_OUTPUT_SLOTS,
+  velocityProofInputOff,
+} from "../client/prover/types.js";
+import type {
+  CustomRingVelocityRow,
+  CustomRingVelocityProofInput,
+} from "../client/prover/types.js";
 import { RingError } from "./error.js";
 import {
   RingListNamespace,
@@ -38,21 +45,64 @@ import {
   type Member,
   type SpendCounters,
   type SpendRecord,
-  type VelocityRow,
 } from "./policy.js";
 import { findSpendCountersMessage, openSpendCounters, sealedSpendCounters } from "./counters.js";
 import { readCurrentSpendRecord } from "./head-reader.js";
 
 const ZERO_NULLIFIER_SECRET = new Uint8Array(31) as Bytes31;
-const RING_INPUT_SLOTS = 5;
-const RING_OUTPUT_SLOTS = 4;
 
-/** A field element below the modulus, the Poseidon commitment rejects the rest. */
-function canonicalSalt(): Bytes32 {
-  const salt = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(salt);
-  salt[0] = 0;
-  return salt as Bytes32;
+/** The record slot is excluded. */
+export interface RingMovement {
+  readonly sender: Member;
+  readonly ringProgramId: Address;
+  readonly inputs: readonly ProofInputUtxo[];
+  readonly outputs: readonly ProofOutputUtxo[];
+}
+
+export interface VelocityFacts {
+  readonly namespace: Address;
+  readonly owner: RingListNamespace;
+  readonly entriesTreeId: TreeId;
+  readonly windowSlots: bigint;
+  readonly rows: readonly CustomRingVelocityRow[];
+  readonly windowIndex: bigint;
+  readonly live: LiveSpendRecord;
+  /** `undefined` for an expired record, the circuit opens only its commitment. */
+  readonly counters: SpendCounters | undefined;
+  readonly head: RingHeadTransferProof;
+}
+
+export interface ReadVelocityFactsInput {
+  readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
+    SlotReader &
+    Pick<ChainReader, "getAccount">;
+  readonly ringProgramId: Address;
+  readonly session: Pick<SpendSession, "openSealedMessage">;
+  readonly namespace: Address;
+  readonly entriesTree: Address;
+  readonly entriesTreeId: TreeId;
+  readonly windowSlots: bigint;
+  readonly rows: readonly CustomRingVelocityRow[];
+  readonly sender: Member;
+}
+
+export interface VelocityPlan {
+  readonly nextNullifier: Bytes32;
+  readonly shape: Shape;
+  readonly recordInput: ProofInputUtxo;
+  readonly recordOutput: ProofOutputUtxo;
+  readonly recordMessage: MessageData;
+  readonly countersSeal: SealedMessageInput;
+  readonly proofInput: CustomRingVelocityProofInput;
+  readonly approvalRequired: boolean;
+}
+
+export interface PlanVelocityInput {
+  readonly facts: VelocityFacts;
+  readonly movement: RingMovement;
+  readonly firstNullifier: Bytes32;
+  readonly outputBlindingSeed: Bytes32;
+  readonly moneyShape: Shape;
 }
 
 /** The smallest supported shape with one slot beyond the money on each side. */
@@ -73,62 +123,31 @@ export function recordShape(money: Shape): Shape {
 }
 
 /** The sender's outflow of one mint, inputs less the change kept inside the ring. */
-export function senderOutflow(
-  sender: Member,
-  ringProgramId: Address,
-  inputs: readonly ProofInputUtxo[],
-  outputs: readonly ProofOutputUtxo[],
-  asset: Bytes32,
-): bigint {
+export function senderOutflow(movement: RingMovement, asset: Bytes32): bigint {
   let inflow = 0n;
-  for (const input of inputs) {
+  for (const input of movement.inputs) {
     if (input.isDummy()) continue;
     if (equalBytes(memberOfAsset(input.utxo.asset), asset)) inflow += input.utxo.amount;
   }
   let change = 0n;
-  for (const output of outputs) {
+  for (const output of movement.outputs) {
     const owner = output.ownerAddress;
     if (owner === undefined) continue;
     const sameAsset = equalBytes(memberOfAsset(output.asset), asset);
     const sameOwner = equalBytes(
       memberOfIdentity(owner.signingPublicKey.ownerProofInputHash()),
-      sender,
+      movement.sender,
     );
-    const inRing = output.ringProgramId !== undefined && output.ringProgramId === ringProgramId;
+    const inRing =
+      output.ringProgramId !== undefined && output.ringProgramId === movement.ringProgramId;
     if (sameAsset && sameOwner && inRing) change += output.amount;
   }
   if (change > inflow) throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset } });
-  return inflow - change;
+  const outflow = inflow - change;
+  if (outflow > U64_MAX) throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset } });
+  return outflow;
 }
 
-export interface VelocityFacts {
-  readonly namespace: Address;
-  readonly owner: RingListNamespace;
-  readonly entriesTreeId: TreeId;
-  readonly windowSlots: bigint;
-  readonly rows: readonly VelocityRow[];
-  readonly windowIndex: bigint;
-  readonly live: LiveSpendRecord;
-  /** `undefined` for an expired record, the circuit opens only its commitment. */
-  readonly counters: SpendCounters | undefined;
-  readonly head?: RingHeadTransferProof;
-}
-
-export interface ReadVelocityFactsInput {
-  readonly client: Pick<RingHeadReader, "getRingHeadTransferProof"> &
-    SlotReader &
-    Pick<ChainReader, "getAccount">;
-  readonly ringProgramId: Address;
-  readonly session: Pick<SpendSession, "openSealedMessage">;
-  readonly namespace: Address;
-  readonly entriesTree: Address;
-  readonly entriesTreeId: TreeId;
-  readonly windowSlots: bigint;
-  readonly rows: readonly VelocityRow[];
-  readonly sender: Member;
-}
-
-/** Mirrors Rust `VelocityLookup::read` and `recover_counters`. */
 export async function readVelocityFacts(
   input: ReadVelocityFactsInput,
   context?: RequestContext,
@@ -160,64 +179,36 @@ async function recoverCounters(
   if (live.record.window > windowIndex) throw new RingError("RING_SPEND_RECORD_INVALID");
   if (live.record.window < windowIndex) return undefined;
   if (live.record.version === 0n) return zeroSpendCounters();
-  const message = findSpendCountersMessage(live.origin.messages, addressBytes(input.namespace));
+  const message = findSpendCountersMessage(live.origin.messages, decodeAddress(input.namespace));
   if (message === undefined || live.origin.salt === undefined) {
-    throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", { details: {} });
+    throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", {
+      details: { reason: message === undefined ? "missingMessage" : "missingSalt" },
+    });
   }
   return openSpendCounters(input.session, {
     firstNullifier: live.origin.firstNullifier,
-    salt: live.origin.salt as Bytes16,
+    salt: live.origin.salt,
     data: message.data,
     commitment: live.record.countersCommitment,
   });
 }
 
-export interface VelocityPlan {
-  readonly nextNullifier: Bytes32;
-  readonly shape: Shape;
-  readonly recordInput: ProofInputUtxo;
-  readonly recordOutput: ProofOutputUtxo;
-  readonly recordMessage: MessageData;
-  readonly countersSeal: Readonly<{
-    viewTag: Bytes32;
-    plaintext: Uint8Array;
-    slotIndex: number;
-  }>;
-  readonly witness: CustomRingVelocityWitness;
-  readonly approvalRequired: boolean;
-}
-
-export interface PlanVelocityInput {
-  readonly facts: VelocityFacts;
-  readonly sender: Member;
-  readonly ringProgramId: Address;
-  readonly inputs: readonly ProofInputUtxo[];
-  readonly outputs: readonly ProofOutputUtxo[];
-  readonly firstNullifier: Bytes32;
-  readonly outputBlindingSeed: Bytes32;
-  readonly moneyShape: Shape;
-}
-
-/** Mirrors Rust `VelocityPlanInput::plan`, the sender spends its record into the successor. */
 export function planVelocity(input: PlanVelocityInput): VelocityPlan {
-  const { facts } = input;
+  const { facts, movement } = input;
   const shape = recordShape(input.moneyShape);
   const sameWindow = facts.live.record.window === facts.windowIndex;
   const previous = sameWindow ? facts.counters : undefined;
 
-  const rows: VelocityRow[] = [];
+  const rows: CustomRingVelocityRow[] = [];
   const spent: bigint[] = [];
   let approvalRequired = false;
   for (const row of facts.rows) {
-    const outflow = senderOutflow(
-      input.sender,
-      input.ringProgramId,
-      input.inputs,
-      input.outputs,
-      row.asset,
-    );
+    const outflow = senderOutflow(movement, row.asset);
     const before = previous === undefined ? 0n : spendCountersSpent(previous, row.asset);
     const charged = before + outflow;
+    if (charged > U64_MAX) {
+      throw new RingError("RING_VELOCITY_OVERFLOW", { details: { asset: row.asset } });
+    }
     if (row.cap !== 0n && charged > row.cap) {
       throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
         details: { asset: row.asset, cap: row.cap, spent: charged },
@@ -228,7 +219,7 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     spent.push(charged);
   }
 
-  const nextSalt = canonicalSalt();
+  const nextSalt = randomBlinding();
   const nextCounters: SpendCounters = Object.freeze({
     salt: nextSalt,
     assets: Object.freeze(rows.map((row) => row.asset)),
@@ -237,27 +228,29 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
   const commitment = spendCountersCommitment(nextCounters);
 
   const spentRecord = facts.live.record;
-  const successorBlinding = transactOutputBlinding(
-    input.firstNullifier,
-    input.outputBlindingSeed,
-    shape.outputs - 1,
-  );
   const successor: SpendRecord = Object.freeze({
     member: spentRecord.member,
     version: spentRecord.version + 1n,
     window: facts.windowIndex,
     countersCommitment: commitment,
-    blinding: successorBlinding,
+    blinding: transactOutputBlinding(
+      input.firstNullifier,
+      input.outputBlindingSeed,
+      shape.outputs - 1,
+    ),
   });
 
+  const namespace = decodeAddress(facts.namespace);
   const spentHashes = facts.owner.spendRecordHashes(spentRecord);
   const nextHashes = facts.owner.spendRecordHashes(successor);
   const zeroNullifier = NullifierKey.fromSecret(ZERO_NULLIFIER_SECRET);
+  const viewing = ViewingKey.generate();
   let recordInput: ProofInputUtxo;
+  let recordOutput: ProofOutputUtxo;
   try {
     recordInput = new ProofInputUtxo({
       utxo: new Utxo({
-        owner: ShieldedPublicKey.fromPda(addressBytes(facts.namespace)),
+        owner: ShieldedPublicKey.fromPda(namespace),
         asset: SOL_MINT,
         amount: 0n,
         blinding: spentRecord.blinding,
@@ -266,39 +259,28 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
       treeId: facts.entriesTreeId,
       dataHash: spentHashes.dataHash,
     });
+    recordOutput = createProofOutput({
+      asset: SOL_MINT,
+      amount: 0n,
+      blinding: successor.blinding,
+      dataHash: nextHashes.dataHash,
+      ownerAddress: ShieldedAddress.forPda({
+        pda: namespace,
+        nullifierPublicKey: zeroNullifier.publicKey(),
+        viewingPublicKey: viewing.publicKey(),
+      }),
+      ownerTag: namespace,
+    });
   } finally {
     zeroNullifier.destroy();
-  }
-
-  const viewing = ViewingKey.generate();
-  let recordOutput: ProofOutputUtxo;
-  try {
-    const nullifier = NullifierKey.fromSecret(ZERO_NULLIFIER_SECRET);
-    try {
-      recordOutput = createProofOutput({
-        asset: SOL_MINT,
-        amount: 0n,
-        blinding: successor.blinding,
-        dataHash: nextHashes.dataHash,
-        ownerAddress: ShieldedAddress.forPda(
-          addressBytes(facts.namespace),
-          nullifier.publicKey(),
-          viewing.publicKey(),
-        ),
-        ownerTag: addressBytes(facts.namespace),
-      });
-    } finally {
-      nullifier.destroy();
-    }
-  } finally {
     viewing.destroy();
   }
 
   const opened = facts.counters ?? zeroSpendCounters();
-  const witness: CustomRingVelocityWitness = Object.freeze({
+  const proofInput: CustomRingVelocityProofInput = Object.freeze({
     windowSlots: facts.windowSlots,
     rows: Object.freeze(rows.map((row) => Object.freeze({ ...row }))),
-    ringId: hashBytes(addressBytes(input.ringProgramId)) as Bytes32,
+    ringId: hashBytes(decodeAddress(movement.ringProgramId)) as Bytes32,
     namespaceOwnerHash: ringNamespaceOwnerHash(facts.namespace),
     windowIndex: facts.windowIndex,
     approvalRequired,
@@ -319,41 +301,27 @@ export function planVelocity(input: PlanVelocityInput): VelocityPlan {
     recordInput,
     recordOutput,
     recordMessage: {
-      viewTag: spendRecordMessageTag(addressBytes(facts.namespace)),
+      viewTag: spendRecordMessageTag(namespace),
       data: encodeSpendRecord(successor),
     },
-    countersSeal: sealedSpendCounters(nextCounters, addressBytes(facts.namespace)),
-    witness,
+    countersSeal: sealedSpendCounters(nextCounters, namespace),
+    proofInput,
     approvalRequired,
   });
 }
 
-function emptyRecord(): CustomRingVelocityWitness["record"] {
-  const zero = (): Bytes32 => new Uint8Array(32) as Bytes32;
-  return Object.freeze({
-    version: 0n,
-    window: 0n,
-    commitment: zero(),
-    salt: zero(),
-    assets: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => zero())),
-    spent: Object.freeze(Array.from({ length: RING_VELOCITY_SLOTS }, () => 0n)),
-    nextSalt: zero(),
-  });
-}
-
-/** Mirrors Rust `ChargeRows` into a per-transfer witness, no record accompanies it. */
+/** Charges one transfer without a persistent spend record. */
 export function chargeRows(
-  sender: Member,
-  ringProgramId: Address,
-  inputs: readonly ProofInputUtxo[],
-  outputs: readonly ProofOutputUtxo[],
-  rows: readonly VelocityRow[],
-  namespaceOwnerHash: Bytes32,
-): CustomRingVelocityWitness {
+  input: Readonly<{
+    movement: RingMovement;
+    rows: readonly CustomRingVelocityRow[];
+    namespaceOwnerHash: Bytes32;
+  }>,
+): CustomRingVelocityProofInput {
   let approvalRequired = false;
   const kept: CustomRingVelocityRow[] = [];
-  for (const row of rows) {
-    const outflow = senderOutflow(sender, ringProgramId, inputs, outputs, row.asset);
+  for (const row of input.rows) {
+    const outflow = senderOutflow(input.movement, row.asset);
     if (row.cap !== 0n && outflow > row.cap) {
       throw new RingError("RING_VELOCITY_CAP_EXCEEDED", {
         details: { asset: row.asset, cap: row.cap, spent: outflow },
@@ -363,12 +331,11 @@ export function chargeRows(
     kept.push(Object.freeze({ ...row }));
   }
   return Object.freeze({
-    windowSlots: 0n,
+    ...velocityProofInputOff({
+      ringId: hashBytes(decodeAddress(input.movement.ringProgramId)) as Bytes32,
+      namespaceOwnerHash: input.namespaceOwnerHash,
+    }),
     rows: Object.freeze(kept),
-    ringId: hashBytes(addressBytes(ringProgramId)) as Bytes32,
-    namespaceOwnerHash,
-    windowIndex: 0n,
     approvalRequired,
-    record: emptyRecord(),
   });
 }

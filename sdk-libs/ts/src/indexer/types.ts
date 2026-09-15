@@ -10,21 +10,21 @@ export interface IndexerContext {
   readonly slot: bigint;
 }
 
-export interface RingHeadProofRequest {
+export interface RingMemberProofRequest {
   readonly ringProgramId: Address;
   readonly member: Hash;
   readonly expectedRoot: Hash;
   readonly expectedNextIndex: bigint;
 }
 
-export interface RingHeadProofContext {
+export interface RingMemberProofContext {
   readonly context: IndexerContext;
   readonly root: Hash;
   readonly nextIndex: bigint;
   readonly member: Hash;
 }
 
-export interface RingHeadRegisterProof extends RingHeadProofContext {
+export interface RingHeadRegisterProof extends RingMemberProofContext {
   readonly lowMember: Hash;
   readonly lowNext: Hash;
   readonly lowNullifier: Hash;
@@ -33,12 +33,29 @@ export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly newProof: readonly Hash[];
 }
 
-export interface RingHeadTransferProof extends RingHeadProofContext {
+export interface RingHeadTransferProof extends RingMemberProofContext {
   readonly next: Hash;
   readonly nullifier: Hash;
   readonly index: bigint;
   readonly proof: readonly Hash[];
   readonly record: Readonly<{ transaction: IndexedShieldedTransaction; outputIndex: number }>;
+}
+
+export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Hash;
+  readonly lowNext: Hash;
+  readonly lowCtCommitment: Hash;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Hash[];
+  readonly newProof: readonly Hash[];
+}
+
+export interface RingKeyRegistryEntry extends RingMemberProofContext {
+  readonly next: Hash;
+  readonly index: bigint;
+  readonly ephPk: Base64String;
+  readonly ciphertext: Base64String;
+  readonly proof: readonly Hash[];
 }
 
 export interface GetRingsByTagsRequest {

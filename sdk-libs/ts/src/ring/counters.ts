@@ -1,5 +1,6 @@
 import type { Bytes16, Bytes32, MessageData } from "../interface/types.js";
-import type { SpendSession } from "../transaction/wallet/authority.js";
+import type { SealedMessageInput, SpendSession } from "../transaction/wallet/authority.js";
+import { equalBytes } from "../wallet/internal.js";
 import { RingError } from "./error.js";
 import {
   type SpendCounters,
@@ -21,15 +22,13 @@ export function findSpendCountersMessage(
   messages: readonly MessageData[],
   namespace: Bytes32,
 ): MessageData | undefined {
-  return messages.find((message) =>
-    message.viewTag.every((byte, index) => byte === namespace[index]),
-  );
+  return messages.find((message) => equalBytes(message.viewTag, namespace));
 }
 
 export function sealedSpendCounters(
   counters: SpendCounters,
   namespace: Bytes32,
-): Readonly<{ viewTag: Bytes32; plaintext: Uint8Array; slotIndex: number }> {
+): SealedMessageInput {
   return {
     viewTag: namespace,
     plaintext: encodeSpendCounters(counters),
@@ -47,7 +46,6 @@ export async function openSpendCounters(
     commitment: Bytes32;
   }>,
 ): Promise<SpendCounters> {
-  let counters: SpendCounters;
   let plaintext: Uint8Array | undefined;
   try {
     plaintext = await session.openSealedMessage({
@@ -56,14 +54,24 @@ export async function openSpendCounters(
       slotIndex: RING_SPEND_COUNTERS_SLOT_INDEX,
       data: input.data,
     });
-    counters = decodeSpendCounters(plaintext);
+    return checkedSpendCounters(plaintext, input.commitment);
   } catch (cause) {
-    throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", { cause });
+    throw cause instanceof RingError
+      ? cause
+      : new RingError("RING_SPEND_COUNTERS_UNKNOWN", { cause });
   } finally {
     plaintext?.fill(0);
   }
-  const commitment = spendCountersCommitment(counters);
-  if (!commitment.every((byte, index) => byte === input.commitment[index])) {
+}
+
+export function checkedSpendCounters(plaintext: Uint8Array, commitment: Bytes32): SpendCounters {
+  let counters: SpendCounters;
+  try {
+    counters = decodeSpendCounters(plaintext);
+  } catch (cause) {
+    throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", { cause });
+  }
+  if (!equalBytes(spendCountersCommitment(counters), commitment)) {
     throw new RingError("RING_SPEND_COUNTERS_UNKNOWN", {
       details: { reason: "commitmentMismatch" },
     });

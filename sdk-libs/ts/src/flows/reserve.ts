@@ -24,6 +24,11 @@ export function reserveEntries(wallet: Wallet, entries: readonly WalletUtxo[]): 
 }
 
 /** @internal */
+export function extendReservation(wallet: Wallet, id: string): void {
+  wallet._extendReservation({ id, nowMs: BigInt(Date.now()), ttlMs: DEFAULT_RESERVATION_TTL_MS });
+}
+
+/** @internal */
 export function unreserved(
   reserved: ReadonlySet<string>,
 ): (entry: Readonly<{ outputContext: Readonly<{ hash: Bytes32 }> }>) => boolean {

@@ -27,6 +27,7 @@ import type {
   EncryptedCustomRingTransfer,
   EncryptedSplit,
   EncryptedTransfer,
+  SealedMessageInput,
   SpendSession,
   SyncWalletAuthority,
   WalletSyncMaterial,
@@ -100,17 +101,8 @@ export function encryptCustomRingTransferWith(
     assets: AssetRegistry;
     auditorPublicKey: P256PublicKey;
     recordOutputIndex?: number;
-    sealedMessages?: readonly Readonly<{
-      viewTag: Bytes32;
-      plaintext: Uint8Array;
-      slotIndex: number;
-    }>[];
-    /** Protocol counter seal, never a caller message channel. */
-    counterMessage?: Readonly<{
-      viewTag: Bytes32;
-      plaintext: Uint8Array;
-      slotIndex: number;
-    }>;
+    sealedMessages?: readonly SealedMessageInput[];
+    counterMessage?: SealedMessageInput;
   }>,
 ): EncryptedCustomRingTransfer {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
@@ -122,7 +114,12 @@ export function encryptCustomRingTransferWith(
     const encryption = encryptTransactionViewingSecret(txViewingSecret, input.auditorPublicKey);
     ephemeralSecret = encryption.ephemeralSecret;
     const recipient = tx.publicKey();
-    const outputs = recordCarrierOutputs(input.outputs, input.recordOutputIndex, recipient);
+    const outputs = recordCarrierOutputs(
+      input.outputs,
+      input.recordOutputIndex === undefined
+        ? undefined
+        : { index: input.recordOutputIndex, recipient },
+    );
     const outbound = [
       ...(input.sealedMessages ?? []),
       ...(input.counterMessage === undefined ? [] : [input.counterMessage]),
@@ -157,10 +154,10 @@ export function encryptCustomRingTransferWith(
 /** The recipient viewing key does not affect the UTXO commitment. */
 function recordCarrierOutputs(
   outputs: readonly ProofOutputUtxo[],
-  index: number | undefined,
-  recipient: P256PublicKey,
+  carrier: Readonly<{ index: number; recipient: P256PublicKey }> | undefined,
 ): readonly ProofOutputUtxo[] {
-  if (index === undefined) return outputs;
+  if (carrier === undefined) return outputs;
+  const { index, recipient } = carrier;
   const output = outputs[index];
   const owner = output?.ownerAddress;
   if (
@@ -197,7 +194,7 @@ function recordCarrierOutputs(
   );
 }
 
-/** One keystream per slot under a fixed key and salt, a repeat is a two-time pad. */
+/** One keystream per slot under a fixed key and salt. */
 function checkDistinctSlots(
   outputCount: number,
   messages: readonly Readonly<{ slotIndex: number }>[],
@@ -213,7 +210,7 @@ function checkDistinctSlots(
   }
 }
 
-/** @internal Opens a sealed message under the transaction key of `firstNullifier`. */
+/** @internal */
 export function openSealedMessageWith(
   viewingKey: ViewingKey,
   input: Readonly<{
@@ -225,14 +222,20 @@ export function openSealedMessageWith(
 ): Uint8Array {
   const tx = viewingKey.transactionViewingKey(input.firstNullifier);
   try {
-    const recipient = P256PublicKey.fromBytes(
-      input.data.slice(0, P256_PUBLIC_KEY_LENGTH) as Bytes33,
-    );
-    const ciphertext = input.data.slice(P256_PUBLIC_KEY_LENGTH);
-    return tx.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
+    return openSealedBody(tx, input);
   } finally {
     tx.destroy();
   }
+}
+
+/** @internal `data` is the recipient key followed by the slot ciphertext. */
+export function openSealedBody(
+  txKey: ViewingKey,
+  input: Readonly<{ salt: Bytes16; slotIndex: number; data: Uint8Array }>,
+): Uint8Array {
+  const recipient = P256PublicKey.fromBytes(input.data.slice(0, P256_PUBLIC_KEY_LENGTH) as Bytes33);
+  const ciphertext = input.data.slice(P256_PUBLIC_KEY_LENGTH);
+  return txKey.decryptSlotEphemeral(recipient, ciphertext, input.salt, input.slotIndex);
 }
 
 /**

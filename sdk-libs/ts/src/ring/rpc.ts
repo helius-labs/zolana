@@ -21,9 +21,8 @@ import { wireDecoder } from "../interface/decode.js";
 import { addressBytes, copyBytes } from "../interface/internal.js";
 import { P256PublicKey } from "../keypair/public-key.js";
 
-import type { AuditedRingSpendRecord } from "./audit.js";
 import { RingError } from "./error.js";
-import { memberOfIdentity, type SpendCounters } from "./policy.js";
+import { memberOfIdentity, type Member } from "./policy.js";
 import { checkedReaderKey, readerKeyBytes, readerKeyFromBytes } from "./reader.js";
 
 const base58Decoder = getBase58Decoder();
@@ -310,6 +309,24 @@ export interface DecryptedRingWithdrawal {
   readonly amount: bigint;
 }
 
+/** Mirrors Rust `DecryptedSpendRecord`. */
+export interface DecryptedRingSpendRecord {
+  readonly slotIndex: number;
+  readonly member: Member;
+  readonly version: bigint;
+  readonly window: bigint;
+  readonly countersCommitment: Bytes32;
+  /** Absent when no sealed message opened to the commitment, populated slots only. */
+  readonly counters?: readonly DecryptedRingSpendCounter[];
+}
+
+/** Mirrors Rust `DecryptedSpendCounter`. */
+export interface DecryptedRingSpendCounter {
+  readonly slot: number;
+  readonly asset: Bytes32;
+  readonly spent: bigint;
+}
+
 export interface DecryptedRingTransaction {
   readonly slot: bigint;
   readonly signature: Signature;
@@ -322,7 +339,7 @@ export interface DecryptedRingTransaction {
   /** Empty when nothing left the ring. */
   readonly withdrawals: readonly DecryptedRingWithdrawal[];
   /** Empty unless a velocity transfer published one. */
-  readonly spendRecords: readonly AuditedRingSpendRecord[];
+  readonly spendRecords: readonly DecryptedRingSpendRecord[];
 }
 
 /** Mirrors Rust `SkippedReason`. */
@@ -672,39 +689,43 @@ function decodeTransaction(wire: Record<string, unknown>): DecryptedRingTransact
     ),
     spendRecords: Object.freeze(
       list(wire["spendRecords"], "spendRecords").map((entry, index) =>
-        decodeSpendRecord(record(entry, `spendRecords[${index}]`)),
+        spendRecordFromWire(record(entry, `spendRecords[${index}]`)),
       ),
     ),
   });
 }
 
-function decodeSpendRecord(entry: Record<string, unknown>): AuditedRingSpendRecord {
+function spendRecordFromWire(entry: Record<string, unknown>): DecryptedRingSpendRecord {
   const counters = entry["counters"];
   return Object.freeze({
     slotIndex: u32(entry["slotIndex"], "spendRecords.slotIndex"),
-    record: Object.freeze({
-      member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
-      version: u64(entry["version"], "spendRecords.version"),
-      window: u64(entry["window"], "spendRecords.window"),
-      countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
-      blinding: hash(entry["blinding"], "spendRecords.blinding"),
-    }),
+    member: memberOfIdentity(hash(entry["member"], "spendRecords.member")),
+    version: u64(entry["version"], "spendRecords.version"),
+    window: u64(entry["window"], "spendRecords.window"),
+    countersCommitment: hash(entry["countersCommitment"], "spendRecords.countersCommitment"),
     ...(counters === undefined || counters === null
       ? {}
-      : { counters: decodeSpendCounters(record(counters, "spendRecords.counters")) }),
+      : { counters: spendCountersFromWire(list(counters, "spendRecords.counters")) }),
   });
 }
 
-function decodeSpendCounters(counters: Record<string, unknown>): SpendCounters {
-  const assets = list(counters["assets"], "spendRecords.counters.assets");
-  const spent = list(counters["spent"], "spendRecords.counters.spent");
-  if (assets.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.assets");
-  if (spent.length !== RING_VELOCITY_SLOTS) throw invalid("spendRecords.counters.spent");
-  return Object.freeze({
-    salt: hash(counters["salt"], "spendRecords.counters.salt"),
-    assets: Object.freeze(assets.map((asset) => hash(asset, "spendRecords.counters.assets"))),
-    spent: Object.freeze(spent.map((value) => u64(value, "spendRecords.counters.spent"))),
-  });
+/** One entry per populated slot in ascending slot order. */
+function spendCountersFromWire(counters: readonly unknown[]): readonly DecryptedRingSpendCounter[] {
+  let previous = -1;
+  return Object.freeze(
+    counters.map((entry) => {
+      const counter = record(entry, "spendRecords.counters");
+      const slot = u32(counter["slot"], "spendRecords.counters.slot");
+      if (slot <= previous || slot >= RING_VELOCITY_SLOTS)
+        throw invalid("spendRecords.counters.slot");
+      previous = slot;
+      return Object.freeze({
+        slot,
+        asset: hash(counter["asset"], "spendRecords.counters.asset"),
+        spent: u64(counter["spent"], "spendRecords.counters.spent"),
+      });
+    }),
+  );
 }
 
 /** A slot index, rejected outside the u32 range. */

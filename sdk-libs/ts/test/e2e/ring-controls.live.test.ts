@@ -19,6 +19,14 @@ import {
   buildRingCreatePolicyTransaction,
   initSppRingConfigInstruction,
   createRingHeadMapRootInstruction,
+  createRingKeyRegistryRootInstruction,
+  fetchRingKeyRegistryRoot,
+  fetchRingSealedKey,
+  openRingSealedKey,
+  prepareRingKeyRegistration,
+  recoverRingMemberNotes,
+  createRingDelegateRecoveredSubmission,
+  memberOfTag,
   setRingCoSignerInstruction,
   setRingSpendWindowInstruction,
   setRingDelegateInstruction,
@@ -88,7 +96,12 @@ async function indexedHead<T>(read: () => Promise<T>): Promise<T> {
             : undefined;
       if (
         code === undefined ||
-        !["CLIENT_HEAD_MAP_OUT_OF_SYNC", "CLIENT_HEAD_ROOT_CHANGED"].includes(code) ||
+        ![
+          "CLIENT_HEAD_MAP_OUT_OF_SYNC",
+          "CLIENT_HEAD_ROOT_CHANGED",
+          "CLIENT_KEY_REGISTRY_OUT_OF_SYNC",
+          "CLIENT_KEY_REGISTRY_ROOT_CHANGED",
+        ].includes(code) ||
         Date.now() > deadline
       )
         throw cause;
@@ -98,7 +111,7 @@ async function indexedHead<T>(read: () => Promise<T>): Promise<T> {
 }
 
 describe("fresh ring controls", () => {
-  it("registers compressed state, co-signs and audits outflow, and delegates SOL plus both token programs without charging velocity", async () => {
+  it("registers compressed state, co-signs and audits outflow, delegates SOL plus both token programs without charging velocity, and moves recovered notes with the auditor key alone", async () => {
     const harness = await liveHarness();
     if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(harness.rpcUrl).hostname))
       throw new Error("controls fixture runs on a local validator only");
@@ -173,6 +186,11 @@ describe("fresh ring controls", () => {
       await sendInstruction(
         client,
         await createRingHeadMapRootInstruction({ ringProgramId, payer: authority, authority }),
+        authority,
+      );
+      await sendInstruction(
+        client,
+        await createRingKeyRegistryRootInstruction({ ringProgramId, payer: authority, authority }),
         authority,
       );
       await sendInstruction(
@@ -441,6 +459,74 @@ describe("fresh ring controls", () => {
             ?.assets.find((balance) => balance.mint === asset)?.amount,
         ).toBe(recipientAmount);
       }
+      const enrolment = await indexedHead(() =>
+        prepareRingKeyRegistration({ client, ringProgramId, authority: sender.authority }),
+      );
+      if (enrolment.kind !== "pending") throw new Error("fresh sender already enrolled");
+      await settle(enrolment.submission, client, [sender.signer]);
+      expect((await fetchRingKeyRegistryRoot(client, ringProgramId)).nextIndex).toBe(2n);
+      const sealed = await indexedHead(() =>
+        fetchRingSealedKey({
+          client,
+          ringProgramId,
+          member: memberOfTag(sender.keypair.shieldedAddress().confidentialViewTag()),
+        }),
+      );
+      const recoveredKey = openRingSealedKey(sealed, auditor);
+      expect(recoveredKey.publicKey()).toEqual(sender.keypair.nullifierPublicKey());
+      const recovered = await recoverRingMemberNotes({
+        client,
+        ringProgramId,
+        auditor,
+        source: sender.keypair.shieldedAddress(),
+        nullifierKey: recoveredKey,
+        assets: sender.wallet.registry,
+        resolveTreeId: (tree) => {
+          if (tree !== client.tree) throw new Error(`unknown tree ${tree}`);
+          return client.treeId;
+        },
+      });
+      expect(recovered.unopened).toEqual([]);
+      const heldSol = recovered.notes
+        .filter((note) => note.utxo.asset === SOL_MINT)
+        .reduce((total, note) => total + note.utxo.amount, 0n);
+      expect(heldSol).toBe(800_000_000n);
+      await settle(
+        await createRingDelegateRecoveredSubmission({
+          client,
+          ringProgramId,
+          source: sender.keypair.shieldedAddress(),
+          nullifierKey: recoveredKey,
+          notes: recovered.notes,
+          delegate,
+          cosigner,
+          feePayer: delegate.address,
+          outputs: [
+            {
+              recipient: recipient.keypair.shieldedAddress(),
+              asset: SOL_MINT,
+              amount: 100_000_000n,
+            },
+          ],
+        }),
+        client,
+        [delegate, cosigner],
+      );
+      recoveredKey.destroy();
+      await sync(client, sender);
+      await sync(client, recipient);
+      expect(
+        sender.wallet
+          .ringBalances()
+          .find((ring) => ring.ringProgramId === ringProgramId)
+          ?.assets.find((balance) => balance.mint === SOL_MINT)?.amount,
+      ).toBe(700_000_000n);
+      expect(
+        recipient.wallet
+          .ringBalances()
+          .find((ring) => ring.ringProgramId === ringProgramId)
+          ?.assets.find((balance) => balance.mint === SOL_MINT)?.amount,
+      ).toBe(1_200_000_000n);
       await settle(
         await indexedHead(() =>
           createRingWithdrawalSubmission({

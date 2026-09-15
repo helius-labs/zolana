@@ -6,6 +6,7 @@ import {
 } from "../../interface/external-data-hash.js";
 import { InstructionTag, SOL_INTERFACE } from "../../interface/program.js";
 import {
+  RING_AUTHORITY_MAX_WIDTH,
   SPP_SUPPORTED_SHAPES as INTERFACE_SUPPORTED_SHAPES,
   selectSppShape,
   type Shape,
@@ -713,8 +714,8 @@ export const WithdrawalTarget = Object.freeze({
 export type ChangeLayout = "padded" | "compact";
 
 export interface PreparedTransfer {
-  /** Authority transfers never name private input owners in padding tags. */
-  readonly ownerMode?: "opaque";
+  /** `"opaque"` names no private input owner in the padding tags. */
+  readonly ownerMode: "signed" | "opaque";
   readonly owner: ShieldedAddress;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
@@ -994,6 +995,7 @@ export class ConfidentialTransfer {
             ];
     return preparedTransfer({
       owner: this.#owner,
+      ownerMode: "signed",
       inputs: Object.freeze(inputs),
       outputs: Object.freeze(outputs),
       firstNullifier,
@@ -1048,25 +1050,29 @@ export function prepareRingAuthorityTransfer(
 ): PreparedTransfer {
   if (
     input.inputs.length < 1 ||
-    input.inputs.length > 4 ||
+    input.inputs.length > RING_AUTHORITY_MAX_WIDTH ||
     input.outputs.length < 1 ||
-    input.outputs.length > 4
+    input.outputs.length > RING_AUTHORITY_MAX_WIDTH
   )
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: input.inputs.length,
       outputs: input.outputs.length,
     });
   const totals = new Map<Address, bigint>();
-  for (const spend of input.inputs) {
+  for (const [index, spend] of input.inputs.entries()) {
+    if (spend.isDummy() || spend.utxo.ringProgramId !== input.ringProgramId) {
+      throw new TransactionError("TRANSACTION_INPUT_OUTSIDE_RING", {
+        index,
+        ringProgramId: input.ringProgramId,
+      });
+    }
     if (
-      spend.isDummy() ||
-      spend.utxo.ringProgramId !== input.ringProgramId ||
       !equal(
         spend.utxo.owner.ownerProofInputHash(),
         input.owner.signingPublicKey.ownerProofInputHash(),
       )
     )
-      throw new TransactionError("TRANSACTION_INVALID_AMOUNT", { name: "authority input" });
+      throw new TransactionError("TRANSACTION_INPUT_OWNER_MISMATCH", { index });
     totals.set(spend.utxo.asset, (totals.get(spend.utxo.asset) ?? 0n) + spend.utxo.amount);
   }
   for (const output of input.outputs) {
@@ -1097,7 +1103,7 @@ export function prepareRingAuthorityTransfer(
     })),
   );
   const width = Math.max(input.inputs.length, layouts.length);
-  if (width > 4)
+  if (width > RING_AUTHORITY_MAX_WIDTH)
     throw new TransactionError("TRANSACTION_UNSUPPORTED_SHAPE", {
       inputs: input.inputs.length,
       outputs: layouts.length,
@@ -1177,7 +1183,7 @@ function appendRecordSlot(
     outputSeed,
     extension.shape.outputs - 1,
   );
-  if (!extension.output.blinding.every((byte, index) => byte === expected[index])) {
+  if (!equal(extension.output.blinding, expected)) {
     throw new TransactionError("TRANSACTION_OUTPUT_BLINDING_MISMATCH", {
       reason: "recordBlinding",
     });

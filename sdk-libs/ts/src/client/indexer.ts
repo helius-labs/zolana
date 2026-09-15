@@ -9,6 +9,8 @@ import type {
   MerkleProof as WireMerkleProof,
   NonInclusionProof as WireNonInclusionProof,
   RingsOutputSlot as WireOutputSlot,
+  RingKeyRegistryRegisterProof as WireRingKeyRegistryRegisterProof,
+  RingHeadRegisterProof as WireRingHeadRegisterProof,
 } from "../indexer/types.js";
 import type {
   Address,
@@ -21,11 +23,13 @@ import type {
 import { P256PublicKey } from "../keypair/public-key.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
 
-import { ClientError, isClientError } from "./error.js";
+import { ClientError, isClientError, type ClientErrorCode } from "./error.js";
 import type {
-  RingHeadProofRequest,
+  RingMemberProofRequest,
   RingHeadRegisterProof,
   RingHeadTransferProof,
+  RingKeyRegistryEntry,
+  RingKeyRegistryRegisterProof,
 } from "./ports.js";
 import { decodeBase64 } from "./internal.js";
 import {
@@ -50,64 +54,6 @@ import {
 
 export class ZolanaIndexer {
   readonly #api: ZolanaApi;
-
-  async getRingHeadRegisterProof(
-    request: RingHeadProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadRegisterProof> {
-    const method = "getRingHeadRegisterProof";
-    try {
-      const wire = headRequest(request);
-      const response = await this.#api.getRingHeadRegisterProof(wire, context);
-      checkHeadResponse(wire, response);
-      return Object.freeze({
-        context: response.context,
-        root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        lowMember: hashBytes(response.lowMember),
-        lowNext: hashBytes(response.lowNext),
-        lowNullifier: hashBytes(response.lowNullifier),
-        lowIndex: response.lowIndex,
-        lowProof: Object.freeze(response.lowProof.map(hashBytes)),
-        newProof: Object.freeze(response.newProof.map(hashBytes)),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
-
-  async getRingHeadTransferProof(
-    request: RingHeadProofRequest,
-    context?: RequestContext,
-  ): Promise<RingHeadTransferProof> {
-    const method = "getRingHeadTransferProof";
-    try {
-      const wire = headRequest(request);
-      const response = await this.#api.getRingHeadTransferProof(wire, context);
-      checkHeadResponse(wire, response);
-      return Object.freeze({
-        context: response.context,
-        root: hashBytes(response.root),
-        member: hashBytes(response.member),
-        nextIndex: response.nextIndex,
-        next: hashBytes(response.next),
-        nullifier: hashBytes(response.nullifier),
-        index: response.index,
-        proof: Object.freeze(response.proof.map(hashBytes)),
-        record: Object.freeze({
-          transaction: convertShieldedTransaction(
-            response.record.transaction,
-            method,
-            "record.transaction",
-          ),
-          outputIndex: response.record.outputIndex,
-        }),
-      });
-    } catch (cause) {
-      throw wrapIndexer(cause, method);
-    }
-  }
 
   constructor(api: ZolanaApi) {
     if (!(api instanceof ZolanaApi)) {
@@ -190,6 +136,99 @@ export class ZolanaIndexer {
     });
   }
 
+  async getRingHeadRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadRegisterProof> {
+    const method = "getRingHeadRegisterProof";
+    try {
+      const wire = memberRequest(request);
+      const response = await this.#api.getRingHeadRegisterProof(wire, context);
+      checkMemberResponse(wire, response);
+      return Object.freeze({
+        ...insertionProof(response),
+        lowNullifier: hashBytes(response.lowNullifier),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingHeadTransferProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingHeadTransferProof> {
+    const method = "getRingHeadTransferProof";
+    try {
+      const wire = memberRequest(request);
+      const response = await this.#api.getRingHeadTransferProof(wire, context);
+      checkMemberResponse(wire, response);
+      return Object.freeze({
+        context: response.context,
+        root: hashBytes(response.root),
+        member: hashBytes(response.member),
+        nextIndex: response.nextIndex,
+        next: hashBytes(response.next),
+        nullifier: hashBytes(response.nullifier),
+        index: response.index,
+        proof: Object.freeze(response.proof.map(hashBytes)),
+        record: Object.freeze({
+          transaction: convertShieldedTransaction(
+            response.record.transaction,
+            method,
+            "record.transaction",
+          ),
+          outputIndex: response.record.outputIndex,
+        }),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry> {
+    const method = "getRingKeyRegistryEntry";
+    try {
+      const wire = memberRequest(request);
+      const response = await this.#api.getRingKeyRegistryEntry(wire, context);
+      checkMemberResponse(wire, response);
+      return Object.freeze({
+        context: response.context,
+        root: hashBytes(response.root),
+        member: hashBytes(response.member),
+        nextIndex: response.nextIndex,
+        next: hashBytes(response.next),
+        index: response.index,
+        ephemeralPublicKey: decodeP256(response.ephPk, method, "$.ephPk"),
+        ciphertext: decodeCiphertext(response.ciphertext, method, "$.ciphertext"),
+        proof: Object.freeze(response.proof.map(hashBytes)),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
+  async getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof> {
+    const method = "getRingKeyRegistryRegisterProof";
+    try {
+      const wire = memberRequest(request);
+      const response = await this.#api.getRingKeyRegistryRegisterProof(wire, context);
+      checkMemberResponse(wire, response);
+      return Object.freeze({
+        ...insertionProof(response),
+        lowCtCommitment: hashBytes(response.lowCtCommitment),
+      });
+    } catch (cause) {
+      throw wrapIndexer(cause, method);
+    }
+  }
+
   getShieldedTransactionsBySignature(
     signature: Signature,
     config?: IndexerRpcConfig,
@@ -264,7 +303,7 @@ export class ZolanaIndexer {
   }
 }
 
-function headRequest(request: RingHeadProofRequest) {
+function memberRequest(request: RingMemberProofRequest) {
   return Object.freeze({
     ringProgramId: request.ringProgramId,
     member: hash(request.member),
@@ -273,8 +312,8 @@ function headRequest(request: RingHeadProofRequest) {
   });
 }
 
-function checkHeadResponse(
-  request: ReturnType<typeof headRequest>,
+function checkMemberResponse(
+  request: ReturnType<typeof memberRequest>,
   response: Readonly<{ root: string; member: string; nextIndex: bigint }>,
 ): void {
   if (
@@ -283,9 +322,33 @@ function checkHeadResponse(
     response.nextIndex !== request.expectedNextIndex
   ) {
     throw new ClientError("CLIENT_INVALID_RPC_RESPONSE", {
-      details: { method: "ringHeadProof", path: "$.result" },
+      details: { method: "ringMemberProof", path: "$.result" },
     });
   }
+}
+
+function insertionProof(
+  response:
+    | Omit<WireRingHeadRegisterProof, "lowNullifier">
+    | Omit<WireRingKeyRegistryRegisterProof, "lowCtCommitment">,
+) {
+  return {
+    context: response.context,
+    root: hashBytes(response.root),
+    member: hashBytes(response.member),
+    nextIndex: response.nextIndex,
+    lowMember: hashBytes(response.lowMember),
+    lowNext: hashBytes(response.lowNext),
+    lowIndex: response.lowIndex,
+    lowProof: Object.freeze(response.lowProof.map(hashBytes)),
+    newProof: Object.freeze(response.newProof.map(hashBytes)),
+  };
+}
+
+function decodeCiphertext(value: string, method: string, path: string): Bytes32 {
+  const bytes = decodeBase64(value, path);
+  if (bytes.length !== 32) throw invalidResponse(method, path, 32, bytes.length);
+  return bytes as Bytes32;
 }
 
 function copyTagRequest(request: GetByTagsRequest): GetByTagsRequest {
@@ -558,23 +621,27 @@ async function pollIndexer<T extends Readonly<{ context: Readonly<{ slot: bigint
   }
 }
 
+/** Photon's ring projection codes, `zolana_indexer_api::error_code`. */
+const RING_PROJECTION_CODES: ReadonlyMap<
+  number,
+  Extract<ClientErrorCode, `CLIENT_HEAD_${string}` | `CLIENT_KEY_REGISTRY_${string}`>
+> = new Map([
+  [-32070, "CLIENT_HEAD_MAP_OUT_OF_SYNC"],
+  [-32071, "CLIENT_HEAD_ROOT_CHANGED"],
+  [-32072, "CLIENT_HEAD_MEMBER_UNREGISTERED"],
+  [-32073, "CLIENT_HEAD_MEMBER_ALREADY_REGISTERED"],
+  [-32074, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
+  [-32075, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
+  [-32076, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
+  [-32077, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+]);
+
 function wrapIndexer(cause: unknown, method: string): ClientError {
   if (isClientError(cause)) return cause;
-  if (
-    (method === "getRingHeadRegisterProof" || method === "getRingHeadTransferProof") &&
-    cause instanceof ApiError &&
-    cause.code === "API_JSON_RPC"
-  ) {
-    switch (cause.details?.["rpcCode"]) {
-      case -32070:
-        return new ClientError("CLIENT_HEAD_MAP_OUT_OF_SYNC", { details: { method } });
-      case -32071:
-        return new ClientError("CLIENT_HEAD_ROOT_CHANGED", { details: { method } });
-      case -32072:
-        return new ClientError("CLIENT_HEAD_MEMBER_UNREGISTERED", { details: { method } });
-      case -32073:
-        return new ClientError("CLIENT_HEAD_MEMBER_ALREADY_REGISTERED", { details: { method } });
-    }
+  if (cause instanceof ApiError && cause.code === "API_JSON_RPC") {
+    const rpcCode = cause.details?.["rpcCode"];
+    const code = typeof rpcCode === "number" ? RING_PROJECTION_CODES.get(rpcCode) : undefined;
+    if (code !== undefined) return new ClientError(code, { details: { method } });
   }
   const code = externalCode(cause);
   if (code === "API_ABORTED") return new ClientError("CLIENT_ABORTED", { details: { method } });

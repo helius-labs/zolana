@@ -1,4 +1,9 @@
-import { getProgramDerivedAddress, type Address, type Instruction } from "@solana/kit";
+import {
+  getProgramDerivedAddress,
+  type Address,
+  type Instruction,
+  type ProgramDerivedAddress,
+} from "@solana/kit";
 
 import type { ChainReader } from "../client/ports.js";
 import { SYSTEM_PROGRAM, meta, type SignerAccount } from "../interface/instructions/index.js";
@@ -6,12 +11,13 @@ import { Writer, addressBytes } from "../interface/internal.js";
 import {
   ringAuthAddress,
   ringCoSignerAddress,
+  ringCoSignerPda,
   ringConfigAddress,
   ringConfigPda,
   ringDelegateAddress,
   ringDelegatePda,
   ringHeadMapRootPda,
-  ringPolicyConfigAddress,
+  ringKeyRegistryRootPda,
   ringPolicyConfigPda,
   ringSpendWindowAddress,
   ringSpendWindowPda,
@@ -34,9 +40,11 @@ import {
   decodeRingProgramConfig,
   decodeRingSpendWindow,
   decodeRingHeadMapRoot,
+  decodeRingKeyRegistryRoot,
   type RingHeadMapRoot,
+  type RingKeyRegistryRoot,
 } from "./codecs.js";
-import { RingError } from "./error.js";
+import { RingError, type RingErrorCode } from "./error.js";
 
 const encoder = new TextEncoder();
 export const BPF_LOADER_UPGRADEABLE_ID = "BPFLoaderUpgradeab1e11111111111111111111111" as Address;
@@ -48,30 +56,84 @@ const SET_SPEND_WINDOW_TAG = 22;
 const CLEAR_SPEND_WINDOW_TAG = 23;
 const SET_DELEGATE_TAG = 24;
 const CREATE_HEAD_MAP_ROOT_TAG = 27;
+const CREATE_KEY_REGISTRY_ROOT_TAG = 29;
 
-export { ringConfigAddress, ringPolicyConfigAddress };
+interface IndexedRootKind {
+  readonly pda: (ringProgramId: Address) => Promise<ProgramDerivedAddress>;
+  readonly decode: (data: Uint8Array) => RingHeadMapRoot;
+  readonly createTag: number;
+  readonly missing: RingErrorCode;
+  readonly invalid: RingErrorCode;
+}
 
-/** Only the canonical on-chain root is authoritative. */
-export async function fetchRingHeadMapRoot(
+const HEAD_MAP_ROOT: IndexedRootKind = {
+  pda: ringHeadMapRootPda,
+  decode: decodeRingHeadMapRoot,
+  createTag: CREATE_HEAD_MAP_ROOT_TAG,
+  missing: "RING_HEAD_MAP_MISSING",
+  invalid: "RING_HEAD_MAP_INVALID",
+};
+
+const KEY_REGISTRY_ROOT: IndexedRootKind = {
+  pda: ringKeyRegistryRootPda,
+  decode: decodeRingKeyRegistryRoot,
+  createTag: CREATE_KEY_REGISTRY_ROOT_TAG,
+  missing: "RING_KEY_REGISTRY_MISSING",
+  invalid: "RING_KEY_REGISTRY_INVALID",
+};
+
+/** Mirrors Rust `CustomRing::read_head_map_root`, a non-canonical bump is invalid. */
+export function fetchRingHeadMapRoot(
   client: Pick<ChainReader, "getAccount">,
   ringProgramId: Address,
   context?: RequestContext,
 ): Promise<RingHeadMapRoot> {
-  const [address, bump] = await ringHeadMapRootPda(ringProgramId);
+  return fetchIndexedRoot(HEAD_MAP_ROOT, client, ringProgramId, context);
+}
+
+/** Mirrors Rust `CustomRing::read_key_registry_root`, every ring with a delegate needs it. */
+export function fetchRingKeyRegistryRoot(
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingKeyRegistryRoot> {
+  return fetchIndexedRoot(KEY_REGISTRY_ROOT, client, ringProgramId, context);
+}
+
+export function createRingHeadMapRootInstruction(
+  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
+): Promise<Instruction> {
+  return createIndexedRootInstruction(HEAD_MAP_ROOT, input);
+}
+
+export function createRingKeyRegistryRootInstruction(
+  input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
+): Promise<Instruction> {
+  return createIndexedRootInstruction(KEY_REGISTRY_ROOT, input);
+}
+
+async function fetchIndexedRoot(
+  kind: IndexedRootKind,
+  client: Pick<ChainReader, "getAccount">,
+  ringProgramId: Address,
+  context?: RequestContext,
+): Promise<RingHeadMapRoot> {
+  const [address, bump] = await kind.pda(ringProgramId);
   const account = await client.getAccount(address, context);
-  if (account === undefined) throw new RingError("RING_HEAD_MAP_MISSING");
-  if (account.owner !== ringProgramId) throw new RingError("RING_HEAD_MAP_INVALID");
-  const root = decodeRingHeadMapRoot(account.data);
-  if (root.bump !== bump) throw new RingError("RING_HEAD_MAP_INVALID");
+  if (account === undefined) throw new RingError(kind.missing);
+  if (account.owner !== ringProgramId) throw new RingError(kind.invalid);
+  const root = kind.decode(account.data);
+  if (root.bump !== bump) throw new RingError(kind.invalid);
   return root;
 }
 
-export async function createRingHeadMapRootInstruction(
+async function createIndexedRootInstruction(
+  kind: IndexedRootKind,
   input: Readonly<{ ringProgramId: Address; payer: SignerAccount; authority: SignerAccount }>,
 ): Promise<Instruction> {
   const [config, [root]] = await Promise.all([
     ringConfigAddress(input.ringProgramId),
-    ringHeadMapRootPda(input.ringProgramId),
+    kind.pda(input.ringProgramId),
   ]);
   return {
     programAddress: input.ringProgramId,
@@ -82,7 +144,7 @@ export async function createRingHeadMapRootInstruction(
       meta(root, false, true),
       meta(SYSTEM_PROGRAM, false, false),
     ],
-    data: Uint8Array.of(CREATE_HEAD_MAP_ROOT_TAG),
+    data: Uint8Array.of(kind.createTag),
   };
 }
 
@@ -165,6 +227,15 @@ export async function fetchRingConfigs(
   return Object.freeze({ hasPolicy: true, config, policy });
 }
 
+/** The policy of a ring that keeps per-member spend records, else `undefined`. */
+export function windowedPolicy(configs: RingConfigs): RingPolicyConfig | undefined {
+  return configs.hasPolicy &&
+    configs.policy.windowSlots !== 0n &&
+    configs.policy.velocityCount !== 0
+    ? configs.policy
+    : undefined;
+}
+
 /** Mirrors Rust `CustomRing::read_cosigner`, `undefined` when the ring has no co-signer. */
 export async function fetchRingCoSigner(
   client: Pick<ChainReader, "getAccount">,
@@ -179,10 +250,7 @@ export async function fetchRingCoSigner(
       details: { ringProgramId, owner: account.owner },
     });
   }
-  const [, bump] = await getProgramDerivedAddress({
-    programAddress: ringProgramId,
-    seeds: [encoder.encode("cosigner")],
-  });
+  const [, bump] = await ringCoSignerPda(ringProgramId);
   const cosigner = decodeRingCoSigner(account.data);
   if (cosigner.bump !== bump) {
     throw new RingError("RING_CO_SIGNER_INVALID", { details: { ringProgramId, address } });
@@ -199,7 +267,6 @@ export async function setRingCoSignerInstruction(
     signer: Address;
     /** A nonzero subset of the `RING_COSIGN_*` bits. */
     scope: number;
-    /** Per mint, SOL under the zero address. */
     thresholds?: readonly { readonly mint: Address; readonly above: bigint }[];
   }>,
 ): Promise<Instruction> {
@@ -342,7 +409,6 @@ export async function setRingSpendWindowInstruction(
     ringProgramId: Address;
     payer: SignerAccount;
     authority: SignerAccount;
-    /** SOL under the zero address. */
     mint: Address;
     /** Nonzero, windows start at multiples of it. */
     windowSlots: bigint;

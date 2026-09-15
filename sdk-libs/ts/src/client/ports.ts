@@ -11,7 +11,7 @@ import type {
   Bytes32,
 } from "../interface/types.js";
 import type { NullifierKey } from "../keypair/nullifier-key.js";
-import type { ShieldedPublicKey } from "../keypair/public-key.js";
+import type { P256PublicKey, ShieldedPublicKey } from "../keypair/public-key.js";
 import type { ShieldedAddress } from "../keypair/shielded.js";
 import type { PreparedMerge } from "../transaction/instructions/builders.js";
 import type { IndexedShieldedTransaction } from "../transaction/instructions/transact.js";
@@ -26,6 +26,7 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterKeyProofRequest,
   CustomRingRegisterProofRequest,
   RingTransactRoots,
   TransferInputs,
@@ -66,21 +67,21 @@ export interface SlotReader {
   getSlot(context?: RequestContext): Promise<bigint>;
 }
 
-export interface RingHeadProofRequest {
+export interface RingMemberProofRequest {
   readonly ringProgramId: Address;
   readonly member: Bytes32;
   readonly expectedRoot: Bytes32;
   readonly expectedNextIndex: bigint;
 }
 
-export interface RingHeadProofContext {
+export interface RingMemberProofContext {
   readonly context: Readonly<{ slot: bigint; blockTime: bigint }>;
   readonly root: Bytes32;
   readonly nextIndex: bigint;
   readonly member: Bytes32;
 }
 
-export interface RingHeadRegisterProof extends RingHeadProofContext {
+export interface RingHeadRegisterProof extends RingMemberProofContext {
   readonly lowMember: Bytes32;
   readonly lowNext: Bytes32;
   readonly lowNullifier: Bytes32;
@@ -89,7 +90,7 @@ export interface RingHeadRegisterProof extends RingHeadProofContext {
   readonly newProof: readonly Bytes32[];
 }
 
-export interface RingHeadTransferProof extends RingHeadProofContext {
+export interface RingHeadTransferProof extends RingMemberProofContext {
   readonly next: Bytes32;
   readonly nullifier: Bytes32;
   readonly index: bigint;
@@ -99,13 +100,41 @@ export interface RingHeadTransferProof extends RingHeadProofContext {
 
 export interface RingHeadReader {
   getRingHeadRegisterProof(
-    request: RingHeadProofRequest,
+    request: RingMemberProofRequest,
     context?: RequestContext,
   ): Promise<RingHeadRegisterProof>;
   getRingHeadTransferProof(
-    request: RingHeadProofRequest,
+    request: RingMemberProofRequest,
     context?: RequestContext,
   ): Promise<RingHeadTransferProof>;
+}
+
+export interface RingKeyRegistryRegisterProof extends RingMemberProofContext {
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowCtCommitment: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+export interface RingKeyRegistryEntry extends RingMemberProofContext {
+  readonly next: Bytes32;
+  readonly index: bigint;
+  readonly ephemeralPublicKey: P256PublicKey;
+  readonly ciphertext: Bytes32;
+  readonly proof: readonly Bytes32[];
+}
+
+export interface RingKeyRegistryReader {
+  getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry>;
+  getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof>;
 }
 
 export type RingSubmissionStatus =
@@ -113,10 +142,19 @@ export type RingSubmissionStatus =
   | Readonly<{ kind: "confirmed"; slot: bigint }>
   | Readonly<{ kind: "failed"; instructionIndex?: number; customCode?: number }>;
 
+export interface RingSubmissionPending {
+  readonly signature: Signature;
+  readonly lastValidBlockHeight: bigint;
+}
+
 export interface RingSubmissionTransport {
   sign(transaction: Transaction, context?: RequestContext): Promise<Transaction>;
-  send(transaction: Transaction, context?: RequestContext): Promise<void>;
-  status(signature: Signature, context?: RequestContext): Promise<RingSubmissionStatus>;
+  /** A refusal before broadcast returns `failed`, a throw leaves the signature pending. */
+  send(
+    transaction: Transaction,
+    context?: RequestContext,
+  ): Promise<RingSubmissionStatus | undefined>;
+  status(pending: RingSubmissionPending, context?: RequestContext): Promise<RingSubmissionStatus>;
 }
 
 export interface IndexerReader {
@@ -178,6 +216,10 @@ export interface Prover {
   ): Promise<Uint8Array>;
   proveCustomRingRegister(
     inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array>;
+  proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
     context?: RequestContext,
   ): Promise<Uint8Array>;
   proveTransact(

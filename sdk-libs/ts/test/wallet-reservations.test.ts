@@ -15,6 +15,7 @@ import {
   serializeWallet,
 } from "../src/transaction/index.js";
 import { AssetRegistry } from "../src/transaction/asset.js";
+import { extendReservation } from "../src/flows/reserve.js";
 import { createSplit, createTransfer } from "../src/wallet/actions.js";
 import { createMerge, MergeMaterial } from "../src/wallet/merge.js";
 import { buildTransferTransaction } from "../src/wallet/transactions.js";
@@ -173,6 +174,23 @@ describe("UTXO reservations", () => {
       code: "WALLET_CREATE_TRANSFER",
     });
     now.mockReturnValue(1_000_000 + 120_000);
+    await expect(createTransfer(transferParams(wallet, 3n))).resolves.toBeDefined();
+  });
+
+  it("keeps an extended reservation past its first expiry", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const keypair = spendingKeypair();
+    const wallet = fundedWallet(keypair, [5n]);
+    await createTransfer(transferParams(wallet, 3n));
+    const reservation = wallet._reservationEntries()[0];
+    if (reservation === undefined) throw new Error("reservation");
+    now.mockReturnValue(1_000_000 + 100_000);
+    extendReservation(wallet, reservation.id);
+    now.mockReturnValue(1_000_000 + 200_000);
+    await expect(createTransfer(transferParams(wallet, 3n))).rejects.toMatchObject({
+      code: "WALLET_CREATE_TRANSFER",
+    });
+    now.mockReturnValue(1_000_000 + 220_000);
     await expect(createTransfer(transferParams(wallet, 3n))).resolves.toBeDefined();
   });
 

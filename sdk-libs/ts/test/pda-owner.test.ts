@@ -1,3 +1,4 @@
+import { getAddressDecoder } from "@solana/kit";
 import { describe, expect, it } from "vitest";
 
 import { solanaOwnerIdentity } from "../src/hasher/index.js";
@@ -42,8 +43,12 @@ describe("PDA owner", () => {
     const address = filled(0x51);
     const nullifier = filled(0x00);
     const viewing = P256PublicKey.fromSecret(filled(0x09));
-    const shielded = ShieldedAddress.forPda(address, nullifier, viewing);
+    const shielded = ShieldedAddress.forPda({
+      pda: address,
+      nullifierPublicKey: nullifier,
+      viewingPublicKey: viewing,
+    });
     expect(shielded.signingPublicKey.signatureType()).toBe("pda");
-    expect([...shielded.solanaAddress().toString()].length).toBeGreaterThan(0);
+    expect(shielded.solanaAddress()).toBe(getAddressDecoder().decode(address));
   });
 });

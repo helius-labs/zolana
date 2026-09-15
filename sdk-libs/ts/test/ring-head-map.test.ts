@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
 import type { Bytes32 } from "../src/interface/types.js";
 import {
+  HEAD_MAP_CAPACITY,
   HEAD_MAP_EMPTY_ROOT,
   HEAD_MAP_FIELD_MAX,
   HEAD_MAP_HEIGHT,
@@ -24,8 +25,10 @@ beforeAll(async () => {
 describe("ring head map", () => {
   it("rejects negative and aliased forty-bit proof indexes", () => {
     const path = headMapZeroBytes().slice(0, HEAD_MAP_HEIGHT);
-    for (const index of [-1n, 1n << 40n, (1n << 40n) + 1n]) {
-      expect(() => headMapRootFromProof(ZERO, index, path)).toThrow("RING_HEAD_MAP_INVALID");
+    for (const index of [-1n, HEAD_MAP_CAPACITY, HEAD_MAP_CAPACITY + 1n]) {
+      expect(() => headMapRootFromProof({ leaf: ZERO, index, proof: path })).toThrow(
+        "RING_HEAD_MAP_INVALID",
+      );
     }
   });
 
@@ -37,14 +40,20 @@ describe("ring head map", () => {
 
   it("rejects noncanonical field values before hashing", () => {
     const invalid = new Uint8Array(32).fill(255) as Bytes32;
-    expect(() => headMapLeaf(ZERO, HEAD_MAP_FIELD_MAX, invalid)).toThrow("RING_HEAD_MAP_INVALID");
+    expect(() =>
+      headMapLeaf({ member: ZERO, next: HEAD_MAP_FIELD_MAX, nullifier: invalid }),
+    ).toThrow("RING_HEAD_MAP_INVALID");
   });
   // The pinned empty root proves the TS leaf, zero-bytes and reduction match the
   // Rust reference and the Go circuit element for element.
   it("reduces the sentinel-only tree to the pinned empty root", () => {
     const zeros = headMapZeroBytes();
-    const sentinel = headMapLeaf(ZERO, HEAD_MAP_FIELD_MAX, ZERO);
-    const root = headMapRootFromProof(sentinel, 0n, zeros.slice(0, HEAD_MAP_HEIGHT));
+    const sentinel = headMapLeaf({ member: ZERO, next: HEAD_MAP_FIELD_MAX, nullifier: ZERO });
+    const root = headMapRootFromProof({
+      leaf: sentinel,
+      index: 0n,
+      proof: zeros.slice(0, HEAD_MAP_HEIGHT),
+    });
     expect(root).toEqual(HEAD_MAP_EMPTY_ROOT);
   });
 
@@ -54,7 +63,7 @@ describe("ring head map", () => {
     const genesis = member(0x5e);
     const successor = member(0x77);
 
-    const splicedLow = headMapLeaf(ZERO, newMember, ZERO);
+    const splicedLow = headMapLeaf({ member: ZERO, next: newMember, nullifier: ZERO });
     const newProof = [splicedLow, ...zeros.slice(1, HEAD_MAP_HEIGHT)];
 
     const registeredRoot = verifyHeadMapInsert({
@@ -115,7 +124,10 @@ describe("ring head map", () => {
       lowNullifier: ZERO,
       lowIndex: 0n,
       lowProof,
-      newProof: [headMapLeaf(ZERO, member(0x1234), ZERO), ...zeros.slice(1, HEAD_MAP_HEIGHT)],
+      newProof: [
+        headMapLeaf({ member: ZERO, next: member(0x1234), nullifier: ZERO }),
+        ...zeros.slice(1, HEAD_MAP_HEIGHT),
+      ],
     };
     expect(() => verifyHeadMapInsert({ ...insert, root: member(9) })).toThrow(
       "RING_HEAD_MAP_INVALID",

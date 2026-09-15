@@ -12,11 +12,12 @@ import {
 import {
   ProverClient,
   customRingCompressedPolicyProofRequest,
+  customRingRegisterKeyProofRequest,
   customRingRegisterProofRequest,
 } from "../src/client/prover/client.js";
 import type { NonInclusionProof } from "../src/client/rpc.js";
 import type { Bytes32 } from "../src/interface/index.js";
-import { disabledRuleAnswer, velocityWitnessOff } from "../src/client/prover/types.js";
+import { disabledRuleAnswer, velocityProofInputOff } from "../src/client/prover/types.js";
 import { treeAddress } from "../src/interface/pda/index.js";
 import { INPUT_TREES, ZERO_TREE_SLOT } from "../src/interface/tree-slot.js";
 import type {
@@ -121,7 +122,7 @@ function ringRequest(auditorPublicKey: Uint8Array): CustomRingPolicyProofRequest
     stateRoot: bytes(8),
     nullifierRoot: bytes(9),
     entriesTreeId: 3,
-    velocity: velocityWitnessOff(bytes(10), bytes(11)),
+    velocity: velocityProofInputOff({ ringId: bytes(10), namespaceOwnerHash: bytes(11) }),
     answers: Array.from({ length: 10 }, () => disabledRuleAnswer()),
   };
 }
@@ -184,6 +185,42 @@ describe("compressed ring prover contracts", () => {
     });
     expect(() => customRingRegisterProofRequest({ ...request, lowIndex: -1n })).toThrow(
       "CLIENT_INVALID_INTEGER",
+    );
+  });
+
+  it("serializes the key registration like Rust `RegisterKeyProofRequest::body`", () => {
+    const nullifierSecret = bytes(0);
+    nullifierSecret[31] = 7;
+    const request = {
+      publicInputHash: bytes(0),
+      headOldRoot: bytes(1),
+      headNewRoot: bytes(2),
+      member: bytes(3),
+      newIndex: 1n,
+      lowMember: bytes(0),
+      lowNext: bytes(5),
+      lowNullifier: bytes(0),
+      lowIndex: 0n,
+      lowProof: Array.from({ length: 40 }, () => bytes(0)),
+      newProof: Array.from({ length: 40 }, () => bytes(0)),
+      nullifierSecret,
+      ephemeralSecret: bytes(6),
+      auditorPublicKey: p256.getPublicKey(bytes(4), false),
+    };
+    const body = customRingRegisterKeyProofRequest(request);
+    expect(body).toMatchObject({
+      circuitType: "custom-ring-register-key",
+      newIndex: `0x${"0".repeat(63)}1`,
+      nullifierSecret: `0x${"0".repeat(62)}07`,
+      ephSk: fieldHex(6),
+    });
+    expect(String(body["auditorPk"])).toHaveLength(132);
+    expect(String(body["ephSk"])).toHaveLength(66);
+    expect(body).not.toHaveProperty("genesis");
+    const high = bytes(0);
+    high[0] = 1;
+    expect(() => customRingRegisterKeyProofRequest({ ...request, nullifierSecret: high })).toThrow(
+      "CLIENT_INVALID_PROOF_INPUTS",
     );
   });
 

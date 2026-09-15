@@ -6,7 +6,9 @@ import {
   decodeShieldedTransactionsResponse,
   encodeRingsByTagsRequest,
   decodeRingHeadRegisterProof,
-  encodeRingHeadProofRequest,
+  decodeRingKeyRegistryEntry,
+  decodeRingKeyRegistryRegisterProof,
+  encodeRingMemberProofRequest,
 } from "../src/indexer/codec.js";
 import { hash } from "../src/indexer/scalars.js";
 import { ZolanaApi } from "../src/api/index.js";
@@ -33,7 +35,7 @@ describe("compressed head proof wire", () => {
 
   it("keeps the full forty-bit cursor exact and requires both complete paths", () => {
     expect(
-      encodeRingHeadProofRequest({
+      encodeRingMemberProofRequest({
         ringProgramId: RING,
         member: TAG,
         expectedRoot: TAG,
@@ -50,7 +52,7 @@ describe("compressed head proof wire", () => {
     ])
       expect(() => decodeRingHeadRegisterProof({ ...response, ...changed })).toThrow();
     expect(() =>
-      encodeRingHeadProofRequest({
+      encodeRingMemberProofRequest({
         ringProgramId: RING,
         member: TAG,
         expectedRoot: TAG,
@@ -102,6 +104,83 @@ describe("compressed head proof wire", () => {
     await expect(indexer.getRingHeadRegisterProof(request)).rejects.toMatchObject({
       code: "CLIENT_INVALID_RPC_RESPONSE",
     });
+  });
+});
+
+describe("key registry wire", () => {
+  const proof = {
+    context: { slot: 1, blockTime: 2 },
+    root: TAG,
+    member: TAG,
+    nextIndex: 1,
+    lowMember: TAG,
+    lowNext: TAG,
+    lowCtCommitment: TAG,
+    lowIndex: 0,
+    lowProof: Array.from({ length: 40 }, () => TAG),
+    newProof: Array.from({ length: 40 }, () => TAG),
+  };
+  const entry = {
+    context: { slot: 1, blockTime: 2 },
+    root: TAG,
+    member: TAG,
+    nextIndex: 2,
+    next: TAG,
+    index: 1,
+    ephPk: Buffer.from(
+      "0268737cf1d852483220d399b5321261d5e9e90d8214dc62b4f7e4d0fee955c5d5",
+      "hex",
+    ).toString("base64"),
+    ciphertext: Buffer.alloc(32, 7).toString("base64"),
+    proof: Array.from({ length: 40 }, () => TAG),
+  };
+
+  it("names the predecessor commitment and keeps the entry inside the cursor", () => {
+    expect(decodeRingKeyRegistryRegisterProof(proof)).toMatchObject({ lowIndex: 0n });
+    expect(() => decodeRingKeyRegistryRegisterProof({ ...proof, lowNullifier: TAG })).toThrow();
+    expect(decodeRingKeyRegistryEntry(entry)).toMatchObject({ index: 1n, nextIndex: 2n });
+    for (const changed of [{ index: 0 }, { index: 2 }, { proof: [] }, { ephPk: 3 }])
+      expect(() => decodeRingKeyRegistryEntry({ ...entry, ...changed })).toThrow();
+  });
+
+  it("distinguishes every typed registry RPC failure and rejects a malformed entry", async () => {
+    const zero = new Uint8Array(32) as Bytes32;
+    const request = {
+      ringProgramId: RING,
+      member: zero,
+      expectedRoot: zero,
+      expectedNextIndex: 2n,
+    };
+    const indexerFor = (body: Readonly<Record<string, unknown>>) =>
+      new ZolanaIndexer(
+        new ZolanaApi({
+          url: "https://indexer.example",
+          fetch: async () => Response.json({ jsonrpc: "2.0", id: "test-account", ...body }),
+        }),
+      );
+    for (const [rpcCode, code] of [
+      [-32074, "CLIENT_KEY_REGISTRY_OUT_OF_SYNC"],
+      [-32075, "CLIENT_KEY_REGISTRY_ROOT_CHANGED"],
+      [-32076, "CLIENT_KEY_REGISTRY_MEMBER_UNREGISTERED"],
+      [-32077, "CLIENT_KEY_REGISTRY_MEMBER_ALREADY_REGISTERED"],
+    ] as const) {
+      const indexer = indexerFor({ error: { code: rpcCode, message: "private diagnostics" } });
+      await expect(indexer.getRingKeyRegistryEntry(request)).rejects.toMatchObject({ code });
+      await expect(indexer.getRingKeyRegistryRegisterProof(request)).rejects.toMatchObject({
+        code,
+      });
+    }
+    const decoded = await indexerFor({ result: entry }).getRingKeyRegistryEntry(request);
+    expect(decoded.ephemeralPublicKey.toBytes()[0]).toBe(0x02);
+    expect(decoded.ciphertext).toEqual(new Uint8Array(32).fill(7));
+    for (const changed of [
+      { ciphertext: Buffer.alloc(31, 7).toString("base64") },
+      { ephPk: Buffer.alloc(33, 9).toString("base64") },
+      { nextIndex: 3 },
+    ])
+      await expect(
+        indexerFor({ result: { ...entry, ...changed } }).getRingKeyRegistryEntry(request),
+      ).rejects.toMatchObject({ code: "CLIENT_INVALID_RPC_RESPONSE" });
   });
 });
 

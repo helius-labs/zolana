@@ -3,17 +3,17 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { initializePoseidon } from "../src/hasher/index.js";
 import { ringHeadMapRootAddress } from "../src/interface/pda/index.js";
-import type { Bytes32, Bytes128, TransactProof } from "../src/interface/types.js";
+import type { Bytes31, Bytes32, Bytes128, TransactProof } from "../src/interface/types.js";
 import { ShieldedAddress } from "../src/keypair/shielded.js";
 import { ShieldedPublicKey } from "../src/keypair/public-key.js";
 import { NullifierKey } from "../src/keypair/nullifier-key.js";
 import { ViewingKey } from "../src/keypair/viewing-key.js";
 import { Utxo, ProofInputUtxo, createProofOutput } from "../src/transaction/utxo.js";
 import type { ProofInputUtxo as InputUtxo, ProofOutputUtxo } from "../src/transaction/utxo.js";
+import type { CustomRingVelocityRow } from "../src/client/prover/types.js";
 import { registerRingSpendInstruction } from "../src/ring/instructions.js";
-import { chargeRows, recordShape, senderOutflow } from "../src/ring/velocity.js";
-import { memberOfAsset, memberOfIdentity } from "../src/ring/policy.js";
-import type { VelocityRow } from "../src/ring/policy.js";
+import { chargeRows, recordShape, senderOutflow, type RingMovement } from "../src/ring/velocity.js";
+import { memberOfAsset, memberOfIdentity, type Member } from "../src/ring/policy.js";
 
 const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
 const addressOf = (bytes: Bytes32) => getAddressDecoder().decode(bytes);
@@ -21,12 +21,9 @@ const RING = addressOf(filled(0x5a));
 const ASSET = addressOf(filled(0xd4));
 const NAMESPACE_OWNER = filled(0x77);
 
-function senderIdentity(): {
-  member: ReturnType<typeof memberOfIdentity>;
-  address: ShieldedAddress;
-} {
+function senderIdentity(): { member: Member; address: ShieldedAddress } {
   const signing = ShieldedPublicKey.fromEd25519(filled(0xb2));
-  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(1) as never);
+  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(1) as Bytes31);
   const viewing = ViewingKey.generate();
   try {
     const address = ShieldedAddress.fromPublicKeys(
@@ -43,7 +40,7 @@ function senderIdentity(): {
 
 function moneyInput(amount: bigint): InputUtxo {
   const owner = ShieldedPublicKey.fromEd25519(filled(0xb2));
-  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(2) as never);
+  const nullifier = NullifierKey.fromSecret(new Uint8Array(31).fill(2) as Bytes31);
   try {
     return new ProofInputUtxo({
       utxo: new Utxo({ owner, asset: ASSET, amount, blinding: filled(0x51), ringProgramId: RING }),
@@ -64,6 +61,14 @@ function changeOutput(address: ShieldedAddress, amount: bigint): ProofOutputUtxo
   });
 }
 
+function movement(
+  sender: Member,
+  inputs: readonly InputUtxo[],
+  outputs: readonly ProofOutputUtxo[] = [],
+): RingMovement {
+  return { sender, ringProgramId: RING, inputs, outputs };
+}
+
 describe("velocity outflow and charge", () => {
   beforeAll(async () => {
     await initializePoseidon();
@@ -81,22 +86,35 @@ describe("velocity outflow and charge", () => {
   it("charges inputs less the sender's change inside the ring", () => {
     const { member, address } = senderIdentity();
     const asset = memberOfAsset(ASSET);
-    expect(senderOutflow(member, RING, [moneyInput(1000n)], [], asset)).toBe(1000n);
+    expect(senderOutflow(movement(member, [moneyInput(1000n)]), asset)).toBe(1000n);
     expect(
-      senderOutflow(member, RING, [moneyInput(1000n)], [changeOutput(address, 400n)], asset),
+      senderOutflow(movement(member, [moneyInput(1000n)], [changeOutput(address, 400n)]), asset),
     ).toBe(600n);
+  });
+
+  it("refuses an outflow above u64", () => {
+    const { member } = senderIdentity();
+    const half = (1n << 63n) + 1n;
+    expect(() =>
+      senderOutflow(movement(member, [moneyInput(half), moneyInput(half)]), memberOfAsset(ASSET)),
+    ).toThrow(expect.objectContaining({ code: "RING_VELOCITY_OVERFLOW" }));
   });
 
   it("refuses a transfer over the cap and reads the threshold on the outflow alone", () => {
     const { member } = senderIdentity();
     const asset = memberOfAsset(ASSET);
-    const rows: readonly VelocityRow[] = [{ asset, cap: 650n, cosignAbove: 300n }];
-    const under = chargeRows(member, RING, [moneyInput(250n)], [], rows, NAMESPACE_OWNER);
+    const rows: readonly CustomRingVelocityRow[] = [{ asset, cap: 650n, cosignAbove: 300n }];
+    const charge = (amount: bigint) =>
+      chargeRows({
+        movement: movement(member, [moneyInput(amount)]),
+        rows,
+        namespaceOwnerHash: NAMESPACE_OWNER,
+      });
+    const under = charge(250n);
     expect(under.approvalRequired).toBe(false);
     expect(under.windowSlots).toBe(0n);
-    const above = chargeRows(member, RING, [moneyInput(350n)], [], rows, NAMESPACE_OWNER);
-    expect(above.approvalRequired).toBe(true);
-    expect(() => chargeRows(member, RING, [moneyInput(700n)], [], rows, NAMESPACE_OWNER)).toThrow(
+    expect(charge(350n).approvalRequired).toBe(true);
+    expect(() => charge(700n)).toThrow(
       expect.objectContaining({ code: "RING_VELOCITY_CAP_EXCEEDED" }),
     );
   });
@@ -104,9 +122,13 @@ describe("velocity outflow and charge", () => {
   it("asks no co-signer at the threshold", () => {
     const { member } = senderIdentity();
     const asset = memberOfAsset(ASSET);
-    const rows: readonly VelocityRow[] = [{ asset, cap: 0n, cosignAbove: 300n }];
+    const rows: readonly CustomRingVelocityRow[] = [{ asset, cap: 0n, cosignAbove: 300n }];
     expect(
-      chargeRows(member, RING, [moneyInput(300n)], [], rows, NAMESPACE_OWNER).approvalRequired,
+      chargeRows({
+        movement: movement(member, [moneyInput(300n)]),
+        rows,
+        namespaceOwnerHash: NAMESPACE_OWNER,
+      }).approvalRequired,
     ).toBe(false);
   });
 });

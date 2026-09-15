@@ -9,12 +9,8 @@ import { describe, expect, it, vi } from "vitest";
 import { initializePoseidon } from "../src/hasher/index.js";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import {
-  ringConfigAddress,
-  ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-  ringProgramDataAddress,
-} from "../src/ring/config.js";
+import { ringConfigAddress, ringPolicyConfigAddress } from "../src/interface/pda/index.js";
+import { ringPolicyNamespaceAddress, ringProgramDataAddress } from "../src/ring/config.js";
 import {
   RING_CREATE_POLICY_COMPUTE_UNIT_LIMIT,
   RING_ENTRY_MUTATION_COMPUTE_UNIT_LIMIT,

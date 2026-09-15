@@ -37,6 +37,7 @@ import {
   buildRingTransferTransaction,
   selectRingInputs,
 } from "../src/ring/transfer.js";
+import { RING_INPUT_SLOTS } from "../src/client/prover/types.js";
 import { buildDepositTransaction, createDeposit } from "../src/wallet/deposit.js";
 import { depositClient, privateTransactionClient, ringTransferClient } from "./helpers/clients.js";
 import { emptyTransaction } from "./helpers/transactions.js";
@@ -563,9 +564,17 @@ function ringUtxoWallet(
 describe("selectRingInputs", () => {
   it("refuses a zero amount", () => {
     const wallet = ringUtxoWallet(spendingKeypair(), [[10n, RING]]);
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 0n, "ring", TREE)).toThrow(
-      "RING_ZERO_AMOUNT",
-    );
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 0n,
+        inputs: "ring",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_ZERO_AMOUNT");
   });
 
   it("keeps default UTXOs out of ring funding unless the entry opts in", () => {
@@ -573,10 +582,26 @@ describe("selectRingInputs", () => {
       [10n, undefined],
       [10n, RING],
     ]);
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring", TREE)).toThrow(
-      "RING_INSUFFICIENT_BALANCE",
-    );
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 15n, "ring-or-default", TREE);
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 15n,
+        inputs: "ring",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_INSUFFICIENT_BALANCE");
+    const selected = selectRingInputs({
+      wallet: wallet,
+      ringProgramId: RING,
+      asset: SOL_MINT,
+      amount: 15n,
+      inputs: "ring-or-default",
+      tree: TREE,
+      maxInputs: RING_INPUT_SLOTS,
+    });
     expect(selected).toHaveLength(2);
   });
 
@@ -585,12 +610,28 @@ describe("selectRingInputs", () => {
       [100n, RING],
       [25n, undefined],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 25n, "default", TREE);
+    const selected = selectRingInputs({
+      wallet: wallet,
+      ringProgramId: RING,
+      asset: SOL_MINT,
+      amount: 25n,
+      inputs: "default",
+      tree: TREE,
+      maxInputs: RING_INPUT_SLOTS,
+    });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "default", TREE)).toThrow(
-      "RING_INSUFFICIENT_BALANCE",
-    );
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 30n,
+        inputs: "default",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
 
   it("never offers a UTXO outside the requested tree", () => {
@@ -598,12 +639,28 @@ describe("selectRingInputs", () => {
       [50n, RING, RECIPIENT],
       [20n, RING],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring", TREE);
+    const selected = selectRingInputs({
+      wallet: wallet,
+      ringProgramId: RING,
+      asset: SOL_MINT,
+      amount: 20n,
+      inputs: "ring",
+      tree: TREE,
+      maxInputs: RING_INPUT_SLOTS,
+    });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.amount).toBe(20n);
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring", TREE)).toThrow(
-      "RING_INSUFFICIENT_BALANCE",
-    );
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 30n,
+        inputs: "ring",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
 
   it("covers a fragmented balance with the largest UTXO", () => {
@@ -611,7 +668,15 @@ describe("selectRingInputs", () => {
       ...Array.from({ length: 6 }, () => [5n, RING] as const),
       [100n, RING],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 100n, "ring", TREE);
+    const selected = selectRingInputs({
+      wallet: wallet,
+      ringProgramId: RING,
+      asset: SOL_MINT,
+      amount: 100n,
+      inputs: "ring",
+      tree: TREE,
+      maxInputs: RING_INPUT_SLOTS,
+    });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.amount).toBe(100n);
   });
@@ -621,9 +686,17 @@ describe("selectRingInputs", () => {
       spendingKeypair(),
       Array.from({ length: 6 }, () => [5n, RING] as const),
     );
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring", TREE)).toThrow(
-      "RING_TOO_MANY_INPUTS",
-    );
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 30n,
+        inputs: "ring",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_TOO_MANY_INPUTS");
   });
 
   it("never offers another ring's UTXOs under either mode", () => {
@@ -631,12 +704,28 @@ describe("selectRingInputs", () => {
       [50n, RECIPIENT],
       [20n, undefined],
     ]);
-    const selected = selectRingInputs(wallet, RING, SOL_MINT, 20n, "ring-or-default", TREE);
+    const selected = selectRingInputs({
+      wallet: wallet,
+      ringProgramId: RING,
+      asset: SOL_MINT,
+      amount: 20n,
+      inputs: "ring-or-default",
+      tree: TREE,
+      maxInputs: RING_INPUT_SLOTS,
+    });
     expect(selected).toHaveLength(1);
     expect(selected[0]?.utxo.ringProgramId).toBeUndefined();
-    expect(() => selectRingInputs(wallet, RING, SOL_MINT, 30n, "ring-or-default", TREE)).toThrow(
-      "RING_INSUFFICIENT_BALANCE",
-    );
+    expect(() =>
+      selectRingInputs({
+        wallet: wallet,
+        ringProgramId: RING,
+        asset: SOL_MINT,
+        amount: 30n,
+        inputs: "ring-or-default",
+        tree: TREE,
+        maxInputs: RING_INPUT_SLOTS,
+      }),
+    ).toThrow("RING_INSUFFICIENT_BALANCE");
   });
 });
 

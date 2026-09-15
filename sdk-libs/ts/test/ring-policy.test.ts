@@ -48,12 +48,14 @@ import {
   type RuleGuard,
 } from "../src/ring/policy.js";
 import { RingError } from "../src/ring/error.js";
+import { bigIntBytes } from "../src/transaction/internal.js";
 
 import { matchesPage, syncReads, transactionsPage } from "./helpers/clients.js";
 
 await initializePoseidon();
 
 const hex = (text: string): Bytes32 => Uint8Array.from(Buffer.from(text, "hex")) as Bytes32;
+const hexBytes = (text: string): Uint8Array => Uint8Array.from(Buffer.from(text, "hex"));
 const filled = (byte: number): Bytes32 => new Uint8Array(32).fill(byte) as Bytes32;
 const addressOf = (bytes: Uint8Array): Address => getAddressDecoder().decode(bytes);
 
@@ -222,11 +224,21 @@ describe("rule tables", () => {
       ],
       inlineAssets: [mint],
       inlineLimits: [0n],
+      windowSlots: 0n,
+      velocity: [],
     });
     expect(table.rules).toHaveLength(4);
     expect(table.rules[3]?.guard).toEqual({ kind: "aboveAmount", amount: 2000n });
     expect(referencedLists(table.rules)).toEqual([ListId.allow, ListId.frozen, ListId.approval]);
-    expect(decodeRuleTable({ rules: [], inlineAssets: [], inlineLimits: [] }).rules).toEqual([]);
+    expect(
+      decodeRuleTable({
+        rules: [],
+        inlineAssets: [],
+        inlineLimits: [],
+        windowSlots: 0n,
+        velocity: [],
+      }).rules,
+    ).toEqual([]);
     const limited = decodeRuleTable({
       rules: [perAsset],
       inlineAssets: [mint],
@@ -304,7 +316,9 @@ describe("rule tables", () => {
       ],
     ];
     for (const [expected, input] of cases) {
-      expect(reason(() => decodeRuleTable(input))).toBe(expected);
+      expect(reason(() => decodeRuleTable({ ...input, windowSlots: 0n, velocity: [] }))).toBe(
+        expected,
+      );
     }
   });
 });
@@ -334,6 +348,21 @@ const BLOCK_CLEARED = {
   blinding: 3,
 };
 const FROZEN_ADDRESS = "30036588ff59652a8d248e3c5927aaf96e08d59f40b3291c1eec8af8f7fd1687";
+/** Rust `SpendRecord::to_output_data` and `SpendCounters::to_bytes` of the spend record fixture. */
+const RUST_RECORD_BYTES = hexBytes(
+  "0070000000" +
+    "2b9c54be111ea32dfc8a42bf899737414a0ac2951d198fff0e39957161310823" +
+    "0400000000000000" +
+    "0300000000000000" +
+    "2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76" +
+    "0000000000000000000000000000000000000000000000000000000000000063",
+);
+const RUST_COUNTERS_BYTES = hexBytes(
+  "0000000000000000000000000000000000000000000000000000000000005a17" +
+    "14a6b5092f941bd4336fe2a25fc617a9515b457e027e0cf5e4867c0858855ec1" +
+    "bc02000000000000" +
+    "00".repeat(7 * 40),
+);
 
 function entry(
   listId: ListId,
@@ -351,15 +380,7 @@ function fieldOf(value: number): Bytes32 {
   return bytes as Bytes32;
 }
 
-function bigField(value: bigint): Bytes32 {
-  const bytes = new Uint8Array(32);
-  let rest = value;
-  for (let index = 31; rest > 0n; index -= 1) {
-    bytes[index] = Number(rest & 0xffn);
-    rest >>= 8n;
-  }
-  return bytes as Bytes32;
-}
+const bigField = (value: bigint): Bytes32 => bigIntBytes(value) as Bytes32;
 
 /** Rust `ListEntry::to_output_data`. */
 function outputData(value: ListEntry): Uint8Array {
@@ -903,7 +924,8 @@ describe("policy hash", () => {
       hex("2c8f5bde77147b8f6f9bd1e5edb381e8b14e39a117d1a8f94e8d58335e4e6c76"),
     );
     expect(spendCountersSpent(counters, memberOfAsset(ASSET_MINT))).toBe(700n);
-    expect(decodeSpendCounters(encodeSpendCounters(counters))).toEqual(counters);
+    expect(encodeSpendCounters(counters)).toEqual(RUST_COUNTERS_BYTES);
+    expect(decodeSpendCounters(RUST_COUNTERS_BYTES)).toEqual(counters);
     const record = {
       member: sender,
       version: 4n,
@@ -918,7 +940,8 @@ describe("policy hash", () => {
     expect(hashes.utxoHash).toEqual(
       hex("05e7e17a7845a03bdac567ab45ebe5f11814cd25c24bbd5a3d0ac651c1bdb0fc"),
     );
-    expect(decodeSpendRecord(encodeSpendRecord(record))).toEqual(record);
+    expect(encodeSpendRecord(record)).toEqual(RUST_RECORD_BYTES);
+    expect(decodeSpendRecord(RUST_RECORD_BYTES)).toEqual(record);
     expect(spendCountersCommitment(zeroSpendCounters())).toEqual(
       hex("03bcb66825613582f9362a608fd94f6c4be191680bca9f8e75b1fee93268e1df"),
     );

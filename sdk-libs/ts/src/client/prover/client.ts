@@ -1,3 +1,4 @@
+import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../../interface/head-map.js";
 import { treeIdField } from "../../interface/tree-slot.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
@@ -32,8 +33,10 @@ import type {
   CustomRingRuleAnswer,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
+  CustomRingHeadInsertion,
+  CustomRingRegisterKeyProofRequest,
   CustomRingRegisterProofRequest,
-  CustomRingSpendRecordWitness,
+  CustomRingSpendRecordProofInput,
   CustomRingVelocityRow,
   Field,
   MergeInputs,
@@ -95,40 +98,6 @@ export class ProverClient {
   readonly #url: URL;
   readonly #asyncPoll: AsyncPollConfig;
 
-  async proveCustomRingCompressedPolicy(
-    inputs: CustomRingCompressedPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    return this.#send(
-      JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
-      "queued",
-      context,
-    );
-  }
-
-  async proveCustomRingRegister(
-    inputs: CustomRingRegisterProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    return this.#send(JSON.stringify(customRingRegisterProofRequest(inputs)), "queued", context);
-  }
-
-  async proveCustomRingDelegatePolicy(
-    inputs: CustomRingPolicyProofRequest,
-    context?: RequestContext,
-  ): Promise<Proof> {
-    if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
-      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
-    return this.#send(
-      JSON.stringify({
-        circuitType: "custom-ring-delegate-policy",
-        policy: customRingPolicyProofRequest(inputs),
-      }),
-      "queued",
-      context,
-    );
-  }
-
   constructor(
     input: Readonly<{
       url: URL | string;
@@ -167,6 +136,47 @@ export class ProverClient {
     context?: RequestContext,
   ): Promise<Proof> {
     return this.#send(JSON.stringify(customRingPolicyProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingCompressedPolicy(
+    inputs: CustomRingCompressedPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(
+      JSON.stringify(customRingCompressedPolicyProofRequest(inputs)),
+      "queued",
+      context,
+    );
+  }
+
+  async proveCustomRingRegister(
+    inputs: CustomRingRegisterProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingRegisterProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    return this.#send(JSON.stringify(customRingRegisterKeyProofRequest(inputs)), "queued", context);
+  }
+
+  async proveCustomRingDelegatePolicy(
+    inputs: CustomRingPolicyProofRequest,
+    context?: RequestContext,
+  ): Promise<Proof> {
+    if (inputs.velocity.windowIndex !== 0n || inputs.velocity.approvalRequired)
+      throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+    return this.#send(
+      JSON.stringify({
+        circuitType: "custom-ring-delegate-policy",
+        policy: customRingPolicyProofRequest(inputs),
+      }),
+      "queued",
+      context,
+    );
   }
 
   async proveCustomRingBase(
@@ -486,7 +496,7 @@ export function customRingPolicyProofRequest(
 }
 
 function headIndexHex(index: bigint, field: string): string {
-  if (typeof index !== "bigint" || index < 0n || index >= 1n << 40n)
+  if (typeof index !== "bigint" || index < 0n || index >= HEAD_MAP_CAPACITY)
     throw new ClientError("CLIENT_INVALID_INTEGER", { details: { field } });
   return `0x${index.toString(16).padStart(64, "0")}`;
 }
@@ -501,7 +511,28 @@ export function customRingCompressedPolicyProofRequest(
     headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
     headNext: hex32(input.headNext, "headNext"),
     headIndex: headIndexHex(input.headIndex, "headIndex"),
-    headProof: sized(input.headProof, 40, "headProof").map((node) => hex32(node, "headProof")),
+    headProof: sized(input.headProof, HEAD_MAP_HEIGHT, "headProof").map((node) =>
+      hex32(node, "headProof"),
+    ),
+  });
+}
+
+function headInsertionJson(input: CustomRingHeadInsertion): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
+    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
+    member: hex32(input.member, "member"),
+    newIndex: headIndexHex(input.newIndex, "newIndex"),
+    lowIndex: headIndexHex(input.lowIndex, "lowIndex"),
+    lowMember: hex32(input.lowMember, "lowMember"),
+    lowNext: hex32(input.lowNext, "lowNext"),
+    lowNullifier: hex32(input.lowNullifier, "lowNullifier"),
+    lowProof: sized(input.lowProof, HEAD_MAP_HEIGHT, "lowProof").map((node) =>
+      hex32(node, "lowProof"),
+    ),
+    newProof: sized(input.newProof, HEAD_MAP_HEIGHT, "newProof").map((node) =>
+      hex32(node, "newProof"),
+    ),
   });
 }
 
@@ -511,17 +542,24 @@ export function customRingRegisterProofRequest(
   return Object.freeze({
     circuitType: "custom-ring-compressed-register",
     publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
-    headOldRoot: hex32(input.headOldRoot, "headOldRoot"),
-    headNewRoot: hex32(input.headNewRoot, "headNewRoot"),
-    member: hex32(input.member, "member"),
     genesis: hex32(input.genesis, "genesis"),
-    newIndex: headIndexHex(input.newIndex, "newIndex"),
-    lowIndex: headIndexHex(input.lowIndex, "lowIndex"),
-    lowMember: hex32(input.lowMember, "lowMember"),
-    lowNext: hex32(input.lowNext, "lowNext"),
-    lowNullifier: hex32(input.lowNullifier, "lowNullifier"),
-    lowProof: sized(input.lowProof, 40, "lowProof").map((node) => hex32(node, "lowProof")),
-    newProof: sized(input.newProof, 40, "newProof").map((node) => hex32(node, "newProof")),
+    ...headInsertionJson(input),
+  });
+}
+
+/** Mirrors Rust `RegisterKeyProofRequest::body`, the zero high byte keeps the secret below the field order. */
+export function customRingRegisterKeyProofRequest(
+  input: CustomRingRegisterKeyProofRequest,
+): Readonly<Record<string, unknown>> {
+  const nullifierSecret = checkedBytes(input.nullifierSecret, 32, "nullifierSecret");
+  if (nullifierSecret[0] !== 0) throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
+  return Object.freeze({
+    circuitType: "custom-ring-register-key",
+    publicInputHash: hex32(input.publicInputHash, "publicInputHash"),
+    ...headInsertionJson(input),
+    nullifierSecret: bytesHex(nullifierSecret),
+    ephSk: hex32(input.ephemeralSecret, "ephSk"),
+    auditorPk: auditorPkHex(input.auditorPublicKey),
   });
 }
 
@@ -551,7 +589,9 @@ function velocityRowJson(row: CustomRingVelocityRow): Readonly<Record<string, un
   });
 }
 
-function spendRecordJson(record: CustomRingSpendRecordWitness): Readonly<Record<string, unknown>> {
+function spendRecordJson(
+  record: CustomRingSpendRecordProofInput,
+): Readonly<Record<string, unknown>> {
   return Object.freeze({
     version: u64Json(record.version, "record version"),
     window: u64Json(record.window, "record window"),

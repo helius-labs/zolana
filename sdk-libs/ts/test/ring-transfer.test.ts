@@ -308,6 +308,43 @@ describe("delegate policy rail", () => {
     expect(prepared.outputs.map((output) => output.amount)).toEqual([3n, (1n << 64n) - 1n]);
     for (const input of inputs) input.destroy();
   });
+  it("names the input outside the ring and the foreign owner separately", () => {
+    const sender = actor(3),
+      other = actor(5);
+    const spend = (owner: ReturnType<typeof actor>, ring: boolean) =>
+      new ProofInputUtxo({
+        utxo: new Utxo({
+          owner: owner.keypair.signingPublicKey(),
+          asset: SOL_MINT,
+          amount: 10n,
+          blinding: scalar(90),
+          ...(ring ? { ringProgramId: RING } : {}),
+        }),
+        nullifierKey: owner.keypair.nullifierKey(),
+      });
+    const prepare = (input: ProofInputUtxo) =>
+      prepareRingAuthorityTransfer({
+        owner: sender.address,
+        inputs: [input],
+        outputs: [{ recipient: other.address, asset: SOL_MINT, amount: 5n }],
+        payer: actor(8).address.solanaAddress(),
+        ringProgramId: RING,
+        outputTreeId: 0,
+      });
+    const outside = spend(sender, false);
+    const foreign = spend(other, true);
+    try {
+      expect(() => prepare(outside)).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_INPUT_OUTSIDE_RING" }),
+      );
+      expect(() => prepare(foreign)).toThrow(
+        expect.objectContaining({ code: "TRANSACTION_INPUT_OWNER_MISMATCH" }),
+      );
+    } finally {
+      outside.destroy();
+      foreign.destroy();
+    }
+  });
   it("keeps the table and audit but never discovers or charges a velocity record", async () => {
     const auditor = ViewingKey.fromBytes(scalar(9));
     const sender = actor(3);
@@ -708,7 +745,7 @@ describe("ring witness", () => {
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
     const spendProof = spendProofFor(input);
-    const assembled = assemble(proofInputs, [spendProof], [], RING);
+    const assembled = assemble(proofInputs, [spendProof], [], { kind: "ring", ring: RING });
     const published = assembled.proverInputs.payload.publishedOutputOwnerPublicKeyHashes;
     const tags = proofInputs.externalData.resolvedOwnerTags;
     expect(published).toHaveLength(8);
@@ -837,7 +874,10 @@ describe("ring openings", () => {
     );
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], {
+      kind: "ring",
+      ring: RING,
+    });
     const vector = assembled.proverInputs.payload.signerPublicKeyHashes;
     // Signers enter the chain as tagged Solana identities, `hash(0x53 || pk)`.
     const hashOf = (target: Address) =>
@@ -904,7 +944,10 @@ describe("ring openings", () => {
     const { proofInputs } = await auditedProofInputs(4n, ViewingKey.generate(), [], [], null);
     const input = proofInputs.inputUtxos[0];
     if (!input) throw new Error("input");
-    const assembled = assemble(proofInputs, [spendProofFor(input)], [], RING);
+    const assembled = assemble(proofInputs, [spendProofFor(input)], [], {
+      kind: "ring",
+      ring: RING,
+    });
     const slot = assembled.proverInputs.payload.inputs[0];
     if (!slot) throw new Error("input slot");
     expect(slot.circuit.ringProgramId).toBe(0n);

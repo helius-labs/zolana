@@ -41,8 +41,6 @@ export interface PolicyAnswerInput {
   readonly config: RingPolicyConfig;
   readonly inputs: readonly ProofInputUtxo[];
   readonly outputs: readonly ProofOutputUtxo[];
-  /** When true, the last input and output hold the record, excluded from rule subjects. */
-  readonly recordSlot?: boolean;
 }
 
 export interface PolicyAnswers {
@@ -166,21 +164,13 @@ function sourceNamespaces(config: RingPolicyConfig): Map<ListId, Address> {
   return namespaces;
 }
 
-function ruleInputs(input: PolicyAnswerInput): readonly ProofInputUtxo[] {
-  return input.recordSlot === true ? input.inputs.slice(0, -1) : input.inputs;
-}
-
-function ruleOutputs(input: PolicyAnswerInput): readonly ProofOutputUtxo[] {
-  return input.recordSlot === true ? input.outputs.slice(0, -1) : input.outputs;
-}
-
 /** Mirrors Rust `subjects`, live outputs and non-dummy inputs in slot order. */
 function subjects(rule: Rule, input: PolicyAnswerInput): readonly Member[] {
   switch (rule.subject) {
     case "outputOwner":
       return liveOutputs(input).map((output) => ownerMember(output));
     case "sender":
-      return ruleInputs(input)
+      return input.inputs
         .filter((spend) => !spend.isDummy())
         .map((spend) => memberOfIdentity(spend.utxo.owner.ownerProofInputHash()));
     case "asset":
@@ -194,9 +184,7 @@ type LiveOutput = ProofOutputUtxo &
   Readonly<{ ownerAddress: NonNullable<ProofOutputUtxo["ownerAddress"]> }>;
 
 function liveOutputs(input: PolicyAnswerInput): readonly LiveOutput[] {
-  return ruleOutputs(input).filter(
-    (output): output is LiveOutput => output.ownerAddress !== undefined,
-  );
+  return input.outputs.filter((output): output is LiveOutput => output.ownerAddress !== undefined);
 }
 
 /** The identity the opening carries as `ownerPkHash`, one list serves every owner curve. */

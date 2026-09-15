@@ -14,13 +14,12 @@ import {
   createRingSpendRegistrationSubmission,
   prepareRingSpendRegistration,
 } from "../src/ring/register-spend.js";
+import { ringPolicyNamespaceAddress, fetchRingConfigs } from "../src/ring/config.js";
 import {
   ringConfigAddress,
+  ringHeadMapRootPda,
   ringPolicyConfigAddress,
-  ringPolicyNamespaceAddress,
-  fetchRingConfigs,
-} from "../src/ring/config.js";
-import { ringHeadMapRootPda } from "../src/interface/pda/index.js";
+} from "../src/interface/pda/index.js";
 import { Writer, addressBytes } from "../src/interface/internal.js";
 import { SHIELDED_POOL_PROGRAM_ID } from "../src/interface/program.js";
 import type { Bytes32, TransactProof } from "../src/interface/types.js";
@@ -99,7 +98,10 @@ async function fixture(payer = PAYER) {
     lowNullifier: field(0),
     lowIndex: 0n,
     lowProof: zeros.slice(0, 40),
-    newProof: [headMapLeaf(field(0), member, field(0)), ...zeros.slice(1, 40)],
+    newProof: [
+      headMapLeaf({ member: field(0), next: member, nullifier: field(0) }),
+      ...zeros.slice(1, 40),
+    ],
   };
   let request: CustomRingRegisterProofRequest | undefined;
   const prove = vi.fn(async (input: CustomRingRegisterProofRequest) => {
@@ -251,7 +253,7 @@ describe("compressed registration flow", () => {
       ringProgramId: RING,
       payer,
     });
-    const send = vi.fn(async () => {});
+    const send = vi.fn(async () => undefined);
     const sign = vi.fn(async (transaction: Parameters<typeof signTransactionWithSigners>[1]) =>
       signTransactionWithSigners([payer], transaction),
     );

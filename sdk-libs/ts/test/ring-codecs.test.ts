@@ -84,6 +84,7 @@ import {
 import { P_CONST_SEC1, P_DERIVE_SEC1, P_PDA_SEC1 } from "../src/keypair/derivation.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import { P256PublicKey } from "../src/keypair/public-key.js";
+import { RING_VELOCITY_SLOTS } from "../src/client/prover/types.js";
 import {
   RingReadRequest,
   RingRpc,
@@ -1701,12 +1702,10 @@ describe("ring read request", () => {
                       version: 3,
                       window: 5,
                       countersCommitment: addressOf(13),
-                      blinding: addressOf(14),
-                      counters: {
-                        salt: addressOf(15),
-                        assets: Array.from({ length: 8 }, (_, index) => addressOf(16 + index)),
-                        spent: ["__U64_MAX__", 0, 0, 0, 0, 0, 0, 0],
-                      },
+                      counters: [
+                        { slot: 0, asset: addressOf(16), spent: "__U64_MAX__" },
+                        { slot: 3, asset: addressOf(19), spent: 0 },
+                      ],
                     },
                     {
                       slotIndex: 3,
@@ -1714,7 +1713,6 @@ describe("ring read request", () => {
                       version: 1,
                       window: 5,
                       countersCommitment: addressOf(25),
-                      blinding: addressOf(26),
                     },
                   ],
                 },
@@ -1759,20 +1757,17 @@ describe("ring read request", () => {
     expect(item?.withdrawals).toEqual([]);
     expect(item?.spendRecords).toHaveLength(2);
     const spend = item?.spendRecords[0];
-    expect(spend?.slotIndex).toBe(2);
-    expect(spend?.record).toMatchObject({ version: 3n, window: 5n });
-    expect(spend?.record.member).toEqual(filled(12, 32));
-    expect(spend?.record.countersCommitment).toEqual(filled(13, 32));
-    expect(spend?.record.blinding).toEqual(filled(14, 32));
-    expect(spend?.counters?.salt).toEqual(filled(15, 32));
-    expect(spend?.counters?.assets).toEqual(
-      Array.from({ length: 8 }, (_, index) => filled(16 + index, 32)),
-    );
+    expect(spend).toMatchObject({ slotIndex: 2, version: 3n, window: 5n });
+    expect(spend?.member).toEqual(filled(12, 32));
+    expect(spend?.countersCommitment).toEqual(filled(13, 32));
     // The velocity counter is a full-range u64, decoded past `Number` precision.
-    expect(spend?.counters?.spent).toEqual([18446744073709551615n, 0n, 0n, 0n, 0n, 0n, 0n, 0n]);
+    expect(spend?.counters).toEqual([
+      { slot: 0, asset: filled(16, 32), spent: 18446744073709551615n },
+      { slot: 3, asset: filled(19, 32), spent: 0n },
+    ]);
     const absent = item?.spendRecords[1];
     expect(absent?.slotIndex).toBe(3);
-    expect(absent?.record.member).toEqual(filled(24, 32));
+    expect(absent?.member).toEqual(filled(24, 32));
     expect(absent?.counters).toBeUndefined();
     const params = bodies[0]?.["params"] as Record<string, unknown>;
     expect(Object.keys(params).sort()).toEqual(["auth", "cursor", "limit", "ringProgramId"]);
@@ -1930,22 +1925,21 @@ describe("ring read request", () => {
           }),
           JSON_HEADERS,
         )) as typeof globalThis.fetch;
-    const counters = {
-      salt: addressOf(15),
-      assets: Array.from({ length: 8 }, (_, index) => addressOf(16 + index)),
-      spent: [1, 0, 0, 0, 0, 0, 0, 0],
-    };
+    const counter = (slot: number) => ({ slot, asset: addressOf(16 + slot), spent: 1 });
     const base = {
+      slotIndex: 2,
       member: addressOf(12),
       version: 3,
       window: 5,
       countersCommitment: addressOf(13),
-      blinding: addressOf(14),
     };
     const malformed: readonly Record<string, unknown>[] = [
-      { slotIndex: 2, ...base, counters: { ...counters, spent: [1, 0, 0, 0, 0, 0, 0] } },
-      { slotIndex: 2, ...base, counters: { ...counters, assets: counters.assets.slice(0, 7) } },
-      { slotIndex: 0x1_0000_0000, ...base, counters },
+      { ...base, counters: [counter(RING_VELOCITY_SLOTS)] },
+      { ...base, counters: [counter(1), counter(1)] },
+      { ...base, counters: [counter(2), counter(1)] },
+      { ...base, counters: [{ ...counter(0), spent: -1 }] },
+      { ...base, counters: [{ ...counter(0), asset: signatureOf(16) }] },
+      { ...base, slotIndex: 0x1_0000_0000, counters: [counter(0)] },
     ];
     for (const record of malformed) {
       await expect(

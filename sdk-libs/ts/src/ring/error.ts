@@ -30,9 +30,14 @@ export const RING_ERROR_CODES = [
   "RING_INSUFFICIENT_BALANCE",
   "RING_INTENT_MISMATCH",
   "RING_INVALID_LENGTH",
+  "RING_KEY_ENVELOPE_INVALID",
+  "RING_KEY_REGISTRY_INVALID",
+  "RING_KEY_REGISTRY_MISSING",
+  "RING_KEY_REGISTRY_STALE",
   "RING_LIST_SHARED",
   "RING_LIST_WRITER_UNAUTHORIZED",
   "RING_MULTIPLE_INPUT_TREES",
+  "RING_NULLIFIER_KEY_MISMATCH",
   "RING_ORIGIN_DECODE",
   "RING_ORIGIN_STACK",
   "RING_ORIGIN_UNAVAILABLE",
@@ -49,7 +54,6 @@ export const RING_ERROR_CODES = [
   "RING_POLICY_SOURCE_INVALID",
   "RING_POLICY_TIER_MISMATCH",
   "RING_SPEND_COUNTERS_UNKNOWN",
-  "RING_SPEND_RECORD_EXISTS",
   "RING_SPEND_RECORD_INVALID",
   "RING_SPEND_RECORD_LINEAGE_BROKEN",
   "RING_SPEND_RECORD_MISSING",
@@ -73,7 +77,9 @@ export const RING_ERROR_CODES = [
   "RING_READ_CURSOR",
   "RING_READ_LIMIT",
   "RING_READER_KEY",
+  "RING_RECOVERY_INCOMPLETE",
   "RING_RESERVED_AUDITOR_KEY",
+  "RING_RESERVED_INPUT_SPENT",
   "RING_RPC",
   "RING_RPC_CONFIG",
   "RING_RPC_TRANSPORT",
@@ -94,6 +100,13 @@ import {
 } from "../errors/internal.js";
 
 export type RingErrorCode = (typeof RING_ERROR_CODES)[number];
+
+/** Rust `CustomRingError`. */
+export const RingProgramError = Object.freeze({
+  proofVerificationFailed: 8101,
+  staleHeadMapRoot: 8166,
+  staleKeyRegistryRoot: 8169,
+} as const);
 
 export class RingError extends Error {
   readonly code: RingErrorCode;

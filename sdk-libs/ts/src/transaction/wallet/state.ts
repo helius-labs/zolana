@@ -467,6 +467,15 @@ export class Wallet {
     return reservation;
   }
 
+  /** @internal A swept reservation stays gone. */
+  _extendReservation(input: Readonly<{ id: string; nowMs: bigint; ttlMs: bigint }>): void {
+    this.#reservations = this.#reservations.map((reservation) =>
+      reservation.id === input.id
+        ? Object.freeze({ ...reservation, expiresAtMs: input.nowMs + input.ttlMs })
+        : reservation,
+    );
+  }
+
   /** @internal Idempotent. */
   _releaseReservation(id: string): void {
     this.#reservations = this.#reservations.filter((reservation) => reservation.id !== id);

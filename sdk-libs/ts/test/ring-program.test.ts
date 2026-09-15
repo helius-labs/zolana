@@ -14,11 +14,8 @@ import { describe, expect, it, vi } from "vitest";
 import { SYSTEM_PROGRAM } from "../src/interface/instructions/index.js";
 import { addressBytes, sha256 } from "../src/interface/internal.js";
 import type { Bytes32 } from "../src/interface/types.js";
-import {
-  BPF_LOADER_UPGRADEABLE_ID,
-  ringPolicyConfigAddress,
-  ringProgramDataAddress,
-} from "../src/ring/config.js";
+import { ringPolicyConfigAddress } from "../src/interface/pda/index.js";
+import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "../src/ring/config.js";
 import { RING_POLICY_CONFIG_SIZE } from "../src/ring/codecs.js";
 import {
   CLOCK_SYSVAR as CLOCK,

@@ -51,9 +51,11 @@ import {
   type TransactionAssembler,
   type TransactionConfirmer,
   type TreeContext,
-  type RingHeadProofRequest,
+  type RingMemberProofRequest,
   type RingHeadRegisterProof,
   type RingHeadTransferProof,
+  type RingKeyRegistryEntry,
+  type RingKeyRegistryRegisterProof,
 } from "./ports.js";
 import {
   createKitClients,
@@ -70,7 +72,9 @@ import type {
   CustomRingBaseProofRequest,
   CustomRingPolicyProofRequest,
   CustomRingCompressedPolicyProofRequest,
+  CustomRingRegisterKeyProofRequest,
   CustomRingRegisterProofRequest,
+  TransferCircuit,
   TransferInputs,
 } from "./prover/types.js";
 import {
@@ -515,17 +519,31 @@ export class ZolanaClient
   }
 
   getRingHeadRegisterProof(
-    request: RingHeadProofRequest,
+    request: RingMemberProofRequest,
     context?: RequestContext,
   ): Promise<RingHeadRegisterProof> {
     return this.#indexer.getRingHeadRegisterProof(request, context);
   }
 
   getRingHeadTransferProof(
-    request: RingHeadProofRequest,
+    request: RingMemberProofRequest,
     context?: RequestContext,
   ): Promise<RingHeadTransferProof> {
     return this.#indexer.getRingHeadTransferProof(request, context);
+  }
+
+  getRingKeyRegistryEntry(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryEntry> {
+    return this.#indexer.getRingKeyRegistryEntry(request, context);
+  }
+
+  getRingKeyRegistryRegisterProof(
+    request: RingMemberProofRequest,
+    context?: RequestContext,
+  ): Promise<RingKeyRegistryRegisterProof> {
+    return this.#indexer.getRingKeyRegistryRegisterProof(request, context);
   }
 
   /// `Some(config.unwrap_or(self.indexer_config))` in Rust: a caller who passes
@@ -647,7 +665,7 @@ export class ZolanaClient
     config?: IndexerRpcConfig,
     context?: RequestContext,
   ): Promise<TransactInstructionData> {
-    return (await this.#proveTransfer(proofInputs, undefined, config, context)).data;
+    return (await this.#proveTransfer(proofInputs, { kind: "confidential" }, config, context)).data;
   }
 
   async proveRingTransact(
@@ -657,7 +675,7 @@ export class ZolanaClient
     context?: RequestContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
-    return this.#proveTransfer(proofInputs, ringProgramId, config, context);
+    return this.#proveTransfer(proofInputs, { kind: "ring", ring: ringProgramId }, config, context);
   }
 
   async proverHealth(context?: RequestContext): Promise<ProverHealth> {
@@ -700,7 +718,20 @@ export class ZolanaClient
     try {
       return compressProof(
         await this.#prover.proveCustomRingRegister(inputs, context),
-      ).toPlainCompressedProof();
+      ).toPlainProof();
+    } catch (cause) {
+      throw fromClientCause(cause);
+    }
+  }
+
+  async proveCustomRingRegisterKey(
+    inputs: CustomRingRegisterKeyProofRequest,
+    context?: RequestContext,
+  ): Promise<Uint8Array> {
+    try {
+      return compressProof(
+        await this.#prover.proveCustomRingRegisterKey(inputs, context),
+      ).toCustomRingProof();
     } catch (cause) {
       throw fromClientCause(cause);
     }
@@ -725,7 +756,12 @@ export class ZolanaClient
     context?: RequestContext,
   ): Promise<ProvenRingTransact> {
     checkedAddress(ringProgramId, "ringProgramId");
-    return this.#proveTransfer(proofInputs, ringProgramId, undefined, context, "authority");
+    return this.#proveTransfer(
+      proofInputs,
+      { kind: "ringAuthority", ring: ringProgramId },
+      undefined,
+      context,
+    );
   }
 
   async proveCustomRingBase(
@@ -754,10 +790,9 @@ export class ZolanaClient
 
   async #proveTransfer(
     proofInputs: SppProofInputs,
-    ring: Address | undefined,
+    circuit: TransferCircuit,
     config: IndexerRpcConfig | undefined,
     context: RequestContext | undefined,
-    rail: "member" | "authority" = "member",
   ): Promise<ProvenRingTransact> {
     if (!(proofInputs instanceof SppProofInputs)) {
       throw new ClientError("CLIENT_INVALID_PROOF_INPUTS");
@@ -811,7 +846,7 @@ export class ZolanaClient
           });
         }
       });
-      const assembled = assemble(proofInputs, proofs, dummyProofs, ring, rail);
+      const assembled = assemble(proofInputs, proofs, dummyProofs, circuit);
       const proof = await this.#prover.prove(assembled.proverInputs, context);
       return Object.freeze({
         data: assembled.withProof(compressProof(proof).toTransactProof()),

@@ -1,45 +1,16 @@
-// The member-keyed indexed tree behind the compressed velocity rail, mirroring
-// the Rust `zolana_ring_head_map` reference and the Go circuit. The leaf is
-// Poseidon(member, next, nullifier) and the root advances with the on-chain
-// root. Photon maintains the tree and serves witnesses, the client verifies
-// them here before proving.
-
+import { BN254_SCALAR_ORDER } from "../hasher/index.js";
+import { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT } from "../interface/head-map.js";
 import type { Bytes32 } from "../interface/types.js";
-import { bytesToBigInt, poseidon } from "../transaction/internal.js";
+import { bigIntBytes, bytesToBigInt, poseidon } from "../transaction/internal.js";
 import { equalBytes } from "../wallet/internal.js";
 import { RingError } from "./error.js";
 
-/** Matches the circuit height and the on-chain root. */
-export const HEAD_MAP_HEIGHT = 40;
-export const HEAD_MAP_CAPACITY = 1n << 40n;
-const FIELD_ORDER = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+export { HEAD_MAP_CAPACITY, HEAD_MAP_HEIGHT };
 
-function invalid(reason: string): never {
-  throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason } });
-}
+/** @internal The sentinel high member closing the list. */
+export const HEAD_MAP_FIELD_MAX = bigIntBytes(BN254_SCALAR_ORDER - 1n) as Bytes32;
 
-export function checkedHeadMapField(field: Uint8Array): Bytes32 {
-  if (
-    !(field instanceof Uint8Array) ||
-    field.length !== 32 ||
-    bytesToBigInt(field) >= FIELD_ORDER
-  ) {
-    return invalid("field");
-  }
-  return field as Bytes32;
-}
-
-function checkedIndex(index: bigint): void {
-  if (typeof index !== "bigint" || index < 0n || index >= HEAD_MAP_CAPACITY) invalid("index");
-}
-
-/** BN254 scalar field order minus one, the sentinel high member closing the list. */
-export const HEAD_MAP_FIELD_MAX = Uint8Array.from([
-  0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29, 0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
-  0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91, 0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00,
-]) as Bytes32;
-
-/** Root of the sentinel-only tree, a fresh ring's head-map root. */
+/** @internal Root of the sentinel-only tree, a fresh ring's head-map root. */
 export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
   3, 167, 83, 205, 18, 179, 81, 32, 16, 112, 166, 41, 197, 155, 154, 22, 44, 83, 161, 253, 51, 161,
   56, 203, 214, 190, 129, 75, 252, 254, 152, 14,
@@ -47,12 +18,57 @@ export const HEAD_MAP_EMPTY_ROOT = Uint8Array.from([
 
 const EMPTY_LEAF = new Uint8Array(32) as Bytes32;
 
-/** The leaf preimage binding a member to its successor pointer and current nullifier. */
-export function headMapLeaf(member: Bytes32, next: Bytes32, nullifier: Bytes32): Bytes32 {
-  return poseidon([member, next, nullifier].map(checkedHeadMapField));
+export interface HeadMapLeaf {
+  readonly member: Bytes32;
+  readonly next: Bytes32;
+  readonly nullifier: Bytes32;
 }
 
-/** Poseidon empty-subtree hashes, index 0 is the empty leaf, index 40 the empty root. */
+export interface HeadMapPath {
+  readonly leaf: Bytes32;
+  readonly index: bigint;
+  readonly proof: readonly Bytes32[];
+}
+
+export interface HeadMapInsertProofInput {
+  readonly root: Bytes32;
+  readonly appendIndex: bigint;
+  readonly member: Bytes32;
+  readonly genesis: Bytes32;
+  readonly lowMember: Bytes32;
+  readonly lowNext: Bytes32;
+  readonly lowNullifier: Bytes32;
+  readonly lowIndex: bigint;
+  readonly lowProof: readonly Bytes32[];
+  readonly newProof: readonly Bytes32[];
+}
+
+export interface HeadMapTransferProofInput {
+  readonly root: Bytes32;
+  readonly member: Bytes32;
+  readonly next: Bytes32;
+  readonly spent: Bytes32;
+  readonly successor: Bytes32;
+  readonly index: bigint;
+  readonly proof: readonly Bytes32[];
+}
+
+export function checkedHeadMapField(field: Uint8Array): Bytes32 {
+  if (
+    !(field instanceof Uint8Array) ||
+    field.length !== 32 ||
+    bytesToBigInt(field) >= BN254_SCALAR_ORDER
+  ) {
+    return invalid("field");
+  }
+  return field as Bytes32;
+}
+
+export function headMapLeaf(leaf: HeadMapLeaf): Bytes32 {
+  return poseidon([leaf.member, leaf.next, leaf.nullifier].map(checkedHeadMapField));
+}
+
+/** @internal Poseidon empty-subtree hashes, index 0 is the empty leaf, index 40 the empty root. */
 export function headMapZeroBytes(): Bytes32[] {
   const zeros: Bytes32[] = [new Uint8Array(EMPTY_LEAF) as Bytes32];
   let previous: Bytes32 = EMPTY_LEAF;
@@ -63,18 +79,14 @@ export function headMapZeroBytes(): Bytes32[] {
   return zeros;
 }
 
-/** Reduces the leaf up its sibling path to a root, the index bit is LSB-first per level. */
-export function headMapRootFromProof(
-  leaf: Bytes32,
-  index: bigint,
-  proof: readonly Bytes32[],
-): Bytes32 {
-  checkedIndex(index);
-  checkedHeadMapField(leaf);
-  if (proof.length !== HEAD_MAP_HEIGHT) invalid("proofLength");
-  let node = leaf;
-  let idx = index;
-  for (const sibling of proof) {
+/** Index bits are consumed LSB-first per level. */
+export function headMapRootFromProof(path: HeadMapPath): Bytes32 {
+  checkedIndex(path.index);
+  checkedHeadMapField(path.leaf);
+  if (path.proof.length !== HEAD_MAP_HEIGHT) invalid("proofLength");
+  let node = path.leaf;
+  let idx = path.index;
+  for (const sibling of path.proof) {
     checkedHeadMapField(sibling);
     node = (idx & 1n) === 0n ? poseidon([node, sibling]) : poseidon([sibling, node]);
     idx >>= 1n;
@@ -82,75 +94,68 @@ export function headMapRootFromProof(
   return node;
 }
 
-export interface HeadMapInsertWitness {
-  root: Bytes32;
-  appendIndex: bigint;
-  member: Bytes32;
-  genesis: Bytes32;
-  lowMember: Bytes32;
-  lowNext: Bytes32;
-  lowNullifier: Bytes32;
-  lowIndex: bigint;
-  lowProof: readonly Bytes32[];
-  newProof: readonly Bytes32[];
-}
-
-/** Verifies a member insertion off its low element and empty slot, returning the advanced root. */
-export function verifyHeadMapInsert(witness: HeadMapInsertWitness): Bytes32 {
-  checkedIndex(witness.appendIndex);
-  checkedIndex(witness.lowIndex);
-  checkedHeadMapField(witness.root);
-  if (witness.appendIndex === 0n || witness.lowIndex >= witness.appendIndex) invalid("appendIndex");
-  if (witness.lowProof.length !== HEAD_MAP_HEIGHT || witness.newProof.length !== HEAD_MAP_HEIGHT) {
+export function verifyHeadMapInsert(input: HeadMapInsertProofInput): Bytes32 {
+  checkedIndex(input.appendIndex);
+  checkedIndex(input.lowIndex);
+  checkedHeadMapField(input.root);
+  if (input.appendIndex === 0n || input.lowIndex >= input.appendIndex) invalid("appendIndex");
+  if (input.lowProof.length !== HEAD_MAP_HEIGHT || input.newProof.length !== HEAD_MAP_HEIGHT) {
     invalid("proofLength");
   }
-  const member = bytesToBigInt(witness.member);
-  // Strict order proves the member absent between the low element and its successor.
-  if (!(bytesToBigInt(witness.lowMember) < member && member < bytesToBigInt(witness.lowNext))) {
+  const member = bytesToBigInt(input.member);
+  // Strict predecessor order proves absence.
+  if (!(bytesToBigInt(input.lowMember) < member && member < bytesToBigInt(input.lowNext))) {
     invalid("memberRange");
   }
-  const lowOld = headMapLeaf(witness.lowMember, witness.lowNext, witness.lowNullifier);
-  if (!equalBytes(headMapRootFromProof(lowOld, witness.lowIndex, witness.lowProof), witness.root)) {
+  const low = { member: input.lowMember, nullifier: input.lowNullifier };
+  const lowPath = { index: input.lowIndex, proof: input.lowProof };
+  const lowOld = headMapLeaf({ ...low, next: input.lowNext });
+  if (!equalBytes(headMapRootFromProof({ leaf: lowOld, ...lowPath }), input.root)) {
     invalid("lowRoot");
   }
-  const lowNew = headMapLeaf(witness.lowMember, witness.member, witness.lowNullifier);
-  const spliced = headMapRootFromProof(lowNew, witness.lowIndex, witness.lowProof);
-  // A non-empty append slot would overwrite a live member.
-  if (
-    !equalBytes(headMapRootFromProof(EMPTY_LEAF, witness.appendIndex, witness.newProof), spliced)
-  ) {
+  const lowNew = headMapLeaf({ ...low, next: input.member });
+  const spliced = headMapRootFromProof({ leaf: lowNew, ...lowPath });
+  const newPath = { index: input.appendIndex, proof: input.newProof };
+  // The append slot must be empty under the spliced root.
+  if (!equalBytes(headMapRootFromProof({ leaf: EMPTY_LEAF, ...newPath }), spliced)) {
     invalid("occupiedAppendSlot");
   }
-  const memberLeaf = headMapLeaf(witness.member, witness.lowNext, witness.genesis);
-  return headMapRootFromProof(memberLeaf, witness.appendIndex, witness.newProof);
+  const memberLeaf = headMapLeaf({
+    member: input.member,
+    next: input.lowNext,
+    nullifier: input.genesis,
+  });
+  return headMapRootFromProof({ leaf: memberLeaf, ...newPath });
 }
 
-export interface HeadMapTransferWitness {
-  root: Bytes32;
-  member: Bytes32;
-  next: Bytes32;
-  spent: Bytes32;
-  successor: Bytes32;
-  index: bigint;
-  proof: readonly Bytes32[];
-}
-
-/** Verifies the member's leaf holds `spent` under `root`, returning the root after `successor`. */
-export function verifyHeadMapTransfer(witness: HeadMapTransferWitness): Bytes32 {
-  checkedIndex(witness.index);
-  checkedHeadMapField(witness.root);
+export function verifyHeadMapTransfer(input: HeadMapTransferProofInput): Bytes32 {
+  checkedIndex(input.index);
+  checkedHeadMapField(input.root);
   if (
-    bytesToBigInt(witness.member) === 0n ||
-    bytesToBigInt(witness.member) >= bytesToBigInt(witness.next)
+    bytesToBigInt(input.member) === 0n ||
+    bytesToBigInt(input.member) >= bytesToBigInt(input.next)
   )
     invalid("memberRange");
-  if (witness.proof.length !== HEAD_MAP_HEIGHT) {
+  if (input.proof.length !== HEAD_MAP_HEIGHT) {
     invalid("proofLength");
   }
-  const spent = headMapLeaf(witness.member, witness.next, witness.spent);
-  if (!equalBytes(headMapRootFromProof(spent, witness.index, witness.proof), witness.root)) {
+  const path = { index: input.index, proof: input.proof };
+  const spent = headMapLeaf({ member: input.member, next: input.next, nullifier: input.spent });
+  if (!equalBytes(headMapRootFromProof({ leaf: spent, ...path }), input.root)) {
     invalid("headRoot");
   }
-  const successor = headMapLeaf(witness.member, witness.next, witness.successor);
-  return headMapRootFromProof(successor, witness.index, witness.proof);
+  const successor = headMapLeaf({
+    member: input.member,
+    next: input.next,
+    nullifier: input.successor,
+  });
+  return headMapRootFromProof({ leaf: successor, ...path });
+}
+
+function checkedIndex(index: bigint): void {
+  if (typeof index !== "bigint" || index < 0n || index >= HEAD_MAP_CAPACITY) invalid("index");
+}
+
+function invalid(reason: string): never {
+  throw new RingError("RING_HEAD_MAP_INVALID", { details: { reason } });
 }

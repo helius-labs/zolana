@@ -43,11 +43,8 @@ import { Reader, Writer, addressBytes, encodeBase58, sha256 } from "../interface
 import type { Address, Bytes32, RequestContext } from "../interface/types.js";
 import { equalBytes } from "../wallet/internal.js";
 
-import {
-  BPF_LOADER_UPGRADEABLE_ID,
-  ringPolicyConfigAddress,
-  ringProgramDataAddress,
-} from "./config.js";
+import { ringPolicyConfigAddress } from "../interface/pda/index.js";
+import { BPF_LOADER_UPGRADEABLE_ID, ringProgramDataAddress } from "./config.js";
 import { RING_POLICY_CONFIG_SIZE } from "./codecs.js";
 import { RingError, wrapRingError } from "./error.js";
 
@@ -103,12 +100,11 @@ export class RingProgramBinary {
     return new RingProgramBinary(new Uint8Array(bytes));
   }
 
-  /** The bytes the hash pins stay immutable to callers. */
+  /** A copy, the hash pins the original. */
   get bytes(): Uint8Array {
     return new Uint8Array(this.#bytes);
   }
 
-  /** A copy, the pinned hash never changes under a caller. */
   get sha256(): Bytes32 {
     return new Uint8Array(this.#sha256) as Bytes32;
   }
@@ -378,7 +374,6 @@ export async function deployRingProgram(
     }
     const bufferSigner = params.buffer ?? (await generateKeyPairSigner());
     const length = params.binary.byteLength;
-    // bytes copies on each read.
     const image = params.binary.bytes;
     const bufferRent = await rent(params, BUFFER_METADATA_SIZE + length, context);
     const upload = await bufferState(params, bufferSigner.address, context);
