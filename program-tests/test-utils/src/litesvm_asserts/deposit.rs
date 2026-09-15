@@ -120,7 +120,7 @@ impl SolDepositOracle {
         let data_hash = data
             .utxo_data
             .as_ref()
-            .map_or([0u8; 32], |utxo_data| utxo_data.data_hash);
+            .map_or([0u8; 32], |utxo_data| utxo_data.data.data_hash);
         // Recomputed rather than echoed: the blinding comes from the tree and
         // the leaf index the output lands at.
         let expected_blinding = deposit_blinding(&self.tree.to_bytes(), expected_leaf as u64)

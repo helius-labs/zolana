@@ -81,7 +81,15 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
       .bytes(deposit.recipientOwnerHash, 32, "deposit.recipientOwnerHash")
       .u64(deposit.amount, "deposit.amount")
       .option(deposit.utxoData, (output, data) => {
+        if (
+          data.dataHash instanceof Uint8Array &&
+          data.dataHash.length === 32 &&
+          data.dataHash.every((byte) => byte === 0)
+        ) {
+          fail("INTERFACE_CODEC", { name: "deposit.utxoData.dataHash", reason: "zero_hash" });
+        }
         output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
+        output.bytes(data.nullifierPk, 32, "deposit.utxoData.nullifierPk");
         byteVector(output, data.data, "deposit.utxoData.data");
       })
       .option(deposit.memo, (output, memo) => {

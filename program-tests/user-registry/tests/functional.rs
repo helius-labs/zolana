@@ -165,11 +165,13 @@ fn update_keys_changes_only_the_static_keys() {
     let (updated_p256, updated_signature) =
         p256_binding_signature(&owner.pubkey(), &signing_key(updated.tag));
 
+    // The nullifier pubkey never rotates, so it carries the registered value;
+    // only the P256 owner key and the viewing key move.
     rig.send_all(
         &build_update_keys_ixs(
             &owner.pubkey(),
             Some(updated_p256),
-            updated.nullifier,
+            keys(6).nullifier,
             updated.viewing,
             Some(updated_signature),
         ),
@@ -179,7 +181,7 @@ fn update_keys_changes_only_the_static_keys() {
 
     let after = rig.record(&owner.pubkey());
     assert_eq!(after.owner_p256, Some(updated.owner_p256));
-    assert_eq!(after.nullifier_pubkey, updated.nullifier);
+    assert_eq!(after.nullifier_pubkey, keys(6).nullifier);
     assert_eq!(after.viewing_pubkey, updated.viewing);
     assert_eq!(after.owner, before.owner);
     assert_eq!(after.bump, before.bump);

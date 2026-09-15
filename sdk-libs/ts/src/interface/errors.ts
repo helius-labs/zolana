@@ -76,6 +76,7 @@ export const ShieldedPoolError = Object.freeze({
   InputsNotGroupedByTree: 7063,
   UnreferencedTreeContext: 7064,
   DuplicateInputTree: 7065,
+  ZeroDepositDataHash: 7066,
 } as const);
 
 export type ShieldedPoolErrorName = keyof typeof ShieldedPoolError;

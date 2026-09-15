@@ -159,6 +159,8 @@ pub enum ShieldedPoolError {
     UnreferencedTreeContext = 7064,
     #[error("the same input tree account is passed twice")]
     DuplicateInputTree = 7065,
+    #[error("deposit application data must have a nonzero data hash")]
+    ZeroDepositDataHash = 7066,
 }
 
 impl From<ShieldedPoolError> for ProgramError {
@@ -271,6 +273,7 @@ mod tests {
                 InputsNotGroupedByTree => 7063,
                 UnreferencedTreeContext => 7064,
                 DuplicateInputTree => 7065,
+                ZeroDepositDataHash => 7066,
             }
         }
 
@@ -343,6 +346,7 @@ mod tests {
             InputsNotGroupedByTree,
             UnreferencedTreeContext,
             DuplicateInputTree,
+            ZeroDepositDataHash,
         ];
         for (variant, code) in variants.into_iter().zip(7000_u32..) {
             assert_eq!(
@@ -353,7 +357,7 @@ mod tests {
             assert_eq!(variant as u32, code, "error codes must be contiguous");
         }
         // The list above must contain every live variant.
-        assert_eq!(variants.len(), 66, "variant count drifted");
+        assert_eq!(variants.len(), 67, "variant count drifted");
 
         let expected: std::collections::BTreeMap<String, u32> = serde_json::from_str(include_str!(
             "../../../test-vectors/shielded_pool_errors.json"

@@ -6,7 +6,7 @@ use solana_signer::Signer;
 use zolana_event::SplTransfer;
 use zolana_event_parser::general_event_from_indexed;
 use zolana_interface::{
-    instruction::{deposit_blinding, AssetDeposit, Deposit, UtxoData},
+    instruction::{deposit_blinding, AssetDeposit, Deposit, DepositData, UtxoData},
     pda,
     state::STATE_ROOT_HISTORY_CAPACITY,
 };
@@ -319,9 +319,13 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
         *last = 42;
     }
     let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field);
-    data.utxo_data = Some(UtxoData {
-        data_hash,
-        data: vec![1, 2, 3],
+    data.utxo_data = Some(DepositData {
+        signing_pk: depositor.pubkey(),
+        data: UtxoData {
+            data_hash,
+            nullifier_pk,
+            data: vec![1, 2, 3],
+        },
     });
 
     let tree = pool.tree;

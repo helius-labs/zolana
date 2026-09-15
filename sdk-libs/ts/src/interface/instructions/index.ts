@@ -278,6 +278,17 @@ export async function depositInstruction(
     input.depositor,
     layout,
   );
+  for (const deposit of input.deposits) {
+    if (deposit.utxoData) {
+      if (deposit.utxoData.signingPk === undefined) {
+        fail("INTERFACE_CODEC", { reason: "missing deposit owner signer" });
+      }
+      if (!deposit.utxoData.data) {
+        fail("INTERFACE_CODEC", { reason: "missing deposit application data" });
+      }
+      accounts.push(meta(deposit.utxoData.signingPk, true, false));
+    }
+  }
   return instruction(
     tagged(
       InstructionTag.deposit,
@@ -294,7 +305,7 @@ export async function depositInstruction(
           viewTag: deposit.viewTag,
           recipientOwnerHash: deposit.recipientOwnerHash,
           amount: deposit.amount,
-          ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData }),
+          ...(deposit.utxoData === undefined ? {} : { utxoData: deposit.utxoData.data }),
           ...(deposit.memo === undefined ? {} : { memo: deposit.memo }),
         })),
       }),

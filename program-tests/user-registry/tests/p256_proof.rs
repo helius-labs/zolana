@@ -173,11 +173,13 @@ fn update_keys_with_a_valid_p256_proof_rebinds_the_key() {
     let key = p256_owner_key();
     let (owner_p256, signature) = p256_binding_signature(&owner.pubkey(), &key);
 
+    // The registered nullifier pubkey rides along unchanged; rotating it is
+    // rejected, so this covers the rebind of the keys that do move.
     rig.send_all(
         &build_update_keys_ixs(
             &owner.pubkey(),
             Some(owner_p256),
-            updated.nullifier,
+            value.nullifier,
             updated.viewing,
             Some(signature),
         ),
@@ -187,7 +189,7 @@ fn update_keys_with_a_valid_p256_proof_rebinds_the_key() {
 
     let record = rig.record(&owner.pubkey());
     assert_eq!(record.owner_p256, Some(owner_p256));
-    assert_eq!(record.nullifier_pubkey, updated.nullifier);
+    assert_eq!(record.nullifier_pubkey, value.nullifier);
     assert_eq!(record.viewing_pubkey, updated.viewing);
 }
 
@@ -203,12 +205,13 @@ fn update_keys_with_an_owner_p256_but_no_proof_is_rejected() {
     let key = p256_owner_key();
     let (owner_p256, _signature) = p256_binding_signature(&owner.pubkey(), &key);
 
+    // Carries the registered nullifier so the missing proof is the only fault.
     assert_registry_error_at(
         rig.send(
             build_update_keys_ix(
                 &owner.pubkey(),
                 Some(owner_p256),
-                updated.nullifier,
+                keys(66).nullifier,
                 updated.viewing,
             ),
             &[&owner],

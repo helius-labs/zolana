@@ -15,11 +15,11 @@ pub(crate) struct ProoflessOutputCtx {
 }
 
 pub(crate) fn proofless_output_utxo<'a>(
-    entry: DepositEntryRef<'a>,
+    entry: &DepositEntryRef<'a>,
     blinding: &'a [u8; 32],
     ctx: ProoflessOutputCtx,
 ) -> OutputUtxo {
-    let (data_hash, utxo_data) = match entry.utxo_data {
+    let (data_hash, utxo_data) = match &entry.utxo_data {
         Some(record) => (Some(record.data_hash), Some(record.data)),
         None => (None, None),
     };
@@ -43,7 +43,7 @@ pub(crate) fn proofless_output_utxo<'a>(
 }
 
 pub(crate) fn encrypted_ring_output_utxo(
-    entry: RingDepositEntryRef<'_>,
+    entry: &RingDepositEntryRef<'_>,
     ctx: ProoflessOutputCtx,
     ring_program_id: [u8; 32],
 ) -> OutputUtxo {

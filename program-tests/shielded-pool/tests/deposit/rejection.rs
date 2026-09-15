@@ -840,3 +840,226 @@ fn governance_deactivation_stops_a_live_ring_and_reactivation_restores_it() {
         .ring_deposit(&tree, &depositor, &data)
         .expect("re-admitted ring deposits again");
 }
+
+#[test]
+fn deposit_data_requires_each_owner_signature_and_matching_preimage_atomically() {
+    use zolana_interface::instruction::{
+        AssetDeposit, Deposit, DepositData, DepositIxData, UtxoData,
+    };
+    use zolana_keypair::{hash::owner_hash, pubkey::PublicKey, NullifierKey};
+
+    // Positive controls also cover changes after a verified owner: new data
+    // under the same owner, a new nullifier key, and a different signer.
+    for case in [
+        "unsigned",
+        "missing",
+        "wrong_signer",
+        "wrong_account",
+        "wrong_nullifier",
+        "wrong_owner",
+        "noncanonical_nullifier",
+        "noncanonical_data_hash_unsigned",
+        "second_unsigned",
+        "cached_wrong_signer",
+        "cached_wrong_account",
+        "cached_wrong_nullifier",
+        "cached_wrong_owner",
+        "cached_noncanonical_nullifier",
+        "cached_changed_data",
+        "cached_new_nullifier",
+        "cached_new_signer",
+        "signed",
+        "zero_hash",
+        "zero_hash_empty_data",
+        "zero_hash_signed",
+        "cached_zero_hash",
+        "signed_empty_data",
+    ] {
+        for amount in [0, 1_000_000] {
+            let mut pool = Pool::initialized();
+            let depositor = pool.funded_signer(2_000_000_000);
+            let owner = pool.funded_signer(1_000_000);
+            let second_owner = pool.funded_signer(1_000_000);
+            let nullifier_pk = NullifierKey::from_secret([9; 31])
+                .pubkey()
+                .expect("nullifier pk");
+            let make_entry = |signer: &dyn Signer| AssetDeposit {
+                asset: DepositAsset::Sol,
+                view_tag: signer.pubkey().to_bytes(),
+                owner: owner_hash(
+                    &PublicKey::from_ed25519(&signer.pubkey().to_bytes()),
+                    &nullifier_pk,
+                )
+                .expect("owner hash"),
+                amount,
+                utxo_data: Some(DepositData {
+                    signing_pk: signer.pubkey(),
+                    data: UtxoData {
+                        data_hash: [1; 32],
+                        nullifier_pk,
+                        data: vec![1, 2, 3],
+                    },
+                }),
+                memo: None,
+            };
+            let mut entry = make_entry(&owner);
+            let authorization = entry.utxo_data.as_mut().expect("utxo data");
+            let data = &mut authorization.data;
+            match case {
+                "wrong_signer" => authorization.signing_pk = depositor.pubkey(),
+                "signed_empty_data" => data.data.clear(),
+                "wrong_nullifier" => data.nullifier_pk = [2; 32],
+                "wrong_owner" => entry.owner = [3; 32],
+                "noncanonical_nullifier" => data.nullifier_pk = BN254_SCALAR_MODULUS_BE,
+                "noncanonical_data_hash_unsigned" => data.data_hash = BN254_SCALAR_MODULUS_BE,
+                _ => {}
+            }
+            // Mix a plain output and repeated owners with a distinct final owner.
+            let mut plain = make_entry(&owner);
+            plain.utxo_data = None;
+            let mut repeated = entry.clone();
+            let repeated_authorization = repeated.utxo_data.as_mut().expect("repeated utxo data");
+            let repeated_data = &mut repeated_authorization.data;
+            match case {
+                "cached_wrong_signer" => repeated_authorization.signing_pk = depositor.pubkey(),
+                "cached_wrong_nullifier" => repeated_data.nullifier_pk = [2; 32],
+                "cached_wrong_owner" => repeated.owner = [3; 32],
+                "cached_noncanonical_nullifier" => {
+                    repeated_data.nullifier_pk = BN254_SCALAR_MODULUS_BE
+                }
+                "cached_changed_data" => {
+                    repeated_data.data_hash = [2; 32];
+                    repeated_data.data = vec![4, 5];
+                }
+                "cached_new_nullifier" => {
+                    repeated_data.nullifier_pk = [2; 32];
+                    repeated.owner = owner_hash(
+                        &PublicKey::from_ed25519(owner.pubkey().as_array()),
+                        &repeated_data.nullifier_pk,
+                    )
+                    .expect("owner with a different nullifier key");
+                }
+                "cached_new_signer" => repeated = make_entry(&second_owner),
+                _ => {}
+            }
+            let mut ix = Deposit {
+                tree: pool.tree,
+                depositor: depositor.pubkey(),
+                deposits: vec![plain, entry, repeated, make_entry(&second_owner)],
+            }
+            .instruction()
+            .expect("deposit instruction");
+            // Bypass the builder to exercise malformed records on-chain.
+            if matches!(
+                case,
+                "zero_hash" | "zero_hash_empty_data" | "zero_hash_signed" | "cached_zero_hash"
+            ) {
+                let mut data =
+                    DepositIxData::deserialize(ix.data.get(1..).expect("instruction tag"))
+                        .expect("deposit data");
+                let index = if case == "cached_zero_hash" { 2 } else { 1 };
+                let record = data
+                    .deposits
+                    .get_mut(index)
+                    .expect("data entry")
+                    .utxo_data
+                    .as_mut()
+                    .expect("application data");
+                record.data_hash = [0; 32];
+                if case == "zero_hash_empty_data" {
+                    record.data.clear();
+                }
+                ix.data = vec![tag::DEPOSIT];
+                ix.data
+                    .extend(data.serialize().expect("serialize malformed deposit"));
+            }
+            let mut signers: Vec<&dyn Signer> = vec![&depositor];
+            match case {
+                "unsigned" => {
+                    for account in ix.accounts.iter_mut().skip(5) {
+                        account.is_signer = false;
+                    }
+                }
+                "missing" => ix.accounts.truncate(5),
+                "second_unsigned" => {
+                    ix.accounts
+                        .last_mut()
+                        .expect("second owner account")
+                        .is_signer = false;
+                    signers.push(&owner);
+                }
+                "wrong_account" => {
+                    ix.accounts.get_mut(5).expect("first owner signer").pubkey = depositor.pubkey();
+                    signers.extend([&owner as &dyn Signer, &second_owner as &dyn Signer]);
+                }
+                "cached_wrong_account" => {
+                    ix.accounts
+                        .get_mut(6)
+                        .expect("repeated owner signer")
+                        .pubkey = depositor.pubkey();
+                    signers.extend([&owner as &dyn Signer, &second_owner as &dyn Signer]);
+                }
+                "zero_hash" | "zero_hash_empty_data" | "noncanonical_data_hash_unsigned" => {
+                    ix.accounts.truncate(5)
+                }
+                "wrong_signer" => signers.push(&second_owner),
+                _ => signers.extend([&owner as &dyn Signer, &second_owner as &dyn Signer]),
+            }
+            let addresses = [
+                pool.tree,
+                depositor.pubkey(),
+                owner.pubkey(),
+                second_owner.pubkey(),
+                pda::sol_interface(),
+            ];
+            let before = addresses.map(|address| pool.rpc.svm.get_account(&address));
+            let result = pool
+                .rpc
+                .create_and_send_default_payer_transaction(&[ix], &signers);
+            if matches!(
+                case,
+                "signed"
+                    | "signed_empty_data"
+                    | "cached_changed_data"
+                    | "cached_new_nullifier"
+                    | "cached_new_signer"
+            ) {
+                result.unwrap_or_else(|error| panic!("{case} amount {amount}: {error:?}"));
+                assert_ne!(
+                    pool.rpc.svm.get_account(&pool.tree),
+                    before[0],
+                    "accepted batch appends outputs"
+                );
+                assert_eq!(
+                    pool.rpc.svm.get_balance(&depositor.pubkey()),
+                    before[1].as_ref().map(|account| account
+                        .lamports
+                        .checked_sub(4 * amount)
+                        .expect("funded deposit"))
+                );
+                continue;
+            }
+            let expected = match case {
+                "zero_hash" | "zero_hash_empty_data" | "zero_hash_signed" | "cached_zero_hash" => {
+                    Rejection::pool(ShieldedPoolError::ZeroDepositDataHash)
+                }
+                "unsigned" | "second_unsigned" => {
+                    Rejection::custom(u32::from(AccountError::InvalidSigner))
+                }
+                "missing" => Rejection::custom(u32::from(AccountError::NotEnoughAccountKeys)),
+                "noncanonical_nullifier"
+                | "cached_noncanonical_nullifier"
+                | "noncanonical_data_hash_unsigned" => {
+                    Rejection::pool(ShieldedPoolError::NonCanonicalDepositField)
+                }
+                _ => Rejection::pool(ShieldedPoolError::UnauthorizedCaller),
+            };
+            expected.assert_litesvm(result.expect_err(case));
+            assert_eq!(
+                addresses.map(|address| pool.rpc.svm.get_account(&address)),
+                before,
+                "{case} amount {amount}: rejected authorization must preserve tree and funds"
+            );
+        }
+    }
+}

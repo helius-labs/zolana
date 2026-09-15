@@ -61,6 +61,24 @@ fn register_fields(address: &ShieldedAddress) -> Result<RegisterData, ClientErro
     })
 }
 
+/// The nullifier pubkey is wallet-wide and never rotates: the program rejects an
+/// `update_keys` that carries a different one, so refuse to build the doomed
+/// instruction. A wallet whose nullifier key differs from the published record
+/// needs a new owner address, not an update.
+fn check_nullifier_unchanged(
+    owner: Pubkey,
+    record: &UserRecord,
+    data: &RegisterData,
+) -> Result<(), ClientError> {
+    if record.nullifier_pubkey != data.nullifier_pubkey {
+        return Err(ClientError::AddressResolution(format!(
+            "user registry record for {owner} publishes a different nullifier pubkey, \
+             which never rotates; register the wallet under a new owner address"
+        )));
+    }
+    Ok(())
+}
+
 /// Publish `keypair`'s shielded keys to the on-chain user-registry directory
 /// under `funding`'s pubkey, so senders who know only that Solana address route
 /// transfers to the shielded path (rather than falling back to a public
@@ -91,6 +109,7 @@ pub fn ensure_registered<R: Rpc>(
         {
             return Ok(None);
         }
+        check_nullifier_unchanged(owner, &record, &data)?;
         let proof = key_binding_proof(owner, keypair)?;
         let ixs = update_key_instructions(user_record, owner, &data, proof)?;
         return Ok(Some(rpc.create_and_send_transaction(
@@ -224,15 +243,18 @@ fn registration_instructions(
         {
             return Ok(None);
         }
-        Some(_) => Some(update_keys(
-            user_record,
-            owner,
-            UpdateKeysData {
-                owner_p256: data.owner_p256,
-                nullifier_pubkey: data.nullifier_pubkey,
-                viewing_pubkey: data.viewing_pubkey,
-            },
-        )),
+        Some(record) => {
+            check_nullifier_unchanged(owner, &record, &data)?;
+            Some(update_keys(
+                user_record,
+                owner,
+                UpdateKeysData {
+                    owner_p256: data.owner_p256,
+                    nullifier_pubkey: data.nullifier_pubkey,
+                    viewing_pubkey: data.viewing_pubkey,
+                },
+            ))
+        }
         None => Some(register(user_record, owner, data)),
     }
     .expect("non-current registration always has an instruction");
@@ -1098,13 +1120,15 @@ mod tests {
     }
 
     #[test]
-    fn ensure_registered_updates_when_keys_changed() {
+    fn ensure_registered_updates_when_rotatable_keys_changed() {
         let funding = Keypair::new();
         let keypair = ShieldedKeypair::new_p256().unwrap();
         let owner = funding.pubkey();
         let (_pda, bump) = user_record_pda(&owner);
-        // Record exists but with stale keys (a different keypair).
-        let stale = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
+        // Record exists with stale keys, but the same nullifier pubkey: only the
+        // P256 owner key and the viewing key rotate.
+        let mut stale = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
+        stale.nullifier_pubkey = keypair.nullifier_key.pubkey().unwrap();
         let rpc = SendMockRpc {
             account: Some(account_at(owner, &stale)),
             ..Default::default()
@@ -1118,6 +1142,29 @@ mod tests {
             ensure_registered_ix_tag(&rpc),
             zolana_user_registry_interface::instruction::discriminator::UPDATE_KEYS
         );
+    }
+
+    /// The program rejects an `update_keys` that rotates the nullifier pubkey,
+    /// so the client must refuse before sending rather than build a doomed
+    /// transaction.
+    #[test]
+    fn ensure_registered_refuses_a_rotated_nullifier_pubkey() {
+        let funding = Keypair::new();
+        let keypair = ShieldedKeypair::new_p256().unwrap();
+        let owner = funding.pubkey();
+        let (_pda, bump) = user_record_pda(&owner);
+        let stale = registered_record(owner, bump, &ShieldedKeypair::new_p256().unwrap());
+        let rpc = SendMockRpc {
+            account: Some(account_at(owner, &stale)),
+            ..Default::default()
+        };
+        let error = ensure_registered(&rpc, &funding, &keypair)
+            .expect_err("a differing nullifier pubkey must not be published");
+        assert!(
+            matches!(error, ClientError::AddressResolution(_)),
+            "unexpected error: {error:?}"
+        );
+        assert!(rpc.sent.borrow().is_none());
     }
 
     #[test]

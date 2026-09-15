@@ -40,7 +40,7 @@ pub fn raw_sol_deposit(
             view_tag: deposit.view_tag,
             owner: deposit.owner,
             amount: deposit.amount,
-            utxo_data: deposit.utxo_data,
+            utxo_data: deposit.utxo_data.map(|data| data.data),
             memo: deposit.memo,
         }],
     };

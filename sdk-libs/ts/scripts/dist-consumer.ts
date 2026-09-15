@@ -41,3 +41,7 @@ export type {
   SyncWalletInput as RootSyncWalletInput,
   WalletStateStore as RootWalletStateStore,
 } from "@heliuslabs/zolana";
+
+export type { AssetDeposit, DepositData, UtxoData } from "@heliuslabs/zolana/interface";
+export { depositInstruction } from "@heliuslabs/zolana/interface";
+export { getDepositInstructionAsync } from "@heliuslabs/zolana/instructions";
