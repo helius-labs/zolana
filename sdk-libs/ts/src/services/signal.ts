@@ -40,3 +40,29 @@ export function composeSignal(context: RequestContext | undefined): ComposedSign
     },
   };
 }
+
+/** Stop waiting for I/O even when a caller-provided transport ignores its signal. */
+export async function awaitWithSignal<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  const aborted = () =>
+    new TransportFailure("aborted", "request was aborted", { retryable: false });
+  if (signal.aborted) throw aborted();
+  let onAbort: () => void = () => {};
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(aborted());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    const work = Promise.resolve().then(() => {
+      if (signal.aborted) throw aborted();
+      return operation();
+    });
+    const result = await Promise.race([work, cancellation]);
+    if (signal.aborted) throw aborted();
+    return result;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
