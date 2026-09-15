@@ -14,6 +14,22 @@ const base58Encoder = getBase58Encoder();
 const base64Decoder = getBase64Decoder();
 const base64Encoder = getBase64Encoder();
 
+/** Exact positional batch decoding; sparse arrays must not hide missing answers. */
+export function decodeBatch<T>(
+  value: unknown,
+  count: number,
+  decode: (entry: unknown) => T | undefined,
+  invalid: () => Error,
+): readonly T[] {
+  const values = wireDecoder(invalid).list(value, "batch");
+  if (values.length !== count) throw invalid();
+  return Array.from({ length: count }, (_, index) => {
+    const decoded = decode(values[index]);
+    if (decoded === undefined) throw invalid();
+    return decoded;
+  });
+}
+
 /** Decoders over `unknown` wire values, every failure throws the boundary's own error. */
 export interface WireDecoder {
   record(value: unknown, path: string): Record<string, unknown>;

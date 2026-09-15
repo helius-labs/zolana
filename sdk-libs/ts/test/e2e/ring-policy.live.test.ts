@@ -36,8 +36,8 @@ describe("ring policy", () => {
     expect(policy.ruleCount).toBe(4);
     expect(policy.entriesTree).toBe(client.tree);
 
-    const sender = await freshActor();
-    const recipient = await freshActor();
+    const sender = await freshActor(client);
+    const recipient = await freshActor(client);
     await airdrop(client, sender.signer.address);
     const amount = 500_000_000n;
     for (const deposited of [amount * 4n, amount]) {
@@ -56,7 +56,7 @@ describe("ring policy", () => {
         client,
         ringProgramId,
         wallet: sender.wallet,
-        authority: sender.authority,
+        keys: sender.keys,
         feePayer: sender.signer.address,
         recipient: recipient.keypair.shieldedAddress(),
         amount,
