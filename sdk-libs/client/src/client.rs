@@ -229,6 +229,32 @@ impl<R> ZolanaClient<R> {
         self.blocking_indexer()
     }
 
+    /// Block until the indexer returns a Merkle proof matching `output_hash`.
+    /// Uses the client's polling and slot configuration, including the indexer's
+    /// proof-fetch retries. This checks availability, not proof validity.
+    pub fn wait_for_indexed_output(
+        &self,
+        tree: Address,
+        output_hash: [u8; 32],
+    ) -> Result<(), ClientError> {
+        self.indexer_config.poll.poll_until(
+            || {
+                self.blocking_indexer().get_merkle_proofs(
+                    tree,
+                    vec![output_hash],
+                    Some(self.indexer_config),
+                )
+            },
+            |response| {
+                response
+                    .proofs
+                    .iter()
+                    .any(|proof| proof.leaf == output_hash)
+            },
+        )?;
+        Ok(())
+    }
+
     fn blocking_indexer(&self) -> &ZolanaIndexer {
         self.indexer.get_or_init(|| {
             ZolanaIndexer::new(
@@ -1682,6 +1708,122 @@ mod tests {
             solana_compute_budget_interface::id()
         );
         assert_eq!(prioritized[2].program_id, transact_program);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_accepts_matching_proof() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let output_hash = [9u8; 32];
+        let server = MockIndexerServer::respond_with(vec![merkle_response(tree, output_hash)]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree).unwrap();
+
+        client.wait_for_indexed_output(tree, output_hash).unwrap();
+
+        assert_eq!(server.requests(), ["/getMerkleProofs"]);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_retries_empty_and_nonmatching_proofs() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let output_hash = [9u8; 32];
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_result(json!({
+                "context": { "blockTime": 10, "slot": 1 },
+                "proofs": [],
+            })),
+            merkle_response(tree, [10u8; 32]),
+            merkle_response(tree, output_hash),
+        ]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree)
+            .unwrap()
+            .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        client.wait_for_indexed_output(tree, output_hash).unwrap();
+
+        assert_eq!(server.requests(), ["/getMerkleProofs"; 3]);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_times_out_on_nonmatching_proofs() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let server = MockIndexerServer::respond_with(vec![merkle_response(tree, [10u8; 32]); 2]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree)
+            .unwrap()
+            .with_indexer_poll_config(IndexerPollConfig::new(1, 0, 0));
+
+        let error = client.wait_for_indexed_output(tree, [9u8; 32]).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ClientError::PollTimedOut {
+                attempts: 2,
+                last_error: None
+            }
+        ));
+        assert_eq!(server.requests(), ["/getMerkleProofs"; 2]);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_retries_indexer_errors() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let output_hash = [9u8; 32];
+        let server = MockIndexerServer::respond_with(vec![
+            rpc_error(-32603, "Internal error"),
+            merkle_response(tree, output_hash),
+        ]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree)
+            .unwrap()
+            .with_indexer_poll_config(IndexerPollConfig::new(0, 0, 0));
+
+        client.wait_for_indexed_output(tree, output_hash).unwrap();
+
+        assert_eq!(server.requests(), ["/getMerkleProofs"; 2]);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_preserves_last_error_on_timeout() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let server = MockIndexerServer::respond_with(vec![rpc_error(-32603, "Internal error")]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree)
+            .unwrap()
+            .with_indexer_config(IndexerRpcConfig {
+                poll: IndexerPollConfig::new(0, 0, 0),
+                require_slot: Some(0),
+            });
+
+        let error = client.wait_for_indexed_output(tree, [9u8; 32]).unwrap_err();
+
+        match error {
+            ClientError::PollTimedOut {
+                attempts,
+                last_error,
+            } => {
+                assert_eq!(attempts, 1);
+                assert!(last_error.unwrap().contains("Internal error"));
+            }
+            error => panic!("unexpected error: {error}"),
+        }
+        assert_eq!(server.requests(), ["/getMerkleProofs"]);
+    }
+
+    #[test]
+    fn wait_for_indexed_output_honors_required_slot() {
+        let tree = Address::new_from_array([8u8; 32]);
+        let output_hash = [9u8; 32];
+        let mut fresh = merkle_response(tree, output_hash);
+        fresh["result"]["context"]["slot"] = json!(2);
+        let server =
+            MockIndexerServer::respond_with(vec![merkle_response(tree, output_hash), fresh]);
+        let client = ZolanaClient::from_urls((), server.url(), server.url(), tree)
+            .unwrap()
+            .with_indexer_config(IndexerRpcConfig {
+                poll: IndexerPollConfig::new(1, 0, 0),
+                require_slot: Some(2),
+            });
+
+        client.wait_for_indexed_output(tree, output_hash).unwrap();
+
+        assert_eq!(server.requests(), ["/getMerkleProofs"; 2]);
     }
 
     #[test]
