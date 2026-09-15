@@ -321,6 +321,8 @@ fn sol_deposit_with_utxo_data_commits_the_data_hash() {
     let mut data = ZolanaProgramTest::sol_shield_data(AMOUNT, owner_field);
     data.utxo_data = Some(UtxoData {
         data_hash,
+        signing_pk: depositor.pubkey().to_bytes(),
+        nullifier_pk,
         data: vec![1, 2, 3],
     });
 

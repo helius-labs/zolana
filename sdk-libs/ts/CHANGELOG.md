@@ -21,6 +21,8 @@ priority fee in the message itself, and uses no address lookup tables.
 
 Breaking
 
+- `UtxoData` requires `signingPk` and `nullifierPk`, and `depositInstruction` requires the recipient owner to sign when `dataHash` is nonzero → supply the owner hash preimage and sign with that owner.
+
 - `SHIELDED_POOL_PROGRAM_ID` is `sppU489D7A4U1exNo1oeMGZtLEofq3a6o2fR7UeoWB6`, and
   `SOL_INTERFACE`, `SHIELDED_POOL_CPI_AUTHORITY` and every tree address derive
   from it, while `InstructionTag` renumbers every tag → point at a deployment of

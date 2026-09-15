@@ -39,6 +39,7 @@ import {
 import {
   Reader,
   Writer,
+  addressBytes,
   copyBytes,
   encodeBase58,
   fail,
@@ -82,6 +83,8 @@ function writeDepositData(writer: Writer, value: DepositInstructionData): void {
       .u64(deposit.amount, "deposit.amount")
       .option(deposit.utxoData, (output, data) => {
         output.bytes(data.dataHash, 32, "deposit.utxoData.dataHash");
+        output.bytes(addressBytes(data.signingPk), 32, "deposit.utxoData.signingPk");
+        output.bytes(data.nullifierPk, 32, "deposit.utxoData.nullifierPk");
         byteVector(output, data.data, "deposit.utxoData.data");
       })
       .option(deposit.memo, (output, memo) => {

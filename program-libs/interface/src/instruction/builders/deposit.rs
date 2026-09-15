@@ -235,6 +235,25 @@ impl Deposit {
             })
             .collect::<Result<Vec<_>, DepositBuildError>>()?;
 
+        let mut accounts = vec![
+            AccountMeta::new(self.tree, false),
+            AccountMeta::new(self.depositor, true),
+            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
+        ];
+        layout.extend_account_metas(&mut accounts);
+        // One owner signer per nonzero data hash, in entry order. Repeated
+        // owners intentionally occupy repeated instruction account slots.
+        for entry in &deposits {
+            if let Some(data) = &entry.utxo_data {
+                if data.data_hash != [0; 32] {
+                    accounts.push(AccountMeta::new_readonly(
+                        Pubkey::new_from_array(data.signing_pk),
+                        true,
+                    ));
+                }
+            }
+        }
+
         let mut data = vec![tag::DEPOSIT];
         data.extend_from_slice(
             &DepositIxData {
@@ -244,13 +263,6 @@ impl Deposit {
             .serialize()
             .map_err(|_| DepositBuildError::Serialization)?,
         );
-
-        let mut accounts = vec![
-            AccountMeta::new(self.tree, false),
-            AccountMeta::new(self.depositor, true),
-            AccountMeta::new_readonly(PROGRAM_ID_PUBKEY, false),
-        ];
-        layout.extend_account_metas(&mut accounts);
 
         Ok(Instruction {
             program_id: PROGRAM_ID_PUBKEY,

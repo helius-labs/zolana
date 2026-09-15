@@ -5,10 +5,13 @@ use pinocchio::{
     AccountView,
 };
 use zolana_account_checks::AccountIterator;
-use zolana_hasher::primitives::hash_bytes;
+use zolana_hasher::{
+    primitives::{hash_bytes, solana_owner_identity},
+    Hasher, Poseidon,
+};
 use zolana_interface::{
     error::ShieldedPoolError,
-    instruction::{DepositAssetKind, MAX_DEPOSIT_ASSETS},
+    instruction::{DepositAssetKind, UtxoDataRef, MAX_DEPOSIT_ASSETS},
     SOL_ASSET_FIELD,
 };
 
@@ -18,6 +21,7 @@ use crate::instructions::{
         validate_sol_settlement, validate_spl_deposit_settlement, Settlement,
         SettlementAccountsSol, SplDepositAccounts, ValidatedSplSettlement,
     },
+    shared::{caused_by, check_field_element},
 };
 
 /// One deposited asset: its validated settlement accounts plus the asset
@@ -51,11 +55,13 @@ impl<'a> DepositAccounts<'a> {
     /// group reads (`token_program`, `mint`, `user_token`, `spl_interface`). The
     /// instruction data declares the layout, so nothing is inferred from the
     /// account count: too few accounts hits NotEnoughAccountKeys and too many
-    /// leaves the iterator non-empty (InvalidSettlementAccounts).
+    /// leaves the iterator non-empty (InvalidSettlementAccounts). After settlement
+    /// groups, plain deposits take one owner signer per nonzero data hash.
     pub fn validate_and_parse<const HAS_RING: bool>(
         program_id: &Address,
         accounts: &'a mut [AccountView],
         assets: &[DepositAssetKind],
+        owner_authorizations: impl IntoIterator<Item = (&'a [u8; 32], &'a UtxoDataRef<'a>)>,
     ) -> Result<(Self, Option<[u8; 32]>), ProgramError> {
         if assets.is_empty() {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());
@@ -74,8 +80,7 @@ impl<'a> DepositAccounts<'a> {
         // PDA) first. It must sign, be unpaused, and pass owner/discriminator
         // validation -- the create-time derivation already bound it to its
         // program -- and its stored `program_id` becomes the UTXO's
-        // `ring_program_id`. The plain `deposit` has no ring; its program data is
-        // authorized by the depositor signer.
+        // `ring_program_id`.
         let ring_program_id = if HAS_RING {
             let account = iter.next_signer("ring_config")?;
             let config = load_active_ring_config(account)?;
@@ -144,6 +149,37 @@ impl<'a> DepositAccounts<'a> {
                 return Err(ShieldedPoolError::DuplicateDepositAsset.into());
             }
             groups.push(group);
+        }
+        // Reuse the last verified binding for consecutive outputs with the
+        // same owner. Keep only references into immutable instruction data;
+        // every account still passes its signer and address checks.
+        let mut previous_authorization: Option<(&[u8; 32], &UtxoDataRef<'_>)> = None;
+        for (owner, data) in owner_authorizations {
+            let signer = iter.next_signer("deposit_owner")?;
+            if !pubkey_eq(signer.address().as_array(), data.signing_pk) {
+                return Err(ShieldedPoolError::UnauthorizedCaller.into());
+            }
+            if previous_authorization.is_some_and(|(verified_owner, verified_data)| {
+                pubkey_eq(verified_owner, owner)
+                    && pubkey_eq(verified_data.signing_pk, data.signing_pk)
+                    && pubkey_eq(verified_data.nullifier_pk, data.nullifier_pk)
+            }) {
+                continue;
+            }
+            check_field_element(
+                data.nullifier_pk,
+                "deposit nullifier pk",
+                None,
+                ShieldedPoolError::NonCanonicalDepositField,
+            )?;
+            let signing_pk_field = solana_owner_identity(signer.address().as_array())
+                .map_err(caused_by(ShieldedPoolError::UnauthorizedCaller))?;
+            let expected_owner = Poseidon::hashv(&[&signing_pk_field, data.nullifier_pk])
+                .map_err(caused_by(ShieldedPoolError::UnauthorizedCaller))?;
+            if !pubkey_eq(&expected_owner, owner) {
+                return Err(ShieldedPoolError::UnauthorizedCaller.into());
+            }
+            previous_authorization = Some((owner, data));
         }
         if !iter.iterator_is_empty() {
             return Err(ShieldedPoolError::InvalidSettlementAccounts.into());

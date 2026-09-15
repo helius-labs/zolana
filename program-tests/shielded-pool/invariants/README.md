@@ -275,8 +275,9 @@ Status of the audit findings against the current (post-PR164) tree:
   Hash) documents `data_hash` as "committed into `utxo_hash` unchecked": the
   hashing scheme is application-defined, so the program cannot recompute it,
   and the deposit event publishes both `data_hash` and `data` for consumers to
-  verify. Deposit is authorized by the payer (or the ring config), so a
-  mismatch is self-inflicted; the deposit path
+  verify. Nonzero data hashes on plain deposits require the recipient owner's
+  signature and a matching owner-hash preimage; ring deposits are authorized
+  by the ring config. The deposit path
   (`programs/shielded-pool/src/instructions/deposit/processor.rs:104-124`)
   still folds the supplied `data_hash` into the UTXO hash as specified.
 
